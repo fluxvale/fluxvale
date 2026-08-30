@@ -1,0 +1,31 @@
+# ADR-00005: Customer workloads as k8s namespaces (the Instance model)
+
+**Status**: Accepted
+**Date**: 2026-08-27
+
+An **Instance** — an instance *of* a catalog `AppVersion` — is FluxVale's unit
+of customer workload: an entire namespace, deliberately *not* a Kubernetes
+Pod. The namespace holds the Deployment, Service, IngressRoute, and optional
+PVC + Secret that make up one running app.
+
+An Instance runs a state machine
+(`pending → deploying → starting ⇄ stopped`; `error`; `deleting`) driven by
+AshOban triggers:
+
+- `deploy` — background job creates all K8s resources
+- `reconcile_status` — every minute; reads Deployment conditions
+  (`ReplicaFailure`, `ProgressDeadlineExceeded`) to promote/demote; times out
+  stuck deploys
+- `settle_usage` — every 15 min; metering settlement
+- `teardown` — async delete with retries; hard-deletes the row on success
+
+**Rationale**: the k8s API surface *is* the product — namespaces-as-isolation,
+ResourceQuotas, NetworkPolicies, PVCs, readiness semantics, and scale-to-zero
+are product features for free. Raw container runtimes or lighter-weight
+orchestrators would mean hand-rolling crash-loop detection, resource quotas,
+and network isolation — rebuilding Kubernetes badly, and it's the least
+differentiated work possible.
+
+**Vocabulary note**: "instance" means exactly this concept across code, docs,
+and ops — which is why databases are referred to as "CNPG clusters"
+(CloudNativePG's own term; see [ADR-00009](00009-single-cnpg-cluster.md)).
