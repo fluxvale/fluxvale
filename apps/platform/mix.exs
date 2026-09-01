@@ -40,7 +40,9 @@ defmodule FluxVale.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
-      {:credo, "~> 1.0", only: [:dev, :test], runtime: false},
+      # Exact pin: a linter upgrade changes the findings set — bump deliberately,
+      # not as a side effect of a broad deps.update (#5)
+      {:credo, "1.7.19", only: [:dev, :test], runtime: false},
       {:open_api_spex, "~> 3.0"},
       {:ash_json_api, "~> 1.0"},
       {:ash_admin, "~> 1.0"},
