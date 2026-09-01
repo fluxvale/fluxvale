@@ -15,8 +15,10 @@ it — don't invent.
 2. **v2 launch gate** — v1's "FluxVale Sorted" gate (SFTP E2E, 5-app catalog,
    billing essentials, verified backups/restore, private beta) needs a v2
    restatement. Which items make the v2 gate?
-3. **Catalog lineup** — Kavita was v1's only seeded app. The other four
-   dogfood apps (v1 queued: ActualBudget, PocketID, SilverBullet, +1). Also:
+3. **Catalog lineup** — **Forgejo is #1** ([ADR-0031](adr/0031-build-order.md)
+   M3 seed: the org's own git forge; SSH disabled initially, HTTPS-only git —
+   the v1 port-22 lesson; SQLite-on-PVC). Kavita #2. Remaining three dogfood
+   apps TBD (v1 queued: ActualBudget, PocketID, SilverBullet, +1). Also:
    per-app mount-path / command overrides in the deployer (v1 #360) — needed
    for non-`/data` apps.
 4. **Payments provider** — resolved by
