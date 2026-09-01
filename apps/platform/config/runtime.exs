@@ -5,6 +5,9 @@ import Config
 # system starts, so it is typically used to load production configuration
 # and secrets from environment variables or elsewhere. Do not define
 # any compile-time configuration in here, as it won't be applied.
+
+# Build identity for /health — injected at image-build time (docs/deployment.md)
+config :flux_vale, build_sha: System.get_env("BUILD_SHA")
 # The block below contains prod specific runtime configuration.
 
 # ## Using releases
