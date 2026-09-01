@@ -19,7 +19,7 @@ Paths in the "v1 path" column are relative to the v1 repo root
 | `apps/platform/lib/flux_vale/domains/identity/` | PAT lifetime (1 yr), token store, janitor | `Identity` (swap AshAuthentication strategy: passwordless email code, not OIDC) |
 | `apps/platform/lib/flux_vale/billing/dodo.ex` + `dodo/webhook.ex` | Standard Webhooks HMAC verification (constant-time, replay window), checkout client | `Billing` (if Dodo retained — OQ #4) |
 | `bruno/` | API smoke collections | smoke suite (re-point, add staging/prod split) |
-| `apps/web` Playwright suite | E2E smoke (per-PR screenshots pattern) | `test/e2e` (port select flows; prod-read-only subset) |
+| `apps/web` Playwright suite | E2E smoke (per-PR screenshots pattern) | `apps/e2e` (monorepo; port + add per-PR/staging/prod split, ADR-00024) |
 | `infra/flux/base/helm/*.yaml` | HelmRelease patterns: cert-manager, CNPG, Traefik (+ issuer CRs v1 kept outside Flux — v2 moves them in; Traefik/local-path become plain charts under Talos, [ADR-00022](adr/00022-talos-linux.md)) | fleet repo |
 | `docs/infra/*.md` | Runbooks: server-provisioning, local-dns, postgresql-restore, rotate-bitwarden-token/vault-password, sftpgo-operator | fleet repo docs (prune SFTP parts) |
 | v1 root `AGENTS.md` gotchas | Netcup SSH/fail2ban traps, provider-skew rule, Cloudflare proxy ≠ non-HTTP ports, HelmRelease conventions (bare chart name, `releaseName`, secrets via `valuesFrom`) | fleet repo `DEPLOYMENT.md` / runbooks |

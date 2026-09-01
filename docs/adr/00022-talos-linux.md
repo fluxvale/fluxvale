@@ -38,9 +38,11 @@ automation. Server data is disposable (pre-launch). No blockers.
    HelmRelease (no bundled instance to fight); local-path-provisioner is a
    chart (CNPG storage class); wireguard flannel is a machine-config patch.
    The `ansible/` directory does not exist.
-5. **First install is rehearsed on a disposable VPS** (few-euros tier) —
-   fluency run, doubles as the runbook's first test, and the VPS can become
-   a permanent utility box.
+5. **First install happens on the box itself** — pre-launch there is no
+   production data to save, so no rehearsal server is bought
+   ([ADR-00016](00016-deferred-triggers.md) discipline: no second box until
+   it is a happy problem). Optional zero-cost fluency run beforehand:
+   `talosctl cluster create` (QEMU VMs) locally.
 
 **Translations (mechanics superseded by this ADR)**:
 

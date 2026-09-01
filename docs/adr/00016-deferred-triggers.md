@@ -7,7 +7,7 @@ Deferred ≠ forgotten. Each deferred item has an explicit trigger:
 
 | Item | Revisit when |
 |---|---|
-| Second Netcup node (capacity/redundancy) | prod box pressure or single-node anxiety; triggers the Longhorn-vs-node-pinning storage decision |
+| Second Netcup node (capacity/redundancy) | prod box pressure — customer load or review-env capacity ([ADR-00024](00024-e2e-review-environments.md)) — or single-node anxiety; triggers the Longhorn-vs-node-pinning storage decision |
 | Control-plane HA (3 Talos control-plane nodes) | the control-plane SPOF starts costing real incidents |
 | Dedicated staging box (~€10/mo) | revenue makes it trivial; split is a config change by design |
 | Flagger canary + traffic splitting | traffic volume makes 5% statistically meaningful (needs the metrics stack) |

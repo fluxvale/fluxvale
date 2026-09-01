@@ -98,21 +98,35 @@ kubeconfig ref), but we run one cluster until revenue says otherwise.
 
 ## Repo shape
 
-Two repos:
+**Monorepo** (v1-style, minus the SPA) — infra stays in the private fleet
+repo:
 
-1. **App repo** (this one, **public under FSL-1.1**) — Phoenix/Ash
-   application code, its CI (build image
-   → GHCR → post-deploy smoke). CI holds **no cluster credentials**.
-   **Also the docs home**: the ADR log here covers FluxVale-the-product *and*
-   the org-wide infrastructure — the fleet repo, cluster, edge, CNPG clusters,
-   deploy pipeline ([ADR-00017](adr/00017-docs-home-adr-scope.md)). Architecture and decisions are public;
-   operational specifics are not ([ADR-00018](adr/00018-repo-visibility.md)).
-2. **Fleet repo** (`fluxvale/infrastructure`, **private**) — Talos machine-config
-   patches + every
-   cluster manifest (Traefik, cert-manager **including its CRs/Issuers**, CNPG,
-  RBAC, app Deployments, ImagePolicies) + operational runbooks
-   (`DEPLOYMENT.md`, bootstrap, rotations). Its README links back to
-   `fluxvale/fluxvale` → `docs/adr/` ("read before proposing changes").
+```
+fluxvale/fluxvale (this repo, public, FSL-1.1)
+├── apps/
+│   ├── platform/    # the Phoenix/Ash app — one OTP release (ADR-00002)
+│   ├── e2e/         # Playwright suite (ADR-00024)
+│   └── cli/         # future: the Go CLI (ADR-00019)
+├── docs/            # this documentation
+└── (no root-level deps — v1's rule survives)
+
+fluxvale/infrastructure (private fleet repo — Talos configs + all manifests,
+ADR-00007/00022)
+```
+
+Per-app CI with path filters (v1 pattern). Review environments for PRs are
+provisioned **on the single cluster by the platform itself** via a scoped
+service PAT — app-repo CI never gains cluster credentials
+([ADR-00024](adr/00024-e2e-review-environments.md)).
+
+The fleet repo (`fluxvale/infrastructure`, **private**) holds the Talos
+machine-config patches + every cluster manifest (Traefik, cert-manager
+**including its CRs/Issuers**, CNPG, RBAC, app Deployments, ImagePolicies) +
+operational runbooks (`DEPLOYMENT.md`, bootstrap, rotations). Its README
+links back to `fluxvale/fluxvale` → `docs/adr/` ("read before proposing
+changes"). This repo (public, FSL-1.1) is the docs home — decisions,
+product, architecture ([ADR-00017](adr/00017-docs-home-adr-scope.md),
+[ADR-00018](adr/00018-repo-visibility.md)).
 
 Rule: **if it runs on the cluster, it lives in the fleet repo.** v1's
 Flux-sync-coverage table (with its ❌ rows) existed because some cluster state

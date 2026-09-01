@@ -55,9 +55,10 @@ it — don't invent.
     the dev-image Dockerfile (mix-based) and the Tiltfile itself.
 12. **Backups detail** — CNPG barman → R2 configuration, retention policy,
     restore-drill cadence (quarterly?). Launch-gate material.
-13. **Bruno/Playwright suites** — port from v1 (`bruno/`,
-    `apps/web` E2E) and re-point, or rewrite lean? The prod read-only /
-    staging full split is new.
+13. **Bruno/Playwright suites** — resolved by
+    [ADR-00024](adr/00024-e2e-review-environments.md): port v1's bones,
+    re-point, add the per-PR (review env) / staging-full / prod-readonly /
+    local runtimes + the TestInbox adapters. Suite lives at `apps/e2e`.
 
 ## Deferred (with triggers — see [ADR-00016](adr/00016-deferred-triggers.md))
 
