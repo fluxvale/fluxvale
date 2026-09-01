@@ -6,7 +6,7 @@ FSL-1.1-ALv2
 
 ## Notice
 
-Copyright 2026 FluxVale Information Solutions OPC
+Copyright 2026 FLUXVALE INFORMATION SOLUTIONS OPC
 
 ## Terms and Conditions
 
