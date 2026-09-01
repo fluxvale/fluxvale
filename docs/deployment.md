@@ -61,9 +61,11 @@ build SHA, and the readiness probe checks health + DB connectivity.
 ## Feature flags
 
 Divergence between staging and prod is feature flags only — a `FeatureFlag`
-Ash resource (key, enabled, optional rollout %) with a tiny LiveView admin
-page, separate values per environment via separate databases. Flags gate
-*features*, never schema. Delete flags on a schedule.
+Ash resource (key, enabled, optional rollout %), administered via **AshAdmin**
+([ADR-0027](adr/00027-admin-surface-ashadmin.md); the curated view with flag
+age + audit display is deferred until generated CRUD annoys), with separate
+values per environment via separate databases. Flags gate *features*, never
+schema. Delete flags on a schedule.
 
 ## Migration rules (load-bearing)
 

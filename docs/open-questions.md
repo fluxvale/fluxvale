@@ -47,7 +47,7 @@ it — don't invent.
    UX for destroy/billing ops).
 10. **Feature flag resource design** — resolved by
     [ADR-0023](adr/00023-day-one-gates.md) (FeatureFlag resource + evaluator,
-    fail-closed, atom-safe keys, sticky rollouts, admin page with flag age) —
+    fail-closed, atom-safe keys, sticky rollouts, AshAdmin-administered) —
     which also settles staging's `fluxvale.com`-only sign-in (AccessRule
     resource) and pre-builds the private-beta invite flow.
 11. **Local dev cluster** — resolved by [ADR-00020](adr/00020-local-dev-parity.md) (k3d + Tilt + CNPG
