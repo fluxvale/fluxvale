@@ -7,6 +7,7 @@ Deferred ≠ forgotten. Each deferred item has an explicit trigger:
 
 | Item | Revisit when |
 |---|---|
+| Second platform-app replica (rolling-deploy zero-downtime / app HA) | ships **together with `libcluster`** (k8s headless-service strategy) — PubSub/LiveView broadcasting is incorrect across unclustered pods; Oban/Ash need nothing (Postgres-backed); distribution = full mutual trust, pod-network only |
 | Second Netcup node (capacity/redundancy) | prod box pressure — customer load or review-env capacity ([ADR-00024](00024-e2e-review-environments.md)) — or single-node anxiety; triggers the Longhorn-vs-node-pinning storage decision |
 | Control-plane HA (3 Talos control-plane nodes) | the control-plane SPOF starts costing real incidents |
 | Dedicated staging box (~€10/mo) | revenue makes it trivial; split is a config change by design |
