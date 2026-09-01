@@ -31,7 +31,12 @@ subdomains split domain authority.
    `robots.txt`, canonical URLs always pointing at the prod host, OG/Twitter
    meta + `Article` JSON-LD on posts, RSS feed (`/feed.xml` — the
    self-hosting crowd still lives on RSS), one default OG image (per-app
-   images from catalog assets later), `www`/apex pick-one redirect.
+   images from catalog assets later), canonical host = the **apex** (`fluxvale.com`); `www.fluxvale.com` 301s to it
+   at Cloudflare **in perpetuity** (never lapse the record — v1 links and
+   stale indexes must keep resolving). Cloudflare apex CNAME-flattening
+   removes www's only technical advantage; shorter URLs win. Cookie rule:
+   always host-only (never set `domain:` on cookies), so prod sessions never
+   leak to sibling subdomains regardless of host choice.
 4. **Non-prod hosts are `noindex`**: a plug injects
    `<meta name="robots" content="noindex,nofollow">` + `X-Robots-Tag` header
    whenever the host isn't the canonical prod domain — covering
