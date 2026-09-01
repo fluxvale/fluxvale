@@ -53,9 +53,13 @@ user retains API access until token expiry.
   scale); short-TTL ETS cache only if metrics demand it.
 - **Per-env values free by construction** — staging and prod have separate
   databases (ADR-00010).
-- Small admin LiveView: list, toggle, set %, **flag age shown** (stale flags
-  conspicuous). A flag is deleted — row *and* code branch — once behavior is
-  permanent; flags gate features, **never schema** (ADR-00010 rule).
+- Admin surface: a **regular LiveView + `AshPhoenix.Form`** (not Phoenix
+  LiveDashboard — that's runtime introspection, and a custom Page would
+  bypass the Ash policy path): list, toggle, set %, **flag age shown**
+  (stale flags conspicuous), and an audit entry per change (who, flag,
+  old→new — both humans and agents administer flags). A flag is deleted —
+  row *and* code branch — once behavior is permanent; flags gate features,
+  **never schema** (ADR-0010 rule).
 
 ## 3. Separation principle
 

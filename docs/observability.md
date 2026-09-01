@@ -34,6 +34,7 @@ OTEL + Alloy is the spine; "complete" means these sources and glue too:
 | **Deploy-pipeline traces** | **custom spans** around Instance deploy/reconcile orchestration | the product's most valuable trace: Oban trigger → namespace → apply → reconcile → running |
 | Correlation glue | Logger formatter stamping trace/span IDs into every log line | makes the three pillars one narrative |
 | **Domain sight** | Grafana **Postgres datasource** + dashboards over the wallet ledger, settlement runs, instance-state distribution | not telemetry at all — queries on our own DB; for a PaaS operator often the most important dashboard |
+| App runtime introspection | **Phoenix LiveDashboard** (dev-open, prod admin-gated) | complements Grafana: trend/alert vs. this-node-right-now (processes, request log, slow Ecto queries) |
 | Errors | Grafana-first: ERROR logs in Loki + Tempo exception events; LogQL triage with `error_signature` label | label = exception module, never the message (cardinality); dedicated tracker deferred (ADR-0016 trigger) |
 | Outside-in | Grafana Synthetics (availability, multi-region) + scheduled Bruno (authenticated correctness) | layered per ADR-00011 Am. 1 |
 
