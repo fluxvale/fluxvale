@@ -6,7 +6,7 @@ FSL-1.1-ALv2
 
 ## Notice
 
-Copyright 2026 Terence Ponce
+Copyright 2026 FluxVale Information Solutions OPC
 
 ## Terms and Conditions
 

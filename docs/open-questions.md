@@ -21,9 +21,10 @@ it — don't invent.
    for non-`/data` apps.
 4. **Payments provider** — resolved by
    [ADR-0029](adr/00029-payments-adapter-selfmor.md): MoR products are out
-   (they refuse hosting categories); self-MoR with Stripe behind a
-   PaymentProvider adapter. Launch-gate item: EU VAT classification of
-   prepaid credits (Stripe Tax).
+   (they refuse hosting categories); self-MoR with **Xendit** behind a
+   PaymentProvider adapter (PH entity — Stripe unavailable; HitPay/PayRex
+   recorded alternatives). Launch-gate item: PH tax treatment of exported
+   digital services + prepaid-credits classification.
 5. **Welcome credits anti-abuse** — largely resolved by passwordless
    email-code auth (login proves inbox ownership by construction —
    [ADR-00003](adr/00003-ashauthentication-drop-authentik.md)); remaining edge: disposable-email-domain handling.
