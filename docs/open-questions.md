@@ -44,8 +44,11 @@ it — don't invent.
    media type); CLI language + distribution (generated from the OpenAPI spec?
    single static binary?); MCP tool set design (which actions, confirmation
    UX for destroy/billing ops).
-10. **Feature flag resource design** — key/enabled/rollout-%, per-env values,
-    admin UI, cleanup cadence. ([ADR-00010](adr/00010-staging-namespace-flag-gated.md) assumes it; not yet designed.)
+10. **Feature flag resource design** — resolved by
+    [ADR-0023](adr/00023-day-one-gates.md) (FeatureFlag resource + evaluator,
+    fail-closed, atom-safe keys, sticky rollouts, admin page with flag age) —
+    which also settles staging's `fluxvale.com`-only sign-in (AccessRule
+    resource) and pre-builds the private-beta invite flow.
 11. **Local dev cluster** — resolved by [ADR-00020](adr/00020-local-dev-parity.md) (k3d + Tilt + CNPG
     in-cluster + a `local/` overlay of the fleet-repo base manifests;
     Proposed until validated on-machine). Remaining details at scaffolding:

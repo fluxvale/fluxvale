@@ -31,6 +31,7 @@ already ruled out.
 | [0020](00020-local-dev-parity.md) | Local dev: production parity via k3d + Tilt + CNPG + local overlay | Proposed |
 | [0021](00021-secrets-bws-operator.md) | Secrets: BWS Kubernetes operator primary + fnox bootstrap residual | Accepted — EU check pending |
 | [0022](00022-talos-linux.md) | Talos Linux: the OS *is* the cluster; Ansible exits; Omni deferred | Accepted |
+| [0023](00023-day-one-gates.md) | Day-one gates: AccessRule (staging/beta invites) + FeatureFlag design | Accepted |
 
 ## Conventions
 
