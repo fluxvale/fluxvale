@@ -45,6 +45,8 @@ this stack was chosen for ([ADR-00002](00002-single-ash-liveview-app.md)).
 
 ## Amendment 1 (2026-09-01)
 
+*(Consolidated in [ADR-0027](00027-admin-surface-ashadmin.md).)*
+
 **Moderation day one rides AshAdmin** (ADR-0023 Am. 2) — status edits and
 custom actions are exposed through generated resource forms. The purpose-built
 moderation LiveView (duplicate-merge workflow, bulk views) is deferred until

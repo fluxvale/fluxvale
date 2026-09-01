@@ -73,6 +73,8 @@ flow (v1 #385) is AccessRule email rows on prod.
 
 ## Amendment 2 (2026-09-01)
 
+*(Consolidated in [ADR-0027](00027-admin-surface-ashadmin.md).)*
+
 **Day-one admin surface is AshAdmin, not a hand-rolled LiveView.** AshAdmin
 (ash-project/ash_admin) generates CRUD over Ash resources and runs entirely
 through Ash actions — policies, validations, notifications all apply — so it
