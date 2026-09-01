@@ -55,6 +55,24 @@ Grafana Cloud Postgres datasource; first domain dashboards (wallet/settlement
 health; instance-state distribution); Synthetics checks (prod + staging
 `/health` + DNS, 2–3 probe regions); CI deploy annotations.
 
+## SLIs (defined now; SLO targets after the first beta month — ADR-0012 Am. 3)
+
+| Plane | SLI | Definition | Source |
+|---|---|---|---|
+| Data | Instance availability | ready-to-desired replica ratio across running instances (platform-caused; app crashes excluded) | kube-state-metrics / Instance reconciler state |
+| Data | Instance ingress success | non-5xx ratio at the edge for `*.fluxvale.app` | Traefik metrics (enable + Alloy scrape) |
+| Control | Web/API availability | non-5xx request ratio, windowed | PromEx |
+| Control | Auth completion | sign-in success ratio (throttled rejections excluded) | app metric |
+| Control | Deploy success rate | instances reaching `running` within N min | domain counter (Instance state machine) |
+| Control | Time-to-running | p95 deploy duration | same counter |
+| Ops | Metering settlement | `settle_usage` success ratio | Oban metrics |
+| Ops | Backup freshness | age of last successful CNPG backup | existing alert |
+| Ops | Pipeline health | smoke pass rate (deploy-attached + scheduled) | heartbeat metric |
+
+**Error-budget policy (light)**: >50% of a month's budget burned → extra
+deploy scrutiny; gate-on-demand becomes the default. **Deferred**: burn-rate
+alerting and public SLOs (traffic / status-page triggers).
+
 ## Alert set (tuned ruthlessly — one noisy alert teaches ignoring all of them)
 
 | Alert | Why |

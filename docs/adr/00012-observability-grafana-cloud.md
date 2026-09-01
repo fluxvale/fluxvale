@@ -1,6 +1,6 @@
 # ADR-00012: Observability via Alloy → Grafana Cloud free tier
 
-**Status**: Accepted (amended — see Amendments 1–2)
+**Status**: Accepted (amended — see Amendments 1–3)
 **Date**: 2026-08-27
 
 **Decision**: a Grafana Alloy agent in-cluster (~100 MB) ships metrics, logs,
@@ -79,3 +79,18 @@ resolved state, regression flags — earns its subscription at error
 *volume*, not at solo scale. Trigger added to
 [ADR-00016](00016-deferred-triggers.md): triage becomes a workflow (beta
 users, regression tracking) → add Honeybadger or AppSignal.
+
+## Amendment 3 (2026-09-01)
+
+**SLIs defined now; SLO targets set later, from data.** FluxVale is a
+two-plane service and the catalog reflects it: *data plane* (instance
+availability, instance ingress success — the product's real SLI) and
+*control plane* (web/API availability, auth completion, deploy success rate,
+time-to-running) plus *platform ops* (metering settlement, backup freshness,
+smoke pass rate). Full table in [../observability.md](../observability.md).
+Sequencing: measure through the first beta month with no targets; set SLOs
+from the baseline; adopt the light error-budget policy (>50% of a month's
+budget burned → extra deploy scrutiny, gate-on-demand default). Burn-rate
+alerting deferred to the traffic trigger (same family as the Flagger canary);
+publishing SLOs publicly is status-page era. New wiring forced by this:
+Traefik metrics + two domain counters (deploy success, time-to-running).
