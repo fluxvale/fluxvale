@@ -27,7 +27,7 @@ defmodule FluxVale.MixProject do
 
   def cli do
     [
-      preferred_envs: [precommit: :test]
+      preferred_envs: [precommit: :test, ci: :test]
     ]
   end
 
@@ -40,6 +40,7 @@ defmodule FluxVale.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:credo, "~> 1.0", only: [:dev, :test], runtime: false},
       {:open_api_spex, "~> 3.0"},
       {:ash_json_api, "~> 1.0"},
       {:ash_admin, "~> 1.0"},
@@ -101,7 +102,15 @@ defmodule FluxVale.MixProject do
         "esbuild flux_vale --minify",
         "phx.digest"
       ],
-      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"],
+      # CI-grade gate: everything a PR must pass, in one command (#5)
+      ci: [
+        "format --check-formatted",
+        "deps.unlock --check-unused",
+        "compile --warnings-as-errors",
+        "credo --strict",
+        "test"
+      ]
     ]
   end
 end
