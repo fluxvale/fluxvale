@@ -1,6 +1,6 @@
 # ADR-0026: Feedback board — in-app, publicly readable, paying-customers-write
 
-**Status**: Accepted
+**Status**: Accepted (amended — see Amendment 1)
 **Date**: 2026-09-01
 
 **Context**: a public feedback board (feature requests + upvotes + comments,
@@ -42,3 +42,10 @@ this stack was chosen for ([ADR-00002](00002-single-ash-liveview-app.md)).
 5. **API surface**: feedback resources are JSON:API/CLI/MCP-accessible per
    [ADR-00019](00019-machine-first-api-cli-mcp.md) — agents can file and
    search feedback on the customer's behalf.
+
+## Amendment 1 (2026-09-01)
+
+**Moderation day one rides AshAdmin** (ADR-0023 Am. 2) — status edits and
+custom actions are exposed through generated resource forms. The purpose-built
+moderation LiveView (duplicate-merge workflow, bulk views) is deferred until
+the workflow outgrows generated CRUD.

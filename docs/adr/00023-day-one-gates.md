@@ -1,6 +1,6 @@
 # ADR-00023: Day-one gates — access rules + feature flags
 
-**Status**: Accepted (amended — see Amendment 1)
+**Status**: Accepted (amended — see Amendments 1–2)
 **Date**: 2026-09-01
 
 **Context**: two gating needs from day one. (1) **Staging access**: staging
@@ -70,3 +70,15 @@ way flags do.
 
 **Resolves**: open question #10. **Generalizes**: the private-beta invite
 flow (v1 #385) is AccessRule email rows on prod.
+
+## Amendment 2 (2026-09-01)
+
+**Day-one admin surface is AshAdmin, not a hand-rolled LiveView.** AshAdmin
+(ash-project/ash_admin) generates CRUD over Ash resources and runs entirely
+through Ash actions — policies, validations, notifications all apply — so it
+satisfies everything this ADR required of the admin surface (policy-gated
+mutation, flag toggling and %) with zero build. Mounted admin-gated in prod,
+open in dev; **actor impersonation** becomes the tool for verifying this
+ADR's own policy decisions live. The curated flag view (toggle UX, flag age,
+audit display) is deferred until generated CRUD annoys; audit entries per
+change still land via resource changes.
