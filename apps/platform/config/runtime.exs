@@ -51,7 +51,14 @@ if config_env() == :prod do
   maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
 
   config :flux_vale, FluxVale.Repo,
-    # ssl: true,
+    # TLS stance (ADR-0008/0009): in prod the app talks to the in-cluster
+    # CNPG cluster over the pod network, with NetworkPolicies restricting
+    # access — plaintext pod-to-pod is the accepted baseline. Two triggers
+    # tighten this: (1) the fleet repo mounting CNPG's CA at M4 — then use
+    # ssl: [verify: :verify_peer, cacerts: ...]; (2) the managed-PostgreSQL
+    # migration path (ADR-0009) — a remote DB makes TLS mandatory. NB
+    # Postgrex 0.22: ssl defaults to false and bare `ssl: true` is
+    # deprecated (no cert verification) — always a verify_peer keyword list.
     url: database_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
     # For machines with several cores, consider starting multiple pools of `pool_size`

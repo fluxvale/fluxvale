@@ -105,7 +105,7 @@ defmodule FluxVale.Repo.Migrations.InitializeExtensions1 do
     RETURNS ANYCOMPATIBLE AS $$
     BEGIN
       IF value IS NULL THEN
-        RETURN ash_raise_error(payload, value);
+        RETURN public.ash_raise_error(payload, value);
       END IF;
 
       RETURN value;
