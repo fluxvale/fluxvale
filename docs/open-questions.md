@@ -6,9 +6,10 @@ it — don't invent.
 ## Next up
 
 1. **Domain-model cut and build order** — the last pre-scaffold decision.
-   Working sketch (not yet agreed): keep Instance lifecycle + catalog + billing
-   wallet/ledger/metering from v1; defer custom domains and SFTP/file access
-   to post-beta. Milestone-one definition pending.
+   Grouping settled ([ADR-0030](adr/00030-ops-domain.md): Ops domain for
+   FeatureFlag/AccessRule; the resource inventory is assembled across the
+   ADRs). Remaining: confirm deferrals (custom domains, SFTP post-beta) +
+   build order / milestone-one definition.
 
 ## Product
 
