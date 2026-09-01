@@ -25,7 +25,8 @@ subdomains split domain authority.
 2. **The catalog is a programmatic SEO engine**: one public SSR page per app
    (`/apps/<slug>`) with description/screenshots/install CTA and
    `SoftwareApplication` JSON-LD. **The first five posts are the launch
-   guides for the first five catalog apps** (OQ #3) — content that doubles
+   guides for the first five catalog apps** (provisional until OQ #3
+   settles the lineup) — content that doubles
    as onboarding docs and catalog enrichment.
 3. **Technical hygiene, day one**: `sitemap.xml` (static + catalog + posts),
    `robots.txt`, canonical URLs always pointing at the prod host, OG/Twitter
@@ -53,6 +54,6 @@ subdomains split domain authority.
 
 **Content model**: markdown + frontmatter (`title`, `description`,
 `published_at` or filename-dated `YYYY-MM-DD-slug.md`, `tags`, `draft`,
-`og_image`); drafts render only on non-prod hosts. Reading time computed at
+`og_image`); drafts render only on non-prod hosts and are excluded from `sitemap.xml` and the RSS feed. Reading time computed at
 load. A mix task validates frontmatter so agent-authored posts fail CI
 loudly on missing fields.

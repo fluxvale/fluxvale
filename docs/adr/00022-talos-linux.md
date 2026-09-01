@@ -33,12 +33,14 @@ automation. Server data is disposable (pre-launch). No blockers.
    `sha256sum.txt` verifies; UKI/SecureBoot/cloud/nocloud variants not used;
    `talosctl` version always matches the node. Note: GitHub's UI truncates
    the asset list — the files are all there; expand it) → reboot →
-   Talos maintenance mode → `talosctl apply-config --insecure` from the laptop
-   (TCP 50000; no guest firewall on fresh boot). Hardening: restrict TCP
-   50000 to your workstation IP via the SCP Firewall tab during the install
-   window — maintenance mode is unauthenticated; once config is applied the
-   API requires mTLS, so the exposure is brief, but the firewall rule is
-   free. → `talosctl bootstrap` →
+   Talos maintenance mode → `talosctl apply-config --insecure
+   --cert-fingerprint <fp>` from the laptop (TCP 50000). The fingerprint is
+   displayed on the node console (`Screen` tab) — passing it authenticates
+   the *node* even though maintenance mode's TLS cert is self-signed;
+   `--insecure` alone skips verification and invites MITM impersonation.
+   Defense in depth: also restrict TCP 50000 to your workstation IP via the
+   SCP Firewall tab during the install window. Once config is applied the
+   API requires mTLS, closing the window entirely. → `talosctl bootstrap` →
    `talosctl kubeconfig` → `flux bootstrap` → apply BWS-operator token
    Secrets (tiny script) → (DR: restore DB from R2). Fallback if the ISO
    path ever disappears: Rescue System → `dd` the Talos metal image → same
