@@ -5,21 +5,15 @@ defmodule FluxValeWeb.HealthControllerTest do
 
   describe "GET /health (liveness)" do
     test "reports ok with version dev when BUILD_SHA is unset", %{conn: conn} do
+      stub_build_sha(nil)
+
       conn = get(conn, ~p"/health")
 
       assert %{"status" => "ok", "version" => "dev"} = json_response(conn, 200)
     end
 
     test "versions as sha-<sha> when BUILD_SHA is set", %{conn: conn} do
-      previous = Application.get_env(:flux_vale, :build_sha)
-      Application.put_env(:flux_vale, :build_sha, "abc1234")
-
-      on_exit(fn ->
-        case previous do
-          nil -> Application.delete_env(:flux_vale, :build_sha)
-          value -> Application.put_env(:flux_vale, :build_sha, value)
-        end
-      end)
+      stub_build_sha("abc1234")
 
       conn = get(conn, ~p"/health")
       assert %{"version" => "sha-abc1234"} = json_response(conn, 200)
@@ -44,5 +38,25 @@ defmodule FluxValeWeb.HealthControllerTest do
 
       assert %{"status" => "ok"} = json_response(conn, 200)
     end
+  end
+
+  # Sets (or clears, when nil) :build_sha for the current test and restores
+  # whatever came before — ambient BUILD_SHA from the environment included —
+  # so assertions own their preconditions.
+  defp stub_build_sha(value) do
+    previous = Application.get_env(:flux_vale, :build_sha)
+
+    if value do
+      Application.put_env(:flux_vale, :build_sha, value)
+    else
+      Application.delete_env(:flux_vale, :build_sha)
+    end
+
+    on_exit(fn ->
+      case previous do
+        nil -> Application.delete_env(:flux_vale, :build_sha)
+        restored -> Application.put_env(:flux_vale, :build_sha, restored)
+      end
+    end)
   end
 end
