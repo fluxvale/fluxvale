@@ -29,6 +29,7 @@ already ruled out.
 | [00018](00018-repo-visibility.md) | Repo visibility: app public under FSL, fleet repo private | Accepted |
 | [00019](00019-machine-first-api-cli-mcp.md) | Machine-first API: JSON:API + CLI + MCP server from day one | Accepted |
 | [0020](00020-local-dev-parity.md) | Local dev: production parity via k3d + Tilt + CNPG + local overlay | Proposed |
+| [0021](00021-secrets-bws-operator.md) | Secrets: BWS Kubernetes operator primary + fnox bootstrap residual | Accepted — EU check pending |
 
 ## Conventions
 

@@ -24,8 +24,10 @@ Status: Accepted (see [adr/](adr/) — ADRs [00002](adr/00002-single-ash-livevie
   cert-manager with Let's Encrypt DNS-01.
 - **Deploy**: FluxCD GitOps from a separate **fleet repo**; image automation
   deploys staging + prod simultaneously. CI never touches the cluster.
-- **Secrets**: Bitwarden Secrets Manager via fnox (EU server). References only
-  in git, never plaintext.
+- **Secrets**: Bitwarden Secrets Manager (EU vault) → official Kubernetes
+  operator as primary (SecretStore + BitwardenSecret CRs — references only,
+  Flux-managed, continuously reconciled); fnox shrinks to bootstrapping the
+  operator's own machine-account tokens (ADR-00021).
 - **Observability**: Grafana Alloy agent → Grafana Cloud free tier (hosted
   LGTM). PromEx for Elixir metrics. See [observability.md](observability.md).
 
