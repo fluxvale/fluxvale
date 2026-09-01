@@ -29,8 +29,10 @@ automation. Server data is disposable (pre-launch). No blockers.
    (references-vs-values rule, [ADR-00018](00018-repo-visibility.md)).
 3. **Bootstrap/DR runbook**: SCP → custom ISO upload
    (stock `metal-amd64.iso` from the Talos release — hybrid BIOS/UEFI;
-   `metal-amd64.raw.xz` is the dd-fallback artifact; SecureBoot/cloud/nocloud
-   variants not used; `talosctl` version always matches the node) → reboot →
+   `metal-amd64.raw.zst` is the dd-fallback artifact (`zstd -d` first),
+   `sha256sum.txt` verifies; UKI/SecureBoot/cloud/nocloud variants not used;
+   `talosctl` version always matches the node. Note: GitHub's UI truncates
+   the asset list — the files are all there; expand it) → reboot →
    Talos maintenance mode → `talosctl apply-config --insecure` from the laptop
    (TCP 50000; no guest firewall on fresh boot). Hardening: restrict TCP
    50000 to your workstation IP via the SCP Firewall tab during the install
