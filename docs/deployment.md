@@ -38,8 +38,11 @@ Merge-to-verified ≈ 12–20 minutes. Readiness probes already self-contain
 boot-broken deploys (new pod never goes ready → old pods keep serving); the
 smoke layer catches boots-fine-but-misbehaves.
 
-The app exposes `GET /health` → `{status, version}` where `version` is the
-build SHA, and the readiness probe checks health + DB connectivity.
+The app exposes two health routes (issue #4): `GET /health` →
+`{status, version}` where `version` is the build SHA (liveness —
+deliberately dependency-free, since a liveness failure restarts the pod),
+and `GET /health/ready` (readiness: health + DB connectivity; 503
+`unhealthy` on failure — this is the probe that gates traffic).
 
 ### Oracle auth: PAT for Bruno, TestInbox for Playwright
 
