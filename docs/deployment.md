@@ -101,7 +101,7 @@ dev, never delete an applied migration file.
 | Failure | Response |
 |---|---|
 | Broken deploy, no migration | Revert the app PR → new image → Flux rolls both envs. Done. |
-| Additive migration, feature broke | **Revert code only; leave schema.** Orphaned additive schema is harmless; clean up in a later contract release. This is the default — counter-migrations are rare. |
+| Additive migration, feature broke | **Revert code only; leave schema — but only if the schema remains write-compatible with the previous image** (nullable additions yes; new `NOT NULL`/constraints the old code can't satisfy → harmful-migration row). Orphaned additive schema is harmless; clean up in a later contract release. This is the default — counter-migrations are rare (ADR-00014 Am. 1). |
 | Harmful migration itself | Revert PR = code revert **+ counter-migration** (new migration N+1). Generate it by reverting the resource code and letting the Ash migration generator diff the undo, then review. One deploy, code and schema revert in lockstep. |
 | One-way door | Fix forward or restore from backup. |
 

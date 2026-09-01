@@ -20,6 +20,15 @@ across environments).
 | Harmful migration itself | Revert PR = code revert **+ counter-migration** (new migration N+1). Generate it by reverting the resource code and letting the Ash migration generator diff the undo, then review the drops. One deploy, code and schema revert in lockstep. |
 | One-way door | Fix forward or restore from backup. |
 
+## Amendment 1 (2026-09-01)
+
+**Code-only rollback carries a precondition**: the schema must remain
+**write-compatible with the previous image**. Additive DDL that the old code
+must satisfy — new `NOT NULL` constraints, write constraints, rewritten
+defaults — is *not* revert-safe despite being additive; those cases route to
+the harmful-migration row instead. (Reflected in the table row above and
+mirrored in docs/deployment.md.)
+
 Manifest-caused failures (bad limits, Traefik config): revert the **fleet
 repo** PR instead — same protocol, different repo.
 

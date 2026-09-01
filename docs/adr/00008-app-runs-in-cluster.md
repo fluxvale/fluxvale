@@ -18,7 +18,9 @@ the theorycrafting.
 in init containers.
 
 **Safety conditions**: [ADR-00009](00009-single-cnpg-cluster.md)'s single-cluster guardrails (per-tenant roles, quotas, WAL-G),
-[ADR-00014](00014-rollback-protocol.md)'s rollback protocol, and everything-on-the-cluster-lives-in-git.
+[ADR-00014](00014-rollback-protocol.md)'s rollback protocol, and everything-on-the-cluster-lives-in-git (one exception:
+   the BWS operator's bootstrap token Secrets — values, created out-of-band,
+   ADR-0021).
 An out-of-band admin path (Cloudflare Tunnel or direct port, bypassing the
 cluster edge) is worth keeping as an emergency window.
 
