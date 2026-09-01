@@ -52,9 +52,9 @@ the oracles authenticate differently:
   proving PAT validation and policies on authed reads. No inbox dependency,
   no rate-limit interplay: pure cheap HTTP for the 30–60 min cadence.
 - **Playwright** owns the human flows: drives the real login form, fetches
-  the code via the **TestInbox helper** (Mailpit API on
-  staging/local/review envs; Postmark Messages API on prod), submits,
-  observes logged-in state. The email-code flow is exercised on every
+  the code via the **TestInbox helper** (Swoosh-local JSON endpoint on
+  staging/local/review envs — admin-gated; Postmark Messages API on prod),
+  submits, observes logged-in state. The email-code flow is exercised on every
   deploy — exactly when it changes. The smoke account needs a throttle
   exemption/dedicated bucket on the send-code endpoint so post-deploy +
   scheduled browser passes don't trip their own rate limit.

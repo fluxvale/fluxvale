@@ -11,7 +11,7 @@ already ruled out.
 |---|---|---|
 | [00001](00001-restart-fresh-as-v2.md) | Restart fresh as v2; carry patterns, not process | Accepted |
 | [00002](00002-single-ash-liveview-app.md) | Single Phoenix + Ash + LiveView app; no SPA | Accepted |
-| [00003](00003-ashauthentication-drop-authentik.md) | AshAuthentication passwordless (email codes); drop Authentik | Accepted |
+| [00003](00003-ashauthentication-drop-authentik.md) | AshAuthentication passwordless (email codes); drop Authentik | Accepted (amended — see Amendment 1) |
 | [00004](00004-bare-metal-netcup-k3s.md) | Bare-metal Netcup (Talos per ADR-00022); reject managed Kubernetes | Accepted |
 | [00005](00005-customer-instances-as-namespaces.md) | Customer workloads as k8s namespaces (the Instance model) | Accepted |
 | [00006](00006-single-cluster-multi-region-ready.md) | One cluster now, schema-ready for regions; vertical first | Accepted |
@@ -32,7 +32,7 @@ already ruled out.
 | [0021](00021-secrets-bws-operator.md) | Secrets: BWS Kubernetes operator primary + fnox bootstrap residual | Accepted — EU check pending |
 | [0022](00022-talos-linux.md) | Talos Linux: the OS *is* the cluster; Ansible exits; Omni deferred | Accepted |
 | [0023](00023-day-one-gates.md) | Day-one gates: AccessRule (staging/beta invites) + FeatureFlag design | Accepted |
-| [0024](00024-e2e-review-environments.md) | E2E + review environments: per-PR Playwright, platform-provisioned | Accepted |
+| [0024](00024-e2e-review-environments.md) | E2E + review environments: per-PR Playwright, platform-provisioned | Accepted (amended — see Amendment 1) |
 | [0025](00025-seo-content-architecture.md) | SEO: in-app blog at /blog, catalog as programmatic SEO, noindex non-prod | Accepted |
 | [0026](00026-feedback-board.md) | Feedback board: in-app, public read, paying-customers-write | Accepted (amended — see Amendment 1) |
 | [0027](00027-admin-surface-ashadmin.md) | Admin surface: AshAdmin (generated CRUD through Ash actions) | Accepted |

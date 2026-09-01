@@ -1,6 +1,6 @@
 # ADR-00024: E2E architecture + review environments (per-PR Playwright on the single box)
 
-**Status**: Accepted
+**Status**: Accepted (amended — see Amendment 1)
 **Date**: 2026-09-01
 
 **Context**: per-PR Playwright runs were desired from the start. Verification
@@ -52,3 +52,10 @@ cluster ServiceAccount — **RBAC cannot pattern-restrict namespace names**, so
 
 **Resolves**: open question #13 (port v1 suites, re-point, add the
 per-PR/staging/prod split + adapters).
+
+## Amendment 1 (2026-09-01)
+
+**TestInbox backends simplify to two**: non-prod reads via an env-gated,
+admin-auth'd JSON endpoint over `Swoosh.Adapters.Local` storage (Mailpit
+exits the stack); prod reads via Postmark Messages API (ADR-00003 Am. 1).
+Stable first-party endpoint instead of scraping Swoosh's UI markup.

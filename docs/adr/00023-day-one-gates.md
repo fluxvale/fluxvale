@@ -1,6 +1,6 @@
 # ADR-00023: Day-one gates — access rules + feature flags
 
-**Status**: Accepted (amended — see Amendments 1–2)
+**Status**: Accepted (amended — see Amendments 1–3)
 **Date**: 2026-09-01
 
 **Context**: two gating needs from day one. (1) **Staging access**: staging
@@ -84,3 +84,15 @@ open in dev; **actor impersonation** becomes the tool for verifying this
 ADR's own policy decisions live. The curated flag view (toggle UX, flag age,
 audit display) is deferred until generated CRUD annoys; audit entries per
 change still land via resource changes.
+
+## Amendment 3 (2026-09-01)
+
+**Mailpit replaced by Swoosh's local adapter.** Non-prod environments
+(local, staging, review envs) run `Swoosh.Adapters.Local` — mail captured
+in-app, no SMTP server, no extra component. The mailbox UI and the
+TestInbox JSON endpoint are **config-gated and admin-auth'd** (a public
+mailbox viewer is an account-takeover machine — it displays live login
+codes). Known trade-off: per-node memory storage; a multi-replica staging
+is the named trigger to reintroduce a centralized catcher. (Neither local
+capture nor SMTP matches prod's Postmark-API delivery path — the login test
+exercises mail-building + code generation, identical either way.)

@@ -42,7 +42,8 @@ bounce/spam webhooks (implementing the "monitored" requirement above),
 EU region, and an existing Swoosh adapter. Pricing: free tier is 100
 emails/month — plausible coverage for early beta given 30–90-day sessions
 (code sends are rare); $15/mo per 10k beyond. Config shape: Swoosh adapter
-per environment (dev/local + staging → Mailpit SMTP; prod → Postmark);
+per environment (non-prod → `Swoosh.Adapters.Local`, gated mailbox +
+TestInbox endpoint, ADR-0023 Am. 3; prod → Postmark);
 server API token via the BWS operator ([ADR-00021](00021-secrets-bws-operator.md)).
 
 **Consequences**: ~2 GB RAM returned to customer-instance capacity; social login
