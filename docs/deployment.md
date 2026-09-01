@@ -4,7 +4,7 @@ Status: Accepted (see [adr/](adr/) — ADRs [00011](adr/00011-simultaneous-deplo
 
 ## Pipeline
 
-```
+```text
 merge to main (app repo)
    │
    ▼

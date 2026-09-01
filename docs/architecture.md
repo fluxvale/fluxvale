@@ -35,7 +35,7 @@ Status: Accepted (see [adr/](adr/) — ADRs [00002](adr/00002-single-ash-livevie
 
 ## Topology
 
-```
+```text
 Netcup box (Talos Linux, "nuremberg-01")
 ├── systemd
 └── Talos Linux (immutable node OS: upstream k8s + etcd + flannel/wireguard)
@@ -101,12 +101,13 @@ kubeconfig ref), but we run one cluster until revenue says otherwise.
 **Monorepo** (v1-style, minus the SPA) — infra stays in the private fleet
 repo:
 
-```
+```text
 fluxvale/fluxvale (this repo, public, FSL-1.1)
 ├── apps/
 │   ├── platform/    # the Phoenix/Ash app — one OTP release (ADR-00002)
 │   ├── e2e/         # Playwright suite (ADR-00024)
-│   └── cli/         # future: the Go CLI (ADR-00019)
+│   └── cli/         # future: the CLI (ADR-00019; language open — OQ #9,
+│                     #  Go favored for its single-binary story)
 ├── docs/            # this documentation
 └── (no root-level deps — v1's rule survives)
 
