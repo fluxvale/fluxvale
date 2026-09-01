@@ -20,13 +20,19 @@ Paths in the "v1 path" column are relative to the v1 repo root
 | `apps/platform/lib/flux_vale/billing/dodo.ex` + `dodo/webhook.ex` | Standard Webhooks HMAC verification (constant-time, replay window), checkout client | `Billing` (if Dodo retained — OQ #4) |
 | `bruno/` | API smoke collections | smoke suite (re-point, add staging/prod split) |
 | `apps/web` Playwright suite | E2E smoke (per-PR screenshots pattern) | `test/e2e` (port select flows; prod-read-only subset) |
-| `infra/ansible/roles/{ssh,ufw,fail2ban,k3s,k3s_prereqs}` | Server bootstrap | fleet repo playbook (add: flannel wireguard) |
-| `infra/flux/base/helm/*.yaml` | HelmRelease patterns: cert-manager, CNPG, Traefik (+ issuer CRs v1 kept outside Flux — v2 moves them in) | fleet repo |
+| `infra/flux/base/helm/*.yaml` | HelmRelease patterns: cert-manager, CNPG, Traefik (+ issuer CRs v1 kept outside Flux — v2 moves them in; Traefik/local-path become plain charts under Talos, [ADR-00022](adr/00022-talos-linux.md)) | fleet repo |
 | `docs/infra/*.md` | Runbooks: server-provisioning, local-dns, postgresql-restore, rotate-bitwarden-token/vault-password, sftpgo-operator | fleet repo docs (prune SFTP parts) |
 | v1 root `AGENTS.md` gotchas | Netcup SSH/fail2ban traps, provider-skew rule, Cloudflare proxy ≠ non-HTTP ports, HelmRelease conventions (bare chart name, `releaseName`, secrets via `valuesFrom`) | fleet repo `DEPLOYMENT.md` / runbooks |
 | Rates + anchors config (`config.exs` usage_rates, per-env overrides) | Metering rates + anchor semantics (Netcup-COGS calibration) | app config |
 
 ## Leave behind
+
+- **Ansible and its bootstrap roles** (`ssh`, `ufw`, `fail2ban`, `k3s`,
+  `k3s_prereqs`) + the fnox role — Talos replaces the entire layer
+  ([ADR-00022](adr/00022-talos-linux.md)): no SSH/sshd to harden, no k3s to
+  install; their documented traps (forks, port-change handler hangs) die with
+  them. Only the Netcup panel facts from the v1 gotchas survive, into the
+  fleet repo's Talos runbook.
 
 - **React SPA** (`apps/web` beyond E2E tests) — [ADR-00002](adr/00002-single-ash-liveview-app.md).
 - **Authentik** (Helm release, Terraform branding, `infra/authentik/`) — [ADR-00003](adr/00003-ashauthentication-drop-authentik.md).

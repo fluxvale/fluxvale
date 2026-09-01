@@ -16,11 +16,13 @@ Status: Accepted (see [adr/](adr/) — ADRs [00002](adr/00002-single-ash-livevie
   WAL-G → R2 backups. Managed PostgreSQL is the migration path at traction
   ([ADR-00009](adr/00009-single-cnpg-cluster.md)); Postgres-level rehearsals and restore drills use temporary
   scratch clusters.
-- **Workload substrate**: k3s on bare metal (Netcup Nuremberg). Customer
+- **Workload substrate**: **Talos Linux** on bare metal (Netcup Nuremberg) —
+  immutable, API-managed node OS running upstream Kubernetes; no SSH/shell
+  ([ADR-00022](adr/00022-talos-linux.md)). Customer
   instances = namespaces ([ADR-00005](adr/00005-customer-instances-as-namespaces.md)) with ResourceQuotas + NetworkPolicies.
   This is the product: the platform consumes namespaces, Deployment
   conditions, PVCs, quotas as product primitives via `kubereq`.
-- **Edge**: Cloudflare (DNS, proxy, TLS, DDoS) → Traefik (bundled with k3s) →
+- **Edge**: Cloudflare (DNS, proxy, TLS, DDoS) → Traefik (HelmRelease) →
   cert-manager with Let's Encrypt DNS-01.
 - **Deploy**: FluxCD GitOps from a separate **fleet repo**; image automation
   deploys staging + prod simultaneously. CI never touches the cluster.
@@ -36,8 +38,9 @@ Status: Accepted (see [adr/](adr/) — ADRs [00002](adr/00002-single-ash-livevie
 ```
 Netcup box (Debian 13, "nuremberg-01")
 ├── systemd
-│   └── k3s (control plane, etcd via --cluster-init)
-└── k3s cluster (Flux-reconciled from the fleet repo)
+└── Talos Linux (immutable node OS: upstream k8s + etcd + flannel/wireguard)
+    — no shell, no SSH; managed via the talosctl API
+    (Flux-reconciled workloads from the fleet repo)
     ├── flux-system
     ├── traefik, cert-manager
     ├── monitoring (Alloy agent)
@@ -71,7 +74,7 @@ exposure ([ADR-00010](adr/00010-staging-namespace-flag-gated.md)/00011). Staging
 
 | Component | Approx RAM |
 |---|---|
-| k3s control plane + Traefik + cert-manager + Flux | ~1.5 GB |
+| Talos control plane + Traefik + cert-manager + Flux | ~1.5 GB |
 | CNPG shared cluster | ~1–1.5 GB |
 | Platform app (staging + prod releases) | ~1 GB |
 | Alloy agent | ~0.1 GB |
@@ -85,7 +88,7 @@ LGTM ([ADR-00003](adr/00003-ashauthentication-drop-authentik.md), [ADR-00012](ad
 
 | Event | Action | Notes |
 |---|---|---|
-| Need capacity / redundancy | Buy another Netcup box **in the same DC** → `k3s agent`, join cluster | flannel `wireguard` backend from day one (node traffic crosses public IPs); odd count of server nodes if control-plane HA |
+| Need capacity / redundancy | Buy another Netcup box **in the same DC** → boot worker ISO + apply config → joins via API | wireguard flannel (machine-config patch) from day one; odd count of control-plane nodes if HA |
 | Node #2 arrives | Decide storage: Longhorn (replicated PVCs) vs node-pinned local-path | Don't pre-install Longhorn on a single node |
 | New region (latency/residency) | Bootstrap a **new cluster**, add a `Cluster` row | etcd latency makes single-cluster-spanning-regions a non-starter |
 | Revisit managed k8s / Flagger canary / self-hosted LGTM | Only when a concrete trigger fires | [ADR-00004](adr/00004-bare-metal-netcup-k3s.md), [ADR-00016](adr/00016-deferred-triggers.md) |
@@ -104,7 +107,8 @@ Two repos:
    the org-wide infrastructure — the fleet repo, cluster, edge, CNPG clusters,
    deploy pipeline ([ADR-00017](adr/00017-docs-home-adr-scope.md)). Architecture and decisions are public;
    operational specifics are not ([ADR-00018](adr/00018-repo-visibility.md)).
-2. **Fleet repo** (`fluxvale/infrastructure`, **private**) — Ansible bootstrap playbooks + every
+2. **Fleet repo** (`fluxvale/infrastructure`, **private**) — Talos machine-config
+   patches + every
    cluster manifest (Traefik, cert-manager **including its CRs/Issuers**, CNPG,
   RBAC, app Deployments, ImagePolicies) + operational runbooks
    (`DEPLOYMENT.md`, bootstrap, rotations). Its README links back to
@@ -113,7 +117,7 @@ Two repos:
 Rule: **if it runs on the cluster, it lives in the fleet repo.** v1's
 Flux-sync-coverage table (with its ❌ rows) existed because some cluster state
 lived outside Flux; the fix is moving everything in, not maintaining a coverage
-map. Disaster recovery = run Ansible playbook → `flux bootstrap` → wait for
+map. Disaster recovery = boot Talos ISO → apply config → `flux bootstrap` → wait for
 convergence → restore DB from R2 → done.
 
 Doc-type boundary ([ADR-00017](adr/00017-docs-home-adr-scope.md)): this repo holds the **why** (decisions,

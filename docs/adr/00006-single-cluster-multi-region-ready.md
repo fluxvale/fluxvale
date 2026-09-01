@@ -29,3 +29,11 @@ decision, partitioned-quorum risk.
 
 **Rejected**: single-cluster-spanning-regions; a worker in another region
 under a Nuremberg control plane (works, but don't build a product on it).
+
+## Amendment 1 (2026-09-01)
+
+Node-join mechanics updated for Talos ([ADR-00022](00022-talos-linux.md)):
+"boxes join as k3s nodes (agents)" becomes "boot worker ISO + apply config —
+joins via the talosctl API"; control-plane HA means three control-plane
+machine configs. The ladder's structure, same-DC constraint, vertical-first
+rung, and storage decision are unchanged.

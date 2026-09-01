@@ -8,10 +8,11 @@ Deferred ≠ forgotten. Each deferred item has an explicit trigger:
 | Item | Revisit when |
 |---|---|
 | Second Netcup node (capacity/redundancy) | prod box pressure or single-node anxiety; triggers the Longhorn-vs-node-pinning storage decision |
-| Control-plane HA (3 k3s server nodes) | the control-plane SPOF starts costing real incidents |
+| Control-plane HA (3 Talos control-plane nodes) | the control-plane SPOF starts costing real incidents |
 | Dedicated staging box (~€10/mo) | revenue makes it trivial; split is a config change by design |
 | Flagger canary + traffic splitting | traffic volume makes 5% statistically meaningful (needs the metrics stack) |
 | Self-hosted LGTM | genuinely outgrowing Grafana Cloud free tier |
+| Omni (Sidero fleet manager for Talos) | second cluster or sustained multi-node growth — evaluate hosted first; self-hosted on the demoted box is the alternative ([ADR-00022](00022-talos-linux.md)) |
 | Managed Kubernetes (any region) | a concrete need appears; slots in as a `Cluster` row |
 | First traction signal on a product (paying users / sustained usage) | migrate that product's DB to managed PostgreSQL ([ADR-00009](00009-single-cnpg-cluster.md)) — never a second self-hosted cluster. (FluxVale itself scales by bigger box, [ADR-00006](00006-single-cluster-multi-region-ready.md) — its DB stays CNPG) |
 | FluxVale gains traction | bigger Netcup box: migrate platform + customer instances (new cluster + WAL-G restore + `Cluster` repoint), demote the current box to projects/experiments ([ADR-00006](00006-single-cluster-multi-region-ready.md)) |

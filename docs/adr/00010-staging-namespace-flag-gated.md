@@ -27,4 +27,4 @@ workloads; ResourceQuota on staging namespaces is the mitigation, accepted at
 beta scale.
 
 **Upgrade path**: when €10/mo feels right, the split is a config change —
-env-driven setup points at the new box's k3s and Postgres.
+env-driven setup points at the new box's cluster and Postgres.

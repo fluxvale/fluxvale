@@ -13,8 +13,13 @@ only customer pods — a different runtime shape in dev than prod.
 
 **Decision**:
 
-- **k3d** (k3s-in-Docker) for the local cluster — same containerd, same
-  bundled Traefik, same local-path storage as prod k3s. A checked-in k3d
+- **k3d** (k3s-in-Docker) for the local cluster — fast, lightweight, and
+  increasingly parity-*compatible* rather than parity-*exact* since prod
+  moved to Talos ([ADR-00022](00022-talos-linux.md)): k3d runs k3s/upstream-adjacent
+  k8s, while Traefik and local-path storage being **charts in both
+  environments** (no k3s bundle anywhere) actually brings the stacks closer.
+  True-parity option when needed: `talosctl cluster create` (QEMU VMs,
+  heavier — the officially supported Talos dev loop). A checked-in k3d
   config replaces v1's OpenTofu-managed kind module (one command up/down,
   80/443 port-mapped).
 - **Tilt** as the dev orchestrator — builds the dev image, applies manifests,

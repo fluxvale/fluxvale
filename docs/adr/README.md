@@ -12,7 +12,7 @@ already ruled out.
 | [00001](00001-restart-fresh-as-v2.md) | Restart fresh as v2; carry patterns, not process | Accepted |
 | [00002](00002-single-ash-liveview-app.md) | Single Phoenix + Ash + LiveView app; no SPA | Accepted |
 | [00003](00003-ashauthentication-drop-authentik.md) | AshAuthentication passwordless (email codes); drop Authentik | Accepted |
-| [00004](00004-bare-metal-netcup-k3s.md) | Bare-metal Netcup + k3s; reject managed Kubernetes | Accepted |
+| [00004](00004-bare-metal-netcup-k3s.md) | Bare-metal Netcup (Talos per ADR-00022); reject managed Kubernetes | Accepted |
 | [00005](00005-customer-instances-as-namespaces.md) | Customer workloads as k8s namespaces (the Instance model) | Accepted |
 | [00006](00006-single-cluster-multi-region-ready.md) | One cluster now, schema-ready for regions; vertical first | Accepted |
 | [00007](00007-fluxcd-fleet-repo.md) | FluxCD retained; separate fleet repo | Accepted |
@@ -30,6 +30,7 @@ already ruled out.
 | [00019](00019-machine-first-api-cli-mcp.md) | Machine-first API: JSON:API + CLI + MCP server from day one | Accepted |
 | [0020](00020-local-dev-parity.md) | Local dev: production parity via k3d + Tilt + CNPG + local overlay | Proposed |
 | [0021](00021-secrets-bws-operator.md) | Secrets: BWS Kubernetes operator primary + fnox bootstrap residual | Accepted — EU check pending |
+| [0022](00022-talos-linux.md) | Talos Linux: the OS *is* the cluster; Ansible exits; Omni deferred | Accepted |
 
 ## Conventions
 

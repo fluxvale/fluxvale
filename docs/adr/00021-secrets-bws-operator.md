@@ -54,3 +54,13 @@ SecretStores ready → BitwardenSecret CRs sync → consumers apply with
 **RAM**: ~100–200 MB for the operator — accepted as the price of declarative,
 continuously-reconciled secrets (within the observability-adjacent budget
 slack from ADR-00009's single-cluster consolidation).
+
+## Amendment 1 (2026-09-01)
+
+With Talos replacing Debian + k3s + Ansible ([ADR-00022](00022-talos-linux.md)),
+the bootstrap residual shrinks again and loses its last Ansible dependency:
+the two BWS-operator token Secrets are applied by a small `kubectl` script
+post-`flux bootstrap` — fnox and the Ansible role exit entirely. Bitwarden
+additionally holds the Talos bootstrap values (`talosconfig` + cluster PKI).
+Everything else (operator-primary, per-env projects, least privilege,
+local-overlay dummies) stands.

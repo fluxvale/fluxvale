@@ -27,3 +27,13 @@ need ever appears. Other EU bare-metal hosters remain alternatives.
 **Rejected**: managed Kubernetes in all forms — hyperscalers, EU cloud
 providers, third-party managed control planes (€79–200/mo) — and
 self-hosted PaaS panels as substrate (see [ADR-00007](00007-fluxcd-fleet-repo.md)).
+
+## Amendment 1 (2026-09-01)
+
+The substrate changed from k3s to **Talos Linux** ([ADR-00022](00022-talos-linux.md)):
+the box runs Talos (immutable, API-managed node OS running upstream
+Kubernetes) instead of Debian + k3s. Everything else in this ADR — the
+bare-metal economics, Netcup specifics (same-DC etcd latency, wireguard over
+public IPs — now a machine-config patch), managed-k8s rejection, reversibility
+via the `Cluster` registry — is unchanged. "k3s is one binary" becomes "the
+OS *is* the Kubernetes appliance."
