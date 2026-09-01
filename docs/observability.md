@@ -76,7 +76,7 @@ three surfaces:
 
 | Flow | Promise | SLI | Oracle |
 |---|---|---|---|
-| Sign in | I can get in | auth completion | Bruno auth flow |
+| Sign in | I can get in | auth completion | Playwright login via TestInbox (Bruno proves the API surface with a seeded PAT) |
 | Deploy | install just works | deploy success, time-to-running | Playwright lifecycle (staging + review envs) |
 | Daily use | it's up, it's fast | instance availability, ingress success | Synthetics edge probe (per-instance synthetics = post-beta idea) |
 | Trust the bill | metering is honest | metering settlement | Bruno billing reads + domain dashboard |

@@ -41,19 +41,25 @@ smoke layer catches boots-fine-but-misbehaves.
 The app exposes `GET /health` → `{status, version}` where `version` is the
 build SHA, and the readiness probe checks health + DB connectivity.
 
-### Bruno login pattern (the TestInbox adapter, natively)
+### Oracle auth: PAT for Bruno, TestInbox for Playwright
 
-The passwordless login is an API flow (request-code → verify → session), so
-Bruno verifies it end-to-end: a collection step fetches the code from the
-inbox *API* — Mailpit REST (staging/local) or Postmark Messages API (prod,
-token via CI secret) — with a scripted retry (~30s cap) for async arrival,
-regexes the 6-digit code into an env var, and the verify step consumes it;
-subsequent authenticated requests prove the session. Playwright's
-`TestInbox` helper and this chain share the same two backend APIs and parse
-rule (contract documented here; implementations don't share code). The smoke
-account needs a throttle exemption/dedicated bucket on the send-code
-endpoint — scheduled + post-deploy cadence would otherwise trip its own
-rate limit.
+Human flows (email-code login) live on the **LiveView channel**, not public
+HTTP — only the deliberate machine surface (ADR-0019) exposes endpoints. So
+the oracles authenticate differently:
+
+- **Bruno** authenticates with a **pre-provisioned smoke PAT** (seeded at
+  bootstrap, stored as a GitHub secret, rotated on its 1-yr schedule) —
+  proving PAT validation and policies on authed reads. No inbox dependency,
+  no rate-limit interplay: pure cheap HTTP for the 30–60 min cadence.
+- **Playwright** owns the human flows: drives the real login form, fetches
+  the code via the **TestInbox helper** (Mailpit API on
+  staging/local/review envs; Postmark Messages API on prod), submits,
+  observes logged-in state. The email-code flow is exercised on every
+  deploy — exactly when it changes. The smoke account needs a throttle
+  exemption/dedicated bucket on the send-code endpoint so post-deploy +
+  scheduled browser passes don't trip their own rate limit.
+- **CLI login follows the PAT model** (gh-style): user creates a PAT in the
+  web UI, pastes it into the CLI — no email-code-over-API endpoints exist.
 
 ### Scheduled monitoring (two layers)
 
