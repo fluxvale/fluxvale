@@ -32,6 +32,19 @@ remember-me by default) keep the email round-trip occasional. Login proves
 inbox ownership by construction — welcome credits can only reach verified
 emails (remaining abuse edge: disposable-domain handling).
 
+## Amendment 1 (2026-09-01)
+
+**Email provider: Postmark.** Chosen against the requirements this ADR
+created: queryable outbound-messages API (enables the prod E2E TestInbox
+adapter — read login codes from the Messages API, no test backdoors),
+best-in-class deliverability with SPF/DKIM/DMARC per sender signature,
+bounce/spam webhooks (implementing the "monitored" requirement above),
+EU region, and an existing Swoosh adapter. Pricing: free tier is 100
+emails/month — plausible coverage for early beta given 30–90-day sessions
+(code sends are rare); $15/mo per 10k beyond. Config shape: Swoosh adapter
+per environment (dev/local + staging → Mailpit SMTP; prod → Postmark);
+server API token via the BWS operator ([ADR-00021](00021-secrets-bws-operator.md)).
+
 **Consequences**: ~2 GB RAM returned to customer-instance capacity; social login
 remains a cheap later add (pluggable strategies); managed SSO for *catalog
 apps* (v1 #356, PocketID + Traefik forward-auth) remains a decoupled
