@@ -27,8 +27,11 @@ automation. Server data is disposable (pre-launch). No blockers.
 2. **Machine configs**: patches live in the fleet repo (`talos/`); full
    configs, `talosconfig`, and cluster PKI are **values → Bitwarden**
    (references-vs-values rule, [ADR-00018](00018-repo-visibility.md)).
-3. **Bootstrap/DR runbook**: SCP → custom ISO upload → reboot → Talos
-   maintenance mode → `talosctl apply-config --insecure` from the laptop
+3. **Bootstrap/DR runbook**: SCP → custom ISO upload
+   (stock `metal-amd64.iso` from the Talos release — hybrid BIOS/UEFI;
+   `metal-amd64.raw.xz` is the dd-fallback artifact; SecureBoot/cloud/nocloud
+   variants not used; `talosctl` version always matches the node) → reboot →
+   Talos maintenance mode → `talosctl apply-config --insecure` from the laptop
    (TCP 50000; no guest firewall on fresh boot). Hardening: restrict TCP
    50000 to your workstation IP via the SCP Firewall tab during the install
    window — maintenance mode is unauthenticated; once config is applied the
