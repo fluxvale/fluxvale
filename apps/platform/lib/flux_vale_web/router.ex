@@ -14,6 +14,15 @@ defmodule FluxValeWeb.Router do
     plug :accepts, ["json"]
   end
 
+  scope "/", FluxValeWeb do
+    pipe_through :api
+
+    # Kubernetes probes + deploy-pipeline poll target (docs/deployment.md):
+    # liveness must stay dependency-free; readiness gates traffic on the DB.
+    get "/health", HealthController, :show
+    get "/health/ready", HealthController, :ready
+  end
+
   scope "/api/json" do
     pipe_through [:api]
 
