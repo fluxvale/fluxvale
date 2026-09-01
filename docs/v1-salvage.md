@@ -23,7 +23,7 @@ Paths in the "v1 path" column are relative to the v1 repo root
 | `infra/flux/base/helm/*.yaml` | HelmRelease patterns: cert-manager, CNPG, Traefik (+ issuer CRs v1 kept outside Flux — v2 moves them in; Traefik/local-path become plain charts under Talos, [ADR-00022](adr/00022-talos-linux.md)) | fleet repo |
 | `docs/infra/*.md` | Runbooks: server-provisioning, local-dns, postgresql-restore, rotate-bitwarden-token/vault-password, sftpgo-operator | fleet repo docs (prune SFTP parts) |
 | v1 root `AGENTS.md` gotchas | Netcup SSH/fail2ban traps, provider-skew rule, Cloudflare proxy ≠ non-HTTP ports, HelmRelease conventions (bare chart name, `releaseName`, secrets via `valuesFrom`) | fleet repo `DEPLOYMENT.md` / runbooks |
-| Rates + anchors config (`config.exs` usage_rates, per-env overrides) | Metering rates + anchor semantics (Netcup-COGS calibration) | app config |
+| Rates + anchors config (`config.exs` usage_rates, per-env overrides) | Anchor semantics survive unchanged; rates become **flat monthly pricing** per allocation (ADR-00028) — port the anchors, not the metered formula | app config |
 
 ## Leave behind
 
