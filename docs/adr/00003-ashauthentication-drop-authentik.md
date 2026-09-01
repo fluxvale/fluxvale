@@ -1,6 +1,6 @@
 # ADR-00003: AshAuthentication; drop Authentik
 
-**Status**: Accepted
+**Status**: Accepted (amended — see Amendment 1)
 **Date**: 2026-08-27
 
 Authentik (~2 GB RAM + Helm release + Terraform branding + provider-skew risk)

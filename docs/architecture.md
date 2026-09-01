@@ -36,7 +36,7 @@ Status: Accepted (see [adr/](adr/) — ADRs [00002](adr/00002-single-ash-livevie
 ## Topology
 
 ```
-Netcup box (Debian 13, "nuremberg-01")
+Netcup box (Talos Linux, "nuremberg-01")
 ├── systemd
 └── Talos Linux (immutable node OS: upstream k8s + etcd + flannel/wireguard)
     — no shell, no SSH; managed via the talosctl API
@@ -132,7 +132,8 @@ Rule: **if it runs on the cluster, it lives in the fleet repo.** v1's
 Flux-sync-coverage table (with its ❌ rows) existed because some cluster state
 lived outside Flux; the fix is moving everything in, not maintaining a coverage
 map. Disaster recovery = boot Talos ISO → apply config → `flux bootstrap` → wait for
-convergence → restore DB from R2 → done.
+convergence → apply the two BWS-operator token Secrets → restore DB from R2 →
+done.
 
 Doc-type boundary ([ADR-00017](adr/00017-docs-home-adr-scope.md)): this repo holds the **why** (decisions,
 product, architecture); the fleet repo holds the **how-to-operate** (runbooks).

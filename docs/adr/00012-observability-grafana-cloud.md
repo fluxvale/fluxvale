@@ -1,6 +1,6 @@
 # ADR-00012: Observability via Alloy → Grafana Cloud free tier
 
-**Status**: Accepted
+**Status**: Accepted (amended — see Amendments 1–2)
 **Date**: 2026-08-27
 
 **Decision**: a Grafana Alloy agent in-cluster (~100 MB) ships metrics, logs,

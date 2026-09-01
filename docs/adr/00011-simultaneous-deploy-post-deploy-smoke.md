@@ -1,6 +1,6 @@
 # ADR-00011: Simultaneous deploy + post-deploy smoke; gate-on-demand
 
-**Status**: Accepted
+**Status**: Accepted (amended — see Amendment 1)
 **Date**: 2026-08-27
 
 **Context**: v1 practice was one image deployed to staging and prod at once,

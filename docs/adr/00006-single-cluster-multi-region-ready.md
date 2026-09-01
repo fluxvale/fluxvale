@@ -1,6 +1,6 @@
 # ADR-00006: One cluster now, schema-ready for regions
 
-**Status**: Accepted
+**Status**: Accepted (amended — see Amendment 1)
 **Date**: 2026-08-27
 
 **Decision**:

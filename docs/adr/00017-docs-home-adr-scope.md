@@ -23,7 +23,7 @@ Considered and rejected:
    - **the shared infrastructure for every SaaS product under the FluxVale
      org/corporation** — fleet repo, cluster, edge (Cloudflare/Traefik),
      CNPG clusters, deploy pipeline, observability.
-2. **The fleet repo (`fluxvale/infrastructure`) holds operational docs only** —
+2. **The fleet repo (`fluxvale/infrastructure`) holds the cluster’s state and its operational docs** — Talos machine-config patches, all manifests, runbooks (no decision records —
    runbooks (`DEPLOYMENT.md`, bootstrap, rotations) — and its README links
    back: "Project-wide decisions live in `fluxvale/fluxvale` → `docs/adr/`;
    read them before proposing changes."

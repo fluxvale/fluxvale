@@ -1,6 +1,6 @@
 # ADR-00018: Repo visibility — app repo public under FSL, fleet repo private
 
-**Status**: Accepted
+**Status**: Accepted (amended — see Amendment 1)
 **Date**: 2026-08-27
 
 **Decision**:

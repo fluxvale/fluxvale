@@ -19,7 +19,9 @@ probe (health + DB check) gates traffic → old pods drain
    │
    ▼
 CI job 2: watch-deploy — poll https://staging.fluxvale.com/health and
-https://fluxvale.com/health until version == sha-<sha>  (verifies the whole
+https://fluxvale.com/health until version == sha-<sha> in BOTH environments
+(the prod suite must not run against the old image — Flux can reconcile the
+envs at different times)  (verifies the whole
 chain: DNS → Cloudflare → Traefik → pod; zero cluster credentials in CI)
    │
    ▼
@@ -51,7 +53,10 @@ build SHA, and the readiness probe checks health + DB connectivity.
    that gates deploys, changed in the same PR as the API. GitHub's cron is
    best-effort, which is fine now that availability is Synthetics' job.
    Failures push a metric via Grafana remote-write so their alert rides the
-   unified pipeline too.
+   unified pipeline too. **Heartbeat**: every run — passing or failing —
+   pushes a run-success timestamp metric; a dead-man's-switch alert fires on
+   staleness, because a silently-stopped cron produces no failure signal at
+   all.
 
 ## Feature flags
 

@@ -66,6 +66,7 @@ health; instance-state distribution); Synthetics checks (prod + staging
 | Node memory pressure | customer instances evicting |
 | Customer instance crash-loop count (cluster-wide) | product incident before a customer emails |
 | Smoke or synthetic red (deploy-attached, Bruno correctness, or probe failure from any region) | the oracle spoke |
+| Scheduled-run freshness (Bruno heartbeat stale) | dead-man's switch — a silently-stopped cron emits no failure signal |
 
 Routing: email + phone push. Deploy annotations on every dashboard — with
 simultaneous deploys, every incident's first question is "what changed?"

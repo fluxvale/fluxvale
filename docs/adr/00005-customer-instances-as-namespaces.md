@@ -9,13 +9,14 @@ Pod. The namespace holds the Deployment, Service, IngressRoute, and optional
 PVC + Secret that make up one running app.
 
 An Instance runs a state machine
-(`pending → deploying → starting ⇄ stopped`; `error`; `deleting`) driven by
+(`pending → deploying → starting → running ⇄ stopped`; `error`;
+`deleting` — `running` is the successful, usable state) driven by
 AshOban triggers:
 
 - `deploy` — background job creates all K8s resources
-- `reconcile_status` — every minute; reads Deployment conditions
-  (`ReplicaFailure`, `ProgressDeadlineExceeded`) to promote/demote; times out
-  stuck deploys
+- `reconcile_status` — every minute; promotes `starting` → `running`
+  when readyReplicas ≥ replicas, demotes on failed rollout conditions
+  (`ReplicaFailure`, `ProgressDeadlineExceeded`), and times out stuck deploys
 - `settle_usage` — every 15 min; metering settlement
 - `teardown` — async delete with retries; hard-deletes the row on success
 

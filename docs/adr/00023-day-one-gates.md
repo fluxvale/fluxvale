@@ -1,6 +1,6 @@
 # ADR-00023: Day-one gates — access rules + feature flags
 
-**Status**: Accepted
+**Status**: Accepted (amended — see Amendment 1)
 **Date**: 2026-09-01
 
 **Context**: two gating needs from day one. (1) **Staging access**: staging
@@ -27,6 +27,15 @@ private beta (v1 #385); that is the same mechanism as (1), built once.
   Prod starts unrestricted — or invite-only via email rows when the private
   beta wants it. Same mechanism, flipped by seeding.
 - Admin LiveView; Ash policy restricts mutation to admins.
+
+## Amendment 1 (2026-09-01)
+
+**AccessRules are enforced at every authentication boundary, not only
+sign-in.** A rule removed (or an allowlist tightened) must sever machine
+access immediately: the check runs at **PAT authentication** (API/CLI/MCP —
+one-year tokens must not outlive their owner’s access) and at **session
+validation**, with a short-TTL cache to keep it cheap. Otherwise a revoked
+user retains API access until token expiry.
 
 ## 2. Feature flags — `FeatureFlag` resource + evaluator
 

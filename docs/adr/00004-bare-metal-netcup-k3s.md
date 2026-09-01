@@ -1,6 +1,6 @@
 # ADR-00004: Bare-metal Netcup + k3s; reject managed Kubernetes
 
-**Status**: Accepted
+**Status**: Accepted (amended — see Amendment 1)
 **Date**: 2026-08-27
 
 **Decision**: Netcup RS 2000 G12 (8 dedicated EPYC cores, 16 GB ECC, 512 GB
