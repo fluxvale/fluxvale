@@ -5,11 +5,10 @@ it — don't invent.
 
 ## Next up
 
-1. **Domain-model cut and build order** — the last pre-scaffold decision.
-   Grouping settled ([ADR-0030](adr/00030-ops-domain.md): Ops domain for
-   FeatureFlag/AccessRule; the resource inventory is assembled across the
-   ADRs). Remaining: confirm deferrals (custom domains, SFTP post-beta) +
-   build order / milestone-one definition.
+1. **Domain-model cut and build order** — resolved by
+   [ADR-0030](adr/00030-ops-domain.md) (grouping) and
+   [ADR-0031](adr/0031-build-order.md) (the milestone ladder; deferrals
+   confirmed: custom domains + SFTP post-beta). M1 = walking skeleton.
 
 ## Product
 

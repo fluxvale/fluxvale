@@ -39,6 +39,7 @@ already ruled out.
 | [0028](00028-flat-rate-pricing.md) | Pricing: allocation-based flat monthly rates, not measured usage | Accepted |
 | [0029](00029-payments-adapter-selfmor.md) | Payments: adapter architecture; self-MoR Xendit (MoR products refuse hosting; PH entity) | Accepted (amended — see Amendment 1) |
 | [0030](00030-ops-domain.md) | Domain grouping: the Ops domain (FeatureFlag, AccessRule; operator resources) | Accepted |
+| [0031](0031-build-order.md) | Build order: the milestone ladder (M1 skeleton → M7 launch-prep) | Accepted |
 
 ## Conventions
 
