@@ -4,11 +4,10 @@ defmodule FluxValeWeb.HealthControllerTest do
   use FluxValeWeb.ConnCase, async: false
 
   describe "GET /health (liveness)" do
-    test "reports ok with the build version, dependency-free", %{conn: conn} do
+    test "reports ok with version dev when BUILD_SHA is unset", %{conn: conn} do
       conn = get(conn, ~p"/health")
 
-      assert %{"status" => "ok", "version" => version} = json_response(conn, 200)
-      assert is_binary(version)
+      assert %{"status" => "ok", "version" => "dev"} = json_response(conn, 200)
     end
 
     test "versions as sha-<sha> when BUILD_SHA is set", %{conn: conn} do
