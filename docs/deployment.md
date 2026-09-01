@@ -8,7 +8,7 @@ Status: Accepted (see [adr/](adr/) — ADRs [00011](adr/00011-simultaneous-deplo
 merge to main (app repo)
    │
    ▼
-CI job 1: build OTP release → image → push ghcr.io/fluxvale/platform:sha-<sha>
+CI job 1: build OTP release → image → push ghcr.io/fluxvale/fluxvale:sha-<sha>
    │
    ▼
 Flux image automation (fleet repo): bumps staging AND prod manifests (1–5 min)

@@ -36,9 +36,10 @@ it — don't invent.
    [v1 repo](https://github.com/fluxvale/fluxvale_old)'s AGENTS.md; per
    [ADR-00018](adr/00018-repo-visibility.md), operational specifics are not restated in this public repo.)
 8. **Repo bootstrap** — settled: app repo is `fluxvale/fluxvale`, open
-   source under FSL-1.1 ([ADR-00018](adr/00018-repo-visibility.md) — port `LICENSE.md` from v1 as part of
-   scaffolding); fleet repo is private `fluxvale/infrastructure`. Still
-   open: GHCR image names, CI skeleton.
+   source under FSL-1.1 ([ADR-00018](adr/00018-repo-visibility.md); LICENSE.md ported); fleet repo is
+   private `fluxvale/infrastructure`; app image is
+   `ghcr.io/fluxvale/fluxvale` (matches repo/product name). Still open: CI
+   skeleton.
 9. **API surface details** — [ADR-00019](adr/00019-machine-first-api-cli-mcp.md) settled the headline (JSON:API + CLI
    + MCP from day one). Still open: API versioning scheme (URL prefix vs
    media type); CLI language + distribution (generated from the OpenAPI spec?
