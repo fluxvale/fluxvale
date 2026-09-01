@@ -1,0 +1,23 @@
+# Toolchain for the FluxVale platform app.
+# Fleet-repo tooling (flux, kustomize, talosctl) lives in fluxvale/infrastructure, not here (ADR-0007).
+
+[settings]
+# mise.lock pins download URLs + checksums per platform, so installs are
+# verified and identical on every machine/CI runner
+lockfile = true
+
+[tools]
+# BEAM: fixed pins — the compiler/runtime pair must not drift
+erlang = "28.5"
+elixir = "1.20.4-otp-28"
+
+# apps/e2e Playwright suites (ADR-0024)
+node = "26.8.1"
+
+# Local k3d + Tilt stack (ADR-0020)
+k3d = "5.9.0"
+tilt = "0.37.7"
+# Latest release within supported skew of k3d 5.9.0's default k3s (v1.35.5);
+# kubectl supports at most ±1 minor vs the API server. Pin the k3s image in
+# the checked-in k3d config when it lands, and bump this alongside it.
+kubectl = "1.36.4"
