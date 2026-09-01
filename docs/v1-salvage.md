@@ -17,7 +17,7 @@ Paths in the "v1 path" column are relative to the v1 repo root
 | `apps/platform/lib/flux_vale/domains/catalog/` + `priv/repo/seeds/catalog_data.yaml` + `seeds/catalog_data.ex` | Catalog model (Category/App/AppVersion), configurable env-var schema, idempotent YAML seeding | Ash `Catalog` domain |
 | `apps/platform/priv/scripts/dump_openapi.exs` + per-resource `json_api` blocks | Offline OpenAPI spec generation (renders from compiled Ash resources — no running server) + API route design discipline | API tooling: feeds CLI/MCP client generation + staleness CI ([ADR-00019](adr/00019-machine-first-api-cli-mcp.md)) |
 | `apps/platform/lib/flux_vale/domains/identity/` | PAT lifetime (1 yr), token store, janitor | `Identity` (swap AshAuthentication strategy: passwordless email code, not OIDC) |
-| `apps/platform/lib/flux_vale/billing/dodo.ex` + `dodo/webhook.ex` | Standard Webhooks HMAC verification (constant-time, replay window), checkout client | `Billing` (if Dodo retained — OQ #4) |
+| `apps/platform/lib/flux_vale/billing/dodo.ex` + `dodo/webhook.ex` | Standard Webhooks HMAC verification (constant-time, replay window), checkout client | the `PaymentProvider` behaviour's reference port (ADR-0029); Stripe is the live implementation |
 | `bruno/` | API smoke collections | smoke suite (re-point, add staging/prod split) |
 | `apps/web` Playwright suite | E2E smoke (per-PR screenshots pattern) | `apps/e2e` (monorepo; port + add per-PR/staging/prod split, ADR-00024) |
 | `infra/flux/base/helm/*.yaml` | HelmRelease patterns: cert-manager, CNPG, Traefik (+ issuer CRs v1 kept outside Flux — v2 moves them in; Traefik/local-path become plain charts under Talos, [ADR-00022](adr/00022-talos-linux.md)) | fleet repo |

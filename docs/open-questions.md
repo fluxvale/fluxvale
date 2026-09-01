@@ -19,8 +19,11 @@ it — don't invent.
    dogfood apps (v1 queued: ActualBudget, PocketID, SilverBullet, +1). Also:
    per-app mount-path / command overrides in the deployer (v1 #360) — needed
    for non-`/data` apps.
-4. **Payments provider** — Dodo worked in v1 (checkout + Standard Webhooks).
-   Keep for v2, or switch (e.g. Stripe)? Affects checkout + webhook code.
+4. **Payments provider** — resolved by
+   [ADR-0029](adr/00029-payments-adapter-selfmor.md): MoR products are out
+   (they refuse hosting categories); self-MoR with Stripe behind a
+   PaymentProvider adapter. Launch-gate item: EU VAT classification of
+   prepaid credits (Stripe Tax).
 5. **Welcome credits anti-abuse** — largely resolved by passwordless
    email-code auth (login proves inbox ownership by construction —
    [ADR-00003](adr/00003-ashauthentication-drop-authentik.md)); remaining edge: disposable-email-domain handling.

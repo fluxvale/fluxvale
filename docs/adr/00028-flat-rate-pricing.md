@@ -30,7 +30,7 @@ arithmetic on time and allocation).
 4. **Usage telemetry returns to observability-only**: PromEx/Traefik/metrics
    feed SLIs and dashboards ([ADR-0012](00012-observability-grafana-cloud.md)
    Am. 3), never the ledger.
-5. Welcome credits, Dodo checkout, and wallet mechanics are unaffected.
+5. Welcome credits, wallet mechanics, and payment checkout (adapter + Stripe per [ADR-0029](00029-payments-adapter-selfmor.md)) are unaffected.
 
 **Amends**: [ADR-00005](00005-customer-instances-as-namespaces.md)
 (settle_usage semantics); [product.md](../product.md) business model.
