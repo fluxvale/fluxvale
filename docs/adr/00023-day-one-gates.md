@@ -92,7 +92,12 @@ change still land via resource changes.
 in-app, no SMTP server, no extra component. The mailbox UI and the
 TestInbox JSON endpoint are **config-gated and admin-auth'd** (a public
 mailbox viewer is an account-takeover machine — it displays live login
-codes). Known trade-off: per-node memory storage; a multi-replica staging
-is the named trigger to reintroduce a centralized catcher. (Neither local
+codes). Known trade-off: per-node memory storage. The multi-replica trigger's
+pre-decided answer: swap the local adapter for a **DB-backed dev adapter**
+(captured mails as Postgres rows, non-prod only; the gated TestInbox
+endpoint reads the table — no test changes, works at any replica count,
+survives redeploys). Cluster-RPC over libcluster is the acceptable
+stopgap (it arrives with the second replica anyway); an external catcher
+(Mailpit-class) returns only if SMTP-path testing is ever wanted. (Neither local
 capture nor SMTP matches prod's Postmark-API delivery path — the login test
 exercises mail-building + code generation, identical either way.)
