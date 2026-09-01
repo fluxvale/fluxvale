@@ -34,6 +34,7 @@ already ruled out.
 | [0023](00023-day-one-gates.md) | Day-one gates: AccessRule (staging/beta invites) + FeatureFlag design | Accepted |
 | [0024](00024-e2e-review-environments.md) | E2E + review environments: per-PR Playwright, platform-provisioned | Accepted |
 | [0025](00025-seo-content-architecture.md) | SEO: in-app blog at /blog, catalog as programmatic SEO, noindex non-prod | Accepted |
+| [0026](00026-feedback-board.md) | Feedback board: in-app, public read, paying-customers-write | Accepted |
 
 ## Conventions
 
