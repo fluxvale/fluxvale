@@ -1,5 +1,7 @@
 defmodule FluxValeWeb.HealthControllerTest do
-  use FluxValeWeb.ConnCase, async: true
+  # async: false — the sha-formatting test mutates the global :build_sha app
+  # env (read via FluxVale.Build.version/0); it must not race sibling modules
+  use FluxValeWeb.ConnCase, async: false
 
   describe "GET /health (liveness)" do
     test "reports ok with the build version, dependency-free", %{conn: conn} do
@@ -10,8 +12,15 @@ defmodule FluxValeWeb.HealthControllerTest do
     end
 
     test "versions as sha-<sha> when BUILD_SHA is set", %{conn: conn} do
-      Application.put_env(:flux_vale, :build_sha, "abc1234", persistent: true)
-      on_exit(fn -> Application.delete_env(:flux_vale, :build_sha) end)
+      previous = Application.get_env(:flux_vale, :build_sha)
+      Application.put_env(:flux_vale, :build_sha, "abc1234")
+
+      on_exit(fn ->
+        case previous do
+          nil -> Application.delete_env(:flux_vale, :build_sha)
+          value -> Application.put_env(:flux_vale, :build_sha, value)
+        end
+      end)
 
       conn = get(conn, ~p"/health")
       assert %{"version" => "sha-abc1234"} = json_response(conn, 200)
