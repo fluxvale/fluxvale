@@ -1,6 +1,6 @@
 # ADR-00024: E2E architecture + review environments (per-PR Playwright on the single box)
 
-**Status**: Accepted (amended — see Amendment 1)
+**Status**: Accepted (amended — see Amendments 1–2)
 **Date**: 2026-09-01
 
 **Context**: per-PR Playwright runs were desired from the start. Verification
@@ -59,3 +59,24 @@ per-PR/staging/prod split + adapters).
 admin-auth'd JSON endpoint over `Swoosh.Adapters.Local` storage (Mailpit
 exits the stack); prod reads via Postmark Messages API (ADR-00003 Am. 1).
 Stable first-party endpoint instead of scraping Swoosh's UI markup.
+
+## Amendment 2 (2026-09-01)
+
+**Provisioning moves out of the app: review environments are an infra
+concern.** The `ReviewEnvironment` resource and its API action are removed —
+the product's domain model carries no dev-tooling (no dev-resource
+migrations, API surface, or janitor queues in the product). Instead, the
+**fleet repo's own workflow** provisions them from a parameterized `review/`
+kustomize overlay (namespace, PR-image deployment, disposable Postgres,
+route, quota, prefix env vars, RoleBinding), triggered by
+`repository_dispatch` from app CI on PR open/push/close. App-repo CI's
+strongest credential is now "may dispatch to `fluxvale/infrastructure`" —
+the boundary tightens. Naming/quota/concurrency enforcement moves from
+Elixir to the workflow. Everything else stands: per-PR Playwright still
+runs from app CI against the URL (no creds needed), collision prefixes and
+TestInbox ride env-var/config, lifecycle (delete on close, 2–3 cap) is
+workflow logic. Lost and accepted: the machine-API dogfooding narrative.
+
+Principle recorded: **the app provisions customer environments because that
+is the product; developer environments are infrastructure and are
+provisioned from the infra repo.**

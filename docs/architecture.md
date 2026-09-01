@@ -119,9 +119,10 @@ ADR-00007/00022)
 ```
 
 Per-app CI with path filters (v1 pattern). Review environments for PRs are
-provisioned **on the single cluster by the platform itself** via a scoped
-service PAT — app-repo CI never gains cluster credentials
-([ADR-00024](adr/00024-e2e-review-environments.md)).
+provisioned **by the fleet repo's own workflow** (parameterized `review/`
+overlay, triggered via repository-dispatch) — the app carries no
+dev-environment code, and app-repo CI's strongest credential is the
+dispatch trigger ([ADR-00024](adr/00024-e2e-review-environments.md) Am. 2).
 
 The fleet repo (`fluxvale/infrastructure`, **private**) holds the Talos
 machine-config patches + every cluster manifest (Traefik, cert-manager
