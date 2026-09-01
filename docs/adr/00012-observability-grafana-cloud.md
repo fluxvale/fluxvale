@@ -45,3 +45,21 @@ is not ours to provide.
 **Revisit trigger**: outgrowing the free tier (see [ADR-00016](00016-deferred-triggers.md)). Self-hosting
 then is a "revenue justifies it" item, same tier as the second server.
 Details: [../observability.md](../observability.md).
+
+## Amendment 1 (2026-09-01)
+
+**OTEL moves to day one** (was: "traces once metrics+logs are boring").
+`opentelemetry_phoenix`/`_ecto` + OTLP export ship with the first release,
+plus custom spans around the Instance deploy/reconcile orchestration (the
+product's most valuable trace) and a Logger formatter stamping
+trace/span IDs into every log line for pillar correlation.
+
+**OTEL + Alloy is the spine, not the whole skeleton** — "complete"
+visibility additionally requires: kube-state-metrics and node-exporter
+(Alloy scrapes but does not generate them), Talos system-log wiring,
+PromEx retained for metrics (Elixir-idiomatic, prebuilt dashboards;
+OTLP-for-traces-and-logs + Prometheus-for-metrics is the standard split),
+error tracking (Honeybadger/AppSignal), and **domain sight** — Grafana's
+Postgres datasource querying the wallet ledger and instance states,
+which no telemetry pipeline provides. Full inventory:
+[../observability.md](../observability.md).
