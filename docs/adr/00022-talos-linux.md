@@ -40,8 +40,13 @@ automation. Server data is disposable (pre-launch). No blockers.
    `--insecure` alone skips verification and invites MITM impersonation.
    Defense in depth: also restrict TCP 50000 to your workstation IP via the
    SCP Firewall tab during the install window. Once config is applied the
-   API requires mTLS, closing the window entirely. → `talosctl bootstrap` →
-   `talosctl kubeconfig` → `flux bootstrap` → apply BWS-operator token
+   API requires mTLS, closing the window entirely. → **wait for node readiness**: apply-config
+   triggers install-to-disk + reboot; poll the now-mTLS-authenticated API
+   (`talosctl status` / `talosctl health`) until the node reports ready —
+   never bootstrap a node that hasn't come back → `talosctl bootstrap`
+   (etcd + control-plane init) → wait for k8s API readiness
+   (`talosctl health --k8s`) → `talosctl kubeconfig` → `flux bootstrap` →
+   apply BWS-operator token
    Secrets (tiny script) → (DR: restore DB from R2). Fallback if the ISO
    path ever disappears: Rescue System → `dd` the Talos metal image → same
    apply-config flow.
