@@ -69,6 +69,19 @@ health; instance-state distribution); Synthetics checks (prod + staging
 | Ops | Backup freshness | age of last successful CNPG backup | existing alert |
 | Ops | Pipeline health | smoke pass rate (deploy-attached + scheduled) | heartbeat metric |
 
+**Critical user flows** — the SLI catalog is really this promise list, and
+the smoke (ADR-0011) + E2E (ADR-0024) suites are projections of the same
+table; a new critical flow gets a row, a metric, and a test — one decision,
+three surfaces:
+
+| Flow | Promise | SLI | Oracle |
+|---|---|---|---|
+| Sign in | I can get in | auth completion | Bruno auth flow |
+| Deploy | install just works | deploy success, time-to-running | Playwright lifecycle (staging + review envs) |
+| Daily use | it's up, it's fast | instance availability, ingress success | Synthetics edge probe (per-instance synthetics = post-beta idea) |
+| Trust the bill | metering is honest | metering settlement | Bruno billing reads + domain dashboard |
+| Trust the data | my library survives us | backup freshness | the restore drill |
+
 **Error-budget policy (light)**: >50% of a month's budget burned → extra
 deploy scrutiny; gate-on-demand becomes the default. **Deferred**: burn-rate
 alerting and public SLOs (traffic / status-page triggers).
