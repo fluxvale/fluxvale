@@ -3,7 +3,12 @@
 
 [settings]
 # mise.lock pins download URLs + checksums per platform, so installs are
-# verified and identical on every machine/CI runner
+# verified and identical on every machine/CI runner.
+# NB: deliberately NOT setting `locked = true` here — it applies to all
+# configs in scope, so teammates' global tools (not in this lockfile)
+# would fail to install. CI should use the flag form instead:
+#   MISE_LOCKED=1 mise install
+# which fails if mise.lock is missing entries (npm-ci semantics).
 lockfile = true
 
 [tools]
@@ -17,7 +22,10 @@ node = "26.8.1"
 # Local k3d + Tilt stack (ADR-0020)
 k3d = "5.9.0"
 tilt = "0.37.7"
-# Latest release within supported skew of k3d 5.9.0's default k3s (v1.35.5);
-# kubectl supports at most ±1 minor vs the API server. Pin the k3s image in
-# the checked-in k3d config when it lands, and bump this alongside it.
+# Latest release within kubectl's ±1-minor skew policy vs k3d 5.9.0's default
+# server. Verified via `k3d version`: default = k3s v1.35.5, so 1.36.4 is
+# +1 minor — supported. (NB: this is the binary's own self-report; older
+# release notes mention a 1.32 bump predating the final release.)
+# Pin the k3s image in the checked-in k3d config when it lands, and bump
+# this alongside it.
 kubectl = "1.36.4"
