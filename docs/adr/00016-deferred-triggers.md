@@ -12,6 +12,7 @@ Deferred ≠ forgotten. Each deferred item has an explicit trigger:
 | Dedicated staging box (~€10/mo) | revenue makes it trivial; split is a config change by design |
 | Flagger canary + traffic splitting | traffic volume makes 5% statistically meaningful (needs the metrics stack) |
 | Self-hosted LGTM | genuinely outgrowing Grafana Cloud free tier |
+| Dedicated error tracker (Honeybadger/AppSignal) | error triage becomes a workflow — beta-user volume, resolved/regression states needed ([ADR-00012](00012-observability-grafana-cloud.md) Am. 2) |
 | Omni (Sidero fleet manager for Talos) | second cluster or sustained multi-node growth — evaluate hosted first; self-hosted on the demoted box is the alternative ([ADR-00022](00022-talos-linux.md)) |
 | Managed Kubernetes (any region) | a concrete need appears; slots in as a `Cluster` row |
 | First traction signal on a product (paying users / sustained usage) | migrate that product's DB to managed PostgreSQL ([ADR-00009](00009-single-cnpg-cluster.md)) — never a second self-hosted cluster. (FluxVale itself scales by bigger box, [ADR-00006](00006-single-cluster-multi-region-ready.md) — its DB stays CNPG) |

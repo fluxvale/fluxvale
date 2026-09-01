@@ -63,3 +63,19 @@ error tracking (Honeybadger/AppSignal), and **domain sight** — Grafana's
 Postgres datasource querying the wallet ledger and instance states,
 which no telemetry pipeline provides. Full inventory:
 [../observability.md](../observability.md).
+
+## Amendment 2 (2026-09-01)
+
+**Error tracking goes Grafana-first; the dedicated tracker is deferred.**
+Day-one error visibility rides the existing stack: exceptions with
+stacktraces land in Loki via structured ERROR logs (the Logger JSON
+formatter includes exception module/message/stacktrace + user/trace IDs;
+Oban failures log at ERROR by default), OTEL records exception events on
+Tempo spans automatically, and LogQL queries + derived-field links form
+the triage surface — an `error_signature` label derived from the exception
+module, never the full message (label-cardinality discipline). What a
+dedicated tool uniquely provides — the issue inbox: auto-grouping,
+resolved state, regression flags — earns its subscription at error
+*volume*, not at solo scale. Trigger added to
+[ADR-00016](00016-deferred-triggers.md): triage becomes a workflow (beta
+users, regression tracking) → add Honeybadger or AppSignal.

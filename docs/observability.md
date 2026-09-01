@@ -9,7 +9,10 @@ Status: Accepted (see [adr/](adr/) — [ADR-00012](adr/00012-observability-grafa
   argument (blind-when-the-box-dies), cost math, and the lab compromise
   (full LGTM in the local k3d cluster for learning, [ADR-00020](adr/00020-local-dev-parity.md);
   production home someday = the demoted box).
-- **Error tracking**: Honeybadger or AppSignal (~$0–20/mo).
+- **Error tracking**: **Grafana-first** — structured ERROR logs (Loki) +
+  Tempo exception events + LogQL triage queries; Honeybadger/AppSignal
+  deferred to the triage-volume trigger
+  ([ADR-00012](adr/00012-observability-grafana-cloud.md) Am. 2).
 - **Synthetic checks**: scheduled Bruno smoke (now) → Grafana Cloud
   synthetic monitoring (later).
 
@@ -29,7 +32,7 @@ OTEL + Alloy is the spine; "complete" means these sources and glue too:
 | **Deploy-pipeline traces** | **custom spans** around Instance deploy/reconcile orchestration | the product's most valuable trace: Oban trigger → namespace → apply → reconcile → running |
 | Correlation glue | Logger formatter stamping trace/span IDs into every log line | makes the three pillars one narrative |
 | **Domain sight** | Grafana **Postgres datasource** + dashboards over the wallet ledger, settlement runs, instance-state distribution | not telemetry at all — queries on our own DB; for a PaaS operator often the most important dashboard |
-| Errors | Honeybadger/AppSignal | exceptions with stack + request context |
+| Errors | Grafana-first: ERROR logs in Loki + Tempo exception events; LogQL triage with `error_signature` label | label = exception module, never the message (cardinality); dedicated tracker deferred (ADR-0016 trigger) |
 | Outside-in | scheduled smoke / synthetics | "is it up from the internet" |
 
 Emission rules: no OTLP log-push from Elixir (immature) — stdout JSON is the
@@ -40,7 +43,8 @@ content ships to the third party — ADR-00012's data rule).
 
 **App (`mix.exs`, first release)**: `opentelemetry`, `opentelemetry_exporter`,
 `opentelemetry_phoenix`, `opentelemetry_ecto`, `prom_ex`; Logger formatter
-with trace/span IDs; custom span wrappers for Instance deploy + reconcile.
+with trace/span IDs **and exception fields** (module/message/stacktrace,
+user context); custom span wrappers for Instance deploy + reconcile.
 
 **Fleet repo**: Alloy config (scrape `/metrics` + k8s integrations + OTLP
 receiver + Talos host logs); kube-state-metrics + node-exporter charts;
