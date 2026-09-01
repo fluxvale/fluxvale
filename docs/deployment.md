@@ -41,6 +41,20 @@ smoke layer catches boots-fine-but-misbehaves.
 The app exposes `GET /health` → `{status, version}` where `version` is the
 build SHA, and the readiness probe checks health + DB connectivity.
 
+### Bruno login pattern (the TestInbox adapter, natively)
+
+The passwordless login is an API flow (request-code → verify → session), so
+Bruno verifies it end-to-end: a collection step fetches the code from the
+inbox *API* — Mailpit REST (staging/local) or Postmark Messages API (prod,
+token via CI secret) — with a scripted retry (~30s cap) for async arrival,
+regexes the 6-digit code into an env var, and the verify step consumes it;
+subsequent authenticated requests prove the session. Playwright's
+`TestInbox` helper and this chain share the same two backend APIs and parse
+rule (contract documented here; implementations don't share code). The smoke
+account needs a throttle exemption/dedicated bucket on the send-code
+endpoint — scheduled + post-deploy cadence would otherwise trip its own
+rate limit.
+
 ### Scheduled monitoring (two layers)
 
 1. **Availability — Grafana Synthetics** (day one; part of the Cloud free
