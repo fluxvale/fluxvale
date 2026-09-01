@@ -39,11 +39,19 @@ smoke layer catches boots-fine-but-misbehaves.
 The app exposes `GET /health` → `{status, version}` where `version` is the
 build SHA, and the readiness probe checks health + DB connectivity.
 
-### Scheduled smoke (synthetic monitoring)
+### Scheduled monitoring (two layers)
 
-A cron CI job (every 15–30 min) runs the Bruno suite against both envs. Catches
-non-deploy breakage: cert expiry, DNS/Cloudflare changes, CNPG death, customer
-instance incidents.
+1. **Availability — Grafana Synthetics** (day one; part of the Cloud free
+   tier): `/health` HTTP checks + a DNS check on prod and staging, from 2–3
+   probe regions at minutes-level cadence. Multi-region vantage catches
+   Cloudflare/DNS/cert reachability problems a single CI runner cannot see;
+   alerts fire through the same Grafana alert pipeline as everything else.
+2. **Correctness — scheduled Bruno** (30–60 min cron): the deep,
+   authenticated business flows against both envs — the same collection
+   that gates deploys, changed in the same PR as the API. GitHub's cron is
+   best-effort, which is fine now that availability is Synthetics' job.
+   Failures push a metric via Grafana remote-write so their alert rides the
+   unified pipeline too.
 
 ## Feature flags
 

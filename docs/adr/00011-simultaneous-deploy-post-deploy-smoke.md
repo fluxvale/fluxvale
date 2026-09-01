@@ -28,3 +28,21 @@ never goes ready, old pods keep serving), and the dangerous class
   nobody.
 
 Full pipeline: [../deployment.md](../deployment.md).
+
+## Amendment 1 (2026-09-01)
+
+The scheduled-smoke layer splits in two (nothing else changes;
+ deploy-attached smoke stays exactly as above):
+
+- **Grafana Synthetic Monitoring is the availability layer, day one**
+  (it's part of the Grafana Cloud free tier): `/health` HTTP + DNS checks
+  on prod and staging from 2–3 probe regions at minutes-level cadence — a
+  multi-region vantage that catches Cloudflare/DNS/cert reachability a
+  single CI runner cannot see, with alerts in the same Grafana pipeline as
+  everything else.
+- **The Bruno cron relaxes to the correctness layer** (30–60 min): the
+  deep, authenticated business flows — same collection as the deploy gate,
+  changed in the same PR as the API. GitHub's cron is best-effort, which is
+  acceptable now that availability is Synthetics' job. Failures push a
+  metric via Grafana remote-write so their alert rides the unified
+  pipeline too.

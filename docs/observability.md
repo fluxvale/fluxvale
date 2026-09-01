@@ -13,8 +13,10 @@ Status: Accepted (see [adr/](adr/) — [ADR-00012](adr/00012-observability-grafa
   Tempo exception events + LogQL triage queries; Honeybadger/AppSignal
   deferred to the triage-volume trigger
   ([ADR-00012](adr/00012-observability-grafana-cloud.md) Am. 2).
-- **Synthetic checks**: scheduled Bruno smoke (now) → Grafana Cloud
-  synthetic monitoring (later).
+- **Outside-in, layered**: Grafana Synthetic Monitoring (day one) —
+  multi-region `/health` + DNS probes; **scheduled Bruno** (30–60 min) as
+  the deep, authenticated correctness layer
+  ([ADR-00011](adr/00011-simultaneous-deploy-post-deploy-smoke.md) Am. 1).
 
 ## The complete visibility inventory
 
@@ -33,7 +35,7 @@ OTEL + Alloy is the spine; "complete" means these sources and glue too:
 | Correlation glue | Logger formatter stamping trace/span IDs into every log line | makes the three pillars one narrative |
 | **Domain sight** | Grafana **Postgres datasource** + dashboards over the wallet ledger, settlement runs, instance-state distribution | not telemetry at all — queries on our own DB; for a PaaS operator often the most important dashboard |
 | Errors | Grafana-first: ERROR logs in Loki + Tempo exception events; LogQL triage with `error_signature` label | label = exception module, never the message (cardinality); dedicated tracker deferred (ADR-0016 trigger) |
-| Outside-in | scheduled smoke / synthetics | "is it up from the internet" |
+| Outside-in | Grafana Synthetics (availability, multi-region) + scheduled Bruno (authenticated correctness) | layered per ADR-00011 Am. 1 |
 
 Emission rules: no OTLP log-push from Elixir (immature) — stdout JSON is the
 battle-tested path. Customer instances get **metrics only** (no customer log
@@ -49,7 +51,8 @@ user context); custom span wrappers for Instance deploy + reconcile.
 **Fleet repo**: Alloy config (scrape `/metrics` + k8s integrations + OTLP
 receiver + Talos host logs); kube-state-metrics + node-exporter charts;
 Grafana Cloud Postgres datasource; first domain dashboards (wallet/settlement
-health; instance-state distribution); CI deploy annotations.
+health; instance-state distribution); Synthetics checks (prod + staging
+`/health` + DNS, 2–3 probe regions); CI deploy annotations.
 
 ## Alert set (tuned ruthlessly — one noisy alert teaches ignoring all of them)
 
@@ -62,7 +65,7 @@ health; instance-state distribution); CI deploy annotations.
 | cert-manager cert expiry < 14d | v1 scar |
 | Node memory pressure | customer instances evicting |
 | Customer instance crash-loop count (cluster-wide) | product incident before a customer emails |
-| Smoke suite red (deploy-attached or scheduled) | the oracle spoke |
+| Smoke or synthetic red (deploy-attached, Bruno correctness, or probe failure from any region) | the oracle spoke |
 
 Routing: email + phone push. Deploy annotations on every dashboard — with
 simultaneous deploys, every incident's first question is "what changed?"
