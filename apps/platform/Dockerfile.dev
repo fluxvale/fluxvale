@@ -12,6 +12,10 @@ FROM ${BASE_IMAGE}
 # git: mix fetches heroicons/daisyui as git deps
 RUN apk add --no-cache git
 
+# Unprivileged runtime user (created here, activated below — after the
+# build steps, so chown covers everything the reloader must write)
+RUN adduser -D -u 10001 dev
+
 WORKDIR /app
 
 ENV MIX_ENV=dev
@@ -31,6 +35,14 @@ COPY config config
 
 # esbuild/tailwind binaries + initial asset build (Hex-managed, no Node)
 RUN mix assets.setup && mix assets.build
+
+# Dev is no excuse for root (review finding): /app stays writable by dev
+# for the code reloader's in-container compiles. Hex/rebar install to the
+# dev user's HOME — the root-installed copies under /root aren't visible
+# after USER switches.
+RUN chown -R dev:dev /app
+USER dev
+RUN mix local.hex --force && mix local.rebar --force
 
 EXPOSE 4000
 

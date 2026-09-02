@@ -17,8 +17,10 @@
 allow_k8s_contexts('k3d-fluxvale')
 
 # Dev images push to the k3d-managed local registry (created by k3d.yaml);
-# nodes pull from it — nothing ever touches docker.io.
-default_registry('127.0.0.1:5000')
+# nodes pull from it — nothing ever touches docker.io. host_from_cluster is
+# the docker-network name nodes resolve (empirically tilt's k3d detection
+# handles this; set explicitly so the contract doesn't depend on detection).
+default_registry('127.0.0.1:5000', host_from_cluster='fluxvale-registry:5000')
 
 # ---- toolchain: mise.toml is the single source of truth -------------------
 # hexpm image tags append rebuild suffixes (e.g. erlang-28.5.0.6), so the
