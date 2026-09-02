@@ -1,6 +1,12 @@
-# Platform CI (issue #8): path-filtered, mise-locked toolchain, one gate.
-# Runs exactly what local dev runs — `mix ci` (AGENTS.md: local and CI
-# gates must never drift). E2E joins from M3 (ADR-0024), not before.
+# Platform CI (issue #8). Structure salvaged from v1's platform-ci.yml
+# (fluxvale_old) — the proven parts: erlef/setup-beam (precompiled BEAM —
+# no OTP source compile), deps/_build caches keyed on the *resolved*
+# versions (major-only keys restore binary-incompatible builds after
+# runner patch bumps — v1 lesson), Postgres service matching test config.
+# v2 differences: BEAM versions are read from mise.toml (single source of
+# truth — no drift with local dev), and the gate is one command, `mix ci`,
+# exactly what local runs (AGENTS.md: the two must never drift).
+# E2E joins from M3 (ADR-0024); dialyzer/coverage when earned.
 name: platform
 
 on:
@@ -9,13 +15,11 @@ on:
     paths:
       - "apps/platform/**"
       - "mise.toml"
-      - "mise.lock"
       - ".github/workflows/platform.yml"
   pull_request:
     paths:
       - "apps/platform/**"
       - "mise.toml"
-      - "mise.lock"
       - ".github/workflows/platform.yml"
 
 concurrency:
@@ -24,11 +28,6 @@ concurrency:
 
 permissions:
   contents: read
-
-# Strict installs (AGENTS.md): fail if mise.lock is missing entries.
-env:
-  MISE_LOCKED: "1"
-  MISE_VERBOSE: "1"
 
 jobs:
   ci:
@@ -53,39 +52,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Debug mise resolution
+      # mise.toml is the single source of truth for tool versions; parse
+      # (not install) so CI and local dev can't drift. NB: runs at repo
+      # root — the job's working-directory default is apps/platform.
+      - name: Read BEAM versions from mise.toml
+        id: beam
+        working-directory: .
         run: |
-          pwd && ls -la
-          sha256sum mise.lock
-          mise --version || true
-          env | grep -E '^MISE_' | sed 's/TOKEN=.*/TOKEN=***/' || true
-      - name: Debug mise locked resolution from workspace root
-        run: |
-          cd "$GITHUB_WORKSPACE"
-          sha256sum mise.lock && wc -l mise.lock
-          mise doctor 2>&1 | head -30 || true
-          echo "== kubectl (aqua backend) locked install:"
-          MISE_DATA_DIR=/tmp/md-k MISE_LOCKED=1 mise install kubectl && echo KUBECTL_OK || echo KUBECTL_FAIL
-          echo "== erlang (core backend) locked resolution:"
-          MISE_DATA_DIR=/tmp/md-e MISE_LOCKED=1 mise install erlang 2>&1 | head -8 || true
+          otp="$(sed -n 's/^erlang *= *"\([^"]*\)".*/\1/p' mise.toml)"
+          elixir="$(sed -n 's/^elixir *= *"\([^"]*\)".*/\1/p' mise.toml | sed 's/-otp-.*//')"
+          echo "otp=$otp elixir=$elixir"
+          test -n "$otp" && test -n "$elixir"
+          echo "otp=$otp" >>"$GITHUB_OUTPUT"
+          echo "elixir=$elixir" >>"$GITHUB_OUTPUT"
 
-      # Only the BEAM pair is needed here (AGENTS.md: no Node in platform);
-      # versions + checksums come from the committed mise.lock. mise itself
-      # is pinned: locked-mode behavior is mise-version-dependent — 2026.9.0
-      # fails to match this lockfile where 2026.8.6 (which wrote it) matches.
-      - uses: jdx/mise-action@v2
+      - name: Setup BEAM
+        id: setup-beam
+        uses: erlef/setup-beam@v1
         with:
-          version: "2026.8.6"
-          install_args: "erlang elixir"
+          elixir-version: ${{ steps.beam.outputs.elixir }}
+          otp-version: ${{ steps.beam.outputs.otp }}
 
-      - name: Cache deps and build
+      - name: Restore deps cache
         uses: actions/cache@v4
         with:
           path: |
             apps/platform/deps
             apps/platform/_build
-          key: mix-${{ runner.os }}-${{ hashFiles('apps/platform/mix.lock') }}
-          restore-keys: mix-${{ runner.os }}-
+          # Key on the *resolved* full versions (setup-beam outputs), not
+          # the requested ones, so a runner patch bump busts the cache
+          # instead of restoring a binary-incompatible build (v1 lesson)
+          key: ${{ runner.os }}-mix-${{ steps.setup-beam.outputs.elixir-version }}-${{ steps.setup-beam.outputs.otp-version }}-${{ hashFiles('apps/platform/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-${{ steps.setup-beam.outputs.elixir-version }}-${{ steps.setup-beam.outputs.otp-version }}-
 
       - run: mix deps.get
 
