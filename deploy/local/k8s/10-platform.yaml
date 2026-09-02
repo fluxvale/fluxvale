@@ -63,17 +63,27 @@ spec:
           ports:
             - containerPort: 4000
           env: *app-env
+          # Boot-complete gate (#4 wiring): suppresses liveness/readiness
+          # until the first boot finishes, so a slow cold start (in-container
+          # app compile, M4's release image) can't trigger restart loops.
+          # Deliberately /health, NOT /health/ready — a DB outage at boot
+          # must leave the pod quietly NotReady, not wedged in Starting
+          # (that conflation is what the two-route contract prevents).
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            periodSeconds: 5
+            failureThreshold: 30 # ~150s boot budget — mechanism, not delay-guessing
           readinessProbe:
             httpGet:
               path: /health/ready
               port: 4000
-            initialDelaySeconds: 5
             periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /health
               port: 4000
-            initialDelaySeconds: 10
             periodSeconds: 10
           resources:
             requests:
