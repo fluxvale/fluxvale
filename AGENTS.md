@@ -49,6 +49,10 @@ this file is only **how to work here**.
 
 1. Branch → implement → `mix ci` green → push → open PR (`Closes #N`) →
    card → `In Review`.
+   **Verify board mutations by read-back** (`gh project item-list`): a CLI
+   echo of what you *asked for* is not evidence — #6 sat in In Progress
+   through a whole PR cycle because a `--jq` literal printed success over a
+   silently-failed `item-edit`.
 2. **Wait for CodeRabbit's verdict before involving the maintainer.** The
    bot reviews after the PR opens — poll it, address every finding (adopt,
    or rebut with evidence, in-thread), and resolve all threads (manually
