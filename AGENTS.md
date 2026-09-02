@@ -42,6 +42,9 @@ this file is only **how to work here**.
   `locked = true` in project mise config: it applies to every config in
   scope and breaks teammates' global tools, which can't be in this repo's
   lockfile.
+- **mise itself is pinned** in CI (`mise-version`): locked-mode/lockfile
+  semantics are mise-version-dependent — 2026.9.0 failed to match a
+  lockfile written by 2026.8.6.
 - credo is exact-pinned: a linter upgrade changes the findings set, so bumps
   are deliberate, never a side effect of `deps.update`.
 

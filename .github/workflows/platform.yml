@@ -53,9 +53,12 @@ jobs:
       - uses: actions/checkout@v4
 
       # Only the BEAM pair is needed here (AGENTS.md: no Node in platform);
-      # versions + checksums come from the committed mise.lock
+      # versions + checksums come from the committed mise.lock. mise itself
+      # is pinned: locked-mode behavior is mise-version-dependent — 2026.9.0
+      # fails to match this lockfile where 2026.8.6 (which wrote it) matches.
       - uses: jdx/mise-action@v2
         with:
+          version: "2026.8.6"
           install_args: "erlang elixir"
 
       - name: Cache deps and build
