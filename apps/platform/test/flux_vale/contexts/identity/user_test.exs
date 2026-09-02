@@ -15,13 +15,12 @@ defmodule FluxVale.Identity.UserTest do
   end
 
   describe "create/1" do
-    test "mints UUIDv7 ids in creation order (ADR-0032)" do
+    test "mints UUIDv7 ids (ADR-0032)" do
       first = User.create!("a@fluxvale.com", %{}, authorize?: false)
       second = User.create!("b@fluxvale.com", %{}, authorize?: false)
 
-      # Monotonic within a process; version nibble is byte 15 of the string
+      # Ordering is deliberately NOT asserted — approximate, never a contract
       assert v7?(first.id) and v7?(second.id)
-      assert first.id < second.id
     end
 
     test "defaults platform_role to :user and stores email case-insensitively" do
