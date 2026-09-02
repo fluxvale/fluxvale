@@ -50,7 +50,11 @@ jobs:
       run:
         working-directory: apps/platform
     steps:
+      # persist-credentials: false — mix ci runs PR-controlled code; the
+      # default persisted token in .git/config would be readable by it
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       # mise.toml is the single source of truth for tool versions; parse
       # (not install) so CI and local dev can't drift. NB: runs at repo
