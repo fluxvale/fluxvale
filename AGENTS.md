@@ -17,10 +17,11 @@ this file is only **how to work here**.
 - Local Postgres is a Docker container:
 
   ```sh
-  # first time (or after removing it):
+  # first time (or after removing it) — loopback-only: a dev Postgres with
+  # known credentials must not be reachable from the network
   docker run -d --name fluxvale-test-pg -e POSTGRES_USER=postgres \
     -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=flux_vale_test \
-    -p 5432:5432 postgres:16-alpine
+    -p 127.0.0.1:5432:5432 postgres:16-alpine
   # every later session:
   docker start fluxvale-test-pg
   ```
