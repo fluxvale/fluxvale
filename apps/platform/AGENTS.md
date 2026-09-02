@@ -1,5 +1,24 @@
 This is a web application written using the Phoenix web framework.
 
+## FluxVale conventions (this repo's rules — they win over generic guidance below)
+
+- OTP app `:flux_vale` (modules `FluxVale`/`FluxValeWeb`), directory
+  `apps/platform`. Generate under the product name, then rename the
+  directory; databases are `flux_vale_{dev,test}`. No root-level deps.
+- **Generators first** — phx.new/igniter/Ash installers for scaffolding.
+  Hand-written glue stays minimal and carries a comment explaining why it
+  exists (see the AshAdmin placeholder in the router).
+- Health contract: `GET /health` = dependency-free liveness +
+  `{status, version}` where `version` is `sha-<BUILD_SHA>` (the deploy
+  pipeline greps it). `GET /health/ready` = DB readiness (`SELECT 1`) → 503
+  `unhealthy`. Never add dependency checks to `/health`.
+- Tests **own their preconditions**: capture-and-restore global state via
+  `on_exit` (see `stub_build_sha/1` in the health controller tests). No
+  test-only backdoors. ExUnit cannot simulate "DB down" — DBConnection
+  reconnects by design — so outages are validated at the cluster level.
+- Decisions accepted-with-rationale get a code comment naming the trigger
+  that revisits them (see the Postgres TLS stance in `config/runtime.exs`).
+
 ## Project guidelines
 
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
