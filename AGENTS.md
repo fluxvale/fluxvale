@@ -49,6 +49,10 @@ this file is only **how to work here**.
 
 1. Branch → implement → `mix ci` green → push → open PR (`Closes #N`) →
    card → `In Review`.
+   **Verify board mutations by read-back** (`gh project item-list`): a CLI
+   echo of what you *asked for* is not evidence — #6 sat in In Progress
+   through a whole PR cycle because a `--jq` literal printed success over a
+   silently-failed `item-edit`.
 2. **Wait for CodeRabbit's verdict before involving the maintainer.** The
    bot reviews after the PR opens — poll it, address every finding (adopt,
    or rebut with evidence, in-thread), and resolve all threads (manually
@@ -61,6 +65,16 @@ this file is only **how to work here**.
    merge, delete branch, sync `main`, card → `Done`.
 
 The maintainer is the final gate, not the first reviewer.
+
+**Verify what a commit/PR actually contains before pushing or merging** —
+not just its review status. Before pushing, inspect the complete diff from
+the target branch to `HEAD`, including file paths and changed hunks; before
+merging, inspect the full PR diff (`gh pr diff` without `--name-only`)
+against the target branch.
+A root-level `git add -A` is dangerous on branches where app-level
+`.gitignore` files are absent: #15 shipped 363k lines of `node_modules/`
+to `main` that way, past a ⚪ Minimal review verdict (history rewritten;
+lesson paid for).
 
 ## PR workflow
 
