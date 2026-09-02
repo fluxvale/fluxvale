@@ -28,6 +28,7 @@ permissions:
 # Strict installs (AGENTS.md): fail if mise.lock is missing entries.
 env:
   MISE_LOCKED: "1"
+  MISE_VERBOSE: "1"
 
 jobs:
   ci:
