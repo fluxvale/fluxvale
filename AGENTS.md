@@ -14,19 +14,11 @@ this file is only **how to work here**.
 - `mise install` — the toolchain is exact-pinned in `mise.toml` with a
   committed `mise.lock` (per-platform checksums). Tool bumps are deliberate,
   reviewable diffs; there is no floating "latest" in this repo.
-- Local Postgres is a Docker container:
-
-  ```sh
-  # first time (or after removing it) — loopback-only: a dev Postgres with
-  # known credentials must not be reachable from the network
-  docker run -d --name fluxvale-test-pg -e POSTGRES_USER=postgres \
-    -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=flux_vale_test \
-    -p 127.0.0.1:5432:5432 postgres:16-alpine
-  # every later session:
-  docker start fluxvale-test-pg
-  ```
-
-  `mix setup` inside `apps/platform` creates `flux_vale_{dev,test}`.
+- Local database: any PostgreSQL 16+ (`min_pg_version`) reachable by the
+  app's standard config — `postgres`/`postgres` at `localhost:5432` by
+  default; override to taste. `mix setup` creates `flux_vale_{dev,test}`
+  and the test alias creates the test DB on demand. How you actually run
+  Postgres on your machine is your business — it is not prescribed here.
 - No Node in `apps/platform` (tailwind/esbuild are Hex binaries); Node is for
   `apps/e2e` only.
 
