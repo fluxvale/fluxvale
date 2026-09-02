@@ -66,6 +66,12 @@ this file is only **how to work here**.
 
 The maintainer is the final gate, not the first reviewer.
 
+**Verify what a commit/PR actually contains before pushing or merging** —
+`git show --stat` / `gh pr diff --name-only` — not just its review status.
+A root-level `git add -A` is dangerous on branches where app-level
+`.gitignore` files are absent: #15 shipped 363k lines of `node_modules/`
+to `main` that way, past a ⚪ Minimal review verdict.
+
 ## PR workflow
 
 - Conventional-commit **PR titles** — squash-merge makes the title the
