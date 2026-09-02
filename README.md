@@ -15,9 +15,12 @@ contributing (humans and agents) are in [`AGENTS.md`](AGENTS.md).
 ```text
 apps/platform    # the Phoenix 1.8 + Ash app — one OTP release (:flux_vale)
 apps/e2e         # Playwright suite (grows from M3)
-deploy/local/    # local production-parity stack (k3d + Tilt, [ADR-0020](docs/adr/00020-local-dev-parity.md))
+deploy/local/    # local production-parity stack (k3d + Tilt; ADR-0020)
 docs/            # decisions home — read before proposing changes
 ```
+
+(`deploy/local/` implements [ADR-0020](docs/adr/00020-local-dev-parity.md) —
+links can't live inside the fence, so the reference lives here.)
 
 ## Local development
 

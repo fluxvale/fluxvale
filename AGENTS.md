@@ -111,6 +111,10 @@ lesson paid for).
   read `pass` (the required CodeRabbit check included) before pinging the
   maintainer — resolved threads are conversation state; the check is the
   gate. (`grep -c pass` and friends print numbers, not truth.)
+- Then verify **quiescence**: CodeRabbit's analysis comments land
+  asynchronously *after* the check flips green (#19 got a new finding
+  minutes after "Review completed"). Re-check threads/comments after a
+  settling window (a few minutes); only an unchanged state is "ready".
 - If the bot cannot resolve a thread, resolve it manually (GraphQL
   `resolveReviewThread`).
 - Pre-empt predictable findings in the PR body (deliberate test gaps, pin
