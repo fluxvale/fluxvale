@@ -107,6 +107,10 @@ lesson paid for).
 - Verify every finding against ground truth before acting: adopt if real,
   rebut with evidence (the commands you ran) if not. Both outcomes are
   normal here.
+- Verify green as **states, not counts**: every row of `gh pr checks` must
+  read `pass` (the required CodeRabbit check included) before pinging the
+  maintainer — resolved threads are conversation state; the check is the
+  gate. (`grep -c pass` and friends print numbers, not truth.)
 - If the bot cannot resolve a thread, resolve it manually (GraphQL
   `resolveReviewThread`).
 - Pre-empt predictable findings in the PR body (deliberate test gaps, pin
