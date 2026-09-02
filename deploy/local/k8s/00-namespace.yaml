@@ -1,0 +1,15 @@
+# Local dev cluster manifests (ADR-0020). These are the *app repo's* local
+# dev definitions; at M4 the fleet repo is born with the real base
+# manifests and these migrate to its `local/` overlay (ADR-0007 boundary).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fluxvale-dev
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fluxvale-platform
+  namespace: fluxvale-dev
+# In-cluster k8s client config (ADR-0020 parity ledger). RBAC grows with
+# the client's actual needs at M3 — nothing over-granted speculatively.

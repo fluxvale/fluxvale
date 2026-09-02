@@ -1,0 +1,37 @@
+# Dev image for the local k3d/Tilt stack (ADR-0020) — runs `mix phx.server`,
+# NOT a release: that delta is exactly what staging verifies later.
+#
+# The full base-image tag arrives as a build-arg from the Tiltfile, which
+# also asserts it matches mise.toml's BEAM pins (single source of truth —
+# hexpm appends rebuild suffixes like `erlang-28.5.0.6`, so the tag can't
+# be composed from mise.toml alone; the assertion catches drift instead).
+# Base is precompiled — no OTP source compile.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+# git: mix fetches heroicons/daisyui as git deps
+RUN apk add --no-cache git
+
+WORKDIR /app
+
+ENV MIX_ENV=dev
+
+# Deps layer: cached unless the lockfile changes
+COPY mix.exs mix.lock ./
+RUN mix deps.get
+
+# Compile deps without the app (app source syncs in via live_update)
+RUN mix deps.compile
+
+# App source — the layer live_update replaces
+COPY lib lib
+COPY priv priv
+COPY assets assets
+COPY config config
+
+# esbuild/tailwind binaries + initial asset build (Hex-managed, no Node)
+RUN mix assets.setup && mix assets.build
+
+EXPOSE 4000
+
+CMD ["mix", "phx.server"]

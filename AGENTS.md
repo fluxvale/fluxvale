@@ -34,6 +34,17 @@ this file is only **how to work here**.
 - PRs open with `Closes #N` so intent and change stay linked (and CodeRabbit's
   linked-issues check verifies it).
 
+## Local stack (k3d + Tilt, ADR-0020)
+
+```sh
+k3d cluster create --config deploy/local/k3d.yaml   # once; also creates the registry
+tilt up                                              # from the repo root; UI at localhost:10350
+curl -sk https://app.fluxvale.lvh.me/health          # through Traefik, self-signed
+```
+
+Use `tilt up`, not `tilt ci` (batch mode wedged on-machine; see ADR-0020
+Am. 1). Images push to the k3d local registry — never docker.io.
+
 ## The gate
 
 - `cd apps/platform && mix ci` before every PR — one command, the same one

@@ -1,7 +1,6 @@
 # ADR-00020: Local development — production parity via k3d + Tilt + CNPG + a local overlay
 
-**Status**: Proposed (until validated on-machine; accept when the inner loop
-feels right)
+**Status**: Accepted (Amendment 1 — validated on-machine 2026-09-02; see below)
 **Date**: 2026-08-27
 
 **Context**: local dev must run the app **inside a local Kubernetes cluster**
@@ -55,3 +54,36 @@ over k3d/Tilt, written only after the pain is real.
 **Acceptance criteria**: full stack up with one command; edit → synced
 reload in single-digit seconds; `fluxvale-app-*` instances deployable
 end-to-end locally through the same manifests prod uses.
+
+## Amendment 1 (2026-09-02): validated on-machine — Accepted
+
+The M1 implementation (#7) validated the decision end-to-end on real
+hardware: k3d (Traefik bundled-chart disabled, 80/443 via loadbalancer),
+CNPG operator 0.29.0 + Cluster CR, Traefik 41.4.0 chart with self-signed
+TLS, dev image running `mix phx.server` with init-container migrations.
+Measured: healthy app at `https://app.fluxvale.lvh.me` through the full
+Traefik → Service → probe-gated chain; source edit → served response in
+**61ms** (Phoenix code reloader recompile included — live_update's file
+sync rides on this); CNPG force-kill → `/health/ready` flipped 503 while
+`/health` stayed 200, traffic restored in ~6s. Acceptance criteria met
+minus `fluxvale-app-*` instances (M3 scope, same manifests path).
+
+Operational notes discovered during validation (recorded so they aren't
+re-learned):
+
+- **k3d needs its local registry** (`registries.create` in k3d.yaml) —
+  Tilt pushes dev images there; nothing touches docker.io. Nodes address
+  it as `fluxvale-registry:5000` (docker network name), the host as
+  `127.0.0.1:5000`.
+- **CRDs race static applies**: the CNPG `Cluster` CR and Traefik's
+  `IngressRoute` must apply via runtime custom deploys ordered after
+  their operator/chart — Tilt's static `k8s_yaml` pass otherwise drops
+  or fails them.
+- **`tilt ci` wedged on this machine** (charts deploy, then the scheduler
+  never starts dependents); `tilt up` — the intended dev-loop vehicle —
+  works. Batch validation is manual today.
+- **The dev image must bind 0.0.0.0** (`PHX_SERVER` set in-container):
+  k8s probes and Service routing hit the pod IP, while host dev keeps
+  127.0.0.1.
+- helm 4 quirks with Tilt: `--repo` wants unprefixed chart names, and
+  custom-deploy stdout must be `-o yaml` (or discarded) for Tilt's parser.
