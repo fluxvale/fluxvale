@@ -59,6 +59,9 @@ defmodule FluxVale.Identity.User do
   attributes do
     uuid_primary_key(:id)
 
+    create_timestamp(:created_at)
+    update_timestamp(:updated_at)
+
     # public? from day one — the API surface is deliberate design, not an
     # afterthought of the LiveView UI (ADR-0019 §1; /api/me arrives in #24)
     attribute :email, :ci_string do
