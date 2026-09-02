@@ -10,9 +10,10 @@
 # (prod runs the OTP release — that delta is what staging verifies),
 # self-signed TLS, no Cloudflare edge, no backups.
 #
-# At M4 the fleet repo is born with the real base manifests and the local
-# overlay pattern moves there (ADR-0007) — this file then shrinks to the
-# dev-loop conveniences.
+# At M4 the fleet repo is born with the staging/prod base manifests. The
+# LOCAL manifests deliberately stay here — duplication accepted so
+# public-repo contributors can run the full dev stack without
+# private-repo access (ADR-0020 Am. 2).
 
 allow_k8s_contexts('k3d-fluxvale')
 

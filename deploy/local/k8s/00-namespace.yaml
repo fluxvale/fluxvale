@@ -1,6 +1,8 @@
-# Local dev cluster manifests (ADR-0020). These are the *app repo's* local
-# dev definitions; at M4 the fleet repo is born with the real base
-# manifests and these migrate to its `local/` overlay (ADR-0007 boundary).
+# Local dev cluster manifests (ADR-0020). These STAY in the public app
+# repo permanently (ADR-0020 Am. 2): the fleet repo (M4) carries its own
+# staging/production base manifests, and the duplication is accepted so
+# public-repo contributors can run the full production-parity dev stack
+# without private-repo access.
 apiVersion: v1
 kind: Namespace
 metadata:

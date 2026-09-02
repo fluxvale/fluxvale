@@ -87,3 +87,25 @@ re-learned):
   127.0.0.1.
 - helm 4 quirks with Tilt: `--repo` wants unprefixed chart names, and
   custom-deploy stdout must be `-o yaml` (or discarded) for Tilt's parser.
+
+## Amendment 2 (2026-09-02): local manifests stay in the public app repo
+
+The original overlay plan (fleet repo base manifests + `local/` overlay
+alongside `staging/`/`production/`) is amended: **the local manifests
+permanently live in the public app repo** (`deploy/local/`), and the
+fleet repo (M4) carries its own staging/production base manifests
+independently.
+
+Rationale: ADR-0018 made the app repo public (FSL-1.1) while the fleet
+repo is private — an outside contributor running the production-parity
+dev stack would hit a permissions wall at `tilt up` if the local overlay
+lived only in the fleet repo. Duplication between `deploy/local/` and
+the fleet base manifests is the accepted cost; the fleet repo is where
+"if it runs on the cluster, it lives in the fleet repo" (ADR-0007)
+applies, and the app repo's copies exist specifically so the dev
+environment works from a public clone alone.
+
+Drift is the known risk to watch: when the fleet base manifests change
+shape (probes, env, init containers), `deploy/local/` must follow.
+Worth a fleet-repo CI cross-check or review checklist item once both
+exist.
