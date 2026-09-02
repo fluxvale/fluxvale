@@ -53,6 +53,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Debug mise resolution
+        run: |
+          pwd && ls -la
+          sha256sum mise.lock
+          mise --version || true
+          env | grep -E '^MISE_' | sed 's/TOKEN=.*/TOKEN=***/' || true
+
       # Only the BEAM pair is needed here (AGENTS.md: no Node in platform);
       # versions + checksums come from the committed mise.lock. mise itself
       # is pinned: locked-mode behavior is mise-version-dependent — 2026.9.0
