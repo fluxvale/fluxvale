@@ -1,0 +1,72 @@
+# Platform CI (issue #8): path-filtered, mise-locked toolchain, one gate.
+# Runs exactly what local dev runs — `mix ci` (AGENTS.md: local and CI
+# gates must never drift). E2E joins from M3 (ADR-0024), not before.
+name: platform
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/platform/**"
+      - "mise.toml"
+      - "mise.lock"
+      - ".github/workflows/platform.yml"
+  pull_request:
+    paths:
+      - "apps/platform/**"
+      - "mise.toml"
+      - "mise.lock"
+      - ".github/workflows/platform.yml"
+
+concurrency:
+  group: platform-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# Strict installs (AGENTS.md): fail if mise.lock is missing entries.
+env:
+  MISE_LOCKED: "1"
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: flux_vale_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: apps/platform
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only the BEAM pair is needed here (AGENTS.md: no Node in platform);
+      # versions + checksums come from the committed mise.lock
+      - uses: jdx/mise-action@v2
+        with:
+          install_args: "erlang elixir"
+
+      - name: Cache deps and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            apps/platform/deps
+            apps/platform/_build
+          key: mix-${{ runner.os }}-${{ hashFiles('apps/platform/mix.lock') }}
+          restore-keys: mix-${{ runner.os }}-
+
+      - run: mix deps.get
+
+      - run: mix ci
