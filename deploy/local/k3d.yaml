@@ -1,0 +1,32 @@
+# k3d cluster for local dev (ADR-0020). One command up/down:
+#   k3d cluster create --config deploy/local/k3d.yaml
+#   k3d cluster delete fluxvale
+# 80/443 are port-mapped through the loadbalancer so *.fluxvale.lvh.me
+# (wildcard DNS → 127.0.0.1) routes through Traefik like prod.
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: fluxvale
+servers: 1
+ports:
+  - port: "80:80"
+    nodeFilters:
+      - loadbalancer
+  - port: "443:443"
+    nodeFilters:
+      - loadbalancer
+options:
+  k3s:
+    extraArgs:
+      # ADR-0020: Traefik is a chart in BOTH environments — nothing k3s-bundled
+      - arg: --disable=traefik
+        nodeFilters:
+          - server:*
+# Local registry: Tilt pushes dev images here and the nodes pull from it
+# (no docker.io, no auth). Loopback-only host binding.
+registries:
+  create:
+    name: fluxvale-registry
+    host: "127.0.0.1"
+    hostPort: "5000"
+

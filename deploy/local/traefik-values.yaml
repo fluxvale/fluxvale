@@ -1,0 +1,10 @@
+# Traefik values for the local cluster (ADR-0020: chart in both envs).
+# 80/443 terminate on the k3d loadbalancer's port maps; 443 serves the
+# chart's default self-signed cert (stands in for Let's Encrypt DNS-01).
+deployment:
+  replicas: 1
+service:
+  type: LoadBalancer
+ingressClass:
+  enabled: true
+  isDefaultClass: true

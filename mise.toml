@@ -29,3 +29,4 @@ tilt = "0.37.7"
 # Pin the k3s image in the checked-in k3d config when it lands, and bump
 # this alongside it.
 kubectl = "1.36.4"
+helm = "4.2.4" # charts in both envs (ADR-0020) — CNPG operator + Traefik via k8s_custom_deploy

@@ -1,0 +1,23 @@
+# CNPG cluster — same operator + Cluster CR shape as prod, smaller.
+# WAL-G/backup skipped locally (ADR-0020 parity ledger).
+#
+# Applied via k8s_custom_deploy (not k8s_yaml): Tilt statically parses
+# k8s_yaml before the operator's CRD exists and silently drops the CR.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: fluxvale-cnpg
+  namespace: fluxvale-dev
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:16 # rolling major tag — CNPG publishes no versioned 16 tags for the 1.30 operator line
+  storage:
+    size: 2Gi
+  bootstrap:
+    initdb:
+      database: flux_vale
+      owner: flux_vale
+      # generated secret the app consumes: fluxvale-cnpg-app (username/password)
+  postgresql:
+    parameters:
+      shared_buffers: 256MB
