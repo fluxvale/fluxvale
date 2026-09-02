@@ -53,6 +53,23 @@ this file is only **how to work here**.
 - credo is exact-pinned: a linter upgrade changes the findings set, so bumps
   are deliberate, never a side effect of `deps.update`.
 
+## PR lifecycle (the loop)
+
+1. Branch → implement → `mix ci` green → push → open PR (`Closes #N`) →
+   card → `In Review`.
+2. **Wait for CodeRabbit's verdict before involving the maintainer.** The
+   bot reviews after the PR opens — poll it, address every finding (adopt,
+   or rebut with evidence, in-thread), and resolve all threads (manually
+   via GraphQL if the bot can't). Branch protection on `main` requires
+   CodeRabbit resolution anyway — the PR must be clean before it's worth a
+   human's attention.
+3. Once CI exists (#8): also require all GitHub Actions checks green
+   before asking for review.
+4. Only then ask the maintainer for feedback/merge. On approval: squash
+   merge, delete branch, sync `main`, card → `Done`.
+
+The maintainer is the final gate, not the first reviewer.
+
 ## PR workflow
 
 - Conventional-commit **PR titles** — squash-merge makes the title the
