@@ -57,7 +57,10 @@ defmodule FluxVale.Identity.User do
   end
 
   attributes do
-    uuid_primary_key(:id)
+    # ADR-0032: UUIDv7 — time-ordered for index locality + keyset cursors;
+    # ordering is approximate, never a contract. NB: the explicit default is
+    # required — uuid_primary_key's built-in default still generates v4.
+    uuid_primary_key(:id, type: :uuid_v7, default: &Ash.UUIDv7.generate/0)
 
     create_timestamp(:created_at)
     update_timestamp(:updated_at)

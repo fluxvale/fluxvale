@@ -15,6 +15,15 @@ defmodule FluxVale.Identity.UserTest do
   end
 
   describe "create/1" do
+    test "mints UUIDv7 ids in creation order (ADR-0032)" do
+      first = User.create!("a@fluxvale.com", %{}, authorize?: false)
+      second = User.create!("b@fluxvale.com", %{}, authorize?: false)
+
+      # Monotonic within a process; version nibble is byte 15 of the string
+      assert v7?(first.id) and v7?(second.id)
+      assert first.id < second.id
+    end
+
     test "defaults platform_role to :user and stores email case-insensitively" do
       user = User.create!("someone@fluxvale.com", %{}, authorize?: false)
 
@@ -62,5 +71,11 @@ defmodule FluxVale.Identity.UserTest do
 
       assert found.id == created.id
     end
+  end
+
+  # Version nibble: first hex char of the third UUID group (byte 15, 0-indexed 14)
+  defp v7?(id) do
+    <<_::binary-size(14), version, _::binary>> = to_string(id)
+    version == ?7
   end
 end
