@@ -15,5 +15,9 @@ test("health endpoints report ok with a build version", async ({ request }) => {
 
   const ready = await request.get("/health/ready");
   expect(ready.status()).toBe(200);
-  expect((await ready.json()).status).toBe("ok");
+
+  const readyBody = await ready.json();
+  expect(readyBody.status).toBe("ok");
+  expect(typeof readyBody.version).toBe("string");
+  expect(readyBody.version.length).toBeGreaterThan(0);
 });
