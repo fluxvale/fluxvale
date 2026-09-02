@@ -38,7 +38,12 @@ this file is only **how to work here**.
 
 - `cd apps/platform && mix ci` before every PR — one command, the same one
   CI runs. If it doesn't pass locally, it doesn't get a PR.
-- CI (when it exists) uses `MISE_LOCKED=1 mise install`. Do **not** set
+- CI installs the BEAM via `erlef/setup-beam` (v1's proven pattern), with
+  versions **parsed from `mise.toml`** — the single source of truth, so CI
+  and local dev cannot drift. (`MISE_LOCKED=1` + mise-action was tried and
+  abandoned: identical lockfile + mise version failed on runners while
+  succeeding locally, and linux erlang would compile from source — 15+ min
+  per cache miss — where setup-beam is precompiled.) Do **not** set
   `locked = true` in project mise config: it applies to every config in
   scope and breaks teammates' global tools, which can't be in this repo's
   lockfile.
