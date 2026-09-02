@@ -8,6 +8,29 @@ import Config
 
 # Build identity for /health — injected at image-build time (docs/deployment.md)
 config :flux_vale, build_sha: System.get_env("BUILD_SHA")
+
+# Repo connection: DATABASE_URL wins; otherwise discrete DB_* vars compose
+# it (the in-cluster shape — Kubernetes can't template a URL from Secret
+# refs, so the Deployment passes DB_USER/DB_PASSWORD via secretKeyRef).
+database_url =
+  System.get_env("DATABASE_URL") ||
+    if host = System.get_env("DB_HOST") do
+      user = System.get_env("DB_USER") || raise "DB_USER required when DB_HOST is set"
+      password = System.get_env("DB_PASSWORD") || ""
+      name = System.get_env("DB_NAME") || "flux_vale"
+      port = System.get_env("DB_PORT") || "5432"
+
+      encode = fn value -> URI.encode(value, &URI.char_unreserved?/1) end
+      "ecto://#{encode.(user)}:#{encode.(password)}@#{host}:#{port}/#{name}"
+    end
+
+# In-cluster dev container (k3d/Tilt, ADR-0020) — discrete vars present:
+# override config/dev.exs's localhost defaults. Plain `mix phx.server` on
+# the host (no DB_HOST) keeps those defaults.
+if config_env() == :dev and database_url do
+  config :flux_vale, FluxVale.Repo, url: database_url
+end
+
 # The block below contains prod specific runtime configuration.
 
 # ## Using releases
@@ -24,7 +47,13 @@ if System.get_env("PHX_SERVER") do
 end
 
 config :flux_vale, FluxValeWeb.Endpoint,
-  http: [port: String.to_integer(System.get_env("PORT", "4000"))]
+  # In containers (PHX_SERVER set) bind all interfaces — k8s probes and
+  # Service routing hit the pod IP, not loopback. Host `mix phx.server`
+  # (no PHX_SERVER) keeps config/dev.exs's 127.0.0.1.
+  http: [
+    ip: if(System.get_env("PHX_SERVER"), do: {0, 0, 0, 0}, else: {127, 0, 0, 1}),
+    port: String.to_integer(System.get_env("PORT", "4000"))
+  ]
 
 if config_env() == :dev do
   # Reload browser tabs when matching files change.
@@ -45,7 +74,7 @@ end
 
 if config_env() == :prod do
   database_url =
-    System.get_env("DATABASE_URL") ||
+    database_url ||
       raise """
       environment variable DATABASE_URL is missing.
       For example: ecto://USER:PASS@HOST/DATABASE

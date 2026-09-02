@@ -5,6 +5,19 @@ conventions live in [`apps/platform/AGENTS.md`](apps/platform/AGENTS.md) —
 the nearest file wins. Everything **why** lives in [`docs/`](docs/README.md);
 this file is only **how to work here**.
 
+## Writing conventions
+
+- **Link ADR references wherever markdown renders** — docs, README,
+  AGENTS.md, PR bodies: `[ADR-NNNN](docs/adr/<file>.md)` with a relative
+  path, verified to exist (mind the filename quirks — most are five-digit,
+  ADR-0031 is `0031-build-order.md`). IDE go-to-file then works on every
+  decision reference.
+- Where links **can't** render — fenced code blocks, comments in
+  Tiltfile/YAML — keep plain text and put the linked reference adjacent
+  (the README layout fence does exactly this).
+- Plain `ADR-NNNN` in commit messages is fine: relative links don't
+  resolve usefully there.
+
 ## Before anything
 
 - Read [`docs/README.md`](docs/README.md) and the ADRs relevant to your
@@ -25,7 +38,7 @@ this file is only **how to work here**.
 ## Planning: docs and issues together
 
 - Plan work as GitHub issues whose bodies reference the `docs/`+ADRs that
-  decided it. Milestones mirror the ADR-0031 ladder (M1–M7).
+  decided it. Milestones mirror the [ADR-0031](docs/adr/0031-build-order.md) ladder (M1–M7).
 - Before implementing, settle design decisions **on the issue** (see #4's
   two-route probe design) — the issue is where intent gets reviewed before
   code exists.
@@ -33,6 +46,17 @@ this file is only **how to work here**.
   when it starts. No speculative backlog.
 - PRs open with `Closes #N` so intent and change stay linked (and CodeRabbit's
   linked-issues check verifies it).
+
+## Local stack (k3d + Tilt, [ADR-0020](docs/adr/00020-local-dev-parity.md))
+
+```sh
+k3d cluster create --config deploy/local/k3d.yaml   # once; also creates the registry
+tilt up                                              # from the repo root; UI at localhost:10350
+curl -sk https://app.fluxvale.lvh.me/health          # through Traefik, self-signed
+```
+
+Use `tilt up`, not `tilt ci` (batch mode wedged on-machine; see [ADR-0020](docs/adr/00020-local-dev-parity.md)
+Am. 1). Images push to the k3d local registry — never docker.io.
 
 ## The gate
 
@@ -96,6 +120,14 @@ lesson paid for).
 - Verify every finding against ground truth before acting: adopt if real,
   rebut with evidence (the commands you ran) if not. Both outcomes are
   normal here.
+- Verify green as **states, not counts**: every row of `gh pr checks` must
+  read `pass` (the required CodeRabbit check included) before pinging the
+  maintainer — resolved threads are conversation state; the check is the
+  gate. (`grep -c pass` and friends print numbers, not truth.)
+- Then verify **quiescence**: CodeRabbit's analysis comments land
+  asynchronously *after* the check flips green (#19 got a new finding
+  minutes after "Review completed"). Re-check threads/comments after a
+  settling window (a few minutes); only an unchanged state is "ready".
 - If the bot cannot resolve a thread, resolve it manually (GraphQL
   `resolveReviewThread`).
 - Pre-empt predictable findings in the PR body (deliberate test gaps, pin

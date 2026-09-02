@@ -1,0 +1,105 @@
+# The platform app in the local cluster (ADR-0020).
+#
+# Parity ledger vs prod: in-cluster ServiceAccount for the future k8s
+# client, migrations as an init-container, env-var shape, probes wired to
+# the two-route health contract (#4): liveness /health (dependency-free),
+# readiness /health/ready (gates traffic via the Service endpoints).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fluxvale-platform
+  namespace: fluxvale-dev
+  labels:
+    app: fluxvale-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fluxvale-platform
+  template:
+    metadata:
+      labels:
+        app: fluxvale-platform
+    spec:
+      serviceAccountName: fluxvale-platform
+      initContainers:
+        # Migrations run before the app container starts (ADR-0020) —
+        # crash-loops here (e.g. CNPG not ready yet) delay boot, never
+        # serve half-migrated.
+        - name: migrate
+          image: fluxvale/platform-dev
+          workingDir: /app
+          command: ["mix", "ash.migrate"]
+          env: &app-env
+            - name: MIX_ENV
+              value: dev
+            - name: BUILD_SHA
+              value: "" # /health reports "dev" locally
+            - name: PHX_SERVER
+              value: "true"
+            - name: PHX_HOST
+              value: app.fluxvale.lvh.me
+            - name: SECRET_KEY_BASE
+              # local-only static value (ADR-0020: deliberately differs from
+              # prod — secrets arrive with the BWS operator at M4)
+              value: local-dev-only-not-a-secret-00000000000000000000
+            - name: DB_HOST
+              value: fluxvale-cnpg-rw.fluxvale-dev.svc.cluster.local
+            - name: DB_NAME
+              value: flux_vale
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: fluxvale-cnpg-app
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fluxvale-cnpg-app
+                  key: password
+      containers:
+        - name: platform
+          image: fluxvale/platform-dev
+          ports:
+            - containerPort: 4000
+          env: *app-env
+          # Boot-complete gate (#4 wiring): suppresses liveness/readiness
+          # until the first boot finishes, so a slow cold start (in-container
+          # app compile, M4's release image) can't trigger restart loops.
+          # Deliberately /health, NOT /health/ready — a DB outage at boot
+          # must leave the pod quietly NotReady, not wedged in Starting
+          # (that conflation is what the two-route contract prevents).
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            periodSeconds: 5
+            failureThreshold: 30 # ~150s boot budget — mechanism, not delay-guessing
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 4000
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fluxvale-platform
+  namespace: fluxvale-dev
+spec:
+  selector:
+    app: fluxvale-platform
+  ports:
+    - port: 4000
+      targetPort: 4000
