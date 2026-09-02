@@ -12,7 +12,7 @@ contributing (humans and agents) are in [`AGENTS.md`](AGENTS.md).
 
 ## Repo layout
 
-```
+```text
 apps/platform    # the Phoenix 1.8 + Ash app — one OTP release (:flux_vale)
 apps/e2e         # Playwright suite (grows from M3)
 deploy/local/    # local production-parity stack (k3d + Tilt, [ADR-0020](docs/adr/00020-local-dev-parity.md))
