@@ -15,7 +15,8 @@ defmodule FluxVale.Application do
       # Start a worker by calling: FluxVale.Worker.start_link(arg)
       # {FluxVale.Worker, arg},
       # Start to serve requests, typically the last entry
-      FluxValeWeb.Endpoint
+      FluxValeWeb.Endpoint,
+      {AshAuthentication.Supervisor, [otp_app: :flux_vale]}
     ]
 
     # See https://elixir.hexdocs.pm/Supervisor.html

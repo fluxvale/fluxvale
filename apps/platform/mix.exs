@@ -40,6 +40,8 @@ defmodule FluxVale.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:picosat_elixir, "~> 0.2"},
+      {:ash_authentication, "~> 4.0"},
       # Exact pin: a linter upgrade changes the findings set — bump deliberately,
       # not as a side effect of a broad deps.update (#5)
       {:credo, "1.7.19", only: [:dev, :test], runtime: false},
