@@ -72,7 +72,8 @@ jobs:
 
       - name: Setup BEAM
         id: setup-beam
-        uses: erlef/setup-beam@v1
+        # v1 — pinned to commit: the v1 tag is mutable (review finding)
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124
         with:
           elixir-version: ${{ steps.beam.outputs.elixir }}
           otp-version: ${{ steps.beam.outputs.otp }}
