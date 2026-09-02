@@ -5,6 +5,19 @@ conventions live in [`apps/platform/AGENTS.md`](apps/platform/AGENTS.md) —
 the nearest file wins. Everything **why** lives in [`docs/`](docs/README.md);
 this file is only **how to work here**.
 
+## Writing conventions
+
+- **Link ADR references wherever markdown renders** — docs, README,
+  AGENTS.md, PR bodies: `[ADR-NNNN](docs/adr/<file>.md)` with a relative
+  path, verified to exist (mind the filename quirks — most are five-digit,
+  ADR-0031 is `0031-build-order.md`). IDE go-to-file then works on every
+  decision reference.
+- Where links **can't** render — fenced code blocks, comments in
+  Tiltfile/YAML — keep plain text and put the linked reference adjacent
+  (the README layout fence does exactly this).
+- Plain `ADR-NNNN` in commit messages is fine: relative links don't
+  resolve usefully there.
+
 ## Before anything
 
 - Read [`docs/README.md`](docs/README.md) and the ADRs relevant to your
