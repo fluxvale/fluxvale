@@ -59,6 +59,15 @@ jobs:
           sha256sum mise.lock
           mise --version || true
           env | grep -E '^MISE_' | sed 's/TOKEN=.*/TOKEN=***/' || true
+      - name: Debug mise locked resolution from workspace root
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          sha256sum mise.lock && wc -l mise.lock
+          mise doctor 2>&1 | head -30 || true
+          echo "== kubectl (aqua backend) locked install:"
+          MISE_DATA_DIR=/tmp/md-k MISE_LOCKED=1 mise install kubectl && echo KUBECTL_OK || echo KUBECTL_FAIL
+          echo "== erlang (core backend) locked resolution:"
+          MISE_DATA_DIR=/tmp/md-e MISE_LOCKED=1 mise install erlang 2>&1 | head -8 || true
 
       # Only the BEAM pair is needed here (AGENTS.md: no Node in platform);
       # versions + checksums come from the committed mise.lock. mise itself
