@@ -25,7 +25,7 @@ this file is only **how to work here**.
 ## Planning: docs and issues together
 
 - Plan work as GitHub issues whose bodies reference the `docs/`+ADRs that
-  decided it. Milestones mirror the ADR-0031 ladder (M1–M7).
+  decided it. Milestones mirror the [ADR-0031](docs/adr/0031-build-order.md) ladder (M1–M7).
 - Before implementing, settle design decisions **on the issue** (see #4's
   two-route probe design) — the issue is where intent gets reviewed before
   code exists.
@@ -34,7 +34,7 @@ this file is only **how to work here**.
 - PRs open with `Closes #N` so intent and change stay linked (and CodeRabbit's
   linked-issues check verifies it).
 
-## Local stack (k3d + Tilt, ADR-0020)
+## Local stack (k3d + Tilt, [ADR-0020](docs/adr/00020-local-dev-parity.md))
 
 ```sh
 k3d cluster create --config deploy/local/k3d.yaml   # once; also creates the registry
@@ -42,7 +42,7 @@ tilt up                                              # from the repo root; UI at
 curl -sk https://app.fluxvale.lvh.me/health          # through Traefik, self-signed
 ```
 
-Use `tilt up`, not `tilt ci` (batch mode wedged on-machine; see ADR-0020
+Use `tilt up`, not `tilt ci` (batch mode wedged on-machine; see [ADR-0020](docs/adr/00020-local-dev-parity.md)
 Am. 1). Images push to the k3d local registry — never docker.io.
 
 ## The gate

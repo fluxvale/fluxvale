@@ -15,7 +15,7 @@ contributing (humans and agents) are in [`AGENTS.md`](AGENTS.md).
 ```
 apps/platform    # the Phoenix 1.8 + Ash app — one OTP release (:flux_vale)
 apps/e2e         # Playwright suite (grows from M3)
-deploy/local/    # local production-parity stack (k3d + Tilt, ADR-0020)
+deploy/local/    # local production-parity stack (k3d + Tilt, [ADR-0020](docs/adr/00020-local-dev-parity.md))
 docs/            # decisions home — read before proposing changes
 ```
 
@@ -38,7 +38,7 @@ mix test        # or: mix ci — the full gate (format, deps, warnings, credo, t
 mix phx.server  # http://localhost:4000
 ```
 
-**Production-parity dev** (ADR-0020: the app runs inside a local k8s
+**Production-parity dev** ([ADR-0020](docs/adr/00020-local-dev-parity.md): the app runs inside a local k8s
 cluster — CNPG, Traefik, real probes — because v1 taught us dev/prod drift
 hurts):
 
