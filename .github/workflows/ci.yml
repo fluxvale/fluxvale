@@ -1,36 +1,50 @@
-# Platform CI (issue #8). Structure salvaged from v1's platform-ci.yml
-# (fluxvale_old) — the proven parts: erlef/setup-beam (precompiled BEAM —
-# no OTP source compile), deps/_build caches keyed on the *resolved*
-# versions (major-only keys restore binary-incompatible builds after
-# runner patch bumps — v1 lesson), Postgres service matching test config.
-# v2 differences: BEAM versions are read from mise.toml (single source of
-# truth — no drift with local dev), and the gate is one command, `mix ci`,
-# exactly what local runs (AGENTS.md: the two must never drift).
-# E2E joins from M3 (ADR-0024); dialyzer/coverage when earned.
-name: platform
+# Monorepo CI (v1 pattern, salvaged): ONE workflow with no path filters,
+# a changes job (dorny/paths-filter), per-app jobs gated on its outputs,
+# and the umbrella "Wait for CI" job that ALWAYS runs. Branch protection
+# requires "Wait for CI" — the only check guaranteed present on every PR,
+# so path-skipped apps can never leave a required check pending forever.
+# Per-app jobs join here as apps grow (e2e: M3; cli: later).
+name: CI
 
 on:
+  pull_request:
   push:
     branches: [main]
-    paths:
-      - "apps/platform/**"
-      - "mise.toml"
-      - ".github/workflows/platform.yml"
-  pull_request:
-    paths:
-      - "apps/platform/**"
-      - "mise.toml"
-      - ".github/workflows/platform.yml"
 
 concurrency:
-  group: platform-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  ci:
+  check-changes:
+    name: Check for changes
+    runs-on: ubuntu-latest
+    outputs:
+      platform: ${{ steps.filter.outputs.platform }}
+    steps:
+      # persist-credentials: false — later steps run no git-authenticated ops
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # v3 — pinned to commit: mutable tags execute unreviewed code
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad
+        id: filter
+        with:
+          filters: |
+            platform:
+              - "apps/platform/**"
+              - "mise.toml"
+              - ".github/workflows/ci.yml"
+
+  platform:
+    name: Platform CI
+    needs: check-changes
+    if: needs.check-changes.outputs.platform == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -70,9 +84,9 @@ jobs:
           echo "otp=$otp" >>"$GITHUB_OUTPUT"
           echo "elixir=$elixir" >>"$GITHUB_OUTPUT"
 
+      # v1 — pinned to commit: the v1 tag is mutable
       - name: Setup BEAM
         id: setup-beam
-        # v1 — pinned to commit: the v1 tag is mutable (review finding)
         uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124
         with:
           elixir-version: ${{ steps.beam.outputs.elixir }}
@@ -94,3 +108,20 @@ jobs:
       - run: mix deps.get
 
       - run: mix ci
+
+  # The umbrella: branch protection requires THIS check. Runs regardless
+  # of path gating; passes when every gated job succeeded or was skipped.
+  wait-for-ci:
+    name: Wait for CI
+    needs: [platform]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all jobs passed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -e 'to_entries | map("\(.key): \(.value.result)") | .[]' >&2
+          echo "$NEEDS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' >/dev/null \
+            && echo "All CI checks passed or were not needed" \
+            || { echo "One or more CI jobs failed or were cancelled"; exit 1; }
