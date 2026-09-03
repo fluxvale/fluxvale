@@ -26,6 +26,15 @@ This is a web application written using the Phoenix web framework.
   `on_exit` (see `stub_build_sha/1` in the health controller tests). No
   test-only backdoors. ExUnit cannot simulate "DB down" — DBConnection
   reconnects by design — so outages are validated at the cluster level.
+- **Test data goes through actions** — setup builds records via the
+  resource's actions (`authorize?: false` for preconditions, mirroring the
+  seeds bootstrap), so the suite fails loudly when the create contract
+  changes instead of drifting silently from real-world shapes. Escapes:
+  `Ash.seed!` only for states actions can't produce (e.g. already-expired
+  token rows for the #23 janitor tests) or bulk volume — each call
+  commented with which reason. Never `Repo.insert` raw resource structs.
+  Factories, if ever added, are plain functions in `test/support/fixtures.ex`
+  wrapping actions — they never bypass them.
 - Decisions accepted-with-rationale get a code comment naming the trigger
   that revisits them (see the Postgres TLS stance in `config/runtime.exs`).
 
