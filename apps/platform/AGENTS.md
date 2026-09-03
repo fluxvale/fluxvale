@@ -8,6 +8,11 @@ This is a web application written using the Phoenix web framework.
 - **Generators first** — phx.new/igniter/Ash installers for scaffolding.
   Hand-written glue stays minimal and carries a comment explaining why it
   exists (see the AshAdmin placeholder in the router).
+- **Domain layout**: `lib/flux_vale/contexts/<domain>.ex` with resources
+  under `contexts/<domain>/resources/` and shared type modules under
+  `contexts/<domain>/types/` (e.g. `FluxVale.Identity.Types.PlatformRole`) —
+  the `Types` namespace keeps non-resource modules from reading as
+  resources.
 - Health contract: `GET /health` = dependency-free liveness +
   `{status, version}` where `version` is `sha-<BUILD_SHA>` (the deploy
   pipeline greps it). `GET /health/ready` = DB readiness (`SELECT 1`) → 503

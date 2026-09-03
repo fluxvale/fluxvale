@@ -5,7 +5,7 @@ defmodule FluxVale.Identity.User do
   Accounts are JIT-provisioned on first successful code verification (#21 —
   the strategy creates users through the AshAuthenticationInteraction
   bypass). `platform_role` is the global staff axis; see
-  `FluxVale.Identity.PlatformRole` for why org roles never land here.
+  `FluxVale.Identity.Types.PlatformRole` for why org roles never land here.
   """
 
   use Ash.Resource,
@@ -54,6 +54,13 @@ defmodule FluxVale.Identity.User do
   postgres do
     table "users"
     repo FluxVale.Repo
+
+    # ADR-0032 §3: no DB-side id default — ids are Ash's job. ash_postgres
+    # would emit uuid_generate_v7() for the v7 type, which doesn't exist on
+    # PG16 (uuidv7 functions are PG18+); a v4 gen_random_uuid() backstop
+    # would silently mint mismatched ids. A non-Ash insert fails loudly
+    # instead (NOT NULL id) — the intended guardrail.
+    migration_defaults id: "nil"
   end
 
   attributes do
@@ -72,7 +79,7 @@ defmodule FluxVale.Identity.User do
       public?(true)
     end
 
-    attribute :platform_role, FluxVale.Identity.PlatformRole do
+    attribute :platform_role, FluxVale.Identity.Types.PlatformRole do
       allow_nil?(false)
       default(:user)
       public?(true)

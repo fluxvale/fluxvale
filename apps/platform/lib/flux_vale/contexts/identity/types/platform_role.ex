@@ -1,4 +1,4 @@
-defmodule FluxVale.Identity.PlatformRole do
+defmodule FluxVale.Identity.Types.PlatformRole do
   @moduledoc """
   Platform-scoped roles — FluxVale staff standing, global across the app.
 
