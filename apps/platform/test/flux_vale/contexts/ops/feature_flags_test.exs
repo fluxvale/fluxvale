@@ -27,7 +27,12 @@ defmodule FluxVale.Ops.FeatureFlagsTest do
   describe "enabled?/2 (the declare-gated edge)" do
     test "raises on undeclared keys — a typo'd flag is a code bug, not a closed flag" do
       assert_raise ArgumentError, ~r/undeclared feature flag :no_such_flag/, fn ->
-        FeatureFlags.enabled?(:no_such_flag, nil)
+        FeatureFlags.enabled?(:no_such_flag)
+      end
+
+      # …with an actor too (FunWithFlags signature, ADR-0023 Am. 4)
+      assert_raise ArgumentError, ~r/undeclared feature flag :no_such_flag/, fn ->
+        FeatureFlags.enabled?(:no_such_flag, for: nil)
       end
     end
 
@@ -38,7 +43,25 @@ defmodule FluxVale.Ops.FeatureFlagsTest do
       bad_key = Enum.at(["a_string_key"], 0)
 
       assert_raise FunctionClauseError, fn ->
-        FeatureFlags.enabled?(bad_key, nil)
+        FeatureFlags.enabled?(bad_key)
+      end
+    end
+  end
+
+  describe "enable/2 disable/2 (FunWithFlags-style verbs, Am. 4)" do
+    # Declare-gated like enabled?'s happy path, these return with the first
+    # real flag (M3+): create-on-enable, percentage set/preserve, disable
+    # keeps pct, non-admin actor forbidden (policy already covered in
+    # feature_flag_test.exs), and the `actor:`-required KeyError. The
+    # guard rail that exists today is the declare gate.
+
+    test "refuse undeclared keys — never mint a row no read can reach" do
+      assert_raise ArgumentError, ~r/undeclared feature flag :no_such_flag/, fn ->
+        FeatureFlags.enable(:no_such_flag, actor: nil)
+      end
+
+      assert_raise ArgumentError, ~r/undeclared feature flag :no_such_flag/, fn ->
+        FeatureFlags.disable(:no_such_flag, actor: nil)
       end
     end
   end
