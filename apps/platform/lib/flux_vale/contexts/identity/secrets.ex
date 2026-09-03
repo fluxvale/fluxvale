@@ -3,6 +3,7 @@ defmodule FluxVale.Identity.Secrets do
 
   use AshAuthentication.Secret
 
+  @spec secret_for(list(), module(), keyword(), map()) :: {:ok, term()} | :error
   def secret_for(
         [:authentication, :tokens, :signing_secret],
         FluxVale.Identity.User,

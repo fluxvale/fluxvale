@@ -24,7 +24,7 @@ defmodule FluxValeWeb.HealthControllerTest do
     test "ok when the database answers", %{conn: conn} do
       conn = get(conn, ~p"/health/ready")
 
-      assert %{"status" => "ok", "version" => _} = json_response(conn, 200)
+      assert %{"status" => "ok", "version" => _version} = json_response(conn, 200)
     end
 
     test "liveness stays 200 even when the database connection is broken", %{conn: conn} do
@@ -32,7 +32,7 @@ defmodule FluxValeWeb.HealthControllerTest do
       # answers without consulting the database. (The true 503 path can't be
       # simulated against a live Postgres — DBConnection reconnects by design —
       # it is validated for real in #7 by killing the CNPG pod in k3d.)
-      _ = FluxVale.Repo.query("SELECT pg_terminate_backend(pg_backend_pid())")
+      _terminated = FluxVale.Repo.query("SELECT pg_terminate_backend(pg_backend_pid())")
 
       conn = get(conn, ~p"/health")
 
