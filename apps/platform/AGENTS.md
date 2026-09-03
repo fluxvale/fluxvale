@@ -13,6 +13,11 @@ This is a web application written using the Phoenix web framework.
   `contexts/<domain>/types/` (e.g. `FluxVale.Identity.Types.PlatformRole`) —
   the `Types` namespace keeps non-resource modules from reading as
   resources.
+- **Policy-check modules** live under `lib/flux_vale/checks/` as
+  `FluxVale.Checks.Actor<Assertion>` (e.g. `ActorIsPlatformAdmin`) — the
+  Ash policy guide's grammar for actor questions. Policy-land checks and
+  plug-land predicates for the same question share one module (the check
+  delegates to the public `*_?` predicate) so the notion cannot fork.
 - Health contract: `GET /health` = dependency-free liveness +
   `{status, version}` where `version` is `sha-<BUILD_SHA>` (the deploy
   pipeline greps it). `GET /health/ready` = DB readiness (`SELECT 1`) → 503

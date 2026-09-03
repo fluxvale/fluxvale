@@ -45,7 +45,7 @@ defmodule FluxVale.Identity.User do
       authorize_if(always())
     end
 
-    policy FluxVale.Policies.PlatformAdmin do
+    policy FluxVale.Checks.ActorIsPlatformAdmin do
       description "Platform admins manage users"
       authorize_if(always())
     end
