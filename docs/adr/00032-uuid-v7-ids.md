@@ -27,15 +27,17 @@ the port-22 lesson codifies.
    explicit ordering semantics of its own.
 3. **No DB-side id default**: ids are generated app-side only — the column
    default is nil (via `migration_defaults`). ash_postgres would otherwise
-   emit `uuid_generate_v7()`, which doesn't exist on PG16 (uuidv7 functions
-   are PG18+); a v4 `gen_random_uuid()` backstop would silently mint
+   emit `uuid_generate_v7()` — a function no stock Postgres provides (not
+   core, not `uuid-ossp`; PG18's native one is `uuidv7()`), so a DB-side
+   default is unbuildable without third-party extensions regardless of
+   floor — and a v4 `gen_random_uuid()` backstop would silently mint
    mismatched-version ids on any non-Ash write. Instead, an insert that
    omits `id` fails loudly (`NOT NULL id`) — a guardrail, not full
    enforcement: Postgres `uuid` is version-agnostic, so a non-Ash writer
    can still supply an explicit v4; DB-side v7 enforcement (a version-bit
    CHECK constraint) is judged not worth the write cost on a path this
    ADR declares shouldn't exist. Revisit only if a non-Ash writer ever
-   appears and CNPG is on PG18+ (native `uuidv7()`).
+   appears (then wire a real v7 source — PG18's `uuidv7()` or a SQL shim).
 4. Creation-time metadata in ids is accepted: 74 random bits remain
    unguessable, and ids are never a security boundary (policies are —
    [ADR-0027](00027-admin-surface-ashadmin.md) posture). String PKs

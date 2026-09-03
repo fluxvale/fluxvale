@@ -56,10 +56,10 @@ defmodule FluxVale.Identity.User do
     repo FluxVale.Repo
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job. ash_postgres
-    # would emit uuid_generate_v7() for the v7 type, which doesn't exist on
-    # PG16 (uuidv7 functions are PG18+); a v4 gen_random_uuid() backstop
-    # would silently mint mismatched ids. A non-Ash insert fails loudly
-    # instead (NOT NULL id) — the intended guardrail.
+    # would emit uuid_generate_v7(), which no stock Postgres provides (PG18's
+    # native one is uuidv7()); a v4 gen_random_uuid() backstop would
+    # silently mint mismatched ids. A non-Ash insert omitting id fails loudly
+    # instead (NOT NULL) — the intended guardrail.
     migration_defaults id: "nil"
   end
 
