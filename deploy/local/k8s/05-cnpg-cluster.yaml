@@ -10,7 +10,7 @@ metadata:
   namespace: fluxvale-dev
 spec:
   instances: 1
-  imageName: ghcr.io/cloudnative-pg/postgresql:16 # rolling major tag — CNPG publishes no versioned 16 tags for the 1.30 operator line
+  imageName: ghcr.io/cloudnative-pg/postgresql:18 # rolling major tag; CNPG cannot major-upgrade in place — recreate the local cluster
   storage:
     size: 2Gi
   bootstrap:

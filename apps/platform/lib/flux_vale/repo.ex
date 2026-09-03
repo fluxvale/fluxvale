@@ -17,6 +17,6 @@ defmodule FluxVale.Repo do
 
   @impl true
   def min_pg_version do
-    %Version{major: 16, minor: 0, patch: 0}
+    %Version{major: 18, minor: 0, patch: 0}
   end
 end
