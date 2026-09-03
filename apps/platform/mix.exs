@@ -40,28 +40,30 @@ defmodule FluxVale.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
-      {:picosat_elixir, "~> 0.2"},
-      {:ash_authentication, "~> 4.0"},
-      # Exact pin: a linter upgrade changes the findings set — bump deliberately,
-      # not as a side effect of a broad deps.update (#5)
+      # Every Hex dep is exact-pinned from mix.lock (codified in AGENTS.md):
+      # bumps to behavior-bearing libraries — auth, policies, the linter that
+      # gates CI — must be deliberate diffs, never a side effect of
+      # deps.update. GitHub deps (heroicons, daisyui) stay tag-pinned.
+      {:picosat_elixir, "0.2.3"},
+      {:ash_authentication, "4.14.2"},
       {:credo, "1.7.19", only: [:dev, :test], runtime: false},
-      {:open_api_spex, "~> 3.0"},
-      {:ash_json_api, "~> 1.0"},
-      {:ash_admin, "~> 1.0"},
-      {:ash_postgres, "~> 2.0"},
-      {:ash_phoenix, "~> 2.0"},
-      {:igniter, "~> 0.6", only: [:dev, :test]},
-      {:phoenix, "~> 1.8.13"},
-      {:phoenix_ecto, "~> 4.5"},
-      {:ecto_sql, "~> 3.13"},
-      {:postgrex, ">= 0.0.0"},
-      {:phoenix_html, "~> 4.1"},
-      {:phoenix_live_reload, "~> 1.2", only: :dev},
-      {:phoenix_live_view, "~> 1.2.0"},
-      {:lazy_html, ">= 0.1.0", only: :test},
-      {:phoenix_live_dashboard, "~> 0.8.3"},
-      {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
-      {:tailwind, "~> 0.5", runtime: Mix.env() == :dev},
+      {:open_api_spex, "3.22.4"},
+      {:ash_json_api, "1.7.1"},
+      {:ash_admin, "1.3.1"},
+      {:ash_postgres, "2.13.0"},
+      {:ash_phoenix, "2.3.25"},
+      {:igniter, "0.8.3", only: [:dev, :test]},
+      {:phoenix, "1.8.13"},
+      {:phoenix_ecto, "4.7.0"},
+      {:ecto_sql, "3.14.0"},
+      {:postgrex, "0.22.4"},
+      {:phoenix_html, "4.3.0"},
+      {:phoenix_live_reload, "1.7.0", only: :dev},
+      {:phoenix_live_view, "1.2.11"},
+      {:lazy_html, "0.1.12", only: :test},
+      {:phoenix_live_dashboard, "0.8.7"},
+      {:esbuild, "0.10.0", runtime: Mix.env() == :dev},
+      {:tailwind, "0.5.1", runtime: Mix.env() == :dev},
       {:heroicons,
        github: "tailwindlabs/heroicons",
        tag: "v2.2.0",
@@ -76,14 +78,14 @@ defmodule FluxVale.MixProject do
        app: false,
        compile: false,
        depth: 1},
-      {:swoosh, "~> 1.16"},
-      {:req, "~> 0.5"},
-      {:telemetry_metrics, "~> 1.0"},
-      {:telemetry_poller, "~> 1.0"},
-      {:gettext, "~> 1.0"},
-      {:jason, "~> 1.2"},
-      {:dns_cluster, "~> 0.2.0"},
-      {:bandit, "~> 1.5"}
+      {:swoosh, "1.28.0"},
+      {:req, "0.7.4"},
+      {:telemetry_metrics, "1.2.0"},
+      {:telemetry_poller, "1.3.0"},
+      {:gettext, "1.0.2"},
+      {:jason, "1.4.5"},
+      {:dns_cluster, "0.2.0"},
+      {:bandit, "1.12.5"}
     ]
   end
 

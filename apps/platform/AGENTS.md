@@ -13,6 +13,13 @@ This is a web application written using the Phoenix web framework.
   `contexts/<domain>/types/` (e.g. `FluxVale.Identity.Types.PlatformRole`) —
   the `Types` namespace keeps non-resource modules from reading as
   resources.
+- **Exact version pins for every Hex dep** — requirements in `mix.exs`
+  are `"x.y.z"`, never `"~> x.y"`: a floating dep resolves differently
+  between machines and days, and bumps to behavior-bearing libraries
+  (auth, policies, the CI-gating linter) must be deliberate, reviewable
+  diffs — never a side effect of `deps.update`. Same philosophy as the
+  toolchain pins in `mise.toml`. GitHub deps pin by tag. To bump: change
+  the requirement, `mix deps.update <dep>`, run `mix ci`.
 - **Policy-check modules** live under `lib/flux_vale/checks/` as
   `FluxVale.Checks.Actor<Assertion>` (e.g. `ActorIsPlatformAdmin`) — the
   Ash policy guide's grammar for actor questions. Policy-land checks and
