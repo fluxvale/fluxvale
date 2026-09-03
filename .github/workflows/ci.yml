@@ -105,6 +105,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-mix-${{ steps.setup-beam.outputs.elixir-version }}-${{ steps.setup-beam.outputs.otp-version }}-
 
+      - name: Restore dialyzer PLT cache
+        uses: actions/cache@v4
+        with:
+          path: apps/platform/priv/plts
+          # Same resolved-version keying as the deps cache (v1 lesson: a PLT
+          # is a binary tied to the exact OTP patch — stale restore crashes
+          # dialyzer with "Old PLT file"). mix ci runs mix dialyzer.
+          key: ${{ runner.os }}-dialyzer-${{ steps.setup-beam.outputs.elixir-version }}-${{ steps.setup-beam.outputs.otp-version }}-${{ hashFiles('apps/platform/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-dialyzer-${{ steps.setup-beam.outputs.elixir-version }}-${{ steps.setup-beam.outputs.otp-version }}-
+
       - run: mix deps.get
 
       - run: mix ci

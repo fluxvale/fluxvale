@@ -13,10 +13,10 @@ defmodule FluxVale.Checks.ActorIsPlatformAdmin do
 
   use Ash.Policy.SimpleCheck
 
-  @impl true
+  @impl Ash.Policy.Check
   def describe(_opts), do: "actor is a platform admin"
 
-  @impl true
+  @impl Ash.Policy.SimpleCheck
   def match?(actor, _context, _opts), do: platform_admin?(actor)
 
   @doc """

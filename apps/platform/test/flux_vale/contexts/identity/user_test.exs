@@ -74,7 +74,7 @@ defmodule FluxVale.Identity.UserTest do
 
   # Version nibble: first hex char of the third UUID group (byte 15, 0-indexed 14)
   defp v7?(id) do
-    <<_::binary-size(14), version, _::binary>> = to_string(id)
+    <<_prefix::binary-size(14), version, _rest::binary>> = to_string(id)
     version == ?7
   end
 end
