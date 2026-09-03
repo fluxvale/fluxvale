@@ -27,7 +27,7 @@ this file is only **how to work here**.
 - `mise install` — the toolchain is exact-pinned in `mise.toml` with a
   committed `mise.lock` (per-platform checksums). Tool bumps are deliberate,
   reviewable diffs; there is no floating "latest" in this repo.
-- Local database: any PostgreSQL 16+ (`min_pg_version`) reachable by the
+- Local database: any PostgreSQL 18+ (`min_pg_version`) reachable by the
   app's standard config — `postgres`/`postgres` at `localhost:5432` by
   default; override to taste. `mix setup` creates `flux_vale_{dev,test}`
   and the test alias creates the test DB on demand. How you actually run
