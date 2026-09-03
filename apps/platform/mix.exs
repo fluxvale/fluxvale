@@ -44,7 +44,12 @@ defmodule FluxVale.MixProject do
       # bumps to behavior-bearing libraries — auth, policies, the linter that
       # gates CI — must be deliberate diffs, never a side effect of
       # deps.update. GitHub deps (heroicons, daisyui) stay tag-pinned.
-      {:picosat_elixir, "0.2.3"},
+      # SimpleSat over Picosat: pure-Elixir SAT solver — picosat_elixir is a
+      # C NIF that won't compile against musl (alpine dev image,
+      # sys/unistd.h is a glibc-ism). Crux auto-selects SimpleSat when Picosat
+      # isn't loaded. Revisit trigger: policy-SAT cost shows up in profiles —
+      # then Picosat on a glibc base, deliberately.
+      {:simple_sat, "0.1.4"},
       {:ash_authentication, "4.14.2"},
       {:credo, "1.7.19", only: [:dev, :test], runtime: false},
       {:open_api_spex, "3.22.4"},
