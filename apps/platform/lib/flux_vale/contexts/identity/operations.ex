@@ -33,19 +33,31 @@ defmodule FluxVale.Identity.Operations do
   @doc """
   Issues a 6-digit code to `email` and sends it. Throttled to one send
   per #{@resend_throttle_seconds}s per address (the ADR-0003
-  send-endpoint throttle). Returns `:ok` or `{:error, :throttled}`.
+  send-endpoint throttle).
+
+  `deliver/2` is injectable for the delivery-failure path (review
+  finding): if delivery fails, the stored code is burned so the user
+  isn't locked out of retrying by a code they never received.
   """
-  @spec request_auth_code(String.t() | Ash.CiString.t()) :: :ok | {:error, :throttled}
-  def request_auth_code(email) do
+  @spec request_auth_code(String.t() | Ash.CiString.t(), function()) ::
+          :ok | {:error, :throttled | :delivery_failed}
+  def request_auth_code(email, deliver \\ &Mailer.deliver_auth_code/2) do
     with :ok <- throttle_check(email) do
       code = random_code()
-      {:ok, _auth_code} = store_code(email, code)
+      {:ok, auth_code} = store_code(email, code)
 
-      email
-      |> to_string()
-      |> Mailer.deliver_auth_code(code)
+      recipient = to_string(email)
 
-      :ok
+      case deliver.(recipient, code) do
+        {:ok, _receipt} ->
+          :ok
+
+        {:error, _reason} ->
+          # Never leave a live code the user never received — it would
+          # block retries for the throttle window (review finding)
+          burn(auth_code)
+          {:error, :delivery_failed}
+      end
     end
   end
 
@@ -118,20 +130,40 @@ defmodule FluxVale.Identity.Operations do
 
   defp attempt_verify(auth_code, email, code) do
     if Bcrypt.verify_pass(code, auth_code.code_hash) do
-      burn(auth_code)
-
-      with {:ok, user} <- ensure_user(email),
-           {:ok, token, _claims} <- AshAuthentication.Jwt.token_for_user(user) do
-        Logger.info("auth code verified for #{email}")
-        {:ok, user, token}
-      end
+      consume_and_mint(auth_code, email)
     else
+      register_wrong_attempt(auth_code)
+    end
+  end
+
+  # The burn is the arbiter (optimistic lock on the resource): only the
+  # request that actually consumed the code mints a session — the TOCTOU
+  # loser gets a clean failure (review finding: CWE-367)
+  defp consume_and_mint(auth_code, email) do
+    case burn(auth_code) do
+      :ok ->
+        with {:ok, user} <- ensure_user(email),
+             {:ok, token, _claims} <- AshAuthentication.Jwt.token_for_user(user) do
+          Logger.info("auth code verified for #{email}")
+          {:ok, user, token}
+        end
+
+      {:error, _lost_the_race} ->
+        {:error, :no_active_code}
+    end
+  end
+
+  defp register_wrong_attempt(auth_code) do
+    result =
       auth_code
       |> for_update(:register_attempt)
       |> Ash.Changeset.set_context(@interaction)
       |> Ash.update()
 
-      {:error, :wrong_code}
+    case result do
+      {:ok, _row} -> {:error, :wrong_code}
+      # The atomic cap guard refused the increment (review: CWE-307)
+      {:error, _at_cap} -> {:error, :locked_out}
     end
   end
 

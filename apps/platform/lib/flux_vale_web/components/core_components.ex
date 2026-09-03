@@ -121,7 +121,7 @@ defmodule FluxValeWeb.CoreComponents do
       """
     else
       ~H"""
-      <button class={@class} {@rest}>
+      <button type={@type} class={@class} {@rest}>
         {render_slot(@inner_block)}
       </button>
       """

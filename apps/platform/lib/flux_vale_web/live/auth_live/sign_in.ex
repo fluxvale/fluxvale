@@ -107,6 +107,14 @@ defmodule FluxValeWeb.AuthLive.SignIn do
            :error,
            "Please wait a minute before requesting another code."
          )}
+
+      {:error, :delivery_failed} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "We couldn't send the email right now — please try again shortly."
+         )}
     end
   end
 

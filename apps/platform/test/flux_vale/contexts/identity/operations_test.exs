@@ -46,6 +46,19 @@ defmodule FluxVale.Identity.OperationsTest do
       assert {:error, :throttled} = Identity.request_auth_code(email)
       assert {:error, :throttled} = Identity.request_auth_code(email)
     end
+
+    test "failed delivery burns the code — retries aren't blocked (review)", %{
+      email: email
+    } do
+      boom = fn _to, _code -> {:error, :boom} end
+
+      assert {:error, :delivery_failed} = Identity.request_auth_code(email, boom)
+      assert [] == active_codes(email)
+
+      # The user can immediately retry (no orphaned throttle-blocker)
+      assert :ok = Identity.request_auth_code(email)
+      _code = mailbox_code()
+    end
   end
 
   describe "verify_auth_code/2" do
@@ -68,6 +81,8 @@ defmodule FluxVale.Identity.OperationsTest do
       for _attempt <- 1..5,
           do: assert({:error, :wrong_code} = Identity.verify_auth_code(email, "000000"))
 
+      # The atomic cap guard makes the boundary race-safe: the 6th guess
+      # is refused by the update itself, not just the pre-check (CWE-307)
       assert {:error, :locked_out} = Identity.verify_auth_code(email, "000000")
     end
 
@@ -79,7 +94,8 @@ defmodule FluxVale.Identity.OperationsTest do
       assert to_string(user.email) == email
       assert is_binary(token) and token != ""
 
-      # Replay: the code no longer exists
+      # Replay: the code no longer exists — and the burn is the arbiter
+      # (optimistic lock), so a racing second consumer can never mint
       assert {:error, :no_active_code} = Identity.verify_auth_code(email, code)
     end
 
