@@ -11,7 +11,13 @@ defmodule FluxVale.MixProject do
       aliases: aliases(),
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
-      listeners: [Phoenix.CodeReloader]
+      listeners: [Phoenix.CodeReloader],
+      # v1 port: PLT in priv/plts (gitignored), exact-version CI cache key
+      dialyzer: [
+        plt_add_apps: [:ex_unit],
+        plt_file: {:no_warn, "priv/plts/project.plt"},
+        list_unused_filters: true
+      ]
     ]
   end
 
@@ -51,6 +57,8 @@ defmodule FluxVale.MixProject do
       # then Picosat on a glibc base, deliberately.
       {:simple_sat, "0.1.4"},
       {:ash_authentication, "4.14.2"},
+      # Dev/test-only analysis tools (exact pins, same rule)
+      {:dialyxir, "1.4.7", only: [:dev, :test], runtime: false},
       {:credo, "1.7.19", only: [:dev, :test], runtime: false},
       {:open_api_spex, "3.22.4"},
       {:ash_json_api, "1.7.1"},
@@ -114,12 +122,15 @@ defmodule FluxVale.MixProject do
         "phx.digest"
       ],
       precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"],
-      # CI-grade gate: everything a PR must pass, in one command (#5)
+      # CI-grade gate: everything a PR must pass, in one command (#5).
+      # Dialyzer joins credo: Specs enforcement (presence) + dialyzer
+      # (correctness) are the two halves of the typespec story.
       ci: [
         "format --check-formatted",
         "deps.unlock --check-unused",
         "compile --warnings-as-errors",
         "credo --strict",
+        "dialyzer",
         "test"
       ]
     ]

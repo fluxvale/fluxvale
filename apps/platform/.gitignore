@@ -35,3 +35,6 @@ flux_vale-*.tar
 npm-debug.log
 /assets/node_modules/
 
+
+# Dialyzer PLT (mix.exs dialyzer config) — rebuilt, never committed
+/priv/plts/

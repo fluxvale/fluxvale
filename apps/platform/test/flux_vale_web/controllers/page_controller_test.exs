@@ -1,5 +1,5 @@
 defmodule FluxValeWeb.PageControllerTest do
-  use FluxValeWeb.ConnCase
+  use FluxValeWeb.ConnCase, async: true
 
   test "GET /", %{conn: conn} do
     conn = get(conn, ~p"/")
