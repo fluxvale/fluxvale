@@ -10,7 +10,11 @@ defmodule FluxVale.Identity do
   use Ash.Domain, otp_app: :flux_vale
 
   resources do
+    resource FluxVale.Identity.AuthCode
     resource FluxVale.Identity.Token
     resource FluxVale.Identity.User
   end
+
+  defdelegate request_auth_code(email), to: FluxVale.Identity.Operations
+  defdelegate verify_auth_code(email, code), to: FluxVale.Identity.Operations
 end
