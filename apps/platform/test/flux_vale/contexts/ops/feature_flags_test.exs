@@ -50,8 +50,9 @@ defmodule FluxVale.Ops.FeatureFlagsTest do
 
   describe "enable/2 disable/2 (FunWithFlags-style verbs, Am. 4)" do
     # Declare-gated like enabled?'s happy path, these return with the first
-    # real flag (M3+): create-on-enable, percentage set/preserve, disable
-    # keeps pct, non-admin actor forbidden (policy already covered in
+    # real flag (M3+): create-on-enable, percentage set/preserve, invalid
+    # percentage failing validation on update too, disable keeps pct,
+    # non-admin actor forbidden (policy already covered in
     # feature_flag_test.exs), and the `actor:`-required KeyError. The
     # guard rail that exists today is the declare gate.
 

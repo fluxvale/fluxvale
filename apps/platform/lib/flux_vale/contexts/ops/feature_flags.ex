@@ -94,19 +94,24 @@ defmodule FluxVale.Ops.FeatureFlags do
     declared!(key)
 
     actor = Keyword.fetch!(opts, :actor)
-    # nil = not given → preserve on update (0 is truthy in Elixir, so || is exact)
-    pct = Keyword.get(opts, :percentage)
+    # Explicit nil check, not ||: `0` is truthy so `||` handled it, but a
+    # falsy bogus value (`percentage: false`) rode into "not given" and
+    # silently preserved the old rollout instead of failing validation
+    # (CodeRabbit, #36).
+    given_pct = Keyword.get(opts, :percentage)
     key_str = Atom.to_string(key)
 
     outcome =
       case row(key_str) do
         nil ->
-          FeatureFlag.create(key_str, %{enabled: true, rollout_percentage: pct}, actor: actor)
-
-        flag ->
-          Ash.update(flag, %{enabled: true, rollout_percentage: pct || flag.rollout_percentage},
+          FeatureFlag.create(key_str, %{enabled: true, rollout_percentage: given_pct},
             actor: actor
           )
+
+        flag ->
+          preserve = if is_nil(given_pct), do: flag.rollout_percentage, else: given_pct
+
+          Ash.update(flag, %{enabled: true, rollout_percentage: preserve}, actor: actor)
       end
 
     case outcome do
