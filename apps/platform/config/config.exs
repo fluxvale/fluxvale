@@ -30,13 +30,14 @@ config :flux_vale,
   # Ash domain registry — first domain landed with Identity (#20), which is
   # deliberately NOT admin-exposed (ADR-0027 §3: User/Token are sensitive).
   # The next two keys interact: /admin serves a placeholder (see the router)
-  # until a domain opts into AshAdmin via `ash_admin_domains` — Ops is first
-  # (#25).
-  ash_domains: [FluxVale.Identity],
+  # until a domain opts into AshAdmin via `ash_admin_domains` — Ops did
+  # (#25); Identity stays admin-unexposed (ADR-0027 §3).
+  ash_domains: [FluxVale.Identity, FluxVale.Ops],
   # Domains opted into AshAdmin (exposure is opt-in, ADR-0027 §3). AshAdmin
   # crashes on zero admin-enabled domains (upstream nil action_type bug),
-  # so the router keeps the placeholder while this is empty.
-  ash_admin_domains: [],
+  # so the router keeps the placeholder while this is empty. Ops opting in
+  # (#25) swaps the placeholder for the real dashboard.
+  ash_admin_domains: [FluxVale.Ops],
   generators: [timestamp_type: :utc_datetime]
 
 # Configure the endpoint
