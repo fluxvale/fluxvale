@@ -1,6 +1,6 @@
 # ADR-00020: Local development — production parity via k3d + Tilt + CNPG + a local overlay
 
-**Status**: Accepted (Amendment 1 — validated on-machine 2026-09-02; see below)
+**Status**: Accepted (amended — see Amendments 1–3)
 **Date**: 2026-08-27
 
 **Context**: local dev must run the app **inside a local Kubernetes cluster**
@@ -109,3 +109,15 @@ Drift is the known risk to watch: when the fleet base manifests change
 shape (probes, env, init containers), `deploy/local/` must follow.
 Worth a fleet-repo CI cross-check or review checklist item once both
 exist.
+
+## Amendment 3 (2026-09-03): `tilt up` needs a TTY
+
+Run headless (`nohup tilt up &`), it applies only part of the stack —
+observed during the PG18 cluster recreation (#28): the `cnpg` operator
+and Traefik deployed, but the `fluxvale-cnpg` custom deploy (the Cluster
+CR) never scheduled, stranding the app in `Init:CreateContainerConfigError`
+with no error surfaced in the log. Interactive `tilt up` remains the only
+supported way to run the stack (joining Am. 1's `tilt ci` finding — Tilt's
+non-interactive modes are unreliable on this machine). In a pinch the
+manifests apply directly (`kubectl apply -f deploy/local/k8s/…` — same
+files, same result); that is a workaround, not a supported path.
