@@ -17,7 +17,9 @@ config :ash_json_api,
 
 config :spark,
   formatter: [
-    "Ash.Resource": [section_order: [:json_api, :admin, :postgres]],
+    "Ash.Resource": [
+      section_order: [:authentication, :token, :user_identity, :json_api, :admin, :postgres]
+    ],
     "Ash.Domain": [section_order: [:json_api, :admin]]
   ]
 
@@ -25,10 +27,16 @@ config :ash, known_types: [AshPostgres.Timestamptz, AshPostgres.TimestamptzUsec]
 
 config :flux_vale,
   ecto_repos: [FluxVale.Repo],
-  # Ash domain registry — empty until the first domain lands (M2: Ops);
-  # must be an explicit [] so AshAdmin renders an empty shell instead of
-  # crashing on a nil lookup
-  ash_domains: [],
+  # Ash domain registry — first domain landed with Identity (#20), which is
+  # deliberately NOT admin-exposed (ADR-0027 §3: User/Token are sensitive).
+  # The next two keys interact: /admin serves a placeholder (see the router)
+  # until a domain opts into AshAdmin via `ash_admin_domains` — Ops is first
+  # (#25).
+  ash_domains: [FluxVale.Identity],
+  # Domains opted into AshAdmin (exposure is opt-in, ADR-0027 §3). AshAdmin
+  # crashes on zero admin-enabled domains (upstream nil action_type bug),
+  # so the router keeps the placeholder while this is empty.
+  ash_admin_domains: [],
   generators: [timestamp_type: :utc_datetime]
 
 # Configure the endpoint

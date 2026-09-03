@@ -55,6 +55,10 @@ config :flux_vale, FluxValeWeb.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :flux_vale, dev_routes: true
 
+# Dev-only literal so sessions survive reboots; prod reads TOKEN_SIGNING_SECRET
+# at runtime (config/runtime.exs)
+config :flux_vale, token_signing_secret: "xCq4tmbd9W+NYoOdKwh5lE4VaEg3UYa7"
+
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"
 

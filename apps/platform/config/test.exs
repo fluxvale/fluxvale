@@ -1,4 +1,6 @@
 import Config
+config :flux_vale, token_signing_secret: "fQ9tibmTqr1r2HdqiKrkOofKnY6OQDNK"
+config :bcrypt_elixir, log_rounds: 1
 config :ash, disable_async?: true
 
 # Configure your database
