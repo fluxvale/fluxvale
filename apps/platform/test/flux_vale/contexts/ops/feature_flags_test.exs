@@ -95,6 +95,14 @@ defmodule FluxVale.Ops.FeatureFlagsTest do
       |> FeatureFlags.decide(:swept_key, nil)
       |> refute()
     end
+
+    test "id-less actor maps fail closed too — the spec admits any map (CodeRabbit, #36)",
+         %{row: row} do
+      row
+      |> flag(rollout_percentage: 50)
+      |> FeatureFlags.decide(:swept_key, %{name: "no id here"})
+      |> refute()
+    end
   end
 
   describe "decide/3 — sticky rollouts (ADR-0023 §2)" do

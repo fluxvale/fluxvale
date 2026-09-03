@@ -21,11 +21,11 @@ defmodule FluxVale.Ops.FeatureFlags do
     silent `false` that can never turn on.
   - **percentage rollouts are sticky** — `:erlang.phash2({key, user_id})`
     rem 100 < pct buckets each user deterministically; no flip-flopping
-    between requests. Anonymous actors (nil) fail closed on partial
-    rollouts: there is no `user_id` to bucket, and treating all anonymous
+    between requests. Actors we cannot bucket — anonymous (nil) or an
+    id-less map — fail closed on partial rollouts: treating all such
     traffic as one unit would make pct an all-or-nothing switch for
-    visitors. Full-on flags (enabled, nil pct) apply to everyone, anonymous
-    included — flags gate what visitors see too.
+    visitors. Full-on flags (enabled, nil pct) apply to everyone,
+    anonymous included — flags gate what visitors see too.
 
   Per-env values are free by construction: staging and prod have separate
   databases (ADR-0010).
@@ -90,4 +90,8 @@ defmodule FluxVale.Ops.FeatureFlags do
     # a rebucketed rollout ever causing real confusion.
     rem(:erlang.phash2({key, id}), 100) < pct
   end
+
+  # Unbucketable actor — a map with no :id (the spec admits any map):
+  # fail closed, same posture as the nil actor above.
+  def decide(%FeatureFlag{enabled: true, rollout_percentage: _pct}, _key, _id_less), do: false
 end
