@@ -40,6 +40,7 @@ already ruled out.
 | [0029](00029-payments-adapter-selfmor.md) | Payments: adapter architecture; self-MoR Xendit (MoR products refuse hosting; PH entity) | Accepted (amended — see Amendment 1) |
 | [0030](00030-ops-domain.md) | Domain grouping: the Ops domain (FeatureFlag, AccessRule; operator resources) | Accepted |
 | [0031](0031-build-order.md) | Build order: the milestone ladder (M1 skeleton → M7 launch-prep) | Accepted |
+| [0032](00032-uuid-v7-ids.md) | IDs: UUIDv7 for uuid primary keys (app-side generation; ordering approximate, never a contract) | Accepted |
 
 ## Conventions
 

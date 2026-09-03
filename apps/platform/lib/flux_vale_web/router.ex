@@ -62,9 +62,11 @@ defmodule FluxValeWeb.Router do
   end
 
   if Application.compile_env(:flux_vale, :dev_routes) do
-    if Application.compile_env(:flux_vale, :ash_domains) == [] do
-      # AshAdmin cannot render with zero domains (nil action_type upstream);
-      # swap to the real dashboard automatically once M2's first domain lands
+    # AshAdmin cannot render with zero admin-ENABLED domains (nil action_type
+    # upstream) — registered-but-not-exposed domains don't count, so the
+    # swap key is `ash_admin_domains` (opt-in, ADR-0027 §3), not `ash_domains`.
+    # Identity is registered but stays out of AshAdmin; Ops opts in with #25.
+    if Application.compile_env(:flux_vale, :ash_admin_domains) == [] do
       scope "/admin", FluxValeWeb do
         pipe_through :browser
 
