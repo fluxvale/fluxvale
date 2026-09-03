@@ -55,8 +55,10 @@ tilt up                                              # from the repo root; UI at
 curl -sk https://app.fluxvale.lvh.me/health          # through Traefik, self-signed
 ```
 
-Use `tilt up`, not `tilt ci` (batch mode wedged on-machine; see [ADR-0020](docs/adr/00020-local-dev-parity.md)
-Am. 1). Images push to the k3d local registry — never docker.io.
+Use `tilt up` — interactive, with a TTY. Neither `tilt ci` (batch mode wedged
+on-machine; [ADR-0020](docs/adr/00020-local-dev-parity.md) Am. 1) nor headless
+`nohup tilt up` (custom deploys silently skipped; Am. 3) is supported.
+Images push to the k3d local registry — never docker.io.
 
 ## The gate
 
