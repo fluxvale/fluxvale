@@ -31,7 +31,7 @@ committed lockfile:
 mise install
 ```
 
-**Plain app dev** (any PostgreSQL 16+ reachable by the default config —
+**Plain app dev** (any PostgreSQL 18+ reachable by the default config —
 how you run Postgres is your business):
 
 ```sh
