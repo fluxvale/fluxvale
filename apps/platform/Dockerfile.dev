@@ -9,8 +9,12 @@
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
-# git: mix fetches heroicons/daisyui as git deps
-RUN apk add --no-cache git
+# git: mix fetches heroicons/daisyui as git deps. make/gcc/musl-dev:
+# bcrypt_elixir (hard dep of ash_authentication) is a portable C NIF —
+# needs the toolchain at deps.compile. picosat_elixir was the musl-broken
+# NIF and is gone in favor of simple_sat (see mix.exs), but the toolchain
+# stays for bcrypt and any future NIFs.
+RUN apk add --no-cache git make gcc musl-dev
 
 # Unprivileged runtime user (created here, activated below — after the
 # build steps, so chown covers everything the reloader must write)
