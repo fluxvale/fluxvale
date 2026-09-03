@@ -55,6 +55,11 @@ config :flux_vale, FluxValeWeb.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :flux_vale, dev_routes: true
 
+# Non-prod mail: captured in-app by the Local adapter (ADR-0023 Am. 3);
+# read via IEx or the gated TestInbox (#22) — the stock /dev/mailbox
+# preview is deliberately NOT mounted
+config :flux_vale, FluxVale.Mailer, adapter: Swoosh.Adapters.Local
+
 # Dev-only literal so sessions survive reboots; prod reads TOKEN_SIGNING_SECRET
 # at runtime (config/runtime.exs)
 config :flux_vale, token_signing_secret: "xCq4tmbd9W+NYoOdKwh5lE4VaEg3UYa7"
