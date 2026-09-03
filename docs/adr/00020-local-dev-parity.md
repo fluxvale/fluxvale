@@ -118,6 +118,12 @@ and Traefik deployed, but the `fluxvale-cnpg` custom deploy (the Cluster
 CR) never scheduled, stranding the app in `Init:CreateContainerConfigError`
 with no error surfaced in the log. Interactive `tilt up` remains the only
 supported way to run the stack (joining Am. 1's `tilt ci` finding — Tilt's
-non-interactive modes are unreliable on this machine). In a pinch the
-manifests apply directly (`kubectl apply -f deploy/local/k8s/…` — same
-files, same result); that is a workaround, not a supported path.
+non-interactive modes are unreliable on this machine). In a pinch — with
+the CNPG operator already installed by a prior `tilt up` — the manifests
+apply directly (filename order is the dependency order):
+
+```sh
+kubectl apply -f deploy/local/k8s/
+```
+
+That is a workaround, not a supported path.
