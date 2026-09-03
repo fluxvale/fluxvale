@@ -17,7 +17,6 @@ defmodule FluxVale.Identity.Operations do
   alias FluxVale.Identity.AuthCode
   alias FluxVale.Identity.User
   alias FluxVale.Mailer
-  require Logger
 
   # ADR-0003 constraints, as code:
   @code_digits 6
@@ -142,9 +141,10 @@ defmodule FluxVale.Identity.Operations do
   defp consume_and_mint(auth_code, email) do
     case burn(auth_code) do
       :ok ->
+        # No PII in logs (review: CWE-532) — sign-in telemetry, if ever
+        # wanted, rides structured events with hashed identifiers
         with {:ok, user} <- ensure_user(email),
              {:ok, token, _claims} <- AshAuthentication.Jwt.token_for_user(user) do
-          Logger.info("auth code verified for #{email}")
           {:ok, user, token}
         end
 
