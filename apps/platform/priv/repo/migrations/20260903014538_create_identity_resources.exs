@@ -27,7 +27,7 @@ defmodule FluxVale.Repo.Migrations.CreateIdentityResources do
     create index(:tokens, [:expires_at])
 
     create table(:users, primary_key: false) do
-      add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
+      add :id, :uuid, null: false, primary_key: true
 
       add :created_at, :utc_datetime_usec,
         null: false,

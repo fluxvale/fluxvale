@@ -22,10 +22,13 @@ the port-22 lesson codifies.
    order (cross-replica clock skew). Pagination cursors may use id order
    as a convenience; anything needing strict order (ledger sequence) keeps
    explicit ordering semantics of its own.
-3. **DB backstop**: ash_postgres emits `gen_random_uuid()` (v4) as the
-   column default. Accepted — every write goes through Ash, so it is a
-   never-hit path; revisit only if a non-Ash writer appears, or when the
-   CNPG version choice (M4) makes PG18's native `uuidv7()` free.
+3. **No DB-side id default**: ids are generated app-side only — the column
+   default is nil (via `migration_defaults`). ash_postgres would otherwise
+   emit `uuid_generate_v7()`, which doesn't exist on PG16 (uuidv7 functions
+   are PG18+); a v4 `gen_random_uuid()` backstop would silently mint
+   mismatched-version ids on any non-Ash write. Instead, a non-Ash insert
+   fails loudly (`NOT NULL id`) — a guardrail, not a gap. Revisit only if
+   a non-Ash writer ever appears and CNPG is on PG18+ (native `uuidv7()`).
 4. Creation-time metadata in ids is accepted: 74 random bits remain
    unguessable, and ids are never a security boundary (policies are —
    [ADR-0027](00027-admin-surface-ashadmin.md) posture). String PKs
