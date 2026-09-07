@@ -65,6 +65,24 @@ config :phoenix_live_view,
 # at the `config/runtime.exs`.
 config :flux_vale, FluxVale.Mailer, adapter: Swoosh.Adapters.Local
 
+# Configure Oban: the repo-backed job queue. Plain Oban, not ash_oban — no
+# domain declares triggers yet (settled on #23); AshOban.config/2's domain
+# scan would find nothing. Queues arrive with their features — today only
+# the janitor (token pruning, daily 03:00 UTC).
+config :flux_vale, Oban,
+  repo: FluxVale.Repo,
+  queues: [janitor: 1],
+  plugins: [
+    {Oban.Plugins.Cron,
+     crontab: [
+       {"0 3 * * *", FluxVale.Janitor.PruneExpiredTokens}
+     ]},
+    # Retention for finished jobs (completed/cancelled/discarded) — v1
+    # never pruned oban_jobs; adopted on review (#39). 7d keeps a
+    # debugging window at a 1-job/day queue.
+    {Oban.Plugins.Pruner, max_age: 7 * 24 * 60 * 60}
+  ]
+
 # Configure esbuild (the version is required)
 config :esbuild,
   version: "0.25.4",
