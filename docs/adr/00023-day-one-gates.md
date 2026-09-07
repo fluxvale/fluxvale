@@ -124,3 +124,14 @@ code-declared atom catalog is a FluxVale v1 scar no library can enforce
 - **Revisit triggers**: per-actor gates or group gates (org-scoped
   rollouts, M5?) → extend `FeatureFlag` (an actor-gate join table),
   not swap libraries; the curated-view trigger of Am. 2 stands.
+
+## Amendment 4 (2026-09-07): Local capture scopes to test accounts on non-local envs
+
+Amendment 3 made the Local adapter non-prod's blanket mail path. Per
+[ADR-0003](00003-ashauthentication-drop-authentik.md) Amendment 2
+(the staging bootstrap deadlock), capture applies
+to **test accounts only** on staging and review environments; human
+recipients receive real Postmark delivery. The gated TestInbox (#22)
+reads Local-captured test mail — machines reach its JSON endpoint with
+an admin PAT (PATs need no session; the deadlock doesn't apply to
+them). Local dev is unchanged.
