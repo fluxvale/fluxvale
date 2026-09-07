@@ -84,6 +84,15 @@ Images push to the k3d local registry — never docker.io.
    echo of what you *asked for* is not evidence — #6 sat in In Progress
    through a whole PR cycle because a `--jq` literal printed success over a
    silently-failed `item-edit`.
+   Board moves take **IDs, not names** (`--single-select-option` without
+   `-id` is not a flag; option names are not accepted):
+
+   ```sh
+   gh project field-list <N> --owner fluxvale --format json   # Status field + option IDs
+   gh project item-list <N> --owner fluxvale --format json    # item ID per issue
+   gh project item-edit --project-id PVT_… --id PVTI_… \
+     --field-id PVTSSF_… --single-select-option-id <option-id>
+   ```
 2. **Wait for CodeRabbit's verdict before involving the maintainer.** The
    bot reviews after the PR opens — poll it, address every finding (adopt,
    or rebut with evidence, in-thread), and resolve all threads (manually
@@ -134,3 +143,6 @@ lesson paid for).
   `resolveReviewThread`).
 - Pre-empt predictable findings in the PR body (deliberate test gaps, pin
   rationale) — it works.
+- `gh pr checks <N> --watch` blocks until checks settle — use it instead of
+  sleep-polling; the quiescence re-probe (threads/comments after a settling
+  window) still needs a manual pass.
