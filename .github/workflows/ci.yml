@@ -24,6 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       platform: ${{ steps.filter.outputs.platform }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       # persist-credentials: false — later steps run no git-authenticated ops
       - uses: actions/checkout@v4
