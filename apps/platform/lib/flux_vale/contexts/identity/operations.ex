@@ -21,7 +21,7 @@ defmodule FluxVale.Identity.Operations do
   # ADR-0003 constraints, as code:
   @code_digits 6
   @ttl_minutes 10
-  @max_attempts 5
+  @max_attempts AuthCode.max_attempts()
   @resend_throttle_seconds 60
   @bcrypt_log_rounds 10
 

@@ -86,6 +86,35 @@ defmodule FluxVale.Identity.OperationsTest do
       assert {:error, :locked_out} = Identity.verify_auth_code(email, "000000")
     end
 
+    test "the atomic cap guard itself refuses past the limit (CWE-307)", %{
+      email: email
+    } do
+      :ok = Identity.request_auth_code(email)
+      _code = mailbox_code()
+      [auth_code] = active_codes(email)
+
+      # Exercise the resource-level filter directly — independent of the
+      # operations pre-check (test owns its precondition: wind to the cap)
+      for _attempt <- 1..4,
+          do: assert({:ok, _row} = register_attempt(auth_code))
+
+      assert {:ok, _fifth} = register_attempt(auth_code)
+      # attempts == 5: the conditional update now matches zero rows
+      assert {:error, _refused} = register_attempt(auth_code)
+    end
+
+    test "burn is single-winner — the optimistic-locked delete arbitrates (CWE-367)", %{
+      email: email
+    } do
+      :ok = Identity.request_auth_code(email)
+      _code = mailbox_code()
+      [auth_code] = active_codes(email)
+
+      assert :ok = burn(auth_code)
+      # The racing loser's delete matches zero rows and errors — no mint
+      assert {:error, _stale} = burn(auth_code)
+    end
+
     test "successful verify burns the code — single-use (ADR-0003)", %{email: email} do
       :ok = Identity.request_auth_code(email)
       code = mailbox_code()
@@ -129,5 +158,19 @@ defmodule FluxVale.Identity.OperationsTest do
     |> Ash.Query.for_read(:active_for_email, %{email: email})
     |> Ash.Query.set_context(%{private: %{ash_authentication?: true}})
     |> Ash.read!()
+  end
+
+  defp register_attempt(auth_code) do
+    auth_code
+    |> Ash.Changeset.for_update(:register_attempt)
+    |> Ash.Changeset.set_context(%{private: %{ash_authentication?: true}})
+    |> Ash.update()
+  end
+
+  defp burn(auth_code) do
+    auth_code
+    |> Ash.Changeset.for_destroy(:burn)
+    |> Ash.Changeset.set_context(%{private: %{ash_authentication?: true}})
+    |> Ash.destroy()
   end
 end
