@@ -45,6 +45,42 @@ This is a web application written using the Phoenix web framework.
 - Decisions accepted-with-rationale get a code comment naming the trigger
   that revisits them (see the Postgres TLS stance in `config/runtime.exs`).
 
+## Toolchain recipes (session-tested — read before scaffolding)
+
+- **Generator + layout**: `mix ash.gen.resource FluxVale.<Domain>.Thing
+  --domain FluxVale.<Domain> --yes …` writes `lib/flux_vale/<domain>.ex`
+  + `lib/flux_vale/<domain>/…` — then MOVE to the contexts layout
+  (`contexts/<domain>.ex` + `contexts/<domain>/resources/thing.ex`);
+  generators don't know it. Migrations: `mix ash.codegen <name>` (no
+  `--yes` — that flag errors; codegen applies without prompting).
+- **Credo survival** (the gate is `mix credo --strict`, running against
+  `apps/platform/.credo.exs` — v1's port, #32, **stricter than stock
+  credo**: `NestedFunctionCalls`, `PipeChainStart`, `SinglePipe`,
+  `OnePipePerLine`, `BlockPipe`, `PipeIntoAnonymousFunctions`,
+  `StrictModuleLayout` are all explicitly enabled; `test/support/` and a
+  few web files are excluded — the config is the source of truth. Run it
+  on new files early, not first at `mix ci`):
+  - pipelines start with a raw value — bind intermediates
+    (`key_str = Atom.to_string(key)`) instead of starting from a call
+  - never single-stage (`x |> f()` → `f(x)`)
+  - operators aren't pipeable: `|> then(&(&1 < pct))` is the sanctioned form
+  - a result-mapping helper deadlocks three checks: nested
+    (`result(f(x))` → nested-call), single-piped (`x |> result()` →
+    single-pipe). Satisfiable shape: bind then call —
+    `outcome = f(x)` … `verdict(outcome)`
+  - deliberate type violations in tests (assert_raise on a wrong-typed
+    literal) emit compile warnings under `--warnings-as-errors` — launder
+    through `Enum.at(["str"], 0)` (types as `term()`); `apply/3` also
+    works but trips Refactor.Apply
+- **Fresh worktree**: `mix deps.get`, then `MIX_ENV=test mix ash.setup`
+  (and `mix ash.setup` for dev) — the `test` alias's `ash.setup --quiet`
+  prefix has failed to apply brand-new migrations to the test DB before;
+  explicit env is the reliable path.
+- **Misleading ash_postgres error**: a missing table surfaces as
+  `Ash.Error.Changes.InvalidAttribute` ("Invalid value provided for
+  key") — when a create fails out of nowhere right after adding a
+  resource, check the migration actually ran before trusting the message.
+
 ## Project guidelines
 
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues

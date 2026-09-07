@@ -24,6 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       platform: ${{ steps.filter.outputs.platform }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       # persist-credentials: false — later steps run no git-authenticated ops
       - uses: actions/checkout@v4
@@ -39,6 +40,10 @@ jobs:
             platform:
               - "apps/platform/**"
               - "mise.toml"
+              - ".github/workflows/ci.yml"
+            docs:
+              - "docs/**"
+              - "scripts/lint-adr-index.sh"
               - ".github/workflows/ci.yml"
 
   platform:
@@ -120,11 +125,26 @@ jobs:
 
       - run: mix ci
 
+  # Conventions enforcement (docs/adr/README.md): amended ADRs must be
+  # marked in the index — 9 of 14 were unmarked when this landed (#36
+  # review fallout). Cheap enough to run on every docs-touching PR.
+  docs-lint:
+    name: Docs lint
+    needs: check-changes
+    if: needs.check-changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - run: ./scripts/lint-adr-index.sh
+
   # The umbrella: branch protection requires THIS check. Runs regardless
   # of path gating; passes when every gated job succeeded or was skipped.
   wait-for-ci:
     name: Wait for CI
-    needs: [platform]
+    needs: [platform, docs-lint]
     if: always()
     runs-on: ubuntu-latest
     steps:
