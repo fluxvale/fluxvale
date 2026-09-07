@@ -15,6 +15,13 @@ defmodule FluxVale.Identity.User do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshAuthentication]
 
+  require Logger
+
+  # PAT lifetime: 1 year (v1's value, ported — #23). Absolute, like
+  # sessions — `exp` bounds the worst case; revocation is the instant
+  # mechanism (a live token-store row check on every authentication).
+  @pat_lifetime_seconds 365 * 24 * 60 * 60
+
   authentication do
     add_ons do
       log_out_everywhere do
@@ -111,6 +118,43 @@ defmodule FluxVale.Identity.User do
       get?(true)
       filter(expr(email == ^arg(:email)))
     end
+
+    # PATs (#23): v1's shape ported — a generic action minting a 1-yr JWT
+    # through `token_for_user/4`, which also stores it in the revocable
+    # token store (`store_all_tokens?`), so revocation severs a PAT as
+    # instantly as a session. Headless clients present it as
+    # `Authorization: Bearer <token>`; the mint surface in M2 is the code
+    # interface (IEx) — a user-facing mint arrives with a consumer.
+    action :mint_pat, :string do
+      description "Mints a long-lived PAT for the user with the given email."
+
+      argument(:email, :ci_string, allow_nil?: false)
+
+      # The action itself sits behind the platform-admin policy (generic
+      # actions authorize by default). v1 bypassed authorization on this
+      # lookup; v2 runs it under the calling actor instead (settled on
+      # #23) — an admin is authorized to read users anyway, and the
+      # operator path stays `authorize?: false` (same as `create`).
+      run(fn input, context ->
+        with {:ok, user} <-
+               get_by_email(input.arguments.email,
+                 actor: context.actor,
+                 authorize?: context.authorize?
+               ) do
+          exp = System.system_time(:second) + @pat_lifetime_seconds
+
+          case AshAuthentication.Jwt.token_for_user(user, %{"exp" => exp}) do
+            {:ok, token, _claims} ->
+              # Audit the mint, never the token value (v1 posture).
+              Logger.info("PAT minted for user #{input.arguments.email}")
+              {:ok, token}
+
+            :error ->
+              {:error, Ash.Error.to_error_class("failed to generate token")}
+          end
+        end
+      end)
+    end
   end
 
   code_interface do
@@ -118,6 +162,7 @@ defmodule FluxVale.Identity.User do
 
     define(:create, args: [:email])
     define(:get_by_email, args: [:email])
+    define(:mint_pat, args: [:email])
   end
 
   identities do
