@@ -26,6 +26,10 @@ config :flux_vale, FluxValeWeb.Endpoint,
 # In test we don't send emails
 config :flux_vale, FluxVale.Mailer, adapter: Swoosh.Adapters.Test
 
+# Oban: run enqueued jobs inline during tests — the testing engine needs
+# no jobs table and cron never fires inside a test run (v1's posture)
+config :flux_vale, Oban, testing: :inline
+
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
 

@@ -10,6 +10,8 @@ defmodule FluxVale.Application do
     children = [
       FluxValeWeb.Telemetry,
       FluxVale.Repo,
+      # Job queue (must start after Repo) — the token janitor's cron (#23)
+      {Oban, Application.fetch_env!(:flux_vale, Oban)},
       {DNSCluster, query: Application.get_env(:flux_vale, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: FluxVale.PubSub},
       # Start a worker by calling: FluxVale.Worker.start_link(arg)
