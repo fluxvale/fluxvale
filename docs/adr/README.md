@@ -11,7 +11,7 @@ already ruled out.
 |---|---|---|
 | [00001](00001-restart-fresh-as-v2.md) | Restart fresh as v2; carry patterns, not process | Accepted |
 | [00002](00002-single-ash-liveview-app.md) | Single Phoenix + Ash + LiveView app; no SPA | Accepted |
-| [00003](00003-ashauthentication-drop-authentik.md) | AshAuthentication passwordless (email codes); drop Authentik | Accepted (amended — see Amendment 1) |
+| [00003](00003-ashauthentication-drop-authentik.md) | AshAuthentication passwordless (email codes); drop Authentik | Accepted (amended — see Amendments 1–2) |
 | [00004](00004-bare-metal-netcup-k3s.md) | Bare-metal Netcup (Talos per ADR-00022); reject managed Kubernetes | Accepted (amended — see Amendment 1) |
 | [00005](00005-customer-instances-as-namespaces.md) | Customer workloads as k8s namespaces (the Instance model) | Accepted (amended — see Amendment 1) |
 | [00006](00006-single-cluster-multi-region-ready.md) | One cluster now, schema-ready for regions; vertical first | Accepted (amended — see Amendment 1) |

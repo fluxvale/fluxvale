@@ -50,3 +50,25 @@ server API token via the BWS operator ([ADR-00021](00021-secrets-bws-operator.md
 remains a cheap later add (pluggable strategies); managed SSO for *catalog
 apps* (v1 #356, PocketID + Traefik forward-auth) remains a decoupled
 post-beta product feature — dropping Authentik does not touch it.
+
+## Amendment 2 (2026-09-07): non-prod mail is split by recipient — humans get real delivery
+
+Amendment 1's environment table (non-prod → Local adapter) contained a
+contradiction ADR-0023 Am. 3's own auth gate exposed during the #37
+review: if staging captures **all** mail in-app, the only copy of a team
+member's login code lives behind the **admin-auth'd** TestInbox — so
+nobody can establish a first session (PAT minting needs a session too).
+Staging's human population (ADR-0023's `fluxvale.com` allowlist) can
+never bootstrap.
+
+**Decision**: adapter selection is per-recipient on non-local
+environments — **test accounts** (the `test@fluxvale.com` seed, ADR-0023)
+capture via `Swoosh.Adapters.Local` (deterministic for E2E, zero quota
+burn, no bounces to nonexistent inboxes); **all other recipients on
+staging and review envs deliver via Postmark** (real inboxes — the
+bootstrap path). Local dev stays Local-adapter-default (developers
+read codes out-of-band via IEx; no gate to deadlock on). The TestInbox
+(#22) keeps both planned backends: Local storage for captured test
+mail, Postmark's Messages API for prod E2E. The recipient split lives
+at the mailer seam (a few lines choosing capture vs. delivery), not in
+per-environment config forks.
