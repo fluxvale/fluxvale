@@ -114,10 +114,7 @@ defmodule FluxVale.Ops.FeatureFlags do
           Ash.update(flag, %{enabled: true, rollout_percentage: preserve}, actor: actor)
       end
 
-    case outcome do
-      {:ok, _flag} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
+    verdict(outcome)
   end
 
   @doc """
@@ -132,17 +129,14 @@ defmodule FluxVale.Ops.FeatureFlags do
   def disable(key, opts) when is_atom(key) and is_list(opts) do
     declared!(key)
 
-    # No row → already disabled by absence; nothing to materialize (Am. 4)
-    outcome =
-      case row(Atom.to_string(key)) do
-        nil -> {:ok, nil}
-        flag -> Ash.update(flag, %{enabled: false}, actor: Keyword.fetch!(opts, :actor))
-      end
-
-    case outcome do
-      {:ok, _flag} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
+    # Data flow: key → string → row (nil or not) → switch off → verdict.
+    # opts (not a fetched actor) flows into switch_off/2 so the actor is
+    # only required when a row actually exists — same laziness as before.
+    key
+    |> Atom.to_string()
+    |> row()
+    |> switch_off(opts)
+    |> verdict()
   end
 
   @doc """
@@ -189,4 +183,14 @@ defmodule FluxVale.Ops.FeatureFlags do
   defp row(key_str) do
     FeatureFlag.by_key!(key_str, authorize?: false, not_found_error?: false)
   end
+
+  # No row → already disabled by absence; nothing to materialize (Am. 4)
+  defp switch_off(nil, _opts), do: {:ok, nil}
+
+  defp switch_off(flag, opts),
+    do: Ash.update(flag, %{enabled: false}, actor: Keyword.fetch!(opts, :actor))
+
+  # {:ok, _} | {:error, reason} → the verbs' :ok | {:error, reason} contract
+  defp verdict({:ok, _flag}), do: :ok
+  defp verdict({:error, reason}), do: {:error, reason}
 end
