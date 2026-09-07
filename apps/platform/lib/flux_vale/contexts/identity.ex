@@ -10,7 +10,18 @@ defmodule FluxVale.Identity do
   use Ash.Domain, otp_app: :flux_vale
 
   resources do
+    resource FluxVale.Identity.AuthCode
     resource FluxVale.Identity.Token
     resource FluxVale.Identity.User
   end
+
+  # Operations are verb-named modules under operations/ (see
+  # apps/platform/AGENTS.md); the domain stays the public seam
+  defdelegate request_auth_code(email, deliver \\ &FluxVale.Mailer.deliver_auth_code/2),
+    to: FluxVale.Identity.Operations.RequestAuthCode,
+    as: :call
+
+  defdelegate verify_auth_code(email, code),
+    to: FluxVale.Identity.Operations.VerifyAuthCode,
+    as: :call
 end

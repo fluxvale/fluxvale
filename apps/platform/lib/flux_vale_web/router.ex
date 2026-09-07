@@ -37,6 +37,11 @@ defmodule FluxValeWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
+
+    # #21: passwordless sign-in — LiveView flow + the POST-only session
+    # write (token in the body, never a URL)
+    live "/sign-in", AuthLive.SignIn
+    post "/auth/session", SessionController, :create
   end
 
   # Other scopes may use custom stacks.
@@ -57,7 +62,9 @@ defmodule FluxValeWeb.Router do
       pipe_through :browser
 
       live_dashboard "/dashboard", metrics: FluxValeWeb.Telemetry
-      forward "/mailbox", Plug.Swoosh.MailboxPreview
+      # No Swoosh /dev/mailbox here: ADR-0023 Am. 3 — the gated TestInbox
+      # (#22) is the only sanctioned mail viewer; the stock preview is
+      # public-by-design (it displays live login codes)
     end
   end
 
