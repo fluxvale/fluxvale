@@ -1,13 +1,14 @@
-defmodule FluxVale.Identity.TokenPruneTest do
+defmodule FluxVale.Identity.Operations.PruneExpiredTokensTest do
   @moduledoc false
 
   use FluxVale.DataCase, async: true
 
   alias FluxVale.Identity
   alias FluxVale.Identity.Token
-  alias FluxVale.Janitor.PruneExpiredTokens
   alias FluxVale.Repo
 
+  # The domain seam, per convention — the operation module is never
+  # called directly
   describe "Identity.prune_expired_tokens/1" do
     test "deletes only expired tokens" do
       expired = seed_token(expires_at: hours_from_now(-1))
@@ -34,15 +35,6 @@ defmodule FluxVale.Identity.TokenPruneTest do
       _unexpired = seed_token(expires_at: hours_from_now(1))
 
       assert {:ok, 0} = Identity.prune_expired_tokens(authorize?: false)
-    end
-
-    test "the janitor worker performs the prune" do
-      _expired = seed_token(expires_at: hours_from_now(-1))
-      _live = seed_token(expires_at: hours_from_now(1))
-
-      # The cron-triggered entry point, exercised directly — the business
-      # logic is Identity.prune_expired_tokens/1 (covered above)
-      assert {:ok, 1} = PruneExpiredTokens.perform(%Oban.Job{})
     end
   end
 

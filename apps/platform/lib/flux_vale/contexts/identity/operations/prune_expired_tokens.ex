@@ -1,12 +1,10 @@
-defmodule FluxVale.Identity.Operations do
+defmodule FluxVale.Identity.Operations.PruneExpiredTokens do
   @moduledoc """
-  Identity operations: token lifecycle maintenance.
+  Deletes expired rows from the revocable token store (v1's janitor
+  operation, ported — #23).
 
-  System-facing entry points for internal maintenance tasks;
-  `FluxVale.Identity` exposes them as `defdelegate`s so the domain module
-  stays a clean interface (v1's pattern, ported — #23). Callers are system
-  processes with no actor (the janitor) — they pass `authorize?: false`
-  explicitly, the same posture as the seeds bootstrap.
+  Callers are system processes with no actor (the janitor) — they pass
+  `authorize?: false` explicitly, the same posture as the seeds bootstrap.
   """
 
   alias FluxVale.Identity.Token
@@ -18,8 +16,8 @@ defmodule FluxVale.Identity.Operations do
   Rides the token resource's `:expired` read and `:expunge_expired`
   destroy (`AshAuthentication.TokenResource`'s built-in pair).
   """
-  @spec prune_expired_tokens(keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
-  def prune_expired_tokens(opts \\ []) do
+  @spec call(keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def call(opts \\ []) do
     opts = Keyword.put(opts, :return_records?, true)
 
     result =
