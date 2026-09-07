@@ -53,8 +53,13 @@ This is a web application written using the Phoenix web framework.
   (`contexts/<domain>.ex` + `contexts/<domain>/resources/thing.ex`);
   generators don't know it. Migrations: `mix ash.codegen <name>` (no
   `--yes` — that flag errors; codegen applies without prompting).
-- **Credo survival** (the gate is `mix credo --strict` — run it on new
-  files early, not first at `mix ci`):
+- **Credo survival** (the gate is `mix credo --strict`, running against
+  `apps/platform/.credo.exs` — v1's port, #32, **stricter than stock
+  credo**: `NestedFunctionCalls`, `PipeChainStart`, `SinglePipe`,
+  `OnePipePerLine`, `BlockPipe`, `PipeIntoAnonymousFunctions`,
+  `StrictModuleLayout` are all explicitly enabled; `test/support/` and a
+  few web files are excluded — the config is the source of truth. Run it
+  on new files early, not first at `mix ci`):
   - pipelines start with a raw value — bind intermediates
     (`key_str = Atom.to_string(key)`) instead of starting from a call
   - never single-stage (`x |> f()` → `f(x)`)
