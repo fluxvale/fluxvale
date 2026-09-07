@@ -3,7 +3,7 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
 
   use FluxVale.DataCase, async: true
 
-  alias FluxVale.TestSupport.AuthCodeHelpers
+  import FluxVale.TestSupport.AuthCodeHelpers
 
   alias FluxVale.Identity
 
@@ -15,11 +15,11 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
   describe "call/2" do
     test "wrong code increments attempts and stays verifiable", %{email: email} do
       :ok = Identity.request_auth_code(email)
-      code = AuthCodeHelpers.mailbox_code()
+      code = mailbox_code()
 
       assert {:error, :wrong_code} = Identity.verify_auth_code(email, "00000")
 
-      assert [%{attempts: 1}] = AuthCodeHelpers.active_codes(email)
+      assert [%{attempts: 1}] = active_codes(email)
       assert {:ok, _user_ok, _token_ok} = Identity.verify_auth_code(email, code)
     end
 
@@ -27,7 +27,7 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
       email: email
     } do
       :ok = Identity.request_auth_code(email)
-      _code = AuthCodeHelpers.mailbox_code()
+      _code = mailbox_code()
 
       for _attempt <- 1..5,
           do: assert({:error, :wrong_code} = Identity.verify_auth_code(email, "000000"))
@@ -41,33 +41,33 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
       email: email
     } do
       :ok = Identity.request_auth_code(email)
-      _code = AuthCodeHelpers.mailbox_code()
-      [auth_code] = AuthCodeHelpers.active_codes(email)
+      _code = mailbox_code()
+      [auth_code] = active_codes(email)
 
       # Exercise the resource-level constraint directly — independent of
       # the operations pre-check (test owns its precondition: wind to cap)
       for _attempt <- 1..5,
-          do: assert({:ok, _row} = AuthCodeHelpers.register_attempt(auth_code))
+          do: assert({:ok, _row} = register_attempt(auth_code))
 
       # attempts == 5: the constraint-validated increment now fails
-      assert {:error, _refused} = AuthCodeHelpers.register_attempt(auth_code)
+      assert {:error, _refused} = register_attempt(auth_code)
     end
 
     test "burn is single-winner — the optimistic-locked delete arbitrates (CWE-367)", %{
       email: email
     } do
       :ok = Identity.request_auth_code(email)
-      _code = AuthCodeHelpers.mailbox_code()
-      [auth_code] = AuthCodeHelpers.active_codes(email)
+      _code = mailbox_code()
+      [auth_code] = active_codes(email)
 
-      assert :ok = AuthCodeHelpers.burn(auth_code)
+      assert :ok = burn(auth_code)
       # The racing loser's delete matches zero rows and errors — no mint
-      assert {:error, _stale} = AuthCodeHelpers.burn(auth_code)
+      assert {:error, _stale} = burn(auth_code)
     end
 
     test "successful verify burns the code — single-use (ADR-0003)", %{email: email} do
       :ok = Identity.request_auth_code(email)
-      code = AuthCodeHelpers.mailbox_code()
+      code = mailbox_code()
 
       assert {:ok, user, token} = Identity.verify_auth_code(email, code)
       assert to_string(user.email) == email
@@ -80,7 +80,7 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
 
     test "first successful verify JIT-provisions the account", %{email: email} do
       :ok = Identity.request_auth_code(email)
-      code = AuthCodeHelpers.mailbox_code()
+      code = mailbox_code()
 
       assert {:ok, user, token} = Identity.verify_auth_code(email, code)
       assert user.id
@@ -90,14 +90,14 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
       :ok = Identity.request_auth_code(email)
 
       assert {:ok, user_again, _again_token} =
-               Identity.verify_auth_code(email, AuthCodeHelpers.mailbox_code())
+               Identity.verify_auth_code(email, mailbox_code())
 
       assert user_again.id == user.id
     end
 
     test "email matching is case-insensitive", %{email: email} do
       :ok = Identity.request_auth_code(email)
-      code = AuthCodeHelpers.mailbox_code()
+      code = mailbox_code()
 
       upcased = String.upcase(email)
 
