@@ -100,6 +100,9 @@ defmodule FluxValeWeb.CoreComponents do
   attr :rest, :global, include: ~w(href navigate patch method download name value disabled)
   attr :class, :any
   attr :variant, :string, values: ~w(primary)
+  # #21: form-submit buttons need explicit type="submit" (default is "button"
+  # per the HTML spec only when inside forms — be deliberate)
+  attr :type, :string, default: nil
   slot :inner_block, required: true
 
   def button(%{rest: rest} = assigns) do
@@ -118,7 +121,7 @@ defmodule FluxValeWeb.CoreComponents do
       """
     else
       ~H"""
-      <button class={@class} {@rest}>
+      <button type={@type} class={@class} {@rest}>
         {render_slot(@inner_block)}
       </button>
       """
