@@ -125,10 +125,13 @@ defmodule FluxVale.MixProject do
       # CI-grade gate: everything a PR must pass, in one command (#5).
       # Dialyzer joins credo: Specs enforcement (presence) + dialyzer
       # (correctness) are the two halves of the typespec story.
+      # ash.codegen --check: resource↔migration drift gate — an attribute
+      # edit without `mix ash.codegen` fails here, not at deploy time.
       ci: [
         "format --check-formatted",
         "deps.unlock --check-unused",
         "compile --warnings-as-errors",
+        "ash.codegen --check",
         "credo --strict",
         "dialyzer",
         "test"
