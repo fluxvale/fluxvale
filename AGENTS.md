@@ -84,8 +84,9 @@ Images push to the k3d local registry — never docker.io.
    echo of what you *asked for* is not evidence — #6 sat in In Progress
    through a whole PR cycle because a `--jq` literal printed success over a
    silently-failed `item-edit`.
-   Board moves take **IDs, not names** (`--single-select-option` without
-   `-id` is not a flag; option names are not accepted):
+   Board moves: prefer the `-id` flags — `--single-select-option` without
+   `-id` is not a flag, and the name-based `--field <name> --value <name>`
+   form exists but is not the verified path:
 
    ```sh
    gh project field-list <N> --owner fluxvale --format json   # Status field + option IDs
