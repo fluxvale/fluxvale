@@ -101,3 +101,26 @@ stopgap (it arrives with the second replica anyway); an external catcher
 (Mailpit-class) returns only if SMTP-path testing is ever wanted. (Neither local
 capture nor SMTP matches prod's Postmark-API delivery path — the login test
 exercises mail-building + code generation, identical either way.)
+
+## Amendment 4 (2026-09-03)
+
+**FunWithFlags considered; the interface adopted, the library not.**
+`fun_with_flags` is the Elixir standard (boolean/actor/group gates,
+percentage-of-actors with the same deterministic hash bucketing §2
+prescribes, own web UI). It was not weighed when §2 was written — the
+ADR-0027 meta-lesson ("check the ecosystem first") applies to flags too;
+this amendment records the accounting:
+
+- **Rejected as the mechanism**: mutation and admin must ride the Ash
+  policy path (ADR-0027) — FunWithFlags brings its own UI and toggling
+  API, i.e. a second admin surface with a second authorization story; the
+code-declared atom catalog is a FluxVale v1 scar no library can enforce
+  for the app; and the whole mechanism is ~200 lines at M2 scale.
+- **Adopted: the call signature.** Reads are `enabled?(flag)` /
+  `enabled?(flag, for: actor)`; admin-side verbs `enable(flag, ...)` /
+  `disable(flag, ...)` take keyword options (ours: `actor:` for
+  authorization, `percentage:` for the rollout gate) and return
+  `:ok | {:error, reason}` — muscle memory carries over.
+- **Revisit triggers**: per-actor gates or group gates (org-scoped
+  rollouts, M5?) → extend `FeatureFlag` (an actor-gate join table),
+  not swap libraries; the curated-view trigger of Am. 2 stands.
