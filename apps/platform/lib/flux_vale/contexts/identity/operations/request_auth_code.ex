@@ -9,9 +9,6 @@ defmodule FluxVale.Identity.Operations.RequestAuthCode do
   received must not block retries for the throttle window.
   """
 
-  import Ash.Changeset, only: [for_create: 3, for_destroy: 2]
-  import Ash.Query, only: [for_read: 3, sort: 2]
-
   alias FluxVale.Identity.AuthCode
   alias FluxVale.Mailer
 
@@ -68,8 +65,8 @@ defmodule FluxVale.Identity.Operations.RequestAuthCode do
 
   defp active_codes(email) do
     AuthCode
-    |> for_read(:active_for_email, %{email: email})
-    |> sort(created_at: :desc)
+    |> Ash.Query.for_read(:active_for_email, %{email: email})
+    |> Ash.Query.sort(created_at: :desc)
     |> Ash.Query.set_context(@interaction)
     |> Ash.read!()
   end
@@ -78,7 +75,7 @@ defmodule FluxVale.Identity.Operations.RequestAuthCode do
     expires_at = DateTime.add(DateTime.utc_now(), @ttl_minutes, :minute)
 
     AuthCode
-    |> for_create(:create, %{
+    |> Ash.Changeset.for_create(:create, %{
       email: email,
       code_hash: Bcrypt.hash_pwd_salt(code, log_rounds: @bcrypt_log_rounds),
       expires_at: expires_at
@@ -98,7 +95,7 @@ defmodule FluxVale.Identity.Operations.RequestAuthCode do
 
   defp burn(auth_code) do
     auth_code
-    |> for_destroy(:burn)
+    |> Ash.Changeset.for_destroy(:burn)
     |> Ash.Changeset.set_context(@interaction)
     |> Ash.destroy()
   end

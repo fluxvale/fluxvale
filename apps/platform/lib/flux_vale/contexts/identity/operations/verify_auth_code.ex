@@ -8,9 +8,6 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   standard 60-day session mint on success.
   """
 
-  import Ash.Changeset, only: [for_create: 3, for_update: 2, for_destroy: 2]
-  import Ash.Query, only: [for_read: 3, sort: 2]
-
   alias FluxVale.Identity.AuthCode
   alias FluxVale.Identity.User
 
@@ -50,8 +47,8 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
 
   defp active_codes(email) do
     AuthCode
-    |> for_read(:active_for_email, %{email: email})
-    |> sort(created_at: :desc)
+    |> Ash.Query.for_read(:active_for_email, %{email: email})
+    |> Ash.Query.sort(created_at: :desc)
     |> Ash.Query.set_context(@interaction)
     |> Ash.read!()
   end
@@ -83,7 +80,7 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   defp register_wrong_attempt(auth_code) do
     result =
       auth_code
-      |> for_update(:register_attempt)
+      |> Ash.Changeset.for_update(:register_attempt)
       |> Ash.Changeset.set_context(@interaction)
       |> Ash.update()
 
@@ -96,7 +93,7 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
 
   defp burn(auth_code) do
     auth_code
-    |> for_destroy(:burn)
+    |> Ash.Changeset.for_destroy(:burn)
     |> Ash.Changeset.set_context(@interaction)
     |> Ash.destroy()
   end
@@ -111,7 +108,7 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   defp lookup_user(email) do
     result =
       User
-      |> for_read(:get_by_email, %{email: email})
+      |> Ash.Query.for_read(:get_by_email, %{email: email})
       |> Ash.Query.set_context(@interaction)
       |> Ash.read()
 
@@ -127,7 +124,7 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   # JIT provisioning (ADR-0003): a valid code proves inbox ownership
   defp provision_user(email) do
     User
-    |> for_create(:create, %{email: email})
+    |> Ash.Changeset.for_create(:create, %{email: email})
     |> Ash.Changeset.set_context(@interaction)
     |> Ash.create()
   end
