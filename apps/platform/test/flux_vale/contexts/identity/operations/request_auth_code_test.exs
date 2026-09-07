@@ -3,7 +3,7 @@ defmodule FluxVale.Identity.Operations.RequestAuthCodeTest do
 
   use FluxVale.DataCase, async: true
 
-  import FluxVale.TestSupport.AuthCodeHelpers
+  alias FluxVale.TestSupport.AuthCodeHelpers
 
   alias FluxVale.Identity
   alias FluxVale.Identity.AuthCode
@@ -18,9 +18,9 @@ defmodule FluxVale.Identity.Operations.RequestAuthCodeTest do
       email: email
     } do
       assert :ok = Identity.request_auth_code(email)
-      code = mailbox_code()
+      code = AuthCodeHelpers.mailbox_code()
 
-      assert [%AuthCode{} = stored] = active_codes(email)
+      assert [%AuthCode{} = stored] = AuthCodeHelpers.active_codes(email)
       assert stored.code_hash != code
       assert String.starts_with?(stored.code_hash, "$2")
       assert Bcrypt.verify_pass(code, stored.code_hash)
@@ -42,11 +42,11 @@ defmodule FluxVale.Identity.Operations.RequestAuthCodeTest do
       boom = fn _to, _code -> {:error, :boom} end
 
       assert {:error, :delivery_failed} = Identity.request_auth_code(email, boom)
-      assert [] == active_codes(email)
+      assert [] == AuthCodeHelpers.active_codes(email)
 
       # The user can immediately retry (no orphaned throttle-blocker)
       assert :ok = Identity.request_auth_code(email)
-      _code = mailbox_code()
+      _code = AuthCodeHelpers.mailbox_code()
     end
   end
 end

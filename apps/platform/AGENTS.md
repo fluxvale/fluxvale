@@ -20,13 +20,15 @@ This is a web application written using the Phoenix web framework.
   diffs — never a side effect of `deps.update`. Same philosophy as the
   toolchain pins in `mise.toml`. GitHub deps pin by tag. To bump: change
   the requirement, `mix deps.update <dep>`, run `mix ci`.
-- **Qualified framework calls, not imports** — write
-  `Ash.Changeset.for_create(…)` / `Ash.Query.for_read(…)`, never
-  `import Ash.Changeset, only: […]` + bare `for_create(…)`: provenance is
-  visible at the call site and nothing masquerades as a module-private
-  function. Exceptions: macros that can't be called qualified
-  (`assert_receive`), the `use`-provided surface (Phoenix/LiveView
-  helpers), and resource/domain DSL bodies (their own language).
+- **No `import` unless the library instructs it** — calls are
+  alias-qualified (`Ash.Changeset.for_create(…)`,
+  `Helpers.mailbox_code()`), never bare names whose provenance reads as
+  module-private. Sanctioned exceptions, all "instructed by the library":
+  macros that can't be called qualified (`assert_receive`,
+  `Phoenix.LiveViewTest`, router/telemetry DSLs), the `use`-provided
+  surface (`use FluxValeWeb, :live_view` and friends), and the case
+  templates' own imports. Resource/domain DSL bodies are their own
+  language, not imports.
 - **Domain operations**: one verb-named module per operation under
   `contexts/<domain>/operations/` — `FluxVale.Identity.Operations.RequestAuthCode`
   — with a `call/…` entrypoint, exposed through the domain via
