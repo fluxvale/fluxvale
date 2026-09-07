@@ -161,11 +161,15 @@ defmodule FluxVale.Ops.FeatureFlags do
   def decide(%FeatureFlag{enabled: true, rollout_percentage: _pct}, _key, nil), do: false
 
   def decide(%FeatureFlag{enabled: true, rollout_percentage: pct}, key, %{id: id}) do
-    # Sticky bucketing per ADR-0023 §2. NB: phash2 guarantees stability
-    # within an OTP release, not across them — a deliberate major-bump
-    # (exact-pinned toolchain) may rebucket users once. Revisit trigger:
-    # a rebucketed rollout ever causing real confusion.
-    rem(:erlang.phash2({key, id}), 100) < pct
+    # Sticky bucketing per ADR-0023 §2: term → hash → bucket → verdict.
+    # NB: phash2 guarantees stability within an OTP release, not across
+    # them — a deliberate major-bump (exact-pinned toolchain) may rebucket
+    # users once. Revisit trigger: a rebucketed rollout ever causing real
+    # confusion.
+    {key, id}
+    |> :erlang.phash2()
+    |> rem(100)
+    |> then(&(&1 < pct))
   end
 
   # Unbucketable actor — a map with no :id (the spec admits any map):
