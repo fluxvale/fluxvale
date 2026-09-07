@@ -1,6 +1,8 @@
 defmodule FluxVale.Identity.Operations.RequestAuthCode do
   @moduledoc """
-  Issues and delivers a one-time login code (ADR-0003, #21).
+  Issues and delivers a one-time login code
+  ([ADR-0003](../../../../../../docs/adr/00003-ashauthentication-drop-authentik.md),
+  #21).
 
   Server-owned secret throughout: only a bcrypt hash is stored, and a
   delivery failure burns the stored code — a code the user never
@@ -43,7 +45,10 @@ defmodule FluxVale.Identity.Operations.RequestAuthCode do
           :ok
 
         {:error, _reason} ->
-          burn(auth_code)
+          # Best-effort cleanup: a failed burn (e.g. racing attempts
+          # change) leaves the row to expire; the user's retry lands on
+          # the throttle message, which is bounded and honest (review)
+          _result = burn(auth_code)
           {:error, :delivery_failed}
       end
     end

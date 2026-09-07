@@ -1,6 +1,8 @@
 defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   @moduledoc """
-  Verifies a one-time login code (ADR-0003, #21): single-use consumption
+  Verifies a one-time login code
+  ([ADR-0003](../../../../../../docs/adr/00003-ashauthentication-drop-authentik.md),
+  #21): single-use consumption
   (the optimistic-locked delete is the arbiter), capped attempts enforced
   atomically at the database, JIT provisioning on first sign-in, and the
   standard 60-day session mint on success.
@@ -116,6 +118,9 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
     case result do
       {:ok, [user]} -> {:ok, user}
       {:ok, []} -> {:error, :not_found}
+      # Infra failure propagates a defined shape instead of raising a
+      # CaseClauseError AFTER the code was consumed (review finding)
+      {:error, _read_failed} -> {:error, :user_lookup_failed}
     end
   end
 

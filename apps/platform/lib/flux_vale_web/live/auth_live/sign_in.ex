@@ -113,7 +113,7 @@ defmodule FluxValeWeb.AuthLive.SignIn do
          put_flash(
            socket,
            :error,
-           "We couldn't send the email right now — please try again shortly."
+           "We couldn't send the email — please wait a minute, then try again."
          )}
     end
   end
