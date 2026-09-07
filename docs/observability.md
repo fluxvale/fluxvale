@@ -62,6 +62,7 @@ health; instance-state distribution); Synthetics checks (prod + staging
 | Data | Instance availability | ready-to-desired replica ratio across running instances (platform-caused; app crashes excluded) | kube-state-metrics / Instance reconciler state |
 | Data | Instance ingress success | non-5xx ratio at the edge for `*.fluxvale.app` | Traefik metrics (enable + Alloy scrape) |
 | Control | Web/API availability | non-5xx request ratio, windowed | PromEx |
+| Control | Flag-read latency | p95/p99 of the `FeatureFlags.enabled?` lookup (unique-index point read, rides every gated request) — this is the demand signal [ADR-0023](adr/00023-day-one-gates.md) §2 watches before adding the ETS cache | PromEx (`repo.query` telemetry already emitted; export/alert-only at M4) |
 | Control | Auth completion | sign-in success ratio (throttled rejections excluded) | app metric |
 | Control | Deploy success rate | instances reaching `running` within N min | domain counter (Instance state machine) |
 | Control | Time-to-running | p95 deploy duration | same counter |
