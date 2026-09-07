@@ -128,7 +128,8 @@ code-declared atom catalog is a FluxVale v1 scar no library can enforce
 ## Amendment 4 (2026-09-07): Local capture scopes to test accounts on non-local envs
 
 Amendment 3 made the Local adapter non-prod's blanket mail path. Per
-ADR-0003 Amendment 2 (the staging bootstrap deadlock), capture applies
+[ADR-0003](00003-ashauthentication-drop-authentik.md) Amendment 2
+(the staging bootstrap deadlock), capture applies
 to **test accounts only** on staging and review environments; human
 recipients receive real Postmark delivery. The gated TestInbox (#22)
 reads Local-captured test mail — machines reach its JSON endpoint with
