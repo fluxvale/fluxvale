@@ -76,7 +76,11 @@ config :flux_vale, Oban,
     {Oban.Plugins.Cron,
      crontab: [
        {"0 3 * * *", FluxVale.Janitor.PruneExpiredTokens}
-     ]}
+     ]},
+    # Retention for finished jobs (completed/cancelled/discarded) — v1
+    # never pruned oban_jobs; adopted on review (#39). 7d keeps a
+    # debugging window at a 1-job/day queue.
+    {Oban.Plugins.Pruner, max_age: 7 * 24 * 60 * 60}
   ]
 
 # Configure esbuild (the version is required)
