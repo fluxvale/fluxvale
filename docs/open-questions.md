@@ -51,6 +51,21 @@ it — don't invent.
    media type); CLI language + distribution (generated from the OpenAPI spec?
    single static binary?); MCP tool set design (which actions, confirmation
    UX for destroy/billing ops).
+
+   CLI login UX (decided 2026-09-07, pre-implementation): gh-style browser
+   device flow — **thin first-party now, RFC 8628-shaped**. The wire shape
+   is RFC 8628's from day one (`device_code`/`user_code`/
+   `verification_uri`/`expires_in`/`interval`; polling errors
+   `authorization_pending`/`slow_down`/`access_denied`/`expired_token`),
+   so a later full implementation is server-internal — the CLI never
+   changes. `DeviceCode` carries `client_id` + `scope` from day one
+   (single seeded first-party client, full access); minted tokens carry
+   client/scope provenance (`extra_data`/claims). The upgrade delta is
+   then the client registry + scope negotiation, not plumbing; scope
+   *enforcement* is the deliberately deferred half. Lands with the CLI
+   milestone ([ADR-0019](adr/00019-machine-first-api-cli-mcp.md) scope
+   discipline: clients after the API they consume); promotes to an ADR +
+   issue when that milestone opens.
 10. **Feature flag resource design** — resolved by
     [ADR-0023](adr/00023-day-one-gates.md) (FeatureFlag resource + evaluator,
     fail-closed, atom-safe keys, sticky rollouts, AshAdmin-administered) —
