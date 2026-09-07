@@ -20,6 +20,14 @@ This is a web application written using the Phoenix web framework.
   diffs — never a side effect of `deps.update`. Same philosophy as the
   toolchain pins in `mise.toml`. GitHub deps pin by tag. To bump: change
   the requirement, `mix deps.update <dep>`, run `mix ci`.
+- **Domain operations**: one verb-named module per operation under
+  `contexts/<domain>/operations/` — `FluxVale.Identity.Operations.RequestAuthCode`
+  — with a `call/…` entrypoint, exposed through the domain via
+  `defdelegate … as: :call` (the domain stays the public seam; operation
+  modules are never called directly). Each operation owns its constants
+  and private helpers outright — if two operations share a helper, the
+  boundary is wrong. Tests mirror: `operations/<op>_test.exs`, shared
+  test helpers in `test/support/` (credo-exempt by config).
 - **Policy-check modules** live under `lib/flux_vale/checks/` as
   `FluxVale.Checks.Actor<Assertion>` (e.g. `ActorIsPlatformAdmin`) — the
   Ash policy guide's grammar for actor questions. Policy-land checks and

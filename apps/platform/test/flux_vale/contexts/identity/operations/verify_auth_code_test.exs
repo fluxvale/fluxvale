@@ -1,74 +1,25 @@
-defmodule FluxVale.Identity.OperationsTest do
+defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
   @moduledoc false
 
   use FluxVale.DataCase, async: true
 
-  import Swoosh.TestAssertions
+  import FluxVale.TestSupport.AuthCodeHelpers
 
   alias FluxVale.Identity
-  alias FluxVale.Identity.AuthCode
-  alias FluxVale.Repo
 
-  # Swoosh test adapter captures into the process mailbox (per-test)
   setup do
-    email = "ops-test-#{System.unique_integer()}@fluxvale.com"
+    email = "verify-code-#{System.unique_integer()}@fluxvale.com"
     %{email: email}
   end
 
-  defp mailbox_code do
-    assert_receive {:email, %Swoosh.Email{text_body: body}},
-                   1_000,
-                   "expected the auth-code email to be delivered"
-
-    [code] = Regex.run(~r/code is (\d{6})\./, body, capture: :all_but_first)
-    code
-  end
-
-  describe "request_auth_code/1" do
-    test "stores a bcrypt hash — never the code — with a 10-minute TTL", %{
-      email: email
-    } do
-      assert :ok = Identity.request_auth_code(email)
-      code = mailbox_code()
-
-      assert [%AuthCode{} = stored] = active_codes(email)
-      assert stored.code_hash != code
-      assert String.starts_with?(stored.code_hash, "$2")
-      assert Bcrypt.verify_pass(code, stored.code_hash)
-
-      assert_in_delta DateTime.to_unix(stored.expires_at),
-                      DateTime.to_unix(DateTime.utc_now()) + 10 * 60,
-                      5
-    end
-
-    test "throttles resends per address (ADR-0003 send throttle)", %{email: email} do
-      assert :ok = Identity.request_auth_code(email)
-      assert {:error, :throttled} = Identity.request_auth_code(email)
-      assert {:error, :throttled} = Identity.request_auth_code(email)
-    end
-
-    test "failed delivery burns the code — retries aren't blocked (review)", %{
-      email: email
-    } do
-      boom = fn _to, _code -> {:error, :boom} end
-
-      assert {:error, :delivery_failed} = Identity.request_auth_code(email, boom)
-      assert [] == active_codes(email)
-
-      # The user can immediately retry (no orphaned throttle-blocker)
-      assert :ok = Identity.request_auth_code(email)
-      _code = mailbox_code()
-    end
-  end
-
-  describe "verify_auth_code/2" do
+  describe "call/2" do
     test "wrong code increments attempts and stays verifiable", %{email: email} do
       :ok = Identity.request_auth_code(email)
       code = mailbox_code()
 
       assert {:error, :wrong_code} = Identity.verify_auth_code(email, "00000")
 
-      assert [%AuthCode{attempts: 1}] = active_codes(email)
+      assert [%{attempts: 1}] = active_codes(email)
       assert {:ok, _user_ok, _token_ok} = Identity.verify_auth_code(email, code)
     end
 
@@ -93,13 +44,12 @@ defmodule FluxVale.Identity.OperationsTest do
       _code = mailbox_code()
       [auth_code] = active_codes(email)
 
-      # Exercise the resource-level filter directly — independent of the
-      # operations pre-check (test owns its precondition: wind to the cap)
-      for _attempt <- 1..4,
+      # Exercise the resource-level constraint directly — independent of
+      # the operations pre-check (test owns its precondition: wind to cap)
+      for _attempt <- 1..5,
           do: assert({:ok, _row} = register_attempt(auth_code))
 
-      assert {:ok, _fifth} = register_attempt(auth_code)
-      # attempts == 5: the conditional update now matches zero rows
+      # attempts == 5: the constraint-validated increment now fails
       assert {:error, _refused} = register_attempt(auth_code)
     end
 
@@ -138,7 +88,10 @@ defmodule FluxVale.Identity.OperationsTest do
 
       # A second sign-in reuses the same account
       :ok = Identity.request_auth_code(email)
-      assert {:ok, user_again, _again_token} = Identity.verify_auth_code(email, mailbox_code())
+
+      assert {:ok, user_again, _again_token} =
+               Identity.verify_auth_code(email, mailbox_code())
+
       assert user_again.id == user.id
     end
 
@@ -147,30 +100,8 @@ defmodule FluxVale.Identity.OperationsTest do
       code = mailbox_code()
 
       upcased = String.upcase(email)
+
       assert {:ok, _upcased_user, _upcased_token} = Identity.verify_auth_code(upcased, code)
     end
-  end
-
-  defp active_codes(email) do
-    import Ash.Query
-
-    AuthCode
-    |> Ash.Query.for_read(:active_for_email, %{email: email})
-    |> Ash.Query.set_context(%{private: %{ash_authentication?: true}})
-    |> Ash.read!()
-  end
-
-  defp register_attempt(auth_code) do
-    auth_code
-    |> Ash.Changeset.for_update(:register_attempt)
-    |> Ash.Changeset.set_context(%{private: %{ash_authentication?: true}})
-    |> Ash.update()
-  end
-
-  defp burn(auth_code) do
-    auth_code
-    |> Ash.Changeset.for_destroy(:burn)
-    |> Ash.Changeset.set_context(%{private: %{ash_authentication?: true}})
-    |> Ash.destroy()
   end
 end
