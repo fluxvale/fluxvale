@@ -34,6 +34,34 @@ gh pr list --repo fluxvale/fluxvale --state open --json number \
 `UNKNOWN` means GitHub is still computing against the new base — re-poll
 after a few seconds before treating it as clean.
 
+## BEHIND ≠ conflicting: the merge judgment
+
+Branch protection does **not** require branches to be up-to-date
+(maintainer decision, 2026-09-08 — the setting's forced sync-pushes
+re-triggered the full CodeRabbit cycle even for drift that couldn't
+affect the PR, e.g. docs-only commits). GitHub still blocks textual
+conflicts regardless; what remains is a pre-merge judgment, run on the
+open PR:
+
+```sh
+git fetch -q origin pull/<N>/head:pr-<N>
+base=$(git merge-base origin/main pr-<N>)
+comm -12 <(git diff --name-only "$base"..origin/main | sort) \
+         <(gh pr view <N> --repo fluxvale/fluxvale --json files \
+            -q '.files[].path' | sort)
+```
+
+Empty → merge as-is (`BEHIND` is fine — main-push CI gates the merged
+result within minutes as the safety net). Non-empty → sync first: the
+rebase workflow below, re-gate, force-with-lease — file overlap is
+exactly where semantic conflicts hide (each PR green alone, broken
+together).
+
+Caveats: this is for **open** PRs pre-merge — for a squash-merged PR
+the `pull/N/head` ref has no ancestry with `main`, so the merge-base
+degenerates and self-intersects. Revisit trigger for the setting
+itself: parallel contributors or routinely-overlapping in-flight PRs.
+
 ## Rebase workflow (a PR came back `CONFLICTING`)
 
 1. In the PR's worktree: `git fetch origin && git rebase origin/main`.
