@@ -123,7 +123,8 @@ lesson paid for).
   commit on `main` (`feat(platform):`, `chore(platform):`, `test(e2e):`,
   `ci:`, `docs:`).
 - One concern per PR. Squash merge, delete the branch, sync `main`.
-- Kanban (org project "FluxVale v2 — build ladder"): `In Progress` when you
+- Kanban (org project "FluxVale" — `gh project 2 --owner fluxvale`):
+  `In Progress` when you
   start, `In Review` when the PR opens, `Done` when merged.
 
 ## AI-review protocol (CodeRabbit)
