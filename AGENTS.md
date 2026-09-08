@@ -78,8 +78,13 @@ Images push to the k3d local registry — never docker.io.
 
 ## PR lifecycle (the loop)
 
-1. Branch → implement → `mix ci` green → push → open PR (`Closes #N`) →
-   card → `In Review`.
+1. **Every PR starts in a sibling worktree — docs-only included**
+   (`git worktree add ../fluxvale-<topic> -b <type>/<desc> main`), then:
+   implement → `mix ci` green → push → open PR (`Closes #N`) → card →
+   `In Review`. The main checkout stays on clean, synced `main` — an
+   unfamiliar sha in its `git log` then reliably means a maintainer
+   merge (a drift signal worth more than the worktree's setup cost),
+   and there is no branch-restore bookkeeping after merges.
    **Verify board mutations by read-back** (`gh project item-list`): a CLI
    echo of what you *asked for* is not evidence — #6 sat in In Progress
    through a whole PR cycle because a `--jq` literal printed success over a
@@ -103,7 +108,7 @@ Images push to the k3d local registry — never docker.io.
 3. Once CI exists (#8): also require all GitHub Actions checks green
    before asking for review.
 4. Only then ask the maintainer for feedback/merge. On approval: squash
-   merge, delete branch, sync `main`, card → `Done`.
+   merge, remove the worktree, delete the branch, sync `main`, card → `Done`.
 
 The maintainer is the final gate, not the first reviewer.
 
