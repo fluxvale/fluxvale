@@ -26,6 +26,18 @@ defmodule FluxVale.Ops.AccessRules.Cache do
   (verified: never fires); revisit only if concurrent admin rule edits
   ever actually race (CodeRabbit, #48).
 
+  Multi-node future (noted during #48 review, 2026-09-08; revisit when
+  M4 staging gives the gate its first multi-replica surface): the tree
+  already runs DNSCluster + Phoenix.PubSub, but a plain "bust your
+  cache" broadcast is a trap — the receiver's immediate re-read can
+  race the mutation's commit and re-cement the stale snapshot with the
+  newest stamp, turning the residual above into a guaranteed full-TTL
+  stale. The robust shape is a mutation-epoch counter row bumped inside
+  the mutation's transaction, broadcasts carrying the epoch, and
+  read-your-writes retries on the receiver — with this TTL kept as the
+  partition/missed-message backstop regardless. Defer until 60s
+  cross-node revocation lag actually matters.
+
   TTL 0 (test config) makes the cache inert: reads go straight to the
   table, so every test is instantly consistent and nothing reads through
   a snapshot another test stale-dated.
