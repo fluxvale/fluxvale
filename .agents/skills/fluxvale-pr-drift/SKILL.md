@@ -34,6 +34,42 @@ gh pr list --repo fluxvale/fluxvale --state open --json number \
 `UNKNOWN` means GitHub is still computing against the new base — re-poll
 after a few seconds before treating it as clean.
 
+## BEHIND ≠ conflicting: the merge judgment
+
+Branch protection does **not** require branches to be up-to-date
+(maintainer decision, 2026-09-08 — the setting's forced sync-pushes
+re-triggered the full CodeRabbit cycle even for drift that couldn't
+affect the PR, e.g. docs-only commits). GitHub still blocks textual
+conflicts regardless; what remains is a pre-merge judgment, run on the
+open PR:
+
+```bash
+# bash — process substitution. FETCH_HEAD, not a local pr-<N> branch:
+# a local branch collides non-fast-forward on repeat runs or after the
+# PR force-pushes; FETCH_HEAD has no ref to collide.
+git fetch -q origin pull/<N>/head
+base=$(git merge-base origin/main FETCH_HEAD)
+# --no-renames: a main-side rename would otherwise surface only the new
+# path, hiding overlap with a PR still editing the old one
+comm -12 <(git diff --name-only --no-renames "$base"..origin/main | sort) \
+         <(gh pr view <N> --repo fluxvale/fluxvale --json files \
+            -q '.files[].path' | sort)
+```
+
+Empty → merge as-is (`BEHIND` is fine — main-push CI gates the merged
+result within minutes as the safety net). Non-empty → sync first: the
+rebase workflow below, re-gate, force-with-lease — file overlap is
+exactly where semantic conflicts hide (each PR green alone, broken
+together).
+
+Caveats: this is for **open** PRs, pre-merge. A squash-merged PR's
+`pull/N/head` survives and `merge-base` still resolves the old branch
+point — but the squash commit's content now sits in the
+`$base..origin/main` diff, so the check self-intersects and reports
+the PR's own files (observed live on #44). Revisit trigger for the
+setting itself: parallel contributors or routinely-overlapping
+in-flight PRs.
+
 ## Rebase workflow (a PR came back `CONFLICTING`)
 
 1. In the PR's worktree: `git fetch origin && git rebase origin/main`.
