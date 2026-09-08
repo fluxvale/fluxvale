@@ -8,17 +8,27 @@ defmodule FluxVale.Ops.AccessRules.Cache do
 
   Lazy TTL: `snapshot/0` returns the held rows until they age past
   `config :flux_vale, :access_rules_cache_ttl_seconds` (60 default), then
-  re-reads. Mutations force-refresh through `refresh/0` (the BustCache
-  change) — the mutating node is instant, and the TTL is the **cross-node**
-  revocation bound (ADR-0023 Am. 1's "sever ≤ TTL" exit criterion).
+  re-reads. Mutations force a refresh (`refresh/0`, from BustCache) — the
+  mutating node is instant, and the TTL is the **cross-node** revocation
+  bound (ADR-0023 Am. 1's "sever ≤ TTL" exit criterion).
 
-  Racing readers can't regress the cache: every store carries the
-  generation it read against, and a store from an older generation is
-  discarded — a delayed read may start before a mutation and land after
-  it, but can never overwrite the post-mutation snapshot (CodeRabbit,
-  #48). TTL 0 (test config) makes the cache inert: reads go straight to
-  the table, so every test is instantly consistent and nothing reads
-  through a snapshot another test stale-dated.
+  Racing readers can't regress the cache: every store is stamped with the
+  monotonic time its read **started**, and a store whose stamp is not
+  newer than the held one is discarded (CodeRabbit, #48) — whichever
+  store lands last, the snapshot from the newest-started read wins, so
+  an older overlapping refresh cannot restore a deleted rule.
+
+  Known residual, deliberately bounded: a mutation's own refresh reads
+  inside its transaction, so two mutations overlapping within
+  milliseconds can leave the cache missing the loser's change —
+  self-healing within one TTL. `after_transaction` would read post-commit
+  and close it, but is not honored from module changes on the bulk path
+  (verified: never fires); revisit only if concurrent admin rule edits
+  ever actually race (CodeRabbit, #48).
+
+  TTL 0 (test config) makes the cache inert: reads go straight to the
+  table, so every test is instantly consistent and nothing reads through
+  a snapshot another test stale-dated.
   """
 
   use GenServer
@@ -44,15 +54,15 @@ defmodule FluxVale.Ops.AccessRules.Cache do
 
   @doc """
   Force an immediate re-read (after every AccessRule mutation — BustCache).
-  Stores unconditionally — the mutating node's read is authoritative by
-  construction (it runs inside the mutation's transaction). A no-op while
+  The read is stamped; it only lands if it started newer than whatever is
+  held — overlapping mutations can't restore a revoked rule. A no-op while
   the cache is disabled.
   """
   @spec refresh() :: :ok
   def refresh do
     if enabled?() do
-      snapshot = read_all()
-      :ok = store(snapshot, :force)
+      {snapshot, stamp} = stamped_read()
+      :ok = store(snapshot, stamp)
       :ok
     else
       :ok
@@ -75,47 +85,52 @@ defmodule FluxVale.Ops.AccessRules.Cache do
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
-  # {snapshot, freshness, gen} — the generation rides along so a store
-  # from a read that raced a newer store can be discarded server-side
-  defp maybe_refresh({snapshot, true, _gen}), do: snapshot
+  # {snapshot, freshness, stamp} — the stamp rides along so a store from a
+  # read that started before a newer read can be discarded server-side
+  defp maybe_refresh({snapshot, true, _stamp}), do: snapshot
 
-  defp maybe_refresh({_stale, _fresh, gen}) do
-    snapshot = read_all()
-    :ok = store(snapshot, gen)
+  defp maybe_refresh({_stale, _freshness, _stamp}) do
+    {snapshot, stamp} = stamped_read()
+    :ok = store(snapshot, stamp)
     snapshot
+  end
+
+  # The stamp is taken BEFORE the read: a read that started before a commit
+  # is "as of" before it, even if it finishes after — and the mutation's
+  # own post-commit refresh always starts later and wins
+  defp stamped_read do
+    stamp = System.monotonic_time()
+    {read_all(), stamp}
   end
 
   @impl GenServer
   @spec init(:ok) ::
-          {:ok, %{snapshot: snapshot() | nil, refreshed_at: DateTime.t() | nil, gen: integer()}}
-  def init(:ok), do: {:ok, %{snapshot: nil, refreshed_at: nil, gen: 0}}
+          {:ok,
+           %{
+             snapshot: snapshot() | nil,
+             refreshed_at: DateTime.t() | nil,
+             read_stamp: integer() | nil
+           }}
+  def init(:ok), do: {:ok, %{snapshot: nil, refreshed_at: nil, read_stamp: nil}}
 
   @impl GenServer
   @spec handle_call(atom(), GenServer.from(), map()) :: {:reply, term(), map()}
-  def handle_call(:current, _from, state),
-    do: {:reply, {state.snapshot, fresh?(state), state.gen}, state}
+  def handle_call(:current, _from, state) do
+    {:reply, {state.snapshot, fresh?(state), state.read_stamp}, state}
+  end
 
-  # The bust path: the mutating node's read is authoritative — always wins
-  def handle_call({:store, snapshot, :force}, _from, _state),
-    do: {:reply, :ok, recorded(snapshot)}
-
-  # A stale-generation store is discarded: its read raced a newer store (a
-  # bust or a fresher read) — keeping the older snapshot would restore
-  # revoked access for up to a TTL
-  def handle_call({:store, _older, stale_gen}, _from, %{gen: gen} = state)
-      when stale_gen < gen,
+  # A store is accepted only when its read started newer than whatever is
+  # held — an older overlapping refresh (racing mutations, delayed lazy
+  # reads) can never overwrite a newer snapshot, so a deleted rule cannot
+  # be restored for the TTL (CodeRabbit, #48). NB: the is_integer guard —
+  # nil (never-held) must not compare (term order would put any stamp
+  # "below" nil and discard the first store)
+  def handle_call({:store, _older, stamp}, _from, %{read_stamp: held} = state)
+      when is_integer(held) and stamp <= held,
       do: {:reply, :ok, state}
 
-  def handle_call({:store, snapshot, _current_gen}, _from, _state),
-    do: {:reply, :ok, recorded(snapshot)}
-
-  # Positive-monotonic per-VM — strictly increasing, so a stale read's
-  # generation is always strictly less than any store that landed after
-  # its read (and greater than the never-read init gen of 0)
-  defp recorded(snapshot) do
-    gen = System.unique_integer([:positive, :monotonic])
-    %{snapshot: snapshot, refreshed_at: DateTime.utc_now(), gen: gen}
-  end
+  def handle_call({:store, snapshot, stamp}, _from, _state),
+    do: {:reply, :ok, %{snapshot: snapshot, refreshed_at: DateTime.utc_now(), read_stamp: stamp}}
 
   defp fresh?(%{refreshed_at: nil}), do: false
 
@@ -125,7 +140,8 @@ defmodule FluxVale.Ops.AccessRules.Cache do
     |> then(&(abs(&1) < ttl_seconds()))
   end
 
-  defp store(snapshot, gen), do: GenServer.call(__MODULE__, {:store, snapshot, gen})
+  defp store(snapshot, stamp),
+    do: GenServer.call(__MODULE__, {:store, snapshot, stamp})
 
   defp ttl_seconds,
     do: Application.get_env(:flux_vale, :access_rules_cache_ttl_seconds, 60)

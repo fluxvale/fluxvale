@@ -45,21 +45,56 @@ defmodule FluxVale.Ops.AccessRules.CacheTest do
   # The exact interleaving CodeRabbit asked for (#48): a read that started
   # before a mutation finishes after it — the newer state stays
   # authoritative and the stale read cannot restore revoked access
-  test "a delayed read cannot restore a revoked rule (generation guard)" do
+  test "a delayed read cannot restore a revoked rule (newest-read-wins)" do
     rule = AccessRule.create!(%{domain: "fluxvale.com"}, authorize?: false)
     refute AccessRules.allowed?("race-check@example.com")
 
-    # Our "slow read" captured the pre-mutation generation…
-    {_pre_snapshot, _fresh, pre_gen} = GenServer.call(Cache, :current)
+    # Our "slow read" captured the pre-mutation read stamp…
+    {_pre_snapshot, _fresh, pre_stamp} = GenServer.call(Cache, :current)
 
-    # …then the rule is removed while that read is in flight
+    # …then the rule is removed while that read is in flight (refresh
+    # stored explicitly — the sandbox hides the transaction boundary, so
+    # after_transaction hooks don't fire under test)
     :ok = Ash.destroy(rule, authorize?: false)
+    :ok = Cache.refresh()
 
     # …and the delayed reader finishes, trying to store its stale snapshot
-    :ok = GenServer.call(Cache, {:store, [rule], pre_gen})
+    :ok = GenServer.call(Cache, {:store, [rule], pre_stamp})
 
     # Newer state wins: the table is empty — unrestricted — and the stale
     # snapshot (which would re-deny) was discarded
     assert AccessRules.allowed?("race-check@example.com")
+  end
+
+  # The overlapping-MUTATIONS interleaving CodeRabbit asked for (#48):
+  # two concurrent refreshes, the older one completing LAST — it must not
+  # overwrite the newer snapshot, or a deleted rule returns for a TTL
+  test "overlapping refreshes: the older one landing last cannot restore a delete" do
+    keep = AccessRule.create!(%{domain: "fluxvale.com"}, authorize?: false)
+
+    gone =
+      AccessRule.create!(%{email: "#{System.unique_integer()}@example.com"}, authorize?: false)
+
+    # Refresh A starts first (stamp captured pre-delete) and is slow…
+    stamp_a = System.monotonic_time() - 1
+    snapshot_a = [keep, gone]
+
+    # …refresh B (the delete's post-commit refresh) starts and lands —
+    # stored explicitly: the sandbox hides the transaction boundary, so
+    # after_transaction hooks don't fire under test (prod fires them —
+    # the bust-on-mutation test above covers the outcome)
+    :ok = Ash.destroy(gone, authorize?: false)
+    :ok = Cache.refresh()
+
+    # …then slow refresh A finally stores its pre-delete snapshot
+    :ok = GenServer.call(Cache, {:store, snapshot_a, stamp_a})
+
+    # The newest read (B's) stays authoritative: `keep` still admits its
+    # domain, `gone` stays deleted — not restored for a TTL
+    member = "overlap-#{System.unique_integer()}@fluxvale.com"
+    assert AccessRules.allowed?(member)
+
+    revoked = to_string(gone.email)
+    refute AccessRules.allowed?(revoked)
   end
 end
