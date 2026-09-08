@@ -42,6 +42,19 @@ This is a web application written using the Phoenix web framework.
   Ash policy guide's grammar for actor questions. Policy-land checks and
   plug-land predicates for the same question share one module (the check
   delegates to the public `*_?` predicate) so the notion cannot fork.
+- **Ash authorization is on by default** — reads *and* generic actions
+  run policies unless `authorize?: false` is passed; there is no opt-in
+  flag. Consequences: a no-actor or non-admin call is `Forbidden`
+  (bootstrap paths — seeds, test preconditions — pass `authorize?:
+  false` explicitly, with a comment saying why); an action run fn
+  receives `context.actor` / `context.authorize?` and nested calls
+  propagate both — `get_by_email(email, actor: context.actor,
+  authorize?: context.authorize?)` — instead of hard-coding either.
+  v1's unconditional inner `authorize?: false` bypasses are a
+  pre-authorizer habit, fixed on port (settled on #23). Ground truth
+  for default-semantics questions: `deps/ash/lib/ash/actions/*.ex`, or
+  probe via `MIX_ENV=test mix run <script>.exs` (script file, never
+  `-e` — see the fluxvale-pr-drift skill).
 - Health contract: `GET /health` = dependency-free liveness +
   `{status, version}` where `version` is `sha-<BUILD_SHA>` (the deploy
   pipeline greps it). `GET /health/ready` = DB readiness (`SELECT 1`) → 503
