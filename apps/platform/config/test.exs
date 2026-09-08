@@ -46,3 +46,8 @@ config :phoenix_live_view,
 # Sort query params output of verified routes for robust url comparisons
 config :phoenix,
   sort_verified_routes_query_params: true
+
+# The gated TestInbox (#22) — enabled so the recipient-split and endpoint
+# tests exercise the real config; the Swoosh.Test adapter stays the
+# configured delivery path for non-test-account mail.
+config :flux_vale, :test_inbox, enabled: true

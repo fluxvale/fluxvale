@@ -79,3 +79,7 @@ config :phoenix_live_view,
 
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
+
+# The gated TestInbox (#22) — enabled in dev: Local adapter captures all
+# mail anyway; the viewer + JSON endpoint ride the admin gate.
+config :flux_vale, :test_inbox, enabled: true
