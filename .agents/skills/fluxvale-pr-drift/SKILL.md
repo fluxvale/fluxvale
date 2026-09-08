@@ -54,9 +54,10 @@ after a few seconds before treating it as clean.
    nearest file wins. Refactor, don't just hunk-resolve: if a superseded
    shape appears anywhere in your diff (module layout, test paths, call
    seams), move it, even where Git auto-merged cleanly.
-4. Re-run the full gate (`mix ci`) — the rebase imports the new base's
-   test pool into the run (#39 went from 49 to 63 tests across its
-   rebase; that growth is expected, not suspicious).
+4. Re-run the full gate — `cd apps/platform && mix ci` — the rebase
+   imports the new base's test pool into the run (#39 went from 49 to
+   63 tests across its rebase; that growth is expected, not
+   suspicious).
 5. `git push --force-with-lease` — never bare `--force`.
 6. Update the PR body with a rebase note (what moved and why) — the
    squash-merged commit on `main` won't carry the story.
@@ -71,8 +72,9 @@ after a few seconds before treating it as clean.
   attempts; four failed `-e` one-liners preceded the file that worked.
   Write `<demo>.exs` in the app dir, `mise exec -- mix run <demo>.exs`,
   delete it before committing.
-- **`mix test` wants `test/`-prefixed paths** — `mix test
-  test/flux_vale/...`; the bare `flux_vale/...` form matches nothing and
+- **`mix test` wants `test/`-prefixed paths** — directories are already
+  recursive, so `mix test test/flux_vale/contexts/identity` runs every
+  suite under it; the bare `flux_vale/...` form matches nothing and
   exits with "did not match any directory/file".
 - **Board moves: IDs flow through jq, never through fingers** — a
   retyped item ID dropped two characters and cost a GraphQL error

@@ -46,7 +46,8 @@ This is a web application written using the Phoenix web framework.
   run policies unless `authorize?: false` is passed; there is no opt-in
   flag. Consequences: a no-actor or non-admin call is `Forbidden`
   (bootstrap paths — seeds, test preconditions — pass `authorize?:
-  false` explicitly, with a comment saying why); an action run fn
+  false` explicitly, with a comment saying why); an action's `run`
+  function
   receives `context.actor` / `context.authorize?` and nested calls
   propagate both — `get_by_email(email, actor: context.actor,
   authorize?: context.authorize?)` — instead of hard-coding either.
