@@ -13,7 +13,7 @@ defmodule FluxVale.Identity.User do
     domain: FluxVale.Identity,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshAuthentication]
+    extensions: [AshAuthentication, AshJsonApi.Resource]
 
   require Logger
 
@@ -55,6 +55,26 @@ defmodule FluxVale.Identity.User do
     policy FluxVale.Checks.ActorIsPlatformAdmin do
       description "Platform admins manage users"
       authorize_if(always())
+    end
+
+    # always() is honest here: the action's actor filter already constrains
+    # the result to the caller, so "any authenticated actor may run :me"
+    # cannot leak another record (nil actor never reaches policy — the
+    # filter errors ReadActionRequiresActor first).
+    policy action(:me) do
+      description "Any authenticated user reads their own record"
+      authorize_if(always())
+    end
+  end
+
+  json_api do
+    type "user"
+
+    routes do
+      # GET /api/v1/me — the current actor's record, no id (#24). The only
+      # public User surface: deliberately no collection routes (listing
+      # users is not a machine API — ADR-0019 §1).
+      get :me, route: "/me"
     end
   end
 
@@ -103,6 +123,15 @@ defmodule FluxVale.Identity.User do
       # email-code strategy (#21) under the interaction bypass above.
       primary? true
       accept([:email, :platform_role])
+    end
+
+    # /api/v1/me (#24): the actor-template filter is the whole trick — the
+    # query can only ever return the caller, and a nil actor fails loudly
+    # (ReadActionRequiresActor) before policy runs. Same templating shape
+    # as get_by_email's ^arg(:email).
+    read :me do
+      description "The current actor's own record"
+      filter(expr(id == ^actor(:id)))
     end
 
     read :get_by_subject do

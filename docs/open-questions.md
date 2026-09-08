@@ -47,10 +47,14 @@ it — don't invent.
    `ghcr.io/fluxvale/fluxvale` (matches repo/product name). Still open: CI
    skeleton.
 9. **API surface details** — [ADR-00019](adr/00019-machine-first-api-cli-mcp.md) settled the headline (JSON:API + CLI
-   + MCP from day one). Still open: API versioning scheme (URL prefix vs
-   media type); CLI language + distribution (generated from the OpenAPI spec?
-   single static binary?); MCP tool set design (which actions, confirmation
-   UX for destroy/billing ops).
+   + MCP from day one). Versioning: **resolved** (#24, 2026-09-08) — URL prefix,
+   `/api/v1/…` from the first public route; no unversioned aliases, no media-type
+   negotiation (it fights the JSON:API media type and ash_json_api's parser, is
+   invisible to OpenAPI-generated clients, and `Vary` busts caches). A future v2
+   mounts alongside v1 — additive, both live during migration. Still open: CLI
+   language + distribution (generated from the OpenAPI spec? single static
+   binary?); MCP tool set design (which actions, confirmation UX for
+   destroy/billing ops).
 
    CLI login UX (decided 2026-09-07, pre-implementation): gh-style browser
    device flow — **thin first-party now, RFC 8628-shaped**. The wire shape
