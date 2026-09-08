@@ -11,7 +11,18 @@ defmodule FluxValeWeb.Router do
   end
 
   pipeline :api do
+    # "json" maps to the JSON:API media type (config.exs, per the ash_json_api
+    # installer) — accepts ["json"] negotiates application/vnd.api+json
     plug :accepts, ["json"]
+  end
+
+  # #24: resolve (Authenticate) then gate (RequireActor) — the machine-client
+  # 401/403 contract. fetch_session rides here so the session fallback can
+  # read the token-backed session cookie (v1's :api pipeline did the same).
+  pipeline :api_auth do
+    plug :fetch_session
+    plug FluxValeWeb.Plugs.Authenticate
+    plug FluxValeWeb.Plugs.RequireActor
   end
 
   scope "/", FluxValeWeb do
@@ -23,11 +34,17 @@ defmodule FluxValeWeb.Router do
     get "/health/ready", HealthController, :ready
   end
 
-  scope "/api/json" do
-    pipe_through [:api]
+  # /api/v1 — the versioned JSON:API surface (#24 settles OQ #9: URL-prefix
+  # versioning; the scaffold's /api/json named the format, not a version,
+  # and died while zero clients existed). Everything under the prefix rides
+  # the auth gate, the OpenAPI spec included — client generation renders
+  # the spec offline from compiled resources anyway (v1's pattern), and
+  # swaggerui authenticates through the session fallback in dev.
+  scope "/api/v1" do
+    pipe_through [:api, :api_auth]
 
     forward "/swaggerui", OpenApiSpex.Plug.SwaggerUI,
-      path: "/api/json/open_api",
+      path: "/api/v1/open_api",
       default_model_expand_depth: 4
 
     forward "/", FluxValeWeb.AshJsonApiRouter

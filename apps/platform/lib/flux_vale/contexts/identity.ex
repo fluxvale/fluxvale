@@ -8,7 +8,9 @@ defmodule FluxVale.Identity do
   sensitive resources (ADR-0027 §3).
   """
 
-  use Ash.Domain, otp_app: :flux_vale
+  use Ash.Domain,
+    otp_app: :flux_vale,
+    extensions: [AshJsonApi.Domain]
 
   resources do
     resource FluxVale.Identity.AuthCode
