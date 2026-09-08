@@ -59,11 +59,22 @@ config :phoenix_live_view,
 # Configure the mailer
 #
 # By default it uses the "Local" adapter which stores the emails
-# locally. You can see the emails in your browser, at "/dev/mailbox".
+# locally — read them in the admin-gated TestInbox at "/test-inbox" (#22),
+# or via the machine surface: /test-inbox/api/mails (admin PAT).
 #
 # For production it's recommended to configure a different adapter
 # at the `config/runtime.exs`.
 config :flux_vale, FluxVale.Mailer, adapter: Swoosh.Adapters.Local
+
+# The gated TestInbox (#22): non-prod mail capture + viewer. Routes are
+# compiled into every build and gated by a runtime plug — staging flips
+# the same release via TEST_INBOX_ENABLED (runtime.exs, ADR-0010's
+# same-image rule); prod leaves it unset, so the surface 404s = absent.
+# storage_driver is the M4 seam (ADR-0023 Am. 3): swap Memory for a
+# DB-backed dev adapter without touching the endpoint or the tests.
+config :flux_vale, :test_inbox,
+  enabled: false,
+  storage_driver: Swoosh.Adapters.Local.Storage.Memory
 
 # Configure Oban: the repo-backed job queue. Plain Oban, not ash_oban — no
 # domain declares triggers yet (settled on #23); AshOban.config/2's domain

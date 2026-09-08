@@ -66,7 +66,47 @@ defmodule FluxValeWeb.Router do
   #   pipe_through :api
   # end
 
-  # Enable LiveDashboard and Swoosh mailbox preview in development
+  # #22: the gated TestInbox (ADR-0003 Am. 2, ADR-0023 Am. 3+4) — the
+  # admin-auth'd mailbox viewer + JSON endpoint over Swoosh Local storage.
+  # Lives outside /api/v1 on purpose: a config-gated dev/ops surface, not
+  # the versioned client contract (#24). The gate is a runtime plug, not
+  # compile_env mounting — staging flips the same release via
+  # TEST_INBOX_ENABLED (runtime.exs); under prod config it 404s, which is
+  # the route-absent exit criterion.
+  pipeline :test_inbox_api do
+    plug :fetch_session
+    plug FluxValeWeb.Plugs.TestInboxEnabled
+    plug FluxValeWeb.Plugs.Authenticate
+    plug FluxValeWeb.Plugs.RequirePlatformAdmin, :json
+  end
+
+  # No protect_from_forgery, deliberately: the stock Swoosh preview's
+  # clear-mailbox form carries no CSRF token, and the only POST it enables
+  # clears a non-prod, admin-gated test inbox — no asset worth the 403s.
+  pipeline :test_inbox_browser do
+    plug :fetch_session
+    plug :put_secure_browser_headers
+    plug FluxValeWeb.Plugs.TestInboxEnabled
+    plug FluxValeWeb.Plugs.Authenticate
+    plug FluxValeWeb.Plugs.RequirePlatformAdmin, :html
+  end
+
+  scope "/test-inbox", FluxValeWeb do
+    pipe_through :test_inbox_api
+
+    get "/api/mails", TestInboxController, :index
+    get "/api/mails/latest", TestInboxController, :latest
+  end
+
+  scope "/test-inbox" do
+    pipe_through :test_inbox_browser
+
+    # The stock Swoosh preview (list + per-mail pages) behind the gates;
+    # the wrapper injects the runtime storage driver per-request
+    forward "/", FluxValeWeb.Plugs.TestInboxPreview
+  end
+
+  # Enable LiveDashboard in development
   if Application.compile_env(:flux_vale, :dev_routes) do
     # If you want to use the LiveDashboard in production, you should put
     # it behind authentication and allow only admins to access it.
@@ -80,8 +120,8 @@ defmodule FluxValeWeb.Router do
 
       live_dashboard "/dashboard", metrics: FluxValeWeb.Telemetry
       # No Swoosh /dev/mailbox here: ADR-0023 Am. 3 — the gated TestInbox
-      # (#22) is the only sanctioned mail viewer; the stock preview is
-      # public-by-design (it displays live login codes)
+      # above (#22) is the only sanctioned mail viewer; the stock mount
+      # is public-by-design (it displays live login codes)
     end
   end
 

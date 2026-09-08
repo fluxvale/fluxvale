@@ -9,6 +9,15 @@ import Config
 # Build identity for /health — injected at image-build time (docs/deployment.md)
 config :flux_vale, build_sha: System.get_env("BUILD_SHA")
 
+# TestInbox gate (#22, ADR-0003 Am. 2 / ADR-0023 Am. 3): dev/test enable
+# via their config files; staging — the same prod-mode release as prod
+# (ADR-0010) — flips this env var, and the recipient split then captures
+# only test-account mail while Postmark delivers the humans'. Prod leaves
+# it unset: the routes 404, which is the absent-under-prod contract.
+if System.get_env("TEST_INBOX_ENABLED") do
+  config :flux_vale, :test_inbox, enabled: System.get_env("TEST_INBOX_ENABLED") in ["true", "1"]
+end
+
 # Repo connection: DATABASE_URL wins; otherwise discrete DB_* vars compose
 # it (the in-cluster shape — Kubernetes can't template a URL from Secret
 # refs, so the Deployment passes DB_USER/DB_PASSWORD via secretKeyRef).
