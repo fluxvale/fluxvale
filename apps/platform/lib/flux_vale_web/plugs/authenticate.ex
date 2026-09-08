@@ -87,10 +87,9 @@ defmodule FluxValeWeb.Plugs.Authenticate do
 
   defp enforce_access_rules(%Plug.Conn{assigns: %{current_user: user}} = conn)
        when not is_nil(user) do
-    if AccessRules.allowed?(user.email) do
-      conn
-    else
-      Plug.Conn.assign(conn, :current_user, nil)
+    case AccessRules.ensure_allowed(user.email) do
+      :ok -> conn
+      {:error, :not_allowed} -> Plug.Conn.assign(conn, :current_user, nil)
     end
   end
 

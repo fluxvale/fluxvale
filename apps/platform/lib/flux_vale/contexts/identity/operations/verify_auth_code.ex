@@ -28,7 +28,7 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   @spec call(String.t() | Ash.CiString.t(), String.t()) ::
           {:ok, map(), String.t()} | {:error, atom()}
   def call(email, code) do
-    with :ok <- access_gate(email) do
+    with :ok <- AccessRules.ensure_allowed(email) do
       verify(email, code)
     end
   end
@@ -49,10 +49,6 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
       %AuthCode{} = auth_code ->
         attempt_verify(auth_code, email, code)
     end
-  end
-
-  defp access_gate(email) do
-    if AccessRules.allowed?(email), do: :ok, else: {:error, :not_allowed}
   end
 
   defp latest_active_code(email) do

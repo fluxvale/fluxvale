@@ -43,6 +43,18 @@ defmodule FluxVale.Ops.AccessRules do
   end
 
   @doc """
+  The gate form of `allowed?/1` for `with` chains (#26): `:ok` when the
+  address is allowed, `{:error, :not_allowed}` when a rule denies it.
+  """
+  @spec ensure_allowed(String.t() | Ash.CiString.t()) :: :ok | {:error, :not_allowed}
+  def ensure_allowed(email) do
+    case allowed?(email) do
+      true -> :ok
+      false -> {:error, :not_allowed}
+    end
+  end
+
+  @doc """
   The decision core: what do `rules` (the table snapshot) mean for `email`?
 
   Pure — no lookup, no policy, no clock. Empty list = unrestricted;
