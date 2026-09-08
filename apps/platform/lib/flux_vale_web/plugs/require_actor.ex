@@ -38,7 +38,10 @@ defmodule FluxValeWeb.Plugs.RequireActor do
         Logger.info("API request unauthenticated: #{conn.method} #{conn.request_path}")
 
         conn
-        |> put_resp_content_type("application/vnd.api+json")
+        # charset=nil: ash_json_api's own responses send the bare media type
+        # (response.ex), and the JSON:API registration carries no charset —
+        # the 401 stays byte-identical to every other API response
+        |> put_resp_content_type("application/vnd.api+json", nil)
         |> put_resp_header("www-authenticate", "Bearer")
         |> resp(:unauthorized, @unauthorized_body)
         |> halt()

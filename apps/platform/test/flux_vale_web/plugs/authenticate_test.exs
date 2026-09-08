@@ -59,6 +59,20 @@ defmodule FluxValeWeb.Plugs.AuthenticateTest do
 
       assert conn.assigns.current_user.id == user.id
     end
+
+    test "lower-case bearer scheme resolves too (RFC 7235: schemes are case-insensitive)", %{
+      conn: conn,
+      user: user,
+      session_token: token
+    } do
+      conn =
+        conn
+        |> plug_conn()
+        |> Plug.Conn.put_req_header("authorization", "bearer " <> token)
+        |> Authenticate.call([])
+
+      assert conn.assigns.current_user.id == user.id
+    end
   end
 
   describe "call/2 session" do

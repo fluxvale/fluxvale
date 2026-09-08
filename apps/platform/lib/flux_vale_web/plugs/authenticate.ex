@@ -39,13 +39,38 @@ defmodule FluxValeWeb.Plugs.Authenticate do
   end
 
   defp from_bearer(conn) do
-    if bearer_token?(conn), do: Helpers.retrieve_from_bearer(conn, :flux_vale), else: conn
+    if bearer_token?(conn) do
+      conn
+      |> canonicalize_bearer_scheme()
+      |> Helpers.retrieve_from_bearer(:flux_vale)
+    else
+      conn
+    end
   end
 
+  # RFC 7235: auth-scheme names are case-insensitive; the ash_authentication
+  # helper parses only the canonical "Bearer " prefix — normalize before it
+  # sees the header (CodeRabbit, #44)
   defp bearer_token?(conn) do
     conn
     |> Plug.Conn.get_req_header("authorization")
-    |> Enum.any?(&String.starts_with?(&1, "Bearer "))
+    |> Enum.any?(&bearer_scheme?/1)
+  end
+
+  defp bearer_scheme?(header) do
+    header
+    |> String.downcase()
+    |> String.starts_with?("bearer ")
+  end
+
+  defp canonicalize_bearer_scheme(conn) do
+    req_headers =
+      Enum.map(conn.req_headers, fn
+        {"authorization", "bearer" <> rest} -> {"authorization", "Bearer" <> rest}
+        header -> header
+      end)
+
+    %{conn | req_headers: req_headers}
   end
 
   # Only falls back when the bearer path resolved nothing — a successful

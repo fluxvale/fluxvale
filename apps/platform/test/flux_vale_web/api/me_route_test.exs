@@ -46,6 +46,22 @@ defmodule FluxValeWeb.Api.MeRouteTest do
       assert error["status"] == "401"
       assert error["title"] == "Unauthorized"
       assert get_resp_header(conn, "www-authenticate") == ["Bearer"]
+
+      # the bare media type, charset-free — byte-identical to ash_json_api's
+      # own responses (CodeRabbit, #44)
+      assert ["application/vnd.api+json"] = get_resp_header(conn, "content-type")
+    end
+
+    test "401 for a lower-case bearer scheme is still parsed (RFC 7235)", %{
+      conn: conn,
+      pat: pat
+    } do
+      conn =
+        conn
+        |> put_req_header("authorization", "bearer " <> pat)
+        |> get("/api/v1/me")
+
+      assert %{"data" => %{"id" => _id}} = json_response(conn, 200)
     end
 
     test "401 for a garbage token", %{conn: conn} do
