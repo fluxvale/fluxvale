@@ -137,7 +137,9 @@ in-flight PRs.
   <type>/<desc> main`. The main checkout stays on clean, synced
   `main`, so an unfamiliar sha in its `git log` reliably means a
   maintainer-side merge — the drift signal "When to sweep" relies on —
-  and there is no branch-restore bookkeeping. After merge: `git
-  worktree remove ../fluxvale-<topic>` and delete the branch. A
+  and there is no branch-restore bookkeeping. After merge, run from
+  the main checkout — a worktree cannot remove itself — `git
+  worktree remove ../fluxvale-<topic>` (the worktree must be clean;
+  `--force` only to deliberately discard), then delete the branch. A
   docs-only worktree needs no `deps.get`/`ash.setup` — the setup cost
   is one command.
