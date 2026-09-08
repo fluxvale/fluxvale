@@ -24,8 +24,10 @@ defmodule FluxVale.Ops.AccessRuleTest do
 
   describe "create/2" do
     test "accepts a domain row and an email row — the two ADR-0023 shapes" do
-      assert {:ok, %AccessRule{domain: "fluxvale.com", email: nil}} =
+      assert {:ok, %AccessRule{email: nil} = domain_row} =
                AccessRule.create(%{domain: "fluxvale.com"}, authorize?: false)
+
+      assert to_string(domain_row.domain) == "fluxvale.com"
 
       assert {:ok, %AccessRule{domain: nil}} =
                AccessRule.create(
@@ -58,6 +60,11 @@ defmodule FluxVale.Ops.AccessRuleTest do
 
       assert {:error, %Ash.Error.Invalid{}} =
                AccessRule.create(%{domain: "fluxvale.com"}, authorize?: false)
+
+      # citext both directions: uniqueness is case-insensitive too
+      # (CodeRabbit, #48 — a differently-cased duplicate is integrity rot)
+      assert {:error, %Ash.Error.Invalid{}} =
+               AccessRule.create(%{domain: "FluxVale.com"}, authorize?: false)
 
       AccessRule.create!(%{email: "one@example.com"}, authorize?: false)
 

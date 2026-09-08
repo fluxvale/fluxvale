@@ -12,9 +12,13 @@ defmodule FluxVale.Ops.AccessRules.Cache do
   change) — the mutating node is instant, and the TTL is the **cross-node**
   revocation bound (ADR-0023 Am. 1's "sever ≤ TTL" exit criterion).
 
-  TTL 0 (test config) makes the cache inert: reads go straight to the
-  table, so every test is instantly consistent and nothing reads through
-  a snapshot another test stale-dated.
+  Racing readers can't regress the cache: every store carries the
+  generation it read against, and a store from an older generation is
+  discarded — a delayed read may start before a mutation and land after
+  it, but can never overwrite the post-mutation snapshot (CodeRabbit,
+  #48). TTL 0 (test config) makes the cache inert: reads go straight to
+  the table, so every test is instantly consistent and nothing reads
+  through a snapshot another test stale-dated.
   """
 
   use GenServer
@@ -40,13 +44,15 @@ defmodule FluxVale.Ops.AccessRules.Cache do
 
   @doc """
   Force an immediate re-read (after every AccessRule mutation — BustCache).
-  A no-op while the cache is disabled.
+  Stores unconditionally — the mutating node's read is authoritative by
+  construction (it runs inside the mutation's transaction). A no-op while
+  the cache is disabled.
   """
   @spec refresh() :: :ok
   def refresh do
     if enabled?() do
       snapshot = read_all()
-      :ok = store(snapshot)
+      :ok = store(snapshot, :force)
       :ok
     else
       :ok
@@ -69,27 +75,47 @@ defmodule FluxVale.Ops.AccessRules.Cache do
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
-  # {nil, _} — never read; {_snapshot, false} — aged past the TTL
-  defp maybe_refresh({nil, _freshness}) do
+  # {snapshot, freshness, gen} — the generation rides along so a store
+  # from a read that raced a newer store can be discarded server-side
+  defp maybe_refresh({snapshot, true, _gen}), do: snapshot
+
+  defp maybe_refresh({_stale, _fresh, gen}) do
     snapshot = read_all()
-    :ok = store(snapshot)
+    :ok = store(snapshot, gen)
     snapshot
   end
 
-  defp maybe_refresh({snapshot, true}), do: snapshot
-
   @impl GenServer
-  @spec init(:ok) :: {:ok, %{snapshot: snapshot() | nil, refreshed_at: DateTime.t() | nil}}
-  def init(:ok), do: {:ok, %{snapshot: nil, refreshed_at: nil}}
+  @spec init(:ok) ::
+          {:ok, %{snapshot: snapshot() | nil, refreshed_at: DateTime.t() | nil, gen: integer()}}
+  def init(:ok), do: {:ok, %{snapshot: nil, refreshed_at: nil, gen: 0}}
 
   @impl GenServer
   @spec handle_call(atom(), GenServer.from(), map()) :: {:reply, term(), map()}
-  def handle_call(:current, _from, state) do
-    {:reply, {state.snapshot, fresh?(state)}, state}
-  end
+  def handle_call(:current, _from, state),
+    do: {:reply, {state.snapshot, fresh?(state), state.gen}, state}
 
-  def handle_call({:store, snapshot}, _from, _state),
-    do: {:reply, :ok, %{snapshot: snapshot, refreshed_at: DateTime.utc_now()}}
+  # The bust path: the mutating node's read is authoritative — always wins
+  def handle_call({:store, snapshot, :force}, _from, _state),
+    do: {:reply, :ok, recorded(snapshot)}
+
+  # A stale-generation store is discarded: its read raced a newer store (a
+  # bust or a fresher read) — keeping the older snapshot would restore
+  # revoked access for up to a TTL
+  def handle_call({:store, _older, stale_gen}, _from, %{gen: gen} = state)
+      when stale_gen < gen,
+      do: {:reply, :ok, state}
+
+  def handle_call({:store, snapshot, _current_gen}, _from, _state),
+    do: {:reply, :ok, recorded(snapshot)}
+
+  # Positive-monotonic per-VM — strictly increasing, so a stale read's
+  # generation is always strictly less than any store that landed after
+  # its read (and greater than the never-read init gen of 0)
+  defp recorded(snapshot) do
+    gen = System.unique_integer([:positive, :monotonic])
+    %{snapshot: snapshot, refreshed_at: DateTime.utc_now(), gen: gen}
+  end
 
   defp fresh?(%{refreshed_at: nil}), do: false
 
@@ -99,7 +125,7 @@ defmodule FluxVale.Ops.AccessRules.Cache do
     |> then(&(abs(&1) < ttl_seconds()))
   end
 
-  defp store(snapshot), do: GenServer.call(__MODULE__, {:store, snapshot})
+  defp store(snapshot, gen), do: GenServer.call(__MODULE__, {:store, snapshot, gen})
 
   defp ttl_seconds,
     do: Application.get_env(:flux_vale, :access_rules_cache_ttl_seconds, 60)

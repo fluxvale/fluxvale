@@ -41,4 +41,25 @@ defmodule FluxVale.Ops.AccessRules.CacheTest do
     :ok = Cache.refresh()
     assert AccessRules.allowed?("stale-check@example.com")
   end
+
+  # The exact interleaving CodeRabbit asked for (#48): a read that started
+  # before a mutation finishes after it — the newer state stays
+  # authoritative and the stale read cannot restore revoked access
+  test "a delayed read cannot restore a revoked rule (generation guard)" do
+    rule = AccessRule.create!(%{domain: "fluxvale.com"}, authorize?: false)
+    refute AccessRules.allowed?("race-check@example.com")
+
+    # Our "slow read" captured the pre-mutation generation…
+    {_pre_snapshot, _fresh, pre_gen} = GenServer.call(Cache, :current)
+
+    # …then the rule is removed while that read is in flight
+    :ok = Ash.destroy(rule, authorize?: false)
+
+    # …and the delayed reader finishes, trying to store its stale snapshot
+    :ok = GenServer.call(Cache, {:store, [rule], pre_gen})
+
+    # Newer state wins: the table is empty — unrestricted — and the stale
+    # snapshot (which would re-deny) was discarded
+    assert AccessRules.allowed?("race-check@example.com")
+  end
 end

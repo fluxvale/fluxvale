@@ -45,11 +45,13 @@ defmodule FluxVale.Ops.AccessRule do
     create_timestamp(:created_at)
     update_timestamp(:updated_at)
 
-    attribute :domain, :string do
+    attribute :domain, :ci_string do
       public?(true)
       # Domain-shaped rows only — a row that can never match a real
       # address's domain would sit silently inert (same posture as
-      # FeatureFlag's code-shaped key constraint).
+      # FeatureFlag's code-shaped key constraint). ci_string both directions:
+      # matching is case-insensitive AND the unique index is too (CodeRabbit,
+      # #48 — a differently-cased duplicate would be data integrity rot).
       constraints(match: ~r/^[a-z0-9.-]+\.[a-z]{2,}$/i)
     end
 

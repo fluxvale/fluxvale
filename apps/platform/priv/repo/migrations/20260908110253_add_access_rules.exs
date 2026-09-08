@@ -19,7 +19,7 @@ defmodule FluxVale.Repo.Migrations.AddAccessRules do
         null: false,
         default: fragment("(now() AT TIME ZONE 'utc')")
 
-      add :domain, :text
+      add :domain, :citext
       add :email, :citext
     end
 

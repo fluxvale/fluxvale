@@ -46,7 +46,7 @@
       "scale": null,
       "size": null,
       "source": "domain",
-      "type": "text"
+      "type": "citext"
     },
     {
       "allow_nil?": true,
@@ -67,7 +67,7 @@
   "custom_indexes": [],
   "custom_statements": [],
   "has_create_action": true,
-  "hash": "B04BC68BA0C05CBBD3C476E135807EBDF6CDDBC2119488454E352573D4236DF0",
+  "hash": "5484DDC867D6378392370479A732E38FEFCAF10577AFC33D338E6166099DD6E0",
   "identities": [
     {
       "all_tenants?": false,

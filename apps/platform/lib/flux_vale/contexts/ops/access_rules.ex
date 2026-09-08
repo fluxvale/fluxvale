@@ -76,6 +76,7 @@ defmodule FluxVale.Ops.AccessRules do
   defp rule_allows?(%AccessRule{domain: rule_domain}, _address, domain)
        when not is_nil(rule_domain) do
     rule_domain
+    |> to_string()
     |> String.downcase()
     |> then(&(&1 == domain))
   end
