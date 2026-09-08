@@ -132,7 +132,12 @@ in-flight PRs.
     | jq -r '.items[] | select(.content.number == <N>) | .status'
   ```
 
-- **Docs-only branches may live in the main checkout** (nothing
-  competes for it), but restore it immediately after merge —
-  `git checkout main && git pull` — and say so if handing over
-  mid-cycle. Code branches get sibling worktrees as usual.
+- **Every PR starts in a sibling worktree — docs-only included**
+  (root AGENTS.md policy): `git worktree add ../fluxvale-<topic> -b
+  <type>/<desc> main`. The main checkout stays on clean, synced
+  `main`, so an unfamiliar sha in its `git log` reliably means a
+  maintainer-side merge — the drift signal "When to sweep" relies on —
+  and there is no branch-restore bookkeeping. After merge: `git
+  worktree remove ../fluxvale-<topic>` and delete the branch. A
+  docs-only worktree needs no `deps.get`/`ash.setup` — the setup cost
+  is one command.
