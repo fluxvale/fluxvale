@@ -63,11 +63,13 @@ defmodule FluxVale.TestInbox do
   @doc """
   Should this mail be captured instead of delivered? The mailer-seam half
   of the recipient split (ADR-0003 Am. 2): true when the TestInbox is
-  enabled and **every** recipient is a test account
-  (`test@fluxvale.com`, plus-addressed variants included).
+  enabled and **every** recipient — to, cc, and bcc alike — is a test
+  account (`test@fluxvale.com`, plus-addressed variants included). Any
+  human anywhere in the recipient list means the mail delivers.
   """
   @spec capture?(Swoosh.Email.t()) :: boolean()
-  def capture?(%Swoosh.Email{to: recipients}) do
+  def capture?(%Swoosh.Email{to: to, cc: cc, bcc: bcc}) do
+    recipients = to ++ cc ++ bcc
     addresses = Enum.map(recipients, &recipient_address/1)
 
     enabled?() and addresses != [] and Enum.all?(addresses, &test_account?/1)

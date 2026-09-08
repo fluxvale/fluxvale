@@ -34,12 +34,8 @@ defmodule FluxValeWeb.Plugs.RequirePlatformAdmin do
       ActorIsPlatformAdmin.platform_admin?(actor) ->
         conn
 
-      is_nil(actor) and format == :html ->
-        # Unsigned-in human: the standard app entry — sign in, come back.
-        conn
-        |> put_resp_header("location", "/sign-in")
-        |> send_resp(:found, "Found")
-        |> halt()
+      format == :html ->
+        deny_html(conn, actor)
 
       is_nil(actor) ->
         json_denial(conn, :unauthorized, "Missing or invalid credentials")
@@ -47,6 +43,22 @@ defmodule FluxValeWeb.Plugs.RequirePlatformAdmin do
       true ->
         json_denial(conn, :forbidden, "Platform admin required")
     end
+  end
+
+  # Unsigned-in human: the standard app entry — sign in, come back.
+  defp deny_html(conn, nil) do
+    conn
+    |> put_resp_header("location", "/sign-in")
+    |> send_resp(:found, "Found")
+    |> halt()
+  end
+
+  # Humans get a bare 403 — a JSON error document on an HTML route would
+  # be noise (CodeRabbit, #47)
+  defp deny_html(conn, _non_admin) do
+    conn
+    |> send_resp(:forbidden, "")
+    |> halt()
   end
 
   defp json_denial(conn, status, detail) do

@@ -141,7 +141,7 @@ defmodule FluxValeWeb.TestInboxRouteTest do
       assert get_resp_header(conn, "location") == ["/sign-in"]
     end
 
-    test "a signed-in non-admin gets 403", %{conn: conn} do
+    test "a signed-in non-admin gets a bare 403", %{conn: conn} do
       user = User.create!(@user_email, %{}, authorize?: false)
       {:ok, token, _claims} = Jwt.token_for_user(user)
 
@@ -151,6 +151,8 @@ defmodule FluxValeWeb.TestInboxRouteTest do
         |> get("/test-inbox")
 
       assert conn.status == 403
+      # Empty body, not a JSON error document on an HTML route (CodeRabbit, #47)
+      assert conn.resp_body == ""
     end
   end
 

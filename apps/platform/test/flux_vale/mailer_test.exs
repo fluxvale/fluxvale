@@ -47,6 +47,40 @@ defmodule FluxVale.MailerTest do
       assert {:error, :not_found} = TestInbox.latest_mail("test+mixed@fluxvale.com")
     end
 
+    # CodeRabbit #47: the recipient list is to + cc + bcc — a human in any
+    # of them means the mail delivers
+    test "a cc'd human blocks capture" do
+      email =
+        %Swoosh.Email{}
+        |> Swoosh.Email.to("test+cc@fluxvale.com")
+        |> Swoosh.Email.cc("cc-human@fluxvale.com")
+        |> Swoosh.Email.from({"FluxVale", "no-reply@fluxvale.com"})
+        |> Swoosh.Email.subject("CC'd human")
+        |> Swoosh.Email.text_body("Body")
+
+      {:ok, _delivery} = Mailer.deliver(email)
+
+      assert_receive {:email, %Swoosh.Email{subject: "CC'd human"}}
+
+      assert {:error, :not_found} = TestInbox.latest_mail("test+cc@fluxvale.com")
+    end
+
+    test "a bcc'd human blocks capture" do
+      email =
+        %Swoosh.Email{}
+        |> Swoosh.Email.to("test+bcc@fluxvale.com")
+        |> Swoosh.Email.bcc("bcc-human@fluxvale.com")
+        |> Swoosh.Email.from({"FluxVale", "no-reply@fluxvale.com"})
+        |> Swoosh.Email.subject("BCC'd human")
+        |> Swoosh.Email.text_body("Body")
+
+      {:ok, _delivery} = Mailer.deliver(email)
+
+      assert_receive {:email, %Swoosh.Email{subject: "BCC'd human"}}
+
+      assert {:error, :not_found} = TestInbox.latest_mail("test+bcc@fluxvale.com")
+    end
+
     test "delivered mail still carries the plain-code body (ADR-0003)" do
       {:ok, _delivery} = Mailer.deliver_auth_code("split-body@fluxvale.com", "765432")
 
