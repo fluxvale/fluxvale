@@ -6,6 +6,7 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
   import Phoenix.LiveViewTest
 
   alias FluxVale.Identity
+  alias FluxVale.Ops.AccessRule
 
   @email "lv-test-#{System.unique_integer()}@fluxvale.com"
 
@@ -88,5 +89,25 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
       |> render_submit()
 
     assert resend_result =~ "wait a minute"
+  end
+
+  # #26: the door itself — explicit message, not enumeration-safe (staging
+  # is team-only; uniform messaging is a beta-invite-flow concern)
+  test "a denied address is told to ask an admin — and stays on the email step", %{
+    conn: conn
+  } do
+    AccessRule.create!(%{domain: "fluxvale.com"}, authorize?: false)
+
+    {:ok, view, _html} = live(conn, ~p"/sign-in")
+
+    result =
+      view
+      |> form("#email-form", email: "outsider-#{System.unique_integer()}@example.com")
+      |> render_submit()
+
+    assert result =~ "ask an admin for access"
+    assert result =~ "email-form"
+    refute result =~ "code-form"
+    refute_received {:email, %Swoosh.Email{}}
   end
 end

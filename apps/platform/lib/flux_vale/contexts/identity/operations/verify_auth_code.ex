@@ -6,10 +6,16 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   (the optimistic-locked delete is the arbiter), capped attempts enforced
   atomically at the database, JIT provisioning on first sign-in, and the
   standard 60-day session mint on success.
+
+  The AccessRule gate runs before anything else (#26): a rule removed
+  after a code was already sent must still stop the session mint — the
+  ≤10-min code-TTL window is exactly the severing case Am. 1 cares about.
+  Denied addresses burn nothing.
   """
 
   alias FluxVale.Identity.AuthCode
   alias FluxVale.Identity.User
+  alias FluxVale.Ops.AccessRules
 
   # The framework's own door for auth flows — see RequestAuthCode's note
   @interaction %{private: %{ash_authentication?: true}}
@@ -22,6 +28,12 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   @spec call(String.t() | Ash.CiString.t(), String.t()) ::
           {:ok, map(), String.t()} | {:error, atom()}
   def call(email, code) do
+    with :ok <- access_gate(email) do
+      verify(email, code)
+    end
+  end
+
+  defp verify(email, code) do
     # Guards can't call remote functions — bind the cap first
     max_attempts = AuthCode.max_attempts()
 
@@ -37,6 +49,10 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
       %AuthCode{} = auth_code ->
         attempt_verify(auth_code, email, code)
     end
+  end
+
+  defp access_gate(email) do
+    if AccessRules.allowed?(email), do: :ok, else: {:error, :not_allowed}
   end
 
   defp latest_active_code(email) do

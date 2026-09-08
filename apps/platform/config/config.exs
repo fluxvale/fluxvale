@@ -38,7 +38,11 @@ config :flux_vale,
   # so the router keeps the placeholder while this is empty. Ops opting in
   # (#25) swaps the placeholder for the real dashboard.
   ash_admin_domains: [FluxVale.Ops],
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: :utc_datetime],
+  # AccessRules snapshot TTL (#26, settled): 60s — the cross-node
+  # revocation bound; the mutating node busts instantly (BustCache).
+  # 0 in test.exs disables the cache (instant consistency per test).
+  access_rules_cache_ttl_seconds: 60
 
 # Configure the endpoint
 config :flux_vale, FluxValeWeb.Endpoint,

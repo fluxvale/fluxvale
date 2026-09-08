@@ -11,6 +11,7 @@ defmodule FluxVale.Identity.Operations.RequestAuthCode do
 
   alias FluxVale.Identity.AuthCode
   alias FluxVale.Mailer
+  alias FluxVale.Ops.AccessRules
 
   @code_digits 6
   @ttl_minutes 10
@@ -30,9 +31,10 @@ defmodule FluxVale.Identity.Operations.RequestAuthCode do
   `deliver/2` is injectable for the delivery-failure path.
   """
   @spec call(String.t() | Ash.CiString.t(), function()) ::
-          :ok | {:error, :throttled | :delivery_failed}
+          :ok | {:error, :throttled | :delivery_failed | :not_allowed}
   def call(email, deliver \\ &Mailer.deliver_auth_code/2) do
-    with :ok <- throttle_check(email) do
+    with :ok <- access_gate(email),
+         :ok <- throttle_check(email) do
       code = random_code()
       {:ok, auth_code} = store_code(email, code)
       recipient = to_string(email)
@@ -49,6 +51,10 @@ defmodule FluxVale.Identity.Operations.RequestAuthCode do
           {:error, :delivery_failed}
       end
     end
+  end
+
+  defp access_gate(email) do
+    if AccessRules.allowed?(email), do: :ok, else: {:error, :not_allowed}
   end
 
   defp throttle_check(email) do

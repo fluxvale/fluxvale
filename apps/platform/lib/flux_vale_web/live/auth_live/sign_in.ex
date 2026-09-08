@@ -108,6 +108,16 @@ defmodule FluxValeWeb.AuthLive.SignIn do
            "Please wait a minute before requesting another code."
          )}
 
+      {:error, :not_allowed} ->
+        # #26: explicit, not enumeration-safe — staging is team-only;
+        # uniform messaging is a beta-invite-flow concern, not an M2 one
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "That address can't sign in yet — ask an admin for access."
+         )}
+
       {:error, :delivery_failed} ->
         {:noreply,
          put_flash(
@@ -129,6 +139,15 @@ defmodule FluxValeWeb.AuthLive.SignIn do
          |> assign(step: :email)
          |> assign(form: to_form(%{"email" => socket.assigns.email}))
          |> put_flash(:error, "Too many attempts — request a fresh code.")}
+
+      {:error, :not_allowed} ->
+        # #26: the rule changed after the code was sent — retrying that
+        # code can never succeed; back to the email step with the why
+        {:noreply,
+         socket
+         |> assign(step: :email)
+         |> assign(form: to_form(%{"email" => socket.assigns.email}))
+         |> put_flash(:error, "That address can't sign in yet — ask an admin for access.")}
 
       {:error, _reason} ->
         # Uniform message: unknown address and wrong code look identical
