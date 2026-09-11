@@ -110,4 +110,31 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
     refute result =~ "code-form"
     refute_received {:email, %Swoosh.Email{}}
   end
+
+  # #26: the rule changed between code-send and verify — that code can
+  # never succeed; bounce to the email step with the why, not the generic
+  # wrong-code message (the mint gate's UX half)
+  test "a rule landing mid-flow bounces verify back to the email step", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/sign-in")
+
+    view
+    |> form("#email-form", email: @email)
+    |> render_submit()
+
+    code = deliver_and_extract_code()
+
+    # …the door closes to exact-address rows before the code is used
+    AccessRule.create!(%{email: "one@fluxvale.com"}, authorize?: false)
+
+    result =
+      view
+      |> form("#code-form", code: code)
+      |> render_submit()
+
+    assert result =~ "ask an admin for access"
+    assert result =~ "email-form"
+    refute result =~ "code-form"
+  end
 end
