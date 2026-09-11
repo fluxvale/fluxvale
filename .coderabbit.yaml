@@ -1,0 +1,20 @@
+# Review-budget controls (from the #48 session: ~8 review-trigger
+# events — 5 of them auto-reviews of mid-loop pushes — for what needed
+# ~3; the rate limit hit four times in one day). See issue #49.
+reviews:
+  auto_review:
+    # Review the PR's opening state, then pause automatic incremental
+    # reviews — request the post-fix pass explicitly with
+    # `@coderabbitai review` when the branch is ready. CodeRabbit's own
+    # recommended setting for avoiding review-limit hits
+    # (docs.coderabbit.ai/configuration/auto-review).
+    auto_pause_after_reviewed_commits: 1
+
+  path_filters:
+    # ash_postgres codegen output — generated snapshots are review noise.
+    # NB: path_filters also drive CodeRabbit's sparse-checkout, so this
+    # removes snapshots from the bot's clone entirely — harmless for
+    # generated JSON, which is why docs/ is deliberately NOT filtered
+    # here: the bot's review context must keep the ADRs ("everything why
+    # lives in docs/", AGENTS.md).
+    - "!**/priv/resource_snapshots/**"
