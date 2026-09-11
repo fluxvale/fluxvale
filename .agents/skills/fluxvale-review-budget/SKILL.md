@@ -5,7 +5,7 @@ description: FluxVale CodeRabbit review-budget discipline — run before opening
 
 # Review budget: spend CodeRabbit reviews deliberately
 
-#48 burned ~8 review-trigger events — 1 opening review, **5 auto-reviews
+Issue #48 burned ~8 review-trigger events — 1 opening review, **5 auto-reviews
 of mid-loop pushes**, and forced retries fired *inside* rate-limit
 windows — for what needed ~3, and hit the limit four times in one day.
 Every push to an open PR is an auto-review trigger under the default
@@ -22,7 +22,7 @@ reviews its own reasoning, not its own code.
 **The prompt is the deliverable** — any harness works. Spawn a subagent /
 second session running, from the worktree root:
 
-```
+```text
 You are a hostile senior reviewer with fresh eyes. This repo is an
 Elixir/Phoenix/Ash monorepo (apps/platform). Review the current branch:
 run 'git diff main' and read the changed files in full. Hunt:
