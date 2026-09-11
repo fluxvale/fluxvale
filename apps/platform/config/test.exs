@@ -3,6 +3,12 @@ config :flux_vale, token_signing_secret: "fQ9tibmTqr1r2HdqiKrkOofKnY6OQDNK"
 config :bcrypt_elixir, log_rounds: 1
 config :ash, disable_async?: true
 
+# Cache-off (#26): every test reads the access_rules table directly —
+# instantly consistent, and no test ever reads through the cache process
+# (which sits outside the SQL sandbox). The cache has its own dedicated
+# test with the TTL enabled per-case.
+config :flux_vale, access_rules_cache_ttl_seconds: 0
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used

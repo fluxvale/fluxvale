@@ -7,6 +7,7 @@ defmodule FluxValeWeb.Plugs.AuthenticateTest do
   alias AshAuthentication.Plug.Helpers
   alias AshAuthentication.TokenResource.Actions
   alias FluxVale.Identity.User
+  alias FluxVale.Ops.AccessRule
   alias FluxValeWeb.Plugs.Authenticate
 
   setup do
@@ -111,6 +112,51 @@ defmodule FluxValeWeb.Plugs.AuthenticateTest do
 
       refute conn.assigns[:current_user]
       assert is_nil(Ash.PlugHelpers.get_actor(conn))
+    end
+  end
+
+  # #26 (ADR-0023 Am. 1): a removed rule severs PAT and session access at
+  # presentation — within TTL on other nodes, instantly here (cache-off
+  # in test). Both paths converge on enforce_access_rules.
+  describe "call/2 access gate" do
+    setup do
+      AccessRule.create!(%{domain: "fluxvale.com"}, authorize?: false)
+      :ok
+    end
+
+    test "a valid bearer for a denied address resolves no actor", %{
+      conn: conn
+    } do
+      # The setup user is @fluxvale.com — allowed by the rule; a denied
+      # bearer needs its own outsider token
+      outsider =
+        User.create!("gate-outsider-#{System.unique_integer()}@example.com", %{},
+          authorize?: false
+        )
+
+      {:ok, token, _claims} = Jwt.token_for_user(outsider)
+
+      conn =
+        conn
+        |> plug_conn()
+        |> Plug.Conn.put_req_header("authorization", "Bearer " <> token)
+        |> Authenticate.call([])
+
+      refute conn.assigns[:current_user]
+      assert is_nil(Ash.PlugHelpers.get_actor(conn))
+    end
+
+    test "a token-backed session for a denied address resolves no actor", %{
+      conn: conn
+    } do
+      user = User.create!("gate-outsider@example.com", %{}, authorize?: false)
+
+      conn =
+        conn
+        |> Plug.Test.init_test_session(%{"user_token" => mint_session(user)})
+        |> Authenticate.call([])
+
+      refute conn.assigns[:current_user]
     end
   end
 

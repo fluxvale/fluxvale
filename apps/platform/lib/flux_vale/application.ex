@@ -14,6 +14,8 @@ defmodule FluxVale.Application do
       {Oban, Application.fetch_env!(:flux_vale, Oban)},
       {DNSCluster, query: Application.get_env(:flux_vale, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: FluxVale.PubSub},
+      # AccessRules snapshot cache (#26) — lazy reads, no startup DB hit
+      FluxVale.Ops.AccessRules.Cache,
       # Start a worker by calling: FluxVale.Worker.start_link(arg)
       # {FluxVale.Worker, arg},
       # Start to serve requests, typically the last entry

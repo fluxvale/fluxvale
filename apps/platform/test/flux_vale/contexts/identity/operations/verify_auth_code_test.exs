@@ -6,6 +6,7 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
   import FluxVale.TestSupport.AuthCodeHelpers
 
   alias FluxVale.Identity
+  alias FluxVale.Ops.AccessRule
 
   setup do
     email = "verify-code-#{System.unique_integer()}@fluxvale.com"
@@ -82,7 +83,7 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
       :ok = Identity.request_auth_code(email)
       code = mailbox_code()
 
-      assert {:ok, user, token} = Identity.verify_auth_code(email, code)
+      assert {:ok, user, _token} = Identity.verify_auth_code(email, code)
       assert user.id
       assert user.platform_role == :user
 
@@ -102,6 +103,24 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
       upcased = String.upcase(email)
 
       assert {:ok, _upcased_user, _upcased_token} = Identity.verify_auth_code(upcased, code)
+    end
+  end
+
+  describe "access gate (#26 — Am. 1: the mint closes the code-TTL window)" do
+    test "a rule added after the code was sent still stops the session mint",
+         %{email: email} do
+      # email is a @fluxvale.com address (setup) — request while unrestricted
+      :ok = Identity.request_auth_code(email)
+      code = mailbox_code()
+
+      # …then the door closes to exact-address rows only
+      AccessRule.create!(%{email: "one@fluxvale.com"}, authorize?: false)
+
+      assert {:error, :not_allowed} = Identity.verify_auth_code(email, code)
+
+      # Denied before anything burned — the code stays verifiable if the
+      # rule is removed again (check-based severing, not destruction)
+      assert [%{attempts: 0}] = active_codes(email)
     end
   end
 end

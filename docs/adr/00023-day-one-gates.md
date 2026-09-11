@@ -1,6 +1,6 @@
 # ADR-00023: Day-one gates — access rules + feature flags
 
-**Status**: Accepted (amended — see Amendments 1–3)
+**Status**: Accepted (amended — see Amendments 1–5)
 **Date**: 2026-09-01
 
 **Context**: two gating needs from day one. (1) **Staging access**: staging
@@ -135,3 +135,14 @@ recipients receive real Postmark delivery. The gated TestInbox (#22)
 reads Local-captured test mail — machines reach its JSON endpoint with
 an admin PAT (PATs need no session; the deadlock doesn't apply to
 them). Local dev is unchanged.
+
+## Amendment 5 (2026-09-08): rows are admin-entered, not seeded
+
+Implementation settlement (#26): **no seed module ships.** Environments
+gate themselves through the AshAdmin CRUD at bring-up — **empty-then-close**:
+the empty table's unrestricted default admits the first admin, who then
+adds the rows by hand (staging: `domain: fluxvale.com` plus the smoke
+account's email row). §1's mechanism and semantics are unchanged; only
+the delivery of rows changes — less code, and bring-up exercises the
+actual admin path. Prod unchanged: unrestricted until its private
+alpha/beta wants email rows (the invite mechanism, OQ #5).

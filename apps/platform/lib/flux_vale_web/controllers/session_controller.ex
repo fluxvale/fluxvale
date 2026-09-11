@@ -7,16 +7,23 @@ defmodule FluxValeWeb.SessionController do
 
   The token is never accepted from a URL — POST body only (ADR-0003's
   magic-link lesson: URLs leak through referrers, scanners, and logs).
+
+  #26: the AccessRule gate before the session write — this controller
+  accepts any valid token, including one minted before a rule was
+  removed; the mint gate in VerifyAuthCode closes the sign-in flow, this
+  closes re-entry with a stale token.
   """
 
   use FluxValeWeb, :controller
 
   alias AshAuthentication.Jwt
   alias AshAuthentication.Plug.Helpers
+  alias FluxVale.Ops.AccessRules
 
   def create(conn, %{"token" => token}) do
     with {:ok, claims, resource} <- Jwt.verify(token, :flux_vale),
          {:ok, user} <- AshAuthentication.subject_to_user(claims["sub"], resource),
+         :ok <- AccessRules.ensure_allowed(user.email),
          user <- Ash.Resource.put_metadata(user, :token, token) do
       conn
       |> Helpers.store_in_session(user)
