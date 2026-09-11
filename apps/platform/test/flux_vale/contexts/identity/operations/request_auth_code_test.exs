@@ -7,6 +7,7 @@ defmodule FluxVale.Identity.Operations.RequestAuthCodeTest do
 
   alias FluxVale.Identity
   alias FluxVale.Identity.AuthCode
+  alias FluxVale.Ops.AccessRule
 
   setup do
     email = "request-code-#{System.unique_integer()}@fluxvale.com"
@@ -47,6 +48,24 @@ defmodule FluxVale.Identity.Operations.RequestAuthCodeTest do
       # The user can immediately retry (no orphaned throttle-blocker)
       assert :ok = Identity.request_auth_code(email)
       _code = mailbox_code()
+    end
+  end
+
+  describe "access gate (#26 — ADR-0023 §1: blocked code-send blocks JIT)" do
+    test "a denied address gets no code, no row, no throttle state" do
+      AccessRule.create!(%{domain: "fluxvale.com"}, authorize?: false)
+
+      assert {:error, :not_allowed} = Identity.request_auth_code("outsider@example.com")
+      assert [] == active_codes("outsider@example.com")
+
+      refute_received {:email, %Swoosh.Email{}}
+    end
+
+    test "an allowlisted address signs in as before — the gate is invisible" do
+      AccessRule.create!(%{domain: "fluxvale.com"}, authorize?: false)
+
+      assert :ok = Identity.request_auth_code("gate-member@fluxvale.com")
+      assert [_code] = active_codes("gate-member@fluxvale.com")
     end
   end
 end

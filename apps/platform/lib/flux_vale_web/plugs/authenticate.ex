@@ -15,12 +15,16 @@ defmodule FluxValeWeb.Plugs.Authenticate do
   An invalid bearer falls back to the session, exactly as in v1: the
   header wins when it authenticates, absence or failure does not.
 
-  #26 seam: the AccessRule check at the PAT-auth boundary lands here,
-  after user resolution (short-TTL cache) — it must gate sessions too,
-  which share this path.
+  #26 (ADR-0023 Am. 1): the AccessRule check at token presentation —
+  bearer and session both resolve here, so both are gated in one place;
+  a removed rule severs access within TTL, not at token expiry. A denied
+  user is dropped before `set_actor` so RequireActor answers 401.
+  Check-based, not token-based: token rows stay — revoking tokens
+  outright stays the admin's separate hammer.
   """
 
   alias AshAuthentication.Plug.Helpers
+  alias FluxVale.Ops.AccessRules
 
   @doc false
   @spec init(keyword) :: keyword
@@ -35,6 +39,7 @@ defmodule FluxValeWeb.Plugs.Authenticate do
     conn
     |> from_bearer()
     |> from_session()
+    |> enforce_access_rules()
     |> set_actor()
   end
 
@@ -79,6 +84,16 @@ defmodule FluxValeWeb.Plugs.Authenticate do
     do: conn
 
   defp from_session(conn), do: Helpers.retrieve_from_session(conn, :flux_vale)
+
+  defp enforce_access_rules(%Plug.Conn{assigns: %{current_user: user}} = conn)
+       when not is_nil(user) do
+    case AccessRules.ensure_allowed(user.email) do
+      :ok -> conn
+      {:error, :not_allowed} -> Plug.Conn.assign(conn, :current_user, nil)
+    end
+  end
+
+  defp enforce_access_rules(conn), do: conn
 
   defp set_actor(conn),
     do: Ash.PlugHelpers.set_actor(conn, conn.assigns[:current_user])
