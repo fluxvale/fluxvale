@@ -134,6 +134,12 @@ lesson paid for).
 
 ## AI-review protocol (CodeRabbit)
 
+Reviews are a metered budget — spend them deliberately: fresh-eyes
+subagent pass before the first push, one push per verdict cycle,
+wait-once when rate-limited. The full discipline lives in
+[`.agents/skills/fluxvale-review-budget/SKILL.md`](.agents/skills/fluxvale-review-budget/SKILL.md)
+(harness-agnostic; enforced in part by `.coderabbit.yaml`).
+
 - Reply **in-thread** — top-level comments are invisible to the bot.
 - Verify every finding against ground truth before acting: adopt if real,
   rebut with evidence (the commands you ran) if not. Both outcomes are
