@@ -73,8 +73,14 @@ The default config auto-reviews every push. So:
   clone, and its review context must keep the ADRs ("everything why
   lives in docs/"). Docs-only PRs do get reviewed; that's the accepted
   cost.
-- Draft PRs are skipped by default — a useful free-iteration window if
-  a PR is known to churn.
+- **Draft PRs are skipped entirely by default — and that's the lever
+  for a low bucket.** Opening reviews are unsuppressible, and every PR
+  in the org draws from the same replenishing window (#52 opened into
+  an empty bucket drained by #48's burn plus #50's review the same
+  day). When recent activity has the bucket low: open as **draft**
+  (costs nothing), flip to ready when capacity returns — the opening
+  review fires on ready-for-review, not on push. A draft is also the
+  free-iteration window for a PR known to churn.
 
 ## 4. When rate-limited: wait once, invoke once
 
