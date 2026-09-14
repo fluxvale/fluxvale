@@ -149,7 +149,7 @@ jobs:
   # harnesses): a SKILL.md whose frontmatter doesn't parse is silently
   # unloadable — #52 shipped one through a green pipeline (#53/#54);
   # nothing anywhere validated .agents/**. Cheap: one ruby-stdlib
-  # psych parse + spec-shape check per SKILL.md.
+  # psych parse + spec-shape check per frontmatter-declaring .md.
   skills-lint:
     name: Skills lint
     needs: check-changes
@@ -164,9 +164,12 @@ jobs:
 
   # The umbrella: branch protection requires THIS check. Runs regardless
   # of path gating; passes when every gated job succeeded or was skipped.
+  # check-changes must SUCCEED, not merely skip: if it failed, its
+  # dependents read "skipped" and the all() below would pass on zero
+  # checks run — a green umbrella that proved nothing.
   wait-for-ci:
     name: Wait for CI
-    needs: [platform, docs-lint, skills-lint]
+    needs: [check-changes, platform, docs-lint, skills-lint]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -175,6 +178,6 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           echo "$NEEDS" | jq -e 'to_entries | map("\(.key): \(.value.result)") | .[]' >&2
-          echo "$NEEDS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' >/dev/null \
+          echo "$NEEDS" | jq -e '.["check-changes"].result == "success" and (del(.["check-changes"]) | all(.[]; .result == "success" or .result == "skipped"))' >/dev/null \
             && echo "All CI checks passed or were not needed" \
             || { echo "One or more CI jobs failed or were cancelled"; exit 1; }
