@@ -25,6 +25,7 @@ jobs:
     outputs:
       platform: ${{ steps.filter.outputs.platform }}
       docs: ${{ steps.filter.outputs.docs }}
+      agents: ${{ steps.filter.outputs.agents }}
     steps:
       # persist-credentials: false — later steps run no git-authenticated ops
       - uses: actions/checkout@v4
@@ -44,6 +45,10 @@ jobs:
             docs:
               - "docs/**"
               - "scripts/lint-adr-index.sh"
+              - ".github/workflows/ci.yml"
+            agents:
+              - ".agents/**"
+              - "scripts/lint-skill-frontmatter.sh"
               - ".github/workflows/ci.yml"
 
   platform:
@@ -140,11 +145,28 @@ jobs:
 
       - run: ./scripts/lint-adr-index.sh
 
+  # Skills frontmatter (Agent Skills spec, as validated by pi and other
+  # harnesses): a SKILL.md whose frontmatter doesn't parse is silently
+  # unloadable — #52 shipped one through a green pipeline (#53/#54);
+  # nothing anywhere validated .agents/**. Cheap: one ruby-stdlib
+  # psych parse + spec-shape check per SKILL.md.
+  skills-lint:
+    name: Skills lint
+    needs: check-changes
+    if: needs.check-changes.outputs.agents == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - run: ./scripts/lint-skill-frontmatter.sh
+
   # The umbrella: branch protection requires THIS check. Runs regardless
   # of path gating; passes when every gated job succeeded or was skipped.
   wait-for-ci:
     name: Wait for CI
-    needs: [platform, docs-lint]
+    needs: [platform, docs-lint, skills-lint]
     if: always()
     runs-on: ubuntu-latest
     steps:
