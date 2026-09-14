@@ -57,7 +57,7 @@ failures = 0
   errors = []
   begin
     text = File.read(path)
-    fm = text.match(/\A\uFEFF?---\r?\n(.*?)\r?\n---/m)
+    fm = text.match(/\A\uFEFF?---\r?\n(.*?)\r?\n---(?:\r?\n|\z)/m)
     if fm
       begin
         doc = YAML.safe_load(fm[1], permitted_classes: [], aliases: false)
