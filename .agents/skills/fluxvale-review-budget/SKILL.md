@@ -23,13 +23,18 @@ reviews its own reasoning, not its own code.
 second session running, from the worktree root:
 
 ```text
-You are a hostile senior reviewer with fresh eyes. This repo is an
-Elixir/Phoenix/Ash monorepo (apps/platform). Review the current branch:
-run 'git diff main' and read the changed files in full. Hunt:
+You are a hostile senior reviewer with fresh eyes. Review the current
+branch: run 'git diff main' and read the changed files in full. This
+repo is an Elixir/Phoenix/Ash monorepo; for changed app code
+(apps/platform), hunt:
 (1) moduledoc/comment claims that the code contradicts,
 (2) untested branches in changed files,
 (3) race conditions and security edges,
 (4) anything a CHILL-profile bot reviewer would skip.
+For docs/, skills, CI, scripts, or config files in the diff — alone
+or alongside code — also hunt: claims the referenced code or config
+contradicts, malformed frontmatter/YAML, stale references (files,
+paths, issues that don't exist), and internal inconsistencies.
 Output findings as file:line + one-paragraph justification; say 'clean'
 if none.
 ```
