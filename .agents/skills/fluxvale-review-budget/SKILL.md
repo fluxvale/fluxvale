@@ -31,10 +31,10 @@ repo is an Elixir/Phoenix/Ash monorepo; for changed app code
 (2) untested branches in changed files,
 (3) race conditions and security edges,
 (4) anything a CHILL-profile bot reviewer would skip.
-For docs/, skills, CI, or scripts in the diff — alone or alongside
-code — also hunt: claims the referenced code or config contradicts,
-malformed frontmatter/YAML, stale references (files, paths, issues
-that don't exist), and internal inconsistencies.
+For docs/, skills, CI, scripts, or config files in the diff — alone
+or alongside code — also hunt: claims the referenced code or config
+contradicts, malformed frontmatter/YAML, stale references (files,
+paths, issues that don't exist), and internal inconsistencies.
 Output findings as file:line + one-paragraph justification; say 'clean'
 if none.
 ```
