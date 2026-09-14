@@ -1,6 +1,6 @@
 ---
 name: fluxvale-review-budget
-description: FluxVale CodeRabbit review-budget discipline — run before opening any PR (fresh-eyes subagent pass over the branch), before pushing to an open PR (one push per verdict cycle), and whenever CodeRabbit reports rate-limited (wait-once protocol). Harness-agnostic: the reviewer prompt is the deliverable, `pi -p` is one implementation.
+description: "FluxVale CodeRabbit review-budget discipline — run before opening any PR (fresh-eyes subagent pass over the branch), before pushing to an open PR (one push per verdict cycle), and whenever CodeRabbit reports rate-limited (wait-once protocol). Harness-agnostic: the reviewer prompt is the deliverable, `pi -p` is one implementation."
 ---
 
 # Review budget: spend CodeRabbit reviews deliberately
