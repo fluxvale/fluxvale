@@ -1,29 +1,14 @@
-# One CodeRabbit review per PR (#59). The repo is public at 0 stars:
-# the OSS tier allows ~1 review/hour per developer per repository
-# (docs.coderabbit.ai/management/plans). The one review runs on the
-# opening state — whether it fires automatically at open (observed:
-# #60) or needs a manual `@coderabbitai review` (observed: #52) is
-# regime-dependent; check the walkthrough marker, never assume. The
-# branch is final quality before the PR opens (fresh-eyes pass + mix
-# ci first); findings are adopted/rebutted in-thread without a second
-# bot pass; the maintainer verifies fixes. Supersedes #50's
-# auto_pause_after_reviewed_commits: 1 (#49).
+# One review per PR (#59) — 0-star OSS tier: ~1 review/hour per
+# developer per repo (docs.coderabbit.ai/management/plans). Procedure:
+# fluxvale-review-budget skill. Supersedes #50's pause (#49).
 reviews:
   auto_review:
-    # Never auto-re-review on pushes after the opening state — this key
-    # disables exactly the re-review path the policy forbids. It does
-    # not govern the opening review (which may still auto-fire, #60).
-    # The one-review policy itself is behavioral, not enforceable by
-    # config: a manual `@coderabbitai review` remains technically
-    # possible, and the review-budget skill forbids using it more than
-    # once per PR.
+    # No auto-re-reviews on pushes. Doesn't govern the opening review,
+    # which may auto-fire (#60) — the discipline is behavioral.
     auto_incremental_review: false
 
   path_filters:
-    # ash_postgres codegen output — generated snapshots are review noise.
-    # NB: path_filters also drive CodeRabbit's sparse-checkout, so this
-    # removes snapshots from the bot's clone entirely — harmless for
-    # generated JSON, which is why docs/ is deliberately NOT filtered
-    # here: the bot's review context must keep the ADRs ("everything why
-    # lives in docs/", AGENTS.md).
+    # ash codegen noise. path_filters also drive the bot's
+    # sparse-checkout — docs/ stays unfiltered so the ADRs remain in
+    # its review context.
     - "!**/priv/resource_snapshots/**"
