@@ -1,23 +1,33 @@
 ---
 name: fluxvale-review-budget
-description: "FluxVale CodeRabbit review-budget discipline — run before opening any PR (fresh-eyes subagent pass over the branch), before pushing to an open PR (one push per verdict cycle), and whenever CodeRabbit reports rate-limited (wait-once protocol). Harness-agnostic: the reviewer prompt is the deliverable, `pi -p` is one implementation."
+description: "FluxVale CodeRabbit review-budget discipline — one review per PR (#59): run the fresh-eyes subagent pass and reach final branch quality BEFORE opening the PR, then ensure exactly one review runs (it may auto-fire at open, or cost one @coderabbitai review if the walkthrough marker shows HEAD unreviewed — check capacity with @coderabbitai rate limit when the bucket may be low); never request a re-review. Harness-agnostic: the reviewer prompt is the deliverable, `pi -p` is one implementation."
 ---
 
-# Review budget: spend CodeRabbit reviews deliberately
+# Review budget: one CodeRabbit review per PR
 
-Issue #48 burned ~8 review-trigger events — 1 opening review, **5 auto-reviews
-of mid-loop pushes**, and forced retries fired *inside* rate-limit
-windows — for what needed ~3, and hit the limit four times in one day.
-Every push to an open PR is an auto-review trigger under the default
-config, and each invocation during a limit window deepens it. The rules
-below are the fix; the `.coderabbit.yaml` half (merged in #50) is the
-enforcement, this skill is the behavior.
+The repo is public at 0 stars and every PR is authored by one identity,
+so the whole org draws from CodeRabbit's smallest bucket: the OSS tier
+at ~1 review/hour per developer per repository
+(docs.coderabbit.ai/management/plans). #48
+burned ~8 review-trigger events for what needed ~3 and hit the limit
+four times in one day; #50 (#49) stopped the auto-review burn; #59
+removes re-reviews entirely: **one review per PR, spent on a
+finished branch**. Current docs also correct #48's model of the
+window: a rate-limited attempt costs nothing and does not delay the
+next slot — a full window is full of *earlier delivered* reviews, not
+failed retries. One regime fact is *unstable*: docs say under 10 stars
+reviews must be triggered manually, and #52's did — but #60's opening
+review auto-fired. Don't assume either way; check the walkthrough
+marker (§2).
 
-## 1. The pre-PR fresh-eyes pass — the cheap reviewer
+## 1. Before the PR: the branch is final quality
 
-Before the **first push** of a branch, get a second, fresh context to
-review it adversarially. Fresh context matters: the implementing agent
-reviews its own reasoning, not its own code.
+The single review must land on a finished branch, so everything cheap
+happens first, locally: implementation complete, `mix ci` green, and a
+**fresh-eyes subagent pass** over the diff — fresh context matters:
+the implementing agent reviews its own reasoning, not its own code.
+This pass is now load-bearing: there is no second bot pass to catch
+what it misses.
 
 **The prompt is the deliverable** — any harness works. Spawn a subagent /
 second session running, from the worktree root:
@@ -57,42 +67,54 @@ that CodeRabbit `path_filters` also drive the bot's sparse-checkout —
 filtering `docs/` would have deleted the ADR corpus from the bot's
 clone on every PR.
 
-## 2. One push per verdict cycle
+## 2. One review per PR — obtained once, never repeated
 
-The default config auto-reviews every push. So:
-
-- Implementation + fresh-eyes fixes + `mix ci` green all land
-  **locally first**; **one push** opens the PR → one opening review.
-- After a CodeRabbit verdict: address **all** findings in **one**
-  commit/push → at most one re-review.
+- The PR opens only when the branch needs nothing but a verdict:
+  implementation + fresh-eyes fixes + `mix ci` green all landed
+  **locally first**.
+- **Ensure exactly one review runs.** After the PR opens, probe the
+  summary comment's walkthrough marker (`sourceCommitId …
+  "kind":"reviewed"`): if it covers HEAD, the review already fired
+  (#60 did, automatically) and the budget is spent. If HEAD is
+  unreviewed (#52's regime — manual trigger required), spend it with
+  a single `@coderabbitai review`; check capacity first with
+  `@coderabbitai rate limit` (a PR comment; costs nothing) if the
+  bucket may be low.
+- After the verdict: adopt or rebut every finding in-thread as usual,
+  then push adopted fixes as one commit **without requesting a
+  re-review** — the maintainer verifies them (the accepted trade-off
+  of #59). A second `@coderabbitai review` on the same PR is a bug in
+  the loop, not a step.
 - Never push mid-review-cycle; never push "just the typo" separately.
   A branch's commit structure is throwaway — we squash-merge.
 
-## 3. Config reality (`.coderabbit.yaml`, #50)
+## 3. Config reality (`.coderabbit.yaml`, #59)
 
-- `auto_pause_after_reviewed_commits: 1` — the bot reviews the opening
-  state, then pauses automatic incremental reviews. The post-fix pass
-  is requested explicitly: `@coderabbitai review` in a PR comment.
+- `auto_incremental_review: false` — pushes are never auto-re-reviewed:
+  the key disables exactly the re-review path the policy forbids. It
+  does not govern the opening review (which may still auto-fire, #60).
+  (Supersedes #50's `auto_pause_after_reviewed_commits: 1`.)
 - `!**/priv/resource_snapshots/**` filtered (ash codegen noise).
 - **`docs/` deliberately NOT filtered** — path_filters shape the bot's
   clone, and its review context must keep the ADRs ("everything why
   lives in docs/"). Docs-only PRs do get reviewed; that's the accepted
   cost.
-- **Draft PRs are skipped entirely by default — and that's the lever
-  for a low bucket.** Opening reviews are unsuppressible, and every PR
-  in the org draws from the same replenishing window (#52 opened into
-  an empty bucket drained by #48's burn plus #50's review the same
-  day). When recent activity has the bucket low: open as **draft**
-  (costs nothing), flip to ready when capacity returns — the opening
-  review fires on ready-for-review, not on push. A draft is also the
+- **Draft PRs are skipped by default — that's the capacity lever.**
+  A draft delays spending the review until you're ready: open as
+  draft while the bucket is low (#52 opened into a bucket drained the
+  same day), flip to ready once `@coderabbitai rate limit` reports
+  capacity, then ensure the one review runs (§2 — it may fire on
+  ready, or need the single trigger). A draft is also the
   free-iteration window for a PR known to churn.
 
-## 4. When rate-limited: wait once, invoke once
+## 4. If the one trigger is rate-limited: wait once, re-invoke once
 
-Read the window from the bot's "Review limit reached" comment ("Next
-included review available in N minutes"), wait it out, then a **single**
-`@coderabbitai review`. Never retry-loop inside the window — #48's
-evidence is that retries deepen it. The invocation ack ("Review
+If the single `@coderabbitai review` comes back "Review rate limited",
+read the window from the bot's comment ("Next included review
+available in N minutes"), wait it out, then trigger **once more** —
+that is the sanctioned retry, and the only one. A blocked attempt
+costs nothing and doesn't delay the next slot — but a retry inside
+the window is still pure noise, so don't. The invocation ack ("Review
 triggered") is not the verdict: confirm the check reads
 `Review completed` and probe the summary comment's walkthrough marker
 (`sourceCommitId … "kind":"reviewed"`) to verify the newest commit was

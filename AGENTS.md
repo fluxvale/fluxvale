@@ -99,12 +99,18 @@ Images push to the k3d local registry — never docker.io.
    gh project item-edit --project-id PVT_… --id PVTI_… \
      --field-id PVTSSF_… --single-select-option-id <option-id>
    ```
-2. **Wait for CodeRabbit's verdict before involving the maintainer.** The
-   bot reviews after the PR opens — poll it, address every finding (adopt,
-   or rebut with evidence, in-thread), and resolve all threads (manually
-   via GraphQL if the bot can't). Branch protection on `main` requires
-   CodeRabbit resolution anyway — the PR must be clean before it's worth a
-   human's attention.
+2. **Ensure the one CodeRabbit review has run, then wait for the
+   verdict before involving the maintainer.** When the PR opens, probe
+   the walkthrough marker (`sourceCommitId` … `"kind":"reviewed"`):
+   the review may auto-fire (#60) or need a single `@coderabbitai
+   review` (#52's regime) — capacity check first with `@coderabbitai
+   rate limit` if the bucket may be low. Then poll the verdict,
+   address every finding (adopt, or rebut with evidence, in-thread),
+   and resolve all threads (manually via GraphQL if the bot can't).
+   Adopted fixes land as one push with **no re-review** — one review
+   per PR (#59); the maintainer verifies them. Branch protection on
+   `main` requires CodeRabbit resolution anyway — the PR must be
+   clean before it's worth a human's attention.
 3. Once CI exists (#8): also require all GitHub Actions checks green
    before asking for review.
 4. Only then ask the maintainer for feedback/merge. On approval: squash
@@ -134,11 +140,15 @@ lesson paid for).
 
 ## AI-review protocol (CodeRabbit)
 
-Reviews are a metered budget — spend them deliberately: fresh-eyes
-subagent pass before the first push, one push per verdict cycle,
+Reviews are a metered budget at the 0-star OSS floor (~1 review/hour,
+one identity for every PR) — spend them deliberately: fresh-eyes
+subagent pass before the first push, **one review per PR** (obtained
+once when the PR opens — the branch is final quality before that;
+post-verdict fixes get no re-review, the maintainer verifies),
 wait-once when rate-limited. The full discipline lives in
 [`.agents/skills/fluxvale-review-budget/SKILL.md`](.agents/skills/fluxvale-review-budget/SKILL.md)
-(harness-agnostic; enforced in part by `.coderabbit.yaml`).
+(harness-agnostic; `.coderabbit.yaml` only guards the automatic paths —
+the one-trigger discipline is behavioral).
 
 - Reply **in-thread** — top-level comments are invisible to the bot.
 - Verify every finding against ground truth before acting: adopt if real,
