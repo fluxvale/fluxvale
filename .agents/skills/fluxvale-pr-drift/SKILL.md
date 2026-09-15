@@ -63,11 +63,18 @@ overlapping in-flight PRs.
 
 ## Rebase workflow (a PR came back `CONFLICTING`)
 
-1. In the PR's worktree: `git fetch origin && git rebase origin/main`.
+1. In the PR's worktree:
+
+   ```sh
+   git fetch origin
+   base=$(git merge-base HEAD origin/main)   # BEFORE the rebase — after it,
+   # merge-base is origin/main and the span below reads empty
+   git rebase origin/main
+   ```
+
 2. **Before resolving any hunk**, ask what main actually got:
 
    ```sh
-   base=$(git merge-base HEAD origin/main)   # run before the rebase starts
    git log --oneline "$base..origin/main"
    git diff "$base..origin/main" -- '**/AGENTS.md'
    ```
