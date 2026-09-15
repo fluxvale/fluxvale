@@ -7,6 +7,11 @@ this file is only **how to work here**.
 
 ## Writing conventions
 
+- **Write like a time-pressed human** (#61) — shortest form that keeps
+  the needed info; rationale lives where it's linked (usually the
+  ADR), not retold in place; longer text wins only when genuinely
+  simpler. Applies to comments, AGENTS.md files, skills, docs,
+  issues, PR bodies, commit messages.
 - **Link ADR references wherever markdown renders** — docs, README,
   AGENTS.md, PR bodies: `[ADR-NNNN](docs/adr/<file>.md)` with a relative
   path, verified to exist (mind the filename quirks — most are five-digit,
