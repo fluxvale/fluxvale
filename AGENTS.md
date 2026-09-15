@@ -42,8 +42,9 @@ is only **how to work here**.
   current milestone only — no speculative backlog.
 - Settle design decisions **on the issue** before implementing —
   that's where intent gets reviewed.
-- PRs open with `Closes #N` (CodeRabbit's linked-issues check verifies
-  it).
+- PRs that complete an issue open with `Closes #N` (CodeRabbit's
+  linked-issues check verifies it); slice PRs of an umbrella issue
+  reference it without a closing keyword.
 
 ## Local stack (k3d + Tilt, [ADR-0020](docs/adr/00020-local-dev-parity.md))
 
@@ -76,8 +77,8 @@ to the k3d local registry — never docker.io.
 
 1. **Every PR starts in a sibling worktree — docs-only included**
    (`git worktree add ../fluxvale-<topic> -b <type>/<desc> main`):
-   implement → `mix ci` green → push → PR (`Closes #N`) → card →
-   `In Review`. The main checkout stays on clean, synced `main` — an
+   implement → `mix ci` green → push → PR (`Closes #N` only when it
+   completes the issue) → card → `In Review`. The main checkout stays on clean, synced `main` — an
    unfamiliar sha in its `git log` reliably means a maintainer merge
    (drift signal).
    **Board moves: verify by read-back** (`gh project item-list`) — a
