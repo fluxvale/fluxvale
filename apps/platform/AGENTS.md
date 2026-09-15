@@ -5,112 +5,110 @@ This is a web application written using the Phoenix web framework.
 - OTP app `:flux_vale` (modules `FluxVale`/`FluxValeWeb`), directory
   `apps/platform`. Generate under the product name, then rename the
   directory; databases are `flux_vale_{dev,test}`. No root-level deps.
-- **Generators first** — phx.new/igniter/Ash installers for scaffolding.
-  Hand-written glue stays minimal and carries a comment explaining why it
-  exists (see the AshAdmin placeholder in the router).
-- **Domain layout**: `lib/flux_vale/contexts/<domain>.ex` with resources
-  under `contexts/<domain>/resources/` and shared type modules under
-  `contexts/<domain>/types/` (e.g. `FluxVale.Identity.Types.PlatformRole`) —
-  the `Types` namespace keeps non-resource modules from reading as
-  resources.
-- **Exact version pins for every Hex dep** — requirements in `mix.exs`
-  are `"x.y.z"`, never `"~> x.y"`: a floating dep resolves differently
-  between machines and days, and bumps to behavior-bearing libraries
-  (auth, policies, the CI-gating linter) must be deliberate, reviewable
-  diffs — never a side effect of `deps.update`. Same philosophy as the
-  toolchain pins in `mise.toml`. GitHub deps pin by tag. To bump: change
-  the requirement, `mix deps.update <dep>`, run `mix ci`.
-- **No `import` in `lib/` unless the library instructs it** — calls are
-  alias-qualified (`Ash.Changeset.for_create(…)`), never bare names
-  whose provenance reads as module-private. Sanctioned exceptions, all
-  "instructed by the library": macros that can't be called qualified,
-  the `use`-provided surface (`use FluxValeWeb, :live_view` and
-  friends), and router/telemetry DSLs. Resource/domain DSL bodies are
-  their own language, not imports. **Tests are exempt** — imports
-  there aid readability (assertions above all, and project-local test
-  helpers like `TestSupport.*`).
+- **Generators first** (phx.new/igniter/Ash installers). Hand-written
+  glue stays minimal and carries a comment saying why (see the
+  AshAdmin placeholder in the router).
+- **Domain layout**: `lib/flux_vale/contexts/<domain>.ex`, resources
+  under `contexts/<domain>/resources/`, shared types under
+  `contexts/<domain>/types/` — the `Types` namespace keeps
+  non-resources from reading as resources.
+- **Exact version pins for every Hex dep** — `"x.y.z"` in `mix.exs`,
+  never `"~> x.y"`: floating deps resolve differently between machines
+  and days; bumps to behavior-bearing libraries (auth, policies, the
+  CI-gating linter) are deliberate diffs, never `deps.update` side
+  effects. GitHub deps pin by tag. To bump: change the requirement,
+  `mix deps.update <dep>`, `mix ci`.
+- **No `import` in `lib/` unless the library instructs it** — calls
+  are alias-qualified (`Ash.Changeset.for_create(…)`), never bare
+  names. Sanctioned exceptions: macros that can't be qualified, the
+  `use` surface (`use FluxValeWeb, :live_view` and friends),
+  router/telemetry DSLs; resource/domain DSL bodies are their own
+  language, not imports. **Tests are exempt** — readability
+  (`TestSupport.*` helpers).
 - **Domain operations**: one verb-named module per operation under
-  `contexts/<domain>/operations/` — `FluxVale.Identity.Operations.RequestAuthCode`
-  — with a `call/…` entrypoint, exposed through the domain via
-  `defdelegate … as: :call` (the domain stays the public seam; operation
-  modules are never called directly). Each operation owns its constants
-  and private helpers outright — if two operations share a helper, the
-  boundary is wrong. Tests mirror: `operations/<op>_test.exs`, shared
-  test helpers in `test/support/` (credo-exempt by config).
-- **Policy-check modules** live under `lib/flux_vale/checks/` as
-  `FluxVale.Checks.Actor<Assertion>` (e.g. `ActorIsPlatformAdmin`) — the
-  Ash policy guide's grammar for actor questions. Policy-land checks and
-  plug-land predicates for the same question share one module (the check
-  delegates to the public `*_?` predicate) so the notion cannot fork.
+  `contexts/<domain>/operations/`
+  (`FluxVale.Identity.Operations.RequestAuthCode`) with a `call/…`
+  entrypoint, exposed via `defdelegate … as: :call` — the domain is
+  the public seam; operations are never called directly. Each
+  operation owns its constants and private helpers outright — if two
+  share one, the boundary is wrong. Tests mirror:
+  `operations/<op>_test.exs`, shared helpers
+  in `test/support/` (credo-exempt by config).
+- **Policy checks**: `lib/flux_vale/checks/` as
+  `FluxVale.Checks.Actor<Assertion>` (e.g. `ActorIsPlatformAdmin`) —
+  the Ash policy guide's grammar for actor questions. Policy checks and plug-land predicates for the same question share
+  one module — the check delegates to the `*_?` predicate — so the
+  notion cannot fork.
 - **Ash authorization is on by default** — reads *and* generic actions
-  run policies unless `authorize?: false` is passed; there is no opt-in
-  flag. Consequences: a no-actor or non-admin call is `Forbidden`
-  (bootstrap paths — seeds, test preconditions — pass `authorize?:
-  false` explicitly, with a comment saying why); an action's `run`
-  function
-  receives `context.actor` / `context.authorize?` and nested calls
-  propagate both — `get_by_email(email, actor: context.actor,
-  authorize?: context.authorize?)` — instead of hard-coding either.
-  v1's unconditional inner `authorize?: false` bypasses are a
-  pre-authorizer habit, fixed on port (settled on #23). Ground truth
-  for default-semantics questions: `deps/ash/lib/ash/actions/*.ex`, or
-  probe via `MIX_ENV=test mix run <script>.exs` (script file, never
-  `-e` — see the fluxvale-pr-drift skill).
+  run policies unless `authorize?: false`; no opt-in flag. A no-actor
+  or non-admin call is `Forbidden`; bootstrap paths (seeds, test
+  preconditions) pass `authorize?: false` explicitly with a comment
+  why. An action's `run` receives `context.actor` /
+  `context.authorize?` and nested calls propagate both —
+  `get_by_email(email, actor: context.actor, authorize?:
+  context.authorize?)` — never hard-code either (v1's bypasses,
+  fixed on port, #23). Ground truth for default-semantics questions:
+  `deps/ash/lib/ash/actions/*.ex`, or probe via `MIX_ENV=test mix run
+  <script>.exs` (script file, never `-e` — see the fluxvale-pr-drift
+  skill).
 - Health contract: `GET /health` = dependency-free liveness +
-  `{status, version}` where `version` is `sha-<BUILD_SHA>` (the deploy
-  pipeline greps it). `GET /health/ready` = DB readiness (`SELECT 1`) → 503
-  `unhealthy`. Never add dependency checks to `/health`.
-- Tests **own their preconditions**: capture-and-restore global state via
-  `on_exit` (see `stub_build_sha/1` in the health controller tests). No
-  test-only backdoors. ExUnit cannot simulate "DB down" — DBConnection
-  reconnects by design — so outages are validated at the cluster level.
+  `{status, version}`, `version` = `sha-<BUILD_SHA>` (the deploy
+  pipeline greps it). `GET /health/ready` = DB readiness
+  (`SELECT 1`) → 503 `unhealthy`. Never add dependency checks to
+  `/health`.
+- Tests **own their preconditions**: capture-and-restore global state
+  via `on_exit` (see `stub_build_sha/1` in the health controller
+  tests). No test-only backdoors. ExUnit cannot simulate "DB down"
+  (DBConnection reconnects by design) — outages are validated at the
+  cluster level.
 - **Test data goes through actions** — setup builds records via the
-  resource's actions (`authorize?: false` for preconditions, mirroring the
-  seeds bootstrap), so the suite fails loudly when the create contract
-  changes instead of drifting silently from real-world shapes. Escapes:
-  `Ash.seed!` only for states actions can't produce (e.g. already-expired
-  token rows for the #23 janitor tests) or bulk volume — each call
-  commented with which reason. Never `Repo.insert` raw resource structs.
-  Factories, if ever added, are plain functions in `test/support/fixtures.ex`
-  wrapping actions — they never bypass them.
-- Decisions accepted-with-rationale get a code comment naming the trigger
-  that revisits them (see the Postgres TLS stance in `config/runtime.exs`).
+  resource's actions (`authorize?: false` for preconditions, mirroring
+  seeds), so the suite fails loudly when the create contract changes.
+  `Ash.seed!` only for states actions can't produce (e.g. expired
+  token rows, #23 janitor tests) or bulk volume — each call commented
+  with which. Never `Repo.insert` raw structs. Factories, if ever
+  added, are plain functions in `test/support/fixtures.ex` wrapping
+  actions — never bypassing them.
+- Decisions accepted-with-rationale get a comment naming the trigger
+  that revisits them (see the Postgres TLS stance in
+  `config/runtime.exs`).
 
 ## Toolchain recipes (session-tested — read before scaffolding)
 
-- **Generator + layout**: `mix ash.gen.resource FluxVale.<Domain>.Thing
-  --domain FluxVale.<Domain> --yes …` writes `lib/flux_vale/<domain>.ex`
-  + `lib/flux_vale/<domain>/…` — then MOVE to the contexts layout
+- **Generator + layout**: `mix ash.gen.resource
+  FluxVale.<Domain>.Thing --domain FluxVale.<Domain> --yes …` writes
+  `lib/flux_vale/<domain>.ex` + `lib/flux_vale/<domain>/…` — MOVE to
+  the contexts layout
   (`contexts/<domain>.ex` + `contexts/<domain>/resources/thing.ex`);
-  generators don't know it. Migrations: `mix ash.codegen <name>` (no
-  `--yes` — that flag errors; codegen applies without prompting).
-- **Credo survival** (the gate is `mix credo --strict`, running against
-  `apps/platform/.credo.exs` — v1's port, #32, **stricter than stock
-  credo**: `NestedFunctionCalls`, `PipeChainStart`, `SinglePipe`,
+  generators don't know it. Migrations: `mix ash.codegen <name>`
+  (no `--yes` — the flag errors; codegen applies without prompting).
+- **Credo survival** (`mix credo --strict` against
+  `apps/platform/.credo.exs`, v1's port #32 — **stricter than
+  stock**: `NestedFunctionCalls`, `PipeChainStart`, `SinglePipe`,
   `OnePipePerLine`, `BlockPipe`, `PipeIntoAnonymousFunctions`,
-  `StrictModuleLayout` are all explicitly enabled; `test/support/` and a
-  few web files are excluded — the config is the source of truth. Run it
-  on new files early, not first at `mix ci`):
+  `StrictModuleLayout` enabled; `test/support/` and a few web files
+  (`flux_vale_web.ex`, `core_components.ex`, `telemetry.ex`) are
+  excluded — the config is the source of truth. Run it on new files
+  early, not first at `mix ci`):
   - pipelines start with a raw value — bind intermediates
-    (`key_str = Atom.to_string(key)`) instead of starting from a call
+    (`key_str = Atom.to_string(key)`)
   - never single-stage (`x |> f()` → `f(x)`)
-  - operators aren't pipeable: `|> then(&(&1 < pct))` is the sanctioned form
-  - a result-mapping helper deadlocks three checks: nested
-    (`result(f(x))` → nested-call), single-piped (`x |> result()` →
-    single-pipe). Satisfiable shape: bind then call —
+  - operators aren't pipeable: `|> then(&(&1 < pct))` is sanctioned
+  - a result-mapping helper deadlocks three checks (nested-call,
+    single-pipe, pipe-chain-start): bind then call —
     `outcome = f(x)` … `verdict(outcome)`
-  - deliberate type violations in tests (assert_raise on a wrong-typed
-    literal) emit compile warnings under `--warnings-as-errors` — launder
-    through `Enum.at(["str"], 0)` (types as `term()`); `apply/3` also
-    works but trips Refactor.Apply
-- **Fresh worktree**: `mix deps.get`, then `MIX_ENV=test mix ash.setup`
-  (and `mix ash.setup` for dev) — the `test` alias's `ash.setup --quiet`
-  prefix has failed to apply brand-new migrations to the test DB before;
-  explicit env is the reliable path.
+  - deliberate type violations in tests (assert_raise on a
+    wrong-typed literal) emit compile warnings under
+    `--warnings-as-errors` — launder through `Enum.at(["str"], 0)`
+    (types as `term()`); `apply/3` works but trips Refactor.Apply
+- **Fresh worktree**: `mix deps.get`, then `MIX_ENV=test mix
+  ash.setup` (and `mix ash.setup` for dev) — the test alias's
+  `ash.setup --quiet` prefix has failed to apply brand-new migrations
+  before; explicit env is the reliable path.
 - **Misleading ash_postgres error**: a missing table surfaces as
   `Ash.Error.Changes.InvalidAttribute` ("Invalid value provided for
-  key") — when a create fails out of nowhere right after adding a
-  resource, check the migration actually ran before trusting the message.
+  key") — after adding a resource, check the migration ran before
+  trusting the message.
 
 ## Project guidelines
 
