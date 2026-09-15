@@ -49,9 +49,12 @@ hallucinate too.
 - Open the PR only when the branch needs nothing but a verdict.
 - Probe the summary comment's walkthrough marker (`sourceCommitId …
   "kind":"reviewed"`). If it covers HEAD, the review ran — #60
-  auto-fired at open. If not, spend the single `@coderabbitai review`
-  (#52's regime); check `@coderabbitai rate limit` first (a PR
-  comment; free) if the bucket may be low.
+  auto-fired at open. An absent marker with the CodeRabbit check
+  reading "Review in progress" means it is running — wait it out
+  (triggering now spends a second review; #62 finding). Only when
+  neither, spend the single `@coderabbitai review` (#52's regime);
+  check `@coderabbitai rate limit` first (a PR comment; free) if the
+  bucket may be low.
 - Rate-limited trigger: wait out the window the bot names, re-invoke
   once. The ack ("Review triggered") is not the verdict — confirm the
   check reads `Review completed` and the marker covers HEAD.
