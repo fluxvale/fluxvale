@@ -1,18 +1,18 @@
 # One CodeRabbit review per PR (#59). The repo is public at 0 stars:
-# the OSS tier allows ~1 review/hour per developer per repository, and
-# public repos under 10 stars require manual triggering
-# (docs.coderabbit.ai/management/plans) — the one review is obtained
-# with a single `@coderabbitai review` once the PR is open and the
-# branch is final quality (fresh-eyes pass + mix ci first). Findings
-# are adopted/rebutted in-thread without a second bot pass; the
-# maintainer verifies fixes. Supersedes #50's
+# the OSS tier allows ~1 review/hour per developer per repository
+# (docs.coderabbit.ai/management/plans). The one review runs on the
+# opening state — whether it fires automatically at open (observed:
+# #60) or needs a manual `@coderabbitai review` (observed: #52) is
+# regime-dependent; check the walkthrough marker, never assume. The
+# branch is final quality before the PR opens (fresh-eyes pass + mix
+# ci first); findings are adopted/rebutted in-thread without a second
+# bot pass; the maintainer verifies fixes. Supersedes #50's
 # auto_pause_after_reviewed_commits: 1 (#49).
 reviews:
   auto_review:
-    # Never auto-re-review on pushes after the opening state — at most
-    # one automatic review per PR. Today (0 stars) nothing
-    # auto-reviews anyway; this key is the guard for when the repo
-    # gains stars or a trial and automatic reviews become possible.
+    # Never auto-re-review on pushes after the opening state — this key
+    # disables exactly the re-review path the policy forbids. It does
+    # not govern the opening review (which may still auto-fire, #60).
     # The one-review policy itself is behavioral, not enforceable by
     # config: a manual `@coderabbitai review` remains technically
     # possible, and the review-budget skill forbids using it more than

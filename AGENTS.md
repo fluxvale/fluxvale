@@ -99,16 +99,17 @@ Images push to the k3d local registry — never docker.io.
    gh project item-edit --project-id PVT_… --id PVTI_… \
      --field-id PVTSSF_… --single-select-option-id <option-id>
    ```
-2. **Obtain the one CodeRabbit review, then wait for the verdict before
-   involving the maintainer.** At 0 stars nothing reviews automatically
-   (docs.coderabbit.ai/management/plans): when the PR opens, spend its
-   single review — one `@coderabbitai review` (check capacity first with
-   `@coderabbitai rate limit` if the bucket may be low) — then poll the
-   verdict, address every finding (adopt, or rebut with evidence,
-   in-thread), and resolve all threads (manually via GraphQL if the bot
-   can't). Adopted fixes land as one push with **no re-review** — one
-   review per PR (#59); the maintainer verifies them. Branch protection
-   on `main` requires CodeRabbit resolution anyway — the PR must be
+2. **Ensure the one CodeRabbit review has run, then wait for the
+   verdict before involving the maintainer.** When the PR opens, probe
+   the walkthrough marker (`sourceCommitId` … `"kind":"reviewed"`):
+   the review may auto-fire (#60) or need a single `@coderabbitai
+   review` (#52's regime) — capacity check first with `@coderabbitai
+   rate limit` if the bucket may be low. Then poll the verdict,
+   address every finding (adopt, or rebut with evidence, in-thread),
+   and resolve all threads (manually via GraphQL if the bot can't).
+   Adopted fixes land as one push with **no re-review** — one review
+   per PR (#59); the maintainer verifies them. Branch protection on
+   `main` requires CodeRabbit resolution anyway — the PR must be
    clean before it's worth a human's attention.
 3. Once CI exists (#8): also require all GitHub Actions checks green
    before asking for review.
