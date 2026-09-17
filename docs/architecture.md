@@ -10,11 +10,11 @@ Status: Accepted (see [adr/](adr/) — ADRs [00002](adr/00002-single-ash-livevie
   LiveViews only when workflow UX demands.
 - **App**: single Phoenix 1.8 + Ash app — LiveView UI + first-class
   **JSON:API + hosted MCP endpoint** in one OTP release, one image
-  ([ADR-00019](adr/00019-machine-first-api-cli-mcp.md)). No SPA; no
+  ([ADR-0019](adr/00019-machine-first-api-cli-mcp.md)). No SPA; no
   OpenAPI→frontend types pipeline — the spec feeds CLI/MCP clients.
 - **Auth**: AshAuthentication — passwordless email one-time codes for
   web login; bearer tokens/PATs for machine access
-  ([ADR-00003](adr/00003-ashauthentication-drop-authentik.md),
+  ([ADR-0003](adr/00003-ashauthentication-drop-authentik.md),
   [ADR-0019](adr/00019-machine-first-api-cli-mcp.md)). Authentik
   dropped.
 - **Data**: PostgreSQL via CloudNativePG — **one shared CNPG cluster**
@@ -40,7 +40,7 @@ Status: Accepted (see [adr/](adr/) — ADRs [00002](adr/00002-single-ash-livevie
   Kubernetes operator (SecretStore + BitwardenSecret CRs — references
   only, Flux-managed, continuously reconciled); fnox shrinks to
   bootstrapping the operator's own machine-account tokens
-  (ADR-0021).
+  ([ADR-0021](adr/00021-secrets-bws-operator.md)).
 - **Observability**: Grafana Alloy agent → Grafana Cloud free tier
   (hosted LGTM). PromEx for Elixir metrics. See
   [observability.md](observability.md).
@@ -77,7 +77,7 @@ with each instance namespace.
 | prod | `fluxvale-production` namespace, prod DB on the shared cluster | customers |
 
 Staging and prod run **the same image at the same time**; feature
-flags gate exposure ([ADR-0010](adr/00010-staging-namespace-flag-gated.md)/00011). Staging is not a promotion
+flags gate exposure ([ADR-0010](adr/00010-staging-namespace-flag-gated.md)/[0011](adr/00011-simultaneous-deploy-post-deploy-smoke.md)). Staging is not a promotion
 gate.
 
 ## Resource budget (16 GB box)
@@ -146,7 +146,8 @@ never mirror.
 
 Rule: **if it runs on the cluster, it lives in the fleet repo** — one
 exception: the BWS operator's two access-token Secrets are *values*,
-created out-of-band at bootstrap (ADR-0021); only their references are
+created out-of-band at bootstrap
+  ([ADR-0021](adr/00021-secrets-bws-operator.md)); only their references are
 declarative. v1's Flux-sync-coverage table existed because some
 cluster state lived outside Flux; the fix is moving everything in, not
 maintaining a coverage map. Disaster recovery = boot Talos ISO →

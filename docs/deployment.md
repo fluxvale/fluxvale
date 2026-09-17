@@ -47,7 +47,8 @@ traffic.
 ### Oracle auth: PAT for Bruno, TestInbox for Playwright
 
 Human flows (email-code login) live on the LiveView channel, not
-public HTTP — only the deliberate machine surface (ADR-0019) exposes
+public HTTP — only the deliberate machine surface
+([ADR-0019](adr/00019-machine-first-api-cli-mcp.md)) exposes
 endpoints. So the oracles authenticate differently:
 
 - **Bruno**: pre-provisioned smoke PAT (seeded at bootstrap, GitHub
@@ -126,7 +127,8 @@ rollout undo` (Flux reasserts git state within minutes), never
 | Failure | Response |
 |---|---|
 | Broken deploy, no migration | Revert the app PR → new image → Flux rolls both envs. Done. |
-| Additive migration, feature broke | **Revert code only; leave schema — but only if the schema remains write-compatible with the previous image** (nullable additions yes; new `NOT NULL`/constraints the old code can't satisfy → harmful-migration row). Orphaned additive schema is harmless; clean up in a later contract release. The default — counter-migrations are rare (ADR-0014 Am. 1). |
+| Additive migration, feature broke | **Revert code only; leave schema — but only if the schema remains write-compatible with the previous image** (nullable additions yes; new `NOT NULL`/constraints the old code can't satisfy → harmful-migration row). Orphaned additive schema is harmless; clean up in a later contract release. The default — counter-migrations are rare
+   ([ADR-0014](adr/00014-rollback-protocol.md) Am. 1). |
 | Harmful migration itself | Revert PR = code revert **+ counter-migration** (new migration N+1): revert the resource code, let the Ash migration generator diff the undo, review. One deploy, code and schema revert in lockstep. |
 | One-way door | Fix forward or restore from backup. |
 

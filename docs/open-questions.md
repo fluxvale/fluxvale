@@ -29,7 +29,7 @@ the decision.
    exported digital services + prepaid-credits classification.
 5. **Welcome credits anti-abuse** — mostly resolved by passwordless
    email-code auth (login proves inbox ownership by construction,
-   [ADR-00003](adr/00003-ashauthentication-drop-authentik.md));
+   [ADR-0003](adr/00003-ashauthentication-drop-authentik.md));
    remaining edge: disposable-email-domain handling.
 6. **SFTP / file access** — deferred post-beta, but it was a v1 gate
    item and churn source (shared gateway vs sidecar, v1 #353/#374).
@@ -40,12 +40,12 @@ the decision.
 7. **Server provisioning** — reuse v1's `nuremberg-01` or fresh
    Netcup order? (v1's operational quirks are documented in the
    [v1 repo](https://github.com/fluxvale/fluxvale_old)'s AGENTS.md;
-   per [ADR-00018](adr/00018-repo-visibility.md), operational
+   per [ADR-0018](adr/00018-repo-visibility.md), operational
    specifics are not restated in this public repo.)
 8. **Repo bootstrap** — settled: `fluxvale/fluxvale` public FSL-1.1,
    fleet repo private `fluxvale/infrastructure`, image
    `ghcr.io/fluxvale/fluxvale`
-   ([ADR-00018](adr/00018-repo-visibility.md)). Still open: CI
+   ([ADR-0018](adr/00018-repo-visibility.md)). Still open: CI
    skeleton.
 9. **API surface details** — headline settled by
    [ADR-0019](adr/00019-machine-first-api-cli-mcp.md) (JSON:API + CLI
