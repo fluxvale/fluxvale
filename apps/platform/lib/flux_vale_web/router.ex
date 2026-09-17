@@ -66,7 +66,7 @@ defmodule FluxValeWeb.Router do
   #   pipe_through :api
   # end
 
-  # #22: the gated TestInbox (ADR-0003 Am. 2, ADR-0023 Am. 3+4) — the
+  # #22: the gated TestInbox (ADR-0003 Am. 2, ADR-0023 Am. 3+5) — the
   # admin-auth'd mailbox viewer + JSON endpoint over Swoosh Local storage.
   # Lives outside /api/v1 on purpose: a config-gated dev/ops surface, not
   # the versioned client contract (#24). The gate is a runtime plug, not
