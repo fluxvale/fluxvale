@@ -1,6 +1,6 @@
 # ADR-00021: Secrets — Bitwarden SM Kubernetes operator (primary) + fnox (bootstrap residual)
 
-**Status**: Accepted — with one named pre-adoption verification (EU region, below)
+**Status**: Accepted (amended — see Amendment 1) — with one named pre-adoption verification (EU region, below)
 **Date**: 2026-08-28
 
 **Context**: v1 materialized K8s Secrets at bootstrap time via the fnox CLI
@@ -30,7 +30,8 @@ practical.
   reference the matching token — staging structurally cannot read prod
   secrets.
 - **Local dev**: no Bitwarden in k3d — the `local/` overlay replaces CRs with
-  plainly-fake Secrets; `local/` never feeds prod paths (ADR-00020).
+  plainly-fake Secrets; `local/` never feeds prod paths
+  ([ADR-00020](00020-local-dev-parity.md)).
 - **CI secrets are a different store**: GitHub Actions secrets (smoke PAT)
   stay in GitHub, not Bitwarden.
 
@@ -53,7 +54,7 @@ SecretStores ready → BitwardenSecret CRs sync → consumers apply with
 
 **RAM**: ~100–200 MB for the operator — accepted as the price of declarative,
 continuously-reconciled secrets (within the observability-adjacent budget
-slack from ADR-00009's single-cluster consolidation).
+slack from [ADR-00009](00009-single-cnpg-cluster.md)'s single-cluster consolidation).
 
 ## Amendment 1 (2026-09-01)
 
