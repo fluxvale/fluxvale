@@ -1,93 +1,93 @@
 # Open Questions
 
-Deliberately undecided. If a work session needs one of these answered, surface
-it — don't invent.
+Deliberately undecided. If a work session needs one answered, surface
+it — don't invent. Resolved items shrink to a pointer; the ADR carries
+the decision.
 
 ## Next up
 
 1. **Domain-model cut and build order** — resolved by
    [ADR-0030](adr/00030-ops-domain.md) (grouping) and
-   [ADR-0031](adr/0031-build-order.md) (the milestone ladder; deferrals
-   confirmed: custom domains + SFTP post-beta). M1 = walking skeleton.
+   [ADR-0031](adr/0031-build-order.md) (milestone ladder; custom
+   domains + SFTP deferred post-beta). M1 = walking skeleton.
 
 ## Product
 
-2. **v2 launch gate** — v1's "FluxVale Sorted" gate (SFTP E2E, 5-app catalog,
-   billing essentials, verified backups/restore, private beta) needs a v2
-   restatement. Which items make the v2 gate?
-3. **Catalog lineup** — **Forgejo is #1** ([ADR-0031](adr/0031-build-order.md)
-   M3 seed: the org's own git forge; SSH disabled initially, HTTPS-only git —
-   the v1 port-22 lesson; SQLite-on-PVC). Kavita #2. Remaining three dogfood
-   apps TBD (v1 queued: ActualBudget, PocketID, SilverBullet, +1). Also:
-   per-app mount-path / command overrides in the deployer (v1 #360) — needed
-   for non-`/data` apps.
+2. **v2 launch gate** — v1's "FluxVale Sorted" gate (SFTP E2E, 5-app
+   catalog, billing essentials, verified backups/restore, private
+   beta) needs a v2 restatement. Which items make the v2 gate?
+3. **Catalog lineup** — Forgejo #1 ([ADR-0031](adr/0031-build-order.md)
+   M3 seed: the org's own git forge; SSH disabled initially,
+   HTTPS-only git — the v1 port-22 lesson; SQLite-on-PVC). Kavita #2.
+   Remaining three dogfood apps TBD (v1 queued: ActualBudget,
+   PocketID, SilverBullet, +1). Also: per-app mount-path/command
+   overrides in the deployer (v1 #360) — needed for non-`/data` apps.
 4. **Payments provider** — resolved by
-   [ADR-0029](adr/00029-payments-adapter-selfmor.md): MoR products are out
-   (they refuse hosting categories); self-MoR with **Xendit** behind a
-   PaymentProvider adapter (PH entity — Stripe unavailable; HitPay/PayRex
-   recorded alternatives). Launch-gate item: PH tax treatment of exported
-   digital services + prepaid-credits classification.
-5. **Welcome credits anti-abuse** — largely resolved by passwordless
-   email-code auth (login proves inbox ownership by construction —
-   [ADR-00003](adr/00003-ashauthentication-drop-authentik.md)); remaining edge: disposable-email-domain handling.
-6. **SFTP / file access** — deferred post-beta per the working sketch, but it
-   was a v1 *gate* item and a churn source (shared gateway vs sidecar, v1
-   #353/#374). Decide the v2 stance explicitly when redefining the gate.
+   [ADR-0029](adr/00029-payments-adapter-selfmor.md): self-MoR with
+   Xendit behind a PaymentProvider adapter (PH entity; Stripe
+   unavailable there). Open launch-gate item: PH tax treatment of
+   exported digital services + prepaid-credits classification.
+5. **Welcome credits anti-abuse** — mostly resolved by passwordless
+   email-code auth (login proves inbox ownership by construction,
+   [ADR-00003](adr/00003-ashauthentication-drop-authentik.md));
+   remaining edge: disposable-email-domain handling.
+6. **SFTP / file access** — deferred post-beta, but it was a v1 gate
+   item and churn source (shared gateway vs sidecar, v1 #353/#374).
+   Decide the v2 stance when redefining the gate.
 
 ## Platform
 
-7. **Server provisioning** — reuse v1's `nuremberg-01` or fresh Netcup
-   order + fresh OS? (v1's operational quirks — SSH port move, SFTPGo on
-   :22 — are documented in the
-   [v1 repo](https://github.com/fluxvale/fluxvale_old)'s AGENTS.md; per
-   [ADR-00018](adr/00018-repo-visibility.md), operational specifics are not restated in this public repo.)
-8. **Repo bootstrap** — settled: app repo is `fluxvale/fluxvale`, open
-   source under FSL-1.1 ([ADR-00018](adr/00018-repo-visibility.md); LICENSE.md ported); fleet repo is
-   private `fluxvale/infrastructure`; app image is
-   `ghcr.io/fluxvale/fluxvale` (matches repo/product name). Still open: CI
+7. **Server provisioning** — reuse v1's `nuremberg-01` or fresh
+   Netcup order? (v1's operational quirks are documented in the
+   [v1 repo](https://github.com/fluxvale/fluxvale_old)'s AGENTS.md;
+   per [ADR-00018](adr/00018-repo-visibility.md), operational
+   specifics are not restated in this public repo.)
+8. **Repo bootstrap** — settled: `fluxvale/fluxvale` public FSL-1.1,
+   fleet repo private `fluxvale/infrastructure`, image
+   `ghcr.io/fluxvale/fluxvale`
+   ([ADR-00018](adr/00018-repo-visibility.md)). Still open: CI
    skeleton.
-9. **API surface details** — [ADR-00019](adr/00019-machine-first-api-cli-mcp.md) settled the headline (JSON:API + CLI
-   + MCP from day one). Versioning: **resolved** (#24, 2026-09-08) — URL prefix,
-   `/api/v1/…` from the first public route; no unversioned aliases, no media-type
-   negotiation (it fights the JSON:API media type and ash_json_api's parser, is
-   invisible to OpenAPI-generated clients, and `Vary` busts caches). A future v2
-   mounts alongside v1 — additive, both live during migration. Still open: CLI
-   language + distribution (generated from the OpenAPI spec? single static
-   binary?); MCP tool set design (which actions, confirmation UX for
-   destroy/billing ops).
-
-   CLI login UX (decided 2026-09-07, pre-implementation): gh-style browser
-   device flow — **thin first-party now, RFC 8628-shaped**. The wire shape
-   is RFC 8628's from day one (`device_code`/`user_code`/
-   `verification_uri`/`expires_in`/`interval`; polling errors
-   `authorization_pending`/`slow_down`/`access_denied`/`expired_token`),
-   so a later full implementation is server-internal — the CLI never
-   changes. `DeviceCode` carries `client_id` + `scope` from day one
-   (single seeded first-party client, full access); minted tokens carry
-   client/scope provenance (`extra_data`/claims). The upgrade delta is
-   then the client registry + scope negotiation, not plumbing; scope
-   *enforcement* is the deliberately deferred half. Lands with the CLI
-   milestone ([ADR-0019](adr/00019-machine-first-api-cli-mcp.md) scope
-   discipline: clients after the API they consume); promotes to an ADR +
-   issue when that milestone opens.
+9. **API surface details** — headline settled by
+   [ADR-0019](adr/00019-machine-first-api-cli-mcp.md) (JSON:API + CLI
+   + MCP day one). Versioning **resolved** (#24, 2026-09-08): URL
+   prefix `/api/v1/…` from the first public route — no unversioned
+   aliases, no media-type negotiation (fights the JSON:API media
+   type, invisible to generated clients, `Vary` busts caches); a v2
+   mounts alongside v1. CLI login UX decided (2026-09-07,
+   pre-implementation): gh-style **thin device flow, RFC
+   8628-shaped** — the wire is RFC 8628's from day one
+   (`device_code`/`user_code`/`verification_uri`/`expires_in`/
+   `interval`; polling errors `authorization_pending`/`slow_down`/
+   `access_denied`/`expired_token`), so a later full implementation
+   is server-internal — **the CLI never changes**. `DeviceCode`
+   carries `client_id`+`scope` (single seeded first-party client,
+   full access); minted tokens carry client/scope provenance
+   (`extra_data`/claims). The upgrade delta is the client registry +
+   scope negotiation, not plumbing; scope *enforcement* is the
+   deliberately deferred half. Promotes to an ADR + issue with the
+   CLI milestone. Still open: CLI language + distribution (generated
+   from the OpenAPI spec? single static binary?); MCP tool-set
+   design (which actions, confirmation UX for destroy/billing ops).
 10. **Feature flag resource design** — resolved by
-    [ADR-0023](adr/00023-day-one-gates.md) (FeatureFlag resource + evaluator,
-    fail-closed, atom-safe keys, sticky rollouts, AshAdmin-administered) —
-    which also settles staging's `fluxvale.com`-only sign-in (AccessRule
-    resource) and pre-builds the private-beta invite flow.
-11. **Local dev cluster** — resolved by [ADR-00020](adr/00020-local-dev-parity.md) (k3d + Tilt + CNPG
-    in-cluster + a `local/` overlay of the fleet-repo base manifests;
-    Proposed until validated on-machine). Remaining details at scaffolding:
-    the dev-image Dockerfile (mix-based) and the Tiltfile itself.
-12. **Backups detail** — CNPG barman → R2 configuration, retention policy,
+    [ADR-0023](adr/00023-day-one-gates.md) (FeatureFlag resource +
+    evaluator, fail-closed, atom-safe keys, sticky rollouts,
+    AshAdmin-administered); also settles staging's sign-in gate
+    (AccessRule) and pre-builds the private-beta invite flow.
+11. **Local dev cluster** — resolved by
+    [ADR-0020](adr/00020-local-dev-parity.md) (k3d + Tilt + `local/`
+    overlay). Remaining at scaffolding: dev-image Dockerfile, the
+    Tiltfile.
+12. **Backups detail** — CNPG barman → R2 configuration, retention,
     restore-drill cadence (quarterly?). Launch-gate material.
 13. **Bruno/Playwright suites** — resolved by
-    [ADR-00024](adr/00024-e2e-review-environments.md): port v1's bones,
-    re-point, add the per-PR (review env) / staging-full / prod-readonly /
-    local runtimes + the TestInbox adapters. Suite lives at `apps/e2e`.
+    [ADR-0024](adr/00024-e2e-review-environments.md): port v1's
+    bones, re-point, add per-PR (review env) / staging-full /
+    prod-readonly / local runtimes + TestInbox adapters. Suite at
+    `apps/e2e`.
 
-## Deferred (with triggers — see [ADR-00016](adr/00016-deferred-triggers.md))
+## Deferred (with triggers — [ADR-0016](adr/00016-deferred-triggers.md))
 
-Longhorn at node #2 · control-plane HA at 3 server nodes · dedicated staging
-box · Flagger canary at traffic · self-hosted LGTM at free-tier limits ·
-managed k8s at concrete need · PocketID managed SSO post-beta · first-party products post-gate.
+Longhorn at node #2 · control-plane HA at 3 server nodes · dedicated
+staging box · Flagger canary at traffic · self-hosted LGTM at
+free-tier limits · managed k8s at concrete need · PocketID managed SSO
+post-beta · first-party products post-gate.
