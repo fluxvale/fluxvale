@@ -6,7 +6,7 @@ defmodule FluxVale.Ops.AccessRule do
   sanctioned evaluator): **empty table = unrestricted; any rows =
   allowlist** — the same mechanism flipped by data. Rows are admin-entered
   through AshAdmin at environment bring-up, never seeded (settled on #26;
-  ADR-0023 Am. 5's empty-then-close).
+  ADR-0023 Am. 6's empty-then-close).
 
   Mutations are platform-admin-only (AshAdmin rides the same policy) and
   bust the snapshot cache in an `after_action` hook — the mutating node

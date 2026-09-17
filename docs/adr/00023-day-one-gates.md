@@ -1,31 +1,34 @@
 # ADR-00023: Day-one gates — access rules + feature flags
 
-**Status**: Accepted (amended — see Amendments 1–5)
+**Status**: Accepted (amended — see Amendments 1–6)
 **Date**: 2026-09-01
 
-**Context**: two gating needs from day one. (1) **Staging access**: staging
-sign-in restricted to `fluxvale.com` addresses — pre-launch, staging is for
-the team. (2) **Feature flags immediately**: staging and prod run the same
-image simultaneously ([ADR-00010](00010-staging-namespace-flag-gated.md),
-[ADR-00011](00011-simultaneous-deploy-post-deploy-smoke.md)), so flags are
-the *only* sanctioned divergence — the mechanism must exist before the first
-divergent feature does. v1's launch gate also needed an invite flow for
-private beta (v1 #385); that is the same mechanism as (1), built once.
+**Context**: two gating needs from day one. (1) **Staging access**:
+staging sign-in restricted to `fluxvale.com` addresses — pre-launch,
+staging is for the team. (2) **Feature flags immediately**: staging and
+prod run the same image simultaneously
+([ADR-00010](00010-staging-namespace-flag-gated.md),
+[ADR-00011](00011-simultaneous-deploy-post-deploy-smoke.md)), so flags
+are the *only* sanctioned divergence — the mechanism must exist before
+the first divergent feature does. v1's launch gate also needed an
+invite flow for private beta (v1 #385) — the same mechanism as (1),
+built once.
 
 **Decision**:
 
 ## 1. Access rules — `AccessRule` Ash resource
 
 - Rows of either `domain: "fluxvale.com"` or `email: "someone@example.com"`.
-- Checked in the sign-in action **before any code is sent**. Passwordless
-  JIT provisioning means blocking the code-send blocks account creation —
-  and therefore PATs: the API/CLI/MCP surface
+- Checked in the sign-in action **before any code is sent**.
+  Passwordless JIT provisioning means blocking the code-send blocks
+  account creation — and therefore PATs: the API/CLI/MCP surface
   ([ADR-00019](00019-machine-first-api-cli-mcp.md)) inherits the gate.
 - Seeds: staging gets `domain: fluxvale.com` plus `email:
   test@fluxvale.com` (the smoke account); staging SMTP points at a
-  catch-all (Mailpit-style) so Playwright reads codes deterministically.
-  Prod starts unrestricted — or invite-only via email rows when the private
-  beta wants it. Same mechanism, flipped by seeding.
+  catch-all (Mailpit-style) so Playwright reads codes
+  deterministically. Prod starts unrestricted — or invite-only via
+  email rows when the private beta wants it. Same mechanism, flipped
+  by seeding.
 - Admin LiveView; Ash policy restricts mutation to admins.
 
 ## Amendment 1 (2026-09-01)
@@ -51,25 +54,25 @@ user retains API access until token expiry.
   deterministic per user, no flip-flopping between variants.
 - **Uncached to start** (correct, instantly consistent, ~1 ms at beta
   scale); short-TTL ETS cache only if metrics demand it.
-- **Per-env values free by construction** — staging and prod have separate
-  databases (ADR-00010).
-- Admin surface: a **regular LiveView + `AshPhoenix.Form`** (not Phoenix
-  LiveDashboard — that's runtime introspection, and a custom Page would
-  bypass the Ash policy path): list, toggle, set %, **flag age shown**
-  (stale flags conspicuous), and an audit entry per change (who, flag,
-  old→new — both humans and agents administer flags). A flag is deleted —
-  row *and* code branch — once behavior is permanent; flags gate features,
+- **Per-env values free by construction** — staging and prod have
+  separate databases (ADR-0010).
+- Admin surface: a **regular LiveView + `AshPhoenix.Form`** (not
+  LiveDashboard — runtime introspection; a custom Page would bypass the
+  Ash policy path): list, toggle, set %, **flag age shown** (stale flags
+  conspicuous), audit entry per change (who, flag, old→new — both
+  humans and agents administer flags). A flag is deleted — row *and*
+  code branch — once behavior is permanent; flags gate features,
   **never schema** (ADR-0010 rule).
 
 ## 3. Separation principle
 
-Access rules decide **who can enter**; flags decide **what they see**. Flags
-never become a shadow auth system; access rules never gate features.
-Deliberately two mechanisms so both stay honest — access rules don't rot the
-way flags do.
+Access rules decide **who can enter**; flags decide **what they see**.
+Flags never become a shadow auth system; access rules never gate
+features. Two mechanisms so both stay honest — access rules don't rot
+the way flags do.
 
-**Resolves**: open question #10. **Generalizes**: the private-beta invite
-flow (v1 #385) is AccessRule email rows on prod.
+**Resolves**: open question #10. **Generalizes**: the private-beta
+invite flow (v1 #385) is AccessRule email rows on prod.
 
 ## Amendment 2 (2026-09-01)
 
@@ -125,7 +128,7 @@ code-declared atom catalog is a FluxVale v1 scar no library can enforce
   rollouts, M5?) → extend `FeatureFlag` (an actor-gate join table),
   not swap libraries; the curated-view trigger of Am. 2 stands.
 
-## Amendment 4 (2026-09-07): Local capture scopes to test accounts on non-local envs
+## Amendment 5 (2026-09-07): Local capture scopes to test accounts on non-local envs
 
 Amendment 3 made the Local adapter non-prod's blanket mail path. Per
 [ADR-0003](00003-ashauthentication-drop-authentik.md) Amendment 2
@@ -136,7 +139,7 @@ reads Local-captured test mail — machines reach its JSON endpoint with
 an admin PAT (PATs need no session; the deadlock doesn't apply to
 them). Local dev is unchanged.
 
-## Amendment 5 (2026-09-08): rows are admin-entered, not seeded
+## Amendment 6 (2026-09-08): rows are admin-entered, not seeded
 
 Implementation settlement (#26): **no seed module ships.** Environments
 gate themselves through the AshAdmin CRUD at bring-up — **empty-then-close**:
