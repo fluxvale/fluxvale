@@ -35,8 +35,9 @@ repo is an Elixir/Phoenix/Ash monorepo; for changed app code
 For docs/, skills, CI, scripts, or config files in the diff — alone
 or alongside code — also hunt: claims the referenced code or config
 contradicts, malformed frontmatter/YAML, stale references (files,
-paths, issues that don't exist), internal inconsistencies, and walls
-of text a time-pressed human wouldn't write (#61).
+paths, issues that don't exist), internal inconsistencies, walls of
+text a time-pressed human wouldn't write, and load-bearing points
+buried mid-paragraph (#61 — write for a short-attention-span reader).
 Output findings as file:line + one-paragraph justification; say 'clean'
 if none.
 ```

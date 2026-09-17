@@ -35,7 +35,8 @@ this stack was chosen for ([ADR-00002](00002-single-ash-liveview-app.md)).
    AccessRule pattern), so the board opens with the invite cohort and
    tightens itself the day the first purchase lands.
 4. **Pages**: `/feedback` board and `/feedback/:slug` post pages as SSR
-   controllers (crawlable, sitemap'd — per ADR-00025); voting/commenting
+   controllers (crawlable, sitemap'd — per
+   [ADR-00025](00025-seo-content-architecture.md)); voting/commenting
    interactions as LiveView on top; small admin moderation LiveView (status
    changes, duplicate merges). App-tagged posts cross-link to
    `/apps/<slug>`.

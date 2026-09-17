@@ -1,6 +1,6 @@
 # ADR-00022: Talos Linux — the OS *is* the cluster; Ansible exits
 
-**Status**: Accepted (amended — see Amendment 1)
+**Status**: Accepted
 **Date**: 2026-09-01
 
 **Context**: the v2 charter is "do it right, then go faster than ever." A
@@ -26,7 +26,7 @@ automation. Server data is disposable (pre-launch). No blockers.
    bare-metal/Netcup/reject-managed-k8s reasoning there is untouched.
 2. **Machine configs**: patches live in the fleet repo (`talos/`); full
    configs, `talosconfig`, and cluster PKI are **values → Bitwarden**
-   (references-vs-values rule, [ADR-00018](00018-repo-visibility.md)).
+   (references-vs-values rule, [ADR-0021](00021-secrets-bws-operator.md)).
 3. **Bootstrap/DR runbook**: SCP → custom ISO upload
    (stock `metal-amd64.iso` from the Talos release — hybrid BIOS/UEFI;
    `metal-amd64.raw.zst` is the dd-fallback artifact (`zstd -d` first),
