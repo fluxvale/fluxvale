@@ -41,8 +41,9 @@ cluster ServiceAccount — **RBAC cannot pattern-restrict namespace names**, so
    traces → CI artifacts). Four runtimes: **per-PR** (full suite against the
    review env, destructive allowed), **post-deploy staging** (full suite),
    **post-deploy prod** (read-only subset — no side effects, no credits
-   spent), **local** (against the Tilt/k3d stack, ADR-0020).
-5. **TestInbox adapter**: one helper, three backends — Mailpit (local,
+   spent), **local** (against the Tilt/k3d stack,
+   [ADR-0020](00020-local-dev-parity.md)).
+5. **TestInbox adapter**: one helper, two backends — Mailpit (local,
    staging, review envs) and Postmark Messages API (prod,
    [ADR-00003](00003-ashauthentication-drop-authentik.md) Am. 1). Deterministic
    passwordless login everywhere, zero test backdoors.

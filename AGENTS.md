@@ -12,6 +12,11 @@ is only **how to work here**.
   ADR), not retold in place; longer text wins only when genuinely
   simpler. Applies to comments, AGENTS.md files, skills, docs,
   issues, PR bodies, commit messages.
+- **Write for a short-attention-span reader** — assume they skim and
+  lose the thread in walls of text: front-load the point, one idea
+  per paragraph/bullet, short sentences, and never bury a decision
+  or instruction mid-block; the load-bearing line should be the
+  easiest one to find.
 - **Link ADR references wherever markdown renders** —
   `[ADR-NNNN](docs/adr/<file>.md)`, relative to the linking file (the
   template shows the root-docs shape; ADR-index rows link siblings:
