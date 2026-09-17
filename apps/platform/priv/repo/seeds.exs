@@ -1,7 +1,7 @@
 # Runs on `mix setup` (dev) — the dev bootstrap seed. Creates one platform
 # admin so the admin-gated surfaces (TestInbox #22, Ops CRUD #25/#26) have a
 # real actor. No AccessRule rows ship: environments gate themselves through
-# the AshAdmin CRUD at bring-up (settled on #26; ADR-0023 Am. 5's
+# the AshAdmin CRUD at bring-up (settled on #26; ADR-0023 Am. 6's
 # empty-then-close).
 #
 # The create runs with authorize?: false: bootstrap — there is no actor to
