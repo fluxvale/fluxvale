@@ -13,7 +13,9 @@ is only **how to work here**.
   simpler. Applies to comments, AGENTS.md files, skills, docs,
   issues, PR bodies, commit messages.
 - **Link ADR references wherever markdown renders** —
-  `[ADR-NNNN](docs/adr/<file>.md)`, relative path, verified to exist
+  `[ADR-NNNN](docs/adr/<file>.md)`, relative to the linking file (the
+  template shows the root-docs shape; ADR-index rows link siblings:
+  `[ADR-00023](00023-day-one-gates.md)`), verified to exist
   (most files are five-digit; ADR-0031 is `0031-build-order.md`) so
   IDE go-to-file works. In code fences and config comments, keep
   plain text adjacent. Plain `ADR-NNNN` in commit messages is fine —
