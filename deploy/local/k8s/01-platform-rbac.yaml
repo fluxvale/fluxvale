@@ -1,18 +1,20 @@
-# Platform RBAC (operator pattern, settled on #69): one ClusterRole bound
-# cluster-wide to the fluxvale-platform SA; #73's deploy trigger then creates
-# per-namespace RoleBindings referencing this same ClusterRole — the SA can
-# act in fluxvale-app-* namespaces from the moment it creates them
-# (architecture.md: "the platform creates a per-namespace RoleBinding for its
-# service account with each instance namespace").
+# Platform RBAC — operator pattern, split in two (settled on #69):
 #
-# Scope: exactly the verbs the ported client calls (#69). Empirically
-# verified on-cluster: server-side apply of a NEW object needs `create`
-# (patch-only is rejected with "cannot create resource" — proven by demo),
-# apply-on-existing rides `patch`. `watch` is absent until something watches
-# (Kubereq.Watcher, #73+); `update` is absent (nothing PUTs); `list` only
-# where a module lists (Namespace, Node). pods join when a module reads
-# them; resourcequotas/networkpolicies when #73's deploy trigger creates
-# them — nothing over-granted ahead of the code.
+# 1. fluxvale-platform (bootstrap, bound cluster-wide): Namespace lifecycle,
+#    Node reads, and RoleBinding creation — the SA's machinery for creating
+#    and tearing down instance namespaces.
+# 2. fluxvale-platform-workload (NOT bound here): namespaced resource verbs.
+#    #73's deploy trigger binds it per fluxvale-app-* namespace via
+#    RoleBindings — workload permissions exist ONLY inside instance
+#    namespaces, never cluster-wide (a monolithic ClusterRoleBinding would
+#    grant Secrets/Deployments access in kube-system etc.).
+#
+# Verb scope is empirically verified on-cluster (#69 demo): server-side
+# apply of a NEW object needs `create` (patch-only is rejected with "cannot
+# create resource"); apply-on-existing rides `patch`. `watch` absent until
+# something watches; `update` absent (nothing PUTs); `list` only where a
+# module lists. pods/resourcequotas/networkpolicies join when code reads or
+# creates them (#73) — nothing over-granted ahead of the code.
 #
 # Drift note (ADR-0020 Am. 2): the M4 fleet repo carries the prod copy;
 # shape changes here must propagate there.
@@ -28,7 +30,19 @@ rules:
   - apiGroups: [""]
     resources: ["nodes"]
     verbs: ["get", "list"]
-  # Namespaced operands — the client's full surface
+  # The operator pattern's own machinery (#73): per-namespace RoleBindings
+  # referencing the workload role below
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings"]
+    verbs: ["create", "get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fluxvale-platform-workload
+rules:
+  # Instance-namespace operands — the client's full surface, bound ONLY by
+  # #73's per-namespace RoleBindings
   - apiGroups: [""]
     resources: ["services", "persistentvolumeclaims", "secrets"]
     verbs: ["create", "get", "patch", "delete"]
@@ -42,11 +56,6 @@ rules:
   - apiGroups: ["cert-manager.io"]
     resources: ["certificates"]
     verbs: ["create", "get", "patch", "delete"]
-  # The operator pattern's own machinery (#73): per-namespace RoleBindings
-  # referencing this ClusterRole
-  - apiGroups: ["rbac.authorization.k8s.io"]
-    resources: ["rolebindings"]
-    verbs: ["create", "get", "list", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

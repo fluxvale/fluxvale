@@ -27,8 +27,12 @@ defmodule FluxVale.Clients.K8s.Resources.Node do
     req = create_req(kubeconfig)
 
     case Kubereq.list(req) do
-      {:ok, %{status: 200, body: %{"items" => items}}} ->
+      {:ok, %{status: 200, body: %{"items" => items}}} when is_list(items) ->
         {:ok, items}
+
+      # Malformed 200 body — must not reach from_response/1 (raises on 2xx).
+      {:ok, %{status: 200, body: body}} ->
+        {:error, Error.validation_error("Malformed NodeList response: #{inspect(body)}")}
 
       {:ok, %{status: status, body: body}} ->
         {:error, Error.from_response({:ok, %{status: status, body: body}})}

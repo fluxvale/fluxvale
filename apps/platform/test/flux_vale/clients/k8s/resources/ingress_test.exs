@@ -1,12 +1,30 @@
 defmodule FluxVale.Clients.K8s.Resources.IngressTest do
   use ExUnit.Case, async: true
 
+  alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Ingress
 
   defp route_match(manifest), do: get_in(manifest, ["spec", "routes", Access.at(0), "match"])
 
   defp base_spec do
     %{subdomain: "my-app", service_name: "my-app", service_port: 80}
+  end
+
+  describe "create/4 — DNS-name gate" do
+    test "rejects a hostile host before any cluster call (no crash on nil kubeconfig)" do
+      spec = Map.put(base_spec(), :host, "a`) || PathPrefix(`/")
+
+      assert {:error, %Error{reason: :invalid_spec, message: msg}} =
+               Ingress.create(nil, "ns", "evil", spec)
+
+      assert msg =~ "a`) || PathPrefix"
+    end
+
+    test "rejects backslash/backtick subdomains" do
+      spec = Map.put(base_spec(), :subdomain, "x\\`, Other(`y")
+
+      assert {:error, %Error{reason: :invalid_spec}} = Ingress.create(nil, "ns", "evil", spec)
+    end
   end
 
   describe "build_manifest/3 — subdomain routing" do

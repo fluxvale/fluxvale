@@ -20,8 +20,18 @@ defmodule FluxVale.Clients.K8s.ErrorTest do
                Error.from_response({:ok, %{status: 409, body: %{}}})
     end
 
-    test "maps SSA 409 ApplyConflict to :conflict, not :already_exists" do
-      body = %{"reason" => "ApplyConflict", "message" => "Apply failed with 1 conflict"}
+    test "maps explicit AlreadyExists 409 with the API message" do
+      body = %{"reason" => "AlreadyExists", "message" => "namespaces \"x\" already exists"}
+
+      assert %Error{reason: :already_exists, message: msg} =
+               Error.from_response({:ok, %{status: 409, body: body}})
+
+      assert msg =~ "already exists"
+    end
+
+    test "maps SSA Conflict 409 to :conflict, not :already_exists" do
+      # Real shape: top-level reason "Conflict"; FieldManagerConflict causes
+      body = %{"reason" => "Conflict", "message" => "Apply failed with 1 conflict"}
 
       assert %Error{reason: :conflict, status_code: 409, message: "Apply failed with 1 conflict"} =
                Error.from_response({:ok, %{status: 409, body: body}})

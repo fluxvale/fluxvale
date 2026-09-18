@@ -119,25 +119,35 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
   end
 
   @doc """
-  Gets the deployment status: `%{replicas, actual_replicas, available, ready, conditions}`.
+  Gets the deployment status:
+
+      %{replicas, actual_replicas, updated, available, ready,
+        generation, observed_generation, conditions}
+
+  `generation`/`observed_generation` matter after any apply that changes the
+  pod template — `readyReplicas` alone can report *old* pods as ready until
+  the controller rolls the new generation.
   """
   @spec status(Kubereq.Kubeconfig.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, Error.t()}
   def status(kubeconfig, namespace, name) do
     case get(kubeconfig, namespace, name) do
-      {:ok, deployment} ->
-        {:ok,
-         %{
-           replicas: get_in(deployment, ["spec", "replicas"]) || 0,
-           actual_replicas: get_in(deployment, ["status", "replicas"]) || 0,
-           available: get_in(deployment, ["status", "availableReplicas"]) || 0,
-           ready: get_in(deployment, ["status", "readyReplicas"]) || 0,
-           conditions: get_in(deployment, ["status", "conditions"]) || []
-         }}
-
-      {:error, error} ->
-        {:error, error}
+      {:ok, deployment} -> {:ok, build_status(deployment)}
+      {:error, error} -> {:error, error}
     end
+  end
+
+  defp build_status(deployment) do
+    %{
+      replicas: get_in(deployment, ["spec", "replicas"]) || 0,
+      actual_replicas: get_in(deployment, ["status", "replicas"]) || 0,
+      updated: get_in(deployment, ["status", "updatedReplicas"]) || 0,
+      available: get_in(deployment, ["status", "availableReplicas"]) || 0,
+      ready: get_in(deployment, ["status", "readyReplicas"]) || 0,
+      generation: get_in(deployment, ["metadata", "generation"]) || 0,
+      observed_generation: get_in(deployment, ["status", "observedGeneration"]) || 0,
+      conditions: get_in(deployment, ["status", "conditions"]) || []
+    }
   end
 
   @doc "Scales a deployment to the given replica count."
@@ -230,12 +240,25 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
   end
 
   # Polling an external resource, not a process — Process.sleep is the tool.
+  # Readiness gates on the generation handshake, not readyReplicas alone:
+  # after scale/restart/create apply a new generation, old pods can still
+  # satisfy ready >= desired until the controller rolls the update.
   defp do_wait_for_ready(kubeconfig, namespace, name, deadline, interval) do
     case status(kubeconfig, namespace, name) do
-      {:ok, %{replicas: desired, ready: ready}} when ready >= desired and desired > 0 ->
+      {:ok, %{replicas: 0}} ->
         :ok
 
-      {:ok, %{replicas: 0}} ->
+      {:ok,
+       %{
+         replicas: desired,
+         actual_replicas: actual,
+         updated: updated,
+         ready: ready,
+         generation: generation,
+         observed_generation: observed
+       }}
+      when observed >= generation and updated == desired and actual == desired and
+             ready >= desired ->
         :ok
 
       {:ok, status} ->

@@ -39,11 +39,23 @@ defmodule FluxVale.Clients.K8s.Error do
     }
   end
 
-  def from_response({:ok, %{status: 409, body: %{"reason" => "ApplyConflict"} = body}}) do
+  # Real k8s shapes: SSA/optimistic-lock conflicts carry reason "Conflict"
+  # (FieldManagerConflict details in causes); create-races carry
+  # "AlreadyExists". Reason-less 409s keep v1's :already_exists default.
+  def from_response({:ok, %{status: 409, body: %{"reason" => "Conflict"} = body}}) do
     %__MODULE__{
       status_code: 409,
       reason: :conflict,
-      message: extract_message(body) || "Server-side apply conflict",
+      message: extract_message(body) || "Conflict",
+      details: body
+    }
+  end
+
+  def from_response({:ok, %{status: 409, body: %{"reason" => "AlreadyExists"} = body}}) do
+    %__MODULE__{
+      status_code: 409,
+      reason: :already_exists,
+      message: extract_message(body) || "Resource already exists",
       details: body
     }
   end

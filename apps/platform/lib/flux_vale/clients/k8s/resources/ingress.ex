@@ -60,10 +60,38 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
 
   @default_cert_resolver "letsencrypt"
 
-  @doc "Creates (server-side-applies) an IngressRoute."
+  # DNS-name shape: dot-separated labels, alnum + inner hyphens, 1-63 chars
+  # each. Rejects backticks, backslashes, spaces — anything that would make
+  # a dead or injectable Traefik rule.
+  @dns_label ~r/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/
+
+  @doc """
+  Creates (server-side-applies) an IngressRoute.
+
+  Host-ish values (`:host`, `:subdomain`, `:domain`) are validated as DNS
+  names first — an invalid value gets `{:error, %Error{reason: :invalid_spec}}`
+  rather than a Traefik rule that's escaped-but-syntactically-dead.
+  """
   @spec create(Kubereq.Kubeconfig.t(), String.t(), String.t(), spec()) ::
           {:ok, map()} | {:error, Error.t()}
   def create(kubeconfig, namespace, name, spec) do
+    host_values = [
+      Map.get(spec, :host),
+      Map.get(spec, :subdomain),
+      Map.get(spec, :domain)
+    ]
+
+    invalid =
+      Enum.find(host_values, fn value -> value != nil and not valid_dns_name?(value) end)
+
+    if invalid do
+      {:error, Error.invalid_spec("Not a valid DNS name: #{inspect(invalid)}")}
+    else
+      do_create(kubeconfig, namespace, name, spec)
+    end
+  end
+
+  defp do_create(kubeconfig, namespace, name, spec) do
     req = create_req(kubeconfig)
     manifest = build_manifest(namespace, name, spec)
 
@@ -189,6 +217,7 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
 
   # Escape backslashes first, then backticks — either can inject additional
   # router rules (https://doc.traefik.io/traefik/routing/routers/#rule).
+  # Defense in depth: create/4 rejects non-DNS values before we get here.
   defp escape_traefik_value(value) when is_binary(value) do
     value
     |> String.replace("\\", "\\\\")
@@ -208,6 +237,11 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
         subdomain = spec.subdomain
         "Host(`#{escape_traefik_value(subdomain)}.#{escape_traefik_value(domain)}`)"
     end
+  end
+
+  defp valid_dns_name?(value) when is_binary(value) do
+    labels = String.split(value, ".")
+    Enum.all?(labels, &Regex.match?(@dns_label, &1))
   end
 
   defp create_req(kubeconfig) do
