@@ -41,7 +41,7 @@ the decision.
 7. **Server provisioning** — reuse v1's `nuremberg-01` or fresh
    Netcup order? Maintainer stance (2026-09-18): wipe-and-reuse at
    cutover stays preferred, no rush — v1 remains occasionally useful
-   (HitPay onboarding demo) until then. Final call at M4 planning;
+   until then. Final call at M4 planning;
    fresh order is the fallback if v2 readiness outlasts v1's useful
    window. (v1's operational quirks are documented in the
    [v1 repo](https://github.com/fluxvale/fluxvale_old)'s AGENTS.md;

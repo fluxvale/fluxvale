@@ -55,7 +55,8 @@ established. Xendit never shipped; it drops to recorded alternative.
 Adapter architecture untouched: gateway migration stays a one-module
 swap, and per-provider webhook routes + the provider-agnostic ledger
 keep multiple concurrent gateways open if a concrete need ever appears
-(maintainer ask). Checkout/webhook mapping and HitPay's signature
-scheme land in `Providers.HitPay` at M6 — same constant-time
-verification discipline. USD display pricing carries over; settlement
-currency re-confirmed at M6.
+(maintainer requirement). Checkout/webhook mapping and HitPay's
+signature scheme land in `Providers.HitPay` at M6 — same
+constant-time verification discipline. USD display pricing carries
+over; settlement currency re-confirmed at M6 (Am. 1's PHP settlement
+was Xendit-specific).
