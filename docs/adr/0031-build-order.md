@@ -36,7 +36,7 @@ Port-don't-rewrite from the salvage map throughout.
 - **M5 — Billing**: Organization/Membership, Wallet + ledger, welcome
   credits, flat-rate accrual ([ADR-00028](00028-flat-rate-pricing.md)),
   balance UI, empty-wallet deploy gate. *Exit: accrual lands in the ledger.*
-- **M6 — Payments**: `PaymentProvider` behaviour + Xendit
+- **M6 — Payments**: `PaymentProvider` behaviour + HitPay
   ([ADR-0029](00029-payments-adapter-selfmor.md)), buy-credits.
   *Exit: test-mode checkout credits a wallet.*
 - **M7 — Launch-prep**: blog + SEO plumbing ([ADR-00025](00025-seo-content-architecture.md)),

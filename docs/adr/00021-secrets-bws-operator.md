@@ -17,7 +17,7 @@ practical.
   via `SecretStore` + `BitwardenSecret` CRs — **references only (BWS secret
   IDs), never values** — living in the fleet repo, Flux-managed like all
   cluster state, continuously reconciled from Bitwarden. Includes the app env
-  secrets (Dodo keys, token-signing secret, SMTP — auth-critical under
+   secrets (payment-gateway keys, token-signing secret, SMTP — auth-critical under
   passwordless login), Cloudflare DNS token (cert-manager), WAL-G/R2 creds,
   Grafana Cloud creds (Alloy), and pull secrets (`dockerconfigjson` support)
   if the app image ever goes private.
