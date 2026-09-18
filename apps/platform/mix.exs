@@ -97,6 +97,10 @@ defmodule FluxVale.MixProject do
        depth: 1},
       {:swoosh, "1.28.0"},
       {:req, "0.7.4"},
+      # K8s client over Req (v1 port, #69). The SA kubeconfig step stores a
+      # tokenFile *path*, not the token — kubereq re-reads it, so projected
+      # token rotation is handled; no client-side cache needed.
+      {:kubereq, "0.4.5"},
       {:telemetry_metrics, "1.2.0"},
       {:telemetry_poller, "1.3.0"},
       {:gettext, "1.0.2"},
