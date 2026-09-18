@@ -37,7 +37,7 @@ already ruled out.
 | [ADR-0026](00026-feedback-board.md) | Feedback board: in-app, public read, paying-customers-write | Accepted (amended — see Amendment 1) |
 | [ADR-0027](00027-admin-surface-ashadmin.md) | Admin surface: AshAdmin (generated CRUD through Ash actions) | Accepted |
 | [ADR-0028](00028-flat-rate-pricing.md) | Pricing: allocation-based flat monthly rates, not measured usage | Accepted |
-| [ADR-0029](00029-payments-adapter-selfmor.md) | Payments: adapter architecture; self-MoR Xendit (MoR products refuse hosting; PH entity) | Accepted (amended — see Amendment 1) |
+| [ADR-0029](00029-payments-adapter-selfmor.md) | Payments: adapter architecture; self-MoR HitPay (MoR products refuse hosting; PH entity) | Accepted (amended — see Amendments 1–2) |
 | [ADR-0030](00030-ops-domain.md) | Domain grouping: the Ops domain (FeatureFlag, AccessRule; operator resources) | Accepted |
 | [ADR-0031](0031-build-order.md) | Build order: the milestone ladder (M1 skeleton → M7 launch-prep) | Accepted |
 | [ADR-0032](00032-uuid-v7-ids.md) | IDs: UUIDv7 for uuid primary keys (app-side generation; ordering approximate, never a contract) | Accepted |

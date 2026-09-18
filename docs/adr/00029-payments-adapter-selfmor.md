@@ -1,6 +1,6 @@
 # ADR-0029: Payments — adapter architecture; self-MoR with Stripe (MoR products rejected)
 
-**Status**: Accepted (amended — see Amendment 1)
+**Status**: Accepted (amended — see Amendments 1–2)
 **Date**: 2026-09-01
 
 **Context**: v1 used Dodo Payments (checkout + Standard Webhooks). OQ #4
@@ -27,7 +27,7 @@ record with a direct processor. Stripe is the first implementation.
    (structurally mitigated: small prepaid amounts, no recurring billing,
    access gating), and a real refund policy.
 
-**Resolves**: OQ #4. **Amends**: ADR-00028's Dodo reference (further amended: Xendit per Am. 1).
+**Resolves**: OQ #4. **Amends**: ADR-00028's Dodo reference (further amended: Xendit per Am. 1, HitPay per Am. 2).
 
 ## Amendment 1 (2026-09-01)
 
@@ -46,3 +46,16 @@ digital services (zero-rating with documentation is the likely shape) plus
 the prepaid-credits classification; still a launch-gate advisor item
 (OQ #2). Currency: prices display in USD (credits = US cents); Xendit card
 checkout in USD; settlement in PHP.
+
+## Amendment 2 (2026-09-18)
+
+**HitPay is the first implementation** — account approved (HitPay
+approached us inbound; onboarded against a v1 demo), relationship
+established. Xendit never shipped; it drops to recorded alternative.
+Adapter architecture untouched: gateway migration stays a one-module
+swap, and per-provider webhook routes + the provider-agnostic ledger
+keep multiple concurrent gateways open if a concrete need ever appears
+(maintainer ask). Checkout/webhook mapping and HitPay's signature
+scheme land in `Providers.HitPay` at M6 — same constant-time
+verification discipline. USD display pricing carries over; settlement
+currency re-confirmed at M6.

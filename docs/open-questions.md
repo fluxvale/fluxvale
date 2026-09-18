@@ -24,9 +24,10 @@ the decision.
    overrides in the deployer (v1 #360) — needed for non-`/data` apps.
 4. **Payments provider** — resolved by
    [ADR-0029](adr/00029-payments-adapter-selfmor.md): self-MoR with
-   Xendit behind a PaymentProvider adapter (PH entity; Stripe
-   unavailable there). Open launch-gate item: PH tax treatment of
-   exported digital services + prepaid-credits classification.
+   HitPay behind a PaymentProvider adapter (PH entity; Stripe
+   unavailable there; Xendit swapped out pre-implementation, Am. 2).
+   Open launch-gate item: PH tax treatment of exported digital
+   services + prepaid-credits classification.
 5. **Welcome credits anti-abuse** — mostly resolved by passwordless
    email-code auth (login proves inbox ownership by construction,
    [ADR-0003](adr/00003-ashauthentication-drop-authentik.md));
@@ -38,7 +39,11 @@ the decision.
 ## Platform
 
 7. **Server provisioning** — reuse v1's `nuremberg-01` or fresh
-   Netcup order? (v1's operational quirks are documented in the
+   Netcup order? Maintainer stance (2026-09-18): wipe-and-reuse at
+   cutover stays preferred, no rush — v1 remains occasionally useful
+   (HitPay onboarding demo) until then. Final call at M4 planning;
+   fresh order is the fallback if v2 readiness outlasts v1's useful
+   window. (v1's operational quirks are documented in the
    [v1 repo](https://github.com/fluxvale/fluxvale_old)'s AGENTS.md;
    per [ADR-0018](adr/00018-repo-visibility.md), operational
    specifics are not restated in this public repo.)
