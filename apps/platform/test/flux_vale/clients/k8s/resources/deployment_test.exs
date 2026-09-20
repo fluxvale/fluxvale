@@ -108,4 +108,57 @@ defmodule FluxVale.Clients.K8s.Resources.DeploymentTest do
       refute Map.has_key?(pod_spec, "volumes")
     end
   end
+
+  describe "ready?/1 — the generation-gated readiness predicate" do
+    defp status_map(overrides) do
+      Map.merge(
+        %{
+          replicas: 2,
+          actual_replicas: 2,
+          updated: 2,
+          available: 2,
+          ready: 2,
+          generation: 3,
+          observed_generation: 3,
+          conditions: []
+        },
+        overrides
+      )
+    end
+
+    test "fully rolled-out deployment is ready" do
+      status = status_map(%{})
+      assert Deployment.ready?(status)
+    end
+
+    test "old-generation pods ready do not count — controller hasn't observed the new generation" do
+      status = status_map(%{observed_generation: 2, generation: 3})
+      refute Deployment.ready?(status)
+    end
+
+    test "generation caught up but rollout incomplete (updated < desired)" do
+      status = status_map(%{updated: 1})
+      refute Deployment.ready?(status)
+    end
+
+    test "surge pods (actual > desired) mean still rolling" do
+      status = status_map(%{actual_replicas: 3})
+      refute Deployment.ready?(status)
+    end
+
+    test "ready < desired" do
+      status = status_map(%{ready: 1})
+      refute Deployment.ready?(status)
+    end
+
+    test "scale-to-zero is ready by definition" do
+      status = status_map(%{replicas: 0, actual_replicas: 0, updated: 0, ready: 0})
+      assert Deployment.ready?(status)
+    end
+
+    test "paused deployment: observed stalls below generation — never ready" do
+      status = status_map(%{observed_generation: 1, generation: 4})
+      refute Deployment.ready?(status)
+    end
+  end
 end

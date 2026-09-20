@@ -25,6 +25,12 @@ defmodule FluxVale.Clients.K8s.Resources.IngressTest do
 
       assert {:error, %Error{reason: :invalid_spec}} = Ingress.create(nil, "ns", "evil", spec)
     end
+
+    test "rejects a trailing newline ($ would match before it — \\z does not)" do
+      spec = Map.put(base_spec(), :host, "evil.com\n")
+
+      assert {:error, %Error{reason: :invalid_spec}} = Ingress.create(nil, "ns", "evil", spec)
+    end
   end
 
   describe "build_manifest/3 — subdomain routing" do

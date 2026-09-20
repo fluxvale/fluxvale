@@ -53,8 +53,8 @@ defmodule FluxVale.Clients.K8s.Resources.Node do
       {:ok, %{status: 200, body: body}} ->
         {:ok, body}
 
-      {:ok, %{status: 404}} ->
-        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      {:ok, %{status: 404, body: body}} ->
+        {:error, Error.from_response({:ok, %{status: 404, body: body}})}
 
       {:ok, %{status: status, body: body}} ->
         {:error, Error.from_response({:ok, %{status: status, body: body}})}

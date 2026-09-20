@@ -62,8 +62,9 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
 
   # DNS-name shape: dot-separated labels, alnum + inner hyphens, 1-63 chars
   # each. Rejects backticks, backslashes, spaces — anything that would make
-  # a dead or injectable Traefik rule.
-  @dns_label ~r/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/
+  # a dead or injectable Traefik rule. \z (not $): a trailing newline must
+  # not slip through ($ matches before a final \n in PCRE).
+  @dns_label ~r/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\z/
 
   @doc """
   Creates (server-side-applies) an IngressRoute.
@@ -121,8 +122,8 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
       {:ok, %{status: 200, body: body}} ->
         {:ok, body}
 
-      {:ok, %{status: 404}} ->
-        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      {:ok, %{status: 404, body: body}} ->
+        {:error, Error.from_response({:ok, %{status: 404, body: body}})}
 
       {:ok, %{status: status, body: body}} ->
         {:error, Error.from_response({:ok, %{status: status, body: body}})}
@@ -153,8 +154,8 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
         Logger.debug("Ingress deletion initiated: #{namespace}/#{name}")
         :ok
 
-      {:ok, %{status: 404}} ->
-        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      {:ok, %{status: 404, body: body}} ->
+        {:error, Error.from_response({:ok, %{status: 404, body: body}})}
 
       {:ok, %{status: status, body: body}} ->
         {:error, Error.from_response({:ok, %{status: status, body: body}})}

@@ -31,10 +31,11 @@ rules:
     resources: ["nodes"]
     verbs: ["get", "list"]
   # The operator pattern's own machinery (#73): per-namespace RoleBindings
-  # referencing the workload role below
+  # referencing the workload role below — SSA-applied like everything else
+  # (patch covers apply-on-existing re-runs)
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["rolebindings"]
-    verbs: ["create", "get", "list", "delete"]
+    verbs: ["create", "get", "list", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

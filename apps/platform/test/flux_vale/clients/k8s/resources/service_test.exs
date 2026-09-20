@@ -4,7 +4,7 @@ defmodule FluxVale.Clients.K8s.Resources.ServiceTest do
   alias FluxVale.Clients.K8s.Resources.Service
 
   describe "build_manifest/3" do
-    test "ClusterIP with the given port and selector" do
+    test "ClusterIP with the given port and selector, targetPort defaulting to port" do
       manifest =
         Service.build_manifest("ns", "app", %{
           port: 80,
@@ -20,7 +20,7 @@ defmodule FluxVale.Clients.K8s.Resources.ServiceTest do
              ]
     end
 
-    test "target_port defaults to port" do
+    test "explicit target_port is honored" do
       manifest =
         Service.build_manifest("ns", "app", %{port: 80, target_port: 3000, selector: %{}})
 

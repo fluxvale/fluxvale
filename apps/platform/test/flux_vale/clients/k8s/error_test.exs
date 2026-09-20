@@ -15,9 +15,13 @@ defmodule FluxVale.Clients.K8s.ErrorTest do
              } = error
     end
 
-    test "maps 409 to :already_exists" do
-      assert %Error{reason: :already_exists, status_code: 409} =
+    test "unknown/reason-less 409s default to :conflict, not :already_exists" do
+      # ServerTimeout & friends must read as retry-able, never "it's there"
+      assert %Error{reason: :conflict, status_code: 409} =
                Error.from_response({:ok, %{status: 409, body: %{}}})
+
+      assert %Error{reason: :conflict} =
+               Error.from_response({:ok, %{status: 409, body: %{"reason" => "ServerTimeout"}}})
     end
 
     test "maps explicit AlreadyExists 409 with the API message" do

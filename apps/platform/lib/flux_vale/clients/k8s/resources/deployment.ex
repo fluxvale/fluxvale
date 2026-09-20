@@ -75,8 +75,8 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
       {:ok, %{status: 200, body: body}} ->
         {:ok, body}
 
-      {:ok, %{status: 404}} ->
-        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      {:ok, %{status: 404, body: body}} ->
+        {:error, Error.from_response({:ok, %{status: 404, body: body}})}
 
       {:ok, %{status: status, body: body}} ->
         {:error, Error.from_response({:ok, %{status: status, body: body}})}
@@ -107,8 +107,8 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
         Logger.debug("Deployment deletion initiated: #{namespace}/#{name}")
         :ok
 
-      {:ok, %{status: 404}} ->
-        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      {:ok, %{status: 404, body: body}} ->
+        {:error, Error.from_response({:ok, %{status: 404, body: body}})}
 
       {:ok, %{status: status, body: body}} ->
         {:error, Error.from_response({:ok, %{status: status, body: body}})}
@@ -138,6 +138,8 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
   end
 
   defp build_status(deployment) do
+    # spec.replicas is API-defaulted to 1 at admission; nil → 0 reads as
+    # ready (scale-to-zero) — unreachable via GET, defensive only.
     %{
       replicas: get_in(deployment, ["spec", "replicas"]) || 0,
       actual_replicas: get_in(deployment, ["status", "replicas"]) || 0,
@@ -227,7 +229,9 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
 
   Used by local-cluster integration work (#73) to synchronize on real-cluster
   readiness — production reflects readiness asynchronously via the status
-  reconciler, never by blocking the caller.
+  reconciler, never by blocking the caller. A **paused** deployment never
+  becomes ready (`observedGeneration` stalls) — correct "not ready", but
+  expect the timeout.
   """
   @spec wait_for_ready(Kubereq.Kubeconfig.t(), String.t(), String.t(), keyword()) ::
           :ok | {:error, Error.t()}
@@ -239,44 +243,56 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
     do_wait_for_ready(kubeconfig, namespace, name, deadline, interval)
   end
 
+  @doc """
+  Readiness predicate over a `status/3` map — the testable core of
+  `wait_for_ready/4`.
+
+  Gates on the generation handshake, not `readyReplicas` alone: after
+  scale/restart/create apply a new generation, old pods can still satisfy
+  `ready >= desired` until the controller rolls the update. Scale-to-zero
+  (`replicas: 0`) is ready by definition.
+  """
+  @spec ready?(map()) :: boolean()
+  def ready?(%{replicas: 0}), do: true
+
+  def ready?(%{
+        replicas: desired,
+        actual_replicas: actual,
+        updated: updated,
+        ready: ready,
+        generation: generation,
+        observed_generation: observed
+      }) do
+    observed >= generation and updated == desired and actual == desired and ready >= desired
+  end
+
   # Polling an external resource, not a process — Process.sleep is the tool.
-  # Readiness gates on the generation handshake, not readyReplicas alone:
-  # after scale/restart/create apply a new generation, old pods can still
-  # satisfy ready >= desired until the controller rolls the update.
   defp do_wait_for_ready(kubeconfig, namespace, name, deadline, interval) do
     case status(kubeconfig, namespace, name) do
-      {:ok, %{replicas: 0}} ->
-        :ok
-
-      {:ok,
-       %{
-         replicas: desired,
-         actual_replicas: actual,
-         updated: updated,
-         ready: ready,
-         generation: generation,
-         observed_generation: observed
-       }}
-      when observed >= generation and updated == desired and actual == desired and
-             ready >= desired ->
-        :ok
-
-      {:ok, status} ->
-        now = System.monotonic_time(:millisecond)
-
-        if now >= deadline do
-          {:error,
-           Error.timeout(
-             "Timeout waiting for deployment #{namespace}/#{name} to be ready. " <>
-               "Status: #{inspect(status)}"
-           )}
+      {:ok, status_map} ->
+        if ready?(status_map) do
+          :ok
         else
-          Process.sleep(interval)
-          do_wait_for_ready(kubeconfig, namespace, name, deadline, interval)
+          retry_or_timeout(status_map, kubeconfig, namespace, name, deadline, interval)
         end
 
       {:error, error} ->
         {:error, error}
+    end
+  end
+
+  defp retry_or_timeout(status_map, kubeconfig, namespace, name, deadline, interval) do
+    now = System.monotonic_time(:millisecond)
+
+    if now >= deadline do
+      {:error,
+       Error.timeout(
+         "Timeout waiting for deployment #{namespace}/#{name} to be ready. " <>
+           "Status: #{inspect(status_map)}"
+       )}
+    else
+      Process.sleep(interval)
+      do_wait_for_ready(kubeconfig, namespace, name, deadline, interval)
     end
   end
 

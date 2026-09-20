@@ -41,7 +41,10 @@ defmodule FluxVale.Clients.K8s.Error do
 
   # Real k8s shapes: SSA/optimistic-lock conflicts carry reason "Conflict"
   # (FieldManagerConflict details in causes); create-races carry
-  # "AlreadyExists". Reason-less 409s keep v1's :already_exists default.
+  # "AlreadyExists". Unknown/reason-less 409s (ServerTimeout, Expired, bare
+  # bodies) default to :conflict — the retry/reconcile semantics; reading
+  # them as :already_exists would tell upsert-followers "it's there" about
+  # objects that were never created.
   def from_response({:ok, %{status: 409, body: %{"reason" => "Conflict"} = body}}) do
     %__MODULE__{
       status_code: 409,
@@ -63,8 +66,8 @@ defmodule FluxVale.Clients.K8s.Error do
   def from_response({:ok, %{status: 409, body: body}}) do
     %__MODULE__{
       status_code: 409,
-      reason: :already_exists,
-      message: extract_message(body) || "Resource already exists",
+      reason: :conflict,
+      message: extract_message(body) || "Conflict",
       details: body
     }
   end
