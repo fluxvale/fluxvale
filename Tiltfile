@@ -64,7 +64,13 @@ docker_build(
     ],
 )
 
-k8s_yaml(['deploy/local/k8s/00-namespace.yaml', 'deploy/local/k8s/10-platform.yaml'])
+k8s_yaml(
+    [
+        'deploy/local/k8s/00-namespace.yaml',
+        'deploy/local/k8s/01-platform-rbac.yaml',
+        'deploy/local/k8s/10-platform.yaml',
+    ]
+)
 
 # The IngressRoute CRD ships with the Traefik chart — same static-parse
 # problem as the Cluster CR, so it applies at runtime, ordered after traefik.
