@@ -1,6 +1,7 @@
 defmodule FluxVale.Clients.K8s.Resources.CertificateTest do
   use ExUnit.Case, async: true
 
+  alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Certificate
 
   describe "build_manifest/3" do
@@ -22,16 +23,33 @@ defmodule FluxVale.Clients.K8s.Resources.CertificateTest do
              }
     end
 
-    test "honors an explicit issuer_kind" do
+    test "honors an explicit issuer_kind (:issuer → namespaced Issuer)" do
       manifest =
         Certificate.build_manifest("ns", "cert", %{
           domain: "d",
           secret_name: "s",
           issuer: "i",
-          issuer_kind: "Issuer"
+          issuer_kind: :issuer
         })
 
       assert manifest["spec"]["issuerRef"]["kind"] == "Issuer"
+    end
+  end
+
+  describe "create/4 — issuer_kind gate" do
+    test "rejects an unknown kind before any cluster call (the typo case)" do
+      spec = %{domain: "d", secret_name: "s", issuer: "i", issuer_kind: "Clusterissuer"}
+
+      assert {:error, %Error{reason: :invalid_spec, message: msg}} =
+               Certificate.create(nil, "ns", "cert", spec)
+
+      assert msg =~ "Clusterissuer"
+      assert msg =~ ":cluster_issuer or :issuer"
+    end
+
+    test "rejects a wrong atom, not just wrong strings" do
+      spec = %{domain: "d", secret_name: "s", issuer: "i", issuer_kind: :cluster}
+      assert {:error, %Error{reason: :invalid_spec}} = Certificate.create(nil, "ns", "cert", spec)
     end
   end
 

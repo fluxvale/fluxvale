@@ -12,8 +12,8 @@ defmodule FluxVale.Clients.K8s.Resources.Certificate do
       %{
         domain: "myapp.example.com",             # Required: DNS name to certify
         secret_name: "myapp-example-com-tls",    # Required: Secret cert-manager writes to
-        issuer: "letsencrypt-production-http01", # Required: Issuer name
-        issuer_kind: "ClusterIssuer"             # Optional (default "ClusterIssuer")
+        issuer: "letsencrypt-production-http01", # Required: Issuer resource name (free-form)
+        issuer_kind: :cluster_issuer             # Optional (default :cluster_issuer)
       }
   """
 
@@ -21,20 +21,50 @@ defmodule FluxVale.Clients.K8s.Resources.Certificate do
 
   require Logger
 
-  @default_issuer_kind "ClusterIssuer"
+  @typedoc """
+  cert-manager's issuerRef.kind — the only two kinds it recognizes.
+  `:cluster_issuer` is cluster-scoped (referenced from any namespace);
+  `:issuer` is namespace-scoped (must live alongside the Certificate).
+  """
+  @type issuer_kind :: :cluster_issuer | :issuer
+
+  @default_issuer_kind :cluster_issuer
+
+  @issuer_kinds %{
+    cluster_issuer: "ClusterIssuer",
+    issuer: "Issuer"
+  }
 
   @typedoc "Simplified certificate specification"
   @type spec :: %{
           required(:domain) => String.t(),
           required(:secret_name) => String.t(),
           required(:issuer) => String.t(),
-          optional(:issuer_kind) => String.t()
+          optional(:issuer_kind) => issuer_kind()
         }
 
-  @doc "Creates (server-side-applies) a Certificate CRD."
+  @doc """
+  Creates (server-side-applies) a Certificate CRD.
+
+  Rejects an unknown `:issuer_kind` up front (`{:error, :invalid_spec}`) —
+  cert-manager would otherwise leave a mistyped Certificate pending forever.
+  """
   @spec create(Kubereq.Kubeconfig.t(), String.t(), String.t(), spec()) ::
           {:ok, map()} | {:error, Error.t()}
   def create(kubeconfig, namespace, name, spec) do
+    kind = Map.get(spec, :issuer_kind, @default_issuer_kind)
+
+    if Map.has_key?(@issuer_kinds, kind) do
+      do_create(kubeconfig, namespace, name, spec)
+    else
+      {:error,
+       Error.invalid_spec(
+         "Unknown issuer_kind: #{inspect(kind)} — expected :cluster_issuer or :issuer"
+       )}
+    end
+  end
+
+  defp do_create(kubeconfig, namespace, name, spec) do
     req = create_req(kubeconfig)
     manifest = build_manifest(namespace, name, spec)
 
@@ -125,6 +155,8 @@ defmodule FluxVale.Clients.K8s.Resources.Certificate do
   @doc "Builds the Certificate manifest from the simplified spec."
   @spec build_manifest(String.t(), String.t(), spec()) :: map()
   def build_manifest(namespace, name, spec) do
+    kind = Map.get(spec, :issuer_kind, @default_issuer_kind)
+
     %{
       "apiVersion" => "cert-manager.io/v1",
       "kind" => "Certificate",
@@ -140,7 +172,7 @@ defmodule FluxVale.Clients.K8s.Resources.Certificate do
         "secretName" => spec.secret_name,
         "issuerRef" => %{
           "name" => spec.issuer,
-          "kind" => Map.get(spec, :issuer_kind, @default_issuer_kind)
+          "kind" => Map.fetch!(@issuer_kinds, kind)
         },
         "dnsNames" => [spec.domain]
       }
