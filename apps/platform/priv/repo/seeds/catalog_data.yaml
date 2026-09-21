@@ -1,0 +1,42 @@
+# FluxVale app catalog seed data.
+#
+# Adding a catalog app is purely additive: append a new entry under the
+# appropriate category (or add a new category). The seed logic in
+# FluxVale.Seeds.seed_catalog!/0 iterates over this data and performs
+# get-or-create for each record, so re-running seeds is fully idempotent.
+#
+# Type notes:
+#   - default_cpu_cores: quoted string ("0.5") to preserve Decimal precision
+#   - published_at: ISO 8601 string, parsed to DateTime at load time
+#   - default_env_vars / configurable_env_vars: omitted when empty (default %{})
+
+- category:
+    name: Media & Entertainment
+    slug: media
+    description: >-
+      Self-hosted media servers for streaming, reading, and browsing your library.
+  apps:
+    - name: Kavita
+      slug: kavita
+      tagline: Self-hosted digital library for ebooks, manga, and comics
+      description: |
+        Kavita is a fast, cross-platform reading server for your digital library.
+        Built for ebooks, manga, comics, and PDFs with a polished web reader,
+        user management, OIDC SSO, and OPDS support.
+      icon_url: https://raw.githubusercontent.com/Kareadita/Kavita/develop/Logo/kavita.svg
+      source_url: https://github.com/Kareadita/Kavita
+      docs_url: https://wiki.kavitareader.com
+      versions:
+        - version: "0.9.0.2"
+          image: jvmilazz0/kavita:0.9.0.2
+          port: 5000
+          default_cpu_cores: "0.5"
+          default_memory_mb: 512
+          default_storage_gb: 5
+          release_notes: |
+            Initial catalog entry. Current stable release (May 2026).
+
+            Addresses CVE-2026-47202 — all users should run this version or later.
+
+            Upstream changelog: https://github.com/Kareadita/Kavita/releases/tag/v0.9.0.2
+          published_at: "2026-05-14T14:04:05Z"
