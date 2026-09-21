@@ -127,10 +127,11 @@ defmodule FluxVale.Catalog.AppVersion do
 
     update :update do
       primary? true
-      # Seeds converge drifted rows through this action — the seed's
-      # idempotency contract (run twice, zero dupes, data matches YAML).
+      # version is the seed's lookup key (with app_id) — immutable after
+      # create, same as Category/App slug; an edited version would orphan
+      # the row from seed convergence. Seeds converge drifted rows through
+      # this action (run twice, zero dupes, data matches YAML).
       accept([
-        :version,
         :image,
         :port,
         :default_env_vars,

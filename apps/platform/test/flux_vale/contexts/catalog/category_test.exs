@@ -3,6 +3,7 @@ defmodule FluxVale.Catalog.CategoryTest do
 
   use FluxVale.DataCase, async: true
 
+  alias FluxVale.Catalog.App
   alias FluxVale.Catalog.Category
   alias FluxVale.Identity.User
 
@@ -32,9 +33,12 @@ defmodule FluxVale.Catalog.CategoryTest do
       assert category.icon == nil
     end
 
-    test "rejects non-URL-shaped slugs" do
+    test "rejects non-URL-shaped slugs; accepts single-character slugs" do
       assert {:error, %Ash.Error.Invalid{}} =
                Category.create(%{name: "Bad", slug: "Not A Slug"}, authorize?: false)
+
+      assert {:ok, single} = Category.create(%{name: "Single", slug: "a"}, authorize?: false)
+      assert single.slug == "a"
     end
 
     test "enforces unique slug and unique name" do
@@ -91,6 +95,22 @@ defmodule FluxVale.Catalog.CategoryTest do
 
       assert {:error, %Ash.Error.Forbidden{}} =
                Ash.update(category, %{description: "no"}, actor: regular, authorize?: true)
+    end
+  end
+
+  describe "destroy with dependents" do
+    test "fails on the FK — apps reference categories, no cascade" do
+      category = Category.create!(%{name: "Media", slug: "media"}, authorize?: false)
+
+      App.create!(
+        %{name: "Kavita", slug: "kavita", category_id: category.id},
+        # Test precondition: the FK behavior is the subject, not policy.
+        authorize?: false
+      )
+
+      assert {:error, %Ash.Error.Invalid{}} = Ash.destroy(category, authorize?: false)
+
+      assert {:ok, [_still_there]} = Ash.read(App, authorize?: false)
     end
   end
 end

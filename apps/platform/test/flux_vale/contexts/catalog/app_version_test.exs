@@ -47,6 +47,23 @@ defmodule FluxVale.Catalog.AppVersionTest do
       assert version.published_at == nil
     end
 
+    test "applies resource defaults when the blueprint omits them" do
+      minimal = %{
+        version: "2.0.0",
+        image: "test/image:2.0",
+        port: 8080,
+        app_id: app().id
+      }
+
+      assert {:ok, version} = AppVersion.create(minimal, authorize?: false)
+
+      assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.5"))
+      assert version.default_memory_mb == 256
+      assert version.default_storage_gb == 0
+      assert version.default_env_vars == %{}
+      assert version.configurable_env_vars == %{}
+    end
+
     test "bounds port to 1..65535" do
       app = app()
       low = version_attrs(app, %{port: 0})
@@ -67,6 +84,14 @@ defmodule FluxVale.Catalog.AppVersionTest do
 
       assert {:ok, _other_app} =
                AppVersion.create(same_version_elsewhere, authorize?: false)
+    end
+
+    test "freezes version after create — the seed's lookup key, like slug" do
+      attrs = version_attrs(app())
+      version = AppVersion.create!(attrs, authorize?: false)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Ash.update(version, %{version: "9.9.9"}, authorize?: false)
     end
   end
 

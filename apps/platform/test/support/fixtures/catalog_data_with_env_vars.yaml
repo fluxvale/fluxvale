@@ -1,7 +1,7 @@
 # Test fixture for FluxVale.Seeds.CatalogData — exercises a configurable_env_vars
 # schema covering all three supported types (string / integer / boolean) plus a
-# secret field. Used by catalog_data_test.exs to verify YAML -> atom-keyed
-# normalization. Not loaded by the real seed flow.
+# secret field. Used by catalog_data_test.exs; the loader passes the schema
+# through raw (string keys) — validation is the EnvVarSchema type's job.
 - category:
     name: Test
     slug: test

@@ -34,14 +34,17 @@ defmodule FluxVale.Catalog.Types.EnvVarSpecTest do
       assert spec.type == :integer
     end
 
-    test "passes structs through unchanged" do
-      assert {:ok, %EnvVarSpec{}} =
-               EnvVarSpec.new(%EnvVarSpec{
-                 label: "L",
-                 type: :boolean,
-                 required: false,
-                 secret: false
-               })
+    test "passes valid structs through re-validation unchanged" do
+      spec = %EnvVarSpec{label: "L", type: :boolean, required: false, secret: false}
+
+      assert {:ok, ^spec} = EnvVarSpec.new(spec)
+    end
+
+    test "rejects hand-built structs with invalid field values (no bypass)" do
+      bad = %EnvVarSpec{label: "L", type: :string, required: "yes"}
+
+      assert {:error, message} = EnvVarSpec.new(bad)
+      assert message =~ "required must be a boolean"
     end
 
     test "rejects unknown fields — a typo'd label fails loudly" do
@@ -93,6 +96,11 @@ defmodule FluxVale.Catalog.Types.EnvVarSpecTest do
 
       assert {:error, message} = EnvVarSpec.new(wrong_type)
       assert message =~ "expected a map"
+    end
+
+    test "returns an error for non-string spec keys — never raises (cast path)" do
+      assert {:error, message} = EnvVarSpec.new(%{1 => "x"})
+      assert message =~ "spec keys must be strings or atoms"
     end
   end
 

@@ -23,10 +23,11 @@ defmodule FluxVale.Seeds do
   @doc """
   Seeds catalog Categories, Apps, and AppVersions from `CatalogData`.
 
-  Idempotent — existing records are looked up by slug (Category, App) or
-  app_id + version (AppVersion) and reused. AppVersions are updated with
-  the seed attrs when they already exist, so the seed converges to match
-  catalog_data.yaml.
+  Idempotent — records are looked up by slug (Category, App) or app_id +
+  version (AppVersion); existing rows are updated to the seed attrs, so
+  re-running converges the whole catalog to catalog_data.yaml. Slug and
+  version are the lookup keys and immutable on update — renaming in the
+  YAML orphans the old row rather than converging it.
   """
   @spec seed_catalog! :: :ok
   def seed_catalog! do
@@ -53,15 +54,22 @@ defmodule FluxVale.Seeds do
 
   defp seed_category!(attrs) do
     case Category.get_by_slug(attrs.slug, authorize?: false) do
-      {:ok, category} -> category
-      {:error, _not_found} -> Category.create!(attrs, authorize?: false)
+      {:ok, category} ->
+        # slug is the lookup key — immutable on update (see the resource).
+        Category.update!(category, Map.drop(attrs, [:slug]), authorize?: false)
+
+      {:error, _not_found} ->
+        Category.create!(attrs, authorize?: false)
     end
   end
 
   defp seed_app!(attrs) do
     case App.get_by_slug(attrs.slug, authorize?: false) do
-      {:ok, app} -> app
-      {:error, _not_found} -> App.create!(attrs, authorize?: false)
+      {:ok, app} ->
+        App.update!(app, Map.drop(attrs, [:slug]), authorize?: false)
+
+      {:error, _not_found} ->
+        App.create!(attrs, authorize?: false)
     end
   end
 
@@ -76,7 +84,9 @@ defmodule FluxVale.Seeds do
 
     case existing do
       [version] ->
-        AppVersion.update!(version, Map.delete(attrs, :app_id), authorize?: false)
+        # version is the lookup key (with app_id) — immutable on update
+        # (see the resource), so it's dropped from the update attrs.
+        AppVersion.update!(version, Map.drop(attrs, [:app_id, :version]), authorize?: false)
 
       [] ->
         AppVersion.create!(attrs, authorize?: false)

@@ -41,12 +41,16 @@ defmodule FluxVale.Catalog.Types.EnvVarSpec do
   field names and types map only through the fixed known sets.
   """
   @spec new(t() | map()) :: {:ok, t()} | {:error, String.t()}
-  def new(%__MODULE__{} = spec), do: {:ok, spec}
+  # Structs re-validate through the map path: Elixir doesn't enforce field
+  # types, so a hand-built %EnvVarSpec{type: "string", required: "yes"} must
+  # fail like the equivalent map would (CodeRabbit, #79).
+  def new(%__MODULE__{} = spec), do: new(Map.from_struct(spec))
 
   def new(input) when is_map(input) do
-    input = normalize_keys(input)
-
-    with :ok <- reject_unknown_fields(input),
+    # Returns errors, never raises — this runs inside an Ash cast path,
+    # whose contract is {:ok, _} | {:error, _}.
+    with {:ok, input} <- normalize_keys(input),
+         :ok <- reject_unknown_fields(input),
          {:ok, label} <- cast_label(input),
          {:ok, description} <- cast_description(input),
          {:ok, type} <- cast_type(input),
@@ -87,15 +91,20 @@ defmodule FluxVale.Catalog.Types.EnvVarSpec do
   @field_atoms Map.new(@known_fields, &{Atom.to_string(&1), &1})
 
   defp normalize_keys(input) do
-    Map.new(input, fn
-      {key, value} when is_atom(key) ->
-        {key, value}
+    # Unknown string names pass through as strings so reject_unknown_fields/1
+    # reports them (no String.to_atom/1 on arbitrary input); non-string,
+    # non-atom keys are an error, not a crash — this runs inside a cast.
+    initial = {:ok, %{}}
 
-      {key, value} when is_binary(key) ->
-        {Map.get(@field_atoms, key, key), value}
+    Enum.reduce_while(input, initial, fn
+      {key, value}, {:ok, acc} when is_atom(key) ->
+        {:cont, {:ok, Map.put(acc, key, value)}}
 
-      {key, _value} ->
-        raise ArgumentError, "env var spec key must be a string or atom, got: #{inspect(key)}"
+      {key, value}, {:ok, acc} when is_binary(key) ->
+        {:cont, {:ok, Map.put(acc, Map.get(@field_atoms, key, key), value)}}
+
+      {key, _value}, _acc ->
+        {:halt, {:error, "spec keys must be strings or atoms, got: #{inspect(key)}"}}
     end)
   end
 

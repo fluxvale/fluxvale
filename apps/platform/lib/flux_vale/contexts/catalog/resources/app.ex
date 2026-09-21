@@ -48,7 +48,7 @@ defmodule FluxVale.Catalog.App do
       public?(true)
       # URL-shaped only — slug is the seed's idempotency key, so values a
       # get-or-create lookup could never match again are rejected at write.
-      constraints(match: ~r/^[a-z0-9][a-z0-9-]*[a-z0-9]$/)
+      constraints(match: ~r/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/)
     end
 
     attribute :tagline, :string do
@@ -120,6 +120,7 @@ defmodule FluxVale.Catalog.App do
     domain FluxVale.Catalog
 
     define(:create)
+    define(:update)
     define(:get_by_slug, args: [:slug])
   end
 

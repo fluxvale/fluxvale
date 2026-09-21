@@ -92,7 +92,7 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert kavita_version!().published_at == original
     end
 
-    test "converges drifted data back to the YAML (update branch)" do
+    test "converges drifted AppVersion data back to the YAML (update branch)" do
       assert :ok == Seeds.seed_catalog!()
 
       # Simulate stale data — re-seeding must overwrite it.
@@ -102,6 +102,21 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert :ok == Seeds.seed_catalog!()
 
       assert kavita_version!().image == "jvmilazz0/kavita:0.9.0.2"
+    end
+
+    test "converges drifted category and app data too (symmetric convergence)" do
+      assert :ok == Seeds.seed_catalog!()
+
+      category = Category.get_by_slug!("media", authorize?: false)
+      Ash.update!(category, %{description: "stale"}, authorize?: false)
+
+      app = App.get_by_slug!("kavita", authorize?: false)
+      Ash.update!(app, %{tagline: "stale"}, authorize?: false)
+
+      assert :ok == Seeds.seed_catalog!()
+
+      assert Category.get_by_slug!("media", authorize?: false).description =~ "media servers"
+      assert App.get_by_slug!("kavita", authorize?: false).tagline =~ "digital library"
     end
   end
 

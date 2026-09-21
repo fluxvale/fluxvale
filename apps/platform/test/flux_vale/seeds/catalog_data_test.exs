@@ -56,6 +56,53 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert version.configurable_env_vars["SMTP_PORT"]["type"] == "integer"
     end
 
+    test "fills loader defaults when the YAML omits optional fields" do
+      minimal_yaml = """
+      - category:
+          name: T
+          slug: t
+          description: d
+        apps:
+          - name: A
+            slug: a
+            tagline: t
+            description: d
+            icon_url: https://example.com/i.svg
+            source_url: https://example.com
+            docs_url: https://example.com
+            versions:
+              - version: "1.0.0"
+                image: test/image:1.0
+                port: 8080
+      """
+
+      path = tmp_path(minimal_yaml)
+      version = first_version(CatalogData.entries(path))
+
+      assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.5"))
+      assert version.default_memory_mb == 256
+      assert version.default_storage_gb == 0
+      assert version.published_at == nil
+    end
+
+    test "raises naming the app when versions is missing or empty" do
+      no_versions_yaml = """
+      - category:
+          name: T
+          slug: t
+          description: d
+        apps:
+          - name: A
+            slug: a
+            versions: []
+      """
+
+      assert_raise RuntimeError, ~r/app "a" must have a non-empty versions list/, fn ->
+        path = tmp_path(no_versions_yaml)
+        CatalogData.entries(path)
+      end
+    end
+
     test "raises on malformed published_at" do
       assert_raise MatchError, fn ->
         bad_yaml = """

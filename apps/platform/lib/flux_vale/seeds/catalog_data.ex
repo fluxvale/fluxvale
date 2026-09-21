@@ -3,14 +3,19 @@ defmodule FluxVale.Seeds.CatalogData do
   Declarative catalog seed data, loaded from `priv/repo/seeds/catalog_data.yaml`.
 
   Adding a catalog app is purely additive: append a YAML entry. The seed
-  runner (`FluxVale.Seeds.seed_catalog!/0`) get-or-creates each record, so
-  re-running converges to the YAML with zero dupes.
+  runner (`FluxVale.Seeds.seed_catalog!/0`) looks each record up by its
+  key (slug, or app_id + version) and updates it to match the YAML, so
+  re-running converges with zero dupes.
 
   Type normalization (YAML is lossy vs Elixir literals):
 
     * `default_cpu_cores` — quoted string (`"0.5"`) to avoid float
       precision loss; converted to `Decimal` here.
     * `published_at` — ISO 8601 string; parsed to `DateTime`.
+
+  Optional fields mirror the resource defaults: `default_cpu_cores` "0.5",
+  `default_memory_mb` 256, `default_storage_gb` 0, `published_at` nil, env
+  maps `%{}`.
 
   Env-var specs (`configurable_env_vars`) are **not** validated here — the
   resource's `EnvVarSchema` type rejects malformed specs at write time, one
@@ -40,11 +45,16 @@ defmodule FluxVale.Seeds.CatalogData do
     |> Path.join("repo/seeds/catalog_data.yaml")
   end
 
-  defp normalize_entry(%{"category" => category, "apps" => apps}) do
+  defp normalize_entry(%{"category" => category, "apps" => apps})
+       when is_list(apps) do
     %{
       category: normalize_category(category),
       apps: Enum.map(apps, &normalize_app/1)
     }
+  end
+
+  defp normalize_entry(%{"category" => category}) do
+    raise "catalog seed: category #{inspect(category["slug"])} must have an apps list"
   end
 
   defp normalize_category(%{"name" => name, "slug" => slug, "description" => description}) do
@@ -52,16 +62,22 @@ defmodule FluxVale.Seeds.CatalogData do
   end
 
   defp normalize_app(app) do
-    %{
-      name: app["name"],
-      slug: app["slug"],
-      tagline: app["tagline"],
-      description: app["description"],
-      icon_url: app["icon_url"],
-      source_url: app["source_url"],
-      docs_url: app["docs_url"],
-      versions: Enum.map(app["versions"], &normalize_version/1)
-    }
+    case Map.get(app, "versions") do
+      versions when is_list(versions) and versions != [] ->
+        %{
+          name: app["name"],
+          slug: app["slug"],
+          tagline: app["tagline"],
+          description: app["description"],
+          icon_url: app["icon_url"],
+          source_url: app["source_url"],
+          docs_url: app["docs_url"],
+          versions: Enum.map(versions, &normalize_version/1)
+        }
+
+      other ->
+        raise "catalog seed: app #{inspect(app["slug"])} must have a non-empty versions list, got: #{inspect(other)}"
+    end
   end
 
   defp normalize_version(version) do
@@ -71,12 +87,25 @@ defmodule FluxVale.Seeds.CatalogData do
       port: version["port"],
       default_env_vars: Map.get(version, "default_env_vars", %{}),
       configurable_env_vars: Map.get(version, "configurable_env_vars", %{}),
-      default_cpu_cores: Decimal.new(version["default_cpu_cores"]),
-      default_memory_mb: version["default_memory_mb"],
-      default_storage_gb: version["default_storage_gb"],
+      default_cpu_cores: cpu_cores(version),
+      default_memory_mb: Map.get(version, "default_memory_mb", 256),
+      default_storage_gb: Map.get(version, "default_storage_gb", 0),
       release_notes: version["release_notes"],
-      published_at: parse_datetime!(version["published_at"])
+      published_at: published_at(version)
     }
+  end
+
+  defp cpu_cores(version) do
+    # Quoted string in YAML ("0.5") to avoid float precision loss.
+    default_cores = Map.get(version, "default_cpu_cores", "0.5")
+    Decimal.new(default_cores)
+  end
+
+  defp published_at(version) do
+    case Map.get(version, "published_at") do
+      nil -> nil
+      iso8601_string -> parse_datetime!(iso8601_string)
+    end
   end
 
   defp parse_datetime!(iso8601_string) do
