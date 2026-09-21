@@ -1,0 +1,72 @@
+# Platform RBAC — operator pattern, split in two (settled on #69):
+#
+# 1. fluxvale-platform (bootstrap, bound cluster-wide): Namespace lifecycle,
+#    Node reads, and RoleBinding creation — the SA's machinery for creating
+#    and tearing down instance namespaces.
+# 2. fluxvale-platform-workload (NOT bound here): namespaced resource verbs.
+#    #73's deploy trigger binds it per fluxvale-app-* namespace via
+#    RoleBindings — workload permissions exist ONLY inside instance
+#    namespaces, never cluster-wide (a monolithic ClusterRoleBinding would
+#    grant Secrets/Deployments access in kube-system etc.).
+#
+# Verb scope is empirically verified on-cluster (#69 demo): server-side
+# apply of a NEW object needs `create` (patch-only is rejected with "cannot
+# create resource"); apply-on-existing rides `patch`. `watch` absent until
+# something watches; `update` absent (nothing PUTs); `list` only where a
+# module lists. pods/resourcequotas/networkpolicies join when code reads or
+# creates them (#73) — nothing over-granted ahead of the code.
+#
+# Drift note (ADR-0020 Am. 2): the M4 fleet repo carries the prod copy;
+# shape changes here must propagate there.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fluxvale-platform
+rules:
+  # Cluster-scoped: Namespace (lifecycle) + Node (capacity reads)
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["create", "get", "list", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+  # The operator pattern's own machinery (#73): per-namespace RoleBindings
+  # referencing the workload role below — SSA-applied like everything else
+  # (patch covers apply-on-existing re-runs)
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings"]
+    verbs: ["create", "get", "list", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fluxvale-platform-workload
+rules:
+  # Instance-namespace operands — the client's full surface, bound ONLY by
+  # #73's per-namespace RoleBindings
+  - apiGroups: [""]
+    resources: ["services", "persistentvolumeclaims", "secrets"]
+    verbs: ["create", "get", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["create", "get", "patch", "delete"]
+  # Edge + TLS
+  - apiGroups: ["traefik.io"]
+    resources: ["ingressroutes"]
+    verbs: ["create", "get", "patch", "delete"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates"]
+    verbs: ["create", "get", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fluxvale-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fluxvale-platform
+subjects:
+  - kind: ServiceAccount
+    name: fluxvale-platform
+    namespace: fluxvale-dev
