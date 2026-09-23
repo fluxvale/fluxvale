@@ -64,7 +64,7 @@ defmodule FluxVale.Catalog.AppVersion do
       allow_nil?(false)
       default("/")
       public?(true)
-      constraints(match: ~r{^/})
+      constraints(match: ~r{^/[\w/.-]*$})
     end
 
     # Always-shipped env (operator-owned; deployer stringifies values).

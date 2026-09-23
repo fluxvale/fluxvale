@@ -60,6 +60,7 @@ defmodule FluxVale.Catalog.AppVersionTest do
       assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.5"))
       assert version.default_memory_mb == 256
       assert version.default_storage_gb == 0
+      assert version.healthcheck_path == "/"
       assert version.default_env_vars == %{}
       assert version.configurable_env_vars == %{}
     end
@@ -72,6 +73,15 @@ defmodule FluxVale.Catalog.AppVersionTest do
       assert {:error, %Ash.Error.Invalid{}} = AppVersion.create(low, authorize?: false)
 
       assert {:error, %Ash.Error.Invalid{}} = AppVersion.create(high, authorize?: false)
+    end
+
+    test "bounds healthcheck_path to a root-anchored URL path" do
+      relative = version_attrs(app(), %{healthcheck_path: "api/healthz"})
+      spaces = version_attrs(app(), %{healthcheck_path: "/a b"})
+
+      assert {:error, %Ash.Error.Invalid{}} = AppVersion.create(relative, authorize?: false)
+
+      assert {:error, %Ash.Error.Invalid{}} = AppVersion.create(spaces, authorize?: false)
     end
 
     test "enforces unique version per app" do
