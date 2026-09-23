@@ -101,6 +101,9 @@ defmodule FluxVale.MixProject do
       # tokenFile *path*, not the token — kubereq re-reads it, so projected
       # token rotation is handled; no client-side cache needed.
       {:kubereq, "0.4.5"},
+      # YAML for catalog seed data (#70). Already in the lock as a kubereq
+      # transitive — this makes the direct use explicit at the same pin.
+      {:yaml_elixir, "2.12.2"},
       {:telemetry_metrics, "1.2.0"},
       {:telemetry_poller, "1.3.0"},
       {:gettext, "1.0.2"},

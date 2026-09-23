@@ -1,0 +1,55 @@
+# Test fixture for FluxVale.Seeds.CatalogData — exercises a configurable_env_vars
+# schema covering all three supported types (string / integer / boolean) plus a
+# secret field. Used by catalog_data_test.exs; the loader passes the schema
+# through raw (string keys) — validation is the EnvVarSchema type's job.
+- category:
+    name: Test
+    slug: test
+    description: Test category
+  apps:
+    - name: TestApp
+      slug: testapp
+      tagline: Test app
+      description: A test app.
+      icon_url: https://example.com/icon.svg
+      source_url: https://example.com
+      docs_url: https://example.com
+      versions:
+        - version: "1.0.0"
+          image: test/image:1.0
+          port: 8080
+          default_cpu_cores: "0.5"
+          default_memory_mb: 256
+          default_storage_gb: 1
+          release_notes: |
+            Test release.
+          published_at: "2026-06-01T00:00:00Z"
+          configurable_env_vars:
+            SMTP_HOST:
+              label: SMTP Host
+              description: SMTP server hostname
+              type: string
+              required: false
+              default: ""
+              secret: false
+            SMTP_PORT:
+              label: SMTP Port
+              description: SMTP server port
+              type: integer
+              required: false
+              default: 587
+              secret: false
+            ENABLE_TLS:
+              label: Enable TLS
+              description: Use TLS for SMTP
+              type: boolean
+              required: false
+              default: true
+              secret: false
+            SMTP_PASSWORD:
+              label: SMTP Password
+              description: SMTP password
+              type: string
+              required: false
+              default: ""
+              secret: true

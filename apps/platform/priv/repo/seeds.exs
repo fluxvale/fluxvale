@@ -4,7 +4,7 @@
 # the AshAdmin CRUD at bring-up (settled on #26; ADR-0023 Am. 6's
 # empty-then-close).
 #
-# The create runs with authorize?: false: bootstrap — there is no actor to
+# The creates run with authorize?: false: bootstrap — there is no actor to
 # authorize before the first admin exists (same posture as the User#create
 # policy comment).
 
@@ -17,3 +17,6 @@ case FluxVale.Identity.User.get_by_email(admin_email, authorize?: false) do
   {:error, _not_found} ->
     FluxVale.Identity.User.create!(admin_email, %{platform_role: :admin}, authorize?: false)
 end
+
+# Catalog seed (#70): idempotent — safe on every mix setup.
+FluxVale.Seeds.seed_catalog!()
