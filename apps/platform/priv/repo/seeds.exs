@@ -20,3 +20,7 @@ end
 
 # Catalog seed (#70): idempotent — safe on every mix setup.
 FluxVale.Seeds.seed_catalog!()
+
+# Local cluster row (#72): nil kubeconfig_ref = in-cluster sentinel
+# (ADR-0006 Am. 2). Idempotent — safe on every mix setup.
+FluxVale.Seeds.seed_local_cluster!()

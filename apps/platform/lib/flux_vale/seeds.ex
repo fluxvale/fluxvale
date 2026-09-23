@@ -16,6 +16,7 @@ defmodule FluxVale.Seeds do
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Catalog.Category
+  alias FluxVale.Infrastructure.Cluster
   alias FluxVale.Seeds.CatalogData
 
   require Ash.Query
@@ -43,6 +44,23 @@ defmodule FluxVale.Seeds do
     end
 
     :ok
+  end
+
+  @doc """
+  Seeds the local cluster row (#72): nil `kubeconfig_ref` is the
+  in-cluster sentinel (ADR-0006 Am. 2) — the app authenticates where it
+  runs, so the local row carries no credentials.
+
+  Get-or-create only, never converges: unlike the catalog the seed has no
+  content to converge — existence is the whole job, and an admin setting
+  a ref on the local row is deliberate drift the seed must not revert.
+  """
+  @spec seed_local_cluster! :: Cluster.t()
+  def seed_local_cluster! do
+    case Cluster.get_by_name("local", authorize?: false) do
+      {:ok, cluster} -> cluster
+      {:error, _not_found} -> Cluster.create!(%{name: "local"}, authorize?: false)
+    end
   end
 
   defp seed_apps!(apps, category) do
