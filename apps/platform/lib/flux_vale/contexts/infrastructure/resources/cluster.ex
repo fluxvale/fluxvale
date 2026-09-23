@@ -52,7 +52,7 @@ defmodule FluxVale.Infrastructure.Cluster do
     attribute :name, :string do
       allow_nil?(false)
       public?(true)
-      # URL-shaped only — name is the seed's idempotency key and the
+      # Slug-shaped only — name is the seed's idempotency key and the
       # region-routing lookup key (v1's ResolveClusterFromRegion,
       # ADR-0006), so values a get-or-create lookup could never match
       # again are rejected at write.

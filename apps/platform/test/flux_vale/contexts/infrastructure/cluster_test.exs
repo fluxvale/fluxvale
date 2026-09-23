@@ -6,6 +6,8 @@ defmodule FluxVale.Infrastructure.ClusterTest do
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Cluster
 
+  # Preconditions run authorize?: false (repo convention — mirrors the seeds
+  # bootstrap); the policy itself is what's under test below.
   defp admin do
     case User.get_by_email("admin@fluxvale.com", authorize?: false) do
       {:ok, existing} ->
@@ -37,9 +39,17 @@ defmodule FluxVale.Infrastructure.ClusterTest do
       assert cluster.kubeconfig_ref == "bws://clusters/eu"
     end
 
-    test "rejects non-URL-shaped names; accepts single-character names" do
+    test "rejects non-slug-shaped names; accepts single-character names" do
       assert {:error, %Ash.Error.Invalid{}} =
                Cluster.create(%{name: "Not A Cluster"}, authorize?: false)
+
+      # Leading/trailing hyphens are exactly the "lookup could never match
+      # again" class the constraint exists to reject.
+      assert {:error, %Ash.Error.Invalid{}} =
+               Cluster.create(%{name: "-local"}, authorize?: false)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Cluster.create(%{name: "local-"}, authorize?: false)
 
       assert {:ok, single} = Cluster.create(%{name: "a"}, authorize?: false)
       assert single.name == "a"
@@ -83,13 +93,25 @@ defmodule FluxVale.Infrastructure.ClusterTest do
       %{admin: admin(), regular: regular_user()}
     end
 
-    test "non-admins and anonymous are denied reads too", %{regular: regular} do
-      Cluster.create!(%{name: "local"}, authorize?: false)
+    test "non-admins and anonymous are denied every verb — reads included", %{regular: regular} do
+      cluster = Cluster.create!(%{name: "local"}, authorize?: false)
 
       assert {:error, %Ash.Error.Forbidden{}} =
                Ash.read(Cluster, actor: regular, authorize?: true)
 
       assert {:error, %Ash.Error.Forbidden{}} = Ash.read(Cluster, authorize?: true)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Cluster.create(%{name: "other"}, actor: regular, authorize?: true)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Cluster.update(cluster, %{kubeconfig_ref: "bws://clusters/eu"},
+                 actor: regular,
+                 authorize?: true
+               )
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Ash.destroy(cluster, actor: regular, authorize?: true)
     end
 
     test "admins run the full AshAdmin CRUD path", %{admin: admin} do
