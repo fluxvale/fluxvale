@@ -4,10 +4,10 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
   sandboxed DB — the real helpers, not a fixture copy, so drift between
   loader and resources fails here.
 
-  The shipped catalog_data.yaml is intentionally empty (until #71 lands
-  Forgejo), so these drive the runner with fixture entries parsed by the
-  same loader: `seed_catalog!/0` (the seeds.exs call) is exercised as the
-  trivial no-op it currently is.
+  `seed_catalog!/0` (the seeds.exs call) is covered against the shipped
+  Forgejo entry (#71); the fixture-driven describes below cover the
+  machinery's general shape (update-convergence branches, drift repair)
+  beyond what one shipped entry exercises.
 
   Idempotency assertions query by slug/version, not row counts, so they
   stay valid as the catalog grows.
@@ -30,9 +30,54 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
   end
 
   describe "seed_catalog!/0 (shipped data)" do
-    test "empty shipped catalog seeds cleanly" do
+    test "seeds the shipped Forgejo entry cleanly (#71)" do
       assert :ok == Seeds.seed_catalog!()
-      assert {:ok, []} = Ash.read(Category, authorize?: false)
+
+      category = Category.get_by_slug!("developer-tools", authorize?: false)
+      assert category.name == "Developer Tools"
+
+      app = App.get_by_slug!("forgejo", authorize?: false)
+      assert app.category_id == category.id
+      assert app.tagline == "Self-hosted Git forge with issues, pull requests, and Actions CI"
+
+      version = version_for!("forgejo")
+
+      assert version.version == "16.0.5"
+      assert version.image == "codeberg.org/forgejo/forgejo:16.0.5"
+      assert version.port == 3000
+      assert version.healthcheck_path == "/api/healthz"
+      assert version.default_storage_gb == 10
+      assert version.default_env_vars["FORGEJO__server__DISABLE_SSH"] == "true"
+    end
+
+    test "shipped env-var schema passes the typed cast (issue exit criterion)" do
+      assert :ok == Seeds.seed_catalog!()
+
+      version = version_for!("forgejo")
+
+      assert %EnvVarSpec{} =
+               version.configurable_env_vars["FORGEJO__service__DISABLE_REGISTRATION"]
+
+      passwd = version.configurable_env_vars["FORGEJO__mailer__PASSWD"]
+      assert passwd.type == :string
+      assert passwd.secret == true
+
+      smtp_port = version.configurable_env_vars["FORGEJO__mailer__SMTP_PORT"]
+      assert smtp_port.type == :integer
+      assert smtp_port.default == 587
+    end
+
+    test "re-seeding the shipped catalog converges without dupes" do
+      assert :ok == Seeds.seed_catalog!()
+      assert :ok == Seeds.seed_catalog!()
+
+      app =
+        "forgejo"
+        |> App.get_by_slug!(authorize?: false)
+        |> Ash.load!([:app_versions], authorize?: false)
+
+      assert length(app.app_versions) == 1
+      assert hd(app.app_versions).version == "16.0.5"
     end
   end
 
@@ -60,7 +105,7 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
     test "creates the AppVersion with deploy defaults" do
       assert :ok == seed_fixture!()
 
-      version = fixture_version!()
+      version = version_for!("testapp")
 
       assert version.version == "1.0.0"
       assert version.image == "test/image:1.0"
@@ -75,7 +120,7 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
     test "seeds the env-var schema through the typed cast (structs in memory)" do
       assert :ok == seed_fixture!()
 
-      version = fixture_version!()
+      version = version_for!("testapp")
 
       assert %EnvVarSpec{} = version.configurable_env_vars["SMTP_HOST"]
 
@@ -103,23 +148,23 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
 
     test "preserves the original published_at across re-runs" do
       assert :ok == seed_fixture!()
-      original = fixture_version!().published_at
+      original = version_for!("testapp").published_at
 
       assert :ok == seed_fixture!()
 
-      assert fixture_version!().published_at == original
+      assert version_for!("testapp").published_at == original
     end
 
     test "converges drifted AppVersion data back to the YAML (update branch)" do
       assert :ok == seed_fixture!()
 
       # Simulate stale data — re-seeding must overwrite it.
-      version = fixture_version!()
+      version = version_for!("testapp")
       AppVersion.update!(version, %{image: "stale/image:old"}, authorize?: false)
 
       assert :ok == seed_fixture!()
 
-      assert fixture_version!().image == "test/image:1.0"
+      assert version_for!("testapp").image == "test/image:1.0"
     end
 
     test "converges drifted category and app data too (symmetric convergence)" do
@@ -138,9 +183,10 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
     end
   end
 
-  # Fetches the single fixture AppVersion; raises if there isn't exactly one.
-  defp fixture_version! do
-    "testapp"
+  # Fetches the single AppVersion for an app slug; raises if there isn't
+  # exactly one.
+  defp version_for!(slug) do
+    slug
     |> App.get_by_slug!(authorize?: false)
     |> Ash.load!([:app_versions], authorize?: false)
     |> Map.fetch!(:app_versions)

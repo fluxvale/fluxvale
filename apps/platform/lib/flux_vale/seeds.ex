@@ -23,8 +23,8 @@ defmodule FluxVale.Seeds do
   @doc """
   Seeds catalog Categories, Apps, and AppVersions from the shipped YAML
   (`CatalogData.entries/0`). The 1-arity takes parsed entries directly —
-  the test suite drives it with fixture YAML so the machinery stays
-  covered while the shipped catalog is empty (until #71 lands Forgejo).
+  the test suite also drives it with fixture YAML to cover machinery
+  beyond the shipped Forgejo entry (#71).
 
   Idempotent — records are looked up by slug (Category, App) or app_id +
   version (AppVersion); existing rows are updated to the seed attrs, so

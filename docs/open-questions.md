@@ -18,8 +18,8 @@ the decision.
    beta) needs a v2 restatement. Which items make the v2 gate?
 3. **Catalog lineup** — Forgejo #1 ([ADR-0031](adr/0031-build-order.md)
    M3 seed: the org's own git forge; SSH disabled initially,
-   HTTPS-only git — the v1 port-22 lesson; SQLite-on-PVC) — the first
-   seeded entry (#70's YAML ships empty until #71). Kavita **deferred
+   HTTPS-only git — the v1 port-22 lesson; SQLite-on-PVC) — seeded
+   (#71, v16.0.5). Kavita **deferred
    with SFTP** (OQ #6): a library app is useless without file ingest
    (dropped from #70's seed pre-merge, 2026-09-21). Remaining dogfood
    apps TBD (v1 queued: ActualBudget, PocketID, SilverBullet, +1).

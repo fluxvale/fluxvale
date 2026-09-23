@@ -2,9 +2,9 @@ defmodule FluxVale.Seeds.CatalogData do
   @moduledoc """
   Declarative catalog seed data, loaded from `priv/repo/seeds/catalog_data.yaml`.
 
-  The shipped file is intentionally empty until #71 lands Forgejo — Kavita
-  (v1's seed) was dropped: a library app needs file access, and SFTP is
-  deferred post-beta (OQ #6).
+  The shipped file carries Forgejo (#71, ADR-0031 M3) — the org's own git
+  forge, dogfooded from day one. Kavita (v1's seed) was dropped: a library
+  app needs file access, and SFTP is deferred post-beta (OQ #6).
 
   Adding a catalog app is purely additive: append a YAML entry. The seed
   runner (`FluxVale.Seeds.seed_catalog!/0`) looks each record up by its
@@ -17,9 +17,9 @@ defmodule FluxVale.Seeds.CatalogData do
       precision loss; converted to `Decimal` here.
     * `published_at` — ISO 8601 string; parsed to `DateTime`.
 
-  Optional fields mirror the resource defaults: `default_cpu_cores` "0.5",
-  `default_memory_mb` 256, `default_storage_gb` 0, `published_at` nil, env
-  maps `%{}`.
+  Optional fields mirror the resource defaults: `healthcheck_path` "/",
+  `default_cpu_cores` "0.5", `default_memory_mb` 256, `default_storage_gb` 0,
+  `published_at` nil, env maps `%{}`.
 
   Env-var specs (`configurable_env_vars`) are **not** validated here — the
   resource's `EnvVarSchema` type rejects malformed specs at write time, one
@@ -44,8 +44,8 @@ defmodule FluxVale.Seeds.CatalogData do
       entries when is_list(entries) ->
         Enum.map(entries, &normalize_entry/1)
 
-      # Empty/comments-only file parses to nil or %{} — an intentionally
-      # empty catalog (no entries yet; Forgejo lands with #71).
+      # Empty/comments-only file parses to nil or %{} — a deliberately
+      # empty catalog is valid (the machinery tolerates it).
       _empty ->
         []
     end
@@ -97,6 +97,7 @@ defmodule FluxVale.Seeds.CatalogData do
       version: version["version"],
       image: version["image"],
       port: version["port"],
+      healthcheck_path: Map.get(version, "healthcheck_path", "/"),
       default_env_vars: Map.get(version, "default_env_vars", %{}),
       configurable_env_vars: Map.get(version, "configurable_env_vars", %{}),
       default_cpu_cores: cpu_cores(version),
