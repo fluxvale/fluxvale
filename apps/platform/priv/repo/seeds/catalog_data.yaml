@@ -1,0 +1,50 @@
+# FluxVale app catalog seed data — intentionally EMPTY right now.
+#
+# #70 shipped the domain + seeding machinery with no entries: Kavita (v1's
+# seed) was dropped pre-merge — a library app is useless without file
+# access, and SFTP is deferred post-beta (OQ #6). The first entry is
+# Forgejo (#71): SQLite-on-PVC, HTTPS-only git, no SFTP dependency
+# (ADR-0031 M3).
+#
+# Adding a catalog app is purely additive: append an entry (or a category)
+# and re-run seeds — FluxVale.Seeds.seed_catalog!/0 converges existing
+# rows to match the YAML, idempotently. Everything is validated at write
+# time by the resources: malformed entries or env-var specs fail loudly
+# (lib/flux_vale/contexts/catalog/types/env_var_schema.ex).
+#
+# Full entry shape — copy, uncomment, edit:
+#
+# - category:
+#     name: Media & Entertainment
+#     slug: media                      # lowercase URL-shaped, unique
+#     description: >-                  # folds to one line
+#       Self-hosted media servers for streaming, reading, and browsing.
+#   apps:
+#     - name: Kavita
+#       slug: kavita                   # unique; the seed's lookup key — never rename an existing entry
+#       tagline: Digital library server   # ≤ 140 chars
+#       description: |
+#         Longer marketing copy for the catalog page.
+#       icon_url: https://example.com/icon.svg
+#       source_url: https://example.com/source
+#       docs_url: https://example.com/docs
+#       versions:
+#         - version: "1.2.3"           # unique per app; lookup key with the app — immutable once seeded
+#           image: namespace/app:1.2.3
+#           port: 5000                 # 1..65535, the container's HTTP port
+#           default_cpu_cores: "0.5"   # QUOTED string, preserves Decimal precision; default "0.5"
+#           default_memory_mb: 512     # optional, default 256
+#           default_storage_gb: 5      # optional (PVC size), default 0
+#           release_notes: |
+#             Why this version — security notes, breaking changes.
+#           published_at: "2026-05-14T14:04:05Z"   # ISO 8601; optional, default nil
+#           default_env_vars:          # optional, always-shipped env; deployer stringifies values
+#             APP_MODE: production
+#           configurable_env_vars:     # optional; what a user may set at deploy time
+#             SMTP_HOST:
+#               label: SMTP Host       # required — renders in the deploy form (#74)
+#               description: Hostname of the SMTP server
+#               type: string           # string | integer | boolean
+#               required: false        # default false
+#               default: ""            # optional; must match the declared type
+#               secret: false          # true = masked in the UI, never echoed back
