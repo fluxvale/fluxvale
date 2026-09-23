@@ -13,8 +13,31 @@ defmodule FluxVale.Seeds.CatalogDataTest do
   @fixture Path.join([__DIR__, "../../support/fixtures/catalog_data_with_env_vars.yaml"])
 
   describe "entries/1" do
-    test "shipped catalog_data.yaml is intentionally empty (until #71, Forgejo)" do
-      assert CatalogData.entries(default_catalog_path()) == []
+    test "shipped catalog_data.yaml normalizes the Forgejo entry (#71)" do
+      [entry] = CatalogData.entries(default_catalog_path())
+
+      assert entry.category == %{
+               name: "Developer Tools",
+               slug: "developer-tools",
+               description: "Source control and developer productivity apps."
+             }
+
+      assert [%{slug: "forgejo"} = app] = entry.apps
+      assert app.name == "Forgejo"
+
+      version = hd(app.versions)
+      assert version.version == "16.0.5"
+      assert version.image == "codeberg.org/forgejo/forgejo:16.0.5"
+      assert version.port == 3000
+      assert version.healthcheck_path == "/api/healthz"
+      assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.5"))
+      assert version.default_memory_mb == 512
+      assert version.default_storage_gb == 10
+      assert version.published_at == ~U[2026-09-17 15:27:32Z]
+
+      assert version.default_env_vars["FORGEJO__database__DB_TYPE"] == "sqlite3"
+
+      assert Map.has_key?(version.configurable_env_vars, "FORGEJO__mailer__SMTP_ADDR")
     end
 
     test "comments-only and empty files parse to []" do
@@ -69,6 +92,7 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.5"))
       assert version.default_memory_mb == 256
       assert version.default_storage_gb == 0
+      assert version.healthcheck_path == "/"
       assert version.published_at == nil
       assert version.default_env_vars == %{}
       assert version.configurable_env_vars == %{}

@@ -2,8 +2,8 @@ defmodule FluxVale.Catalog.AppVersion do
   @moduledoc """
   AppVersion — a concrete deployable version of an App.
 
-  Carries the deploy blueprint (image, port, env vars, resource defaults)
-  a one-click deploy copies onto a new Instance (#73):
+  Carries the deploy blueprint (image, port, probe path, env vars, resource
+  defaults) a one-click deploy copies onto a new Instance (#73):
   `default_env_vars` always ship; `configurable_env_vars` (typed by
   `EnvVarSchema`) is what a user may set at deploy time, validated against
   the spec at Instance creation.
@@ -55,6 +55,16 @@ defmodule FluxVale.Catalog.AppVersion do
       allow_nil?(false)
       public?(true)
       constraints(min: 1, max: 65_535)
+    end
+
+    # HTTP path the deployer's readiness/startup probes hit (#71); #73 threads
+    # it into the Deployment manifest. "/" covers apps without a dedicated
+    # health endpoint.
+    attribute :healthcheck_path, :string do
+      allow_nil?(false)
+      default("/")
+      public?(true)
+      constraints(match: ~r{^/})
     end
 
     # Always-shipped env (operator-owned; deployer stringifies values).
@@ -114,6 +124,7 @@ defmodule FluxVale.Catalog.AppVersion do
         :version,
         :image,
         :port,
+        :healthcheck_path,
         :default_env_vars,
         :configurable_env_vars,
         :default_cpu_cores,
@@ -134,6 +145,7 @@ defmodule FluxVale.Catalog.AppVersion do
       accept([
         :image,
         :port,
+        :healthcheck_path,
         :default_env_vars,
         :configurable_env_vars,
         :default_cpu_cores,

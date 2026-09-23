@@ -1,50 +1,90 @@
-# FluxVale app catalog seed data — intentionally EMPTY right now.
+# FluxVale app catalog seed data.
 #
-# #70 shipped the domain + seeding machinery with no entries: Kavita (v1's
-# seed) was dropped pre-merge — a library app is useless without file
-# access, and SFTP is deferred post-beta (OQ #6). The first entry is
-# Forgejo (#71): SQLite-on-PVC, HTTPS-only git, no SFTP dependency
-# (ADR-0031 M3).
-#
-# Adding a catalog app is purely additive: append an entry (or a category)
-# and re-run seeds — FluxVale.Seeds.seed_catalog!/0 converges existing
-# rows to match the YAML, idempotently. Everything is validated at write
-# time by the resources: malformed entries or env-var specs fail loudly
+# Adding an app is purely additive: append an entry (or a category) and
+# re-run seeds — FluxVale.Seeds.seed_catalog!/0 converges existing rows to
+# match the YAML, idempotently. Everything is validated at write time by the
+# resources: malformed entries or env-var specs fail loudly
 # (lib/flux_vale/contexts/catalog/types/env_var_schema.ex).
 #
-# Full entry shape — copy, uncomment, edit:
+# Lookup keys — never rename an existing entry: category/app slug, and
+# app_id+version for versions. Renaming orphans the old row instead of
+# converging it.
 #
-# - category:
-#     name: Media & Entertainment
-#     slug: media                      # lowercase URL-shaped, unique
-#     description: >-                  # folds to one line
-#       Self-hosted media servers for streaming, reading, and browsing.
-#   apps:
-#     - name: Kavita
-#       slug: kavita                   # unique; the seed's lookup key — never rename an existing entry
-#       tagline: Digital library server   # ≤ 140 chars
-#       description: |
-#         Longer marketing copy for the catalog page.
-#       icon_url: https://example.com/icon.svg
-#       source_url: https://example.com/source
-#       docs_url: https://example.com/docs
-#       versions:
-#         - version: "1.2.3"           # unique per app; lookup key with the app — immutable once seeded
-#           image: namespace/app:1.2.3
-#           port: 5000                 # 1..65535, the container's HTTP port
-#           default_cpu_cores: "0.5"   # QUOTED string, preserves Decimal precision; default "0.5"
-#           default_memory_mb: 512     # optional, default 256
-#           default_storage_gb: 5      # optional (PVC size), default 0
-#           release_notes: |
-#             Why this version — security notes, breaking changes.
-#           published_at: "2026-05-14T14:04:05Z"   # ISO 8601; optional, default nil
-#           default_env_vars:          # optional, always-shipped env; deployer stringifies values
-#             APP_MODE: production
-#           configurable_env_vars:     # optional; what a user may set at deploy time
-#             SMTP_HOST:
-#               label: SMTP Host       # required — renders in the deploy form (#74)
-#               description: Hostname of the SMTP server
-#               type: string           # string | integer | boolean
-#               required: false        # default false
-#               default: ""            # optional; must match the declared type
-#               secret: false          # true = masked in the UI, never echoed back
+# Field notes: default_cpu_cores is a QUOTED string (preserves Decimal
+# precision). Optional version fields default to healthcheck_path "/",
+# default_memory_mb 256, default_storage_gb 0, published_at nil, env maps %{}.
+- category:
+    name: Developer Tools
+    slug: developer-tools
+    description: >-
+      Source control and developer productivity apps.
+  apps:
+    - name: Forgejo
+      slug: forgejo
+      tagline: Self-hosted Git forge with issues, pull requests, and Actions CI
+      description: |
+        Repositories, issues, pull requests, wiki, and Forgejo Actions CI in
+        a lightweight, 100% free-software package. Git over HTTPS only;
+        repositories and metadata live on a dedicated volume.
+      icon_url: https://codeberg.org/forgejo/forgejo/raw/branch/forgejo/assets/logo.svg
+      source_url: https://codeberg.org/forgejo/forgejo
+      docs_url: https://forgejo.org/docs/latest/
+      versions:
+        - version: "16.0.5"          # upstream stable, 2026-09-17
+          image: codeberg.org/forgejo/forgejo:16.0.5
+          port: 3000
+          healthcheck_path: /api/healthz
+          default_cpu_cores: "0.5"
+          default_memory_mb: 512
+          default_storage_gb: 10
+          release_notes: |
+            First FluxVale catalog release, tracking upstream v16.0.5.
+            HTTPS-only git (SSH disabled); SQLite on a dedicated volume.
+          published_at: "2026-09-17T15:27:32Z"
+          # Operator-owned config (#71 scope, ADR-0031 M3): skip the web
+          # installer wizard; SQLite-on-PVC (no CNPG dependency — the single
+          # cluster is platform-only, ADR-0009); SSH disabled — the v1
+          # port-22 lesson. #73's deploy op adds FORGEJO__server__ROOT_URL
+          # per instance (the ingress URL isn't catalog data).
+          default_env_vars:
+            FORGEJO__security__INSTALL_LOCK: "true"
+            FORGEJO__database__DB_TYPE: sqlite3
+            FORGEJO__server__DISABLE_SSH: "true"
+          # Deploy-time user settings — rendered by the #74 deploy form.
+          # DISABLE_REGISTRATION defaults to false: the first registrant
+          # becomes admin; users turn it off after claiming the instance.
+          configurable_env_vars:
+            FORGEJO__service__DISABLE_REGISTRATION:
+              label: Disable public sign-up
+              description: >-
+                Turn off open registration after creating your admin
+                account.
+              type: boolean
+              default: false
+            FORGEJO__mailer__ENABLED:
+              label: Enable email sending
+              description: Send notifications and confirmation emails via SMTP.
+              type: boolean
+              default: false
+            FORGEJO__mailer__SMTP_ADDR:
+              label: SMTP host
+              description: Hostname of the SMTP server.
+              type: string
+            FORGEJO__mailer__SMTP_PORT:
+              label: SMTP port
+              description: Port of the SMTP server.
+              type: integer
+              default: 587
+            FORGEJO__mailer__FROM:
+              label: Sender address
+              description: From address for outgoing mail, e.g. Forgejo <noreply@example.com>.
+              type: string
+            FORGEJO__mailer__USER:
+              label: SMTP username
+              description: Username for SMTP authentication.
+              type: string
+            FORGEJO__mailer__PASSWD:
+              label: SMTP password
+              description: Password for SMTP authentication.
+              type: string
+              secret: true
