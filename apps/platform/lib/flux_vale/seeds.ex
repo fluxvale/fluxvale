@@ -21,7 +21,10 @@ defmodule FluxVale.Seeds do
   require Ash.Query
 
   @doc """
-  Seeds catalog Categories, Apps, and AppVersions from `CatalogData`.
+  Seeds catalog Categories, Apps, and AppVersions from the shipped YAML
+  (`CatalogData.entries/0`). The 1-arity takes parsed entries directly —
+  the test suite drives it with fixture YAML so the machinery stays
+  covered while the shipped catalog is empty (until #71 lands Forgejo).
 
   Idempotent — records are looked up by slug (Category, App) or app_id +
   version (AppVersion); existing rows are updated to the seed attrs, so
@@ -30,8 +33,11 @@ defmodule FluxVale.Seeds do
   YAML orphans the old row rather than converging it.
   """
   @spec seed_catalog! :: :ok
-  def seed_catalog! do
-    for %{category: cat_attrs, apps: apps} <- CatalogData.entries() do
+  def seed_catalog!, do: seed_catalog!(CatalogData.entries())
+
+  @spec seed_catalog!([map()]) :: :ok
+  def seed_catalog!(entries) do
+    for %{category: cat_attrs, apps: apps} <- entries do
       category = seed_category!(cat_attrs)
       seed_apps!(apps, category)
     end

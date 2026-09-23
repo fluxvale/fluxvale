@@ -2,6 +2,10 @@ defmodule FluxVale.Seeds.CatalogData do
   @moduledoc """
   Declarative catalog seed data, loaded from `priv/repo/seeds/catalog_data.yaml`.
 
+  The shipped file is intentionally empty until #71 lands Forgejo — Kavita
+  (v1's seed) was dropped: a library app needs file access, and SFTP is
+  deferred post-beta (OQ #6).
+
   Adding a catalog app is purely additive: append a YAML entry. The seed
   runner (`FluxVale.Seeds.seed_catalog!/0`) looks each record up by its
   key (slug, or app_id + version) and updates it to match the YAML, so
@@ -33,10 +37,18 @@ defmodule FluxVale.Seeds.CatalogData do
   """
   @spec entries(Path.t()) :: [map()]
   def entries(path) do
-    path
-    |> File.read!()
-    |> YamlElixir.read_from_string!()
-    |> Enum.map(&normalize_entry/1)
+    contents = File.read!(path)
+    parsed = YamlElixir.read_from_string!(contents)
+
+    case parsed do
+      entries when is_list(entries) ->
+        Enum.map(entries, &normalize_entry/1)
+
+      # Empty/comments-only file parses to nil or %{} — an intentionally
+      # empty catalog (no entries yet; Forgejo lands with #71).
+      _empty ->
+        []
+    end
   end
 
   defp default_path do

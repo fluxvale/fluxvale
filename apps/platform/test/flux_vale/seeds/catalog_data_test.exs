@@ -2,8 +2,8 @@ defmodule FluxVale.Seeds.CatalogDataTest do
   @moduledoc """
   Unit tests for YAML normalization — no database. Env-var spec validation
   itself moved to the `EnvVarSchema` type (v1 validated here); these tests
-  pin only what the loader owns: Decimal/DateTime conversion, map defaults,
-  and pass-through of the raw schema.
+  pin only what the loader owns: empty-file handling, Decimal/DateTime
+  conversion, map defaults, and pass-through of the raw schema.
   """
 
   use ExUnit.Case, async: true
@@ -13,47 +13,34 @@ defmodule FluxVale.Seeds.CatalogDataTest do
   @fixture Path.join([__DIR__, "../../support/fixtures/catalog_data_with_env_vars.yaml"])
 
   describe "entries/1" do
-    test "normalizes the shipped catalog_data.yaml" do
-      [entry] = CatalogData.entries(default_catalog_path())
+    test "shipped catalog_data.yaml is intentionally empty (until #71, Forgejo)" do
+      assert CatalogData.entries(default_catalog_path()) == []
+    end
 
-      assert entry.category == %{
-               name: "Media & Entertainment",
-               slug: "media",
-               description:
-                 "Self-hosted media servers for streaming, reading, and browsing your library."
-             }
+    test "comments-only and empty files parse to []" do
+      comments_only = tmp_path("# comments only\n")
+      assert CatalogData.entries(comments_only) == []
 
-      assert [%{slug: "kavita"} = app] = entry.apps
-      assert hd(app.versions).image == "jvmilazz0/kavita:0.9.0.2"
+      empty = tmp_path("")
+      assert CatalogData.entries(empty) == []
+    end
+
+    test "normalizes a full entry to atom-keyed maps" do
+      [entry] = CatalogData.entries(@fixture)
+
+      assert entry.category == %{name: "Test", slug: "test", description: "Test category"}
+
+      assert [%{slug: "testapp"} = app] = entry.apps
+      assert hd(app.versions).image == "test/image:1.0"
     end
 
     test "converts quoted-string cpu cores to Decimal and ISO 8601 to DateTime" do
-      version = first_version(CatalogData.entries(default_catalog_path()))
-
-      assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.5"))
-      assert version.default_memory_mb == 512
-      assert version.default_storage_gb == 5
-      assert version.published_at == ~U[2026-05-14 14:04:05Z]
-    end
-
-    test "defaults omitted env maps to %{}" do
-      version = first_version(CatalogData.entries(default_catalog_path()))
-
-      assert version.default_env_vars == %{}
-      assert version.configurable_env_vars == %{}
-    end
-
-    test "passes configurable_env_vars through raw (validation is the type's job)" do
       version = first_version(CatalogData.entries(@fixture))
 
-      assert Map.keys(version.configurable_env_vars) == [
-               "ENABLE_TLS",
-               "SMTP_HOST",
-               "SMTP_PASSWORD",
-               "SMTP_PORT"
-             ]
-
-      assert version.configurable_env_vars["SMTP_PORT"]["type"] == "integer"
+      assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.5"))
+      assert version.default_memory_mb == 256
+      assert version.default_storage_gb == 1
+      assert version.published_at == ~U[2026-06-01 00:00:00Z]
     end
 
     test "fills loader defaults when the YAML omits optional fields" do
@@ -83,6 +70,8 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert version.default_memory_mb == 256
       assert version.default_storage_gb == 0
       assert version.published_at == nil
+      assert version.default_env_vars == %{}
+      assert version.configurable_env_vars == %{}
     end
 
     test "raises naming the app when versions is missing or empty" do
