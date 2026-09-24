@@ -130,7 +130,7 @@ defmodule FluxValeWeb.Router do
     # upstream) — registered-but-not-exposed domains don't count, so the
     # swap key is `ash_admin_domains` (opt-in, ADR-0027 §3), not `ash_domains`.
     # Identity is registered but stays out of AshAdmin; Ops opted in with
-    # #25, Catalog with #70.
+    # #25, Catalog with #70, Infrastructure with #72.
     if Application.compile_env(:flux_vale, :ash_admin_domains) == [] do
       scope "/admin", FluxValeWeb do
         pipe_through :browser
