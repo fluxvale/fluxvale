@@ -158,8 +158,11 @@ defmodule FluxVale.MixProject do
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ash.setup --quiet", "test"],
       # Same DB-setup prefix as test: coveralls.json runs the suite but
-      # doesn't expand the test alias on its own
-      "coveralls.json": ["ash.setup --quiet", "coveralls.json"],
+      # doesn't expand the test alias on its own. --subdir makes report
+      # paths repo-root-relative (apps/platform/lib/...) so they match
+      # the platform flag in codecov.yml — no reliance on codecov's
+      # fuzzy path-fixing, no ambiguity when a second lib/ tree lands.
+      "coveralls.json": ["ash.setup --quiet", "coveralls.json --subdir apps/platform/"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["compile", "tailwind flux_vale", "esbuild flux_vale"],
       "assets.deploy": [

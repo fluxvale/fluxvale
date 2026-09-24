@@ -133,12 +133,16 @@ jobs:
       # v7.1.1 — pinned to commit: mutable tags execute unreviewed code.
       # NB: `uses:` steps run at the workspace root — the job's
       # working-directory default doesn't apply, hence the repo-root path.
+      # fail_ci_if_error: v2 has no wait-for-codecov watchdog (v1's
+      # signal for silent upload failure) — this is it. A codecov.io
+      # outage will red this step; revert to false if that bites.
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5
         with:
           flags: platform
           files: apps/platform/cover/excoveralls.json
           token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
 
   # Conventions enforcement (docs/adr/README.md): amended ADRs must be
   # marked in the index — 9 of 14 were unmarked when this landed (#36
