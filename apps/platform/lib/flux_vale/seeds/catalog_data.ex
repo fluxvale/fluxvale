@@ -65,9 +65,13 @@ defmodule FluxVale.Seeds.CatalogData do
     }
   end
 
+  # coveralls-ignore-start - YAML seed validation; fires at seed time on a
+  # hand-edited catalog file, not on any runtime path
   defp normalize_entry(%{"category" => category}) do
     raise "catalog seed: category #{inspect(category["slug"])} must have an apps list"
   end
+
+  # coveralls-ignore-stop
 
   defp normalize_category(%{"name" => name, "slug" => slug, "description" => description}) do
     %{name: name, slug: slug, description: description}

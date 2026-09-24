@@ -11,5 +11,11 @@
     "lib/flux_vale_web/router.ex",
     "lib/flux_vale_web/telemetry.ex",
     "^test/"
+  ],
+  "custom_stop_words": [
+    "^\\s*\\{:ok, %{status: status, body: body\\}\\} ->\\s*$",
+    "^\\s*\\{:error, error\\} ->\\s*$",
+    "^\\s*\\{:error, Error\\.from_response",
+    "Logger\\.debug"
   ]
 }

@@ -38,3 +38,6 @@ npm-debug.log
 
 # Dialyzer PLT (mix.exs dialyzer config) — rebuilt, never committed
 /priv/plts/
+
+# ExCoveralls crash-export artifacts
+*.coverdata

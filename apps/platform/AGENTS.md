@@ -72,6 +72,14 @@ This is a web application written using the Phoenix web framework.
 - Decisions accepted-with-rationale get a comment naming the trigger
   that revisits them (see the Postgres TLS stance in
   `config/runtime.exs`).
+- **Coverage is 100% by exclusion, not luck** (#86): every relevant
+  line is either tested or explicitly excluded — `coveralls-ignore`
+  blocks for unreachable/defensive regions (each comment names why the
+  path can't run in a test), `custom_stop_words` in `coveralls.json`
+  for the repetitive HTTP error arms, `skip_files` for framework
+  boilerplate. New uncovered lines in a diff are a finding: test the
+  path or justify the exclusion. If a "can't test" block later becomes
+  testable, the test wins.
 
 ## Toolchain recipes (session-tested — read before scaffolding)
 

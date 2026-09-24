@@ -70,6 +70,10 @@ to the k3d local registry — never docker.io.
 
 - `cd apps/platform && mix ci` before every PR — one command, the same
   one CI runs.
+- Coverage target is **100%** — earned, not gamed: tests for reasonable
+  paths, documented coveralls exclusions for unreasonable ones (DB-down,
+  race windows, prod-only). Conventions in
+  [`apps/platform/AGENTS.md`](apps/platform/AGENTS.md) (#86).
 - CI installs the BEAM via `erlef/setup-beam`, versions **parsed from
   `mise.toml`** — the single source of truth, so CI can't drift from
   local. (`MISE_LOCKED=1` + mise-action was tried and abandoned:

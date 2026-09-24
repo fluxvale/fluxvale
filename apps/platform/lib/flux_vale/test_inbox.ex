@@ -127,7 +127,10 @@ defmodule FluxVale.TestInbox do
   end
 
   defp recipient_address({_name, address}), do: address
+  # coveralls-ignore-start - callers always pass {name, address} tuples
+  # (Swoosh recipients); the bare-string clause is API-completeness only
   defp recipient_address(address) when is_binary(address), do: address
+  # coveralls-ignore-stop
 
   # -- serving ------------------------------------------------------------
 
@@ -155,7 +158,10 @@ defmodule FluxVale.TestInbox do
     }
   end
 
+  # coveralls-ignore-start - emails without a text body never carry a
+  # code; rendering still needs the nil shape
   defp extract_code(nil), do: nil
+  # coveralls-ignore-stop
 
   defp extract_code(text_body) do
     case Regex.run(@code_pattern, text_body) do

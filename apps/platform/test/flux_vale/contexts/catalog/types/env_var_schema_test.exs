@@ -86,4 +86,19 @@ defmodule FluxVale.Catalog.Types.EnvVarSchemaTest do
       assert :error = EnvVarSchema.cast_stored("nope", [])
     end
   end
+
+  describe "nil and non-map inputs" do
+    test "dump_to_native of nil is an empty map (jsonb column nullable-free)" do
+      assert {:ok, %{}} = EnvVarSchema.dump_to_native(nil, [])
+    end
+
+    test "dump_to_native of a non-map is :error" do
+      non_map = Enum.at(["nope"], 0)
+      assert :error = EnvVarSchema.dump_to_native(non_map, [])
+    end
+
+    test "cast_stored of nil is an empty map" do
+      assert {:ok, %{}} = EnvVarSchema.cast_stored(nil, [])
+    end
+  end
 end

@@ -178,8 +178,11 @@ defmodule FluxVale.Identity.User do
               Logger.info("PAT minted for user #{input.arguments.email}")
               {:ok, token}
 
+            # coveralls-ignore-start - Jwt signing failure (secret missing /
+            # malformed) — prod-config error, not exercisable in test env
             :error ->
               {:error, Ash.Error.to_error_class("failed to generate token")}
+              # coveralls-ignore-stop
           end
         end
       end)

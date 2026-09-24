@@ -2,6 +2,7 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
   @moduledoc false
 
   use FluxValeWeb.ConnCase, async: true
+  use Mimic
 
   import Phoenix.LiveViewTest
 
@@ -136,5 +137,41 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
     assert result =~ "ask an admin for access"
     assert result =~ "email-form"
     refute result =~ "code-form"
+  end
+
+  test "delivery failure flashes a retry message, not a stack trace", %{conn: conn} do
+    stub(Identity, :request_auth_code, fn _email -> {:error, :delivery_failed} end)
+
+    {:ok, view, _html} = live(conn, ~p"/sign-in")
+
+    html =
+      view
+      |> form("#email-form", email: @email)
+      |> render_submit()
+
+    # NB: apostrophe arrives HTML-escaped — assert on the stable tail
+    assert html =~ "send the email"
+    assert html =~ "please wait a minute, then try again."
+  end
+
+  test "lockout on verify resets to the email step with the why", %{conn: conn} do
+    stub(Identity, :verify_auth_code, fn _email, _code -> {:error, :locked_out} end)
+
+    {:ok, view, _html} = live(conn, ~p"/sign-in")
+
+    result =
+      view
+      |> form("#email-form", email: @email)
+      |> render_submit()
+
+    assert result =~ "code-form"
+
+    html =
+      view
+      |> form("#code-form", code: "123456")
+      |> render_submit()
+
+    assert html =~ "Too many attempts — request a fresh code."
+    assert html =~ "email-form"
   end
 end

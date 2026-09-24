@@ -1,5 +1,11 @@
 defmodule FluxVale.Clients.K8s.Resources.CertificateTest do
   use ExUnit.Case, async: true
+  use Mimic
+
+  setup do
+    stub(Kubereq, :attach, fn req, _opts -> req end)
+    :ok
+  end
 
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Certificate
@@ -69,5 +75,100 @@ defmodule FluxVale.Clients.K8s.Resources.CertificateTest do
       assert Certificate.find_ready([%{"type" => "Ready"}]) == nil
       assert Certificate.find_ready([]) == nil
     end
+  end
+
+  defp spec do
+    %{domain: "app.fluxvale.app", secret_name: "app-tls", issuer: "letsencrypt"}
+  end
+
+  describe "create/4" do
+    test "applies the Certificate for a valid issuer_kind" do
+      expect(Kubereq, :apply, fn _req, manifest, field_manager ->
+        assert manifest["kind"] == "Certificate"
+        assert manifest["spec"]["issuerRef"]["kind"] == "ClusterIssuer"
+        assert field_manager == "fluxvale"
+        {:ok, %{status: 201, body: manifest}}
+      end)
+
+      assert {:ok, %{"kind" => "Certificate"}} = Certificate.create(%{}, "ns", "app", spec())
+    end
+
+    test "namespace-scoped :issuer selects the Issuer kind" do
+      expect(Kubereq, :apply, fn _req, manifest, _fm ->
+        assert manifest["spec"]["issuerRef"]["kind"] == "Issuer"
+        {:ok, %{status: 200, body: manifest}}
+      end)
+
+      scoped = Map.put(spec(), :issuer_kind, :issuer)
+      assert {:ok, _body} = Certificate.create(%{}, "ns", "app", scoped)
+    end
+  end
+
+  describe "get/3" do
+    test "404 is :not_found" do
+      expect(Kubereq, :get, fn _req, _ns, _name -> {:ok, %{status: 404, body: %{}}} end)
+
+      assert {:error, %Error{reason: :not_found}} = Certificate.get(%{}, "ns", "missing")
+    end
+  end
+
+  describe "delete/3" do
+    test "202 accepts asynchronous deletion" do
+      expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 202}} end)
+
+      assert :ok = Certificate.delete(%{}, "ns", "app")
+    end
+
+    test "404 is :not_found" do
+      expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 404, body: %{}}} end)
+
+      assert {:error, %Error{reason: :not_found}} = Certificate.delete(%{}, "ns", "missing")
+    end
+
+    test "200 deletes synchronously" do
+      expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 200}} end)
+
+      assert :ok = Certificate.delete(%{}, "ns", "app")
+    end
+  end
+
+  describe "ready_status/3" do
+    test "reads the Ready condition cert-manager sets" do
+      body = %{
+        "status" => %{
+          "conditions" => [%{"type" => "Ready", "status" => "True"}]
+        }
+      }
+
+      expect(Kubereq, :get, fn _req, _ns, _name -> {:ok, %{status: 200, body: body}} end)
+
+      assert {:ok, "True"} = Certificate.ready_status(%{}, "ns", "app")
+    end
+
+    test "a body with no status block reads as nil" do
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: %{"kind" => "Certificate"}}}
+      end)
+
+      assert {:ok, nil} = Certificate.ready_status(%{}, "ns", "app")
+    end
+
+    test "get errors propagate" do
+      expect(Kubereq, :get, fn _req, _ns, _name -> {:error, :transport_oops} end)
+
+      assert {:error, %Error{reason: :connection_error}} =
+               Certificate.ready_status(%{}, "ns", "app")
+    end
+  end
+
+  test "attaches the request with the right api_version/kind (routing pin)" do
+    expect(Kubereq, :attach, fn _req, opts ->
+      assert opts[:api_version] == "cert-manager.io/v1"
+      assert opts[:kind] == "Certificate"
+      :pinned_req
+    end)
+
+    stub(Kubereq, :get, fn _req, _ns, _name -> {:ok, %{status: 404, body: %{}}} end)
+    Certificate.get(%{}, "ns", "x")
   end
 end
