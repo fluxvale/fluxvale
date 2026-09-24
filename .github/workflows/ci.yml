@@ -130,6 +130,16 @@ jobs:
 
       - run: mix ci
 
+      # v7.1.1 — pinned to commit: mutable tags execute unreviewed code.
+      # NB: `uses:` steps run at the workspace root — the job's
+      # working-directory default doesn't apply, hence the repo-root path.
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5
+        with:
+          flags: platform
+          files: apps/platform/cover/excoveralls.json
+          token: ${{ secrets.CODECOV_TOKEN }}
+
   # Conventions enforcement (docs/adr/README.md): amended ADRs must be
   # marked in the index — 9 of 14 were unmarked when this landed (#36
   # review fallout). Cheap enough to run on every docs-touching PR.

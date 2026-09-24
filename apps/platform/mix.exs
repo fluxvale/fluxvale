@@ -12,6 +12,9 @@ defmodule FluxVale.MixProject do
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader],
+      # coveralls.json task writes cover/excoveralls.json — what CI
+      # uploads to Codecov (flag: platform, root codecov.yml)
+      test_coverage: [tool: ExCoveralls],
       # v1 port: PLT in priv/plts (gitignored), exact-version CI cache key
       dialyzer: [
         plt_add_apps: [:ex_unit],
@@ -33,7 +36,17 @@ defmodule FluxVale.MixProject do
 
   def cli do
     [
-      preferred_envs: [precommit: :test, ci: :test]
+      preferred_envs: [
+        precommit: :test,
+        ci: :test,
+        # coveralls tasks run the suite — test env, like `mix test`
+        coveralls: :test,
+        "coveralls.detail": :test,
+        "coveralls.json": :test,
+        "coveralls.html": :test,
+        "coveralls.post": :test,
+        "coveralls.cobertura": :test
+      ]
     ]
   end
 
@@ -60,6 +73,8 @@ defmodule FluxVale.MixProject do
       # Dev/test-only analysis tools (exact pins, same rule)
       {:dialyxir, "1.4.7", only: [:dev, :test], runtime: false},
       {:credo, "1.7.19", only: [:dev, :test], runtime: false},
+      # Coverage: coveralls.json → CI uploads to Codecov (flag: platform)
+      {:excoveralls, "0.18.5", only: :test},
       {:open_api_spex, "3.22.4"},
       {:ash_json_api, "1.7.1"},
       {:ash_admin, "1.3.1"},
@@ -139,6 +154,9 @@ defmodule FluxVale.MixProject do
       ],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ash.setup --quiet", "test"],
+      # Same DB-setup prefix as test: coveralls.json runs the suite but
+      # doesn't expand the test alias on its own
+      "coveralls.json": ["ash.setup --quiet", "coveralls.json"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["compile", "tailwind flux_vale", "esbuild flux_vale"],
       "assets.deploy": [
@@ -152,6 +170,8 @@ defmodule FluxVale.MixProject do
       # (correctness) are the two halves of the typespec story.
       # ash.codegen --check: resource↔migration drift gate — an attribute
       # edit without `mix ash.codegen` fails here, not at deploy time.
+      # Tests run under ExCoveralls: same suite, plus the report CI
+      # uploads to Codecov.
       ci: [
         "format --check-formatted",
         "deps.unlock --check-unused",
@@ -159,7 +179,7 @@ defmodule FluxVale.MixProject do
         "ash.codegen --check",
         "credo --strict",
         "dialyzer",
-        "test"
+        "coveralls.json"
       ]
     ]
   end
