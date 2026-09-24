@@ -31,12 +31,13 @@ config :flux_vale,
   # deliberately NOT admin-exposed (ADR-0027 §3: User/Token are sensitive).
   # The next two keys interact: /admin serves a placeholder (see the router)
   # until a domain opts into AshAdmin via `ash_admin_domains`.
-  ash_domains: [FluxVale.Identity, FluxVale.Ops, FluxVale.Catalog],
+  ash_domains: [FluxVale.Identity, FluxVale.Ops, FluxVale.Catalog, FluxVale.Infrastructure],
   # Domains opted into AshAdmin (exposure is opt-in, ADR-0027 §3). AshAdmin
   # crashes on zero admin-enabled domains (upstream nil action_type bug),
   # so the router keeps the placeholder while this is empty. Ops opted in
-  # with #25, Catalog with #70; Identity stays admin-unexposed.
-  ash_admin_domains: [FluxVale.Ops, FluxVale.Catalog],
+  # with #25, Catalog with #70, Infrastructure with #72; Identity stays
+  # admin-unexposed.
+  ash_admin_domains: [FluxVale.Ops, FluxVale.Catalog, FluxVale.Infrastructure],
   generators: [timestamp_type: :utc_datetime],
   # AccessRules snapshot TTL (#26, settled): 60s — the cross-node
   # revocation bound; the mutating node busts instantly (BustCache).

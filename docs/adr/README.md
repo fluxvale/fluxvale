@@ -14,7 +14,7 @@ already ruled out.
 | [ADR-00003](00003-ashauthentication-drop-authentik.md) | AshAuthentication passwordless (email codes); drop Authentik | Accepted (amended — see Amendments 1–2) |
 | [ADR-00004](00004-bare-metal-netcup-k3s.md) | Bare-metal Netcup (Talos per ADR-00022); reject managed Kubernetes | Accepted (amended — see Amendment 1) |
 | [ADR-00005](00005-customer-instances-as-namespaces.md) | Customer workloads as k8s namespaces (the Instance model) | Accepted (amended — see Amendment 1) |
-| [ADR-00006](00006-single-cluster-multi-region-ready.md) | One cluster now, schema-ready for regions; vertical first | Accepted (amended — see Amendment 1) |
+| [ADR-00006](00006-single-cluster-multi-region-ready.md) | One cluster now, schema-ready for regions; vertical first | Accepted (amended — see Amendments 1–2) |
 | [ADR-00007](00007-fluxcd-fleet-repo.md) | FluxCD retained; separate fleet repo | Accepted |
 | [ADR-00008](00008-app-runs-in-cluster.md) | Platform app runs in-cluster | Accepted |
 | [ADR-00009](00009-single-cnpg-cluster.md) | One shared CNPG cluster; managed PostgreSQL is the scaling path | Accepted |

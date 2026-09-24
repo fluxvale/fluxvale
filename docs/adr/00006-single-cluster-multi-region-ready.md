@@ -1,6 +1,6 @@
 # ADR-00006: One cluster now, schema-ready for regions
 
-**Status**: Accepted (amended — see Amendment 1)
+**Status**: Accepted (amended — see Amendments 1–2)
 **Date**: 2026-08-27
 
 **Decision**:
@@ -37,3 +37,14 @@ Node-join mechanics updated for Talos ([ADR-00022](00022-talos-linux.md)):
 joins via the talosctl API"; control-plane HA means three control-plane
 machine configs. The ladder's structure, same-DC constraint, vertical-first
 rung, and storage decision are unchanged.
+
+## Amendment 2 (2026-09-23): the local row carries no kubeconfig — Accepted
+
+Nil `kubeconfig_ref` is the documented sentinel for **local** (#72): the
+app authenticates in-cluster via its mounted service account
+([ADR-0020](00020-local-dev-parity.md)), and a stored kubeconfig for the
+cluster the pod runs in would duplicate credentials that rotate ~hourly.
+A populated ref names a remote cluster; the ref format is decided when
+the second cluster actually arrives ([ADR-0016](00016-deferred-triggers.md)
+managed-k8s trigger). The k8s client does not route through the row until
+then — `Cluster`'s one-cluster job is being Instance's FK target.
