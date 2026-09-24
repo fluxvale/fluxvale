@@ -68,7 +68,8 @@ defmodule FluxVale.Clients.K8s.Resources.SecretTest do
         {:ok, %{status: 200, body: %{"kind" => "Secret"}}}
       end)
 
-      assert {:ok, %{}} = Secret.get_data(%{}, "ns", "app-env")
+      assert {:ok, data} = Secret.get_data(%{}, "ns", "app-env")
+      assert data == %{}
     end
 
     test "get errors propagate undecoded" do
