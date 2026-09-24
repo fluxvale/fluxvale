@@ -78,6 +78,8 @@ defmodule FluxVale.MixProject do
       {:credo, "1.7.19", only: [:dev, :test], runtime: false},
       # Coverage: coveralls.json → CI uploads to Codecov (flag: platform)
       {:excoveralls, "0.18.5", only: :test},
+      # Test mocking for Kubereq in k8s-client tests (v1's canonical pattern)
+      {:mimic, "2.4.2", only: :test},
       {:open_api_spex, "3.22.4"},
       {:ash_json_api, "1.7.1"},
       {:ash_admin, "1.3.1"},

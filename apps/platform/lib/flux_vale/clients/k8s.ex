@@ -49,8 +49,12 @@ defmodule FluxVale.Clients.K8s do
       {:ok, kubeconfig}
     end
   rescue
+    # coveralls-ignore-start - in-cluster bootstrap failure (no SA files /
+    # malformed): only fires inside the cluster; local dev loads from file
     e ->
       {:error,
        Error.connection_error("Exception loading in-cluster kubeconfig: #{Exception.message(e)}")}
   end
+
+  # coveralls-ignore-stop
 end

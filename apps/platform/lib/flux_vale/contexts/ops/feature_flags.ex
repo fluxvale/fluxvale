@@ -66,6 +66,8 @@ defmodule FluxVale.Ops.FeatureFlags do
   def enabled?(key, for: actor) when is_atom(key) do
     declared!(key)
 
+    # coveralls-ignore-start - unreachable past the raise until @known_flags
+    # ships its first entry (#25, mechanism-first); remove with that flag
     # authorize?: false — machine read of global config, same posture as
     # the seeds bootstrap. Flags aren't actor-scoped data; the read is not
     # an authorization question (mutations stay admin-gated, see the
@@ -74,6 +76,8 @@ defmodule FluxVale.Ops.FeatureFlags do
     |> Atom.to_string()
     |> FeatureFlag.by_key!(authorize?: false, not_found_error?: false)
     |> decide(key, actor)
+
+    # coveralls-ignore-stop
   end
 
   @doc """
@@ -93,6 +97,8 @@ defmodule FluxVale.Ops.FeatureFlags do
   def enable(key, opts) when is_atom(key) and is_list(opts) do
     declared!(key)
 
+    # coveralls-ignore-start - unreachable past the raise until @known_flags
+    # ships its first entry (#25, mechanism-first); remove with that flag
     actor = Keyword.fetch!(opts, :actor)
     # Explicit nil check, not ||: `0` is truthy so `||` handled it, but a
     # falsy bogus value (`percentage: false`) rode into "not given" and
@@ -115,6 +121,7 @@ defmodule FluxVale.Ops.FeatureFlags do
       end
 
     verdict(outcome)
+    # coveralls-ignore-stop
   end
 
   @doc """
@@ -129,6 +136,8 @@ defmodule FluxVale.Ops.FeatureFlags do
   def disable(key, opts) when is_atom(key) and is_list(opts) do
     declared!(key)
 
+    # coveralls-ignore-start - unreachable past the raise until @known_flags
+    # ships its first entry (#25, mechanism-first); remove with that flag
     # Data flow: key → string → row (nil or not) → switch off → verdict.
     # opts (not a fetched actor) flows into switch_off/2 so the actor is
     # only required when a row actually exists — same laziness as before.
@@ -137,6 +146,8 @@ defmodule FluxVale.Ops.FeatureFlags do
     |> row()
     |> switch_off(opts)
     |> verdict()
+
+    # coveralls-ignore-stop
   end
 
   @doc """
@@ -180,6 +191,8 @@ defmodule FluxVale.Ops.FeatureFlags do
     end
   end
 
+  # coveralls-ignore-start - row/switch_off/verdict serve only the
+  # declare-gated verbs above; covered with the first real flag (#25)
   defp row(key_str) do
     FeatureFlag.by_key!(key_str, authorize?: false, not_found_error?: false)
   end
@@ -193,4 +206,5 @@ defmodule FluxVale.Ops.FeatureFlags do
   # {:ok, _} | {:error, reason} → the verbs' :ok | {:error, reason} contract
   defp verdict({:ok, _flag}), do: :ok
   defp verdict({:error, reason}), do: {:error, reason}
+  # coveralls-ignore-stop
 end

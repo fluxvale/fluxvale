@@ -97,4 +97,32 @@ defmodule FluxVale.Ops.AccessRules.CacheTest do
     revoked = to_string(gone.email)
     refute AccessRules.allowed?(revoked)
   end
+
+  test "inert path: TTL 0 bypasses the GenServer and reads the table directly" do
+    # The config default (0) — the enabled-by-default-test above covers the
+    # cached path; this covers snapshot's read_all else-branch
+    Application.put_env(:flux_vale, :access_rules_cache_ttl_seconds, 0)
+
+    AccessRule.create!(%{domain: "fluxvale.com"}, authorize?: false)
+
+    assert Cache.snapshot() == Cache.read_all()
+    assert [%AccessRule{}] = Cache.snapshot()
+  end
+
+  test "stale held snapshot re-reads and stores on the next read" do
+    # TTL 1 so the held snapshot ages out for real — TTL expiry is
+    # wall-clock, the one thing a probe can't dodge (a negative TTL only
+    # disables the cache, bypassing the stale branch entirely)
+    Application.put_env(:flux_vale, :access_rules_cache_ttl_seconds, 1)
+
+    rule = AccessRule.create!(%{domain: "fluxvale.com"}, authorize?: false)
+    refute AccessRules.allowed?("stale-probe@example.com")
+
+    Process.sleep(1100)
+    FluxVale.Repo.delete(rule)
+
+    # The held snapshot is stale now: the read re-reads the (empty) table
+    # and stores it — allowed again
+    assert AccessRules.allowed?("stale-probe@example.com")
+  end
 end

@@ -117,12 +117,16 @@ defmodule FluxVale.Seeds do
 
       # Defensive: unique_version_per_app prevents this; only fires on data
       # drift / schema corruption.
+      # coveralls-ignore-start - seed-time drift guard; forcing it needs a
+      # unique-index drop, which would test the index, not the seed
       multiples ->
         raise """
         seed_app_version!/1 expected 0 or 1 existing AppVersion rows for
         app_id=#{inspect(attrs.app_id)} version=#{inspect(attrs.version)},
         got #{length(multiples)}. Possible data drift on the unique_version_per_app identity.
         """
+
+        # coveralls-ignore-stop
     end
   end
 end
