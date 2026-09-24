@@ -1,5 +1,8 @@
 # FluxVale
 
+[![CI](https://github.com/fluxvale/fluxvale/actions/workflows/ci.yml/badge.svg)](https://github.com/fluxvale/fluxvale/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/fluxvale/fluxvale/graph/badge.svg?token=EKJTES7hNP)](https://codecov.io/gh/fluxvale/fluxvale)
+
 Managed hosting for open source applications.
 
 Status: **v2, in active buildout** — the platform app is a walking skeleton
