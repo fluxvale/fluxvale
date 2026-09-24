@@ -1,0 +1,15 @@
+{
+  "skip_files": [
+    "lib/flux_vale.ex",
+    "lib/flux_vale/application.ex",
+    "lib/flux_vale/repo.ex",
+    "lib/flux_vale_web.ex",
+    "lib/flux_vale_web/components/core_components.ex",
+    "lib/flux_vale_web/components/layouts",
+    "lib/flux_vale_web/endpoint.ex",
+    "lib/flux_vale_web/gettext.ex",
+    "lib/flux_vale_web/router.ex",
+    "lib/flux_vale_web/telemetry.ex",
+    "^test/"
+  ]
+}

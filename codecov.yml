@@ -1,0 +1,25 @@
+# Codecov — monorepo: one flag per app, per-flag statuses (one app's
+# coverage can't fail another's check). A new app adds a flag here plus
+# a `flags:` input on its CI upload step (e2e joins at M3).
+coverage:
+  status:
+    project:
+      platform:
+        flags: [platform]
+        threshold: 1% # default 0% fails on any drop, however small
+    patch:
+      platform:
+        flags: [platform]
+        # target auto = patch coverage must be ≥ base commit's coverage
+        # (v1's effective behavior — not a 100% gate on new lines).
+        # Set target: 100% to hard-require tested new lines.
+
+flags:
+  platform:
+    paths: [apps/platform/]
+    # false: the flag reports only when the platform job ran (path-gated
+    # CI) — nothing stale carries into PRs that skip it
+    carryforward: false
+
+comment:
+  layout: reach, diff, flags, files
