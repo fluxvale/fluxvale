@@ -169,6 +169,16 @@ defmodule FluxVale.Clients.K8s.Resources.IngressTest do
   end
 
   describe "get/3" do
+    test "returns the body on 200 (the happy read path)" do
+      expect(Kubereq, :get, fn _req, namespace, name ->
+        assert namespace == "ns"
+        assert name == "my-app"
+        {:ok, %{status: 200, body: %{"kind" => "IngressRoute"}}}
+      end)
+
+      assert {:ok, %{"kind" => "IngressRoute"}} = Ingress.get(%{}, "ns", "my-app")
+    end
+
     test "404 is :not_found" do
       expect(Kubereq, :get, fn _req, _ns, _name -> {:ok, %{status: 404, body: %{}}} end)
 
@@ -177,6 +187,12 @@ defmodule FluxVale.Clients.K8s.Resources.IngressTest do
   end
 
   describe "delete/3" do
+    test "404 is :not_found" do
+      expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 404, body: %{}}} end)
+
+      assert {:error, %Error{reason: :not_found}} = Ingress.delete(%{}, "ns", "missing")
+    end
+
     test "202 accepts asynchronous deletion" do
       expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 202}} end)
 

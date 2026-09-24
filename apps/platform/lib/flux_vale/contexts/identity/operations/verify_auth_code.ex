@@ -84,8 +84,11 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
           {:ok, user, token}
         end
 
+      # coveralls-ignore-start - TOCTOU loser arm (CWE-367): needs the code
+      # burned between fetch and burn — true concurrency, not sequential
       {:error, _lost_the_race} ->
         {:error, :no_active_code}
+        # coveralls-ignore-stop
     end
   end
 
@@ -97,9 +100,15 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
       |> Ash.update()
 
     case result do
-      {:ok, _row} -> {:error, :wrong_code}
+      {:ok, _row} ->
+        {:error, :wrong_code}
+
       # The atomic cap guard refused the increment (review: CWE-307)
-      {:error, _at_cap} -> {:error, :locked_out}
+      # coveralls-ignore-start - race-only: the pre-check catches the cap
+      # first in any sequential flow (CWE-307's window is concurrent)
+      {:error, _at_cap} ->
+        {:error, :locked_out}
+        # coveralls-ignore-stop
     end
   end
 
@@ -125,11 +134,19 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
       |> Ash.read()
 
     case result do
-      {:ok, [user]} -> {:ok, user}
-      {:ok, []} -> {:error, :not_found}
+      {:ok, [user]} ->
+        {:ok, user}
+
+      {:ok, []} ->
+        {:error, :not_found}
+
       # Infra failure propagates a defined shape instead of raising a
       # CaseClauseError AFTER the code was consumed (review finding)
-      {:error, _read_failed} -> {:error, :user_lookup_failed}
+      # coveralls-ignore-start - DB read failure mid-verify: same class as
+      # health's db_up? — not simulatable under the sandbox
+      {:error, _read_failed} ->
+        {:error, :user_lookup_failed}
+        # coveralls-ignore-stop
     end
   end
 

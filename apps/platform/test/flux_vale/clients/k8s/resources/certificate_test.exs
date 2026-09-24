@@ -113,6 +113,18 @@ defmodule FluxVale.Clients.K8s.Resources.CertificateTest do
   end
 
   describe "delete/3" do
+    test "202 accepts asynchronous deletion" do
+      expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 202}} end)
+
+      assert :ok = Certificate.delete(%{}, "ns", "app")
+    end
+
+    test "404 is :not_found" do
+      expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 404, body: %{}}} end)
+
+      assert {:error, %Error{reason: :not_found}} = Certificate.delete(%{}, "ns", "missing")
+    end
+
     test "200 deletes synchronously" do
       expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 200}} end)
 

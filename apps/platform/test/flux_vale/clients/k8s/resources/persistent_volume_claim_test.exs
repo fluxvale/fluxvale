@@ -67,6 +67,19 @@ defmodule FluxVale.Clients.K8s.Resources.PersistentVolumeClaimTest do
   end
 
   describe "delete/3" do
+    test "200 deletes synchronously" do
+      expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 200}} end)
+
+      assert :ok = PersistentVolumeClaim.delete(%{}, "ns", "data")
+    end
+
+    test "404 is :not_found" do
+      expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 404, body: %{}}} end)
+
+      assert {:error, %Error{reason: :not_found}} =
+               PersistentVolumeClaim.delete(%{}, "ns", "missing")
+    end
+
     test "202 accepts asynchronous deletion (data goes with it)" do
       expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 202}} end)
 
@@ -99,6 +112,13 @@ defmodule FluxVale.Clients.K8s.Resources.PersistentVolumeClaimTest do
   end
 
   describe "wait_for_bound/4" do
+    test "status errors propagate immediately" do
+      expect(Kubereq, :get, fn _req, _ns, _name -> {:error, :transport_oops} end)
+
+      assert {:error, %Error{reason: :connection_error}} =
+               PersistentVolumeClaim.wait_for_bound(%{}, "ns", "data", timeout_ms: 10)
+    end
+
     test ":ok once the phase is Bound" do
       expect(Kubereq, :get, fn _req, _ns, _name ->
         {:ok, %{status: 200, body: %{"status" => %{"phase" => "Bound"}}}}

@@ -144,7 +144,10 @@ defmodule FluxVale.Ops.AccessRules.Cache do
   def handle_call({:store, snapshot, stamp}, _from, _state),
     do: {:reply, :ok, %{snapshot: snapshot, refreshed_at: DateTime.utc_now(), read_stamp: stamp}}
 
+  # coveralls-ignore-start - exists only between init and the first store;
+  # whether the suite's first GenServer read sees it is scheduling luck
   defp fresh?(%{refreshed_at: nil}), do: false
+  # coveralls-ignore-stop
 
   defp fresh?(%{refreshed_at: refreshed_at}) do
     refreshed_at

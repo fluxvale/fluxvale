@@ -95,7 +95,9 @@ defmodule FluxVale.Ops.AccessRules do
 
   # Unreachable through the resource (one_of validation) — total by
   # construction for hand-built rows in tests.
+  # coveralls-ignore-start - the one_of validation above makes this total
   defp rule_allows?(_inert_row, _address, _domain), do: false
+  # coveralls-ignore-stop
 
   defp fetch_snapshot do
     if Cache.enabled?(), do: Cache.snapshot(), else: Cache.read_all()

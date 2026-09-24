@@ -146,4 +146,21 @@ defmodule FluxVale.Catalog.Types.EnvVarSpecTest do
       refute EnvVarSpec.valid_name?(123)
     end
   end
+
+  describe "new/1 — non-string field types are rejected" do
+    test "label must be a string" do
+      assert {:error, msg} = EnvVarSpec.new(%{type: "string", label: 5})
+      assert msg =~ "label must be a non-empty string"
+    end
+
+    test "description must be a string" do
+      assert {:error, msg} = EnvVarSpec.new(%{type: "string", label: "L", description: 5})
+      assert msg =~ "description must be a string"
+    end
+
+    test "type must be an atom or a known string" do
+      assert {:error, msg} = EnvVarSpec.new(%{type: 5, label: "L"})
+      assert msg =~ "type must be one of"
+    end
+  end
 end

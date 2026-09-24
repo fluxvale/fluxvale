@@ -84,6 +84,15 @@ defmodule FluxVale.Clients.K8s.Resources.NodeTest do
   end
 
   describe "get/2" do
+    test "returns the body on 200 (the happy read path)" do
+      expect(Kubereq, :get, fn _req, name ->
+        assert name == "worker-1"
+        {:ok, %{status: 200, body: %{"kind" => "Node"}}}
+      end)
+
+      assert {:ok, %{"kind" => "Node"}} = Node.get(%{}, "worker-1")
+    end
+
     test "404 is :not_found" do
       expect(Kubereq, :get, fn _req, _name -> {:ok, %{status: 404, body: %{}}} end)
 

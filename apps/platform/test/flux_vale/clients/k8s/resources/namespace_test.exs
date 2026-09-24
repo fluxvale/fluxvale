@@ -74,6 +74,12 @@ defmodule FluxVale.Clients.K8s.Resources.NamespaceTest do
   end
 
   describe "delete/2" do
+    test "200 deletes synchronously" do
+      expect(Kubereq, :delete, fn _req, _name -> {:ok, %{status: 200}} end)
+
+      assert :ok = Namespace.delete(%{}, "fluxvale-app-1")
+    end
+
     test "202 accepts asynchronous deletion" do
       expect(Kubereq, :delete, fn _req, name ->
         assert name == "fluxvale-app-1"
@@ -111,6 +117,12 @@ defmodule FluxVale.Clients.K8s.Resources.NamespaceTest do
   end
 
   describe "status/2" do
+    test "get errors propagate" do
+      expect(Kubereq, :get, fn _req, _name -> {:error, :transport_oops} end)
+
+      assert {:error, %Error{reason: :connection_error}} = Namespace.status(%{}, "any")
+    end
+
     test "reads the phase from status" do
       body = %{"status" => %{"phase" => "Active"}}
       expect(Kubereq, :get, fn _req, _name -> {:ok, %{status: 200, body: body}} end)

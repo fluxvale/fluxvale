@@ -255,6 +255,12 @@ defmodule FluxVale.Clients.K8s.Resources.DeploymentTest do
   end
 
   describe "delete/3" do
+    test "200 deletes synchronously" do
+      expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 200}} end)
+
+      assert :ok = Deployment.delete(%{}, "fluxvale-app-1", "forgejo")
+    end
+
     test "202 accepts asynchronous deletion" do
       expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 202}} end)
 
@@ -293,6 +299,13 @@ defmodule FluxVale.Clients.K8s.Resources.DeploymentTest do
   end
 
   describe "restart/3" do
+    test "a failed get propagates without applying" do
+      expect(Kubereq, :get, fn _req, _ns, _name -> {:error, :transport_oops} end)
+
+      assert {:error, %Error{reason: :connection_error}} =
+               Deployment.restart(%{}, "fluxvale-app-1", "forgejo")
+    end
+
     test "sets restartedAt on empty annotations" do
       expect(Kubereq, :get, fn _req, _ns, _name ->
         {:ok, %{status: 200, body: fetched_deployment()}}
