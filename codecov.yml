@@ -10,6 +10,9 @@ coverage:
     patch:
       platform:
         flags: [platform]
+        # deliberately strict (v1 parity, no threshold): new lines are
+        # the author's choice — ship them tested or restructure. Soften
+        # with a threshold or informational: true if it bites.
 
 flags:
   platform:

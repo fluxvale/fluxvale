@@ -10,7 +10,6 @@
     "lib/flux_vale_web/gettext.ex",
     "lib/flux_vale_web/router.ex",
     "lib/flux_vale_web/telemetry.ex",
-    "test",
-    "deps/"
+    "^test/"
   ]
 }

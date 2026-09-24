@@ -36,10 +36,13 @@ defmodule FluxVale.MixProject do
 
   def cli do
     [
+      # coveralls tasks need the env pinned here — excoveralls is
+      # only: :test, so its @preferred_cli_env can't be read before
+      # the dep loads (a dev-env `mix coveralls.json` dies with
+      # "task could not be found")
       preferred_envs: [
         precommit: :test,
         ci: :test,
-        # coveralls tasks run the suite — test env, like `mix test`
         coveralls: :test,
         "coveralls.detail": :test,
         "coveralls.json": :test,
