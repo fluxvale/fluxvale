@@ -38,6 +38,26 @@ the decision.
 6. **SFTP / file access** — deferred post-beta, but it was a v1 gate
    item and churn source (shared gateway vs sidecar, v1 #353/#374).
    Decide the v2 stance when redefining the gate.
+14. **Managed databases as a first-party product** — long-term
+    interest (2026-09-25): a Layerbase-shaped offering (flat-rate
+    multi-engine DB cloud with branching) sold like an instance.
+    Post-gate, on the first-party-products trigger
+    ([ADR-0016](adr/00016-deferred-triggers.md)); activation needs an
+    [ADR-0009](adr/00009-single-cnpg-cluster.md) amendment — where
+    customer DBs live (the shared cluster assumes all-first-party
+    cotenants). Stance: steal the product shape, not the engine
+    count — per-engine ops load (backups/upgrades/CVEs × engines)
+    doesn't shrink with bigger servers; start 1–2 engines, add on
+    trigger; no CoW branching (dump-to-scratch covers rehearsals —
+    ADR-0009's internal drill pattern). Shapes: (a) **DB as catalog
+    app** — Postgres/Valkey as catalog entries (web IDE + connection
+    string); stopped=storage-only already prices idle DBs right.
+    (b) **Dev-facing DB cloud** — `fluxvale db` on the day-one CLI/MCP
+    surface ([ADR-0019](adr/00019-machine-first-api-cli-mcp.md));
+    edge: one bill, one agent surface, apps *and* data. Seed a
+    provisioning layer only if instances ever get platform-provisioned
+    DBs (unsettled — ADR-0005 instances are namespace + Deployment +
+    PVC; Forgejo runs SQLite-on-PVC); then with a clean seam.
 
 ## Platform
 
@@ -98,4 +118,5 @@ the decision.
 Longhorn at node #2 · control-plane HA at 3 server nodes · dedicated
 staging box · Flagger canary at traffic · self-hosted LGTM at
 free-tier limits · managed k8s at concrete need · PocketID managed SSO
-post-beta · first-party products post-gate.
+post-beta · first-party products post-gate (managed-DB product,
+OQ #14).
