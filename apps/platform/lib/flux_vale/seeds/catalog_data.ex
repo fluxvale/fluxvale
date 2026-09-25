@@ -102,6 +102,7 @@ defmodule FluxVale.Seeds.CatalogData do
       image: version["image"],
       port: version["port"],
       healthcheck_path: Map.get(version, "healthcheck_path", "/"),
+      instance_url_env: version["instance_url_env"],
       default_env_vars: Map.get(version, "default_env_vars", %{}),
       configurable_env_vars: Map.get(version, "configurable_env_vars", %{}),
       default_cpu_cores: cpu_cores(version),

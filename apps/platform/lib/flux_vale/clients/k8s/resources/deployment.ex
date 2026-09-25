@@ -14,10 +14,13 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
         env: %{"KEY" => "value"},        # Optional: environment variables
         replicas: 1,                     # Optional: replica count (default: 1)
         storage_mount: "/data",          # Optional: PVC mount path
-        pvc_name: "storage"              # Optional: PVC to mount (with storage_mount)
+        pvc_name: "storage",             # Optional: PVC to mount (with storage_mount)
+        probe_path: "/api/healthz",      # Optional: probe path (default: "/")
+        env_from_secret: "app-env"       # Optional: Secret consumed via envFrom
       }
 
   Resource limits are 2x the requests — burst headroom, predictable cost.
+  Probes (`probe_path`) come from `AppVersion.healthcheck_path` (#73).
   """
 
   alias FluxVale.Clients.K8s.Error
@@ -33,12 +36,15 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
           optional(:env) => map(),
           optional(:replicas) => integer(),
           optional(:storage_mount) => String.t(),
-          optional(:pvc_name) => String.t()
+          optional(:pvc_name) => String.t(),
+          optional(:probe_path) => String.t(),
+          optional(:env_from_secret) => String.t()
         }
 
   @default_cpu 0.5
   @default_memory 256
   @default_replicas 1
+  @default_probe_path "/"
 
   @doc """
   Creates (server-side-applies) a Deployment from a simplified spec.
@@ -157,8 +163,9 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
           {:ok, map()} | {:error, Error.t()}
   # v1-ported: get → strip managedFields → force-apply. The force flag makes
   # manager "fluxvale" claim every field of the fetched object, and the
-  # get→apply window is last-write-wins. No v2 caller yet — #73's triggers
-  # own the callers and should switch to a targeted patch on spec.replicas.
+  # get→apply window is last-write-wins — tolerable inside instance
+  # namespaces, where fluxvale is the only writer (stop/start, #73). A
+  # targeted patch on spec.replicas is the future refinement.
   def scale(kubeconfig, namespace, name, replicas) when is_integer(replicas) and replicas >= 0 do
     case get(kubeconfig, namespace, name) do
       {:ok, deployment} ->
@@ -304,13 +311,16 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
     cpu = Map.get(spec, :cpu, @default_cpu)
     memory = Map.get(spec, :memory, @default_memory)
     replicas = Map.get(spec, :replicas, @default_replicas)
+    probe_path = Map.get(spec, :probe_path, @default_probe_path)
     image = spec.image
     port = spec.port
     env = Map.get(spec, :env, %{})
+    storage_mount = Map.get(spec, :storage_mount)
+    pvc_name = Map.get(spec, :pvc_name)
 
     env_vars = Enum.map(env, fn {key, value} -> %{"name" => key, "value" => to_string(value)} end)
 
-    container = %{
+    base_container = %{
       "name" => "app",
       "image" => image,
       "ports" => [%{"containerPort" => port}],
@@ -319,15 +329,25 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
         "limits" => %{"cpu" => to_string(cpu * 2), "memory" => "#{memory * 2}Mi"}
       },
       "env" => env_vars,
-      "readinessProbe" => build_readiness_probe(port),
-      "startupProbe" => build_startup_probe(port)
+      "readinessProbe" => build_readiness_probe(port, probe_path),
+      "startupProbe" => build_startup_probe(port, probe_path)
     }
 
-    storage_mount = Map.get(spec, :storage_mount)
-    pvc_name = Map.get(spec, :pvc_name)
+    # User env rides a Secret via envFrom (values stay out of the pod
+    # spec) when the deployer provides one; spec.env stays for inline vars.
+    with_env_from =
+      case Map.get(spec, :env_from_secret) do
+        nil ->
+          base_container
+
+        secret_name ->
+          Map.put(base_container, "envFrom", [%{"secretRef" => %{"name" => secret_name}}])
+      end
+
     mount = if storage_mount && pvc_name, do: %{"name" => "storage", "mountPath" => storage_mount}
 
-    app_container = if mount, do: Map.put(container, "volumeMounts", [mount]), else: container
+    app_container =
+      if mount, do: Map.put(with_env_from, "volumeMounts", [mount]), else: with_env_from
 
     volumes =
       if storage_mount && pvc_name,
@@ -367,20 +387,20 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
   end
 
   @doc false
-  @spec build_readiness_probe(integer()) :: map()
-  def build_readiness_probe(port) do
+  @spec build_readiness_probe(integer(), String.t()) :: map()
+  def build_readiness_probe(port, probe_path \\ @default_probe_path) do
     %{
-      "httpGet" => %{"path" => "/", "port" => port},
+      "httpGet" => %{"path" => probe_path, "port" => port},
       "periodSeconds" => 5,
       "failureThreshold" => 3
     }
   end
 
   @doc false
-  @spec build_startup_probe(integer()) :: map()
-  def build_startup_probe(port) do
+  @spec build_startup_probe(integer(), String.t()) :: map()
+  def build_startup_probe(port, probe_path \\ @default_probe_path) do
     %{
-      "httpGet" => %{"path" => "/", "port" => port},
+      "httpGet" => %{"path" => probe_path, "port" => port},
       "periodSeconds" => 5,
       "failureThreshold" => 18
     }

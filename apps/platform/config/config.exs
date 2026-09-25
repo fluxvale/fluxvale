@@ -42,7 +42,24 @@ config :flux_vale,
   # AccessRules snapshot TTL (#26, settled): 60s — the cross-node
   # revocation bound; the mutating node busts instantly (BustCache).
   # 0 in test.exs disables the cache (instant consistency per test).
-  access_rules_cache_ttl_seconds: 60
+  access_rules_cache_ttl_seconds: 60,
+  # Instance ingress base domain (#73): <subdomain>.<base> routes via the
+  # namespace's IngressRoute. Local = the lvh.me wildcard (ADR-0020);
+  # M4's runtime.exs override carries the prod domain.
+  instances_base_domain: "fluxvale.lvh.me",
+  # The namespace edge ingress is admitted FROM in instance
+  # NetworkPolicies (the Traefik chart's namespace locally; M4's fleet
+  # repo overrides for prod — same override story as instance_rbac).
+  instance_ingress_namespace: "traefik",
+  # The per-namespace RoleBinding #73's deploy trigger applies
+  # (deploy/local/k8s/01-platform-rbac.yaml): the platform's own SA,
+  # bound to the workload ClusterRole inside each instance namespace.
+  # M4's fleet repo carries the prod values (runtime override).
+  instance_rbac: [
+    service_account: "fluxvale-platform",
+    service_account_namespace: "fluxvale-dev",
+    workload_role: "fluxvale-platform-workload"
+  ]
 
 # Configure the endpoint
 config :flux_vale, FluxValeWeb.Endpoint,
@@ -80,13 +97,17 @@ config :flux_vale, :test_inbox,
   enabled: false,
   storage_driver: Swoosh.Adapters.Local.Storage.Memory
 
-# Configure Oban: the repo-backed job queue. Plain Oban, not ash_oban — no
-# domain declares triggers yet (settled on #23); AshOban.config/2's domain
-# scan would find nothing. Queues arrive with their features — today only
-# the janitor (token pruning, daily 03:00 UTC).
+# AshOban: open-source Oban, not Pro (v1's stance, kept)
+config :ash_oban, :pro?, false
+
+# Configure Oban: the repo-backed job queue. AshOban.config/2 (in
+# application.ex) scans the ash domains for triggers and merges their
+# schedules into this base — #73's Instance lifecycle is the first
+# trigger consumer; the janitor (token pruning, daily 03:00 UTC) stays
+# plain Oban.
 config :flux_vale, Oban,
   repo: FluxVale.Repo,
-  queues: [janitor: 1],
+  queues: [deployments: 10, reconciler: 1, janitor: 1],
   plugins: [
     {Oban.Plugins.Cron,
      crontab: [
