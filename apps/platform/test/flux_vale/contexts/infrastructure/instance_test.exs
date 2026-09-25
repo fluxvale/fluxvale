@@ -85,9 +85,18 @@ defmodule FluxVale.Infrastructure.InstanceTest do
   end
 
   # System status funnel for preconditions (mirrors the trigger ops).
-  defp status!(instance, status, namespace \\ nil) do
-    {:ok, updated} = InstanceK8s.update_status(instance, status, namespace, nil)
+  # System status funnel for preconditions (mirrors the trigger ops).
+  defp status!(instance, status) do
+    {:ok, updated} = InstanceK8s.update_status(instance, status, nil)
     updated
+  end
+
+  # Namespaced deployed states: namespace is write-once (the deploy
+  # action owns it and the inline trigger races past :deploying) — pin
+  # via seed after driving status through the funnel.
+  defp deployed!(instance, status, namespace) do
+    reached = status!(instance, status)
+    InstanceFixtures.pin!(reached, namespace: namespace)
   end
 
   defp created!(attrs \\ %{}) do
@@ -296,7 +305,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
     test "pending → deploying → starting → running; anchors land on :running" do
       instance = created!()
 
-      deploying = status!(instance, :deploying, "fluxvale-app-#{instance.id}")
+      deploying = status!(instance, :deploying)
       assert deploying.status == :deploying
 
       starting = status!(deploying, :starting)
@@ -311,7 +320,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
 
       running =
         instance
-        |> status!(:deploying, "fluxvale-app-#{instance.id}")
+        |> status!(:deploying)
         |> status!(:starting)
         |> status!(:running)
 
@@ -334,15 +343,15 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       instance = created!()
 
       assert {:error, %Ash.Error.Invalid{}} =
-               InstanceK8s.update_status(instance, :running, nil, nil)
+               InstanceK8s.update_status(instance, :running, nil)
 
       assert {:error, %Ash.Error.Invalid{}} =
-               InstanceK8s.update_status(instance, :stopped, nil, nil)
+               InstanceK8s.update_status(instance, :stopped, nil)
 
-      assert {:ok, errored} = InstanceK8s.update_status(instance, :error, nil, "boom")
+      assert {:ok, errored} = InstanceK8s.update_status(instance, :error, "boom")
       assert errored.status == :error
 
-      assert {:ok, deleting} = InstanceK8s.update_status(instance, :deleting, nil, nil)
+      assert {:ok, deleting} = InstanceK8s.update_status(instance, :deleting, nil)
       assert deleting.status == :deleting
     end
   end
@@ -367,7 +376,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
 
     test "rejects deploy outside pending/error" do
       created = created!()
-      instance = status!(created, :deploying, "fluxvale-app-#{created.id}")
+      instance = deployed!(created, :deploying, "fluxvale-app-#{created.id}")
 
       assert {:error, %Ash.Error.Invalid{errors: errors}} =
                Instance.deploy(instance, actor: user_of(instance))
@@ -387,7 +396,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       stub_k8s()
 
       created = created!()
-      deploying = status!(created, :deploying, "fluxvale-app-#{created.id}")
+      deploying = deployed!(created, :deploying, "fluxvale-app-#{created.id}")
 
       instance =
         deploying
@@ -427,7 +436,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       stub(Deployment, :scale, fn _kc, _ns, _n, _r -> {:ok, %{}} end)
 
       created = created!()
-      deploying = status!(created, :deploying, "fluxvale-app-#{created.id}")
+      deploying = deployed!(created, :deploying, "fluxvale-app-#{created.id}")
 
       instance =
         deploying
@@ -459,9 +468,9 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       stub_k8s()
 
       created = created!()
-      instance = status!(created, :deploying, "fluxvale-app-#{created.id}")
+      instance = deployed!(created, :deploying, "fluxvale-app-#{created.id}")
 
-      owner = user_of(instance)
+      owner = user_of(created)
 
       expect(Namespace, :delete, fn _kc, ns ->
         assert ns == "fluxvale-app-#{instance.id}"
@@ -478,9 +487,9 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       stub_k8s()
 
       created = created!()
-      instance = status!(created, :deleting, "fluxvale-app-#{created.id}")
+      instance = deployed!(created, :deleting, "fluxvale-app-#{created.id}")
 
-      owner = user_of(instance)
+      owner = user_of(created)
 
       # Zero teardown deletes expected — the duplicate guard must hold.
       reject(Namespace, :delete, 2)
@@ -499,12 +508,15 @@ defmodule FluxVale.Infrastructure.InstanceTest do
   describe "trigger actions" do
     test "perform_reconcile delegates to the reconciler (cron entry body)" do
       stub_k8s()
-      ns = "fluxvale-app-#{:erlang.unique_integer([:positive])}"
+
+      created = created!()
+      ns = "fluxvale-app-#{created.id}"
 
       instance =
-        created!()
-        |> status!(:deploying, ns)
+        created
+        |> status!(:deploying)
         |> status!(:starting)
+        |> then(&InstanceFixtures.pin!(&1, namespace: ns))
 
       expect(Deployment, :status, fn _kc, _ns, "app" ->
         {:ok, %{replicas: 1, ready: 1, conditions: []}}

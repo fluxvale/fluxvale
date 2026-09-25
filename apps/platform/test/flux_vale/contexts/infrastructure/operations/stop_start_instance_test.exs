@@ -25,24 +25,20 @@ defmodule FluxVale.Infrastructure.Operations.StopStartInstanceTest do
     instance =
       Instance.create!(%{name: "App", app_version_id: version.id, env_vars: %{}}, actor: user())
 
-    {:ok, deploying} =
-      InstanceK8s.update_status(instance, :deploying, "fluxvale-app-#{instance.id}", nil)
+    chain = [:deploying, :starting, :running] ++ if status == :stopped, do: [:stopped], else: []
+    reached = reach!(instance, chain)
 
-    {:ok, reached} =
-      case status do
-        :running ->
-          with {:ok, starting} <- InstanceK8s.update_status(deploying, :starting, nil, nil) do
-            InstanceK8s.update_status(starting, :running, nil, nil)
-          end
+    InstanceFixtures.pin!(reached,
+      namespace: "fluxvale-app-#{instance.id}",
+      deployed_at: DateTime.utc_now()
+    )
+  end
 
-        :stopped ->
-          with {:ok, starting} <- InstanceK8s.update_status(deploying, :starting, nil, nil),
-               {:ok, running} <- InstanceK8s.update_status(starting, :running, nil, nil) do
-            InstanceK8s.update_status(running, :stopped, nil, nil)
-          end
-      end
-
-    reached
+  defp reach!(instance, statuses) do
+    Enum.reduce(statuses, instance, fn status, acc ->
+      {:ok, updated} = InstanceK8s.update_status(acc, status, nil)
+      updated
+    end)
   end
 
   defp stub_kubeconfig do

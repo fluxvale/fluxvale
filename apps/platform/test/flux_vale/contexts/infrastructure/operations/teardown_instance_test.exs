@@ -32,11 +32,9 @@ defmodule FluxVale.Infrastructure.Operations.TeardownInstanceTest do
     instance =
       Instance.create!(%{name: "App", app_version_id: version.id, env_vars: %{}}, actor: user())
 
-    {:ok, deploying} =
-      InstanceK8s.update_status(instance, :deploying, "fluxvale-app-#{instance.id}", nil)
+    {:ok, deleting} = InstanceK8s.update_status(instance, :deleting, "Tearing down...")
 
-    {:ok, deleting} = InstanceK8s.update_status(deploying, :deleting, nil, "Tearing down...")
-    deleting
+    InstanceFixtures.pin!(deleting, namespace: "fluxvale-app-#{instance.id}")
   end
 
   defp stub_kubeconfig do

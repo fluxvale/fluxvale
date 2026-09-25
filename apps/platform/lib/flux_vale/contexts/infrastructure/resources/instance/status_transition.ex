@@ -49,6 +49,11 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
       is_nil(new_status) ->
         :ok
 
+      # A no-op (same status) is a message-only write — allowed; the
+      # anchors' enter/leave branches key on old != new, so it is inert.
+      new_status == old_status ->
+        :ok
+
       new_status == :error ->
         :ok
 

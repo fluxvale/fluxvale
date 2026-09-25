@@ -97,7 +97,7 @@ defmodule FluxVale.Infrastructure.InstanceIntegrationTest do
   end
 
   defp wait_until_ready!(kubeconfig, namespace) do
-    case Deployment.wait_for_ready(kubeconfig, namespace, "app", timeout: @ready_timeout) do
+    case Deployment.wait_for_ready(kubeconfig, namespace, "app", timeout_ms: @ready_timeout) do
       :ok ->
         :ok
 

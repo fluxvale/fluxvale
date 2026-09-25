@@ -35,17 +35,16 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
   System status write through `:update_status`. `authorize?: false`: the
   trigger context has no actor and the AshOban bypass doesn't propagate
   to nested calls — the user-facing entry actions (deploy/stop/start/
-  delete) carry the ownership policy check.
+  delete) carry the ownership policy check. The namespace never changes
+  here: it is write-once, pinned by the deploy action.
   """
-  @spec update_status(Instance.t(), atom(), String.t() | nil, String.t() | nil) ::
+  @spec update_status(Instance.t(), atom(), String.t() | nil) ::
           {:ok, Instance.t()} | {:error, term()}
-  def update_status(instance, status, namespace, status_message) do
-    # namespace nil = leave the attribute alone (v1 semantics, kept).
+  def update_status(instance, status, status_message) do
     # Messages are capped at the resource's 500-char validation — K8s
     # condition strings routinely exceed it, and an over-long message
     # would fail the write itself (a worse outcome than a truncated one).
-    base = %{status: status, status_message: truncate(status_message, 500)}
-    params = maybe_put(base, :namespace, namespace)
+    params = %{status: status, status_message: truncate(status_message, 500)}
 
     instance
     |> Ash.Changeset.for_update(:update_status, params, authorize?: false)
@@ -59,9 +58,6 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
   def format_error(%{message: message}) when is_binary(message), do: message
   # coveralls-ignore-next-line - defensive: K8s errors are %Error{} or strings
   def format_error(other), do: inspect(other)
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp truncate(nil, _limit), do: nil
 

@@ -10,6 +10,7 @@ defmodule FluxVale.TestSupport.InstanceFixtures do
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Catalog.Category
   alias FluxVale.Infrastructure.Cluster
+  alias FluxVale.Infrastructure.Instance
 
   @doc "Creates the single cluster row ResolveCluster pins to."
   @spec local_cluster!() :: FluxVale.Infrastructure.Cluster.t()
@@ -53,5 +54,24 @@ defmodule FluxVale.TestSupport.InstanceFixtures do
       |> Map.merge(Map.new(attrs)),
       authorize?: false
     )
+  end
+
+  @doc """
+  Pins system-written fields (namespace/deployed_at) on an
+  action-created Instance via a forced `:update_status` write — the
+  namespace is write-once (the deploy action owns it, and the inline
+  test trigger races past `:deploying` before an assertion can observe
+  it). Status itself always travels the funnel's legal chain.
+  """
+  @spec pin!(Instance.t(), keyword()) :: Instance.t()
+  def pin!(instance, attrs) do
+    base = Ash.Changeset.for_update(instance, :update_status, %{}, authorize?: false)
+
+    changeset =
+      Enum.reduce(Map.new(attrs), base, fn {key, value}, cs ->
+        Ash.Changeset.force_change_attribute(cs, key, value)
+      end)
+
+    Ash.update!(changeset)
   end
 end

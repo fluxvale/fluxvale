@@ -58,10 +58,12 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
         actor: user()
       )
 
-    {:ok, deploying} =
-      InstanceK8s.update_status(instance, :deploying, "fluxvale-app-#{instance.id}", nil)
+    {:ok, deploying} = InstanceK8s.update_status(instance, :deploying, nil)
 
-    deploying
+    InstanceFixtures.pin!(deploying,
+      namespace: "fluxvale-app-#{instance.id}",
+      deployed_at: DateTime.utc_now()
+    )
   end
 
   defp stub_kubeconfig do
@@ -201,7 +203,7 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
     test "a non-:deploying instance is a no-op (superseded retry)" do
       instance = deploying!()
 
-      {:ok, starting} = InstanceK8s.update_status(instance, :starting, nil, nil)
+      {:ok, starting} = InstanceK8s.update_status(instance, :starting, nil)
 
       assert {:ok, returned} = DeployInstance.call(starting)
       assert returned.id == starting.id

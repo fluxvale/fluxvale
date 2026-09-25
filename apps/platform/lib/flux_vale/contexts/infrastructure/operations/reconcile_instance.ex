@@ -42,12 +42,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
         "Instance #{instance.id} deploy stuck >#{@deploy_stale_timeout_seconds}s; timing out to :error"
       )
 
-      InstanceK8s.update_status(
-        instance,
-        :error,
-        instance.namespace,
-        "Deploy job stuck; timed out"
-      )
+      InstanceK8s.update_status(instance, :error, "Deploy job stuck; timed out")
     else
       {:ok, instance}
     end
@@ -74,12 +69,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
       {:error, %Error{reason: :not_found}} ->
         Logger.warning("Instance #{instance.id}: Deployment not found in cluster; marking :error")
 
-        InstanceK8s.update_status(
-          instance,
-          :error,
-          instance.namespace,
-          "Deployment not found in cluster"
-        )
+        InstanceK8s.update_status(instance, :error, "Deployment not found in cluster")
 
       {:error, _error} ->
         # Transient K8s API read failure — don't flip status on a failed read.
@@ -102,11 +92,11 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
           "Instance #{instance.id}: failed rollout condition detected; marking :error (#{message})"
         )
 
-        InstanceK8s.update_status(instance, :error, instance.namespace, message)
+        InstanceK8s.update_status(instance, :error, message)
 
       desired > 0 and ready >= desired ->
         if instance.status == :starting do
-          InstanceK8s.update_status(instance, :running, nil, nil)
+          InstanceK8s.update_status(instance, :running, nil)
         else
           {:ok, instance}
         end

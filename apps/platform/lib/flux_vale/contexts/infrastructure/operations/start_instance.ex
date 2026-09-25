@@ -19,13 +19,12 @@ defmodule FluxVale.Infrastructure.Operations.StartInstance do
   def call(%{status: :stopped} = instance) do
     with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance),
          {:ok, _deployment} <- Deployment.scale(kubeconfig, instance.namespace, "app", 1) do
-      InstanceK8s.update_status(instance, :starting, nil, "Starting; awaiting readiness")
+      InstanceK8s.update_status(instance, :starting, "Starting; awaiting readiness")
     else
       {:error, error} ->
         InstanceK8s.update_status(
           instance,
           :error,
-          instance.namespace,
           "Start failed: #{InstanceK8s.format_error(error)}"
         )
     end

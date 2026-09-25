@@ -24,31 +24,29 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
     instance =
       Instance.create!(%{name: "App", app_version_id: version.id, env_vars: %{}}, actor: user())
 
-    # pending → deploying (ns pinned) → … — the legal chain to `status`.
-    {:ok, deploying} =
-      InstanceK8s.update_status(instance, :deploying, "fluxvale-app-#{instance.id}", nil)
-
-    {:ok, reached} =
+    # pending → deploying → … — the legal chain to `status`; namespace is
+    # write-once, so it is seed-pinned after the chain.
+    chain =
       case status do
-        :deploying ->
-          {:ok, deploying}
-
-        :starting ->
-          InstanceK8s.update_status(deploying, :starting, nil, nil)
-
-        :running ->
-          with {:ok, starting} <- InstanceK8s.update_status(deploying, :starting, nil, nil) do
-            InstanceK8s.update_status(starting, :running, nil, nil)
-          end
-
-        :stopped ->
-          with {:ok, starting} <- InstanceK8s.update_status(deploying, :starting, nil, nil),
-               {:ok, running} <- InstanceK8s.update_status(starting, :running, nil, nil) do
-            InstanceK8s.update_status(running, :stopped, nil, nil)
-          end
+        :deploying -> [:deploying]
+        :starting -> [:deploying, :starting]
+        :running -> [:deploying, :starting, :running]
+        :stopped -> [:deploying, :starting, :running, :stopped]
       end
 
-    reached
+    reached = reach!(instance, chain)
+
+    InstanceFixtures.pin!(reached,
+      namespace: "fluxvale-app-#{instance.id}",
+      deployed_at: DateTime.utc_now()
+    )
+  end
+
+  defp reach!(instance, statuses) do
+    Enum.reduce(statuses, instance, fn status, acc ->
+      {:ok, updated} = InstanceK8s.update_status(acc, status, nil)
+      updated
+    end)
   end
 
   defp stub_kubeconfig do
@@ -246,6 +244,28 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
 
     test "a fresh :deploying instance is the deploy job's state — no-op" do
       instance = instance!(:deploying)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :deploying
+    end
+
+    test "a :deploying instance with no deployed_at yet is never stale" do
+      # deployed_at is system-written by the deploy action; the not-yet-set
+      # window is only observable via seed (sanctioned).
+      version = InstanceFixtures.app_version!()
+
+      instance =
+        Ash.Seed.seed!(Instance, %{
+          name: "Unstamped",
+          slug: "unstamped-app-0002",
+          image: "example.com/app:1",
+          port: 3000,
+          healthcheck_path: "/",
+          status: :deploying,
+          namespace: "fluxvale-app-unstamped",
+          env_vars: %{},
+          app_version_id: version.id
+        })
 
       assert {:ok, returned} = ReconcileInstance.call(instance)
       assert returned.status == :deploying

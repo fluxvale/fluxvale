@@ -55,16 +55,17 @@ defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
     end
   end
 
-  # user values > operator default_env_vars > configurable schema defaults
-  # (operator-explicit beats catalog-suggested; both are stringified).
+  # user values > operator default_env_vars > configurable schema
+  # defaults — operator-explicit beats the catalog's form-suggested
+  # default when both name a key (both stringified).
   defp merge_env_defaults(changeset, version) do
     user_env_vars = Ash.Changeset.get_attribute(changeset, :env_vars) || %{}
 
-    merged =
-      version.default_env_vars
-      |> stringified()
-      |> Map.merge(schema_defaults(version.configurable_env_vars))
-      |> Map.merge(user_env_vars)
+    operator_defaults = stringified(version.default_env_vars)
+    schema_suggestions = schema_defaults(version.configurable_env_vars)
+
+    with_operator = Map.merge(schema_suggestions, operator_defaults)
+    merged = Map.merge(with_operator, user_env_vars)
 
     Ash.Changeset.force_change_attribute(changeset, :env_vars, merged)
   end

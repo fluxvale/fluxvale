@@ -37,6 +37,14 @@ rules:
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["rolebindings"]
     verbs: ["create", "get", "list", "patch", "delete"]
+  # …and the bind right for that reference: RBAC escalation prevention
+  # requires the binder to either hold the role's verbs (the SA must not —
+  # that's the split's point) or hold `bind` on the role, scoped here to
+  # exactly the workload role (verified as the SA on-cluster, #89).
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    resourceNames: ["fluxvale-platform-workload"]
+    verbs: ["bind"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

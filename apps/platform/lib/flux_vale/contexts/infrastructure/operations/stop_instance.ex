@@ -20,13 +20,12 @@ defmodule FluxVale.Infrastructure.Operations.StopInstance do
   def call(%{status: :running} = instance) do
     with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance),
          {:ok, _deployment} <- Deployment.scale(kubeconfig, instance.namespace, "app", 0) do
-      InstanceK8s.update_status(instance, :stopped, nil, nil)
+      InstanceK8s.update_status(instance, :stopped, nil)
     else
       {:error, error} ->
         InstanceK8s.update_status(
           instance,
           :error,
-          instance.namespace,
           "Stop failed: #{InstanceK8s.format_error(error)}"
         )
     end

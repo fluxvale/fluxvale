@@ -256,7 +256,10 @@ defmodule FluxVale.Infrastructure.Instance do
 
     update :update_status do
       description "System status write — the state machine's single funnel (MaintainAnchors + StatusTransition)."
-      accept([:status, :namespace, :status_message])
+      # namespace deliberately NOT accepted: it is write-once (the deploy
+      # action pins fluxvale-app-<id>), and an owner-reachable write here
+      # could point teardown at any namespace on the cluster.
+      accept([:status, :status_message])
       require_atomic?(false)
 
       change(MaintainAnchors)
@@ -360,7 +363,6 @@ defmodule FluxVale.Infrastructure.Instance do
                        InstanceK8s.update_status(
                          instance,
                          :deleting,
-                         instance.namespace,
                          "Tearing down K8s resources..."
                        ) do
                   enqueue_teardown!(deleting)
@@ -489,12 +491,7 @@ defmodule FluxVale.Infrastructure.Instance do
         "Instance #{deleting.id} teardown enqueue failed: #{Exception.message(exception)}"
       )
 
-      InstanceK8s.update_status(
-        deleting,
-        :error,
-        nil,
-        "Delete failed to enqueue; retry delete"
-      )
+      InstanceK8s.update_status(deleting, :error, "Delete failed to enqueue; retry delete")
 
       # coveralls-ignore-stop
   end

@@ -43,17 +43,14 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   """
   @spec call(Instance.t()) :: {:ok, Instance.t()}
   def call(%{status: :deploying} = instance) do
-    namespace = instance.namespace
-
     case InstanceK8s.kubeconfig_for(instance) do
       {:ok, kubeconfig} ->
-        apply_then_transition(kubeconfig, namespace, instance)
+        apply_then_transition(kubeconfig, instance)
 
       {:error, error} ->
         InstanceK8s.update_status(
           instance,
           :error,
-          namespace,
           "Deploy failed: #{InstanceK8s.format_error(error)}"
         )
     end
@@ -63,13 +60,14 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   # the job is already superseded — processed, not failed.
   def call(instance), do: {:ok, instance}
 
-  defp apply_then_transition(kubeconfig, namespace, instance) do
+  defp apply_then_transition(kubeconfig, instance) do
+    namespace = instance.namespace
+
     case apply_resources(kubeconfig, namespace, instance) do
       :ok ->
         InstanceK8s.update_status(
           instance,
           :starting,
-          namespace,
           "Deployed to Kubernetes; awaiting readiness"
         )
 
@@ -77,7 +75,6 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
         InstanceK8s.update_status(
           instance,
           :error,
-          namespace,
           "Deploy failed: #{InstanceK8s.format_error(error)}"
         )
     end
