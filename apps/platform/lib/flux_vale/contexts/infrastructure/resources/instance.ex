@@ -24,6 +24,11 @@ defmodule FluxVale.Infrastructure.Instance do
   `slug` doubles as the DNS subdomain (`<slug>.<instances_base_domain>`)
   and is haikunate-generated per cluster (v1 port). `stop`/`start` are
   synchronous scale-to-zero/one; `delete` is the async teardown entry.
+
+  Every status-writing action broadcasts the record on `instances:<id>`
+  (Ash.Notifier.PubSub, #74): the LiveView status surface subscribes
+  instead of polling (ADR-0002's named wrong bet; correct unclustered
+  at one replica, ADR-0016 row 1).
   """
 
   use Ash.Resource,
@@ -31,7 +36,8 @@ defmodule FluxVale.Infrastructure.Instance do
     domain: FluxVale.Infrastructure,
     data_layer: AshPostgres.DataLayer,
     extensions: [AshOban],
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    notifiers: [Ash.Notifier.PubSub]
 
   alias FluxVale.Infrastructure.Instance.DeriveFromAppVersion
   alias FluxVale.Infrastructure.Instance.GenerateSlug
@@ -122,6 +128,31 @@ defmodule FluxVale.Infrastructure.Instance do
       description "Ownership is enforced by the authorized get_by_id read inside the action"
       authorize_if(actor_present())
     end
+  end
+
+  pub_sub do
+    # Phoenix.PubSub's registered-name style: module Phoenix.PubSub +
+    # name FluxVale.PubSub calls Phoenix.PubSub.broadcast/3 with the
+    # app's pubsub as the first arg (application.ex's child).
+    module(Phoenix.PubSub)
+    name FluxVale.PubSub
+
+    # #74: every state-machine writer lands on instances:<id>.
+    # :update_status is the system funnel — the deploy/reconcile/teardown
+    # workers and stop/start/delete all write through it. :deploy and the
+    # two error handlers write status outside the funnel; :destroy covers
+    # teardown's hard delete, the one status change that never passes
+    # through it (a :deleting instance's page needs the event to leave).
+    # The funnel's and :deploy's publishes are pinned in
+    # instance_pub_sub_test; the error handlers' publishes ride the same
+    # DSL (their actions run in #73's on_error tests — under inline
+    # testing a trigger crash escapes to the caller, so they can't be
+    # observed there).
+    publish(:update_status, ["instances", :id])
+    publish(:deploy, ["instances", :id])
+    publish(:mark_deploy_error, ["instances", :id])
+    publish(:mark_teardown_error, ["instances", :id])
+    publish(:destroy, ["instances", :id])
   end
 
   attributes do
@@ -252,6 +283,11 @@ defmodule FluxVale.Infrastructure.Instance do
       get?(true)
       argument(:id, :uuid, allow_nil?: false)
       filter(expr(id == ^arg(:id)))
+    end
+
+    read :list_for_actor do
+      description "The actor's own instances (#74's list surface; sorted newest-first at the query)"
+      filter(expr(user_id == ^actor(:id)))
     end
 
     update :update_status do
@@ -463,6 +499,7 @@ defmodule FluxVale.Infrastructure.Instance do
     define(:update_status)
     define(:destroy)
     define(:get_by_id, args: [:id])
+    define(:list_for_actor)
     define(:delete, args: [:id])
     define(:deploy)
     define(:stop)

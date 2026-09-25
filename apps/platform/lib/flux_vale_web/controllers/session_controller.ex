@@ -36,4 +36,18 @@ defmodule FluxValeWeb.SessionController do
         |> redirect(to: ~p"/sign-in")
     end
   end
+
+  @doc """
+  Signs out (#74): revokes the session's tokens (the token store, not
+  just the cookie — API use rides the same tokens) and clears the
+  session. Idempotent: no session means there is nothing to revoke.
+  """
+  @spec delete(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def delete(conn, _params) do
+    conn
+    |> Helpers.revoke_session_tokens(:flux_vale)
+    |> clear_session()
+    |> put_flash(:info, "Signed out.")
+    |> redirect(to: ~p"/sign-in")
+  end
 end
