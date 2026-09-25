@@ -13,8 +13,9 @@
 # apply of a NEW object needs `create` (patch-only is rejected with "cannot
 # create resource"); apply-on-existing rides `patch`. `watch` absent until
 # something watches; `update` absent (nothing PUTs); `list` only where a
-# module lists. pods/resourcequotas/networkpolicies join when code reads or
-# creates them (#73) — nothing over-granted ahead of the code.
+# module lists. pods join when code reads them directly (reconcile reads
+# Deployment.status — no pod reads yet). resourcequotas/networkpolicies
+# arrived with #73's deploy trigger.
 #
 # Drift note (ADR-0020 Am. 2): the M4 fleet repo carries the prod copy;
 # shape changes here must propagate there.
@@ -36,6 +37,14 @@ rules:
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["rolebindings"]
     verbs: ["create", "get", "list", "patch", "delete"]
+  # …and the bind right for that reference: RBAC escalation prevention
+  # requires the binder to either hold the role's verbs (the SA must not —
+  # that's the split's point) or hold `bind` on the role, scoped here to
+  # exactly the workload role (verified as the SA on-cluster, #89).
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    resourceNames: ["fluxvale-platform-workload"]
+    verbs: ["bind"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -45,7 +54,10 @@ rules:
   # Instance-namespace operands — the client's full surface, bound ONLY by
   # #73's per-namespace RoleBindings
   - apiGroups: [""]
-    resources: ["services", "persistentvolumeclaims", "secrets"]
+    resources: ["services", "persistentvolumeclaims", "secrets", "resourcequotas"]
+    verbs: ["create", "get", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
     verbs: ["create", "get", "patch", "delete"]
   - apiGroups: ["apps"]
     resources: ["deployments"]

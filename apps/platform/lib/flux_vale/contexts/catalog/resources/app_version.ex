@@ -67,6 +67,15 @@ defmodule FluxVale.Catalog.AppVersion do
       constraints(match: ~r{^/[\w/.-]*$})
     end
 
+    # Env var the #73 deploy op fills with the instance's public URL
+    # (https://<subdomain>.<base-domain>/): the ingress URL isn't catalog
+    # data, but apps like Forgejo need it (FORGEJO__server__ROOT_URL) to
+    # generate correct absolute links behind the proxy. nil = not wanted.
+    attribute :instance_url_env, :string do
+      public?(true)
+      constraints(match: ~r/^[A-Za-z_][A-Za-z0-9_]*$/)
+    end
+
     # Always-shipped env (operator-owned; deployer stringifies values).
     attribute :default_env_vars, :map do
       allow_nil?(false)
@@ -125,6 +134,7 @@ defmodule FluxVale.Catalog.AppVersion do
         :image,
         :port,
         :healthcheck_path,
+        :instance_url_env,
         :default_env_vars,
         :configurable_env_vars,
         :default_cpu_cores,
@@ -146,6 +156,7 @@ defmodule FluxVale.Catalog.AppVersion do
         :image,
         :port,
         :healthcheck_path,
+        :instance_url_env,
         :default_env_vars,
         :configurable_env_vars,
         :default_cpu_cores,

@@ -1,5 +1,6 @@
 {
   "skip_files": [
+    "deps/ash_oban/lib/transformers",
     "lib/flux_vale.ex",
     "lib/flux_vale/application.ex",
     "lib/flux_vale/repo.ex",

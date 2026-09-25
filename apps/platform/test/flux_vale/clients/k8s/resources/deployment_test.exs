@@ -114,6 +114,22 @@ defmodule FluxVale.Clients.K8s.Resources.DeploymentTest do
       refute Map.has_key?(app_container, "volumeMounts")
       refute Map.has_key?(pod_spec, "volumes")
     end
+
+    test "env_from_secret rides a secretRef (user env stays out of the pod spec)" do
+      manifest =
+        Deployment.build_manifest("ns", "app", Map.put(base_spec(), :env_from_secret, "app-env"))
+
+      assert container(manifest)["envFrom"] == [
+               %{"secretRef" => %{"name" => "app-env"}}
+             ]
+    end
+
+    test "no envFrom without a secret" do
+      manifest = Deployment.build_manifest("ns", "app", base_spec())
+      app_container = container(manifest)
+
+      refute Map.has_key?(app_container, "envFrom")
+    end
   end
 
   describe "ready?/1 — the generation-gated readiness predicate" do
