@@ -58,7 +58,7 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
           optional(:cert_resolver) => String.t()
         }
 
-  @default_cert_resolver "letsencrypt"
+  @default_cert_resolver nil
 
   # DNS-name shape: dot-separated labels, alnum + inner hyphens, 1-63 chars
   # each. Rejects backticks, backslashes, spaces — anything that would make
@@ -188,7 +188,9 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
     base_spec = %{"entryPoints" => [entry_point], "routes" => [route]}
 
     # Prefer tls_secret_name (existing wildcard cert) over cert_resolver
-    # (new cert per subdomain — Let's Encrypt rate-limit risk).
+    # (new cert per subdomain — Let's Encrypt rate-limit risk). Neither →
+    # no tls stanza at all: the edge's default cert terminates TLS (the
+    # local stack's shape, `deploy/local/k8s/15-ingressroute.yaml`).
     spec_with_tls =
       cond do
         not tls_enabled ->
@@ -197,8 +199,11 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
         tls_secret_name ->
           Map.put(base_spec, "tls", %{"secretName" => tls_secret_name})
 
-        true ->
+        cert_resolver ->
           Map.put(base_spec, "tls", %{"certResolver" => cert_resolver})
+
+        true ->
+          base_spec
       end
 
     %{

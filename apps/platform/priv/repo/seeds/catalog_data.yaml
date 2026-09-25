@@ -34,6 +34,10 @@
           image: codeberg.org/forgejo/forgejo:16.0.5
           port: 3000
           healthcheck_path: /api/healthz
+          # #73's deploy op sets this to the instance's public URL —
+          # Forgejo needs ROOT_URL for correct absolute links behind the
+          # proxy.
+          instance_url_env: FORGEJO__server__ROOT_URL
           default_cpu_cores: "0.5"
           default_memory_mb: 512
           default_storage_gb: 10

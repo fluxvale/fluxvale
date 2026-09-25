@@ -90,10 +90,12 @@ defmodule FluxVale.MixProject do
       {:phoenix_ecto, "4.7.0"},
       {:ecto_sql, "3.14.0"},
       {:postgrex, "0.22.4"},
-      # Plain Oban (v1's locked version) — no ash_oban until a domain
-      # declares a trigger (settled on #23). First consumer: the token
-      # janitor, daily 03:00 UTC cron.
+      # Plain Oban (v1's locked version) — first consumer: the token
+      # janitor, daily 03:00 UTC cron (settled on #23).
       {:oban, "2.23.0"},
+      # Triggers as resource actions — #73's Instance lifecycle is the
+      # first consumer; the plain-Oban janitor stays plain.
+      {:ash_oban, "0.8.14"},
       {:phoenix_html, "4.3.0"},
       {:phoenix_live_reload, "1.7.0", only: :dev},
       {:phoenix_live_view, "1.2.11"},

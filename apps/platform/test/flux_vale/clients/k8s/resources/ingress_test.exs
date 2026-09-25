@@ -80,10 +80,13 @@ defmodule FluxVale.Clients.K8s.Resources.IngressTest do
       assert manifest["spec"]["tls"] == %{"secretName" => "wildcard-tls"}
     end
 
-    test "tls: true without a secret requests one via the cert resolver" do
+    test "tls: true without a secret or resolver rides the edge's default cert" do
       manifest = Ingress.build_manifest("ns", "my-app", Map.put(base_spec(), :tls, true))
 
-      assert manifest["spec"]["tls"] == %{"certResolver" => "letsencrypt"}
+      assert get_in(manifest, ["spec", "entryPoints"]) == ["websecure"]
+      # No tls stanza — the Traefik default cert terminates TLS (the local
+      # stack's shape, #73's instance routes).
+      refute Map.has_key?(manifest["spec"], "tls")
     end
 
     test "custom cert_resolver is honored" do

@@ -1,6 +1,6 @@
 # ADR-0031: Build order — the milestone ladder
 
-**Status**: Accepted
+**Status**: Accepted (amended — see Amendment 1)
 **Date**: 2026-09-01
 
 **Context**: OQ #1's final piece. The resource inventory is assembled across
@@ -25,7 +25,7 @@ Port-don't-rewrite from the salvage map throughout.
   own git forge; SSH disabled initially, HTTPS-only git — the v1 port-22
   lesson; SQLite-on-PVC; env config via FORGEJO__section__KEY), k8s client
   port, Cluster,
-  Instance state machine + four Oban triggers into `fluxvale-app-*`
+  Instance state machine + Oban triggers into `fluxvale-app-*`
   namespaces in k3d, the LiveView catalog→deploy→status flow. *Exit:
   install Forgejo locally → running → instance URL opens → stop/destroy.*
 - **M4 — The box goes live**: Talos install, Flux bootstrap, the fleet repo
@@ -52,3 +52,14 @@ independent of the ladder and may be pulled forward at will.
 **Deferrals confirmed**: custom domains and SFTP/file access are post-beta.
 
 **Resolves**: OQ #1 in full.
+
+## Amendment 1 (2026-09-24): `settle_usage` lands with M5, not M3
+
+M3 originally said "four Oban triggers" (the ADR-0005 inventory). The
+billing trigger — `settle_usage` — is deferred to **M5**, where the
+Wallet/ledger it posts to first exists (decided on #73): a metering cron
+in M3 would be a no-op wearing a schedule. M3 ships the metering anchors
+(`running_since`, `storage_metering_since`) on the Instance schema,
+maintained by state transitions, so M5 arrives additively with real
+anchor history — no backfill. The trigger inventory itself
+([ADR-0005](00005-customer-instances-as-namespaces.md)) is unchanged.

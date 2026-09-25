@@ -7,11 +7,17 @@ defmodule FluxVale.Application do
 
   @impl Application
   def start(_type, _args) do
+    # AshOban.config/2 scans the ash domains for triggers and registers
+    # their cron schedules into the base Oban config (v1's wiring, kept).
+    ash_domains = Application.fetch_env!(:flux_vale, :ash_domains)
+    oban_opts = Application.fetch_env!(:flux_vale, Oban)
+
     children = [
       FluxValeWeb.Telemetry,
       FluxVale.Repo,
-      # Job queue (must start after Repo) — the token janitor's cron (#23)
-      {Oban, Application.fetch_env!(:flux_vale, Oban)},
+      # Job queue (must start after Repo) — janitor cron (#23) + Instance
+      # triggers (#73)
+      {Oban, AshOban.config(ash_domains, oban_opts)},
       {DNSCluster, query: Application.get_env(:flux_vale, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: FluxVale.PubSub},
       # AccessRules snapshot cache (#26) — lazy reads, no startup DB hit
