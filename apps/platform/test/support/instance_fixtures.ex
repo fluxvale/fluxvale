@@ -11,6 +11,7 @@ defmodule FluxVale.TestSupport.InstanceFixtures do
   alias FluxVale.Catalog.Category
   alias FluxVale.Infrastructure.Cluster
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.Operations.InstanceK8s
 
   @doc "Creates the single cluster row ResolveCluster pins to."
   @spec local_cluster!() :: FluxVale.Infrastructure.Cluster.t()
@@ -73,5 +74,26 @@ defmodule FluxVale.TestSupport.InstanceFixtures do
       end)
 
     Ash.update!(changeset)
+  end
+
+  @doc """
+  Advances an Instance through the funnel's legal chain to `target` —
+  StatusTransition rejects shortcuts, mirroring the real triggers
+  (pending→deploying→starting→running⇄stopped).
+  """
+  @spec walk_to!(Instance.t(), :deploying | :starting | :running | :stopped) ::
+          Instance.t()
+  def walk_to!(instance, target) do
+    path = %{
+      deploying: [:deploying],
+      starting: [:deploying, :starting],
+      running: [:deploying, :starting, :running],
+      stopped: [:deploying, :starting, :running, :stopped]
+    }
+
+    Enum.reduce(path[target], instance, fn status, current ->
+      {:ok, next} = InstanceK8s.update_status(current, status, nil)
+      next
+    end)
   end
 end

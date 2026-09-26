@@ -457,6 +457,34 @@ defmodule FluxValeWeb.CoreComponents do
     """
   end
 
+  @doc """
+  Renders an Instance status badge (#74) — one per state-machine state,
+  with a pulse on the in-motion ones (deploying/starting/deleting).
+  No DOM id: the badge appears once per row in lists, and ids must stay
+  unique — assert via `.badge` + text.
+  """
+  attr :status, :atom, required: true
+
+  def status_badge(%{status: status} = assigns) do
+    classes = %{
+      pending: "badge-ghost",
+      deploying: "badge-warning motion-safe:animate-pulse",
+      starting: "badge-warning motion-safe:animate-pulse",
+      running: "badge-success",
+      stopped: "badge-ghost",
+      error: "badge-error",
+      deleting: "badge-error motion-safe:animate-pulse"
+    }
+
+    assigns = assign(assigns, :class, Map.get(classes, status, "badge-ghost"))
+
+    ~H"""
+    <span class={["badge badge-sm font-medium", @class]}>
+      {@status}
+    </span>
+    """
+  end
+
   ## JS Commands
 
   def show(js \\ %JS{}, selector) do

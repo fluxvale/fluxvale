@@ -59,6 +59,19 @@ defmodule FluxValeWeb.Router do
     # write (token in the body, never a URL)
     live "/sign-in", AuthLive.SignIn
     post "/auth/session", SessionController, :create
+    delete "/auth/session", SessionController, :delete
+
+    # #74: the authenticated app surface — catalog browse, deploy stepper,
+    # instance status. The on_mount gate resolves the actor from the M2
+    # session and redirects to /sign-in without one.
+    live_session :authenticated,
+      on_mount: {FluxValeWeb.UserAuth, :ensure_authenticated} do
+      live "/apps", CatalogLive.Index
+      live "/apps/:slug", CatalogLive.Show
+      live "/apps/:slug/deploy", CatalogLive.Deploy
+      live "/instances", InstanceLive.Index
+      live "/instances/:id", InstanceLive.Show
+    end
   end
 
   # Other scopes may use custom stacks.
