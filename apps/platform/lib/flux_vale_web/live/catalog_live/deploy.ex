@@ -84,6 +84,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                   phx-click="pick-version"
                   phx-value-id={version.id}
                   class="radio radio-primary radio-sm"
+                  data-testid="version-option"
                 />
                 <span class="label-text">
                   <span class="font-mono">v{version.version}</span>
@@ -99,6 +100,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                 phx-click="to-env"
                 disabled={is_nil(@version_id)}
                 class="btn btn-primary btn-sm"
+                data-testid="continue-version"
               >
                 Continue
               </button>
@@ -150,7 +152,9 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                 <button type="button" phx-click="back-version" class="btn btn-ghost btn-sm">
                   Back
                 </button>
-                <button type="submit" class="btn btn-primary btn-sm">Continue</button>
+                <button type="submit" class="btn btn-primary btn-sm" data-testid="continue-env">
+                  Continue
+                </button>
               </div>
             </form>
 
@@ -158,7 +162,12 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
               <button type="button" phx-click="back-version" class="btn btn-ghost btn-sm">
                 Back
               </button>
-              <button type="button" phx-click="env-continue" class="btn btn-primary btn-sm">
+              <button
+                type="button"
+                phx-click="env-continue"
+                class="btn btn-primary btn-sm"
+                data-testid="continue-env"
+              >
                 Continue
               </button>
             </div>
@@ -176,6 +185,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                 placeholder={"My #{@app.name}"}
                 required
                 autofocus
+                data-testid="instance-name"
               />
               <p class="text-xs opacity-60">
                 We'll generate the subdomain — you can rename nothing else later (M3).
@@ -184,7 +194,12 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                 <button type="button" phx-click="back-env" class="btn btn-ghost btn-sm">
                   Back
                 </button>
-                <button type="submit" class="btn btn-primary" phx-disable-with="Deploying…">
+                <button
+                  type="submit"
+                  class="btn btn-primary"
+                  phx-disable-with="Deploying…"
+                  data-testid="deploy-submit"
+                >
                   Deploy {@app.name}
                 </button>
               </div>

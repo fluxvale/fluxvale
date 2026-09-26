@@ -3,7 +3,7 @@
 # and the umbrella "Wait for CI" job that ALWAYS runs. Branch protection
 # requires "Wait for CI" — the only check guaranteed present on every PR,
 # so path-skipped apps can never leave a required check pending forever.
-# Per-app jobs join here as apps grow (e2e: M3; cli: later).
+# Per-app jobs join here as apps grow (e2e joined at M3; cli: later).
 name: CI
 
 on:
@@ -26,6 +26,7 @@ jobs:
       platform: ${{ steps.filter.outputs.platform }}
       docs: ${{ steps.filter.outputs.docs }}
       agents: ${{ steps.filter.outputs.agents }}
+      e2e: ${{ steps.filter.outputs.e2e }}
     steps:
       # persist-credentials: false — later steps run no git-authenticated ops
       - uses: actions/checkout@v4
@@ -49,6 +50,14 @@ jobs:
             agents:
               - ".agents/**"
               - "scripts/lint-skill-frontmatter.sh"
+              - ".github/workflows/ci.yml"
+            e2e:
+              - "apps/e2e/**"
+              - "apps/platform/**"
+              - "deploy/local/**"
+              - "scripts/e2e-bootstrap.sh"
+              - "Tiltfile" # the bootstrap parses its pins — a bump here is an e2e change
+              - "mise.toml"
               - ".github/workflows/ci.yml"
 
   platform:
@@ -176,6 +185,62 @@ jobs:
 
       - run: ./scripts/lint-skill-frontmatter.sh
 
+  # The M3 E2E suite (#75, ADR-0024 local runtime / ADR-0020 Am. 4):
+  # the same scripts/e2e-bootstrap.sh a local re-run uses, driven on an
+  # ephemeral runner k3d — one path, no drift. Runtime is dominated by
+  # the Forgejo image pull and the minute-granularity reconcile cron
+  # (~15 min); a red here means the demo broke, not that the stack
+  # rebuilt slowly.
+  e2e:
+    name: E2E
+    needs: check-changes
+    if: needs.check-changes.outputs.e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # mise x must USE the four installed binaries without
+      # auto-installing the config's other pins (erlang = source
+      # compile, 15+ min — the abandoned CI path in AGENTS.md)
+      MISE_AUTO_INSTALL: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Binaries only (node/k3d/kubectl/helm), verified against
+      # mise.lock — the same pins and checksums as local. install:
+      # false: a bare `mise install` would also pull erlang (source
+      # compile, 15+ min — the abandoned CI path in AGENTS.md); the
+      # BEAM stays on setup-beam in the platform job.
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          mise-version: 2026.9.14
+          install: false
+      - run: mise install k3d kubectl helm node
+
+      - name: Bootstrap the local stack
+        run: mise x -- scripts/e2e-bootstrap.sh
+
+      - name: Install suite deps + browser
+        run: |
+          cd apps/e2e
+          mise x -- npm ci
+          mise x -- npx playwright install --with-deps chromium
+
+      - name: Run the suite
+        run: |
+          set -a; . apps/e2e/.e2e-env; set +a
+          cd apps/e2e
+          mise x -- npx playwright test
+
+      # Screenshots/traces land as artifacts (ADR-0024)
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: apps/e2e/playwright-report
+
   # The umbrella: branch protection requires THIS check. Runs regardless
   # of path gating; passes when every gated job succeeded or was skipped.
   # check-changes must SUCCEED, not merely skip: if it failed, its
@@ -183,7 +248,7 @@ jobs:
   # checks run — a green umbrella that proved nothing.
   wait-for-ci:
     name: Wait for CI
-    needs: [check-changes, platform, docs-lint, skills-lint]
+    needs: [check-changes, platform, docs-lint, skills-lint, e2e]
     if: always()
     runs-on: ubuntu-latest
     steps:

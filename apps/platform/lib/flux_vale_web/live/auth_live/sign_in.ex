@@ -37,8 +37,14 @@ defmodule FluxValeWeb.AuthLive.SignIn do
             placeholder="you@example.com"
             required
             autofocus
+            data-testid="sign-in-email"
           />
-          <.button type="submit" class="w-full" phx-disable-with="Sending…">
+          <.button
+            type="submit"
+            class="w-full"
+            phx-disable-with="Sending…"
+            data-testid="send-code"
+          >
             Send code
           </.button>
         </.form>
@@ -69,8 +75,14 @@ defmodule FluxValeWeb.AuthLive.SignIn do
               label="Sign-in code"
               required
               autofocus
+              data-testid="sign-in-code"
             />
-            <.button type="submit" class="w-full" phx-disable-with="Signing in…">
+            <.button
+              type="submit"
+              class="w-full"
+              phx-disable-with="Signing in…"
+              data-testid="verify-code"
+            >
               Verify &amp; sign in
             </.button>
           </.form>

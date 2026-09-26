@@ -1,6 +1,6 @@
 # ADR-00020: Local development — production parity via k3d + Tilt + CNPG + a local overlay
 
-**Status**: Accepted (amended — see Amendments 1–3)
+**Status**: Accepted (amended — see Amendments 1–4)
 **Date**: 2026-08-27
 
 **Context**: local dev must run the app **inside a local Kubernetes cluster**
@@ -127,3 +127,20 @@ kubectl apply -f deploy/local/k8s/
 ```
 
 That is a workaround, not a supported path.
+
+## Amendment 4 (2026-09-26): `scripts/e2e-bootstrap.sh` — the supported non-interactive path
+
+The E2E suite (#75, [ADR-0024](00024-e2e-review-environments.md) local
+runtime) needs the stack up in CI, where Tilt's non-interactive modes
+are already ruled out (Am. 1, 3). Instead of headless Tilt, a bootstrap
+script composes the **same sources** — `deploy/local/k3d.yaml`, the
+pinned charts (versions parsed out of the Tiltfile, so they can't
+fork), `deploy/local/k8s/*` in the Tiltfile's dependency order, and the
+dev image pushed to the k3d registry. Local re-runs and the CI `e2e`
+job drive the one script — two entry points, no drift. It additionally
+runs the seeds and mints the suite's TestInbox PAT.
+
+`tilt up` remains the dev loop (live_update has no script equivalent);
+the script is the batch vehicle. ADR-0024's per-PR runtime will
+supersede the CI job at M7 (review environments); the local entry point
+stays.
