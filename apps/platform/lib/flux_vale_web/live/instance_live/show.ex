@@ -181,7 +181,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
     # don't crash; the next render's buttons match the true state.
     case Instance.deploy(socket.assigns.instance, actor: socket.assigns.current_user) do
       {:ok, _deploying} ->
-        {:noreply, assign(socket, :instance, fetch(socket, socket.assigns.instance.id))}
+        {:noreply, refresh(socket, socket.assigns.instance.id)}
 
       {:error, _error} ->
         {:noreply, put_flash(socket, :error, "Deploy isn't possible from this state.")}
@@ -250,10 +250,28 @@ defmodule FluxValeWeb.InstanceLive.Show do
     end
   end
 
+  # The post-action refresh every success arm rides: assign the re-read,
+  # or keep the last state on a read miss (the row was torn down between
+  # the action and the fetch — assigning nil would crash the render; the
+  # :destroy broadcast owns the exit).
+  defp refresh(socket, id) do
+    # coveralls-ignore-start - race window: the action succeeded but
+    # teardown deleted the row before the re-read — the read-miss itself
+    # is covered via handle_info's foreign-id broadcast test; landing
+    # here needs a concurrent delete mid-event, which no deterministic
+    # test can stage without a backdoor
+    case fetch(socket, id) do
+      nil -> socket
+      instance -> assign(socket, :instance, instance)
+    end
+
+    # coveralls-ignore-stop
+  end
+
   defp handle_lifecycle(socket, action) do
     case action.(socket.assigns.instance, actor: socket.assigns.current_user) do
       {:ok, _instance} ->
-        {:noreply, assign(socket, :instance, fetch(socket, socket.assigns.instance.id))}
+        {:noreply, refresh(socket, socket.assigns.instance.id)}
 
       {:error, _error} ->
         {:noreply, put_flash(socket, :error, "That action isn't possible from this state.")}
