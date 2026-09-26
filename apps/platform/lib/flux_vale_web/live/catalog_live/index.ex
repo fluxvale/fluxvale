@@ -52,6 +52,7 @@ defmodule FluxValeWeb.CatalogLive.Index do
               :for={app <- sort_by_name(category.apps)}
               navigate={~p"/apps/#{app.slug}"}
               id={"app-#{app.id}"}
+              data-testid={"app-#{app.slug}"}
               class="card bg-base-200 hover:bg-base-300 transition-colors"
             >
               <div class="card-body gap-2 py-4">

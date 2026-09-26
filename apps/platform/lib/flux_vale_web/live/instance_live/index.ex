@@ -53,6 +53,7 @@ defmodule FluxValeWeb.InstanceLive.Index do
             :for={{dom_id, instance} <- @streams.instances}
             navigate={~p"/instances/#{instance.id}"}
             id={dom_id}
+            data-testid="instance-row"
             class="card bg-base-200 hover:bg-base-300 transition-colors block"
           >
             <div class="card-body gap-2 py-4">

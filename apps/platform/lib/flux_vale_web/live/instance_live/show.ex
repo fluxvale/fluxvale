@@ -55,7 +55,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
             </div>
           </div>
 
-          <p class="font-mono text-sm opacity-60 mt-1">
+          <p class="font-mono text-sm opacity-60 mt-1" data-testid="instance-url">
             {instance_url(@instance)}
           </p>
         </div>
@@ -63,7 +63,12 @@ defmodule FluxValeWeb.InstanceLive.Show do
         <div class="card bg-base-200">
           <div class="card-body gap-4">
             <h2 class="card-title text-base">Status</h2>
-            <p :if={@instance.status_message} class="text-sm opacity-80" id="status-message">
+            <p
+              :if={@instance.status_message}
+              class="text-sm opacity-80"
+              id="status-message"
+              data-testid="status-message"
+            >
               {@instance.status_message}
             </p>
             <p :if={is_nil(@instance.status_message)} class="text-sm opacity-60">
@@ -126,6 +131,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
       type="button"
       phx-click="deploy"
       class="btn btn-primary btn-sm"
+      data-testid="deploy-button"
     >
       <%= if @instance.status == :error do %>
         Retry deploy
@@ -140,6 +146,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
       target="_blank"
       rel="noopener"
       class="btn btn-primary btn-sm"
+      data-testid="open-instance"
     >
       Open <span aria-hidden="true">&rarr;</span>
     </a>
@@ -149,6 +156,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
       type="button"
       phx-click="stop"
       class="btn btn-ghost btn-sm"
+      data-testid="stop-button"
     >
       Stop
     </button>
@@ -158,6 +166,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
       type="button"
       phx-click="start"
       class="btn btn-primary btn-sm"
+      data-testid="start-button"
     >
       Start
     </button>
@@ -168,6 +177,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
       phx-click="delete"
       data-confirm="Delete this instance and all its data? This cannot be undone."
       class="btn btn-error btn-outline btn-sm"
+      data-testid="delete-button"
     >
       Delete
     </button>

@@ -479,7 +479,7 @@ defmodule FluxValeWeb.CoreComponents do
     assigns = assign(assigns, :class, Map.get(classes, status, "badge-ghost"))
 
     ~H"""
-    <span class={["badge badge-sm font-medium", @class]}>
+    <span class={["badge badge-sm font-medium", @class]} data-testid="status-badge">
       {@status}
     </span>
     """
