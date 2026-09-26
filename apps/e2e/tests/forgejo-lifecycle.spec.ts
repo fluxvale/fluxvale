@@ -2,11 +2,13 @@ import { expect, test, type Page } from "@playwright/test";
 import { signIn } from "./helpers/sign-in";
 import { TestInbox } from "./helpers/test-inbox";
 
-// The M3 exit demo (ADR-0031), automated: sign in via TestInbox →
-// catalog → deploy Forgejo → running → instance URL opens → stop →
-// destroy. It crosses the real cluster — `running` lands on the
-// reconcile cron's next tick after pod readiness, and a cold node pulls
-// the Forgejo image first — so the waits are generous (ADR-00024 §6).
+// Forgejo's full customer lifecycle through the real UI — the flow the
+// build ladder demos at every milestone exit (ADR-0031): sign in via
+// TestInbox → catalog → deploy Forgejo → running → instance URL opens
+// → stop → destroy. It crosses the real cluster — `running` lands on
+// the reconcile cron's next tick after pod readiness, and a cold node
+// pulls the Forgejo image first — so the waits are generous
+// (ADR-00024 §6).
 
 const testInboxToken = process.env.E2E_TESTINBOX_TOKEN;
 const runId = process.env.E2E_RUN_ID ?? `run${Date.now()}`;

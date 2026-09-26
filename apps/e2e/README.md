@@ -44,12 +44,12 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
 ## Tests
 
 - `health.spec.ts` — smoke, runs anywhere.
-- `m3-exit-demo.spec.ts` — the M3 exit demo (ADR-0031): sign-in via
-  TestInbox → catalog → deploy Forgejo → running → instance URL →
-  stop → destroy. Crosses the real cluster: `running` waits out the
-  image pull plus the reconcile cron's minute granularity — the test
-  carries a 15-minute budget; a red runner is usually a broken demo,
-  not a slow one.
+- `forgejo-lifecycle.spec.ts` — Forgejo's full lifecycle through the
+  real UI: sign-in via TestInbox → catalog → deploy → running →
+  instance URL → stop → destroy. Crosses the real cluster: `running`
+  waits out the image pull plus the reconcile cron's minute
+  granularity — the test carries a 15-minute budget; a red runner is
+  usually a broken flow, not a slow one.
 
 CI: the `e2e` job (`.github/workflows/ci.yml`) bootstraps the same
 script on an ephemeral k3d and runs the full suite; the HTML report
