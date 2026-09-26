@@ -44,6 +44,9 @@ if ! k3d cluster list --no-headers 2>/dev/null | grep -q '^fluxvale '; then
 else
   echo "==> k3d cluster exists"
 fi
+# The create path switches contexts itself; the reuse path doesn't —
+# pin it, or a different current context takes every apply below.
+kubectl config use-context k3d-fluxvale
 
 # ---- dev image: build on the host, push to the k3d registry the nodes
 # pull from (never docker.io). Fresh tag per run so a re-run always
@@ -94,17 +97,20 @@ done
 
 # ---- seeds (idempotent) + the suite's TestInbox PAT, in one exec into
 # the live container (e2e_in_pod.exs boots the app with the endpoint
-# listener off — the server process owns :4000 — and wraps the token in
-# sentinels so async log lines can't steal the contract)
+# listener off — the server process owns :4000 — and tags the token
+# line so async log interleaving can't corrupt the contract)
 echo "==> seeds + TestInbox PAT"
 pat="$(
   kubectl -n "$NAMESPACE" exec -i deployment/fluxvale-platform -- \
     mix run --no-start priv/repo/e2e_in_pod.exs |
-    sed -n '/^E2E_PAT_BEGIN$/,/^E2E_PAT_END$/p' | sed '1d;$d'
+    sed -n 's/^E2E_PAT //p'
 )"
 test -n "$pat" || { echo "in-pod runner returned no PAT" >&2; exit 1; }
 
+# rm first: `>` preserves an existing file's perms, and a rerun must
+# not leave the fresh PAT in a previously-looser mode
 umask 077
+rm -f "$ENV_FILE"
 printf 'E2E_TESTINBOX_TOKEN=%s\n' "$pat" >"$ENV_FILE"
 
 echo "==> stack ready: $APP_URL/health — credentials in $ENV_FILE"

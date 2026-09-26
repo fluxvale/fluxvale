@@ -11,8 +11,9 @@
 # seeds.exs / local_seeds.exs stay host-side `mix run` scripts; this
 # wrapper evals them rather than forking their logic.
 #
-# Contract: the bare PAT sits between E2E_PAT_BEGIN / E2E_PAT_END
-# sentinels — immune to any async log line.
+# Contract: the token rides ONE tagged line (`E2E_PAT <jwt>`) — async
+# log lines can interleave anywhere else, the tag prefix can't be
+# faked, and the JWT itself has no spaces.
 
 endpoint_config = Application.get_env(:flux_vale, FluxValeWeb.Endpoint, [])
 
@@ -30,9 +31,7 @@ end
 
 case FluxVale.Identity.User.mint_pat("admin@fluxvale.com", authorize?: false) do
   {:ok, token} ->
-    IO.puts("E2E_PAT_BEGIN")
-    IO.puts(token)
-    IO.puts("E2E_PAT_END")
+    IO.puts("E2E_PAT " <> token)
 
   {:error, error} ->
     IO.puts(:stderr, "PAT mint failed: #{Exception.message(error)}")

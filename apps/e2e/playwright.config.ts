@@ -5,6 +5,20 @@ import { defineConfig } from "@playwright/test";
 // suite never starts a server itself. Default: the local k3d/Tilt stack
 // (ADR-0020), reached through Traefik.
 const baseURL = process.env.BASE_URL ?? "https://app.fluxvale.lvh.me";
+const target = new URL(baseURL);
+
+// Local targets: loopback or the lvh.me dev wildcard (ADR-0020). Only
+// these may skip TLS validation (self-signed) or ride plain http — the
+// TestInbox PAT must never travel cleartext to a real deployment.
+const isLocal =
+  ["localhost", "127.0.0.1", "[::1]"].includes(target.hostname) ||
+  target.hostname.endsWith(".lvh.me");
+
+if (target.protocol !== "https:" && !isLocal) {
+  throw new Error(
+    `BASE_URL must be https for non-local targets (got ${baseURL})`,
+  );
+}
 
 export default defineConfig({
   testDir: "./tests",
@@ -18,10 +32,7 @@ export default defineConfig({
   ],
   use: {
     baseURL,
-    // Self-signed TLS on the local stack (ADR-0020); every runtime today
-    // is either self-signed or internal. Revisit when cert-backed prod
-    // joins (M4).
-    ignoreHTTPSErrors: true,
+    ignoreHTTPSErrors: isLocal,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },

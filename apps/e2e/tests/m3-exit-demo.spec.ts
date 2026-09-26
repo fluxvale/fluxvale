@@ -49,11 +49,13 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   await waitForStatus(page, "running", 12 * 60_000);
 
   // The instance URL opens through Traefik (self-signed — ignored at
-  // the config level)
+  // the config level) and actually serves Forgejo, not a placeholder
+  // that merely answers 200
   const url = (await page.getByTestId("instance-url").textContent())?.trim();
   expect(url).toMatch(/^https:\/\//);
   const opened = await request.get(url!);
   expect(opened.status()).toBeLessThan(400);
+  expect(await opened.text()).toMatch(/Forgejo/i);
 
   // Stop → stopped (K8s scale-to-0, quick)
   await page.getByTestId("stop-button").click();
