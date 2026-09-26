@@ -89,6 +89,7 @@ defmodule FluxValeWeb.CatalogLive.Show do
                     navigate={~p"/apps/#{@app.slug}/deploy"}
                     class="btn btn-primary btn-sm"
                     id={"deploy-#{version.id}"}
+                    data-testid={"deploy-#{version.version}"}
                   >
                     Deploy
                   </.link>
