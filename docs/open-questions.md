@@ -112,6 +112,18 @@ the decision.
     bones, re-point, add per-PR (review env) / staging-full /
     prod-readonly / local runtimes + TestInbox adapters. Suite at
     `apps/e2e`.
+15. **E2E coverage of new pages** — Playwright can't know the UI's
+    full surface, so "every route has a spec" is invisible without
+    help (surfaced after #91, 2026-09-26). Today: manual audit —
+    `mix phx.routes` vs. the suite's path references (~7 user routes;
+    milestone issues scope e2e growth per
+    [ADR-0024](adr/00024-e2e-review-environments.md)). Revisit
+    trigger: page-count growth at M5 (billing UI) / M7 (public pages),
+    or the first untested page that ships — then a CI route-tripwire
+    (diff the router against the suite's path references, fail on
+    untouched routes, exclusions list for `/admin` and the TestInbox
+    UI), honoring [ADR-0020](adr/00020-local-dev-parity.md)'s
+    felt-pain tooling rule.
 
 ## Deferred (with triggers — [ADR-0016](adr/00016-deferred-triggers.md))
 
