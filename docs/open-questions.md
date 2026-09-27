@@ -126,6 +126,20 @@ the decision.
     list for `/admin` and the TestInbox UI), honoring
     [ADR-0020](adr/00020-local-dev-parity.md)'s
     felt-pain tooling rule.
+16. **Platform-SA cross-env bind scope** — surfaced by the fleet-repo
+    RBAC port (fluxvale/infrastructure#1 review, 2026-09-27): the #69
+    operator pattern grants each env's platform SA cluster-wide
+    Namespace/RoleBinding authority plus `bind` on
+    `fluxvale-platform-workload` — sound with one env, but staging and
+    prod share one cluster (M4), so a compromised staging SA can bind
+    the workload role in `fluxvale-production` and reach prod Secrets.
+    No cheap RBAC-only fix: Namespace verbs can't be name-scoped, and
+    instance-namespace RoleBinding grants bootstrap badly (the SA must
+    hold a right before it can grant itself). Decide before customer
+    instances carry real data: accept (credentials are in-cluster SA
+    tokens; blast radius is two first-party envs) or constrain via
+    admission policy (confine binds/RoleBindings to `fluxvale-app-*`
+    namespaces) at the M5 instance-hardening pass.
 
 ## Deferred (with triggers — [ADR-0016](adr/00016-deferred-triggers.md))
 
