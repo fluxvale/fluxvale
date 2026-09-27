@@ -133,9 +133,12 @@ the decision.
     `fluxvale-platform-workload` — sound with one env, but staging and
     prod share one cluster (M4), so a compromised staging SA can bind
     the workload role in `fluxvale-production` and reach prod Secrets.
-    No cheap RBAC-only fix: Namespace verbs can't be name-scoped, and
-    instance-namespace RoleBinding grants bootstrap badly (the SA must
-    hold a right before it can grant itself). Decide before customer
+    No cheap RBAC-only fix: Namespace `create` cannot be name-scoped
+    (`get`/`patch`/`delete` can use `resourceNames`, `list` a
+    `metadata.name` field selector — but the SA must create the
+    namespaces it operates on), and instance-namespace RoleBinding
+    grants bootstrap badly (the SA must hold a right before it can
+    grant itself). Decide before customer
     instances carry real data: accept (credentials are in-cluster SA
     tokens; blast radius is two first-party envs) or constrain via
     admission policy (confine binds/RoleBindings to `fluxvale-app-*`
