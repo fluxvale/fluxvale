@@ -120,9 +120,11 @@ the decision.
     [ADR-0024](adr/00024-e2e-review-environments.md)). Revisit
     trigger: page-count growth at M5 (billing UI) / M7 (public pages),
     or the first untested page that ships — then a CI route-tripwire
-    (diff the router against the suite's path references, fail on
-    untouched routes, exclusions list for `/admin` and the TestInbox
-    UI), honoring [ADR-0020](adr/00020-local-dev-parity.md)'s
+    (diff the router's **browser-scope** routes — LiveView/page GETs,
+    not `/health`, `/api/v1`, session POST/DELETE — against the
+    suite's path references, fail on untouched routes, exclusions
+    list for `/admin` and the TestInbox UI), honoring
+    [ADR-0020](adr/00020-local-dev-parity.md)'s
     felt-pain tooling rule.
 
 ## Deferred (with triggers — [ADR-0016](adr/00016-deferred-triggers.md))
