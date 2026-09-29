@@ -61,12 +61,11 @@ the decision.
 
 ## Platform
 
-7. **Server provisioning** — reuse v1's `nuremberg-01` or fresh
-   Netcup order? Maintainer stance (2026-09-18): wipe-and-reuse at
-   cutover stays preferred, no rush — v1 remains occasionally useful
-   until then. Final call at M4 planning;
-   fresh order is the fallback if v2 readiness outlasts v1's useful
-   window. (v1's operational quirks are documented in the
+7. **Server provisioning** — resolved (#93, 2026-09-28):
+   wipe-and-reuse `nuremberg-01`. The fresh-order fallback didn't
+   fire — M3 done, M4 is the cutover, so v1's useful window ended on
+   schedule. Topology settled same day: single control plane,
+   workloads on it. (v1's operational quirks are documented in the
    [v1 repo](https://github.com/fluxvale/fluxvale_old)'s AGENTS.md;
    per [ADR-0018](adr/00018-repo-visibility.md), operational
    specifics are not restated in this public repo.)

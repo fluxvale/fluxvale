@@ -85,3 +85,22 @@ stateful service (self-hosted) or third-party holding cluster-control state
 declaratively. Evaluate hosted first when the trigger fires; the demoted box
 ([ADR-00006](00006-single-cluster-multi-region-ready.md)) is the natural
 self-hosted home.
+
+## Amendment 1 (2026-09-30): Talos 1.14 mechanics — fluency-run verified
+
+A QEMU fluency run (`cluster create qemu --presets iso,maintenance` — a
+faithful rehearsal harness: ISO → maintenance → `apply-config` →
+readiness → `bootstrap` → health → kubeconfig) verified §3's sequence
+end-to-end and corrected its commands for 1.14: `talosctl status` does
+not exist (readiness = `talosctl service`, etcd `Preparing` until
+bootstrap); `health --k8s` is folded into `talosctl health`, which also
+asserts node schedulability. The single-node topology (#93, 2026-09-28)
+ships as `talos/patches/single-node.yaml` in the fleet repo — the
+deprecated `cluster.allowSchedulingOnControlPlanes` collides with
+1.14's explicitly-emitted `KubeNodeConfig` taint and fails validation;
+`$patch: delete` on the taints key is the working form. Firewall rides
+the initial `apply-config` payload: a post-hoc try-mode cycle
+self-reverts correctly (verified) but left apid's health-view wedged.
+Local-rehearsal gotchas: QEMU provisioning needs root (CNI), and a
+workstation ufw blocks the CNI bridge. Operational specifics live in
+the fleet repo's `DEPLOYMENT.md`.
