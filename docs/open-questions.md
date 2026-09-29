@@ -65,7 +65,9 @@ the decision.
    wipe-and-reuse `nuremberg-01`. The fresh-order fallback didn't
    fire — M3 done, M4 is the cutover, so v1's useful window ended on
    schedule. Topology settled same day: single control plane,
-   workloads on it. (v1's operational quirks are documented in the
+   workloads on it
+   ([ADR-0022](adr/00022-talos-linux.md) Am. 1). (v1's operational
+   quirks are documented in the
    [v1 repo](https://github.com/fluxvale/fluxvale_old)'s AGENTS.md;
    per [ADR-0018](adr/00018-repo-visibility.md), operational
    specifics are not restated in this public repo.)
