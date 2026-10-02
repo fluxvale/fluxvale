@@ -1,6 +1,6 @@
 # ADR-0029: Payments — adapter architecture; self-MoR with Stripe (MoR products rejected)
 
-**Status**: Accepted (amended — see Amendments 1–2)
+**Status**: Accepted (amended — see Amendments 1–3)
 **Date**: 2026-09-01
 
 **Context**: v1 used Dodo Payments (checkout + Standard Webhooks). OQ #4
@@ -60,3 +60,62 @@ signature scheme land in `Providers.HitPay` at M6 — same
 constant-time verification discipline. USD display pricing carries
 over; settlement currency re-confirmed at M6 (Am. 1's PHP settlement
 was Xendit-specific).
+
+## Amendment 3 (2026-10-02): Cross-border VAT concretized — registrations are launch gates
+
+**Trigger**: a US micro-SaaS operator with zero UK/EU presence got an
+HMRC "nudge" letter for uncollected UK VAT on B2C subscriptions — the
+self-MoR exposure this ADR accepted, showing up on someone else's
+doorstep. Research (2026-10-02) produced the map; the maintainer set
+the gates.
+
+**The rule**: B2C digital services are taxed where the *customer* is —
+entity, bank, staff are irrelevant. B2B sales to VAT-registered
+customers are reverse-charge (customer self-accounts) — no registration
+duty. Our zero-ops audience skews consumer → day-one exposure in every
+market we charge.
+
+- **UK — £0 threshold** for non-established sellers (post-Brexit):
+  register as a NETP via HMRC's online VAT registration (VAT1 —
+  VAT1A is NI goods distance-selling, not this), 20% on consumer
+  sales, quarterly returns.
+- **EU — €0 threshold** for non-EU sellers, nominally per member
+  state; the **non-Union OSS** collapses it — one registration
+  (Ireland presumed) + one quarterly return covers all 27, each
+  customer's country rate.
+- **Rest of world — threshold-gated**: TH THB 1.8M, AU A$75k, CA
+  C$30k, JP ¥10M, NO NOK 50k, US per-state economic nexus (~$100k;
+  SaaS taxability varies — state-level totals needed, country totals
+  can't see it). Watchlist; register on approach. Revenue by
+  billing country (US: by state) from gate 3's persisted fields is
+  the whole monitoring mechanism.
+- **PH (Am. 1's item, stands)**: exported services zero-rated VAT
+  with documentation — RR 9-2021's conditions are a buyer outside
+  PH, payment in acceptable foreign currency, and accounting under
+  BSP rules. Checkout location evidence is one input, not the
+  whole proof.
+
+**Gates — blockers before the first real charge** (decided 2026-10-02;
+M6's test-mode checkout is exempt, production charges are not):
+
+1. UK NETP + EU OSS registrations live.
+2. Checkout tax layer (HitPay has no Stripe-Tax equivalent — we own
+   it): billing country (US: billing state), customer type, VAT
+   number (B2B → reverse-charge), **two non-contradictory location
+   proofs** (billing address + IP — the OSS evidence requirement),
+   consumer prices carrying the customer's country rate.
+3. Quarterly per-country tax summaries emittable from the ledger —
+   rows must persist gate 2's billing country and applied rate so a
+   return is a query, not a reconstruction (the M5 schema inherits
+   this commitment).
+4. PH zero-rating evidence complete for production charges —
+   foreign-currency payment records and BSP-rule accounting per
+   RR 9-2021 (settlement currency, Am. 2's open M6 item, must fit
+   this).
+
+**Still advisor items (OQ #4)**: OSS member state, prepaid-credit
+voucher classification (single-purpose = VAT at purchase,
+multi-purpose = at redemption — shifts *when*, not *whether*), PH
+zero-rating evidence shape (what satisfies RR 9-2021's BSP
+accounting), DIY vs agent filings (Taxually/Marosa/Fonoa class,
+~€100–300/jurisdiction/yr).
