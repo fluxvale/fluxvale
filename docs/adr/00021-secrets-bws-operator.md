@@ -1,6 +1,6 @@
 # ADR-00021: Secrets — Bitwarden SM Kubernetes operator (primary) + fnox (bootstrap residual)
 
-**Status**: Accepted (amended — see Amendment 1) — with one named pre-adoption verification (EU region, below)
+**Status**: Accepted (amended — see Amendments 1–2) — with one named pre-adoption verification (EU region, below)
 **Date**: 2026-08-28
 
 **Context**: v1 materialized K8s Secrets at bootstrap time via the fnox CLI
@@ -58,10 +58,43 @@ slack from [ADR-00009](00009-single-cnpg-cluster.md)'s single-cluster consolidat
 
 ## Amendment 1 (2026-09-01)
 
-With Talos replacing Debian + k3s + Ansible ([ADR-00022](00022-talos-linux.md)),
+With Talos replacing Debian + k3s + Ansible ([ADR-0022](00022-talos-linux.md)),
 the bootstrap residual shrinks again and loses its last Ansible dependency:
 the two BWS-operator token Secrets are applied by a small `kubectl` script
 post-`flux bootstrap` — fnox and the Ansible role exit entirely. Bitwarden
 additionally holds the Talos bootstrap values (`talosconfig` + cluster PKI).
 Everything else (operator-primary, per-env projects, least privilege,
 local-overlay dummies) stands.
+
+## Amendment 2 (2026-10-02): what the adoption actually looks like
+
+Verified on nuremberg-01 (#94 exit test: sync green in both namespaces,
+prod-only canary absent from staging — cross-env denial structural):
+
+- **No SecretStore CRD exists** — this ADR's "SecretStore" vocabulary was
+  external-secrets leakage. The operator's model: per-namespace **token
+  Secret** (the env's machine-account access token, the only out-of-band
+  value) + one **BitwardenSecret CR** per env (`useSecretNames: true`,
+  `onlyMappedSecrets: false` — 2.0.0 defaults it on, mutually exclusive
+  with useSecretNames) → one `bws-secrets` K8s Secret holding the whole
+  project, consumers `secretKeyRef` into it. No per-consumer CRs.
+- **Projects, really**: `fluxvale-production` and `fluxvale-staging` (not
+  "fluxvale-prod"), plus a third tier the original decision implied but
+  didn't name: **`fluxvale-infrastructure`** — operator-unreachable on
+  purpose, holding cluster-admin values (Talos configs/PKI, admin
+  kubeconfig) that must never sync into a namespace. Machine accounts:
+  one per env project, read-scoped; humans use the web vault; no
+  standing broad CLI account (the v1 provisioner is deleted).
+- **Pin = 2.0.0, image and source together**: v2.1.0's GitHub release
+  exists but its image was never pushed to ghcr; 2.1.0's `projectId`
+  filter is off the table until a 2.1.x image ships (token scoping is
+  the isolation anyway). `kube-rbac-proxy` sidecar redirects to
+  `quay.io/brancz` (gcr.io kubebuilder images are gone).
+- **EU works** (the pre-adoption check passes): operator env
+  `BW_API_URL=https://vault.bitwarden.eu/api` +
+  `BW_IDENTITY_API_URL=https://vault.bitwarden.eu/identity`, patched by
+  **label selector** — Flux applies `spec.patches` before upstream's
+  namePrefix, so name-targeted patches silently no-op. Same class of
+  gotcha on the CLI: `bws` stores `server-base` **per token profile** —
+  an unconfigured token silently defaults to US and fails
+  `invalid_client`; set `BWS_SERVER_URL` or per-token config.
