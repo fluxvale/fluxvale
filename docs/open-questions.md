@@ -15,7 +15,10 @@ the decision.
 
 2. **v2 launch gate** — v1's "FluxVale Sorted" gate (SFTP E2E, 5-app
    catalog, billing essentials, verified backups/restore, private
-   beta) needs a v2 restatement. Which items make the v2 gate?
+   beta) needs a v2 restatement. Which items make the v2 gate? One
+   settled input: cross-border VAT gates — registrations, checkout
+   tax evidence, and per-country return data before the first real
+   charge ([ADR-0029](adr/00029-payments-adapter-selfmor.md) Am. 3).
 3. **Catalog lineup** — Forgejo #1 ([ADR-0031](adr/0031-build-order.md)
    M3 seed: the org's own git forge; SSH disabled initially,
    HTTPS-only git — the v1 port-22 lesson; SQLite-on-PVC) — seeded
@@ -29,8 +32,10 @@ the decision.
    [ADR-0029](adr/00029-payments-adapter-selfmor.md): self-MoR with
    HitPay behind a PaymentProvider adapter (PH entity; Stripe
    unavailable there; Xendit swapped out pre-implementation, Am. 2).
-   Open launch-gate item: PH tax treatment of exported digital
-   services + prepaid-credits classification.
+   Open launch-gate advisor items (map + registration gates decided,
+   [ADR-0029](adr/00029-payments-adapter-selfmor.md) Am. 3): OSS
+   member state, prepaid-credits voucher classification, PH
+   zero-rating documentation, DIY vs agent filings.
 5. **Welcome credits anti-abuse** — mostly resolved by passwordless
    email-code auth (login proves inbox ownership by construction,
    [ADR-0003](adr/00003-ashauthentication-drop-authentik.md));
