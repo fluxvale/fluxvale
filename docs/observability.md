@@ -104,6 +104,7 @@ status-page triggers).
 | Smoke or synthetic red (deploy-attached, Bruno correctness, or probe failure from any region) | the oracle spoke |
 | Scheduled-run freshness (Bruno heartbeat stale) | dead-man's switch — a silently-stopped cron emits no failure signal |
 
-Routing: email + phone push. Deploy annotations on every dashboard —
-with simultaneous deploys, every incident's first question is "what
-changed?"
+Routing: **email-only** (maintainer call 2026-10-07, #97 bring-up —
+phone push deferred until beta alerts earn it). Deploy annotations on
+every dashboard — with simultaneous deploys, every incident's first
+question is "what changed?"
