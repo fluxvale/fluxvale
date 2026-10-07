@@ -6,7 +6,9 @@ defmodule FluxVale.Seeds do
   Get-or-create rather than `Ash.Seed.seed!/2` + `upsert_identity`: Ash
   validates **all** identities before reaching the DB upsert, so the
   unique-name constraint fails even when upserting by slug. Lookup-then-
-  create is the reliable idempotent shape (v1 lesson, ported).
+  create is the reliable idempotent shape (v1 lesson, ported) — for a
+  single caller; overlapping runs race the lookup (bring-up seeds are
+  operator-run, one at a time).
 
   Every call runs `authorize?: false` — bootstrap: there is no actor to
   authorize before seed data exists (same posture as the admin seed).

@@ -23,8 +23,9 @@ COPY mix.exs mix.lock ./
 RUN mix deps.get --only prod
 
 # App source. priv carries repo migrations + the catalog seed YAML the
-# release runs against (FluxVale.Release); rel carries the bin/server and
-# bin/migrate overlays `mix release` copies into the release tree.
+# release runs against (FluxVale.Release); rel carries the bin/server,
+# bin/migrate, and bin/seed overlays `mix release` copies into the
+# release tree.
 COPY lib lib
 COPY config config
 COPY priv priv

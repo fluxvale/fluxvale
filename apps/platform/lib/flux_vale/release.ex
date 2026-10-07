@@ -36,9 +36,11 @@ defmodule FluxVale.Release do
 
   @doc """
   Runs the bring-up seed (`FluxVale.Seeds.seed/0`: platform admin +
-  catalog). Idempotent — safe on every env at bring-up; per-env
-  FeatureFlag and AccessRule values are AshAdmin-administered, never
-  seeded (docs/deployment.md).
+  catalog). Idempotent, single caller assumed — the admin get-or-create
+  is check-then-insert, so overlapping `bin/seed` runs race the identity
+  (operator bring-up path, not the advisory-locked init container).
+  Per-env FeatureFlag and AccessRule values are AshAdmin-administered,
+  never seeded (docs/deployment.md).
   """
   @spec seed :: :ok
   def seed do
