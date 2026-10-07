@@ -31,7 +31,9 @@ CI job 3: smoke
    │
    ▼
 green → Grafana deploy annotation, done
-red  → alert (phone push) + auto-opened revert PR + PR comment + annotation
+red  → alert (email — routing is email-only for now, phone push
+       deferred per observability.md) + auto-opened revert PR + PR
+       comment + annotation
 ```
 
 Merge-to-verified ≈ 12–20 minutes. Readiness probes self-contain
@@ -137,7 +139,7 @@ Manifest-caused failures (bad limits, Traefik config): revert the
 
 ## On failure: automate detection and preparation, keep the decision human
 
-On smoke failure, automation **alerts** (phone push, deep-linked),
+On smoke failure, automation **alerts** (email, deep-linked),
 **opens the revert PR** (`gh pr revert <n>`), comments on the
 offending PR, posts a Grafana annotation. A human merges (one tap) or
 writes the proper counter-migration PR. No auto-merge.
