@@ -48,7 +48,12 @@ RUN adduser -D -u 10001 fluxvale
 
 WORKDIR /app
 
-COPY --from=builder --chown=fluxvale:fluxvale /app/_build/prod/rel/flux_vale ./
+# Release tree stays root-owned (a compromised runtime process must not
+# overwrite its own executables — review finding); only the tmp dir is
+# writable: Mix's generated bin scripts export sys.config there at boot
+# (RELEASE_TMP defaults to <release root>/tmp).
+COPY --from=builder /app/_build/prod/rel/flux_vale ./
+RUN mkdir -p tmp && chown fluxvale:fluxvale tmp
 
 # BUILD_SHA is the deploy pipeline's poll target (docs/deployment.md):
 # /health reports sha-<BUILD_SHA>, CI tags the image sha-<BUILD_SHA>,

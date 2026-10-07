@@ -27,6 +27,17 @@ defmodule FluxVale.Seeds.AdminSeedTest do
       assert [%User{}] = users_matching_email()
     end
 
+    test "raises on an existing non-admin occupant of the seed email" do
+      User.create!("admin@fluxvale.com", %{platform_role: :user}, authorize?: false)
+
+      assert_raise RuntimeError, ~r/non-admin role/, fn ->
+        Seeds.seed_admin!()
+      end
+
+      # The squatter is untouched — promotion is an operator decision
+      assert [%{platform_role: :user}] = users_matching_email()
+    end
+
     defp users_matching_email do
       User
       |> Ash.Query.filter(email == ^"admin@fluxvale.com")

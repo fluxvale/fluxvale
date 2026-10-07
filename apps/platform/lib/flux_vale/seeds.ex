@@ -43,7 +43,9 @@ defmodule FluxVale.Seeds do
   (TestInbox #22, Ops CRUD #25/#26, AshAdmin) have a real actor. No
   AccessRule rows ship: environments gate themselves through the
   AshAdmin CRUD at bring-up (settled on #26; ADR-0023 Am. 6's
-  empty-then-close).
+  empty-then-close). An existing non-admin occupant of the seed email
+  raises — the operator resolves it; the seed neither promotes nor
+  silently skips.
 
   authorize?: false — bootstrap: there is no actor to authorize before
   the first admin exists (same posture as the User#create policy
@@ -52,8 +54,14 @@ defmodule FluxVale.Seeds do
   @spec seed_admin! :: :ok
   def seed_admin! do
     case User.get_by_email(@admin_email, authorize?: false) do
-      {:ok, _existing} ->
+      {:ok, %{platform_role: :admin}} ->
         :ok
+
+      # Someone registered the seed email as a plain user (JIT sign-up
+      # makes that possible): seeding must not silently promote or
+      # silently no-op — the operator decides.
+      {:ok, _squatter} ->
+        raise "seed admin: #{@admin_email} exists with a non-admin role — promote or remove that user manually, then re-run"
 
       {:error, _not_found} ->
         User.create!(@admin_email, %{platform_role: :admin}, authorize?: false)
