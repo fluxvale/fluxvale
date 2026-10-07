@@ -241,6 +241,128 @@ jobs:
           name: playwright-report
           path: apps/e2e/playwright-report
 
+  # Deploy pipeline jobs 1–2 (docs/deployment.md, #98) — main pushes with
+  # platform changes only. Job 1 builds the OTP release image and pushes
+  # two tags of the same manifest: sha-<github.sha> (the /health poll
+  # target — BUILD_SHA is baked in as the build-arg) and `latest` (the
+  # mutable tag the fleet repo's ImagePolicy follows via
+  # digestReflectionPolicy: Always; the digest is what Flux's
+  # ImageUpdateAutomation pins into both overlays in one commit). Job 2
+  # version-polls both envs' /health until the new SHA is live — the
+  # whole chain (DNS → Cloudflare → Traefik → pod) with zero cluster
+  # credentials (ADR-0007). Smoke (job 3) lands with #99.
+  #
+  # Package visibility is public (settlement on #98): source is
+  # FSL-public, the image carries no secrets (all config via env) — no
+  # imagePullSecrets anywhere.
+  deploy-image:
+    name: Build and push release image
+    # platform, not just check-changes: never ship an image while the CI
+    # that vets it is still running — a main-only red (flaky test,
+    # codecov outage) must not ride a deploy.
+    needs: [check-changes, platform]
+    if: github.ref == 'refs/heads/main' && needs.check-changes.outputs.platform == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      # v4.2.2 — pinned to commit: mutable tags execute unreviewed code,
+      # and this job holds packages:write
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      # Two asserts, both fixed-string on purpose: Dockerfile and
+      # Tiltfile BASE_IMAGE pins must equal each other AND each carry
+      # mise.toml's BEAM pins — dev and prod never drift to different
+      # toolchains (review finding: prose claimed parity nothing
+      # enforced).
+      - name: Assert BASE_IMAGE matches Tiltfile + mise.toml pins
+        run: |
+          otp="$(sed -n 's/^erlang *= *"\([^"]*\)".*/\1/p' mise.toml)"
+          elixir="$(sed -n 's/^elixir *= *"\([^"]*\)".*/\1/p' mise.toml | sed 's/-otp-.*//')"
+          base="$(sed -n 's/^ARG BASE_IMAGE=\([^ ]*\)$/\1/p' apps/platform/Dockerfile | head -1)"
+          tilt="$(sed -n "s/^BASE_IMAGE = '\(.*\)'$/\1/p" Tiltfile | head -1)"
+          echo "BASE_IMAGE=$base tilt=$tilt otp=$otp elixir=$elixir"
+          test -n "$base" && test -n "$tilt" && test -n "$otp" && test -n "$elixir"
+          [ "$base" = "$tilt" ] || { echo "::error::Dockerfile BASE_IMAGE ($base) != Tiltfile BASE_IMAGE ($tilt) — bump the pins together"; exit 1; }
+          echo "$base" | grep -qF "elixir-$elixir-erlang-$otp" || {
+            echo "::error::BASE_IMAGE ($base) does not match mise.toml (elixir $elixir, erlang $otp) — bump the pin alongside mise"; exit 1; }
+
+      # v3.5.0 — pinned to commit: mutable tags execute unreviewed code
+      - name: Log in to GHCR
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # v3.11.1 — pinned to commit (repo rule above)
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+
+      # v6.18.0 — pinned to commit (repo rule above). GHA cache: the
+      # release build is dominated by deps.compile + app compile; layers
+      # cache unless mix.lock or source move.
+      - name: Build and push sha-<sha> + latest
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
+        with:
+          context: apps/platform
+          push: true
+          tags: |
+            ghcr.io/fluxvale/fluxvale:sha-${{ github.sha }}
+            ghcr.io/fluxvale/fluxvale:latest
+          build-args: |
+            BUILD_SHA=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Deploy pipeline job 2 (docs/deployment.md): poll BOTH envs until
+  # /health reports sha-<github.sha> — prod must not be smoke-tested off
+  # the old image (Flux reconciles the envs at different times). The tail
+  # posts the Grafana deploy annotation — a deploy fact, deliberately not
+  # a smoke verdict (smoke is job 3, #99, which moves this annotation
+  # behind itself when it lands; annotation failure still reds the job —
+  # observability gaps are loud, never silent).
+  watch-deploy:
+    name: Watch deploy (staging + prod)
+    needs: deploy-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Poll both envs until the new SHA serves
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          expected="sha-$SHA"
+          deadline=$((SECONDS + 1200)) # 20 min budget (Flux bump + rollout)
+          while (( SECONDS < deadline )); do
+            staging="$(curl -fsS --max-time 10 https://staging.fluxvale.com/health | jq -r .version)" || staging=""
+            prod="$(curl -fsS --max-time 10 https://fluxvale.com/health | jq -r .version)" || prod=""
+            echo "[${SECONDS}s] staging=$staging prod=$prod (want $expected)"
+            if [ "$staging" = "$expected" ] && [ "$prod" = "$expected" ]; then
+              echo "Both environments serve $expected"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::Timeout: both environments did not report $expected within 20 min"
+          exit 1
+
+      - name: Grafana deploy annotation
+        env:
+          GRAFANA_URL: ${{ secrets.GRAFANA_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.GRAFANA_SERVICE_ACCOUNT_TOKEN }}
+          SHA: ${{ github.sha }}
+        # retry: a transient Grafana 502 must not read as a failed deploy
+        run: |
+          curl -fsS --retry 3 --retry-all-errors --retry-delay 2 --max-time 15 -X POST "$GRAFANA_URL/api/annotations" \
+            -H "Authorization: Bearer $GRAFANA_SERVICE_ACCOUNT_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\": \"Deploy fluxvale sha-$SHA rolled out to staging + prod\", \"tags\": [\"deploy\", \"staging\", \"production\", \"fluxvale\"]}"
+
   # The umbrella: branch protection requires THIS check. Runs regardless
   # of path gating; passes when every gated job succeeded or was skipped.
   # check-changes must SUCCEED, not merely skip: if it failed, its
@@ -248,7 +370,7 @@ jobs:
   # checks run — a green umbrella that proved nothing.
   wait-for-ci:
     name: Wait for CI
-    needs: [check-changes, platform, docs-lint, skills-lint, e2e]
+    needs: [check-changes, platform, docs-lint, skills-lint, e2e, deploy-image, watch-deploy]
     if: always()
     runs-on: ubuntu-latest
     steps:

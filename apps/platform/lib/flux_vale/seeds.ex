@@ -1,13 +1,14 @@
 defmodule FluxVale.Seeds do
   @moduledoc """
-  Seed runner, callable from `priv/repo/seeds.exs` (dev, `mix setup`) and
-  tests. No prod caller yet — prod catalog bring-up is settled with the
-  fleet repo (M4).
+  Seed runner, callable from `priv/repo/seeds.exs` (dev, `mix setup`),
+  the release's `bin/seed` (#98), and tests.
 
   Get-or-create rather than `Ash.Seed.seed!/2` + `upsert_identity`: Ash
   validates **all** identities before reaching the DB upsert, so the
   unique-name constraint fails even when upserting by slug. Lookup-then-
-  create is the reliable idempotent shape (v1 lesson, ported).
+  create is the reliable idempotent shape (v1 lesson, ported) — for a
+  single caller; overlapping runs race the lookup (bring-up seeds are
+  operator-run, one at a time).
 
   Every call runs `authorize?: false` — bootstrap: there is no actor to
   authorize before seed data exists (same posture as the admin seed).
@@ -16,10 +17,58 @@ defmodule FluxVale.Seeds do
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Catalog.Category
+  alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Cluster
   alias FluxVale.Seeds.CatalogData
 
   require Ash.Query
+
+  @admin_email "admin@fluxvale.com"
+
+  @doc """
+  The promotable bring-up seed — dev `mix setup` and the release's
+  `bin/seed` run the same path: platform admin + catalog. Idempotent:
+  the catalog converges, the admin get-or-creates. The `local` Cluster
+  row is deliberately NOT here — `seed_local_cluster!/0` stays
+  dev/local-only (local_seeds.exs).
+  """
+  @spec seed :: :ok
+  def seed do
+    seed_admin!()
+    seed_catalog!()
+  end
+
+  @doc """
+  Creates the bootstrap platform admin so the admin-gated surfaces
+  (TestInbox #22, Ops CRUD #25/#26, AshAdmin) have a real actor. No
+  AccessRule rows ship: environments gate themselves through the
+  AshAdmin CRUD at bring-up (settled on #26; ADR-0023 Am. 6's
+  empty-then-close). An existing non-admin occupant of the seed email
+  raises — the operator resolves it; the seed neither promotes nor
+  silently skips.
+
+  authorize?: false — bootstrap: there is no actor to authorize before
+  the first admin exists (same posture as the User#create policy
+  comment).
+  """
+  @spec seed_admin! :: :ok
+  def seed_admin! do
+    case User.get_by_email(@admin_email, authorize?: false) do
+      {:ok, %{platform_role: :admin}} ->
+        :ok
+
+      # Someone registered the seed email as a plain user (JIT sign-up
+      # makes that possible): seeding must not silently promote or
+      # silently no-op — the operator decides.
+      {:ok, _squatter} ->
+        raise "seed admin: #{@admin_email} exists with a non-admin role — promote or remove that user manually, then re-run"
+
+      {:error, _not_found} ->
+        User.create!(@admin_email, %{platform_role: :admin}, authorize?: false)
+
+        :ok
+    end
+  end
 
   @doc """
   Seeds catalog Categories, Apps, and AppVersions from the shipped YAML

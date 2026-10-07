@@ -1,0 +1,9 @@
+# Docker context hygiene: gitignored build state must not ride local
+# builds — _build/deps bloat the context, priv/plts (a dialyzer PLT,
+# hundreds of MB) would land in the release image via `COPY priv priv`
+# (review finding; CI checkouts are clean but operator builds aren't).
+_build/
+deps/
+priv/plts/
+cover/
+erl_crash.dump

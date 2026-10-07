@@ -11,6 +11,12 @@ defmodule FluxVale.MixProject do
       aliases: aliases(),
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
+      # Release shape for the prod image (apps/platform/Dockerfile, #98):
+      # unix executables only — the generator's .bat overlay wrappers are
+      # dead weight in a linux container.
+      releases: [
+        flux_vale: [include_executables_for: [:unix]]
+      ],
       listeners: [Phoenix.CodeReloader],
       # coveralls.json task writes cover/excoveralls.json — what CI
       # uploads to Codecov (flag: platform, root codecov.yml)
