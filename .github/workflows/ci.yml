@@ -288,7 +288,7 @@ jobs:
           echo "BASE_IMAGE=$base tilt=$tilt otp=$otp elixir=$elixir"
           test -n "$base" && test -n "$tilt" && test -n "$otp" && test -n "$elixir"
           [ "$base" = "$tilt" ] || { echo "::error::Dockerfile BASE_IMAGE ($base) != Tiltfile BASE_IMAGE ($tilt) — bump the pins together"; exit 1; }
-          echo "$base" | grep -qF "elixir-$elixir-erlang-$otp" || {
+          echo "$base" | grep -qF "$elixir-erlang-$otp" || {
             echo "::error::BASE_IMAGE ($base) does not match mise.toml (elixir $elixir, erlang $otp) — bump the pin alongside mise"; exit 1; }
 
       # v3.5.0 — pinned to commit: mutable tags execute unreviewed code
