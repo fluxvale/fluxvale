@@ -134,6 +134,19 @@ defmodule FluxVale.MixProject do
       {:yaml_elixir, "2.12.2"},
       {:telemetry_metrics, "1.2.0"},
       {:telemetry_poller, "1.3.0"},
+      # Observability (#98, ADR-0012 Am. 1): PromEx for metrics (scraped
+      # at /metrics), OTEL for traces (OTLP push to in-cluster Alloy).
+      # prom_ex is env-gated off in dev/test; the OTEL exporter no-ops
+      # unless OTEL_EXPORTER_OTLP_ENDPOINT is set (runtime.exs).
+      {:prom_ex, "1.12.0"},
+      {:opentelemetry, "1.7.0"},
+      # The bandit adapter instrumentation is a separate package — without
+      # it, opentelemetry_phoenix's :bandit branch attaches a no-op and
+      # HTTP requests produce zero server spans.
+      {:opentelemetry_bandit, "0.3.0"},
+      {:opentelemetry_phoenix, "2.0.1"},
+      {:opentelemetry_ecto, "1.2.0"},
+      {:opentelemetry_exporter, "1.11.0"},
       {:gettext, "1.0.2"},
       {:jason, "1.4.5"},
       {:dns_cluster, "0.2.0"},

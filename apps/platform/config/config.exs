@@ -144,7 +144,21 @@ config :tailwind,
 # Configure Elixir's Logger
 config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",
-  metadata: [:request_id]
+  # otel_trace_id/otel_span_id land in Logger process metadata whenever a
+  # span is current (the SDK stamps them on set_current_span) — the
+  # log/trace correlation glue of ADR-0012 Am. 1. Lines outside any span
+  # (e.g. Oban failure ERROR logs) stay uncorrelated until the Am. 2
+  # structured formatter lands with the error-triage wiring.
+  metadata: [:request_id, :otel_trace_id, :otel_span_id]
+
+# OTEL (#98, ADR-0012 Am. 1): spans are created for every request and
+# query, plus custom spans around the Instance deploy/reconcile
+# orchestration. Export is a no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is
+# set — runtime.exs then points the batch processor's exporter at OTLP
+# (in-cluster Alloy). OTEL_SERVICE_NAME (fleet overlays) names the
+# service in Tempo.
+config :opentelemetry,
+  processors: [{:otel_batch_processor, %{exporter: :none}}]
 
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason

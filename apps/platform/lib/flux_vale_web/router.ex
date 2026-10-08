@@ -34,6 +34,13 @@ defmodule FluxValeWeb.Router do
     get "/health/ready", HealthController, :ready
   end
 
+  # PromEx scrape endpoint (#98, ADR-0012) — gated + dispatched by
+  # FluxValeWeb.Plugs.MetricsEndpoint (bearer token when :metrics_token
+  # is set; exact-path only). Answers 503 while the PromEx tree is down
+  # (dev/test); the fleet overlays add the prometheus.io scrape
+  # annotations and the token env.
+  forward "/metrics", FluxValeWeb.Plugs.MetricsEndpoint
+
   # /api/v1 — the versioned JSON:API surface (#24 settles OQ #9: URL-prefix
   # versioning; the scaffold's /api/json named the format, not a version,
   # and died while zero clients existed). Everything under the prefix rides
