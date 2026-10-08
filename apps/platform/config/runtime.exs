@@ -20,9 +20,13 @@ end
 # OTEL export on = one env var (the contract settled on #98): the app
 # pushes OTLP to the in-cluster Alloy receiver. Unset (dev/test) keeps
 # config.exs's exporter-less processor — spans are created, nothing ships.
+# otel_exporter_traces_otlp is the traces exporter (merges the standard
+# OTLP env itself); the generic otel_exporter_otlp has no export/3 —
+# the batch processor's calls would crash (CodeRabbit, verified in
+# source).
 if FluxVale.Observability.otel_exporter_on?() do
   config :opentelemetry,
-    processors: [{:otel_batch_processor, %{exporter: {:otel_exporter_otlp, []}}}]
+    processors: [{:otel_batch_processor, %{exporter: {:otel_exporter_traces_otlp, %{}}}}]
 end
 
 # /metrics bearer gate (FluxValeWeb.Plugs.MetricsEndpoint) — unset in
