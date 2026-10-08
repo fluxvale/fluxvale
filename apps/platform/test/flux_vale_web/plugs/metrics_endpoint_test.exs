@@ -38,6 +38,12 @@ defmodule FluxValeWeb.Plugs.MetricsEndpointTest do
     assert get(wrong, "/metrics").status == 401
   end
 
+  test "a set-but-empty token fails closed, not open", %{conn: conn} do
+    Application.put_env(:flux_vale, :metrics_token, "")
+
+    assert get(conn, "/metrics").status == 401
+  end
+
   test "past the bearer, the scrape endpoint answers", %{conn: conn} do
     Application.put_env(:flux_vale, :metrics_token, "s3cr3t")
 

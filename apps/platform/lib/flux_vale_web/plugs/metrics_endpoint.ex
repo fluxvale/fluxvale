@@ -27,6 +27,11 @@ defmodule FluxValeWeb.Plugs.MetricsEndpoint do
       nil ->
         serve(conn)
 
+      # a set-but-empty token (misconfigured secret ref) would compare
+      # "" == "" — fail closed, don't fake protection
+      "" ->
+        deny(conn)
+
       token ->
         if authorized?(conn, token), do: serve(conn), else: deny(conn)
     end
