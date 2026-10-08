@@ -12,22 +12,31 @@ defmodule FluxVale.Application do
     ash_domains = Application.fetch_env!(:flux_vale, :ash_domains)
     oban_opts = Application.fetch_env!(:flux_vale, Oban)
 
-    children = [
-      FluxValeWeb.Telemetry,
-      FluxVale.Repo,
-      # Job queue (must start after Repo) — janitor cron (#23) + Instance
-      # triggers (#73)
-      {Oban, AshOban.config(ash_domains, oban_opts)},
-      {DNSCluster, query: Application.get_env(:flux_vale, :dns_cluster_query) || :ignore},
-      {Phoenix.PubSub, name: FluxVale.PubSub},
-      # AccessRules snapshot cache (#26) — lazy reads, no startup DB hit
-      FluxVale.Ops.AccessRules.Cache,
-      # Start a worker by calling: FluxVale.Worker.start_link(arg)
-      # {FluxVale.Worker, arg},
-      # Start to serve requests, typically the last entry
-      FluxValeWeb.Endpoint,
-      {AshAuthentication.Supervisor, [otp_app: :flux_vale]}
-    ]
+    # Request/query tracing handlers attach before anything serves
+    # traffic (#98, ADR-0012 Am. 1).
+    FluxVale.Observability.setup_instrumentation()
+
+    children =
+      [
+        FluxValeWeb.Telemetry
+        # PromEx metrics tree — env-gated, empty in dev/test (#98)
+      ] ++
+        FluxVale.Observability.prom_ex_child() ++
+        [
+          FluxVale.Repo,
+          # Job queue (must start after Repo) — janitor cron (#23) + Instance
+          # triggers (#73)
+          {Oban, AshOban.config(ash_domains, oban_opts)},
+          {DNSCluster, query: Application.get_env(:flux_vale, :dns_cluster_query) || :ignore},
+          {Phoenix.PubSub, name: FluxVale.PubSub},
+          # AccessRules snapshot cache (#26) — lazy reads, no startup DB hit
+          FluxVale.Ops.AccessRules.Cache,
+          # Start a worker by calling: FluxVale.Worker.start_link(arg)
+          # {FluxVale.Worker, arg},
+          # Start to serve requests, typically the last entry
+          FluxValeWeb.Endpoint,
+          {AshAuthentication.Supervisor, [otp_app: :flux_vale]}
+        ]
 
     # See https://elixir.hexdocs.pm/Supervisor.html
     # for other strategies and supported options

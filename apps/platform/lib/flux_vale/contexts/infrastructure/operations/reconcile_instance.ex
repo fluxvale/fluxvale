@@ -24,6 +24,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
   alias FluxVale.Infrastructure.Operations.InstanceK8s
 
   require Logger
+  require OpenTelemetry.Tracer
 
   @deploy_stale_timeout_seconds Application.compile_env(
                                   :flux_vale,
@@ -34,21 +35,38 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
   @doc """
   Reconciles one Instance. Returns `{:ok, instance}` — reconcile outcomes
   are status writes, not job failures (v1 contract, kept).
+
+  One `instance.reconcile` span per pass (ADR-0012 Am. 1), status
+  `:error` on the flips — the deploy→running arc reads as one trace
+  alongside `instance.deploy`.
   """
   @spec call(Instance.t()) :: {:ok, Instance.t()}
-  def call(%{status: :deploying} = instance) do
+  def call(%{status: status} = instance) when status in [:deploying, :starting, :running] do
+    OpenTelemetry.Tracer.with_span "instance.reconcile", reconcile_span_attrs(instance, status) do
+      reconcile(instance)
+    end
+  end
+
+  def call(instance), do: {:ok, instance}
+
+  defp reconcile_span_attrs(instance, status) do
+    # OTLP attribute keys are strings
+    %{attributes: %{"instance.id" => instance.id, "instance.status" => Atom.to_string(status)}}
+  end
+
+  defp reconcile(%{status: :deploying} = instance) do
     if stale_deploy?(instance) do
       Logger.warning(
         "Instance #{instance.id} deploy stuck >#{@deploy_stale_timeout_seconds}s; timing out to :error"
       )
 
-      InstanceK8s.update_status(instance, :error, "Deploy job stuck; timed out")
+      flip_to_error(instance, "Deploy job stuck; timed out")
     else
       {:ok, instance}
     end
   end
 
-  def call(%{status: status} = instance) when status in [:starting, :running] do
+  defp reconcile(%{status: status} = instance) when status in [:starting, :running] do
     case InstanceK8s.kubeconfig_for(instance) do
       {:ok, kubeconfig} ->
         mirror_deployment_status(kubeconfig, instance)
@@ -59,8 +77,6 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
     end
   end
 
-  def call(instance), do: {:ok, instance}
-
   defp mirror_deployment_status(kubeconfig, instance) do
     case Deployment.status(kubeconfig, instance.namespace, "app") do
       {:ok, deployment_status} ->
@@ -69,7 +85,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
       {:error, %Error{reason: :not_found}} ->
         Logger.warning("Instance #{instance.id}: Deployment not found in cluster; marking :error")
 
-        InstanceK8s.update_status(instance, :error, "Deployment not found in cluster")
+        flip_to_error(instance, "Deployment not found in cluster")
 
       {:error, _error} ->
         # Transient K8s API read failure — don't flip status on a failed read.
@@ -92,7 +108,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
           "Instance #{instance.id}: failed rollout condition detected; marking :error (#{message})"
         )
 
-        InstanceK8s.update_status(instance, :error, message)
+        flip_to_error(instance, message)
 
       desired > 0 and ready >= desired ->
         if instance.status == :starting do
@@ -106,6 +122,14 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
         # decision (v1 stance, kept).
         {:ok, instance}
     end
+  end
+
+  # Every :error flip marks the reconcile span failed — Tempo's
+  # errored-spans view is the triage entry.
+  defp flip_to_error(instance, message) do
+    OpenTelemetry.Tracer.set_status(:error, message)
+
+    InstanceK8s.update_status(instance, :error, message)
   end
 
   defp failed_rollout?(conditions) do

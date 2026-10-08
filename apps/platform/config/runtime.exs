@@ -9,6 +9,30 @@ import Config
 # Build identity for /health — injected at image-build time (docs/deployment.md)
 config :flux_vale, build_sha: System.get_env("BUILD_SHA")
 
+# Observability env gates (#98) — resolved by FluxVale.Observability so
+# the same question has one answering module (testable, and runtime.exs
+# stays thin). PromEx rides prod-shaped runs only (fleet overlays set
+# PROMEX_ENABLED); test env is pinned off below.
+if config_env() != :test do
+  config :flux_vale, :prom_ex_enabled, FluxVale.Observability.prom_ex_enabled?()
+end
+
+# OTEL export on = one env var (the contract settled on #98): the app
+# pushes OTLP to the in-cluster Alloy receiver. Unset (dev/test) keeps
+# config.exs's exporter-less processor — spans are created, nothing ships.
+if FluxVale.Observability.otel_exporter_on?() do
+  config :opentelemetry,
+    processors: [{:otel_batch_processor, %{exporter: {:otel_exporter_otlp, []}}}]
+end
+
+# /metrics bearer gate (FluxValeWeb.Plugs.MetricsEndpoint) — unset in
+# dev/test leaves the endpoint open on the cluster network; the fleet
+# overlays set it from BWS alongside the Alloy scrape credentials.
+case System.get_env("METRICS_TOKEN") do
+  nil -> :ok
+  token -> config :flux_vale, :metrics_token, token
+end
+
 # TestInbox gate (#22, ADR-0003 Am. 2 / ADR-0023 Am. 3): dev/test enable
 # via their config files; staging — the same prod-mode release as prod
 # (ADR-0010) — flips this env var, and the recipient split then captures
