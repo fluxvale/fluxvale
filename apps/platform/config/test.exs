@@ -9,6 +9,10 @@ config :ash, disable_async?: true
 # test with the TTL enabled per-case.
 config :flux_vale, access_rules_cache_ttl_seconds: 0
 
+# PromEx off in test (#98) — runtime.exs would otherwise honor a stray
+# PROMEX_ENABLED in the shell; no test starts the metrics tree.
+config :flux_vale, :prom_ex_enabled, false
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used

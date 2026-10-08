@@ -34,31 +34,58 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
 
+  require OpenTelemetry.Tracer
+
   @env_secret "app-env"
 
   @doc """
   Performs the deploy for a `:deploying` Instance. Returns `{:ok,
   instance}` either way — the `status` attribute carries the outcome
   (v1 contract, kept: the trigger treats both as processed).
+
+  The whole orchestration is one `instance.deploy` span (ADR-0012
+  Am. 1) — Oban trigger → apply → transition is the product's most
+  valuable trace.
   """
   @spec call(Instance.t()) :: {:ok, Instance.t()}
   def call(%{status: :deploying} = instance) do
+    OpenTelemetry.Tracer.with_span "instance.deploy", deploy_span_attrs(instance) do
+      deploy(instance)
+    end
+  end
+
+  # Oban retry racing another status writer (e.g. stale-deploy timeout):
+  # the job is already superseded — processed, not failed. No work, no span.
+  def call(instance), do: {:ok, instance}
+
+  defp deploy(instance) do
     case InstanceK8s.kubeconfig_for(instance) do
       {:ok, kubeconfig} ->
         apply_then_transition(kubeconfig, instance)
 
       {:error, error} ->
-        InstanceK8s.update_status(
-          instance,
-          :error,
-          "Deploy failed: #{InstanceK8s.format_error(error)}"
-        )
+        deploy_failed(instance, error)
     end
   end
 
-  # Oban retry racing another status writer (e.g. stale-deploy timeout):
-  # the job is already superseded — processed, not failed.
-  def call(instance), do: {:ok, instance}
+  defp deploy_span_attrs(instance) do
+    # OTLP attribute keys are strings
+    %{
+      attributes: %{
+        "instance.id" => instance.id,
+        "instance.slug" => instance.slug,
+        "instance.namespace" => instance.namespace
+      }
+    }
+  end
+
+  defp deploy_failed(instance, error) do
+    message = "Deploy failed: #{InstanceK8s.format_error(error)}"
+
+    OpenTelemetry.Tracer.set_status(:error, message)
+
+    InstanceK8s.update_status(instance, :error, message)
+  end
 
   defp apply_then_transition(kubeconfig, instance) do
     namespace = instance.namespace
@@ -72,16 +99,9 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
         )
 
       {:error, error} ->
-        InstanceK8s.update_status(
-          instance,
-          :error,
-          "Deploy failed: #{InstanceK8s.format_error(error)}"
-        )
+        deploy_failed(instance, error)
     end
   end
-
-  # Oban retry racing another status writer (e.g. stale-deploy timeout):
-  # the job is already superseded — processed, not failed.
 
   defp apply_resources(kubeconfig, namespace, instance) do
     env = deploy_env(instance)
