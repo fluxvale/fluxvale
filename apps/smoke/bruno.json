@@ -1,0 +1,8 @@
+{
+  "version": "1",
+  "name": "fluxvale-smoke",
+  "type": "collection",
+  "ignore": [
+    "node_modules"
+  ]
+}

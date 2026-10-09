@@ -1,0 +1,109 @@
+# Scheduled smoke — the correctness layer (ADR-0011 Am. 1, #99):
+# Bruno against both envs every 30 min, the same collection that gates
+# deploys. On FULL success the run remote-writes
+# `fluxvale_smoke_heartbeat_count` to the hosted Prom; any failure
+# writes NOTHING — series absence IS the page (the dead-man's switch,
+# tofu/deadman.tf in the fleet repo). Availability at minutes-cadence
+# is Grafana Synthetics' job, not this cron's.
+name: Scheduled smoke
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  # Manual trigger: the drill path for the red path (issue #99's exit
+  # test) and re-running the correctness layer after an incident.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Bruno (staging + prod)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Same pin + install shape as the e2e job: binaries only.
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          mise-version: 2026.9.14
+          install: false
+      - run: mise install node
+
+      - name: Install collection
+        working-directory: apps/smoke
+        run: mise x -- npm ci
+
+      # Config failures must not read as product failures (and page via
+      # the dead-man): a missing secret fails HERE with its own message.
+      - name: Preflight — secrets
+        env:
+          SMOKE_PAT_STAGING: ${{ secrets.SMOKE_PAT_STAGING }}
+          SMOKE_PAT_PRODUCTION: ${{ secrets.SMOKE_PAT_PRODUCTION }}
+          PROM_REMOTE_WRITE_USERNAME: ${{ secrets.PROM_REMOTE_WRITE_USERNAME }}
+          PROM_REMOTE_WRITE_TOKEN: ${{ secrets.PROM_REMOTE_WRITE_TOKEN }}
+        run: |
+          test -n "$SMOKE_PAT_STAGING" || { echo "::error::SMOKE_PAT_STAGING is not set — mint per docs/deployment.md"; exit 1; }
+          test -n "$SMOKE_PAT_PRODUCTION" || { echo "::error::SMOKE_PAT_PRODUCTION is not set — mint per docs/deployment.md"; exit 1; }
+          test -n "$PROM_REMOTE_WRITE_USERNAME" || { echo "::error::PROM_REMOTE_WRITE_USERNAME is not set"; exit 1; }
+          test -n "$PROM_REMOTE_WRITE_TOKEN" || { echo "::error::PROM_REMOTE_WRITE_TOKEN is not set"; exit 1; }
+
+      - name: Bruno — staging
+        id: bruno_staging
+        working-directory: apps/smoke
+        continue-on-error: true
+        env:
+          SMOKE_PAT: ${{ secrets.SMOKE_PAT_STAGING }}
+        run: mise x -- npx bru run --env Staging --env-var pat="$SMOKE_PAT"
+
+      - name: Bruno — production
+        id: bruno_production
+        working-directory: apps/smoke
+        continue-on-error: true
+        env:
+          SMOKE_PAT: ${{ secrets.SMOKE_PAT_PRODUCTION }}
+        run: mise x -- npx bru run --env Production --env-var pat="$SMOKE_PAT"
+
+      # Full success → heartbeat. A failed write reds the run: a cron
+      # that cannot write is a dead pipeline, and the dead-man must not
+      # be the only thing that notices.
+      - name: Write heartbeat
+        if: ${{ steps.bruno_staging.outcome == 'success' && steps.bruno_production.outcome == 'success' }}
+        working-directory: apps/smoke
+        env:
+          # Explicit, not secret: the endpoint is fleet config (the same
+          # URL Alloy pushes to), and a stack move should be a reviewable
+          # diff, not a silent secret edit.
+          PROM_REMOTE_WRITE_URL: https://prometheus-prod-65-prod-eu-west-2.grafana.net/api/prom/push
+          PROM_REMOTE_WRITE_USERNAME: ${{ secrets.PROM_REMOTE_WRITE_USERNAME }}
+          PROM_REMOTE_WRITE_TOKEN: ${{ secrets.PROM_REMOTE_WRITE_TOKEN }}
+          HEARTBEAT_VALUE: ${{ github.run_number }}
+        run: mise x -- node scripts/heartbeat.mjs
+
+      # Failure: no revert PR (no deploy PR to blame — the red path's
+      # revert leg is deploy-gated-only, #99), annotation with the run
+      # link, then fail the run. The page itself rides the dead-man:
+      # no heartbeat written.
+      - name: Red path — annotation
+        if: ${{ steps.bruno_staging.outcome == 'failure' || steps.bruno_production.outcome == 'failure' }}
+        env:
+          GRAFANA_URL: ${{ secrets.GRAFANA_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.GRAFANA_SERVICE_ACCOUNT_TOKEN }}
+        run: |
+          failed=""
+          [ "${{ steps.bruno_staging.outcome }}" = failure ] && failed="$failed staging"
+          [ "${{ steps.bruno_production.outcome }}" = failure ] && failed="$failed production"
+          echo "scheduled smoke failed on:$failed"
+
+          curl -fsS --retry 3 --retry-all-errors --retry-delay 2 --max-time 15 -X POST "$GRAFANA_URL/api/annotations" \
+            -H "Authorization: Bearer $GRAFANA_SERVICE_ACCOUNT_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\": \"Scheduled smoke FAILED on:$failed — $RUN_URL\", \"tags\": [\"smoke\", \"failed\"]}"
+
+          exit 1

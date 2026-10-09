@@ -10,6 +10,11 @@ on:
   pull_request:
   push:
     branches: [main]
+  # The smoke red path dispatches CI onto the auto-opened revert PR's
+  # branch — PRs created with GITHUB_TOKEN fire no pull_request events,
+  # so without this the revert would sit check-less behind the required
+  # "Wait for CI" forever (docs/deployment.md, #99).
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -363,6 +368,196 @@ jobs:
             -H "Content-Type: application/json" \
             -d "{\"text\": \"Deploy fluxvale sha-$SHA rolled out to staging + prod\", \"tags\": [\"deploy\", \"staging\", \"production\", \"fluxvale\"]}"
 
+  # Deploy pipeline job 3 (docs/deployment.md, #99): the post-deploy
+  # smoke. staging = Bruno + Playwright sign-in/health (the full
+  # lifecycle joins when staging can host instances — Cluster row +
+  # wildcard cert, see #99); prod = Bruno + read-only Playwright subset
+  # ([ADR-0024](../../docs/adr/00024-e2e-review-environments.md)).
+  #
+  # Red path per deployment.md: Grafana annotation + auto-opened revert
+  # PR of the merged platform PR + PR comment — a human merges
+  # ([ADR-0015](../../docs/adr/00015-no-auto-remediation.md)). CI is
+  # dispatched onto the revert branch because GITHUB_TOKEN-opened PRs
+  # fire no pull_request events (the workflow_dispatch trigger above).
+  smoke:
+    name: Smoke (staging + prod)
+    needs: watch-deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      # Red path only: open the revert PR, comment, and dispatch CI
+      # onto its branch (the dispatch needs actions: write — GITHUB_TOKEN
+      # is otherwise refused). The smoke legs themselves need no writes.
+      contents: write
+      pull-requests: write
+      actions: write
+    env:
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      # v4.2.2 — pinned to commit like deploy-image: this job holds
+      # write scopes (revert PR + dispatch), mutable tags execute
+      # unreviewed code
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      # Same pin + install shape as the e2e job: binaries only, node
+      # for Bruno + Playwright.
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          mise-version: 2026.9.14
+          install: false
+      - run: mise install node
+
+      - name: Install suites
+        run: |
+          cd apps/smoke
+          mise x -- npm ci
+          cd ../e2e
+          mise x -- npm ci
+          mise x -- npx playwright install --with-deps chromium
+
+      # One env per step, continue-on-error: every leg runs (a prod leg
+      # result is triage data during a staging failure), the red path
+      # collects outcomes.
+      # Config failures must not ride the red path: a missing secret
+      # fails HERE with its own message, not as a smoke failure blaming
+      # an innocent merged PR (and paging via the dead-man).
+      - name: Preflight — secrets
+        env:
+          SMOKE_PAT_STAGING: ${{ secrets.SMOKE_PAT_STAGING }}
+          SMOKE_PAT_PRODUCTION: ${{ secrets.SMOKE_PAT_PRODUCTION }}
+        run: |
+          test -n "$SMOKE_PAT_STAGING" || { echo "::error::SMOKE_PAT_STAGING is not set — mint per docs/deployment.md"; exit 1; }
+          test -n "$SMOKE_PAT_PRODUCTION" || { echo "::error::SMOKE_PAT_PRODUCTION is not set — mint per docs/deployment.md"; exit 1; }
+
+      - name: Bruno — staging
+        id: bruno_staging
+        working-directory: apps/smoke
+        continue-on-error: true
+        env:
+          SMOKE_PAT: ${{ secrets.SMOKE_PAT_STAGING }}
+        run: mise x -- npx bru run --env Staging --env-var pat="$SMOKE_PAT"
+
+      - name: Bruno — production
+        id: bruno_production
+        working-directory: apps/smoke
+        continue-on-error: true
+        env:
+          SMOKE_PAT: ${{ secrets.SMOKE_PAT_PRODUCTION }}
+        run: mise x -- npx bru run --env Production --env-var pat="$SMOKE_PAT"
+
+      # The smoke PAT doubles as the TestInbox token: both are the
+      # staging admin's credential (docs/deployment.md oracle split).
+      # Own report dir per leg — the default location is shared and
+      # the second run would clobber the first's evidence.
+      - name: Playwright — staging
+        id: pw_staging
+        working-directory: apps/e2e
+        continue-on-error: true
+        env:
+          BASE_URL: https://staging.fluxvale.com
+          E2E_RUNTIME: staging
+          E2E_TESTINBOX_TOKEN: ${{ secrets.SMOKE_PAT_STAGING }}
+          PLAYWRIGHT_HTML_REPORT: staging-report
+        run: mise x -- npx playwright test
+
+      # Read-only: no PAT, no TestInbox — sign-in on prod would send a
+      # real email and provision a user (ADR-0024: no side effects).
+      - name: Playwright — production (read-only)
+        id: pw_production
+        working-directory: apps/e2e
+        continue-on-error: true
+        env:
+          BASE_URL: https://fluxvale.com
+          E2E_RUNTIME: production
+          PLAYWRIGHT_HTML_REPORT: production-report
+        run: mise x -- npx playwright test
+
+      - name: Upload Playwright reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: smoke-playwright-reports
+          path: |
+            apps/e2e/staging-report
+            apps/e2e/production-report
+
+      # The red path (docs/deployment.md): annotation, revert PR, PR
+      # comment — then fail the run. Every leg is best-effort with its
+      # failure logged: one broken leg (a Grafana 502 mid-incident) must
+      # not take the others down with it, and the verdict is exit 1
+      # regardless.
+      - name: Red path — annotation, revert PR, PR comment
+        if: ${{ steps.bruno_staging.outcome == 'failure' || steps.bruno_production.outcome == 'failure' || steps.pw_staging.outcome == 'failure' || steps.pw_production.outcome == 'failure' }}
+        env:
+          # Step-scoped: the smoke legs run PR-influenced npm/test code
+          # and must not see the write token (only this step needs it).
+          GH_TOKEN: ${{ github.token }}
+          GRAFANA_URL: ${{ secrets.GRAFANA_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.GRAFANA_SERVICE_ACCOUNT_TOKEN }}
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          failed=""
+          [ "${{ steps.bruno_staging.outcome }}" = failure ] && failed="$failed staging(bruno)"
+          [ "${{ steps.pw_staging.outcome }}" = failure ] && failed="$failed staging(playwright)"
+          [ "${{ steps.bruno_production.outcome }}" = failure ] && failed="$failed production(bruno)"
+          [ "${{ steps.pw_production.outcome }}" = failure ] && failed="$failed production(playwright)"
+          echo "smoke failed on:$failed"
+
+          annotation_error=""
+          curl -fsS --retry 3 --retry-all-errors --retry-delay 2 --max-time 15 -X POST "$GRAFANA_URL/api/annotations" \
+            -H "Authorization: Bearer $GRAFANA_SERVICE_ACCOUNT_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\": \"Post-deploy smoke FAILED on:$failed — $RUN_URL\", \"tags\": [\"deploy\", \"smoke\", \"failed\"]}" \
+            || annotation_error="annotation failed (Grafana unreachable?)"
+
+          # GitHub appends the PR number to the squash-merge subject as
+          # a trailing "(#N)" — the FIRST #N would be a referenced
+          # issue, not the PR. First line only; a miss must not abort
+          # the leg (bash -e + pipefail) — fall through to the
+          # latest-merged lookup.
+          pr_number="$(printf '%s' "$HEAD_COMMIT_MESSAGE" | head -1 | grep -oE '\(#[0-9]+\)$' | tr -d '(#)' || true)"
+          if [ -z "$pr_number" ]; then
+            pr_number="$(gh pr list --state merged --base main --limit 1 --json number --jq '.[0].number' || true)"
+          fi
+          echo "blaming merged PR #${pr_number:-?}"
+
+          revert_url=""
+          if [ -n "$pr_number" ]; then
+            revert_body="Automated revert of #$pr_number — post-deploy smoke failed on:$failed.
+          Run: $RUN_URL
+          A human merges or closes (ADR-0015). CI is dispatched onto this branch so its checks land."
+            revert_output="$(gh pr revert "$pr_number" \
+              --title "revert: post-deploy smoke failed (#$pr_number)" \
+              --body "$revert_body" 2>&1 || true)"
+            revert_url="$(printf '%s' "$revert_output" | grep -oE 'https://[^ ]+/pull/[0-9]+' | head -1 || true)"
+            # GITHUB_TOKEN cannot push commits touching .github/workflows —
+            # a workflow-touching PR cannot be auto-reverted (GitHub
+            # refuses App tokens there). The log keeps the reason.
+            [ -z "$revert_url" ] && echo "revert PR did not open: $revert_output"
+            echo "revert PR: ${revert_url:-none}"
+
+            if [ -n "$revert_url" ]; then
+              revert_branch="$(gh pr view "$revert_url" --json headRefName --jq .headRefName || true)"
+              if [ -n "$revert_branch" ]; then
+                gh workflow run ci.yml --ref "$revert_branch" || echo "CI dispatch failed — the revert PR's checks need a manual run"
+              fi
+            fi
+          fi
+
+          comment_body="Post-deploy smoke failed on:$failed.
+          Run: $RUN_URL
+          Revert PR: ${revert_url:-FAILED TO OPEN — see the job log}
+          ${annotation_error}"
+          if [ -n "$pr_number" ]; then
+            gh pr comment "$pr_number" --body "$comment_body" || echo "PR comment failed"
+          else
+            echo "no merged PR identified — nothing to comment on"
+          fi
+
+          exit 1
+
   # The umbrella: branch protection requires THIS check. Runs regardless
   # of path gating; passes when every gated job succeeded or was skipped.
   # check-changes must SUCCEED, not merely skip: if it failed, its
@@ -370,7 +565,8 @@ jobs:
   # checks run — a green umbrella that proved nothing.
   wait-for-ci:
     name: Wait for CI
-    needs: [check-changes, platform, docs-lint, skills-lint, e2e, deploy-image, watch-deploy]
+    needs: [check-changes, platform, docs-lint, skills-lint, e2e, deploy-image, watch-deploy, smoke]
+
     if: always()
     runs-on: ubuntu-latest
     steps:
