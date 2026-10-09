@@ -18,10 +18,13 @@ export function runtimeFor(baseUrl: string | undefined): Runtime {
       ? "staging"
       : "production";
 
-  // The floor: production hosts cannot be talked down from read-only.
-  if (hostRuntime === "production") return "production";
+  // Ceiling: the request may only narrow (local > staging >
+  // production) — e.g. E2E_RUNTIME=local against a staging host still
+  // runs as staging, so the destructive lifecycle can't be talked onto
+  // a deployed env.
+  const rank: Record<Runtime, number> = { local: 0, staging: 1, production: 2 };
   if (requested === "local" || requested === "staging" || requested === "production") {
-    return requested;
+    return rank[requested] >= rank[hostRuntime] ? requested : hostRuntime;
   }
   return hostRuntime;
 }

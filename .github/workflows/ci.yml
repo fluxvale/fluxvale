@@ -392,7 +392,6 @@ jobs:
       pull-requests: write
       actions: write
     env:
-      GH_TOKEN: ${{ github.token }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       # v4.2.2 — pinned to commit like deploy-image: this job holds
@@ -492,6 +491,9 @@ jobs:
       - name: Red path — annotation, revert PR, PR comment
         if: ${{ steps.bruno_staging.outcome == 'failure' || steps.bruno_production.outcome == 'failure' || steps.pw_staging.outcome == 'failure' || steps.pw_production.outcome == 'failure' }}
         env:
+          # Step-scoped: the smoke legs run PR-influenced npm/test code
+          # and must not see the write token (only this step needs it).
+          GH_TOKEN: ${{ github.token }}
           GRAFANA_URL: ${{ secrets.GRAFANA_URL }}
           GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.GRAFANA_SERVICE_ACCOUNT_TOKEN }}
           HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
@@ -510,10 +512,12 @@ jobs:
             -d "{\"text\": \"Post-deploy smoke FAILED on:$failed — $RUN_URL\", \"tags\": [\"deploy\", \"smoke\", \"failed\"]}" \
             || annotation_error="annotation failed (Grafana unreachable?)"
 
-          # The squash-merge title carries (#N); grep matching nothing
-          # must not abort the leg (bash -e + pipefail) — fall through
-          # to the latest-merged lookup.
-          pr_number="$(printf '%s' "$HEAD_COMMIT_MESSAGE" | grep -oE '#[0-9]+' | head -1 | tr -d '#' || true)"
+          # GitHub appends the PR number to the squash-merge subject as
+          # a trailing "(#N)" — the FIRST #N would be a referenced
+          # issue, not the PR. First line only; a miss must not abort
+          # the leg (bash -e + pipefail) — fall through to the
+          # latest-merged lookup.
+          pr_number="$(printf '%s' "$HEAD_COMMIT_MESSAGE" | head -1 | grep -oE '\(#[0-9]+\)$' | tr -d '(#)' || true)"
           if [ -z "$pr_number" ]; then
             pr_number="$(gh pr list --state merged --base main --limit 1 --json number --jq '.[0].number' || true)"
           fi
