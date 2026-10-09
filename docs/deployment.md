@@ -26,14 +26,17 @@ chain: DNS → Cloudflare → Traefik → pod; zero cluster credentials in CI)
    │
    ▼
 CI job 3: smoke
-   ├─ staging: Bruno suite + FULL Playwright (destructive allowed)
-   └─ prod:    Bruno suite + read-only Playwright subset (no side effects)
-   │
-   ▼
+    ├─ staging: Bruno suite + Playwright sign-in/health (the full
+    │  lifecycle joins when staging is instance-capable, #99)
+    └─ prod:    Bruno suite + read-only Playwright subset (no side effects)
+    │
+    ▼
 green → Grafana deploy annotation, done
 red  → alert (email — routing is email-only for now, phone push
-       deferred per observability.md) + auto-opened revert PR + PR
-       comment + annotation
+        deferred per observability.md; the failing run's URL rides the
+        red check, PR comment, and annotation) + auto-opened revert PR
+        + PR comment + annotation. The revert PR's CI is dispatched
+        onto its branch — PRs opened by CI's own token fire no events.
 ```
 
 Merge-to-verified ≈ 12–20 minutes. Readiness probes self-contain
@@ -53,10 +56,14 @@ public HTTP — only the deliberate machine surface
 ([ADR-0019](adr/00019-machine-first-api-cli-mcp.md)) exposes
 endpoints. So the oracles authenticate differently:
 
-- **Bruno**: pre-provisioned smoke PAT (seeded at bootstrap, GitHub
-  secret, rotated on its 1-yr schedule) — proves PAT validation and
-  policies on authed reads; no inbox dependency, no rate-limit
-  interplay; cheap HTTP at the 30–60 min cadence.
+- **Bruno** (`apps/smoke/`): pre-provisioned smoke PAT per env — minted
+  at bring-up through the code interface (release rpc, operator path;
+  neither the promotable seed nor AshAdmin — see #99), GitHub secret,
+  rotated on its 1-yr schedule (re-mint, update the secret, revoke the
+  old) — proves PAT validation and policies on authed reads; no inbox
+  dependency, no rate-limit interplay; cheap HTTP at the 30–60 min
+  cadence. One PAT per env: each env has its own signing secret and
+  token store, so no single token validates on both.
 - **Playwright** owns the human flows: drives the real login form,
   fetches the code via the **TestInbox helper** (Swoosh-local JSON
   endpoint on staging/local/review envs — admin-gated; Postmark
@@ -75,14 +82,20 @@ endpoints. So the oracles authenticate differently:
    minutes-level cadence. Multi-region vantage catches
    Cloudflare/DNS/cert problems a single CI runner can't; alerts ride
    the same Grafana pipeline.
-2. **Correctness — scheduled Bruno** (30–60 min cron): deep,
-   authenticated business flows against both envs — the same
-   collection that gates deploys, changed in the same PR as the API.
-   GitHub's cron being best-effort is fine now that availability is
-   Synthetics' job. Failures push a metric via Grafana remote-write.
-   **Heartbeat**: every run — passing or failing — pushes a
-   run-success timestamp; a dead-man's-switch alert fires on
-   staleness (a silently-stopped cron emits no failure signal).
+2. **Correctness — scheduled Bruno** (30 min cron,
+   `smoke.yml`): deep, authenticated business flows against both envs —
+   the same collection that gates deploys, changed in the same PR as
+   the API. GitHub's cron being best-effort is fine now that
+   availability is Synthetics' job. Failures post a Grafana annotation
+   carrying the run URL and write **no heartbeat**.
+   **Heartbeat**: on full success — and only then — the run
+   remote-writes `fluxvale_smoke_heartbeat_count` to the hosted Prom
+   (value = run number). Absence is the failure signal: a dead-man's
+   switch alert (`absent_over_time`, 45m window — tolerates the cron's
+   best-effort jitter at 30-min cadence, one fully-missed run pages)
+   fires on staleness. Scheduled failures ride that page — no revert
+   PR, there's no deploy to blame (a scheduled failure with nothing
+   deployed is an environment problem, not a code one).
 
 ## Feature flags
 
@@ -139,10 +152,16 @@ Manifest-caused failures (bad limits, Traefik config): revert the
 
 ## On failure: automate detection and preparation, keep the decision human
 
-On smoke failure, automation **alerts** (email, deep-linked),
-**opens the revert PR** (`gh pr revert <n>`), comments on the
-offending PR, posts a Grafana annotation. A human merges (one tap) or
-writes the proper counter-migration PR. No auto-merge.
+On **deploy-gated** smoke failure, automation **alerts** (email,
+deep-linked), **opens the revert PR** (`gh pr revert <n>`) and
+dispatches CI onto its branch (CI-opened PRs fire no events of their
+own), comments on the offending PR, posts a Grafana annotation. A
+human merges (one tap) or writes the proper counter-migration PR. No
+auto-merge. One structural limit: CI's own token cannot push commits
+touching `.github/workflows` — a workflow-touching PR reverts by hand;
+the comment says so when it happens. **Scheduled** failures get the
+annotation only — no revert PR (nothing deployed to blame); they page
+via the heartbeat dead-man above.
 
 Upgrade path to auto-revert (only if the smoke suite proves weeks of
 near-zero flakiness AND deploys start happening while AFK): auto-merge

@@ -1,0 +1,28 @@
+meta {
+  name: Me with PAT
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/v1/me
+  headers: headers
+}
+
+assert {
+  res.status: 200
+  res.body.data.type: user
+}
+
+headers {
+  Authorization: Bearer {{pat}}
+}
+
+tests {
+  // PAT validation + policies on authed reads — the Bruno oracle's
+  // whole job (docs/deployment.md): the token resolves an actor and
+  // the read answers with the caller's own record.
+  test("answers with the caller's user record", () => {
+    expect(res.body.data.attributes.email).to.be.a("string").and.to.have.length.of.at.least(1);
+  });
+}

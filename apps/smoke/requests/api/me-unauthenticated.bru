@@ -1,0 +1,13 @@
+meta {
+  name: Me unauthenticated
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/v1/me
+}
+
+assert {
+  res.status: 401
+}

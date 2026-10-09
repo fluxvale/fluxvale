@@ -1,0 +1,22 @@
+meta {
+  name: Health
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/health
+}
+
+assert {
+  res.status: 200
+  res.body.status: ok
+}
+
+tests {
+  // "dev" locally, "sha-<sha>" on any built image — but never absent
+  // (the deploy pipeline greps this; docs/deployment.md)
+  test("version reports a build identity", () => {
+    expect(res.body.version).to.be.a("string").and.to.have.length.of.at.least(1);
+  });
+}

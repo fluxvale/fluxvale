@@ -16,7 +16,7 @@ lockfile = true
 erlang = "28.5"
 elixir = "1.20.4-otp-28"
 
-# apps/e2e Playwright suites (ADR-0024)
+# apps/e2e Playwright + apps/smoke Bruno suites (ADR-0024)
 node = "26.8.1"
 
 # Local k3d + Tilt stack (ADR-0020)

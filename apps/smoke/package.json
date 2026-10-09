@@ -1,0 +1,16 @@
+{
+  "name": "@fluxvale/smoke",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "smoke": "bru run",
+    "smoke:staging": "bru run --env Staging",
+    "smoke:production": "bru run --env Production"
+  },
+  "devDependencies": {
+    "@usebruno/cli": "4.2.1",
+    "protobufjs": "8.8.0",
+    "snappyjs": "0.7.0"
+  }
+}

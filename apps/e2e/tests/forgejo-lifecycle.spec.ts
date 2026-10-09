@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { runtimeFor } from "./helpers/runtime";
 import { signIn } from "./helpers/sign-in";
 import { TestInbox } from "./helpers/test-inbox";
 
@@ -12,10 +13,20 @@ import { TestInbox } from "./helpers/test-inbox";
 
 const testInboxToken = process.env.E2E_TESTINBOX_TOKEN;
 const runId = process.env.E2E_RUN_ID ?? `run${Date.now()}`;
+const runtime = runtimeFor(process.env.BASE_URL);
 
 test.skip(
   !testInboxToken,
   "E2E_TESTINBOX_TOKEN not set — bootstrap the stack first (apps/e2e/README.md)",
+);
+
+// Local runtime only for now: deploying an instance needs a Cluster
+// row and a served instance domain — staging gets both (Cluster row +
+// *.fluxvale.app wildcard cert) as its own bring-up slice, then this
+// gate widens (#99).
+test.skip(
+  runtime !== "local",
+  "instance lifecycle runs on the local runtime until staging is instance-capable (#99)",
 );
 
 test("forgejo: catalog → deploy → running → open → stop → destroy", async ({

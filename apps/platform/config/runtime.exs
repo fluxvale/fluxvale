@@ -42,8 +42,18 @@ end
 # (ADR-0010) — flips this env var, and the recipient split then captures
 # only test-account mail while Postmark delivers the humans'. Prod leaves
 # it unset: the routes 404, which is the absent-under-prod contract.
-if System.get_env("TEST_INBOX_ENABLED") do
-  config :flux_vale, :test_inbox, enabled: System.get_env("TEST_INBOX_ENABLED") in ["true", "1"]
+#
+# :local must flip with it: prod.exs sets it false (no storage in prod),
+# but capture/serving run on Swoosh's Memory driver, and Swoosh's own
+# application only starts its Storage.Manager when :local is true —
+# without this line a TEST_INBOX_ENABLED release answers 500s (found
+# live on staging by the #99 smoke: requests fine, reads crashed).
+# Gated on the VALUE, not the env var's presence: "" / "false" (a
+# classic empty-Secret shape) must not start storage on a prod release
+# whose inbox stays disabled.
+if System.get_env("TEST_INBOX_ENABLED") in ["true", "1"] do
+  config :flux_vale, :test_inbox, enabled: true
+  config :swoosh, :local, true
 end
 
 # Repo connection: DATABASE_URL wins; otherwise discrete DB_* vars compose

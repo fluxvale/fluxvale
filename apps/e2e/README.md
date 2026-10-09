@@ -38,19 +38,26 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
 | Variable | Purpose |
 |---|---|
 | `BASE_URL` | Target stack (default: `https://app.fluxvale.lvh.me`) |
-| `E2E_TESTINBOX_TOKEN` | Admin PAT for the TestInbox JSON API (ADR-0024 Am. 1); the lifecycle test skips without it |
+| `E2E_TESTINBOX_TOKEN` | Admin PAT for the TestInbox JSON API (ADR-0024 Am. 1); the sign-in and lifecycle tests skip without it |
+| `E2E_RUNTIME` | Narrows what runs; the BASE_URL host sets the ceiling — any non-local, non-staging host is production-class (read-only) no matter what this says. Gates: lifecycle local-only until staging is instance-capable; sign-in never runs against production |
 | `E2E_RUN_ID` | Run-scoped uniqueness (email + instance names); defaults to a timestamp |
 
 ## Tests
 
-- `health.spec.ts` — smoke, runs anywhere.
+- `health.spec.ts`, `public-pages.spec.ts` — read-only, run anywhere
+  (the production subset).
+- `sign-in.spec.ts` — the human login flow via TestInbox; staging and
+  local.
 - `forgejo-lifecycle.spec.ts` — Forgejo's full lifecycle through the
   real UI: sign-in via TestInbox → catalog → deploy → running →
   instance URL → stop → destroy. Crosses the real cluster: `running`
   waits out the image pull plus the reconcile cron's minute
   granularity — the test carries a 15-minute budget; a red runner is
-  usually a broken flow, not a slow one.
+  usually a broken flow, not a slow one. Local runtime only until
+  staging gets a Cluster row + a served instance domain (#99).
 
 CI: the `e2e` job (`.github/workflows/ci.yml`) bootstraps the same
-script on an ephemeral k3d and runs the full suite; the HTML report
-(and its failure screenshots/traces) uploads as a build artifact.
+script on an ephemeral k3d and runs the full suite; the deploy-gated
+smoke job runs the staging and production runtimes post-deploy; the
+HTML report (and its failure screenshots/traces) uploads as a build
+artifact.
