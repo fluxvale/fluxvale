@@ -9,7 +9,11 @@ name: Scheduled smoke
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    # Off the :00/:30 marks — GitHub's scheduler runs hottest at the
+    # top of the hour and delays those jobs first (documented); 7/37
+    # keeps the 30-min cadence out of the rush. NB: freshly-merged
+    # schedules register lazily — expect the first runs hours late.
+    - cron: "7,37 * * * *"
   # Manual trigger: the drill path for the red path (issue #99's exit
   # test) and re-running the correctness layer after an incident.
   workflow_dispatch:
