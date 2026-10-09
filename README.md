@@ -18,6 +18,7 @@ contributing (humans and agents) are in [`AGENTS.md`](AGENTS.md).
 ```text
 apps/platform    # the Phoenix 1.8 + Ash app — one OTP release (:flux_vale)
 apps/e2e         # Playwright suite (grows from M3)
+apps/smoke       # Bruno collection — the API oracle for both deployed envs (#99)
 deploy/local/    # local production-parity stack (k3d + Tilt; ADR-0020)
 docs/            # decisions home — read before proposing changes
 ```
@@ -57,10 +58,13 @@ curl -sk https://app.fluxvale.lvh.me/health          # through Traefik (self-sig
 Edit code; the reload lands in milliseconds (Tilt syncs source, Phoenix's
 code reloader recompiles). Use `tilt up`, not `tilt ci`.
 
-**E2E** (smoke suite today; grows from M3):
+**E2E** (browser suite; grows from M3) + **smoke** (Bruno, both envs):
 
 ```sh
 cd apps/e2e
 npx playwright install chromium   # once
 npx playwright test               # against localhost:4000 or BASE_URL=<any env>
+
+cd ../smoke
+npx bru run --env Staging --env-var pat=$SMOKE_PAT_STAGING
 ```

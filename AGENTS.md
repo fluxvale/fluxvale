@@ -39,7 +39,7 @@ is only **how to work here**.
   is your business. `mix setup` creates `flux_vale_{dev,test}`; the
   test alias creates the test DB on demand.
 - No Node in `apps/platform` (tailwind/esbuild are Hex binaries); Node
-  is for `apps/e2e` only.
+  is for the test suites only (`apps/e2e`, `apps/smoke`).
 
 ## Planning
 

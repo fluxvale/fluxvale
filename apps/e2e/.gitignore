@@ -1,5 +1,7 @@
 node_modules/
 test-results/
 playwright-report/
+staging-report/
+production-report/
 .blob-runner/
 .e2e-env
