@@ -16,5 +16,3 @@ Ready to run in production? Please [check our deployment guides](https://phoenix
 * Docs: https://phoenix.hexdocs.pm
 * Forum: https://elixirforum.com/c/phoenix-forum
 * Source: https://github.com/phoenixframework/phoenix
-
-<!-- Red-path drill marker (#99 exit test): this deploy is intentionally landed while staging is deliberately broken (wrong signing secret, fleet PR). The deploy-gated smoke should go red and open a revert PR against this PR. That revert PR gets CLOSED, not merged — the break is fleet-side; the real fix is reverting the fleet PR. -->
