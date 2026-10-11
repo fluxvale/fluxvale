@@ -383,7 +383,12 @@ jobs:
     name: Smoke (staging + prod)
     needs: watch-deploy
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The staging leg runs the full lifecycle (#116): same shape the
+    # e2e job gives 45 min — cold Forgejo pull, minute-granularity
+    # reconcile, retries: 1. A timeout would cancel past the red path
+    # (outcome "cancelled" ≠ "failure"), so the ceiling must hold the
+    # worst case, not the typical one.
+    timeout-minutes: 45
     permissions:
       # Red path only: open the revert PR, comment, and dispatch CI
       # onto its branch (the dispatch needs actions: write — GITHUB_TOKEN

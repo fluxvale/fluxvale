@@ -40,7 +40,9 @@ red  → alert (email — routing is email-only for now, phone push
         onto its branch — PRs opened by CI's own token fire no events.
 ```
 
-Merge-to-verified ≈ 12–20 minutes. Readiness probes self-contain
+Merge-to-verified ≈ 15–35 minutes — job 3's staging lifecycle
+dominates (cold Forgejo pulls and a retry push past it). Readiness
+probes self-contain
 boot-broken deploys (new pod never goes ready → old pods keep
 serving); smoke catches boots-fine-but-misbehaves.
 

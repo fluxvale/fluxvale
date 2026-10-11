@@ -42,15 +42,16 @@ end
 # fluxvale.app, served by the edge wildcard) and INSTANCE_RBAC_SA_NAMESPACE
 # (the platform SA's namespace: local runs fluxvale-dev, each deployed
 # env its own — a RoleBinding naming the wrong namespace grants the
-# workload role to a nonexistent identity). Unset keeps the local
-# defaults, so a plain `mix phx.server` needs no env.
+# workload role to a nonexistent identity). Unset — or "" (the classic
+# empty-Secret shape) — keeps the local defaults, so a plain
+# `mix phx.server` needs no env.
 case System.get_env("INSTANCES_BASE_DOMAIN") do
-  nil -> :ok
+  domain when domain in [nil, ""] -> :ok
   domain -> config :flux_vale, :instances_base_domain, domain
 end
 
 case System.get_env("INSTANCE_RBAC_SA_NAMESPACE") do
-  nil ->
+  namespace when namespace in [nil, ""] ->
     :ok
 
   namespace ->
