@@ -369,9 +369,9 @@ jobs:
             -d "{\"text\": \"Deploy fluxvale sha-$SHA rolled out to staging + prod\", \"tags\": [\"deploy\", \"staging\", \"production\", \"fluxvale\"]}"
 
   # Deploy pipeline job 3 (docs/deployment.md, #99): the post-deploy
-  # smoke. staging = Bruno + Playwright sign-in/health (the full
-  # lifecycle joins when staging can host instances — Cluster row +
-  # wildcard cert, see #99); prod = Bruno + read-only Playwright subset
+  # smoke. staging = Bruno + full Playwright — lifecycle included since
+  # staging went instance-capable (#116); prod = Bruno + read-only
+  # Playwright subset
   # ([ADR-0024](../../docs/adr/00024-e2e-review-environments.md)).
   #
   # Red path per deployment.md: Grafana annotation + auto-opened revert

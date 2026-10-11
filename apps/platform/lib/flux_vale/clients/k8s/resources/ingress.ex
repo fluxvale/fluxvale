@@ -36,10 +36,13 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
   `tls: true` (with its resolver or secret) is a production-only
   combination; locally the Traefik default cert terminates TLS at the edge.
 
-  **M4 open item**: v1 mirrored the wildcard TLS secret into app namespaces
-  with Reflector — dropped in v2. Local M3 doesn't need it (edge-terminated
-  TLS); the fleet repo decides wildcard-cert distribution (Traefik default
-  cert vs replication) when staging/prod go live.
+  **Wildcard distribution — resolved with #116**: the fleet issues
+  `*.fluxvale.app` into the traefik namespace and wires a Traefik
+  default TLSStore, so the edge serves the wildcard for every route
+  without an explicit cert — exactly the shape `tls: true` alone
+  builds. v1's per-namespace Reflector mirror stays dropped: local
+  runs edge-terminated on Traefik's fallback cert, deployed envs on
+  the wildcard; no secret ever replicates into app namespaces.
   """
 
   alias FluxVale.Clients.K8s.Error

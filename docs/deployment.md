@@ -26,8 +26,9 @@ chain: DNS → Cloudflare → Traefik → pod; zero cluster credentials in CI)
    │
    ▼
 CI job 3: smoke
-    ├─ staging: Bruno suite + Playwright sign-in/health (the full
-    │  lifecycle joins when staging is instance-capable, #99)
+    ├─ staging: Bruno suite + full Playwright — lifecycle included
+    │  since staging went instance-capable (Cluster row + wildcard
+    │  cert, #116)
     └─ prod:    Bruno suite + read-only Playwright subset (no side effects)
     │
     ▼
