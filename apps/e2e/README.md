@@ -39,7 +39,7 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
 |---|---|
 | `BASE_URL` | Target stack (default: `https://app.fluxvale.lvh.me`) |
 | `E2E_TESTINBOX_TOKEN` | Admin PAT for the TestInbox JSON API (ADR-0024 Am. 1); the sign-in and lifecycle tests skip without it |
-| `E2E_RUNTIME` | Narrows what runs; the BASE_URL host sets the ceiling — any non-local, non-staging host is production-class (read-only) no matter what this says. Gates: lifecycle local-only until staging is instance-capable; sign-in never runs against production |
+| `E2E_RUNTIME` | Narrows what runs; the BASE_URL host sets the ceiling — any non-local, non-staging host is production-class (read-only) no matter what this says. Gates: lifecycle runs on local + staging (#116); sign-in never runs against production |
 | `E2E_RUN_ID` | Run-scoped uniqueness (email + instance names); defaults to a timestamp |
 
 ## Tests
@@ -53,8 +53,8 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
   instance URL → stop → destroy. Crosses the real cluster: `running`
   waits out the image pull plus the reconcile cron's minute
   granularity — the test carries a 15-minute budget; a red runner is
-  usually a broken flow, not a slow one. Local runtime only until
-  staging gets a Cluster row + a served instance domain (#99).
+  usually a broken flow, not a slow one. Local + staging (#116);
+  production stays read-only.
 
 CI: the `e2e` job (`.github/workflows/ci.yml`) bootstraps the same
 script on an ephemeral k3d and runs the full suite; the deploy-gated
