@@ -26,8 +26,9 @@ chain: DNS → Cloudflare → Traefik → pod; zero cluster credentials in CI)
    │
    ▼
 CI job 3: smoke
-    ├─ staging: Bruno suite + Playwright sign-in/health (the full
-    │  lifecycle joins when staging is instance-capable, #99)
+    ├─ staging: Bruno suite + full Playwright — lifecycle included
+    │  since staging went instance-capable (Cluster row + wildcard
+    │  cert, #116)
     └─ prod:    Bruno suite + read-only Playwright subset (no side effects)
     │
     ▼
@@ -39,7 +40,9 @@ red  → alert (email — routing is email-only for now, phone push
         onto its branch — PRs opened by CI's own token fire no events.
 ```
 
-Merge-to-verified ≈ 12–20 minutes. Readiness probes self-contain
+Merge-to-verified ≈ 15–35 minutes — job 3's staging lifecycle
+dominates (cold Forgejo pulls and a retry push past it). Readiness
+probes self-contain
 boot-broken deploys (new pod never goes ready → old pods keep
 serving); smoke catches boots-fine-but-misbehaves.
 

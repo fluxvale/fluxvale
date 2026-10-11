@@ -37,6 +37,28 @@ case System.get_env("METRICS_TOKEN") do
   token -> config :flux_vale, :metrics_token, token
 end
 
+# Instance runtime overrides (config.exs's local defaults, #116): the
+# fleet overlays set these per env — INSTANCES_BASE_DOMAIN (staging:
+# fluxvale.app, served by the edge wildcard) and INSTANCE_RBAC_SA_NAMESPACE
+# (the platform SA's namespace: local runs fluxvale-dev, each deployed
+# env its own — a RoleBinding naming the wrong namespace grants the
+# workload role to a nonexistent identity). Unset — or "" (the classic
+# empty-Secret shape) — keeps the local defaults, so a plain
+# `mix phx.server` needs no env.
+case System.get_env("INSTANCES_BASE_DOMAIN") do
+  domain when domain in [nil, ""] -> :ok
+  domain -> config :flux_vale, :instances_base_domain, domain
+end
+
+case System.get_env("INSTANCE_RBAC_SA_NAMESPACE") do
+  namespace when namespace in [nil, ""] ->
+    :ok
+
+  namespace ->
+    rbac = Application.fetch_env!(:flux_vale, :instance_rbac)
+    config :flux_vale, :instance_rbac, Keyword.put(rbac, :service_account_namespace, namespace)
+end
+
 # TestInbox gate (#22, ADR-0003 Am. 2 / ADR-0023 Am. 3): dev/test enable
 # via their config files; staging — the same prod-mode release as prod
 # (ADR-0010) — flips this env var, and the recipient split then captures
