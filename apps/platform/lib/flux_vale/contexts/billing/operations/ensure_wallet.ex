@@ -27,8 +27,12 @@ defmodule FluxVale.Billing.Operations.EnsureWallet do
           {:ok, wallet} ->
             {:ok, wallet}
 
+          # defensive: the concurrent first-posting race — needs two
+          # simultaneous creates, not sequential-test reachable
+          # coveralls-ignore-start
           {:error, _conflict_or_db} ->
             Wallet.get_by_organization(org.id, authorize?: false)
+            # coveralls-ignore-stop
         end
     end
   end
