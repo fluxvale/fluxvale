@@ -34,6 +34,7 @@ config :flux_vale,
   ash_domains: [
     FluxVale.Identity,
     FluxVale.Accounts,
+    FluxVale.Billing,
     FluxVale.Ops,
     FluxVale.Catalog,
     FluxVale.Infrastructure
