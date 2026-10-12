@@ -28,3 +28,11 @@ load-bearing — but it never drops to zero.
 overwriting backfills · column type changes losing data · dropped columns
 with data · **Postgres enum value removal (unsupported — requires type
 recreation)** · destructive rewrites.
+
+## Amendment 1 (2026-10-12): pre-launch carve-out
+
+The five rules bind releases that carry data anyone cares about. Until
+the first production deploy, dev and staging rows are disposable — a
+destructive migration there is a smoke event, not a data-loss event.
+The rules apply in full from the first production deploy (the M6
+checkout train is the current target).

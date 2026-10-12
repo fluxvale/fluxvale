@@ -22,6 +22,8 @@ defmodule FluxVale.Accounts.Organization do
 
   alias FluxVale.Accounts.Membership
 
+  require Ash.Query
+
   postgres do
     table "organizations"
     repo FluxVale.Repo
@@ -37,8 +39,8 @@ defmodule FluxVale.Accounts.Organization do
     end
 
     policy action_type(:create) do
-      description "Any signed-in actor creates organizations (JIT provisioning is a system op)"
-      authorize_if(actor_present())
+      description "System-only: JIT provisioning (authorize?: false). Actor-driven creation waits for the team-features flow that members the creator in the same transaction — without it, a created org is unreadable even by its creator."
+      forbid_if(always())
     end
 
     # Team features will gate destroy on the :owner role; today every
@@ -81,7 +83,31 @@ defmodule FluxVale.Accounts.Organization do
   end
 
   actions do
-    defaults([:read, :destroy])
+    defaults([:read])
+
+    # Membership rows have no delete cascade and their destroy policy is
+    # system-only, so the default destroy would FK-fail. Empty-org teardown
+    # clears them first (system op — the destroy policy already gated the
+    # caller). Instances and the wallet also FK the org: teardown of THOSE
+    # is #124's design — destroying a non-empty org still fails loudly.
+    destroy :destroy do
+      primary? true
+      require_atomic?(false)
+
+      change(fn changeset, _context ->
+        org_id = changeset.data.id
+
+        Ash.Changeset.before_action(changeset, fn changeset ->
+          Membership
+          |> Ash.Query.for_read(:read, %{})
+          |> Ash.Query.filter(organization_id == ^org_id)
+          |> Ash.read!(authorize?: false)
+          |> Enum.each(&Ash.destroy!(&1, authorize?: false))
+
+          changeset
+        end)
+      end)
+    end
 
     create :create do
       primary? true

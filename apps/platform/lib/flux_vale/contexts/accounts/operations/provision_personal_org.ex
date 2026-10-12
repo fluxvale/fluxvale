@@ -56,9 +56,10 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrg do
       {:ok, org} ->
         {:ok, org, true}
 
-      # defensive: a create failure here is a DB failure (the slug was
-      # picked free above; a lost JIT race raises past this arm inside
-      # the signup transaction) — not simulatable under the sandbox
+      # defensive: a lost JIT-signup slug race (the probe picked a slug a
+      # concurrent signer just took) fails the create here and rolls back
+      # the signup — needs true concurrency to reach, so no sequential
+      # test can; the identity index is the arbiter
       # coveralls-ignore-start
       {:error, _reason} = error ->
         error

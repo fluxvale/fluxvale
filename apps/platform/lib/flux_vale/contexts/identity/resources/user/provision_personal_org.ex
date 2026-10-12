@@ -20,8 +20,11 @@ defmodule FluxVale.Identity.User.ProvisionPersonalOrg do
         {:ok, _org, _created?} ->
           {:ok, user}
 
-        # coveralls-ignore-start - defensive: provisioning only fails on a
-        # DB error during signup, not simulatable under the sandbox
+        # defensive: provisioning failure = the lost JIT-signup slug race
+        # (concurrency-only, the unique_slug identity is the arbiter) or a
+        # DB error — neither sequential-test reachable. The create rolls
+        # back; the retry probes the next suffix.
+        # coveralls-ignore-start
         {:error, _error} = error ->
           error
           # coveralls-ignore-stop

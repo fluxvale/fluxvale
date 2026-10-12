@@ -317,6 +317,45 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Query.NotFound{}]}} =
                Instance.get_by_id(instance.id, actor: user())
     end
+
+    test "a non-member cannot drive lifecycle transitions or delete" do
+      owner = user()
+      instance = created_with_actor!(owner)
+      stranger = user()
+
+      # stop surfaces the pending-state validation before policy; deploy
+      # and delete hit the policy (delete via the wrapped NotFound of the
+      # authorized read inside the action)
+      assert {:error, %Ash.Error.Invalid{}} = Instance.stop(instance, actor: stranger)
+
+      assert {:error, %Ash.Error.Forbidden{}} = Instance.deploy(instance, actor: stranger)
+
+      assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Query.NotFound{}]}} =
+               Instance.delete(instance.id, actor: stranger)
+    end
+
+    test "list_for_actor scopes to the actor's org — no cross-org bleed" do
+      owner = user()
+      instance = created_with_actor!(owner)
+
+      assert {:ok, listed} = Instance.list_for_actor(actor: owner)
+      assert Enum.map(listed, & &1.id) == [instance.id]
+
+      stranger = user()
+
+      assert {:ok, []} = Instance.list_for_actor(actor: stranger)
+    end
+  end
+
+  # created!/1 uses its own user; tests needing a SPECIFIC actor create here.
+  defp created_with_actor!(actor) do
+    version = forgejo_version()
+    InstanceFixtures.local_cluster!()
+
+    Instance.create!(
+      %{name: "My Forgejo", app_version_id: version.id, env_vars: %{}},
+      actor: actor
+    )
   end
 
   describe "update_status — state machine + anchors" do

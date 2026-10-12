@@ -119,10 +119,11 @@ defmodule FluxVale.Identity.User do
     defaults([:read])
 
     create :create do
-      # Serves admins and the bootstrap seed (which runs authorize?: false —
-      # there is no actor to authorize before the first admin exists).
-      # Anonymous JIT registration is NOT this action; it arrives with the
-      # email-code strategy (#21) under the interaction bypass above.
+      # The one registration path is JIT signup (#21): a valid email code
+      # proves inbox ownership and provisions through this action (under
+      # the interaction bypass above). Serves admins and the bootstrap
+      # seed too (which runs authorize?: false — there is no actor to
+      # authorize before the first admin exists).
       primary? true
       accept([:email, :platform_role])
 
