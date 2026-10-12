@@ -19,10 +19,17 @@ defmodule FluxVale.Billing.Operations.EnsureWallet do
         {:ok, wallet}
 
       # get? reads wrap NotFound inside Ash.Error.Invalid — a miss (the
-      # realistic outcome) creates; any read failure also lands in the
-      # create, which then fails loudly rather than mask it.
+      # realistic outcome) creates. Two concurrent first postings race the
+      # read-then-insert: the loser loses to the unique_org identity, and
+      # the re-read returns the winner's wallet instead of an error.
       {:error, _not_found_or_failed} ->
-        Wallet.create(%{organization_id: org.id}, authorize?: false)
+        case Wallet.create(%{organization_id: org.id}, authorize?: false) do
+          {:ok, wallet} ->
+            {:ok, wallet}
+
+          {:error, _conflict_or_db} ->
+            Wallet.get_by_organization(org.id, authorize?: false)
+        end
     end
   end
 end

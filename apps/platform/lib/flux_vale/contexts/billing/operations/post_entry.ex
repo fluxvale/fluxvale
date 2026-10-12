@@ -97,9 +97,10 @@ defmodule FluxVale.Billing.Operations.PostEntry do
         {:ok, entry}
 
       # defensive: an insert failure here is a DB failure or the
-      # idempotency-identity backstop — unreachable with the lock held
-      # (the replay lookup above always sees the committed winner), so
-      # no test can reach it
+      # idempotency-identity backstop for an UNLOCKED caller (grant and
+      # credit hold no lock — two concurrent same-key credits race, and
+      # the loser lands here). True concurrency only: no sequential test
+      # can reach it.
       # coveralls-ignore-start
       {:error, _reason} = error ->
         error

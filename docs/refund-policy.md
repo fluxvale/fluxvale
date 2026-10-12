@@ -15,10 +15,13 @@ with the ledger, #120). Nothing here binds until published.
 
 ## How refunds work (the ledger contract)
 
-A refund is a **reversal entry** against the purchase entry it offsets
-(`reverses_id`) — ledger rows are never mutated or deleted. The refund
-moves money out through the payment provider; the wallet only ever sees
-the compensating entry. One reversal per entry, enforced at the database.
+Refunds move money back through the payment provider; the ledger only
+records the compensating entries — rows are never mutated or deleted. A
+refund that draws on specific purchase entries reverses them
+(`reverses_id`, one reversal per entry, database-enforced); a refund of
+a balance sweep posts a `:refund` debit for the amount paid back. Either
+way the books stay reconcilable: every credit that left the wallet has a
+compensating row naming why.
 
 ## Open for advisor input (M6)
 
