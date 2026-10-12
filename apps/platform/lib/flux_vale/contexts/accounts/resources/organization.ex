@@ -92,6 +92,7 @@ defmodule FluxVale.Accounts.Organization do
     # is #124's design — destroying a non-empty org still fails loudly.
     destroy :destroy do
       primary? true
+      require_atomic?(false)
 
       change(fn changeset, _context ->
         org_id = changeset.data.id
