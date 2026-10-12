@@ -15,6 +15,8 @@ defmodule FluxVale.Identity.User do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshAuthentication, AshJsonApi.Resource]
 
+  alias FluxVale.Identity.User.ProvisionPersonalOrg
+
   require Logger
 
   # PAT lifetime: 1 year (v1's value, ported — #23). Absolute, like
@@ -123,6 +125,11 @@ defmodule FluxVale.Identity.User do
       # email-code strategy (#21) under the interaction bypass above.
       primary? true
       accept([:email, :platform_role])
+
+      # Every registration path gets an org (#119) — JIT signup, seeds,
+      # admin-created users. Runs in the create transaction; see the
+      # change module.
+      change(ProvisionPersonalOrg)
     end
 
     # /api/v1/me (#24): the actor-template filter is the whole trick — the

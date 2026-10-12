@@ -96,6 +96,22 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
       assert user_again.id == user.id
     end
 
+    test "JIT sign-in provisions the personal org (creator = owner, #119)", %{
+      email: email
+    } do
+      alias FluxVale.TestSupport.AccountsFixtures
+
+      :ok = Identity.request_auth_code(email)
+
+      assert {:ok, user, _token} = Identity.verify_auth_code(email, mailbox_code())
+
+      org = AccountsFixtures.personal_org!(user)
+
+      # slug from the email local part (sanitized), creator-owned
+      assert String.starts_with?(org.slug, "verify-code-")
+      assert org.name == String.replace_trailing(email, "@fluxvale.com", "")
+    end
+
     test "email matching is case-insensitive", %{email: email} do
       :ok = Identity.request_auth_code(email)
       code = mailbox_code()

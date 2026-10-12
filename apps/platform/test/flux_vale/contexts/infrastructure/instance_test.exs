@@ -120,7 +120,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       assert instance.memory_mb == 512
       assert instance.storage_gb == 10
       assert instance.cluster_id
-      assert instance.user_id
+      assert instance.organization_id
       assert instance.status == :pending
       assert instance.namespace == nil
       assert instance.running_since == nil
@@ -269,14 +269,32 @@ defmodule FluxVale.Infrastructure.InstanceTest do
              )
     end
 
-    test "requires a signed-in actor; the owner is set from the actor" do
+    test "requires a signed-in actor; the org is resolved from the actor" do
       # Ash 3 runs create policies after changes/validations — an actorless
-      # create surfaces the user_id presence error, not Forbidden; it fails
-      # loudly either way and nothing is written.
+      # create surfaces the organization_id presence error, not Forbidden;
+      # it fails loudly either way and nothing is written.
       assert {:error, %Ash.Error.Invalid{errors: errors}} =
                Instance.create(build_attrs())
 
-      assert Enum.any?(errors, &(&1.field == :user_id))
+      assert Enum.any?(errors, &(&1.field == :organization_id))
+    end
+
+    test "an actor without an org fails loudly (field-scoped, not a crash)" do
+      # Ash.seed! — the only way to produce an org-less user: the create
+      # action's JIT change always provisions one (state actions can't
+      # produce, the documented seed! exception).
+      orgless =
+        Ash.Seed.seed!(User, %{
+          email: "orgless-#{System.unique_integer()}@fluxvale.test"
+        })
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               Instance.create(build_attrs(), actor: orgless)
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :organization_id and &1.message == "is required")
+             )
     end
   end
 
@@ -361,7 +379,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       stub_k8s()
       instance = created!()
 
-      {:ok, deploying} = Instance.deploy(instance, actor: user_of(instance))
+      {:ok, deploying} = Instance.deploy(instance, actor: owner_of(instance))
 
       assert deploying.status == :deploying
       assert deploying.namespace == "fluxvale-app-#{instance.id}"
@@ -369,7 +387,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
 
       # :inline runs the trigger during the action — re-fetch for the
       # post-trigger truth (v1 posture).
-      {:ok, fresh} = Instance.get_by_id(instance.id, actor: user_of(instance))
+      {:ok, fresh} = Instance.get_by_id(instance.id, actor: owner_of(instance))
       assert fresh.status == :starting
       assert fresh.status_message =~ "awaiting readiness"
     end
@@ -379,16 +397,24 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       instance = deployed!(created, :deploying, "fluxvale-app-#{created.id}")
 
       assert {:error, %Ash.Error.Invalid{errors: errors}} =
-               Instance.deploy(instance, actor: user_of(instance))
+               Instance.deploy(instance, actor: owner_of(instance))
 
       assert Enum.any?(errors, &(&1.message =~ "cannot deploy instance in deploying"))
     end
   end
 
-  defp user_of(instance) do
-    instance
-    |> Ash.load!(:user, authorize?: false)
-    |> Map.get(:user)
+  # The actor for follow-up lifecycle calls, re-derived from the record the
+  # way the data model defines ownership: instance → organization → member.
+  defp owner_of(instance) do
+    org =
+      instance
+      |> Ash.load!(:organization, authorize?: false)
+      |> Map.get(:organization)
+
+    org
+    |> Ash.load!(:members, authorize?: false)
+    |> Map.get(:members)
+    |> List.first()
   end
 
   describe "stop/1 and start/1" do
@@ -408,12 +434,12 @@ defmodule FluxVale.Infrastructure.InstanceTest do
         {:ok, %{}}
       end)
 
-      {:ok, stopped} = Instance.stop(instance, actor: user_of(instance))
+      {:ok, stopped} = Instance.stop(instance, actor: owner_of(instance))
       assert stopped.status == :stopped
 
       expect(Deployment, :scale, fn _kc, _ns, "app", 1 -> {:ok, %{}} end)
 
-      {:ok, started} = Instance.start(stopped, actor: user_of(instance))
+      {:ok, started} = Instance.start(stopped, actor: owner_of(instance))
       assert started.status == :starting
     end
 
@@ -421,12 +447,12 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       instance = created!()
 
       assert {:error, %Ash.Error.Invalid{errors: errors}} =
-               Instance.stop(instance, actor: user_of(instance))
+               Instance.stop(instance, actor: owner_of(instance))
 
       assert Enum.any?(errors, &(&1.message =~ "cannot stop instance in pending"))
 
       assert {:error, %Ash.Error.Invalid{errors: errors}} =
-               Instance.start(instance, actor: user_of(instance))
+               Instance.start(instance, actor: owner_of(instance))
 
       assert Enum.any?(errors, &(&1.message =~ "cannot start instance in pending"))
     end
@@ -447,7 +473,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
         {:error, K8s.Error.connection_error("cluster unreachable")}
       end)
 
-      {:ok, errored} = Instance.stop(instance, actor: user_of(instance))
+      {:ok, errored} = Instance.stop(instance, actor: owner_of(instance))
       assert errored.status == :error
       assert errored.status_message =~ "Stop failed: cluster unreachable"
     end
@@ -456,7 +482,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
   describe "delete/1" do
     test "never-deployed rows hard-delete synchronously" do
       instance = created!()
-      owner = user_of(instance)
+      owner = owner_of(instance)
 
       assert {:ok, deleted} = Instance.delete(instance.id, actor: owner)
       assert deleted.id == instance.id
@@ -470,7 +496,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       created = created!()
       instance = deployed!(created, :deploying, "fluxvale-app-#{created.id}")
 
-      owner = user_of(created)
+      owner = owner_of(created)
 
       expect(Namespace, :delete, fn _kc, ns ->
         assert ns == "fluxvale-app-#{instance.id}"
@@ -489,7 +515,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       created = created!()
       instance = deployed!(created, :deleting, "fluxvale-app-#{created.id}")
 
-      owner = user_of(created)
+      owner = owner_of(created)
 
       # Zero teardown deletes expected — the duplicate guard must hold.
       reject(Namespace, :delete, 2)
@@ -522,13 +548,13 @@ defmodule FluxVale.Infrastructure.InstanceTest do
         {:ok, %{replicas: 1, ready: 1, conditions: []}}
       end)
 
-      {:ok, fresh} = Instance.get_by_id(instance.id, actor: user_of(instance))
+      {:ok, fresh} = Instance.get_by_id(instance.id, actor: owner_of(instance))
 
       fresh
       |> Ash.Changeset.for_update(:perform_reconcile, %{}, authorize?: false)
       |> Ash.update!()
 
-      {:ok, reloaded} = Instance.get_by_id(instance.id, actor: user_of(instance))
+      {:ok, reloaded} = Instance.get_by_id(instance.id, actor: owner_of(instance))
       assert reloaded.status == :running
     end
 
