@@ -17,10 +17,15 @@ defmodule FluxVale.Billing.Operations.DebitWallet do
   on the wallet, and each reads the winner's committed remainder, so no
   lost update can double-post or swallow a fraction.
 
-  Keyless debits are once-only (like grants); settle callers pass an
-  `idempotency_key:` — a replay returns the existing entry, and the same
-  input recomputes the same remainder, so the carryover write stays
-  idempotent. System operation, `authorize?: false`.
+  Keyed debits replay safe: the settle transaction checks the key FIRST
+  (under the lock, before any math) and a hit returns the original entry
+  with the carryover untouched — a retried post can never rewrite the
+  pool, because the remainder always derives from the *current* carryover,
+  not the first call's. A settle whose whole-cent portion is zero posts no
+  ledger row, so its key lives nowhere — the caller owns retry safety for
+  accrued debits (the settle anchors are the arbiter, #121: a committed
+  settle advances the anchors, so a post-commit retry never recomputes the
+  same interval). System operation, `authorize?: false`.
   """
 
   alias FluxVale.Accounts.Organization
@@ -28,6 +33,8 @@ defmodule FluxVale.Billing.Operations.DebitWallet do
   alias FluxVale.Billing.Operations.PostEntry
   alias FluxVale.Billing.Operations.ResolveWallet
   alias FluxVale.Billing.Wallet
+
+  require Ash.Query
 
   @micro_per_cent 10_000
   @reason_default :usage
@@ -55,8 +62,7 @@ defmodule FluxVale.Billing.Operations.DebitWallet do
 
         case Ash.get(Wallet, wallet.id, authorize?: false) do
           {:ok, fresh} ->
-            total = fresh.carryover + micro_cents
-            post_and_store(fresh, div(total, @micro_per_cent), rem(total, @micro_per_cent), opts)
+            settle_fresh(fresh, micro_cents, opts)
 
           # coveralls-ignore-start - defensive: the wallet was resolved
           # moments ago; a delete mid-settle is not simulatable
@@ -79,7 +85,57 @@ defmodule FluxVale.Billing.Operations.DebitWallet do
     end
   end
 
-  defp post_and_store(wallet, cents, remainder, opts) do
+  # A keyed replay returns the original entry (unwrapped — the
+  # transaction must not double-wrap it); anything else settles.
+  defp settle_fresh(fresh, micro_cents, opts) do
+    result =
+      with :none <- already_settled?(fresh, opts) do
+        total = fresh.carryover + micro_cents
+
+        post_and_store(fresh, div(total, @micro_per_cent), rem(total, @micro_per_cent), opts)
+      end
+
+    case result do
+      {:ok, entry} -> entry
+      posted -> posted
+    end
+  end
+
+  # Replay check, under the lock, before any math: a keyed debit that
+  # already posted returns its original entry and the carryover stays
+  # exactly as the first settle left it. Keyless (and accrued — row-less)
+  # debits have nothing to replay against.
+  defp already_settled?(%Wallet{} = wallet, opts) do
+    case Keyword.get(opts, :idempotency_key) do
+      nil ->
+        :none
+
+      key ->
+        result =
+          LedgerEntry
+          |> Ash.Query.for_read(:read, %{})
+          |> Ash.Query.filter(wallet_id == ^wallet.id and idempotency_key == ^key)
+          |> Ash.Query.limit(1)
+          |> Ash.read(authorize?: false)
+
+        case result do
+          {:ok, [entry | _rest]} ->
+            {:ok, entry}
+
+          {:ok, []} ->
+            :none
+
+          # defensive: DB read failure — the settle fails loudly rather
+          # than risk a double-post; not simulatable under the sandbox
+          # coveralls-ignore-start
+          {:error, reason} ->
+            FluxVale.Repo.rollback(reason)
+            # coveralls-ignore-stop
+        end
+    end
+  end
+
+  defp post_and_store(%Wallet{} = wallet, cents, remainder, opts) do
     with {:ok, posted} <- post(wallet, cents, opts),
          :ok <- write_carryover(wallet, remainder) do
       posted

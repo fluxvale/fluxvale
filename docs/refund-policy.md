@@ -9,7 +9,7 @@ with the ledger, #120). Nothing here binds until published.
 - **Remaining (unconsumed) credits are refundable** — prepaid credits
   bought and not yet spent go back to the payment method on request.
 - **Consumed hosting is non-refundable** — a flat-rate month already
-  accrued against ([ADR-0028](00028-flat-rate-pricing.md)) paid for real
+  accrued against ([ADR-0028](adr/00028-flat-rate-pricing.md)) paid for real
   capacity held; it does not unwind.
 - **Welcome credits are not refundable** — they were never purchased.
 

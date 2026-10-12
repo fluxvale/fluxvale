@@ -18,10 +18,10 @@ defmodule FluxVale.Billing.Operations.EnsureWallet do
       {:ok, wallet} ->
         {:ok, wallet}
 
-      # get? reads wrap NotFound inside Ash.Error.Invalid — the only
-      # realistic miss here; anything else propagates (probe posture:
-      # a real failure then fails the create loudly).
-      {:error, _not_found} ->
+      # get? reads wrap NotFound inside Ash.Error.Invalid — a miss (the
+      # realistic outcome) creates; any read failure also lands in the
+      # create, which then fails loudly rather than mask it.
+      {:error, _not_found_or_failed} ->
         Wallet.create(%{organization_id: org.id}, authorize?: false)
     end
   end

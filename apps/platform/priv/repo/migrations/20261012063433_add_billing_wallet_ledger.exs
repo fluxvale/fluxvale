@@ -27,14 +27,6 @@ defmodule FluxVale.Repo.Migrations.AddBillingWalletLedger do
              name: "billing_ledger_entries_unique_idempotency_index"
            )
 
-    # Hand-added (no Ash resource mirrors it): one reversal per original
-    # entry — the double-refund backstop behind ReverseEntry's guard.
-    # Partial: keyless posts carry NULL reverses_id and stay distinct.
-    create unique_index(:billing_ledger_entries, [:reverses_id],
-             name: "billing_ledger_entries_unique_reversal_index",
-             where: "reverses_id IS NOT NULL"
-           )
-
     create table(:billing_wallets, primary_key: false) do
       add :id, :uuid, null: false, primary_key: true
     end

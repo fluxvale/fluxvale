@@ -27,6 +27,10 @@ defmodule FluxVale.Billing.Operations.DebitWalletConcurrencyTest do
   test "concurrent debits pool their fractions — no lost carryover update" do
     %{wallet: wallet, user_id: user_id, org_id: org_id} = seeded!()
 
+    # The rows are committed outside the sandbox — cleanup runs in
+    # on_exit so a failure mid-test never strands them in the shared DB.
+    on_exit(fn -> cleanup!(wallet.id, org_id, user_id) end)
+
     parent = self()
 
     workers =
@@ -72,8 +76,6 @@ defmodule FluxVale.Billing.Operations.DebitWalletConcurrencyTest do
              assert {:ok, balance} = Billing.balance(fresh, authorize?: false)
              assert balance == 9_999
            end)
-
-    cleanup!(wallet.id, org_id, user_id)
   end
 
   # Seeds the wallet through a committed (non-sandboxed) connection so
@@ -90,7 +92,8 @@ defmodule FluxVale.Billing.Operations.DebitWalletConcurrencyTest do
     end)
   end
 
-  # Runs fun on a real connection whose writes commit immediately.
+  # Runs fun on a real connection whose writes commit immediately. Works
+  # from on_exit too — sandbox:false checkouts bypass sandbox ownership.
   defp committed?(fun) do
     conn = Sandbox.checkout(Repo, sandbox: false)
 

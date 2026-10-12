@@ -34,6 +34,9 @@ defmodule FluxVale.Billing.Operations.ReverseEntry do
         FluxVale.Repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", [wallet.id])
 
         case existing_reversal(original) do
+          {:ok, [reversal | _rest]} ->
+            replayed_or_conflict(reversal, opts)
+
           {:ok, []} ->
             post_reversal(wallet, original, opts)
 
@@ -41,9 +44,6 @@ defmodule FluxVale.Billing.Operations.ReverseEntry do
           # loses to the partial unique index instead (DB round-trip,
           # not simulatable)
           # coveralls-ignore-start
-          {:ok, [_reversal | _rest]} ->
-            FluxVale.Repo.rollback(:already_reversed)
-
           {:error, reason} ->
             FluxVale.Repo.rollback(reason)
             # coveralls-ignore-stop
@@ -56,13 +56,29 @@ defmodule FluxVale.Billing.Operations.ReverseEntry do
     end
   end
 
+  # A keyed caller replaying THEIR reversal gets it back; a second
+  # reversal attempt (unkeyed, or a different key) is a double refund.
+  defp replayed_or_conflict(reversal, opts) do
+    case Keyword.get(opts, :idempotency_key) do
+      keyed when is_binary(keyed) and keyed == reversal.idempotency_key -> reversal
+      _other -> FluxVale.Repo.rollback(:already_reversed)
+    end
+  end
+
   defp post_reversal(wallet, original, opts) do
     reason = Keyword.get(opts, :reason, @reason_default)
     opts = Keyword.put(opts, :reverses_id, original.id)
+    expected_reverses_id = original.id
 
     case PostEntry.call(wallet, opposite(original.type), abs(original.amount), reason, opts) do
-      {:ok, entry} ->
+      {:ok, %{reverses_id: reverses_id} = entry} when reverses_id == expected_reverses_id ->
         entry
+
+      # The idempotency key belonged to a different post on this wallet —
+      # acknowledging a refund with nothing behind it would be worse than
+      # failing it.
+      {:ok, _foreign} ->
+        FluxVale.Repo.rollback(:idempotency_key_mismatch)
 
       # defensive: the posting only fails on a DB failure (the reversal
       # guard ran above; the unique-reversal index backstops the race) —

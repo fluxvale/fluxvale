@@ -38,6 +38,13 @@ defmodule FluxVale.Billing.LedgerEntry do
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
     migration_defaults id: "nil"
 
+    # One reversal per original entry — the double-refund backstop behind
+    # ReverseEntry's guard. Partial: keyless posts carry NULL reverses_id
+    # and stay distinct. Under codegen's drift check via custom_indexes.
+    custom_indexes do
+      index [:reverses_id], unique: true, where: "reverses_id IS NOT NULL"
+    end
+
     # Database-level mirror of SignMatchesType: the signed amount must
     # agree with the type even if a row is written outside Ash (direct
     # SQL). Defense-in-depth for the financial ledger's core invariant.

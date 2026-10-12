@@ -52,6 +52,35 @@ defmodule FluxVale.Billing.Operations.DebitWalletTest do
     assert {:ok, 9_998} = Billing.balance(wallet, authorize?: false)
   end
 
+  test "a fractional replay returns the original entry and never rewrites the pool", %{
+    wallet: wallet
+  } do
+    # 17_500µ = 1.75¢: posts -1¢, pools 7_500µ. The retry must see the
+    # SAME entry and the pool exactly as the first settle left it — a
+    # recompute would shrink the pool to 5_000µ (2_500µ of accrued dust
+    # silently vanishing).
+    {:ok, first} = Billing.debit_wallet(wallet, 17_500, idempotency_key: "settle:f-1")
+    {:ok, replay} = Billing.debit_wallet(wallet, 17_500, idempotency_key: "settle:f-1")
+
+    assert replay.id == first.id
+    assert Repo.reload!(wallet).carryover == 7_500
+    assert {:ok, 9_999} = Billing.balance(wallet, authorize?: false)
+  end
+
+  test "an accrued debit persists no key — the caller owns its retries", %{wallet: wallet} do
+    # documented contract: a sub-cent settle posts no row, so its
+    # idempotency key lives nowhere; a post-commit retry of the same
+    # caller-side settle event must never happen (#121's anchors are the
+    # arbiter). Pinned so the re-apply is visible, not silent: the retry
+    # re-adds the fraction, which pools past a whole cent and posts.
+    {:ok, :accrued} = Billing.debit_wallet(wallet, 7_500, idempotency_key: "settle:a-1")
+    {:ok, second} = Billing.debit_wallet(wallet, 7_500, idempotency_key: "settle:a-1")
+
+    assert second.amount == -1
+    assert Repo.reload!(wallet).carryover == 5_000
+    assert {:ok, 9_999} = Billing.balance(wallet, authorize?: false)
+  end
+
   test "an org target resolves the wallet on demand" do
     {org, _wallet} = BillingFixtures.funded_wallet!(balance_cents: 1_000)
 

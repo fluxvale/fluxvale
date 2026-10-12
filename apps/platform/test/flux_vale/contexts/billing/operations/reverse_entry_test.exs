@@ -64,4 +64,25 @@ defmodule FluxVale.Billing.Operations.ReverseEntryTest do
     assert reversal.reason == :adjustment
     assert reversal.idempotency_key == "refund-1"
   end
+
+  test "a keyed replay returns the original reversal", %{wallet: wallet} do
+    {:ok, purchase} = Billing.credit_wallet(wallet, 100)
+
+    {:ok, first} = Billing.reverse_entry(purchase, idempotency_key: "refund-2")
+    {:ok, replay} = Billing.reverse_entry(purchase, idempotency_key: "refund-2")
+
+    assert replay.id == first.id
+  end
+
+  test "a foreign idempotency key is rejected, not silently ignored", %{wallet: wallet} do
+    {:ok, purchase} = Billing.credit_wallet(wallet, 100, idempotency_key: "pay_own")
+    {:ok, other_purchase} = Billing.credit_wallet(wallet, 200, idempotency_key: "pay_other")
+
+    assert {:error, :idempotency_key_mismatch} =
+             Billing.reverse_entry(purchase, idempotency_key: "pay_other")
+
+    # the refund never posted — nothing behind the acknowledgement
+    assert {:ok, _reversal} = Billing.reverse_entry(other_purchase)
+    assert {:ok, 1_100} = Billing.balance(wallet, authorize?: false)
+  end
 end

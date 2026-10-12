@@ -10,6 +10,7 @@ defmodule FluxVale.Billing.LedgerEntryTest do
   alias Ash.Error.Invalid
   alias Ash.Resource.Info
   alias FluxVale.Billing.LedgerEntry
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
 
   setup do
@@ -141,5 +142,29 @@ defmodule FluxVale.Billing.LedgerEntryTest do
     # the concurrent case loses to the partial unique index (an Unknown
     # wrapping the constraint violation, not the guard's Invalid)
     assert {:error, %Ash.Error.Unknown{}} = reversal.()
+  end
+
+  test "members read their org's ledger; strangers don't; no actor posts", %{wallet: wallet} do
+    member =
+      wallet
+      |> Ash.load!([organization: [:members]], authorize?: false)
+      |> Map.get(:organization)
+      |> Map.get(:members)
+      |> List.first()
+
+    assert {:ok, mine} = LedgerEntry.read(actor: member)
+    assert Enum.any?(mine, &(&1.wallet_id == wallet.id))
+
+    stranger = AccountsFixtures.user!()
+
+    assert {:ok, theirs} = LedgerEntry.read(actor: stranger)
+    refute Enum.any?(theirs, &(&1.wallet_id == wallet.id))
+
+    # posting is the machinery's job — never an actor's
+    assert {:error, %Ash.Error.Forbidden{}} =
+             LedgerEntry.create(
+               %{wallet_id: wallet.id, amount: 100, type: :credit, reason: :purchase},
+               actor: member
+             )
   end
 end
