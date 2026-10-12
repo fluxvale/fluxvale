@@ -46,7 +46,7 @@ defmodule FluxVale.Infrastructure.Instance do
   alias FluxVale.Infrastructure.Instance.PerformReconcile
   alias FluxVale.Infrastructure.Instance.PerformTeardown
   alias FluxVale.Infrastructure.Instance.ResolveCluster
-  alias FluxVale.Infrastructure.Instance.SetUserFromActor
+  alias FluxVale.Infrastructure.Instance.SetOrganizationFromActor
   alias FluxVale.Infrastructure.Instance.StatusTransition
   alias FluxVale.Infrastructure.Instance.ValidateEnvVars
   alias FluxVale.Infrastructure.Operations.InstanceK8s
@@ -105,23 +105,23 @@ defmodule FluxVale.Infrastructure.Instance do
     end
 
     policy action_type(:read) do
-      description "Owners read their instances"
-      authorize_if(relates_to_actor_via(:user))
+      description "Members read their org's instances"
+      authorize_if(relates_to_actor_via([:organization, :members]))
     end
 
     policy action_type(:create) do
-      description "Any signed-in actor creates instances (owner set from actor)"
+      description "Any signed-in actor creates instances (org resolved from actor)"
       authorize_if(actor_present())
     end
 
     policy action_type(:update) do
-      description "Owners drive lifecycle transitions"
-      authorize_if(relates_to_actor_via(:user))
+      description "Members drive their org's instance lifecycle transitions"
+      authorize_if(relates_to_actor_via([:organization, :members]))
     end
 
     policy action_type(:destroy) do
-      description "Owners destroy instances"
-      authorize_if(relates_to_actor_via(:user))
+      description "Members destroy their org's instances"
+      authorize_if(relates_to_actor_via([:organization, :members]))
     end
 
     policy action(:delete) do
@@ -249,14 +249,16 @@ defmodule FluxVale.Infrastructure.Instance do
   end
 
   relationships do
-    belongs_to :user, FluxVale.Identity.User do
-      # allow_nil? true + presence validation: SetUserFromActor populates
-      # it from the actor before validations run (v1 pattern).
+    belongs_to :organization, FluxVale.Accounts.Organization do
+      # allow_nil? true + presence validation: SetOrganizationFromActor
+      # resolves it from the actor's membership before validations run
+      # (derived-field pattern). The org is the single ownership axis
+      # (#119) — instances have no user FK.
       public?(true)
     end
 
     belongs_to :cluster, FluxVale.Infrastructure.Cluster do
-      # Same derived-field pattern as :user (ResolveCluster pins it).
+      # Same derived-field pattern as :organization (ResolveCluster pins it).
       public?(true)
     end
 
@@ -272,7 +274,7 @@ defmodule FluxVale.Infrastructure.Instance do
     create :create do
       accept([:name, :env_vars, :app_version_id])
 
-      change(SetUserFromActor)
+      change(SetOrganizationFromActor)
       change(ResolveCluster)
       change(DeriveFromAppVersion)
       change(GenerateSlug)
@@ -286,8 +288,8 @@ defmodule FluxVale.Infrastructure.Instance do
     end
 
     read :list_for_actor do
-      description "The actor's own instances (#74's list surface; sorted newest-first at the query)"
-      filter(expr(user_id == ^actor(:id)))
+      description "The actor's own instances (#74's list surface; sorted newest-first at the query) — org-scoped since #119: instances belong to the actor's org"
+      filter(expr(exists(organization.memberships, user_id == ^actor(:id))))
     end
 
     update :update_status do
@@ -536,7 +538,7 @@ defmodule FluxVale.Infrastructure.Instance do
   validations do
     # Derived fields (allow_nil? true above) get explicit presence here —
     # validations run after changes (v1 pattern, see attributes notes).
-    validate(present(:user_id), on: :create, message: "is required")
+    validate(present(:organization_id), on: :create, message: "is required")
 
     validate(present(:cluster_id), on: :create, message: "is required")
 
