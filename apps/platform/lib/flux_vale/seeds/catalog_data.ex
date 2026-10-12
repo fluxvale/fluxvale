@@ -21,6 +21,11 @@ defmodule FluxVale.Seeds.CatalogData do
   `default_cpu_cores` "0.5", `default_memory_mb` 256, `default_storage_gb` 0,
   `published_at` nil, env maps `%{}`.
 
+  `recommended_size` (the priced unit, #125) is **required** in the YAML —
+  a version without one cannot be priced (ADR-0028). The loader only
+  carries the slug through; the seed runner resolves it against the
+  pricing_sizes table (seed_pricing!/1 runs first in seed/0).
+
   Env-var specs (`configurable_env_vars`) are **not** validated here — the
   resource's `EnvVarSchema` type rejects malformed specs at write time, one
   enforcement point for seeds, AshAdmin, and the future API alike (v1
@@ -108,9 +113,22 @@ defmodule FluxVale.Seeds.CatalogData do
       default_cpu_cores: cpu_cores(version),
       default_memory_mb: Map.get(version, "default_memory_mb", 256),
       default_storage_gb: Map.get(version, "default_storage_gb", 0),
+      recommended_size: recommended_size!(version),
       release_notes: version["release_notes"],
       published_at: published_at(version)
     }
+  end
+
+  # Required, not defaulted: an unpriced version is a silent billing hole
+  # (ADR-0028). Failing at parse time names the offending version.
+  defp recommended_size!(version) do
+    case Map.fetch(version, "recommended_size") do
+      {:ok, slug} ->
+        slug
+
+      :error ->
+        raise "catalog seed: version #{inspect(version["version"])} must name a recommended_size"
+    end
   end
 
   defp cpu_cores(version) do

@@ -40,8 +40,28 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
     assert has_element?(view, "#deploy-#{version.id}[href='/apps/#{linked_app.slug}/deploy']")
     assert has_element?(view, "a[href='https://example.com/src']", "Source")
     assert has_element?(view, "a[href='https://example.com/docs']", "Docs")
+    assert has_element?(view, "[data-testid='price-#{version.version}']", "$1.00/mo")
     assert html =~ "First FluxVale catalog release."
     assert html =~ "Published"
+  end
+
+  test "a version without a recommended size shows no price (pre-#125 row)", %{conn: conn} do
+    version = InstanceFixtures.app_version!()
+    app = Ash.load!(version, :app, authorize?: false).app
+
+    # States actions can't produce: the pre-#125 shape — nil size.
+    Ash.Seed.seed!(FluxVale.Catalog.AppVersion, %{
+      version: "0.9.0",
+      image: "test/image:0.9",
+      port: 3000,
+      app_id: app.id
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}")
+
+    assert has_element?(view, "[data-testid='price-#{version.version}']")
+
+    refute has_element?(view, "[data-testid='price-0.9.0']")
   end
 
   test "unknown slug redirects back to the catalog with a flash", %{conn: conn} do

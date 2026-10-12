@@ -8,6 +8,7 @@ defmodule FluxVale.Catalog.AppVersionTest do
   alias FluxVale.Catalog.Category
   alias FluxVale.Catalog.Types.EnvVarSpec
   alias FluxVale.Identity.User
+  alias FluxVale.Pricing.Size
 
   defp app do
     n = System.unique_integer()
@@ -19,19 +20,42 @@ defmodule FluxVale.Catalog.AppVersionTest do
     )
   end
 
+  # Every version names a recommended_size equal to its effective
+  # allocation (the #125 contract the validations enforce) — the helper
+  # fabricates the matching size so tests only speak in version attrs.
   defp version_attrs(app, overrides \\ %{}) do
-    Map.merge(
-      %{
-        version: "1.0.0",
-        image: "test/image:1.0",
-        port: 8080,
-        default_cpu_cores: Decimal.new("0.5"),
-        default_memory_mb: 256,
-        default_storage_gb: 1,
-        app_id: app.id
-      },
-      overrides
-    )
+    attrs =
+      Map.merge(
+        %{
+          version: "1.0.0",
+          image: "test/image:1.0",
+          port: 8080,
+          default_cpu_cores: Decimal.new("0.5"),
+          default_memory_mb: 256,
+          default_storage_gb: 1,
+          app_id: app.id
+        },
+        overrides
+      )
+
+    Map.put(attrs, :recommended_size_id, size_for!(attrs).id)
+  end
+
+  defp size_for!(attrs, overrides \\ %{}) do
+    size_attrs =
+      Map.merge(
+        %{
+          slug: "test-#{System.unique_integer()}",
+          cpu_cores: attrs.default_cpu_cores,
+          memory_mb: attrs.default_memory_mb,
+          storage_gb: attrs.default_storage_gb,
+          monthly_cents: 100,
+          stopped_monthly_cents: 10
+        },
+        Map.new(overrides)
+      )
+
+    Size.create!(size_attrs, authorize?: false)
   end
 
   describe "create/2" do
@@ -52,7 +76,14 @@ defmodule FluxVale.Catalog.AppVersionTest do
         version: "2.0.0",
         image: "test/image:2.0",
         port: 8080,
-        app_id: app().id
+        app_id: app().id,
+        # Must still match the resource defaults the action applies.
+        recommended_size_id:
+          size_for!(%{
+            default_cpu_cores: Decimal.new("0.5"),
+            default_memory_mb: 256,
+            default_storage_gb: 0
+          }).id
       }
 
       assert {:ok, version} = AppVersion.create(minimal, authorize?: false)
@@ -103,6 +134,106 @@ defmodule FluxVale.Catalog.AppVersionTest do
       assert {:error, %Ash.Error.Invalid{}} =
                Ash.update(version, %{version: "9.9.9"}, authorize?: false)
     end
+  end
+
+  describe "recommended_size (#125)" do
+    test "create requires a recommended_size" do
+      attrs =
+        app()
+        |> version_attrs()
+        |> Map.delete(:recommended_size_id)
+
+      assert {:error, %Ash.Error.Invalid{}} = AppVersion.create(attrs, authorize?: false)
+    end
+
+    test "update requires a recommended_size when the record lacks one" do
+      # Pre-#125 row: only Ash.seed! can produce the nil-size state
+      # (actions enforce the requirement).
+      version = unsized_version!()
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               AppVersion.update(version, %{image: "test/image:2.0"}, authorize?: false)
+    end
+
+    test "size must match the version's allocation" do
+      app = app()
+
+      allocation = %{
+        default_cpu_cores: Decimal.new("0.5"),
+        default_memory_mb: 256,
+        default_storage_gb: 1
+      }
+
+      one_dimension_off = [
+        # cpu off
+        %{cpu_cores: Decimal.new("1"), memory_mb: 256, storage_gb: 1},
+        # memory off
+        %{cpu_cores: Decimal.new("0.5"), memory_mb: 512, storage_gb: 1},
+        # storage off
+        %{cpu_cores: Decimal.new("0.5"), memory_mb: 256, storage_gb: 50}
+      ]
+
+      for size_shape <- one_dimension_off do
+        size = size_for!(allocation, size_shape)
+        base = version_attrs(app, allocation)
+        attrs = Map.put(base, :recommended_size_id, size.id)
+
+        assert {:error, error} = AppVersion.create(attrs, authorize?: false)
+        assert Exception.message(error) =~ "must match the version's allocation"
+      end
+    end
+
+    test "updating allocation without the size fails (and the reverse)" do
+      app = app()
+      attrs = version_attrs(app)
+      version = AppVersion.create!(attrs, authorize?: false)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               AppVersion.update(version, %{default_memory_mb: 512}, authorize?: false)
+
+      other =
+        size_for!(%{
+          default_cpu_cores: Decimal.new("1"),
+          default_memory_mb: 2048,
+          default_storage_gb: 20
+        })
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               AppVersion.update(version, %{recommended_size_id: other.id}, authorize?: false)
+    end
+
+    test "an unknown size id is the FK's error, not the validation's" do
+      base = version_attrs(app())
+      attrs = Map.put(base, :recommended_size_id, Ecto.UUID.generate())
+
+      assert {:error, %Ash.Error.Invalid{}} = AppVersion.create(attrs, authorize?: false)
+    end
+
+    test "converging a legacy nil-size row through the seed's update" do
+      version = unsized_version!()
+
+      size =
+        size_for!(Map.take(version, ~w(default_cpu_cores default_memory_mb default_storage_gb)a))
+
+      assert {:ok, updated} =
+               AppVersion.update(version, %{recommended_size_id: size.id}, authorize?: false)
+
+      assert updated.recommended_size_id == size.id
+    end
+  end
+
+  # States actions can't produce (Ash.seed! sanction): the pre-#125
+  # shape — a version row with no recommended_size.
+  defp unsized_version! do
+    Ash.Seed.seed!(AppVersion, %{
+      version: "0.9.0",
+      image: "test/image:0.9",
+      port: 8080,
+      default_cpu_cores: Decimal.new("0.5"),
+      default_memory_mb: 256,
+      default_storage_gb: 1,
+      app_id: app().id
+    })
   end
 
   describe "configurable_env_vars (typed by EnvVarSchema)" do

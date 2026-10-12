@@ -24,6 +24,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Clients.K8s.Resources.Service
 
+  alias FluxVale.Catalog.AppVersion
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.TestSupport.InstanceFixtures
@@ -68,6 +69,57 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     assert html =~ "#{instance.slug}.fluxvale.lvh.me"
     assert has_element?(view, "button[phx-click='deploy']", "Deploy")
     assert has_element?(view, "button[phx-click='delete']")
+    # ADR-0028's flat rate on the status surface (#125): the fixture
+    # size prices at 100¢ running.
+    assert has_element?(view, "[data-testid='instance-price']", "$1.00/mo")
+  end
+
+  test "a stopped instance shows the storage-only fee", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    pending = create_instance!(version, user)
+    instance = InstanceFixtures.walk_to!(pending, :stopped)
+    {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+    assert has_element?(view, "[data-testid='instance-price']", "$0.10/mo while stopped")
+  end
+
+  test "a non-stopped lifecycle state shows the configured running price", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    # :error is the interesting arm — the row states the instance's
+    # configured price, not an accrual (settlement is #121's).
+    pending = create_instance!(version, user)
+    instance = InstanceFixtures.walk_to!(pending, :running)
+    {:ok, _started} = InstanceK8s.update_status(instance, :error, "boom")
+
+    {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+    assert has_element?(view, "[data-testid='instance-price']", "$1.00/mo")
+    refute has_element?(view, "[data-testid='instance-price']", "while stopped")
+  end
+
+  test "an instance of a pre-#125 version shows no price row", %{conn: conn, user: user} do
+    version = InstanceFixtures.app_version!()
+    app = Ash.load!(version, :app, authorize?: false).app
+
+    # States actions can't produce: the pre-#125 shape — nil size.
+    unsized =
+      Ash.Seed.seed!(AppVersion, %{
+        version: "0.9.0",
+        image: "test/image:0.9",
+        port: 3000,
+        app_id: app.id
+      })
+
+    instance = create_instance!(unsized, user)
+    {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+    refute has_element?(view, "[data-testid='instance-price']")
   end
 
   test "another actor's instance is not found", %{conn: conn, version: version} do

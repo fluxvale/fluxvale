@@ -13,6 +13,7 @@ what's still open. v1: <https://github.com/fluxvale/fluxvale_old>
 | [architecture.md](architecture.md) | Settled stack, topology, environments, growth model, repo shape |
 | [deployment.md](deployment.md) | Deploy pipeline, smoke tests, migration rules, rollback protocol |
 | [observability.md](observability.md) | Monitoring stack, instrumentation plan, alert set |
+| [pricing-calibration.md](pricing-calibration.md) | The ADR-0028 launch-gate check: price table, market anchor, density math |
 | [adr/](adr/) | One decision per file, with rationale and rejected alternatives — index in [adr/README.md](adr/README.md) |
 | [refund-policy.md](refund-policy.md) · [data-deletion.md](data-deletion.md) | Customer-facing policy drafts — advisor review + publication ride M6 checkout ([ADR-0029](adr/00029-payments-adapter-selfmor.md)) |
 | [open-questions.md](open-questions.md) | Everything deliberately **not** decided yet |
