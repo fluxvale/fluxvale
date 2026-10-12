@@ -13,6 +13,9 @@
 # Field notes: default_cpu_cores is a QUOTED string (preserves Decimal
 # precision). Optional version fields default to healthcheck_path "/",
 # default_memory_mb 256, default_storage_gb 0, published_at nil, env maps %{}.
+# recommended_size is REQUIRED on every version — a slug from
+# pricing_data.yaml whose allocation equals the version's resource
+# defaults; seed_pricing! runs first and the seed runner resolves the id.
 - category:
     name: Developer Tools
     slug: developer-tools
@@ -41,6 +44,9 @@
           default_cpu_cores: "0.5"
           default_memory_mb: 512
           default_storage_gb: 10
+          # The priced unit (#125): `small` is 0.5 CPU / 512 MB / 10 GB —
+          # exactly this version's allocation ($2.79/mo, $0.34 stopped).
+          recommended_size: small
           release_notes: |
             First FluxVale catalog release, tracking upstream v16.0.5.
             HTTPS-only git (SSH disabled); SQLite on a dedicated volume.

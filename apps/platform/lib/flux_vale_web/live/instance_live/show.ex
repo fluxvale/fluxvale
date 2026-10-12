@@ -19,7 +19,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
     case Instance.get_by_id(id, actor: user) do
       {:ok, instance} ->
-        instance = Ash.load!(instance, [app_version: :app], actor: user)
+        instance = Ash.load!(instance, [app_version: [:app, :recommended_size]], actor: user)
 
         Phoenix.PubSub.subscribe(FluxVale.PubSub, "instances:#{instance.id}")
 
@@ -110,6 +110,21 @@ defmodule FluxValeWeb.InstanceLive.Show do
                   {@instance.cpu_cores} CPU · {@instance.memory_mb} MB · {@instance.storage_gb} GB
                 </span>
               </div>
+              <%= if size = @instance.app_version.recommended_size do %>
+                <%!-- The instance's configured price, not an accrual
+                statement — settlement owns elapsed-time math (#121).
+                :stopped swaps in the storage-only fee (ADR-0028 §2). --%>
+                <div class="flex justify-between sm:block">
+                  <span class="opacity-60">Price</span>
+                  <span data-testid="instance-price">
+                    <%= if @instance.status == :stopped do %>
+                      {FluxVale.Pricing.format_usd(size.stopped_monthly_cents)}/mo while stopped
+                    <% else %>
+                      {FluxVale.Pricing.format_usd(size.monthly_cents)}/mo
+                    <% end %>
+                  </span>
+                </div>
+              <% end %>
               <div class="flex justify-between sm:block">
                 <span class="opacity-60">Created</span>
                 <span>{Calendar.strftime(@instance.created_at, "%b %d, %Y %H:%M UTC")}</span>
@@ -289,8 +304,11 @@ defmodule FluxValeWeb.InstanceLive.Show do
   end
 
   # Action results and broadcast records carry no loaded relationships;
-  # the page renders app name + version off the version's app.
+  # the page renders app name + version off the version's app, and the
+  # ADR-0028 price off the version's recommended size.
   defp reload(instance, socket) do
-    Ash.load!(instance, [app_version: :app], actor: socket.assigns.current_user)
+    Ash.load!(instance, [app_version: [:app, :recommended_size]],
+      actor: socket.assigns.current_user
+    )
   end
 end

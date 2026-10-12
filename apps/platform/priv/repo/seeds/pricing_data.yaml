@@ -1,0 +1,57 @@
+# FluxVale pricing seed data — the priceable allocation sizes (#125,
+# ADR-0028). Anchored to the market reference curve v4 (recorded
+# 2026-10-12, verified against the source's published calculator; the
+# named source stays out of the repo, ADR-0018 Am. 1); the calibration
+# against the box COGS is docs/pricing-calibration.md.
+#
+# Adding or repricing a size is purely additive: append/edit an entry and
+# re-run seeds — FluxVale.Seeds.seed_pricing!/0 converges existing rows
+# to match the YAML, idempotently. Cents edits are always safe;
+# ALLOCATION edits freeze while versions reference the size — move
+# catalog_data.yaml's version defaults in the same seed run.
+#
+# Lookup key — never rename an existing slug: renaming orphans the old
+# row instead of converging it.
+#
+# Field notes: cpu_cores is a QUOTED string (preserves Decimal
+# precision). monthly_cents is the running flat rate;
+# stopped_monthly_cents is the storage-only fee (ADR-0028 §2). Every
+# field is required. App versions name one of these slugs as their
+# recommended_size (catalog_data.yaml), and the version's resource
+# defaults must equal the size's allocation.
+- slug: micro
+  cpu_cores: "0.25"
+  memory_mb: 512
+  storage_gb: 5
+  monthly_cents: 236
+  stopped_monthly_cents: 20
+- slug: small
+  cpu_cores: "0.5"
+  memory_mb: 512
+  storage_gb: 10
+  monthly_cents: 279
+  stopped_monthly_cents: 34
+- slug: medium
+  cpu_cores: "0.5"
+  memory_mb: 1024
+  storage_gb: 10
+  monthly_cents: 341
+  stopped_monthly_cents: 34
+- slug: standard
+  cpu_cores: "1"
+  memory_mb: 2048
+  storage_gb: 20
+  monthly_cents: 518
+  stopped_monthly_cents: 57
+- slug: plus
+  cpu_cores: "2"
+  memory_mb: 4096
+  storage_gb: 50
+  monthly_cents: 830
+  stopped_monthly_cents: 113
+- slug: pro
+  cpu_cores: "4"
+  memory_mb: 8192
+  storage_gb: 100
+  monthly_cents: 1339
+  stopped_monthly_cents: 190

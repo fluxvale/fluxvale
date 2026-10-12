@@ -121,6 +121,16 @@ defmodule FluxVale.Catalog.AppVersion do
       allow_nil?(false)
       public?(true)
     end
+
+    # The priced unit this version sells (#125, ADR-0028) — every version
+    # names one (`present` validation below) and
+    # ValidateSizeMatchesAllocation keeps it equal to the defaults here,
+    # so provisioning's quota and billing's price describe one allocation.
+    # DB column stays nullable: pre-#125 rows only heal via seed
+    # convergence, never a NOT NULL backfill of catalog data.
+    belongs_to :recommended_size, FluxVale.Pricing.Size do
+      public?(true)
+    end
   end
 
   actions do
@@ -142,8 +152,12 @@ defmodule FluxVale.Catalog.AppVersion do
         :default_storage_gb,
         :release_notes,
         :published_at,
+        :recommended_size_id,
         :app_id
       ])
+
+      validate(present(:recommended_size_id))
+      validate(FluxVale.Catalog.AppVersion.ValidateSizeMatchesAllocation)
     end
 
     update :update do
@@ -163,8 +177,16 @@ defmodule FluxVale.Catalog.AppVersion do
         :default_memory_mb,
         :default_storage_gb,
         :release_notes,
-        :published_at
+        :published_at,
+        :recommended_size_id
       ])
+
+      # Single-row admin/seed write; ValidateSizeMatchesAllocation reads
+      # the referenced size, which can't be one atomic expression.
+      require_atomic?(false)
+
+      validate(present(:recommended_size_id))
+      validate(FluxVale.Catalog.AppVersion.ValidateSizeMatchesAllocation)
     end
   end
 

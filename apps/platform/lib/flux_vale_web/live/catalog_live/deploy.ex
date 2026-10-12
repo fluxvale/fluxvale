@@ -3,7 +3,8 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   The deploy stepper (#74): pick AppVersion → env vars (schema-rendered,
   #70) → name → Instance. One `AshPhoenix.Form.for_create/4` carries the
   whole flow (ADR-0002: forms straight onto resources); steps are UI
-  state, not separate forms.
+  state, not separate forms. The version steps carry ADR-0028's live
+  $X.XX/mo estimate from the version's recommended size (#125).
 
   Submit = `create` → `deploy` → the instance's status page — matching
   the M3 exit demo. Schema defaults are merged server-side
@@ -24,13 +25,13 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
     case Catalog.App.get_by_slug(slug, actor: user) do
       {:ok, app} ->
-        app = Ash.load!(app, :app_versions, actor: user)
+        app = Ash.load!(app, [app_versions: :recommended_size], actor: user)
         versions = Enum.sort_by(app.app_versions, & &1.version, :desc)
 
         socket =
           socket
           |> assign(app: app, versions: versions)
-          |> assign(step: 1, version_id: nil, env_values: %{}, schema: %{})
+          |> assign(step: 1, version_id: nil, selected: nil, env_values: %{}, schema: %{})
           |> assign(
             :form,
             Instance
@@ -90,6 +91,13 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                   <span class="font-mono">v{version.version}</span>
                   <span :if={version.published_at} class="opacity-60 text-xs">
                     &nbsp;published {Calendar.strftime(version.published_at, "%b %d, %Y")}
+                  </span>
+                  <span
+                    :if={version.recommended_size}
+                    class="opacity-60 text-xs"
+                    data-testid={"version-price-#{version.version}"}
+                  >
+                    &nbsp;{FluxVale.Pricing.format_usd(version.recommended_size.monthly_cents)}/mo
                   </span>
                 </span>
               </label>
@@ -177,6 +185,18 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
         <div :if={@step == 3} class="card bg-base-200">
           <div class="card-body gap-4">
             <h2 class="card-title text-base">Name your instance</h2>
+            <div
+              :if={@selected}
+              class="flex items-center justify-between rounded-lg bg-base-300/50 px-4 py-3 text-sm"
+              data-testid="price-summary"
+            >
+              <span>
+                {@app.name} <span class="font-mono">v{@selected.version}</span>
+              </span>
+              <span :if={@selected.recommended_size} class="font-semibold">
+                {FluxVale.Pricing.format_usd(@selected.recommended_size.monthly_cents)}/mo
+              </span>
+            </div>
             <.form for={@form} id="deploy-form" phx-submit="save" class="space-y-4">
               <.input
                 field={@form[:name]}
@@ -285,7 +305,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
       version ->
         socket =
           socket
-          |> assign(step: 2, schema: sorted_schema(version))
+          |> assign(step: 2, schema: sorted_schema(version), selected: version)
           |> validate_step(%{"app_version_id" => version.id})
 
         {:noreply, socket}

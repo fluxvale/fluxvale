@@ -19,7 +19,9 @@ defmodule FluxVale.Seeds do
   alias FluxVale.Catalog.Category
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Cluster
+  alias FluxVale.Pricing.Size
   alias FluxVale.Seeds.CatalogData
+  alias FluxVale.Seeds.PricingData
 
   require Ash.Query
 
@@ -27,14 +29,16 @@ defmodule FluxVale.Seeds do
 
   @doc """
   The promotable bring-up seed — dev `mix setup` and the release's
-  `bin/seed` run the same path: platform admin + catalog. Idempotent:
-  the catalog converges, the admin get-or-creates. The `local` Cluster
-  row is deliberately NOT here — `seed_local_cluster!/0` stays
-  dev/local-only (local_seeds.exs).
+  `bin/seed` run the same path: platform admin + prices + catalog.
+  Idempotent: pricing and the catalog converge, the admin get-or-creates.
+  Pricing runs before the catalog — versions reference a size by slug.
+  The `local` Cluster row is deliberately NOT here —
+  `seed_local_cluster!/0` stays dev/local-only (local_seeds.exs).
   """
   @spec seed :: :ok
   def seed do
     seed_admin!()
+    seed_pricing!()
     seed_catalog!()
   end
 
@@ -96,6 +100,35 @@ defmodule FluxVale.Seeds do
   end
 
   @doc """
+  Seeds the priceable allocation sizes from the shipped YAML
+  (`PricingData.entries/0`, #125). The 1-arity takes parsed entries
+  directly — the test suite also drives it with fixture YAML.
+
+  Idempotent — records are looked up by slug; existing rows are updated
+  to the seed attrs, so re-running converges the price table to
+  pricing_data.yaml. Runs before `seed_catalog!/0` (versions reference
+  sizes by slug).
+  """
+  @spec seed_pricing! :: :ok
+  def seed_pricing!, do: seed_pricing!(PricingData.entries())
+
+  @spec seed_pricing!([map()]) :: :ok
+  def seed_pricing!(entries) do
+    for attrs <- entries do
+      case Size.get_by_slug(attrs.slug, authorize?: false) do
+        {:ok, size} ->
+          # slug is the lookup key — immutable on update (see the resource).
+          Size.update!(size, Map.drop(attrs, [:slug]), authorize?: false)
+
+        {:error, _not_found} ->
+          Size.create!(attrs, authorize?: false)
+      end
+    end
+
+    :ok
+  end
+
+  @doc """
   Seeds the local cluster row (#72): nil `kubeconfig_ref` is the
   in-cluster sentinel (ADR-0006 Am. 2) — the app authenticates where it
   runs, so the local row carries no credentials.
@@ -147,6 +180,8 @@ defmodule FluxVale.Seeds do
   end
 
   defp seed_app_version!(attrs) do
+    attrs = resolve_recommended_size!(attrs)
+
     # No slug to look up by — filter the read by app_id + version to detect
     # an existing row; when present, update it with the seed attrs so the
     # seed converges instead of no-op'ing on drifted data.
@@ -176,6 +211,21 @@ defmodule FluxVale.Seeds do
         """
 
         # coveralls-ignore-stop
+    end
+  end
+
+  # The YAML names the size by slug; the row must already exist
+  # (seed_pricing!/1 runs first in seed/0). A dangling reference is seed
+  # data corruption — fail loudly instead of pricing a version at nil.
+  defp resolve_recommended_size!(attrs) do
+    {slug, attrs} = Map.pop!(attrs, :recommended_size)
+
+    case Size.get_by_slug(slug, authorize?: false) do
+      {:ok, size} ->
+        Map.put(attrs, :recommended_size_id, size.id)
+
+      {:error, _not_found} ->
+        raise "catalog seed: version references unknown pricing size #{inspect(slug)} — seed_pricing!/1 must run first"
     end
   end
 end
