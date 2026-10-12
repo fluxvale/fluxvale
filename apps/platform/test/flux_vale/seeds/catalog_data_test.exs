@@ -33,6 +33,7 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.5"))
       assert version.default_memory_mb == 512
       assert version.default_storage_gb == 10
+      assert version.recommended_size == "small"
       assert version.published_at == ~U[2026-09-17 15:27:32Z]
 
       assert version.default_env_vars["FORGEJO__database__DB_TYPE"] == "sqlite3"
@@ -84,6 +85,7 @@ defmodule FluxVale.Seeds.CatalogDataTest do
               - version: "1.0.0"
                 image: test/image:1.0
                 port: 8080
+                recommended_size: s
       """
 
       path = tmp_path(minimal_yaml)
@@ -96,6 +98,35 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert version.published_at == nil
       assert version.default_env_vars == %{}
       assert version.configurable_env_vars == %{}
+      assert version.recommended_size == "s"
+    end
+
+    test "raises naming the version when recommended_size is missing (#125)" do
+      unpriced_yaml = """
+      - category:
+          name: T
+          slug: t
+          description: d
+        apps:
+          - name: A
+            slug: a
+            tagline: t
+            description: d
+            icon_url: https://example.com/i.svg
+            source_url: https://example.com
+            docs_url: https://example.com
+            versions:
+              - version: "1.0.0"
+                image: test/image:1.0
+                port: 8080
+      """
+
+      assert_raise RuntimeError,
+                   ~r/version "1.0.0" must name a recommended_size/,
+                   fn ->
+                     path = tmp_path(unpriced_yaml)
+                     CatalogData.entries(path)
+                   end
     end
 
     test "raises naming the app when versions is missing or empty" do
@@ -138,6 +169,7 @@ defmodule FluxVale.Seeds.CatalogDataTest do
                   default_cpu_cores: "0.5"
                   default_memory_mb: 256
                   default_storage_gb: 1
+                  recommended_size: s
                   release_notes: r
                   published_at: "not-a-date"
         """

@@ -14,7 +14,7 @@ defmodule FluxValeWeb.CatalogLive.Show do
 
     case Catalog.App.get_by_slug(slug, actor: user) do
       {:ok, app} ->
-        app = Ash.load!(app, [:app_versions, :category], actor: user)
+        app = Ash.load!(app, [:category, app_versions: :recommended_size], actor: user)
         {:ok, assign(socket, app: app, versions: sorted_desc(app.app_versions))}
 
       _error ->
@@ -101,6 +101,7 @@ defmodule FluxValeWeb.CatalogLive.Show do
                   <span class="badge badge-ghost">{version.default_cpu_cores} CPU</span>
                   <span class="badge badge-ghost">{version.default_memory_mb} MB RAM</span>
                   <span class="badge badge-ghost">{version.default_storage_gb} GB storage</span>
+                  <.price_badge version={version} />
                 </div>
               </div>
             </div>
@@ -115,4 +116,18 @@ defmodule FluxValeWeb.CatalogLive.Show do
   # one version per app; semver-aware sorting arrives with multi-version
   # apps (a #70-era non-problem, noted here so nobody trusts it early).
   defp sorted_desc(versions), do: Enum.sort_by(versions, & &1.version, :desc)
+
+  # ADR-0028's live estimate. Hidden rather than crash on a nil size:
+  # pre-#125 rows heal through seed convergence, not a backfill.
+  defp price_badge(assigns) do
+    ~H"""
+    <span
+      :if={@version.recommended_size}
+      class="badge badge-primary badge-outline"
+      data-testid={"price-#{@version.version}"}
+    >
+      {FluxVale.Pricing.format_usd(@version.recommended_size.monthly_cents)}/mo
+    </span>
+    """
+  end
 end

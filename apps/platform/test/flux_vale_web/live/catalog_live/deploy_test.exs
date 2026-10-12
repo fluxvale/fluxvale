@@ -88,6 +88,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
     assert has_element?(view, "#version-#{version.id}")
     assert has_element?(view, "button[phx-click='to-env']")
+    assert has_element?(view, "[data-testid='version-price-#{version.version}']", "$1.00/mo")
     assert html =~ "published"
   end
 
@@ -137,6 +138,9 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
     to_step_2(view, version)
     to_step_3(view)
+
+    # The name step carries ADR-0028's estimate for the picked version.
+    assert has_element?(view, "[data-testid='price-summary']", "$1.00/mo")
 
     # From the name step, back returns to env
     view

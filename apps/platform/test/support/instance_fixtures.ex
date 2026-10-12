@@ -12,6 +12,7 @@ defmodule FluxVale.TestSupport.InstanceFixtures do
   alias FluxVale.Infrastructure.Cluster
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.Pricing.Size
 
   @doc "Creates the single cluster row ResolveCluster pins to."
   @spec local_cluster!() :: FluxVale.Infrastructure.Cluster.t()
@@ -22,6 +23,11 @@ defmodule FluxVale.TestSupport.InstanceFixtures do
   @doc """
   Creates a category → app → version chain. `attrs` override the
   AppVersion defaults (image, port, env maps, resource defaults).
+
+  The version contract (#125) requires a `recommended_size` equal to the
+  version's allocation — one is fabricated to match the effective
+  defaults (resource defaults + `attrs` overrides), so callers never
+  hand-sync the two.
   """
   @spec app_version!(map()) :: AppVersion.t()
   def app_version!(attrs \\ %{}) do
@@ -45,14 +51,35 @@ defmodule FluxVale.TestSupport.InstanceFixtures do
         authorize?: false
       )
 
+    version_attrs =
+      Map.merge(
+        %{
+          version: "1.0.#{rem(n, 100)}",
+          image: "registry.example.com/app:1.0",
+          port: 3000,
+          default_cpu_cores: Decimal.new("0.5"),
+          default_memory_mb: 256,
+          default_storage_gb: 0,
+          app_id: app.id
+        },
+        Map.new(attrs)
+      )
+
+    size =
+      Size.create!(
+        %{
+          slug: "test-#{n}",
+          cpu_cores: version_attrs.default_cpu_cores,
+          memory_mb: version_attrs.default_memory_mb,
+          storage_gb: version_attrs.default_storage_gb,
+          monthly_cents: 100,
+          stopped_monthly_cents: 10
+        },
+        authorize?: false
+      )
+
     AppVersion.create!(
-      %{
-        version: "1.0.#{rem(n, 100)}",
-        image: "registry.example.com/app:1.0",
-        port: 3000,
-        app_id: app.id
-      }
-      |> Map.merge(Map.new(attrs)),
+      Map.put(version_attrs, :recommended_size_id, size.id),
       authorize?: false
     )
   end

@@ -19,18 +19,42 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Catalog.Category
   alias FluxVale.Catalog.Types.EnvVarSpec
+  alias FluxVale.Pricing.Size
   alias FluxVale.Seeds
   alias FluxVale.Seeds.CatalogData
 
   @fixture Path.join([__DIR__, "../../support/fixtures/catalog_data_with_env_vars.yaml"])
 
   defp seed_fixture! do
+    # The fixture version names `fixture-size` (0.5 / 256 / 1) — the seed
+    # runner resolves the slug against a seeded row. Get-or-create: some
+    # tests re-seed.
+    case Size.get_by_slug("fixture-size", authorize?: false) do
+      {:ok, _size} ->
+        :ok
+
+      {:error, _not_found} ->
+        Size.create!(
+          %{
+            slug: "fixture-size",
+            cpu_cores: Decimal.new("0.5"),
+            memory_mb: 256,
+            storage_gb: 1,
+            monthly_cents: 100,
+            stopped_monthly_cents: 10
+          },
+          authorize?: false
+        )
+    end
+
     entries = CatalogData.entries(@fixture)
     Seeds.seed_catalog!(entries)
   end
 
   describe "seed_catalog!/0 (shipped data)" do
     test "seeds the shipped Forgejo entry cleanly (#71)" do
+      # Versions reference their priced size (#125) — pricing first.
+      assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()
 
       category = Category.get_by_slug!("developer-tools", authorize?: false)
@@ -40,7 +64,12 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert app.category_id == category.id
       assert app.tagline == "Self-hosted Git forge with issues, pull requests, and Actions CI"
 
-      version = version_for!("forgejo")
+      version =
+        "forgejo"
+        |> App.get_by_slug!(authorize?: false)
+        |> Ash.load!([app_versions: :recommended_size], authorize?: false)
+        |> Map.fetch!(:app_versions)
+        |> hd()
 
       assert version.version == "16.0.5"
       assert version.image == "codeberg.org/forgejo/forgejo:16.0.5"
@@ -48,9 +77,11 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert version.healthcheck_path == "/api/healthz"
       assert version.default_storage_gb == 10
       assert version.default_env_vars["FORGEJO__server__DISABLE_SSH"] == "true"
+      assert version.recommended_size.slug == "small"
     end
 
     test "shipped env-var schema passes the typed cast (issue exit criterion)" do
+      assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()
 
       version = version_for!("forgejo")
@@ -68,6 +99,7 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
     end
 
     test "re-seeding the shipped catalog converges without dupes" do
+      assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()
       assert :ok == Seeds.seed_catalog!()
 
@@ -180,6 +212,45 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
 
       assert Category.get_by_slug!("test", authorize?: false).description == "Test category"
       assert App.get_by_slug!("testapp", authorize?: false).tagline == "Test app"
+    end
+
+    test "heals a legacy nil-size version on re-seed (#125)" do
+      assert :ok == seed_fixture!()
+
+      version = version_for!("testapp")
+
+      # States neither actions (the validations reject it) nor Ash.Seed
+      # (create-only; the identity blocks a duplicate row) can produce:
+      # the pre-#125 shape — an existing row with its size detached.
+      # Forced precondition, same posture as InstanceFixtures.pin!.
+      detach =
+        from(v in AppVersion,
+          where: v.id == ^version.id,
+          update: [set: [recommended_size_id: nil]]
+        )
+
+      {1, _result} = Repo.update_all(detach, [])
+
+      assert :ok == seed_fixture!()
+
+      healed =
+        "testapp"
+        |> App.get_by_slug!(authorize?: false)
+        |> Ash.load!([app_versions: :recommended_size], authorize?: false)
+        |> Map.fetch!(:app_versions)
+        |> hd()
+
+      assert healed.recommended_size.slug == "fixture-size"
+    end
+  end
+
+  describe "recommended-size resolution (#125)" do
+    test "raises naming the slug when the version references an unknown size" do
+      entries = CatalogData.entries(@fixture)
+
+      assert_raise RuntimeError,
+                   ~r/unknown pricing size "fixture-size".*seed_pricing!/,
+                   fn -> Seeds.seed_catalog!(entries) end
     end
   end
 

@@ -21,6 +21,9 @@
           default_cpu_cores: "0.5"
           default_memory_mb: 256
           default_storage_gb: 1
+          # Resolved against a matching pricing_sizes row (0.5 / 256 / 1)
+          # the seed tests create before seeding this fixture.
+          recommended_size: fixture-size
           release_notes: |
             Test release.
           published_at: "2026-06-01T00:00:00Z"
