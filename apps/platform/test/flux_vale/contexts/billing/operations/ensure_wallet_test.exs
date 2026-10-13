@@ -4,10 +4,12 @@ defmodule FluxVale.Billing.Operations.EnsureWalletTest do
   use FluxVale.DataCase, async: true
 
   alias FluxVale.Billing
-  alias FluxVale.TestSupport.AccountsFixtures
+  alias FluxVale.TestSupport.BillingFixtures
 
   test "creates a wallet for an org that has none" do
-    org = AccountsFixtures.personal_org!(AccountsFixtures.user!())
+    # Grant-free org — JIT provisioning eagerly wallets + grants (#122),
+    # so the create branch needs an org that truly has none.
+    {org, _owner} = BillingFixtures.grant_free_org!()
 
     assert {:ok, wallet} = Billing.ensure_wallet(org)
     assert wallet.organization_id == org.id
@@ -15,7 +17,7 @@ defmodule FluxVale.Billing.Operations.EnsureWalletTest do
   end
 
   test "is idempotent — the same wallet comes back" do
-    org = AccountsFixtures.personal_org!(AccountsFixtures.user!())
+    {org, _owner} = BillingFixtures.grant_free_org!()
 
     {:ok, wallet} = Billing.ensure_wallet(org)
     {:ok, again} = Billing.ensure_wallet(org)
