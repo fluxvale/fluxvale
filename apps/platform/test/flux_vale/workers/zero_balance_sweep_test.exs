@@ -44,7 +44,10 @@ defmodule FluxVale.Workers.ZeroBalanceSweepTest do
 
     org = AccountsFixtures.personal_org!(broke)
     {:ok, wallet} = Billing.ensure_wallet(org)
-    {:ok, _debit} = Billing.debit_wallet(wallet, 10_000 * 10_000)
+
+    # drain to ≤ 0 — the whole welcome balance, whatever it is
+    {:ok, balance} = Billing.balance(wallet, authorize?: false)
+    {:ok, _debit} = Billing.debit_wallet(wallet, balance * 10_000)
 
     assert :ok = ZeroBalanceSweep.perform(%Oban.Job{})
 

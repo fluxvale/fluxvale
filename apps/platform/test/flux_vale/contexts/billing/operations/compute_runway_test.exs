@@ -8,10 +8,9 @@ defmodule FluxVale.Billing.Operations.ComputeRunwayTest do
   use FluxVale.DataCase, async: true
 
   alias FluxVale.Billing
-  alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
-  alias FluxVale.TestSupport.AccountsFixtures
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   describe "call/1" do
@@ -69,12 +68,7 @@ defmodule FluxVale.Billing.Operations.ComputeRunwayTest do
     end
 
     test "a bare wallet (no entries) reads zero balance and infinite runway" do
-      user =
-        User.create!("runway-#{System.unique_integer([:positive])}@fluxvale.test", %{},
-          authorize?: false
-        )
-
-      org = AccountsFixtures.personal_org!(user)
+      {org, _owner} = BillingFixtures.grant_free_org!()
       {:ok, wallet} = Billing.ensure_wallet(org)
 
       assert {:ok, runway} = Billing.compute_runway(wallet)
@@ -84,22 +78,18 @@ defmodule FluxVale.Billing.Operations.ComputeRunwayTest do
     end
   end
 
-  # Exact funding (the shared fixture's 10_000¢ welcome grant would
-  # muddy the arithmetic): user → org → wallet at precisely balance_cents.
+  # Exact funding on a grant-free org (the billing fixture's shape): no
+  # welcome grant in the arithmetic — the wallet lands at precisely
+  # balance_cents.
   defp wallet!(balance_cents) do
-    user =
-      User.create!("runway-#{System.unique_integer([:positive])}@fluxvale.test", %{},
-        authorize?: false
-      )
-
-    org = AccountsFixtures.personal_org!(user)
+    {org, owner} = BillingFixtures.grant_free_org!()
     {:ok, wallet} = Billing.ensure_wallet(org)
 
     if balance_cents > 0 do
-      {:ok, _grant} = Billing.grant_credits(wallet, balance_cents)
+      {:ok, _grant} = Billing.grant_credits(wallet, balance_cents, reason: :adjustment)
     end
 
-    {user, wallet}
+    {owner, wallet}
   end
 
   defp instance!(user, status, version) do

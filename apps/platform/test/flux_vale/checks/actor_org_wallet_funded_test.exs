@@ -2,19 +2,19 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
   @moduledoc false
 
   # #124's gate: an Ash policy check (the API can't walk around it),
-  # wired to Instance create + start. An org without a wallet is
-  # unfunded — balance 0 by definition.
+  # wired to Instance create + start. A wallet-less org is unfunded —
+  # balance 0 by definition. Balances are exact: the billing fixture's
+  # orgs skip the JIT path (no welcome grant, #122).
 
   use FluxVale.DataCase, async: true
   use Mimic
 
-  alias FluxVale.Accounts
   alias FluxVale.Billing
   alias FluxVale.Checks.ActorOrgWalletFunded
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
-  alias FluxVale.TestSupport.AccountsFixtures
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   setup do
@@ -25,31 +25,17 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
 
   describe "org_funded?/1" do
     test "a positive balance funds the org" do
-      user = AccountsFixtures.user!()
-      org = AccountsFixtures.personal_org!(user)
-
-      assert ActorOrgWalletFunded.org_funded?(org.id)
+      {_org, wallet} = BillingFixtures.funded_wallet!()
+      assert ActorOrgWalletFunded.org_funded?(wallet.organization_id)
     end
 
     test "an empty wallet does not fund the org" do
-      user = AccountsFixtures.user!()
-      org = AccountsFixtures.personal_org!(user)
-      {:ok, wallet} = Billing.ensure_wallet(org)
-      {:ok, _debit} = Billing.debit_wallet(wallet, 10_000 * 10_000)
-
-      refute ActorOrgWalletFunded.org_funded?(org.id)
+      {_org, wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
+      refute ActorOrgWalletFunded.org_funded?(wallet.organization_id)
     end
 
     test "a wallet-less org is unfunded — balance 0 by definition" do
-      # Direct User.create (not the funding fixture): the JIT org exists,
-      # nothing ensured a wallet — the gate reads it as 0.
-      user =
-        User.create!("walletless-#{System.unique_integer()}@fluxvale.test", %{},
-          authorize?: false
-        )
-
-      {:ok, org} = Accounts.personal_org_for_user(user.id, authorize?: false)
-
+      {org, _owner} = BillingFixtures.grant_free_org!()
       refute ActorOrgWalletFunded.org_funded?(org.id)
     end
   end
@@ -74,35 +60,30 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
 
   describe "the Instance create gate" do
     test "a funded actor creates; a drained one is forbidden", %{version: version} do
-      funded = AccountsFixtures.user!()
+      {_org, _wallet, funded_owner} = funded_org_owner!()
 
       assert {:ok, _instance} =
                Instance.create(
                  %{name: "Funded", app_version_id: version.id, env_vars: %{}},
-                 actor: funded
+                 actor: funded_owner
                )
 
-      drained = AccountsFixtures.user!()
-      org = AccountsFixtures.personal_org!(drained)
-      {:ok, wallet} = Billing.ensure_wallet(org)
-      {:ok, _debit} = Billing.debit_wallet(wallet, 10_000 * 10_000)
+      {_org, _wallet, drained_owner} = funded_org_owner!(balance_cents: 0)
 
       assert {:error, %Ash.Error.Forbidden{}} =
                Instance.create(
                  %{name: "Drained", app_version_id: version.id, env_vars: %{}},
-                 actor: drained
+                 actor: drained_owner
                )
     end
 
     test "a wallet-less org is not funded — creation is forbidden", %{version: version} do
-      # Direct User.create: the JIT org exists, nothing ensured a wallet.
-      user =
-        User.create!("nowallet-#{System.unique_integer()}@fluxvale.test", %{}, authorize?: false)
+      {_org, walletless_owner} = BillingFixtures.grant_free_org!()
 
       assert {:error, %Ash.Error.Forbidden{}} =
                Instance.create(
                  %{name: "NoWallet", app_version_id: version.id, env_vars: %{}},
-                 actor: user
+                 actor: walletless_owner
                )
     end
   end
@@ -113,10 +94,10 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
     } do
       stub_scale()
 
-      user = AccountsFixtures.user!()
+      {_org, wallet, owner} = funded_org_owner!()
 
       instance =
-        Instance.create!(%{name: "Gate", app_version_id: version.id, env_vars: %{}}, actor: user)
+        Instance.create!(%{name: "Gate", app_version_id: version.id, env_vars: %{}}, actor: owner)
 
       stopped =
         Enum.reduce([:deploying, :starting, :running, :stopped], instance, fn status, acc ->
@@ -126,16 +107,24 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
 
       InstanceFixtures.pin!(stopped, namespace: "fluxvale-app-#{instance.id}")
 
-      org = AccountsFixtures.personal_org!(user)
-      {:ok, wallet} = Billing.ensure_wallet(org)
-      {:ok, _debit} = Billing.debit_wallet(wallet, 10_000 * 10_000)
+      # drain to exactly zero — the gate reads the live ledger
+      {:ok, balance} = Billing.balance(wallet, authorize?: false)
+      {:ok, _drain} = Billing.debit_wallet(wallet, balance * 10_000)
 
-      assert {:error, %Ash.Error.Forbidden{}} = Instance.start(stopped, actor: user)
+      assert {:error, %Ash.Error.Forbidden{}} = Instance.start(stopped, actor: owner)
 
-      {:ok, _grant} = Billing.grant_credits(wallet, 100)
-      assert {:ok, starting} = Instance.start(stopped, actor: user)
+      {:ok, _grant} = Billing.grant_credits(wallet, 100, reason: :adjustment)
+      assert {:ok, starting} = Instance.start(stopped, actor: owner)
       assert starting.status == :starting
     end
+  end
+
+  # funded_wallet! wraps grant_free_org!: exact balances, no welcome
+  # grant in the arithmetic — unwrapped here for the actor triple.
+  defp funded_org_owner!(opts \\ []) do
+    {org, owner} = BillingFixtures.grant_free_org!()
+    {_org, wallet} = BillingFixtures.funded_wallet!([{:org, org} | opts])
+    {org, wallet, owner}
   end
 
   defp stub_scale do

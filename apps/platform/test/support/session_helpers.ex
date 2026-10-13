@@ -7,21 +7,11 @@ defmodule FluxVale.TestSupport.SessionHelpers do
   # token-presence check requires.
 
   alias AshAuthentication.Jwt
-  alias FluxVale.Accounts
-  alias FluxVale.Billing
   alias FluxVale.Identity.User
 
-  # Same funded-org posture as AccountsFixtures.user!/1 — kept inline
-  # (not delegated): the @fluxvale.com domain below is load-bearing for
-  # the AccessRule tests; #124's deploy gate needs the funding.
   @spec user!() :: FluxVale.Identity.User.t()
   def user! do
-    email = "web-#{System.unique_integer()}@fluxvale.com"
-
-    user = User.create!(email, %{}, authorize?: false)
-    {:ok, org} = Accounts.personal_org_for_user(user.id, authorize?: false)
-    {:ok, _grant} = Billing.grant_credits(org, 10_000)
-    user
+    User.create!("web-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
   end
 
   @spec sign_in(Plug.Conn.t(), FluxVale.Identity.User.t()) :: Plug.Conn.t()

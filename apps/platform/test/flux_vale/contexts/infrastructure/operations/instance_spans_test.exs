@@ -27,10 +27,10 @@ defmodule FluxVale.Infrastructure.Operations.InstanceSpansTest do
   alias FluxVale.Clients.K8s.Resources.RoleBinding
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Clients.K8s.Resources.Service
+  alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.DeployInstance
   alias FluxVale.Infrastructure.Operations.ReconcileInstance
-  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   require Record
@@ -57,7 +57,9 @@ defmodule FluxVale.Infrastructure.Operations.InstanceSpansTest do
     :ok
   end
 
-  defp user, do: AccountsFixtures.user!()
+  defp user do
+    User.create!("span-watcher-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+  end
 
   defp creating!(attrs \\ %{}) do
     version = InstanceFixtures.app_version!(attrs)

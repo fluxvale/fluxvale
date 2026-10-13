@@ -22,10 +22,10 @@ defmodule FluxVale.Infrastructure.InstanceIntegrationTest do
   alias FluxVale.Clients.K8s.Resources.ResourceQuota
   alias FluxVale.Clients.K8s.Resources.RoleBinding
   alias FluxVale.Clients.K8s.Resources.Secret
+  alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Cluster
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.ReconcileInstance
-  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   @moduletag :k8s
@@ -84,7 +84,7 @@ defmodule FluxVale.Infrastructure.InstanceIntegrationTest do
     clear_other_clusters!(cluster.id)
 
     user =
-      AccountsFixtures.user!()
+      User.create!("integration-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
 
     Instance.create!(
       %{

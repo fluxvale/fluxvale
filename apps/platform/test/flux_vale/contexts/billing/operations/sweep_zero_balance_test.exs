@@ -35,8 +35,10 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalanceTest do
 
   # The org starts fixture-funded (10_000¢ welcome grant) — the deploy
   # gate needs it for the instance creation below; `adjust_to!` then
-  # lands the exact target (posting never checks balance, so drains
-  # overshoot freely).
+  # The org starts with the JIT welcome grant (#122) — the deploy gate
+  # needs it for the instance creation below; `adjust_to!` then lands
+  # the exact target (posting never checks balance, so drains overshoot
+  # freely).
   defp org! do
     user = AccountsFixtures.user!()
     org = AccountsFixtures.personal_org!(user)

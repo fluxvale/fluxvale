@@ -10,16 +10,16 @@ defmodule FluxVale.Infrastructure.InstancePubSubTest do
   use Mimic
 
   alias FluxVale.Clients.K8s
+  alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
-  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   setup do
     version = InstanceFixtures.app_version!()
     InstanceFixtures.local_cluster!()
 
-    user = AccountsFixtures.user!()
+    user = User.create!("pubsub-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
 
     instance = Instance.create!(%{name: "PubSub", app_version_id: version.id}, actor: user)
 
