@@ -121,7 +121,7 @@ config :ash_oban, :pro?, false
 # plain Oban.
 config :flux_vale, Oban,
   repo: FluxVale.Repo,
-  queues: [deployments: 10, reconciler: 1, janitor: 1],
+  queues: [deployments: 10, reconciler: 1, settler: 1, janitor: 1],
   plugins: [
     {Oban.Plugins.Cron,
      crontab: [

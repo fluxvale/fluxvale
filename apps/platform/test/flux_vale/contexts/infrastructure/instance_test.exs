@@ -110,6 +110,35 @@ defmodule FluxVale.Infrastructure.InstanceTest do
   end
 
   describe "create/1 — blueprint snapshot" do
+    test "snapshots the pricing triple — size, cents, and the 1-year clock together (#121)" do
+      version = InstanceFixtures.app_version!(monthly_cents: 279, stopped_monthly_cents: 34)
+      InstanceFixtures.local_cluster!()
+
+      before = DateTime.utc_now()
+
+      instance =
+        Instance.create!(
+          %{name: "Priced", app_version_id: version.id, env_vars: %{}},
+          actor: user()
+        )
+
+      after_create = DateTime.utc_now()
+
+      size = Ash.load!(version, :recommended_size, authorize?: false).recommended_size
+
+      assert instance.size_id == size.id
+      assert instance.grandfathered_monthly_cents == 279
+      assert instance.grandfathered_stopped_monthly_cents == 34
+
+      # The clock is one year from this create: bounded by year-shifted
+      # timestamps captured either side of it.
+      assert DateTime.compare(instance.grandfathered_until, DateTime.shift(before, year: 1)) ==
+               :gt
+
+      assert DateTime.compare(instance.grandfathered_until, DateTime.shift(after_create, year: 1)) ==
+               :lt
+    end
+
     test "derives image/port/probes/resources from the AppVersion, pins owner + cluster" do
       instance = created!()
 
@@ -372,7 +401,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       assert running.storage_metering_since == running.running_since
     end
 
-    test "leaving :running clears running_since, keeps the storage anchor across stop" do
+    test "leaving :running folds the interval into the unbilled carry, keeps the storage anchor" do
       instance = created!()
 
       running =
@@ -383,7 +412,11 @@ defmodule FluxVale.Infrastructure.InstanceTest do
 
       stopped = status!(running, :stopped)
 
+      # The interval's time is carried for settlement (#121) — as a
+      # duration, so restart churn can never drop it — and the storage
+      # anchor spans the stop (the PVC persists).
       assert stopped.running_since == nil
+      assert stopped.unbilled_running_usec >= 0
       assert stopped.storage_metering_since == running.storage_metering_since
 
       restarted =
@@ -391,9 +424,12 @@ defmodule FluxVale.Infrastructure.InstanceTest do
         |> status!(:starting)
         |> status!(:running)
 
-      # Storage billing spans the stop; the running interval restarts.
+      # Storage billing spans the stop; a fresh running interval opens
+      # on top of the still-pending carry (settle consumes both).
       assert restarted.storage_metering_since == running.storage_metering_since
       assert restarted.running_since
+      assert DateTime.compare(restarted.running_since, running.running_since) == :gt
+      assert restarted.unbilled_running_usec == stopped.unbilled_running_usec
     end
 
     test "rejects invalid transitions; :error and :deleting from anywhere" do

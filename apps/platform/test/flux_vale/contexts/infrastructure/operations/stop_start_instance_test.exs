@@ -46,7 +46,7 @@ defmodule FluxVale.Infrastructure.Operations.StopStartInstanceTest do
   end
 
   describe "StopInstance" do
-    test "scales to zero and lands :stopped (running anchor cleared)" do
+    test "scales to zero and lands :stopped (running time folded into the carry)" do
       stub_kubeconfig()
       instance = instance!(:running)
       ns = "fluxvale-app-#{instance.id}"
@@ -56,6 +56,7 @@ defmodule FluxVale.Infrastructure.Operations.StopStartInstanceTest do
       assert {:ok, stopped} = StopInstance.call(instance)
       assert stopped.status == :stopped
       assert stopped.running_since == nil
+      assert stopped.unbilled_running_usec >= 0
       assert stopped.storage_metering_since
     end
 
