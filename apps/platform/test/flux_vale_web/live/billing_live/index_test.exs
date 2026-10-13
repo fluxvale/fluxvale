@@ -19,6 +19,12 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
     org = AccountsFixtures.personal_org!(user)
     {:ok, wallet} = Billing.ensure_wallet(org)
 
+    # Pin the start at exactly zero: the fixture's welcome grant and
+    # #131's signup $3 vary — the tests below own their arithmetic
+    # (debit the whole balance; posting never checks it).
+    {:ok, balance} = Billing.balance(wallet, authorize?: false)
+    {:ok, _drain} = Billing.debit_wallet(wallet, balance * 10_000)
+
     %{user: user, conn: conn, wallet: wallet}
   end
 
@@ -53,11 +59,13 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
     assert has_element?(view, "[data-testid='wallet-balance']", "-$100.00")
   end
 
-  test "an empty wallet renders the zero balance and empty history", %{conn: conn} do
+  test "a zero balance renders $0.00", %{conn: conn} do
+    # The setup drain leaves the wallet at exactly 0 — its rows show in
+    # history (nothing posts an empty ledger anymore: signup grants $3,
+    # #131), so the zero-balance render is the assertion here.
     {:ok, view, _html} = live(conn, ~p"/billing")
 
     assert has_element?(view, "[data-testid='wallet-balance']", "$0.00")
-    assert has_element?(view, "#entries", "No activity yet.")
   end
 
   test "add credits is a disabled placeholder", %{conn: conn} do
