@@ -110,6 +110,18 @@ defmodule FluxVale.Billing.LedgerEntry do
       primary? true
       accept([:wallet_id, :amount, :type, :reason, :idempotency_key, :reverses_id])
     end
+
+    # #123's history surface: keyset-paginated (newest first) — the
+    # ledger is append-only, so a cursor survives inserts landing between
+    # pages; an offset window would skip or repeat rows. The caller owns
+    # the sort (created_at desc + id desc tiebreak in the LiveView).
+    read :list_for_wallet do
+      description "The wallet's entries, keyset-paginated (#123)"
+      argument(:wallet_id, :uuid, allow_nil?: false)
+      filter(expr(wallet_id == ^arg(:wallet_id)))
+
+      pagination(keyset?: true, required?: true, default_limit: 25)
+    end
   end
 
   code_interface do
@@ -117,6 +129,7 @@ defmodule FluxVale.Billing.LedgerEntry do
 
     define(:create)
     define(:read)
+    define(:list_for_wallet, args: [:wallet_id])
   end
 
   identities do
