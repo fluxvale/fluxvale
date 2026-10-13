@@ -116,7 +116,18 @@ to the k3d local registry — never docker.io.
    resolution anyway — the PR must be clean before it's worth a
    human's attention.
 3. All GitHub Actions checks green before asking for review.
-4. The maintainer is the final gate, not the first reviewer. On
+4. **Pre-merge freshness**: before asking for the merge, compare the
+   run that went green against what `main` looks like now. If any PR
+   has merged since that run started, rebase onto `main` and re-run
+   `mix ci` first - skip it only when the intervening merges touch
+   nothing in your dependency cone (same files, tests, or config),
+   and when unsure, re-run. PR checks validate the branch plus the
+   base **as they were when the run started**: a green run does not
+   cover a base that moved underneath it (#131 merged between the
+   accrual and billing-UI checks, and both merged on stale greens
+   that broke on zero-start wallet assertions). Minutes of CI are
+   cheaper than a red `main`.
+5. The maintainer is the final gate, not the first reviewer. On
    approval: squash merge, remove the worktree, delete the branch,
    sync `main`, card → `Done`.
 
