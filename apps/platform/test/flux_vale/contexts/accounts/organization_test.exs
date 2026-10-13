@@ -7,7 +7,6 @@ defmodule FluxVale.Accounts.OrganizationTest do
   use FluxVale.DataCase, async: true
 
   alias Ash.Error.Invalid
-  alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.Organization
   alias FluxVale.TestSupport.AccountsFixtures
 
@@ -54,34 +53,13 @@ defmodule FluxVale.Accounts.OrganizationTest do
     end
 
     test "destroy clears the memberships first (empty-org teardown)" do
-      # Bare org, not the JIT path: since #122 every provisioned org
-      # carries a welcome-granted wallet, and the wallet FK is the guard
-      # under test below.
-      org =
-        Organization.create!(
-          %{name: "teardown", slug: "teardown-#{System.unique_integer([:positive])}"},
-          authorize?: false
-        )
-
-      member = AccountsFixtures.user!()
-
-      Membership.create!(%{organization_id: org.id, user_id: member.id}, authorize?: false)
+      org = AccountsFixtures.personal_org!(AccountsFixtures.user!())
 
       # authorize?: false — the system teardown posture (#124 owns the
       # full lifecycle; instances/wallet FKs still guard non-empty orgs)
       assert :ok = Ash.destroy!(org, authorize?: false)
 
       assert {:error, _gone} = Organization.get_by_id(org.id, authorize?: false)
-    end
-
-    test "destroy fails loudly while a wallet exists (billing rows are append-only)" do
-      org = AccountsFixtures.personal_org!(AccountsFixtures.user!())
-
-      # The welcome grant (#122) provisions the wallet; teardown keeping
-      # or clearing billing history is #124's design — the FK must hold.
-      assert_raise Ash.Error.Unknown, fn -> Ash.destroy!(org, authorize?: false) end
-
-      assert {:ok, _still_here} = Organization.get_by_id(org.id, authorize?: false)
     end
 
     test "get_by_slug and get_by_id resolve through the code interface" do

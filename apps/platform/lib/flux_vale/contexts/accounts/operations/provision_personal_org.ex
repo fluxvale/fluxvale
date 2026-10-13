@@ -1,14 +1,11 @@
 defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrg do
   @moduledoc """
-  Provisions a personal Organization + owner Membership for a user (#119)
-  and grants the welcome credits (#122): one commit carries org +
-  membership + wallet + grant, or none of it.
+  Provisions a personal Organization + owner Membership for a user (#119).
 
   Idempotent: returns the existing org as `{:ok, org, false}` when the user
-  already owns one — re-login never duplicates, and the probe returning
-  before the create means the welcome grant never re-fires. On first call
-  it creates the org and returns `{:ok, org, true}` — the `created?` flag
-  is the caller-visible signal that provisioning (grant included) just ran.
+  already owns one — re-login never duplicates. On first call it creates the
+  org and returns `{:ok, org, true}`; the `created?` flag lets callers run
+  one-time side effects (welcome credits, #122) exactly once.
 
   The org's `name` is the email's local part (display-only); its `slug` is
   the sanitized local part, `-2`, `-3`… probed on collision (v1 named orgs
@@ -28,9 +25,6 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrg do
   # Bounded slug probing: exhausted only if the base plus every suffix up
   # to here is taken — a collision run no single local part should produce.
   @max_slug_probes 100
-
-  # #122: $3 of non-expiring credits (1 credit = 1 US cent, product.md).
-  @welcome_grant_cents 300
 
   @spec call(User.t()) :: {:ok, Organization.t(), boolean()} | {:error, term()}
   def call(%User{} = user) do
@@ -56,9 +50,6 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrg do
         slug: unique_slug(base_slug(user), 0)
       })
       |> Ash.Changeset.manage_relationship(:members, [user], type: :append, authorize?: false)
-      |> Ash.Changeset.after_action(fn _changeset, org ->
-        grant_welcome_credits(org)
-      end)
       |> Ash.create(authorize?: false)
 
     case outcome do
@@ -69,25 +60,6 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrg do
       # concurrent signer just took) fails the create here and rolls back
       # the signup — needs true concurrency to reach, so no sequential
       # test can; the identity index is the arbiter
-      # coveralls-ignore-start
-      {:error, _reason} = error ->
-        error
-        # coveralls-ignore-stop
-    end
-  end
-
-  # #122: the welcome grant rides the org-create transaction — it exists
-  # exactly when the org does (a lost JIT race rolls back with its grant,
-  # and the idempotency probe never re-enters the create). Keyless per the
-  # ledger's contract: a transactional post cannot retry, so once-per-org
-  # holds without an idempotency key.
-  defp grant_welcome_credits(%Organization{} = org) do
-    case FluxVale.Billing.grant_credits(org, @welcome_grant_cents) do
-      {:ok, _entry} ->
-        {:ok, org}
-
-      # defensive: a ledger-write failure fails the org create (and the
-      # signup with it) — DB failure only, not sequential-test reachable
       # coveralls-ignore-start
       {:error, _reason} = error ->
         error

@@ -1,11 +1,9 @@
 defmodule FluxVale.Billing.Operations.GrantCredits do
   @moduledoc """
-  Posts a system-issued `:credit` — the welcome grant rides the
-  org-creation transaction (#122); operator adjustments reuse the seam
-  with `reason: :adjustment` (the funding dimension is what keeps the
-  ledger reconcilable — see `EntryReason`). Keyless by default: the caller
-  guarantees once-only (the provisioning flow's transactional post); pass
-  `idempotency_key:` when the call site can retry. System operation,
+  Posts a system-issued `:credit` — welcome grants today (#122 wires the
+  signup call), future operator adjustments. Keyless by default: the
+  caller guarantees once-only (the provisioning flow's `created?` flag);
+  pass `idempotency_key:` when the call site can retry. System operation,
   `authorize?: false`.
   """
 

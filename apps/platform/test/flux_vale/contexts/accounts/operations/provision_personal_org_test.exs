@@ -2,8 +2,7 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrgTest do
   @moduledoc """
   #119's JIT provisioning: User.create auto-creates the personal org with
   the creator as owner (the change delegates here), idempotent on re-login,
-  slug probing on local-part collisions — and #122's welcome grant rides
-  the org-creation transaction.
+  slug probing on local-part collisions.
   """
 
   use FluxVale.DataCase, async: true
@@ -11,8 +10,6 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrgTest do
   alias FluxVale.Accounts
   alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.Organization
-  alias FluxVale.Billing
-  alias FluxVale.Billing.LedgerEntry
   alias FluxVale.Identity.User
   alias FluxVale.TestSupport.AccountsFixtures
 
@@ -85,53 +82,6 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrgTest do
       assert String.starts_with?(org.slug, "org-")
       assert org.slug not in ["org", "org-2", "org-100"]
     end
-  end
-
-  describe "welcome credits (#122)" do
-    test "org creation grants $3 — wallet funded, one welcome ledger entry" do
-      user = AccountsFixtures.user!()
-      org = AccountsFixtures.personal_org!(user)
-
-      {:ok, wallet} = Billing.ensure_wallet(org)
-      assert {:ok, 300} = Billing.balance(wallet, authorize?: false)
-
-      entries = welcome_entries(wallet)
-      assert length(entries) == 1
-
-      entry = hd(entries)
-      assert entry.type == :credit
-      assert entry.amount == 300
-      assert entry.reason == :welcome
-    end
-
-    test "re-provisioning never re-fires the grant (once per org, ever)" do
-      user = AccountsFixtures.user!()
-      org = AccountsFixtures.personal_org!(user)
-
-      assert {:ok, ^org, false} = Accounts.provision_personal_org(user)
-
-      {:ok, wallet} = Billing.ensure_wallet(org)
-      assert {:ok, 300} = Billing.balance(wallet, authorize?: false)
-      assert length(welcome_entries(wallet)) == 1
-    end
-
-    test "each org gets its own grant" do
-      org_one = AccountsFixtures.personal_org!(AccountsFixtures.user!())
-      org_two = AccountsFixtures.personal_org!(AccountsFixtures.user!())
-
-      {:ok, wallet_one} = Billing.ensure_wallet(org_one)
-      {:ok, wallet_two} = Billing.ensure_wallet(org_two)
-
-      assert {:ok, 300} = Billing.balance(wallet_one, authorize?: false)
-      assert {:ok, 300} = Billing.balance(wallet_two, authorize?: false)
-    end
-  end
-
-  defp welcome_entries(wallet) do
-    LedgerEntry
-    |> Ash.Query.for_read(:read, %{})
-    |> Ash.Query.filter(wallet_id == ^wallet.id and reason == :welcome)
-    |> Ash.read!(authorize?: false)
   end
 
   defp owner_membership(org) do
