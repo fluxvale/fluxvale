@@ -19,7 +19,7 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Pricing.Size
-  alias FluxVale.TestSupport.BillingFixtures
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   require Ash.Query
@@ -31,9 +31,8 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
   @stopped_cents 34
 
   setup do
-    # Grant-free org — the welcome grant rides JIT provisioning (#122),
-    # and the settle arithmetic owns the wallet's whole balance.
-    {org, user} = BillingFixtures.grant_free_org!()
+    user = AccountsFixtures.user!()
+    org = AccountsFixtures.personal_org!(user)
 
     version =
       InstanceFixtures.app_version!(
