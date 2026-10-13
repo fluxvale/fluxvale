@@ -37,6 +37,16 @@ defmodule FluxVale.TestSupport.Tracing do
   """
   @spec export_spans_to(pid()) :: :ok
   def export_spans_to(pid) do
+    # Drain the stale batch first: restore/0 leaves insertion
+    # enabled, so earlier tests' query spans pile up in the shared
+    # table; past max_queue_size (2048) the processor's 1s check
+    # disables insertion and spans ended after the swap are dropped
+    # at on_end (#129). The drain's table hand-off empties the
+    # current table and re-enables insertion — whether the flush is
+    # processed before or after the exporter swap — so spans ended
+    # after the swap always reach the export.
+    flush_batch()
+
     :otel_batch_processor.set_exporter(:otel_exporter_pid, pid)
   end
 
