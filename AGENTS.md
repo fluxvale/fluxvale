@@ -149,7 +149,10 @@ skill](.agents/skills/fluxvale-review-budget/SKILL.md)
   with evidence (the commands you ran) if not.
 - Green is **states, not counts** — every `gh pr checks` row `pass`
   (required CodeRabbit check included; `grep -c pass` prints
-  numbers, not truth).
+  numbers, not truth). The CodeRabbit check also reads `pass` when
+  rate-limited — pass ≠ reviewed; a rate-limited PR doesn't wait, the
+  skill's agent-review fallback substitutes and the gate is that +
+  green CI.
 - Then verify **quiescence**: analysis comments land asynchronously
   *after* the check flips green (#19) — re-probe threads/comments
   after a few minutes; only an unchanged state is ready.
