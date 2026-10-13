@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { waitForLiveViewJoin } from "./helpers/live-view";
 import { runtimeFor } from "./helpers/runtime";
 import { signIn } from "./helpers/sign-in";
 import { TestInbox } from "./helpers/test-inbox";
@@ -40,14 +41,22 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   await signIn(page, new TestInbox(request, testInboxToken!), email);
 
   // Catalog → Forgejo (`/` after sign-in is the Phoenix starter page —
-  // the app nav lives on the app's own pages, so go there directly)
+  // the app nav lives on the app's own pages, so go there directly).
+  // Every page waits for the LiveView join before its first phx
+  // interaction: a click that lands pre-join is dropped client-side and
+  // its effect never reaches the server (#148) — through a real edge
+  // the join takes hundreds of ms, and the stepper's pick lost exactly
+  // that race on staging smoke runs.
   await page.goto("/apps");
+  await waitForLiveViewJoin(page);
   await expect(page.getByRole("heading", { name: "Catalog" })).toBeVisible();
   await page.getByTestId("app-forgejo").click();
   await expect(page.getByRole("heading", { name: "Forgejo", exact: true })).toBeVisible();
+  await waitForLiveViewJoin(page);
 
   // Deploy stepper: version → configuration (seed defaults carry) → name
   await page.locator("[data-testid^='deploy-']").first().click();
+  await waitForLiveViewJoin(page);
   await page.getByTestId("version-option").first().check();
   await page.getByTestId("continue-version").click();
   await page.getByTestId("continue-env").click();
