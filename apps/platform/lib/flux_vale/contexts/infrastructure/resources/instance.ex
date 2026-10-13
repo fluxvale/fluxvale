@@ -128,11 +128,14 @@ defmodule FluxVale.Infrastructure.Instance do
     end
 
     # The member-reachable updates, named per-action: a broad
-    # action_type(:update) policy beside the gated :start would OR the
-    # gate away (policies are OR'd) — start spends too (#124).
+    # action_type(:update) policy beside the gated ones would OR the
+    # gate away (policies are OR'd) — and deploy/start spend too
+    # (#124: "new instance deploys blocked at balance ≤ 0" covers the
+    # pending/error retry path, not just fresh creates).
     policy action(:deploy) do
-      description "Members deploy their org's instances"
-      authorize_if(relates_to_actor_via([:organization, :members]))
+      description "Deploy/retry needs membership AND a funded wallet (#124)"
+      forbid_unless(relates_to_actor_via([:organization, :members]))
+      authorize_if(FluxVale.Checks.ActorOrgWalletFunded)
     end
 
     policy action(:settle_anchors) do

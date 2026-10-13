@@ -87,9 +87,13 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
   defp ladder(wallet, runway) do
     now = DateTime.utc_now()
 
+    # Mails decide before any K8s action runs: a failed send rolls the
+    # whole pass back, and rollback can't un-scale a Deployment — so
+    # the stop (the only out-of-DB side effect) goes last. Destroy's
+    # teardown rides the transactional Oban insert and rolls back clean.
     {warning_markers, runway_sent?} = runway_step(wallet, runway)
-    stopped = stop_step(wallet)
     {destroy_markers, destroyed, destroy_warning} = destroy_step(wallet, now)
+    stopped = stop_step(wallet)
 
     markers =
       warning_markers
@@ -177,7 +181,12 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
 
       due?(now, destroy_at, 1) and is_nil(wallet.destroy_t1_warned_at) ->
         deliver_destroy_warning(wallet.organization_id, destroy_at, 1)
-        {%{destroy_t1_warned_at: now}, [], :t1}
+
+        # Both markers: a sweep that first reaches the window inside
+        # T-1 (after an outage, say) must not send "in 7 days" on a
+        # later pass — t1 supersedes t7.
+        {%{destroy_t1_warned_at: now, destroy_t7_warned_at: wallet.destroy_t7_warned_at || now},
+         [], :t1}
 
       due?(now, destroy_at, 7) and is_nil(wallet.destroy_t7_warned_at) ->
         deliver_destroy_warning(wallet.organization_id, destroy_at, 7)

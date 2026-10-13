@@ -88,6 +88,31 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
     end
   end
 
+  describe "the Instance deploy gate" do
+    test "deploy/retry is forbidden while the wallet is empty, open after a top-up", %{
+      version: version
+    } do
+      stub_k8s()
+
+      {_org, wallet, owner} = funded_org_owner!()
+
+      instance =
+        Instance.create!(%{name: "Deploy Gate", app_version_id: version.id, env_vars: %{}},
+          actor: owner
+        )
+
+      # drain to exactly zero — the gate reads the live ledger
+      {:ok, balance} = Billing.balance(wallet, authorize?: false)
+      {:ok, _drain} = Billing.debit_wallet(wallet, balance * 10_000)
+
+      assert {:error, %Ash.Error.Forbidden{}} = Instance.deploy(instance, actor: owner)
+
+      {:ok, _grant} = Billing.grant_credits(wallet, 100, reason: :adjustment)
+      assert {:ok, deployed} = Instance.deploy(instance, actor: owner)
+      assert deployed.namespace == "fluxvale-app-#{instance.id}"
+    end
+  end
+
   describe "the Instance start gate" do
     test "start is forbidden while the wallet is empty, open after a top-up", %{
       version: version
@@ -130,5 +155,41 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
   defp stub_scale do
     stub(FluxVale.Clients.K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
     stub(FluxVale.Clients.K8s.Resources.Deployment, :scale, fn _kc, _ns, _n, 1 -> {:ok, %{}} end)
+  end
+
+  # The deploy action fires its trigger inline in tests — the full K8s
+  # create surface stubbed (instance_test's shape).
+  defp stub_k8s do
+    stub(FluxVale.Clients.K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+
+    stub(FluxVale.Clients.K8s.Resources.Namespace, :create, fn _kc, _ns, _spec -> {:ok, %{}} end)
+
+    stub(FluxVale.Clients.K8s.Resources.RoleBinding, :create, fn _kc, _ns, _n, _spec ->
+      {:ok, %{}}
+    end)
+
+    stub(FluxVale.Clients.K8s.Resources.ResourceQuota, :create, fn _kc, _ns, _n, _spec ->
+      {:ok, %{}}
+    end)
+
+    stub(FluxVale.Clients.K8s.Resources.NetworkPolicy, :create, fn _kc, _ns, _n, _spec ->
+      {:ok, %{}}
+    end)
+
+    stub(FluxVale.Clients.K8s.Resources.PersistentVolumeClaim, :create, fn _kc, _ns, _n, _spec ->
+      {:ok, %{}}
+    end)
+
+    stub(FluxVale.Clients.K8s.Resources.Secret, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+    stub(FluxVale.Clients.K8s.Resources.Deployment, :create, fn _kc, _ns, _n, _spec ->
+      {:ok, %{}}
+    end)
+
+    stub(FluxVale.Clients.K8s.Resources.Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+    stub(FluxVale.Clients.K8s.Resources.Ingress, :create, fn _kc, _ns, _n, _spec ->
+      {:ok, %{}}
+    end)
   end
 end

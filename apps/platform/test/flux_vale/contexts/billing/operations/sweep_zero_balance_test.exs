@@ -261,6 +261,11 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalanceTest do
 
       assert_received {:email,
                        %Swoosh.Email{subject: "Your FluxVale instances will be deleted in 1 day"}}
+
+      # t1 supersedes t7 — a pass that first reached the window inside
+      # T-1 (an outage, say) never back-fills a "in 7 days" mail
+      fresh = reload_wallet!(wallet)
+      assert fresh.destroy_t7_warned_at != nil
     end
 
     test "destroy at +30d tears every instance down, storage freed", %{version: version} do
