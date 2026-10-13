@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { waitForLiveViewJoin } from "./live-view";
 import { TestInbox } from "./test-inbox";
 
 // Passwordless sign-in through the real UI (ADR-0024 §5 — deterministic
@@ -8,16 +9,9 @@ import { TestInbox } from "./test-inbox";
 // /auth/session landing on /.
 export async function signIn(page: Page, inbox: TestInbox, email: string) {
   await page.goto("/sign-in");
-  // Wait out the connect race: the socket's first patch re-renders the
-  // form and would wipe a value filled before it (phx-loading leaves
-  // with the join).
-  await page.waitForFunction(
-    () =>
-      document.querySelector("[data-phx-session]") !== null &&
-      document.querySelector(".phx-loading") === null,
-    undefined,
-    { timeout: 15_000 },
-  );
+  // The join's render replaces the form, so a fill before it lands is
+  // wiped — wait for the join (helpers/live-view.ts).
+  await waitForLiveViewJoin(page);
 
   await page.getByTestId("sign-in-email").fill(email);
   await page.getByTestId("send-code").click();

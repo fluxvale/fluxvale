@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { waitForLiveViewJoin } from "./helpers/live-view";
 import { runtimeFor } from "./helpers/runtime";
 import { signIn } from "./helpers/sign-in";
 import { TestInbox } from "./helpers/test-inbox";
@@ -40,14 +41,19 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   await signIn(page, new TestInbox(request, testInboxToken!), email);
 
   // Catalog → Forgejo (`/` after sign-in is the Phoenix starter page —
-  // the app nav lives on the app's own pages, so go there directly)
+  // the app nav lives on the app's own pages, so go there directly).
+  // Each page's first phx interaction waits for the join (#148 —
+  // helpers/live-view.ts); later pages ride the same socket.
   await page.goto("/apps");
+  await waitForLiveViewJoin(page);
   await expect(page.getByRole("heading", { name: "Catalog" })).toBeVisible();
   await page.getByTestId("app-forgejo").click();
   await expect(page.getByRole("heading", { name: "Forgejo", exact: true })).toBeVisible();
+  await waitForLiveViewJoin(page);
 
   // Deploy stepper: version → configuration (seed defaults carry) → name
   await page.locator("[data-testid^='deploy-']").first().click();
+  await waitForLiveViewJoin(page);
   await page.getByTestId("version-option").first().check();
   await page.getByTestId("continue-version").click();
   await page.getByTestId("continue-env").click();
@@ -56,8 +62,10 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   await page.getByTestId("deploy-submit").click();
 
   // Status page: deploying → starting → running (live badge; no polling
-  // in-page — PubSub re-renders, this loop just reads)
+  // in-page — PubSub re-renders, this loop just reads). The join wait
+  // covers stop/delete below — their clicks must not race either.
   await page.waitForURL(/\/instances\//);
+  await waitForLiveViewJoin(page);
   await waitForStatus(page, "running", 12 * 60_000);
 
   // The instance URL opens through Traefik (self-signed — ignored at
