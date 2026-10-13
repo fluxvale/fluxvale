@@ -78,6 +78,7 @@ defmodule FluxValeWeb.Router do
       live "/apps/:slug/deploy", CatalogLive.Deploy
       live "/instances", InstanceLive.Index
       live "/instances/:id", InstanceLive.Show
+      live "/billing", BillingLive.Index
     end
   end
 

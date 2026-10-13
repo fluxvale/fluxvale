@@ -9,6 +9,7 @@ defmodule FluxVale.Billing.LedgerEntryTest do
 
   alias Ash.Error.Invalid
   alias Ash.Resource.Info
+  alias FluxVale.Billing
   alias FluxVale.Billing.LedgerEntry
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
@@ -168,5 +169,80 @@ defmodule FluxVale.Billing.LedgerEntryTest do
                %{wallet_id: wallet.id, amount: 100, type: :credit, reason: :purchase},
                actor: member
              )
+  end
+
+  describe "list_for_wallet (#123's paginated history)" do
+    setup do
+      # Zero-funded wallet: the outer setup's welcome grant would sit on
+      # page 2 and muddy the order assertions — amounts are the markers.
+      {_org, wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
+
+      # The i-th grant posts i cents, so "newest" is assertable per row.
+      for i <- 1..30 do
+        {:ok, _entry} = Billing.grant_credits(wallet, i)
+      end
+
+      %{wallet: wallet}
+    end
+
+    test "pages newest-first and walks the cursor to the end", %{wallet: wallet} do
+      page = wallet_page(wallet)
+
+      assert length(page.results) == 25
+      assert page.more?
+      # newest 25 = amounts 30..6, descending
+      assert Enum.map(page.results, & &1.amount) == Enum.to_list(30..6//-1)
+
+      assert {:ok, next} = Ash.page(page, :next)
+      assert Enum.map(next.results, & &1.amount) == Enum.to_list(5..1//-1)
+      refute next.more?
+
+      # exhausted — the walk ends on an empty page
+      assert {:ok, empty} = Ash.page(next, :next)
+      assert empty.results == []
+    end
+
+    test "the cursor survives rows landing between pages", %{wallet: wallet} do
+      page = wallet_page(wallet)
+
+      # a newer row posts after page 1 was taken — the offset-style
+      # shift (one row skipped) is what keyset exists to prevent
+      {:ok, _newer} = Billing.grant_credits(wallet, 99)
+
+      assert {:ok, next} = Ash.page(page, :next)
+      assert Enum.map(next.results, & &1.amount) == Enum.to_list(5..1//-1)
+    end
+
+    test "the wallet filter scopes the page; strangers read an empty page", %{wallet: wallet} do
+      stranger = AccountsFixtures.user!()
+
+      page =
+        LedgerEntry
+        |> Ash.Query.for_read(:list_for_wallet, %{wallet_id: wallet.id}, actor: stranger)
+        |> Ash.Query.sort(created_at: :desc, id: :desc)
+        |> Ash.read!(page: [limit: 25])
+
+      assert page.results == []
+    end
+
+    test "a read without page opts falls back to the action's default limit", %{
+      wallet: wallet
+    } do
+      page =
+        LedgerEntry
+        |> Ash.Query.for_read(:list_for_wallet, %{wallet_id: wallet.id}, authorize?: false)
+        |> Ash.Query.sort(created_at: :desc, id: :desc)
+        |> Ash.read!()
+
+      assert %Ash.Page.Keyset{} = page
+      assert length(page.results) == 25
+    end
+  end
+
+  defp wallet_page(wallet) do
+    LedgerEntry
+    |> Ash.Query.for_read(:list_for_wallet, %{wallet_id: wallet.id}, authorize?: false)
+    |> Ash.Query.sort(created_at: :desc, id: :desc)
+    |> Ash.read!(page: [limit: 25])
   end
 end

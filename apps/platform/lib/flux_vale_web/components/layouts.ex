@@ -46,6 +46,7 @@ defmodule FluxValeWeb.Layouts do
         <ul class="flex flex-column px-1 gap-2 items-center">
           <li><.link navigate={~p"/apps"} class="btn btn-ghost btn-sm">Catalog</.link></li>
           <li><.link navigate={~p"/instances"} class="btn btn-ghost btn-sm">Instances</.link></li>
+          <li><.link navigate={~p"/billing"} class="btn btn-ghost btn-sm">Billing</.link></li>
           <li><.theme_toggle /></li>
           <li :if={@current_user} class="hidden sm:flex items-center gap-2 pl-2">
             <span class="text-sm opacity-70 truncate max-w-40" title={@current_user.email}>
