@@ -9,8 +9,8 @@ import { TestInbox } from "./test-inbox";
 // /auth/session landing on /.
 export async function signIn(page: Page, inbox: TestInbox, email: string) {
   await page.goto("/sign-in");
-  // The form's first patch rides the join — filling before it would be
-  // wiped (helpers/live-view.ts).
+  // The join's render replaces the form, so a fill before it lands is
+  // wiped — wait for the join (helpers/live-view.ts).
   await waitForLiveViewJoin(page);
 
   await page.getByTestId("sign-in-email").fill(email);

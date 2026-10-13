@@ -42,11 +42,8 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
 
   // Catalog → Forgejo (`/` after sign-in is the Phoenix starter page —
   // the app nav lives on the app's own pages, so go there directly).
-  // Every page waits for the LiveView join before its first phx
-  // interaction: a click that lands pre-join is dropped client-side and
-  // its effect never reaches the server (#148) — through a real edge
-  // the join takes hundreds of ms, and the stepper's pick lost exactly
-  // that race on staging smoke runs.
+  // Each page's first phx interaction waits for the join (#148 —
+  // helpers/live-view.ts); later pages ride the same socket.
   await page.goto("/apps");
   await waitForLiveViewJoin(page);
   await expect(page.getByRole("heading", { name: "Catalog" })).toBeVisible();
@@ -65,8 +62,10 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   await page.getByTestId("deploy-submit").click();
 
   // Status page: deploying → starting → running (live badge; no polling
-  // in-page — PubSub re-renders, this loop just reads)
+  // in-page — PubSub re-renders, this loop just reads). The join wait
+  // covers stop/delete below — their clicks must not race either.
   await page.waitForURL(/\/instances\//);
+  await waitForLiveViewJoin(page);
   await waitForStatus(page, "running", 12 * 60_000);
 
   // The instance URL opens through Traefik (self-signed — ignored at
