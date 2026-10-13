@@ -7,15 +7,13 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Deployment
-  alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.ReconcileInstance
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
-  defp user do
-    User.create!("reconciler-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
-  end
+  defp user, do: AccountsFixtures.user!()
 
   defp instance!(status) do
     version = InstanceFixtures.app_version!()

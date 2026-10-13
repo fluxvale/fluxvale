@@ -14,15 +14,13 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
   alias FluxVale.Clients.K8s.Resources.RoleBinding
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Clients.K8s.Resources.Service
-  alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.DeployInstance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
-  defp user do
-    User.create!("deployer-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
-  end
+  defp user, do: AccountsFixtures.user!()
 
   defp deploying!(attrs \\ %{}) do
     attrs = Map.new(attrs)

@@ -121,11 +121,15 @@ config :ash_oban, :pro?, false
 # plain Oban.
 config :flux_vale, Oban,
   repo: FluxVale.Repo,
-  queues: [deployments: 10, reconciler: 1, settler: 1, janitor: 1],
+  queues: [deployments: 10, reconciler: 1, settler: 1, janitor: 1, billing: 1],
   plugins: [
     {Oban.Plugins.Cron,
      crontab: [
-       {"0 3 * * *", FluxVale.Janitor.PruneExpiredTokens}
+       {"0 3 * * *", FluxVale.Janitor.PruneExpiredTokens},
+       # #124's ladder sweep, hourly at :07 — off the top-of-hour rush
+       # (#113's stance; the reconciler minute-tick and smoke crons sit
+       # there).
+       {"7 * * * *", FluxVale.Workers.ZeroBalanceSweep}
      ]},
     # Retention for finished jobs (completed/cancelled/discarded) — v1
     # never pruned oban_jobs; adopted on review (#39). 7d keeps a

@@ -18,6 +18,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
   alias FluxVale.Infrastructure.Cluster
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   # Oban testing :inline runs trigger actions during the entry action —
@@ -47,9 +48,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
     stub(Namespace, :delete, fn _kc, _n -> :ok end)
   end
 
-  defp user do
-    User.create!("owner-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
-  end
+  defp user, do: AccountsFixtures.user!()
 
   defp forgejo_version do
     InstanceFixtures.app_version!(

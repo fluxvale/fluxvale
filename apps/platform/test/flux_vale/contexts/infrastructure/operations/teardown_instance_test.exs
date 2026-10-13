@@ -15,15 +15,13 @@ defmodule FluxVale.Infrastructure.Operations.TeardownInstanceTest do
   alias FluxVale.Clients.K8s.Resources.RoleBinding
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Clients.K8s.Resources.Service
-  alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.TeardownInstance
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
-  defp user do
-    User.create!("teardown-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
-  end
+  defp user, do: AccountsFixtures.user!()
 
   defp deleting! do
     version = InstanceFixtures.app_version!()

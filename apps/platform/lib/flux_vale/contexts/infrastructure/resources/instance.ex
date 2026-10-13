@@ -122,18 +122,33 @@ defmodule FluxVale.Infrastructure.Instance do
     end
 
     policy action_type(:create) do
-      description "Any signed-in actor creates instances (org resolved from actor)"
-      authorize_if(actor_present())
+      description "#124's deploy gate: any signed-in actor with a funded org wallet creates instances (org resolved from actor) — policy-land, so the API can't bypass it"
+      forbid_unless(actor_present())
+      authorize_if(FluxVale.Checks.ActorOrgWalletFunded)
     end
 
-    policy action_type(:update) do
-      description "Members drive their org's instance lifecycle transitions"
+    # The member-reachable updates, named per-action: a broad
+    # action_type(:update) policy beside the gated :start would OR the
+    # gate away (policies are OR'd) — start spends too (#124).
+    policy action(:deploy) do
+      description "Members deploy their org's instances"
       authorize_if(relates_to_actor_via([:organization, :members]))
     end
 
     policy action(:settle_anchors) do
       description "System-only: settlement cursor writes (authorize?: false)"
       forbid_if(always())
+    end
+
+    policy action(:stop) do
+      description "Members stop their org's instances"
+      authorize_if(relates_to_actor_via([:organization, :members]))
+    end
+
+    policy action(:start) do
+      description "Resume needs membership AND a funded wallet (#124)"
+      forbid_unless(relates_to_actor_via([:organization, :members]))
+      authorize_if(FluxVale.Checks.ActorOrgWalletFunded)
     end
 
     policy action_type(:destroy) do
@@ -346,6 +361,15 @@ defmodule FluxVale.Infrastructure.Instance do
     read :list_for_actor do
       description "The actor's own instances (#74's list surface; sorted newest-first at the query) — org-scoped since #119: instances belong to the actor's org"
       filter(expr(exists(organization.memberships, user_id == ^actor(:id))))
+    end
+
+    # #124's burn-rate input: every instance of an org, priced. System
+    # seam (the sweep runs authorize?: false); members have no call for
+    # an org-wide unpaginated list — list_for_actor is theirs.
+    read :list_for_organization do
+      description "The org's instances (#124's runway/burn-rate input)"
+      argument(:organization_id, :uuid, allow_nil?: false)
+      filter(expr(organization_id == ^arg(:organization_id)))
     end
 
     update :update_status do
@@ -572,6 +596,7 @@ defmodule FluxVale.Infrastructure.Instance do
     define(:destroy)
     define(:get_by_id, args: [:id])
     define(:list_for_actor)
+    define(:list_for_organization, args: [:organization_id])
     define(:delete, args: [:id])
     define(:deploy)
     define(:stop)
