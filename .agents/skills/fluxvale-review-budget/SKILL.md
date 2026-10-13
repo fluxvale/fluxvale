@@ -1,6 +1,6 @@
 ---
 name: fluxvale-review-budget
-description: "FluxVale CodeRabbit discipline — one review per PR (#59): fresh-eyes pass and mix ci green before the PR opens; ensure exactly one review runs (probe the walkthrough marker; one @coderabbitai review only if HEAD is unreviewed; @coderabbitai rate limit checks capacity free); never re-review — the maintainer verifies fixes. Harness-agnostic: the reviewer prompt is the deliverable, `pi -p` is one implementation."
+description: "FluxVale CodeRabbit discipline — one review per PR (#59): fresh-eyes pass and mix ci green before the PR opens; ensure exactly one review runs (probe the walkthrough marker; one @coderabbitai review only if HEAD is unreviewed); when the bucket is rate-limited, a hostile agent review substitutes and the merge doesn't wait; never re-review — the maintainer verifies fixes. Harness-agnostic: the reviewer prompt is the deliverable, `pi -p` is one implementation."
 ---
 
 # Review budget: one CodeRabbit review per PR
@@ -55,10 +55,19 @@ hallucinate too.
   (triggering now spends a second review; #62 finding). Only when
   neither, spend the single `@coderabbitai review` (#52's regime);
   check `@coderabbitai rate limit` first (a PR comment; free) if the
-  bucket may be low.
-- Rate-limited trigger: wait out the window the bot names, re-invoke
-  once. The ack ("Review triggered") is not the verdict — confirm the
-  check reads `Review completed` and the marker covers HEAD.
+  bucket may be low. The ack ("Review triggered") is not the verdict —
+  confirm the check reads `Review completed` and the marker covers HEAD.
+- Rate-limited bucket ≠ waiting. The CodeRabbit check reports `pass`
+  when rate-limited (observed on #134), so branch protection never
+  blocks on the missing review — and the PR may merge on the agent
+  review + green CI once the maintainer verifies. The substitute is
+  the section-1 hostile pass over the PR diff (re-run only if pushes
+  landed since the pre-PR pass), under any harness — the working
+  session's subagent runner, or standalone (`pi -p` is one) when no
+  session is alive. Findings are addressed as if they were the bot's.
+  If the bot review fires later while the PR is still open, it's a
+  bonus pass, not a blocker; a PR merged without the bot review never
+  spends the bucket.
 - After the verdict: adopt or rebut in-thread, push fixes as one
   commit, **no re-review** — the maintainer verifies (#59).
 - Never push mid-review-cycle; branch history is throwaway (squash
@@ -71,5 +80,7 @@ hallucinate too.
 - `!**/priv/resource_snapshots/**` filtered — ash codegen noise.
 - `docs/` NOT filtered — path_filters shape the bot's sparse-checkout;
   its review context must keep the ADRs.
-- Draft PRs are skipped by default — the capacity lever. Draft while
-  the bucket is low; ready + spend the review when capacity returns.
+- Draft-while-rate-limited is superseded by §2's agent fallback — a
+  rate-limited PR no longer waits for capacity. Drafts still skip the
+  auto-review at open, so keep a PR draft only while it's genuinely
+  not finished.
