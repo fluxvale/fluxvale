@@ -19,17 +19,16 @@ defmodule FluxVale.Billing.Operations.DebitWalletConcurrencyTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias FluxVale.Billing
   alias FluxVale.Repo
-  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
 
   @debit_micro 7_500
 
   test "concurrent debits pool their fractions — no lost carryover update" do
-    %{wallet: wallet, user_id: user_id, org_id: org_id} = seeded!()
+    %{wallet: wallet, user_id: user_id} = seeded!()
 
     # The rows are committed outside the sandbox — cleanup runs in
     # on_exit so a failure mid-test never strands them in the shared DB.
-    on_exit(fn -> cleanup!(wallet.id, org_id, user_id) end)
+    on_exit(fn -> cleanup!(user_id) end)
 
     parent = self()
 
@@ -82,13 +81,11 @@ defmodule FluxVale.Billing.Operations.DebitWalletConcurrencyTest do
   # both writers can see it; returns the ids the cleanup needs.
   defp seeded! do
     committed?(fn ->
-      org = AccountsFixtures.personal_org!(AccountsFixtures.user!())
-      loaded = Ash.load!(org, :members, authorize?: false)
-      owner = List.first(loaded.members)
+      {org, owner} = BillingFixtures.grant_free_org!()
 
       {_org, wallet} = BillingFixtures.funded_wallet!(org: org, balance_cents: 10_000)
 
-      %{wallet: wallet, user_id: owner.id, org_id: org.id}
+      %{wallet: wallet, user_id: owner.id}
     end)
   end
 
@@ -104,18 +101,28 @@ defmodule FluxVale.Billing.Operations.DebitWalletConcurrencyTest do
     end
   end
 
-  # Removes the committed rows — the sandbox never owned them. Raw SQL
-  # params need uuids as 16-byte binaries (Ecto.UUID.dump!/1).
-  defp cleanup!(wallet_id, org_id, user_id) do
+  # Removes the committed rows — the sandbox never owned them. Scoped by
+  # the owner's memberships: every org here (the seeded fixture and, since
+  # #122, the user's own JIT personal org with its welcome-granted wallet)
+  # goes with the user. Raw SQL params need uuids as 16-byte binaries
+  # (Ecto.UUID.dump!/1).
+  defp cleanup!(user_id) do
     committed?(fn ->
-      wallet_id = Ecto.UUID.dump!(wallet_id)
-      org_id = Ecto.UUID.dump!(org_id)
       user_id = Ecto.UUID.dump!(user_id)
 
-      Repo.query!("DELETE FROM billing_ledger_entries WHERE wallet_id = $1", [wallet_id])
-      Repo.query!("DELETE FROM billing_wallets WHERE id = $1", [wallet_id])
-      Repo.query!("DELETE FROM memberships WHERE organization_id = $1", [org_id])
-      Repo.query!("DELETE FROM organizations WHERE id = $1", [org_id])
+      result =
+        Repo.query!("SELECT organization_id FROM memberships WHERE user_id = $1", [user_id])
+
+      org_ids = Map.get(result, :rows)
+
+      Repo.query!(
+        "DELETE FROM billing_ledger_entries WHERE wallet_id IN (SELECT id FROM billing_wallets WHERE organization_id = ANY($1))",
+        [org_ids]
+      )
+
+      Repo.query!("DELETE FROM billing_wallets WHERE organization_id = ANY($1)", [org_ids])
+      Repo.query!("DELETE FROM memberships WHERE user_id = $1", [user_id])
+      Repo.query!("DELETE FROM organizations WHERE id = ANY($1)", [org_ids])
       Repo.query!("DELETE FROM users WHERE id = $1", [user_id])
     end)
   end
