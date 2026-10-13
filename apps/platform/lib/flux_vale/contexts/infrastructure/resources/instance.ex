@@ -5,7 +5,7 @@ defmodule FluxVale.Infrastructure.Instance do
   a Pod (ADR-0005). Created as a snapshot of the AppVersion's deploy
   blueprint; driven by a state machine
   (`pending → deploying → starting → running ⇄ stopped`; `error` from any
-  state; `deleting`) through three AshOban triggers:
+  state; `deleting`) through four AshOban triggers:
 
   - `:deploy` — one-shot; creates the namespace's K8s resources
     (Namespace, RoleBinding, ResourceQuota, NetworkPolicy, PVC, Secret,
@@ -13,13 +13,17 @@ defmodule FluxVale.Infrastructure.Instance do
   - `:reconcile_status` — every minute; mirrors Deployment readiness
     into `status` — the only writer of `:running` — demotes on failed
     rollouts, times out stuck deploys
+  - `:settle_usage` — every 15 min; accrues the flat rate over elapsed
+    time against the org wallet (#121, ADR-0005 Am. 1 / ADR-0028) —
+    see `Instance.PerformSettle`
   - `:teardown` — one-shot; deletes the K8s resources, hard-deletes the
     row on success, retries transient failures
 
-  ADR-0005's fourth trigger (`settle_usage`) is deferred to M5 with the
-  Wallet/ledger it posts to (decided on #73); its metering anchors —
-  `running_since`, `storage_metering_since` — ship now, maintained by
-  transitions, so M5 is additive.
+  Metering anchors (`running_since`/`running_until`,
+  `storage_metering_since`) are maintained by transitions and consumed
+  by settlement; the pricing snapshot (`size`, `grandfathered_*`)
+  prices the accrual — creation-time cents for the first year, the live
+  Size row after (settled on #121).
 
   `slug` doubles as the DNS subdomain (`<slug>.<instances_base_domain>`)
   and is haikunate-generated per cluster (v1 port). `stop`/`start` are
@@ -44,6 +48,7 @@ defmodule FluxVale.Infrastructure.Instance do
   alias FluxVale.Infrastructure.Instance.MaintainAnchors
   alias FluxVale.Infrastructure.Instance.PerformDeploy
   alias FluxVale.Infrastructure.Instance.PerformReconcile
+  alias FluxVale.Infrastructure.Instance.PerformSettle
   alias FluxVale.Infrastructure.Instance.PerformTeardown
   alias FluxVale.Infrastructure.Instance.ResolveCluster
   alias FluxVale.Infrastructure.Instance.SetOrganizationFromActor
@@ -81,9 +86,16 @@ defmodule FluxVale.Infrastructure.Instance do
         scheduler_module_name(__MODULE__.Reconcile.Scheduler)
       end
 
-      # ADR-0005's fourth trigger, settle_usage, is M5 scope (decided on
-      # #73): the Wallet/ledger it posts to doesn't exist yet. The anchors
-      # it will advance ship in this resource's schema now.
+      # ADR-0005's fourth trigger (decided on #73, shipped with #121):
+      # flat-rate accrual against the org wallet — see PerformSettle.
+      trigger :settle_usage do
+        action(:perform_settle)
+        queue(:settler)
+        scheduler_cron("*/15 * * * *")
+        where expr(not is_nil(storage_metering_since))
+        worker_module_name(__MODULE__.Settle.Worker)
+        scheduler_module_name(__MODULE__.Settle.Scheduler)
+      end
 
       trigger :teardown do
         action(:perform_teardown)
@@ -117,6 +129,11 @@ defmodule FluxVale.Infrastructure.Instance do
     policy action_type(:update) do
       description "Members drive their org's instance lifecycle transitions"
       authorize_if(relates_to_actor_via([:organization, :members]))
+    end
+
+    policy action(:settle_anchors) do
+      description "System-only: settlement cursor writes (authorize?: false)"
+      forbid_if(always())
     end
 
     policy action_type(:destroy) do
@@ -207,15 +224,46 @@ defmodule FluxVale.Infrastructure.Instance do
     end
 
     # Metering anchors (ADR-0005 Am. 1 / ADR-0008 §2): running_since
-    # spans the current running interval; storage_metering_since spans
-    # storage billing across stop/start (the PVC persists). Internal —
-    # M5's settle_usage advances them against the ledger.
+    # opens the current running interval (nil whenever not running);
+    # unbilled_running_usec carries running time closed by a stop but
+    # not yet settled — integer microseconds of TIME, so stop/start
+    # churn inside one tick can never drop an interval. Storage
+    # metering spans stop/start (the PVC persists) and doubles as the
+    # settlement cursor. Internal — only transitions and settlement
+    # write them.
     attribute :running_since, :utc_datetime_usec do
       public?(false)
     end
 
+    attribute :unbilled_running_usec, :integer do
+      public?(false)
+      allow_nil?(false)
+      default(0)
+      constraints(min: 0)
+    end
+
     attribute :storage_metering_since, :utc_datetime_usec do
       public?(false)
+    end
+
+    # Pricing snapshot (#121): creation-time cents price the accrual
+    # until grandfathered_until lapses (created_at + 1 year), then
+    # settlement reads the live Size row by size_id. Snapshot lands at
+    # create (DeriveFromAppVersion) — price, size, and clock from one
+    # moment. Null on pre-#121 rows whose version lost its size: an
+    # unpriced instance accrues nothing (settle no-ops, loudly logged).
+    attribute :grandfathered_until, :utc_datetime_usec do
+      public?(false)
+    end
+
+    attribute :grandfathered_monthly_cents, :integer do
+      public?(false)
+      constraints(min: 0)
+    end
+
+    attribute :grandfathered_stopped_monthly_cents, :integer do
+      public?(false)
+      constraints(min: 0)
     end
 
     attribute :cpu_cores, :decimal do
@@ -265,6 +313,14 @@ defmodule FluxVale.Infrastructure.Instance do
     belongs_to :app_version, FluxVale.Catalog.AppVersion do
       allow_nil?(false)
       public?(true)
+    end
+
+    # The priced unit snapshot (#121): the version's recommended_size at
+    # create. Allocation already snapshots; the size rides along so a
+    # later version re-point can't reprice a running instance's live
+    # reads after the grace lapses.
+    belongs_to :size, FluxVale.Pricing.Size do
+      public?(false)
     end
   end
 
@@ -435,6 +491,20 @@ defmodule FluxVale.Infrastructure.Instance do
       accept([])
 
       change(PerformReconcile)
+    end
+
+    update :perform_settle do
+      description "The :settle_usage trigger's body — see Instance.PerformSettle (#121)."
+      require_atomic?(false)
+      accept([])
+
+      change(PerformSettle)
+    end
+
+    update :settle_anchors do
+      description "System-only: settlement's cursor writes (PerformSettle, under the wallet lock)."
+      accept([:storage_metering_since, :unbilled_running_usec])
+      require_atomic?(false)
     end
 
     update :perform_teardown do

@@ -87,5 +87,7 @@ the margin, not the anchor, when those get real.
 Edit `pricing_data.yaml` (or AshAdmin) and re-run seeds — convergence is
 idempotent. The `pricing_data_test.exs` calibration tests fail on drift
 from this anchor: re-anchor deliberately, update this doc in the same
-PR, and note it on the issue. Whether existing instances reprice live or
-keep their creation-time price is the settlement issue's call (#121).
+PR, and note it on the issue. Instances snapshot their creation-time
+price for one year from create, then reprice live (#121's call, shipped
+with the settle trigger — existing rows were backfilled from their
+version's size; sizeless legacy rows stay unpriced and logged).
