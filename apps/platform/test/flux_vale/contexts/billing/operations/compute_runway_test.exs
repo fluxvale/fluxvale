@@ -128,6 +128,22 @@ defmodule FluxVale.Billing.Operations.ComputeRunwayTest do
       assert runway.burn_micro_cents_per_hour == hourly(999)
     end
 
+    # The resolver's safe default for rows the backfill missed: no
+    # grace clock, no snapshot trust — the live row prices.
+    test "a nil grandfathered_until prices live", %{version: version} do
+      {user, wallet} = wallet!(100)
+      instance = instance!(user, :running, version)
+
+      size = Ash.get!(Size, instance.size_id, authorize?: false)
+      Size.update!(size, %{monthly_cents: 999}, authorize?: false)
+
+      InstanceFixtures.pin!(instance, grandfathered_until: nil)
+
+      assert {:ok, runway} = Billing.compute_runway(wallet)
+
+      assert runway.burn_micro_cents_per_hour == hourly(999)
+    end
+
     test "a version re-point to a pricier size does not reprice the instance", %{
       version: version
     } do
