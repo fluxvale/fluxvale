@@ -18,9 +18,11 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettle do
 
   Prices: the creation-time snapshot (`grandfathered_*`) until
   `grandfathered_until` lapses, then the live `Size` row by the
-  snapshotted `size_id`. An unpriced instance (nil size — pre-#121
-  drift) accrues nothing and keeps its anchors: forgiven time is
-  visible as a warning, never silent.
+  snapshotted `size_id` — resolved by `Pricing.settlement_rates/2`,
+  the one resolver the runway projection prices through too (#153).
+  An unpriced instance (nil size — pre-#121 drift) accrues nothing
+  and keeps its anchors: forgiven time is visible as a warning, never
+  silent.
 
   The whole settle — wallet advisory lock, fresh `FOR UPDATE` instance
   read, the micro-cent debit, the anchor advance — shares one
@@ -35,7 +37,7 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettle do
   alias FluxVale.Billing
   alias FluxVale.Billing.Wallet
   alias FluxVale.Infrastructure.Instance
-  alias FluxVale.Pricing.Size
+  alias FluxVale.Pricing
   alias FluxVale.Repo
 
   require Ash.Query
@@ -158,12 +160,12 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettle do
     case price(fresh, now) do
       # coveralls-ignore-start - unreachable: settle_priced runs only
       # with a non-nil size_id (settle_fresh's guard owns nil)
-      nil ->
+      {:ok, nil} ->
         fresh
 
       # coveralls-ignore-stop
 
-      # defensive plumbing for live_price's read-failure arm — fail the
+      # defensive plumbing for the resolver's read-failure arm — fail the
       # settle, never bill a guess
       # coveralls-ignore-start
       {:error, reason} ->
@@ -171,7 +173,7 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettle do
 
       # coveralls-ignore-stop
 
-      rates ->
+      {:ok, rates} ->
         cursor = fresh.storage_metering_since
         total_usecs = usecs_between(cursor, now)
         running_usecs = running_usecs(fresh, cursor, now)
@@ -194,45 +196,11 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettle do
     end
   end
 
-  # Creation-time snapshot inside the grace; the live Size row after.
-  # A nil grandfathered_until prices live (safe default for any row the
-  # backfill missed).
+  # The one canonical resolver lives on the Pricing domain (#153 — the
+  # runway projection prices through it too): the creation-time snapshot
+  # inside the grace, the live Size row after, {:ok, nil} = unpriced.
   defp price(%Instance{} = instance, now) do
-    cond do
-      # coveralls-ignore-next-line - unreachable: the caller guards
-      # size_id (settle_fresh); kept so price/2 stays total
-      is_nil(instance.size_id) ->
-        nil
-
-      grandfathered?(instance, now) ->
-        %{
-          running: instance.grandfathered_monthly_cents,
-          stopped: instance.grandfathered_stopped_monthly_cents
-        }
-
-      true ->
-        live_price(instance)
-    end
-  end
-
-  defp grandfathered?(%Instance{} = instance, now) do
-    not is_nil(instance.grandfathered_until) and
-      DateTime.compare(now, instance.grandfathered_until) == :lt
-  end
-
-  defp live_price(%Instance{} = instance) do
-    case Ash.get(Size, instance.size_id, authorize?: false) do
-      {:ok, size} ->
-        %{running: size.monthly_cents, stopped: size.stopped_monthly_cents}
-
-      # defensive: the instances → pricing_sizes FK has no ON DELETE, so
-      # a missing row is data corruption — fail the settle, never bill a
-      # guess; not simulatable without dropping the constraint
-      # coveralls-ignore-start
-      {:error, reason} ->
-        {:error, reason}
-        # coveralls-ignore-stop
-    end
+    Pricing.settlement_rates(instance, now)
   end
 
   # The unbilled running time inside this tick: the stop-transition
