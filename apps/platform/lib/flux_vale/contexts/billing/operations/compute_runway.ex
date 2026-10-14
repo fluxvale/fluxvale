@@ -2,24 +2,27 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
   @moduledoc """
   Projected runway for a wallet (#124): balance ÷ burn rate.
 
-  Burn rate = the sum of the org's live rates (the pricing table's
-  #127 mapping, the same one accrual will settle against — one helper
-  to reconcile when #121 lands): `:running` instances accrue
-  `recommended_size.monthly_cents`, deployed-and-`:stopped` instances
-  accrue `stopped_monthly_cents` (ADR-0028 §2 — the storage-only fee),
-  everything else accrues nothing yet. No instances → `:infinity`
-  runway, no warning ever.
+  Burn rate = the sum of the org's live rates, priced through the ONE
+  resolver (`Pricing.settlement_rates/2` — the same one `settle_usage`
+  bills by, #153): `:running` instances accrue the running rate,
+  deployed-and-`:stopped` instances the storage-only rate (ADR-0028
+  §2), everything else accrues nothing yet. Unpriced rows (no size —
+  pre-#121 drift) burn nothing, matching settle's forgiveness; a
+  resolver read failure fails the projection rather than under-burning
+  silently. No instances → `:infinity` runway, no warning ever.
 
-  A 30-day month (720h) is the divisor — a flat monthly rate divided
-  across its own billing month; calendar-month drift is sub-1% noise
-  next to the 24h threshold it feeds.
+  The divisor is the average Gregorian month (2_629_746 s — #121's
+  calendar-neutral constant, the one settle prorates by, pinned
+  together by the agreement tests): a flat monthly rate divided across
+  its own billing month.
   """
 
   alias FluxVale.Billing.Operations.ReadBalance
   alias FluxVale.Billing.Wallet
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Pricing
 
-  @hours_per_month 24 * 30
+  @seconds_per_month 2_629_746
   @micro_per_cent 10_000
 
   @enforce_keys [:balance_cents, :burn_micro_cents_per_hour, :runway_hours]
@@ -33,16 +36,11 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
 
   @spec call(Wallet.t()) :: {:ok, t()} | {:error, term()}
   def call(%Wallet{} = wallet) do
-    with {:ok, balance} <- ReadBalance.call(wallet, authorize?: false) do
-      instances =
-        Instance
-        |> Ash.Query.for_read(:list_for_organization, %{organization_id: wallet.organization_id},
-          authorize?: false
-        )
-        |> Ash.Query.load(app_version: :recommended_size)
-        |> Ash.read!()
+    now = DateTime.utc_now()
 
-      burn = burn_micro_per_hour(instances)
+    with {:ok, balance} <- ReadBalance.call(wallet, authorize?: false),
+         instances = org_instances(wallet.organization_id),
+         {:ok, burn} <- burn_micro_per_hour(instances, now) do
       runway = runway_hours(balance, burn)
 
       {:ok,
@@ -54,25 +52,49 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
     end
   end
 
-  defp burn_micro_per_hour(instances) do
-    Enum.reduce(instances, 0, &rate_micro_per_hour/2)
+  defp org_instances(organization_id) do
+    Instance
+    |> Ash.Query.for_read(:list_for_organization, %{organization_id: organization_id},
+      authorize?: false
+    )
+    |> Ash.read!()
   end
 
-  defp rate_micro_per_hour(%Instance{status: :running} = instance, acc) do
-    acc + monthly_to_micro(instance.app_version.recommended_size.monthly_cents)
+  defp burn_micro_per_hour(instances, now) do
+    Enum.reduce_while(instances, {:ok, 0}, fn instance, {:ok, acc} ->
+      accumulate(instance, acc, now)
+    end)
   end
 
-  defp rate_micro_per_hour(%Instance{status: :stopped} = instance, acc) do
-    acc + monthly_to_micro(instance.app_version.recommended_size.stopped_monthly_cents)
+  defp accumulate(instance, acc, now) do
+    case Pricing.settlement_rates(instance, now) do
+      {:ok, nil} ->
+        {:cont, {:ok, acc}}
+
+      {:ok, rates} ->
+        monthly = monthly_rate(instance, rates)
+        {:cont, {:ok, acc + hourly_micro(monthly)}}
+
+      # defensive: a resolver read failure is data corruption (the FK
+      # has no ON DELETE) — fail the projection, never under-burn
+      # silently; not simulatable without dropping the constraint
+      # coveralls-ignore-start
+      {:error, _reason} = error ->
+        {:halt, error}
+        # coveralls-ignore-stop
+    end
   end
+
+  defp monthly_rate(%Instance{status: :running}, rates), do: rates.running
+  defp monthly_rate(%Instance{status: :stopped}, rates), do: rates.stopped
 
   # pending/deploying/starting haven't started accruing; :error holds no
   # running meter (its anchors stopped at the transition); :deleting is
   # on the way out.
-  defp rate_micro_per_hour(_instance, acc), do: acc
+  defp monthly_rate(_instance, _rates), do: 0
 
-  defp monthly_to_micro(monthly_cents) do
-    div(monthly_cents * @micro_per_cent, @hours_per_month)
+  defp hourly_micro(monthly_cents) do
+    div(monthly_cents * @micro_per_cent * 3600, @seconds_per_month)
   end
 
   defp runway_hours(_balance, 0), do: :infinity
