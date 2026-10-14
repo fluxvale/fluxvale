@@ -63,6 +63,28 @@ defmodule FluxVale.Billing.Wallet do
       default(0)
       public?(false)
     end
+
+    # The zero-balance ladder's persisted decision state (#124), all
+    # sweep-written under the advisory lock (the update policy forbids
+    # actors). `negative_since` is the destroy clock's anchor: set when
+    # the sweep first sees balance < 0, cleared at ≥ 0 — destroy is
+    # `negative_since + 30d`. The warning markers make each email
+    # once-per-episode; cleared with the clock on recovery.
+    attribute :low_balance_warned_at, :utc_datetime_usec do
+      public?(false)
+    end
+
+    attribute :negative_since, :utc_datetime_usec do
+      public?(false)
+    end
+
+    attribute :destroy_t7_warned_at, :utc_datetime_usec do
+      public?(false)
+    end
+
+    attribute :destroy_t1_warned_at, :utc_datetime_usec do
+      public?(false)
+    end
   end
 
   relationships do
@@ -87,6 +109,23 @@ defmodule FluxVale.Billing.Wallet do
     update :set_carryover do
       description "System write of the pooled accrual remainder (DebitWallet, under the lock)."
       accept([])
+      require_atomic?(false)
+    end
+
+    update :set_ladder_state do
+      description """
+      System write of the zero-balance ladder's markers (#124): the
+      runway-warning and destroy-clock timestamps, nil clears. The sweep
+      owns every write, under the advisory lock.
+      """
+
+      accept([
+        :low_balance_warned_at,
+        :negative_since,
+        :destroy_t7_warned_at,
+        :destroy_t1_warned_at
+      ])
+
       require_atomic?(false)
     end
 

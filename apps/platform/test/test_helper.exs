@@ -2,6 +2,7 @@
 # its API calls (v1's canonical pattern — shape assertions, no cluster)
 Mimic.copy(Kubereq)
 Mimic.copy(FluxVale.Identity)
+Mimic.copy(FluxVale.Billing)
 # Instance lifecycle (#73): ops tests stub the resource modules and the
 # kubeconfig resolution; :k8s-tagged integration tests stay excluded
 # unless run explicitly against the local Tilt stack

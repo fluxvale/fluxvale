@@ -88,4 +88,44 @@ defmodule FluxVale.MailerTest do
       assert email.text_body =~ "765432"
     end
   end
+
+  describe "deliver_low_balance_warning/2 (#124)" do
+    test "carries the runway hours and the stop/restart promise" do
+      {:ok, _delivery} = Mailer.deliver_low_balance_warning("low-runway@fluxvale.com", 7)
+
+      assert_receive {:email,
+                      %Swoosh.Email{subject: "Your FluxVale balance is running low"} = email}
+
+      assert email.text_body =~ "about 7 hours"
+      assert email.text_body =~ "start again once the balance is positive"
+    end
+
+    test "a spent balance swaps the copy instead of negative hours" do
+      {:ok, _delivery} = Mailer.deliver_low_balance_warning("spent@fluxvale.com", -3)
+
+      assert_receive {:email, %Swoosh.Email{text_body: body}}
+      assert body =~ "has run out at current usage"
+      refute body =~ "about -3 hours"
+    end
+  end
+
+  describe "deliver_destroy_warning/3 (#124)" do
+    test "T-7 names the date and the way out" do
+      destroy_on = ~D[2026-11-12]
+
+      {:ok, _delivery} = Mailer.deliver_destroy_warning("t7@fluxvale.com", destroy_on, 7)
+
+      assert_receive {:email, %Swoosh.Email{subject: subject, text_body: body}}
+      assert subject == "Your FluxVale instances will be deleted in 7 days"
+      assert body =~ "On November 12, 2026"
+      assert body =~ "deleted for good"
+    end
+
+    test "T-1 reads as one day" do
+      {:ok, _delivery} = Mailer.deliver_destroy_warning("t1@fluxvale.com", ~D[2026-11-12], 1)
+
+      assert_receive {:email, %Swoosh.Email{subject: subject}}
+      assert subject == "Your FluxVale instances will be deleted in 1 day"
+    end
+  end
 end
