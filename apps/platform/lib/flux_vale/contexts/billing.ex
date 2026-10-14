@@ -39,4 +39,8 @@ defmodule FluxVale.Billing do
   defdelegate reverse_entry(entry, opts \\ []), to: Operations.ReverseEntry, as: :call
 
   defdelegate balance(wallet, opts \\ []), to: Operations.ReadBalance, as: :call
+
+  defdelegate compute_runway(wallet), to: Operations.ComputeRunway, as: :call
+
+  defdelegate sweep_zero_balance(wallet), to: Operations.SweepZeroBalance, as: :call
 end

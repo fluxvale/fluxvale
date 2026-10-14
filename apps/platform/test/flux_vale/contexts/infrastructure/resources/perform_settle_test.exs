@@ -46,7 +46,11 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
     instance =
       Instance.create!(
         %{name: "Billable", app_version_id: version.id, env_vars: %{}},
-        actor: user
+        actor: user,
+        # authorize?: false — the wallet is grant-free by design below,
+        # and #124's deploy gate would forbid a member create at 0;
+        # settle arithmetic is gate-orthogonal (system-op posture).
+        authorize?: false
       )
 
     {:ok, wallet} = Billing.ensure_wallet(org)
@@ -196,7 +200,9 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
       created =
         Instance.create!(
           %{name: "Also Billable", app_version_id: first.app_version_id, env_vars: %{}},
-          actor: user
+          actor: user,
+          # Same gate-orthogonal posture as the setup create.
+          authorize?: false
         )
 
       second = running!(created)
