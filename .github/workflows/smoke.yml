@@ -36,7 +36,7 @@ jobs:
       # Same pin + install shape as the e2e job: binaries only.
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          mise-version: 2026.9.14
+          version: 2026.9.14
           install: false
       - run: mise install node
 
