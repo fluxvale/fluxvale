@@ -26,7 +26,7 @@ permissions:
 jobs:
   check-changes:
     name: Check for changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       platform: ${{ steps.filter.outputs.platform }}
       docs: ${{ steps.filter.outputs.docs }}
@@ -34,13 +34,13 @@ jobs:
       e2e: ${{ steps.filter.outputs.e2e }}
     steps:
       # persist-credentials: false — later steps run no git-authenticated ops
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
 
-      # v3 — pinned to commit: mutable tags execute unreviewed code
-      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad
+      # v4.0.3 — pinned to commit: mutable tags execute unreviewed code
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d
         id: filter
         with:
           filters: |
@@ -69,7 +69,7 @@ jobs:
     name: Platform CI
     needs: check-changes
     if: needs.check-changes.outputs.platform == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:18
@@ -90,7 +90,7 @@ jobs:
     steps:
       # persist-credentials: false — mix ci runs PR-controlled code; the
       # default persisted token in .git/config would be readable by it
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -117,7 +117,7 @@ jobs:
           otp-version: ${{ steps.beam.outputs.otp }}
 
       - name: Restore deps cache
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             apps/platform/deps
@@ -130,7 +130,7 @@ jobs:
             ${{ runner.os }}-mix-${{ steps.setup-beam.outputs.elixir-version }}-${{ steps.setup-beam.outputs.otp-version }}-
 
       - name: Restore dialyzer PLT cache
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: apps/platform/priv/plts
           # Same resolved-version keying as the deps cache (v1 lesson: a PLT
@@ -165,9 +165,9 @@ jobs:
     name: Docs lint
     needs: check-changes
     if: needs.check-changes.outputs.docs == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -182,9 +182,9 @@ jobs:
     name: Skills lint
     needs: check-changes
     if: needs.check-changes.outputs.agents == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -200,7 +200,7 @@ jobs:
     name: E2E
     needs: check-changes
     if: needs.check-changes.outputs.e2e == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       # mise x must USE the four installed binaries without
@@ -208,7 +208,7 @@ jobs:
       # compile, 15+ min — the abandoned CI path in AGENTS.md)
       MISE_AUTO_INSTALL: "0"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -267,15 +267,15 @@ jobs:
     # codecov outage) must not ride a deploy.
     needs: [check-changes, platform]
     if: github.ref == 'refs/heads/main' && needs.check-changes.outputs.platform == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
       packages: write
     steps:
-      # v4.2.2 — pinned to commit: mutable tags execute unreviewed code,
+      # v7.0.1 — pinned to commit: mutable tags execute unreviewed code,
       # and this job holds packages:write
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
@@ -296,23 +296,23 @@ jobs:
           echo "$base" | grep -qF "$elixir-erlang-$otp" || {
             echo "::error::BASE_IMAGE ($base) does not match mise.toml (elixir $elixir, erlang $otp) — bump the pin alongside mise"; exit 1; }
 
-      # v3.5.0 — pinned to commit: mutable tags execute unreviewed code
+      # v4.6.0 — pinned to commit: mutable tags execute unreviewed code
       - name: Log in to GHCR
-        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # v3.11.1 — pinned to commit (repo rule above)
+      # v4.4.1 — pinned to commit (repo rule above)
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
 
-      # v6.18.0 — pinned to commit (repo rule above). GHA cache: the
+      # v7.4.0 — pinned to commit (repo rule above). GHA cache: the
       # release build is dominated by deps.compile + app compile; layers
       # cache unless mix.lock or source move.
       - name: Build and push sha-<sha> + latest
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
         with:
           context: apps/platform
           push: true
@@ -334,7 +334,7 @@ jobs:
   watch-deploy:
     name: Watch deploy (staging + prod)
     needs: deploy-image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - name: Poll both envs until the new SHA serves
@@ -382,7 +382,7 @@ jobs:
   smoke:
     name: Smoke (staging + prod)
     needs: watch-deploy
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The staging leg runs the full lifecycle (#116): same shape the
     # e2e job gives 45 min — cold Forgejo pull, minute-granularity
     # reconcile, retries: 1. A timeout would cancel past the red path
@@ -399,10 +399,10 @@ jobs:
     env:
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      # v4.2.2 — pinned to commit like deploy-image: this job holds
+      # v7.0.1 — pinned to commit like deploy-image: this job holds
       # write scopes (revert PR + dispatch), mutable tags execute
       # unreviewed code
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
@@ -573,7 +573,7 @@ jobs:
     needs: [check-changes, platform, docs-lint, skills-lint, e2e, deploy-image, watch-deploy, smoke]
 
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check all jobs passed
         env:
