@@ -23,7 +23,8 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstances do
     `Active`, no matching row: deleted, with the row re-checked
     immediately before the destructive call (the live-id snapshot is
     stale by however long the pass's cluster reads took — a deploy
-    landing mid-pass must not lose its fresh namespace).
+    landing mid-pass must not lose its fresh namespace, and an
+    unreadable re-read protects the candidate and fails the pass).
     `Terminating` is skipped — that's normal teardown GC (the row dies
     before the namespace finishes disappearing). A 404 on the delete
     is the goal already achieved, not a failure.
@@ -172,9 +173,10 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstances do
     case Namespace.list(kubeconfig) do
       {:ok, items} ->
         names = for item <- items, name = orphan_name(item, live_ids), do: name
-        confirmed = Enum.reject(names, &row_appeared?/1)
 
-        delete_orphan_namespaces(kubeconfig, confirmed)
+        with {:ok, confirmed} <- confirm_orphans(names) do
+          delete_orphan_namespaces(kubeconfig, confirmed)
+        end
 
       {:error, error} ->
         Logger.error("Orphan sweep failed to list namespaces: #{inspect(error)}")
@@ -183,9 +185,47 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstances do
     end
   end
 
-  # The live-id snapshot is as old as the pass (per-row cluster reads
-  # stretch it): re-read the row before the destructive call — a deploy
-  # that landed mid-pass keeps its fresh namespace.
+  # Verify each candidate against the rows as they are NOW (the
+  # snapshot is as old as the pass). An unreadable row — anything but
+  # NotFound — is NOT absent: the candidate is protected, the cluster
+  # unit fails, and the caller's Oban retry owns recovery (#159).
+  defp confirm_orphans(names) do
+    outcome =
+      Enum.reduce_while(names, {:ok, []}, fn name, {:ok, confirmed} ->
+        case row_appeared?(name) do
+          # coveralls-ignore-start - the appeared arm rides the same
+          # race window as row_appeared?'s (excluded there).
+          {:ok, true} ->
+            {:cont, {:ok, confirmed}}
+
+          # coveralls-ignore-stop
+
+          {:ok, false} ->
+            {:cont, {:ok, [name | confirmed]}}
+
+          # coveralls-ignore-start - reachable only from
+          # row_appeared?'s DB-failure arm (excluded there).
+          {:error, error} ->
+            {:halt, {:error, error}}
+            # coveralls-ignore-stop
+        end
+      end)
+
+    # coveralls-ignore-start - the finishing case's error arm and its
+    # `end` line ride the same DB-failure exclusion.
+    case outcome do
+      {:ok, confirmed} -> {:ok, Enum.reverse(confirmed)}
+      {:error, _error} = error -> error
+    end
+
+    # coveralls-ignore-stop
+  end
+
+  # {:ok, boolean} — the row is verifiably live/absent; {:error, _} —
+  # unreadable. The uuid shape is regex-guaranteed upstream, so a miss
+  # is always the NotFound class; if Ash.get's miss shape ever changes,
+  # the unmatched clause raises into the unit rescue — safe direction
+  # (protected namespace, failed pass).
   defp row_appeared?(name) do
     id = String.trim_leading(name, "fluxvale-app-")
 
@@ -194,14 +234,24 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstances do
       # row is created between call/0's snapshot read and this re-read
       # microseconds-to-minutes later; not expressible in a synchronous
       # single-transaction test.
-      {:ok, instance} ->
-        Logger.warning("Orphan sweep: namespace #{name} belongs to live instance #{instance.id}")
+      {:ok, %Instance{id: instance_id}} ->
+        Logger.warning("Orphan sweep: namespace #{name} belongs to live instance #{instance_id}")
 
-        true
+        {:ok, true}
 
       # coveralls-ignore-stop
-      {:error, _not_found} ->
-        false
+      {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Query.NotFound{}]}} ->
+        {:ok, false}
+
+      # coveralls-ignore-start - DB-failure arm: a non-NotFound read
+      # error needs the DB down; ExUnit can't simulate it (the AGENTS
+      # cluster-level stance).
+      {:error, error} ->
+        Logger.error("Orphan sweep: row re-read failed for #{name}: #{inspect(error)}")
+
+        {:error, error}
+
+        # coveralls-ignore-stop
     end
   end
 
