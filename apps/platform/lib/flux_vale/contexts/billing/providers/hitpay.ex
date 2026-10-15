@@ -265,38 +265,27 @@ defmodule FluxVale.Billing.Providers.HitPay do
     Map.get(@status_map, value, :unknown)
   end
 
-  # "100.00" -> 10000 — string math (floats never touch money).
+  # "100.00" -> 10000 — string math (floats never touch money). The
+  # digit-only format rejects normalization candidates outright: signs
+  # ("-0.99", "+5.00"), extra decimals ("5.009"), and separators
+  # ("1.2.3") are malformed gateway data, not values to round.
+  @amount_format ~r/^\d+(\.\d{1,2})?$/
+
   defp parse_amount(amount) when is_binary(amount) do
-    case String.split(amount, ".") do
-      [dollars, decimals] ->
-        padded = String.pad_trailing(decimals, 2, "0")
-        cents = binary_part(padded, 0, 2)
-        parse_cents(dollars, cents)
+    if String.match?(amount, @amount_format) do
+      case String.split(amount, ".") do
+        [dollars, decimals] ->
+          cents = String.pad_trailing(decimals, 2, "0")
+          {:ok, String.to_integer(dollars) * 100 + String.to_integer(cents)}
 
-      [dollars] ->
-        parse_cents(dollars, "0")
-
-      _malformed ->
-        {:error, :invalid_response}
+        [dollars] ->
+          {:ok, String.to_integer(dollars) * 100}
+      end
+    else
+      {:error, :invalid_response}
     end
   end
 
   # A non-binary amount (null, number) is a malformed response, not a crash.
   defp parse_amount(_malformed), do: {:error, :invalid_response}
-
-  defp parse_cents(dollars, cents) do
-    # Integer.parse drops a leading sign only for "-0"/"+0" — reject
-    # negatives on the string so "-0.99" can't sneak in as +99¢.
-    if String.starts_with?(dollars, "-") or String.starts_with?(cents, "-") do
-      {:error, :invalid_response}
-    else
-      case {Integer.parse(dollars), Integer.parse(cents)} do
-        {{dollars, ""}, {cents, ""}} when dollars >= 0 and cents >= 0 ->
-          {:ok, dollars * 100 + cents}
-
-        _malformed ->
-          {:error, :invalid_response}
-      end
-    end
-  end
 end

@@ -121,12 +121,14 @@ defmodule FluxValeWeb.Webhooks.HitPayControllerTest do
   end
 
   test "a failed payment request marks the top-up failed" do
-    {_topup, _wallet} = attached_topup!(500)
+    {topup, _wallet} = attached_topup!(500)
 
     raw = Jason.encode!(%{id: "pr_1", status: "failed"})
 
     conn = deliver(raw)
     assert %{"received" => true} = json_response(conn, 200)
+
+    assert Topup.get_by_id!(topup.id, authorize?: false).status == :failed
   end
 
   test "unknown statuses and payloads ack without action" do

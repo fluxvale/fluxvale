@@ -128,7 +128,12 @@ defmodule FluxValeWeb.Webhooks.HitPayController do
   end
 
   defp process_event(payload) do
-    Logger.warning("HitPay webhook payload without status field: #{inspect(payload)}")
+    # Payloads carry buyer PII — id and shape only, never the body.
+    Logger.warning(
+      "HitPay webhook payload without status field: #{inspect(payload["id"])} " <>
+        "keys=#{inspect(Map.keys(payload))}"
+    )
+
     :ok
   end
 

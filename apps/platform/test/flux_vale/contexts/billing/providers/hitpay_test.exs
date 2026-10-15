@@ -226,12 +226,6 @@ defmodule FluxVale.Billing.Providers.HitPayTest do
       end)
 
       assert {:error, :invalid_response} = HitPay.fetch_payment("pr_1")
-
-      expect(Req, :get, fn _req, _opts ->
-        {:ok, %Req.Response{status: 200, body: %{"id" => "pr_1", "amount" => "1.2.3"}}}
-      end)
-
-      assert {:error, :invalid_response} = HitPay.fetch_payment("pr_1")
     end
 
     test "answers :missing_config without an api key" do
@@ -269,6 +263,16 @@ defmodule FluxVale.Billing.Providers.HitPayTest do
       end)
 
       assert {:error, :invalid_response} = HitPay.fetch_payment("pr_1")
+    end
+
+    test "amounts that would round are malformed, not normalized" do
+      for amount <- ["5.009", "+5.00", "5.+5", "1.2.3"] do
+        expect(Req, :get, fn _req, _opts ->
+          {:ok, %Req.Response{status: 200, body: %{"id" => "pr_1", "amount" => amount}}}
+        end)
+
+        assert {:error, :invalid_response} = HitPay.fetch_payment("pr_1")
+      end
     end
   end
 
