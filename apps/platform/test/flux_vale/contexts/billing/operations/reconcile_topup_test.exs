@@ -113,6 +113,26 @@ defmodule FluxVale.Billing.Operations.ReconcileTopupTest do
     assert {:ok, 0} = Billing.balance(wallet, authorize?: false)
   end
 
+  test "a response naming a different payment request never credits the stored row" do
+    {_topup, wallet} = topup!(500)
+
+    expect(Req, :get, fn _req, _opts ->
+      {:ok,
+       %Req.Response{
+         status: 200,
+         body: %{
+           "id" => "pr_other",
+           "status" => "completed",
+           "amount" => "5.00",
+           "payments" => [%{"id" => "pay_1", "status" => "succeeded", "amount" => "5.00"}]
+         }
+       }}
+    end)
+
+    assert {:ok, :pending} = Billing.reconcile_topup("pr_1")
+    assert {:ok, 0} = Billing.balance(wallet, authorize?: false)
+  end
+
   test "a terminal failure fails the row" do
     {_topup, wallet} = topup!(500)
     expect(Req, :get, fn _req, _opts -> gateway_payment("failed") end)

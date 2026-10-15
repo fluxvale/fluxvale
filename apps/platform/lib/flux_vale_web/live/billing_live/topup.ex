@@ -418,7 +418,12 @@ defmodule FluxValeWeb.BillingLive.Topup do
         </p>
 
         <div class="flex items-center gap-3">
-          <button phx-click="pay" class="btn btn-primary btn-sm" id="topup-pay">
+          <button
+            phx-click="pay"
+            phx-disable-with="Opening checkout…"
+            class="btn btn-primary btn-sm"
+            id="topup-pay"
+          >
             Pay {Pricing.format_usd(@amount_dollars * 100)} with HitPay
           </button>
           <button phx-click="back" class="btn btn-ghost btn-sm" id="topup-payment-back">

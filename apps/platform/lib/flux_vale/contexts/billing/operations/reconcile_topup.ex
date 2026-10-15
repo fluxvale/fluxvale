@@ -7,9 +7,10 @@ defmodule FluxVale.Billing.Operations.ReconcileTopup do
   source of truth, this is just promptness.
 
   Fetches the payment request through the active provider; a completed
-  request with a succeeded charge completes the top-up, a terminal
-  failure fails it, anything else (pending, gateway error) leaves the
-  row for the webhook. System operation, `authorize?: false`.
+  request **naming the same payment request** with a succeeded charge
+  completes the top-up, a terminal failure fails it, anything else
+  (pending, mismatched response, gateway error) leaves the row for the
+  webhook. System operation, `authorize?: false`.
   """
 
   alias FluxVale.Billing.Operations.CompleteTopup
@@ -36,6 +37,26 @@ defmodule FluxVale.Billing.Operations.ReconcileTopup do
   end
 
   defp dispatch(provider, payment_request_id, %{status: :completed} = payment) do
+    # A response naming a different payment request must not credit
+    # the row we asked about — leave it for the webhook, like any
+    # other unusable answer.
+    if payment.payment_request_id == payment_request_id do
+      complete(provider, payment_request_id, payment)
+    else
+      {:ok, :pending}
+    end
+  end
+
+  defp dispatch(_provider, payment_request_id, %{status: status})
+       when status in [:failed, :cancelled, :expired] do
+    FailTopup.call(payment_request_id)
+  end
+
+  defp dispatch(_provider, _payment_request_id, %{status: _pending_or_unknown}) do
+    {:ok, :pending}
+  end
+
+  defp complete(provider, payment_request_id, payment) do
     case succeeded(payment) do
       %{id: id, amount_cents: amount_cents} ->
         CompleteTopup.call(%{
@@ -50,15 +71,6 @@ defmodule FluxVale.Billing.Operations.ReconcileTopup do
         # finishes this; nothing to reconcile now.
         {:ok, :pending}
     end
-  end
-
-  defp dispatch(_provider, payment_request_id, %{status: status})
-       when status in [:failed, :cancelled, :expired] do
-    FailTopup.call(payment_request_id)
-  end
-
-  defp dispatch(_provider, _payment_request_id, %{status: _pending_or_unknown}) do
-    {:ok, :pending}
   end
 
   # Mirrors the webhook path's succeeded-charge discipline: a binary id
