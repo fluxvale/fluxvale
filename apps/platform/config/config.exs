@@ -73,6 +73,16 @@ config :flux_vale,
     service_account: "fluxvale-platform",
     service_account_namespace: "fluxvale-dev",
     workload_role: "fluxvale-platform-workload"
+  ],
+  # One active payment provider (ADR-0029); per-provider webhook routes
+  # and config blocks make the gateway a one-module swap. HitPay is the
+  # first implementation (Am. 2) — test mode first: base_url defaults
+  # to the sandbox, and the production URL is only set when the
+  # registrations gate (#142) lifts. Credentials arrive via env/BWS
+  # (runtime.exs, ADR-0021) — never here.
+  payments_provider: FluxVale.Billing.Providers.HitPay,
+  hitpay: [
+    base_url: "https://api.sandbox.hit-pay.com"
   ]
 
 # Configure the endpoint

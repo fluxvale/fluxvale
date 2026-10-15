@@ -47,7 +47,10 @@ defmodule FluxValeWeb.Endpoint do
   plug Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json, AshJsonApi.Plug.Parser],
     pass: ["*/*"],
-    json_decoder: Phoenix.json_library()
+    json_decoder: Phoenix.json_library(),
+    # RawBody retains the exact request bytes for webhook signature
+    # verification (v1's shape — see FluxValeWeb.Plugs.RawBody).
+    body_reader: {FluxValeWeb.Plugs.RawBody, :read_body, []}
 
   plug Plug.MethodOverride
   plug Plug.Head
