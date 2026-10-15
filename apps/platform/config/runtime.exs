@@ -59,6 +59,27 @@ case System.get_env("INSTANCE_RBAC_SA_NAMESPACE") do
     config :flux_vale, :instance_rbac, Keyword.put(rbac, :service_account_namespace, namespace)
 end
 
+# HitPay gateway (#136, ADR-0029): BWS-injected in the cluster
+# (ADR-0021), never committed. Unset in dev/test — checkout answers
+# {:error, :missing_config} and the top-up UI says so plainly; sandbox
+# runs set real sandbox keys via env. base_url keeps config.exs's
+# sandbox default unless overridden (production flips it when the
+# registrations gate, #142, lifts).
+case System.get_env("HITPAY_API_KEY") do
+  nil -> :ok
+  api_key -> config :flux_vale, :hitpay, api_key: api_key
+end
+
+case System.get_env("HITPAY_WEBHOOK_SALT") do
+  nil -> :ok
+  salt -> config :flux_vale, :hitpay, webhook_salt: salt
+end
+
+case System.get_env("HITPAY_BASE_URL") do
+  base_url when base_url in [nil, ""] -> :ok
+  base_url -> config :flux_vale, :hitpay, base_url: base_url
+end
+
 # TestInbox gate (#22, ADR-0003 Am. 2 / ADR-0023 Am. 3): dev/test enable
 # via their config files; staging — the same prod-mode release as prod
 # (ADR-0010) — flips this env var, and the recipient split then captures

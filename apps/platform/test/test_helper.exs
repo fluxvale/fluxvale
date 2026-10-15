@@ -3,6 +3,9 @@
 Mimic.copy(Kubereq)
 Mimic.copy(FluxVale.Identity)
 Mimic.copy(FluxVale.Billing)
+# HitPay adapter tests stub Req the same way (v1's Dodo pattern: the
+# client translates HTTP/network failures; tests assert the atoms)
+Mimic.copy(Req)
 # Instance lifecycle (#73): ops tests stub the resource modules and the
 # kubeconfig resolution; :k8s-tagged integration tests stay excluded
 # unless run explicitly against the local Tilt stack
