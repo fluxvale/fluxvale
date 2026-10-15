@@ -17,6 +17,7 @@ defmodule FluxVale.Billing do
 
   resources do
     resource FluxVale.Billing.LedgerEntry
+    resource FluxVale.Billing.Topup
     resource FluxVale.Billing.Wallet
   end
 
@@ -43,4 +44,14 @@ defmodule FluxVale.Billing do
   defdelegate compute_runway(wallet), to: Operations.ComputeRunway, as: :call
 
   defdelegate sweep_zero_balance(wallet), to: Operations.SweepZeroBalance, as: :call
+
+  # M6 (#136): the checkout seams — top-ups open, complete, and fail
+  # through gateway-verified facts only (ADR-0029).
+  defdelegate start_topup(org, params, opts \\ []),
+    to: Operations.StartTopup,
+    as: :call
+
+  defdelegate complete_topup(outcome), to: Operations.CompleteTopup, as: :call
+
+  defdelegate fail_topup(payment_request_id), to: Operations.FailTopup, as: :call
 end

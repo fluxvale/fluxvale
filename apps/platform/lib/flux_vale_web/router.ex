@@ -41,6 +41,17 @@ defmodule FluxValeWeb.Router do
   # annotations and the token env.
   forward "/metrics", FluxValeWeb.Plugs.MetricsEndpoint
 
+  # Third-party gateway webhooks (#136, ADR-0029): unauthenticated —
+  # the caller is the gateway; auth is the HMAC signature each
+  # controller verifies against the raw body. Per-provider paths keep
+  # the concurrent-gateways option open: new provider, new controller
+  # + route, no dispatch table.
+  scope "/webhooks", FluxValeWeb.Webhooks do
+    pipe_through :api
+
+    post "/hitpay", HitPayController, :create
+  end
+
   # /api/v1 — the versioned JSON:API surface (#24 settles OQ #9: URL-prefix
   # versioning; the scaffold's /api/json named the format, not a version,
   # and died while zero clients existed). Everything under the prefix rides
