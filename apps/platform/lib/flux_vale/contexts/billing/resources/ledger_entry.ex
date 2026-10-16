@@ -184,18 +184,22 @@ defmodule FluxVale.Billing.LedgerEntry do
 
     # ADR-0029 Am. 3 gate 3: the quarterly per-country tax summary's
     # source rows — the period's tax-bearing entries: purchase credits
-    # and the refund debits that reverse them (carrying the original's
-    # tax facts). Rows without a persisted country or rate can't be
-    # attributed to a return. Half-open [from, to): a boundary row
-    # lands in exactly one period.
+    # and the compensating debits that reverse them. Reversals are
+    # matched by `reverses_id`, not reason — ReverseEntry accepts a
+    # reason override while still copying the original's tax facts, and
+    # a reversal under any other name must still net out of the return.
+    # Rows without a persisted country or rate can't be attributed to a
+    # return. Half-open [from, to): a boundary row lands in exactly one
+    # period.
     read :tax_bearing_entries do
-      description "Tax-bearing entries (charge credits and their refund debits) in a date range — the tax summary's source."
+      description "Tax-bearing entries (charge credits and the debits reversing them) in a date range — the tax summary's source."
       argument(:from, :utc_datetime, allow_nil?: false)
       argument(:to, :utc_datetime, allow_nil?: false)
 
       filter(
         expr(
-          ((type == :credit and reason == :purchase) or (type == :debit and reason == :refund)) and
+          ((type == :credit and reason == :purchase) or
+             (type == :debit and not is_nil(reverses_id))) and
             not is_nil(billing_country) and not is_nil(applied_rate) and
             created_at >= ^arg(:from) and created_at < ^arg(:to)
         )

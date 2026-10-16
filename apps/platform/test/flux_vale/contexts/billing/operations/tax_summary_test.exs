@@ -120,6 +120,29 @@ defmodule FluxVale.Billing.Operations.TaxSummaryTest do
     assert [%{net_cents: 0, tax_cents: 0}] = summary!(from, to)
   end
 
+  # The compensating debit is matched by reverses_id, not reason — a
+  # reversal under an overridden reason still copies the tax facts and
+  # must still net out of the return.
+  test "nets out a taxed purchase reversed under an overridden reason", %{wallet: wallet} do
+    {from, to} = current_month()
+
+    {:ok, charge} =
+      Billing.credit_wallet(wallet, 1000,
+        idempotency_key: "hitpay_adjusted",
+        reason: :purchase,
+        fields: %{
+          billing_country: "US",
+          billing_state: "CA",
+          applied_rate: 2000,
+          tax_cents: 200
+        }
+      )
+
+    assert {:ok, _refund} = Billing.reverse_entry(charge, reason: :adjustment)
+
+    assert [%{net_cents: 0, tax_cents: 0}] = summary!(from, to)
+  end
+
   test "excludes non-tax postings and rows without persisted tax facts", %{wallet: wallet} do
     {from, to} = current_month()
     charge!(wallet, 1000, country: "US", state: "CA", rate: 2000, tax: 200)
