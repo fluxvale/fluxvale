@@ -1,8 +1,8 @@
 defmodule FluxValeWeb.Plugs.CaptureIpCountryTest do
   @moduledoc """
-  The geo-header capture (#138): cf-ipcountry preferred, x-ip-country
-  as fallback, absence tolerated — the session carries what the edge
-  reported.
+  The geo-header capture (#138): only the edge-owned cf-ipcountry is
+  trusted (client-settable headers would forge the OSS location
+  evidence); absence clears any stale session value.
   """
 
   use FluxValeWeb.ConnCase, async: true
@@ -23,31 +23,31 @@ defmodule FluxValeWeb.Plugs.CaptureIpCountryTest do
     assert Plug.Conn.get_session(conn, "ip_country") == "DE"
   end
 
-  test "falls back to x-ip-country when the edge header is absent", %{conn: conn} do
+  test "the value is trimmed and uppercased", %{conn: conn} do
     conn =
       conn
       |> plug_conn()
-      |> Plug.Conn.put_req_header("x-ip-country", "fr")
+      |> Plug.Conn.put_req_header("cf-ipcountry", " fr ")
       |> CaptureIpCountry.call([])
 
     assert Plug.Conn.get_session(conn, "ip_country") == "FR"
   end
 
-  test "cf-ipcountry wins when both headers ride the request", %{conn: conn} do
+  test "a client-settable lookalike header is not trusted", %{conn: conn} do
     conn =
       conn
       |> plug_conn()
-      |> Plug.Conn.put_req_header("cf-ipcountry", "DE")
       |> Plug.Conn.put_req_header("x-ip-country", "FR")
       |> CaptureIpCountry.call([])
 
-    assert Plug.Conn.get_session(conn, "ip_country") == "DE"
+    refute Plug.Conn.get_session(conn, "ip_country")
   end
 
-  test "no geo header records nothing", %{conn: conn} do
+  test "no geo header clears a stale session value", %{conn: conn} do
     conn =
       conn
       |> plug_conn()
+      |> Plug.Test.init_test_session(%{"ip_country" => "DE"})
       |> CaptureIpCountry.call([])
 
     refute Plug.Conn.get_session(conn, "ip_country")

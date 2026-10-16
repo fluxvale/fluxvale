@@ -17,6 +17,13 @@ defmodule FluxVale.Pricing.TaxRate do
   source before production** — the registrations gate — it is launch
   data, not an audited feed.
 
+  Uniqueness: one rate per jurisdiction per effective date. The
+  `(country, state, effective_from)` identity cannot see NULL state
+  (Postgres NULL semantics), so a partial unique index on
+  `(country, effective_from) WHERE state IS NULL` closes the gap — two
+  country-wide rows can never share an effective_from, and the
+  resolver's latest-row pick is deterministic.
+
   Policies mirror `FluxVale.Pricing.Size`: reads for any signed-in
   actor, writes platform-admin (seeds run `authorize?: false`).
   """
@@ -33,6 +40,16 @@ defmodule FluxVale.Pricing.TaxRate do
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
     migration_defaults id: "nil"
+
+    custom_indexes do
+      # The identity's NULL-state gap (see the moduledoc): the
+      # country-wide rows need their own unique index.
+      index([:country, :effective_from],
+        unique: true,
+        where: "state IS NULL",
+        name: "pricing_tax_rates_country_wide_effective_unique"
+      )
+    end
   end
 
   policies do
@@ -102,10 +119,10 @@ defmodule FluxVale.Pricing.TaxRate do
 
   identities do
     # One rate per jurisdiction per effective date — the seed's
-    # idempotency key. Country-wide rows (nil state) stay distinct by
-    # Postgres NULL semantics, like Topup's nil payment_request_id: the
-    # seed's lookup-then-create is what converges them, the index only
-    # catches state-dated dupes.
+    # idempotency key. The index cannot compare NULL state, so the
+    # country-wide gap is closed by the partial unique index in
+    # `custom_indexes` (see the moduledoc); state-dated dupes are
+    # rejected here.
     identity(:unique_country_state_effective_from, [:country, :state, :effective_from])
   end
 end

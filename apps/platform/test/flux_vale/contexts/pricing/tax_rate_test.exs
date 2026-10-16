@@ -88,15 +88,17 @@ defmodule FluxVale.Pricing.TaxRateTest do
       assert {:error, %Ash.Error.Invalid{}} = TaxRate.create(dupe, authorize?: false)
     end
 
-    # Postgres NULL semantics: country-wide rows (nil state) stay
-    # distinct under the index, like Topup's nil payment_request_id —
-    # the seed's lookup-then-create is what converges them.
-    test "country-wide rows rely on the seed's lookup, not the index" do
+    # The (country, state, effective_from) identity cannot compare
+    # NULL state; the partial unique index on
+    # (country, effective_from) WHERE state IS NULL closes the gap —
+    # two country-wide rows must never share an effective_from (the
+    # resolver's latest-row pick would otherwise be a coin flip).
+    test "country-wide rows cannot share an effective_from (partial unique index)" do
       TaxRate.create!(rate_attrs(), authorize?: false)
 
       dupe = rate_attrs(%{rate_bp: 2000})
 
-      assert {:ok, _dupe} = TaxRate.create(dupe, authorize?: false)
+      assert {:error, %Ash.Error.Invalid{}} = TaxRate.create(dupe, authorize?: false)
     end
 
     test "the same country at a different date is a new row (no effective_to)" do

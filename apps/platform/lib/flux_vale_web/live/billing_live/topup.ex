@@ -8,10 +8,11 @@ defmodule FluxValeWeb.BillingLive.Topup do
   added on top of the credit value (#138, ADR-0029 Am. 3 gate 2). The
   Details step captures the buyer evidence (country, US state, customer
   type, VAT number) and the IP country rides the session
-  (`FluxValeWeb.Plugs.CaptureIpCountry`); advancing to Amount resolves
-  the billing country's rate (reverse charge zeroes it) and the VAT
-  line and total show it live — "final taxes at checkout" is gone, the
-  wizard now prices the charge.
+  (`FluxValeWeb.Plugs.CaptureIpCountry`); the rate resolves from the
+  validated details — reverse charge zeroes it — and recomputes on
+  every details edit and again at pay, so the VAT line, the total, and
+  the charge always price the same details. "Final taxes at checkout"
+  is gone: the wizard prices the charge.
 
   Steps 1–3 are LiveView state (a refresh restarts the wizard — the
   buyer hasn't paid anything until the gateway redirect). Step 4 is the
@@ -102,7 +103,12 @@ defmodule FluxValeWeb.BillingLive.Topup do
 
   @impl Phoenix.LiveView
   def handle_event("validate-details", %{"details" => details}, socket) do
-    {:noreply, assign(socket, details: normalize_details(details))}
+    details = normalize_details(details)
+
+    {:noreply,
+     socket
+     |> assign(details: details)
+     |> assign_tax(details)}
   end
 
   def handle_event("next-details", %{"details" => details}, socket) do
@@ -149,7 +155,12 @@ defmodule FluxValeWeb.BillingLive.Topup do
     # checkout re-validates everything it spends, so a hostile client
     # that skips steps gets silence, never a blank-receipt charge.
     if payable?(assigns) do
-      open_checkout(socket, assigns)
+      # The charge carries the rate of the validated details at payment
+      # time — an edit between the amount step and pay must not leave
+      # the checkout on a stale assign.
+      rate_bp = applied_rate(assigns.details)
+
+      open_checkout(socket, Map.put(assigns, :tax_rate_bp, rate_bp))
     else
       {:noreply, socket}
     end
@@ -202,21 +213,32 @@ defmodule FluxValeWeb.BillingLive.Topup do
     end
   end
 
-  # The rate the charge will carry: reverse charge zeroes it (the
-  # customer self-accounts); otherwise the billing country's table row
-  # (state-specific for the US). Resolved on details submit — a details
-  # change recomputes on the way back through the step.
+  # The rate the charge will carry, resolved only from VALIDATED
+  # details: reverse charge zeroes it (the customer self-accounts);
+  # otherwise the billing country's table row (state-specific for the
+  # US). `pay` recomputes this at payment time, so the assign below is
+  # display-side only.
   defp assign_tax(socket, details) do
+    if details_valid?(details) do
+      assign(socket,
+        tax_rate_bp: applied_rate(details),
+        reverse_charge?: Tax.reverse_charge?(details.customer_type, details.vat_number)
+      )
+    else
+      # Partial/invalid edits never price a rate — the 0% placeholder
+      # stands until the details validate.
+      assign(socket, tax_rate_bp: 0, reverse_charge?: false)
+    end
+  end
+
+  defp applied_rate(details) do
     reverse_charge? = Tax.reverse_charge?(details.customer_type, details.vat_number)
 
-    rate_bp =
-      if reverse_charge? do
-        0
-      else
-        Pricing.resolve_tax_rate(details.country, present(details.state), DateTime.utc_now())
-      end
-
-    assign(socket, tax_rate_bp: rate_bp, reverse_charge?: reverse_charge?)
+    if reverse_charge? do
+      0
+    else
+      Pricing.resolve_tax_rate(details.country, present(details.state), DateTime.utc_now())
+    end
   end
 
   @impl Phoenix.LiveView
@@ -494,7 +516,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
           </p>
           <p class="flex justify-between text-xs opacity-70">
             <span>Billed to</span>
-            <span>{billed_to(@details)}</span>
+            <span data-testid="topup-billed-to">{billed_to(@details)}</span>
           </p>
         </div>
 
@@ -541,7 +563,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
   defp billed_to(details) do
     [details.name, details.email, details.country]
     |> append_present(details.state)
-    |> append_present(details.vat_number && "VAT " <> details.vat_number)
+    |> append_present(present(details.vat_number) && "VAT " <> details.vat_number)
     |> Enum.join(" · ")
   end
 
