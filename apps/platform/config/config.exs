@@ -139,7 +139,10 @@ config :flux_vale, Oban,
        # #124's ladder sweep, hourly at :07 — off the top-of-hour rush
        # (#113's stance; the reconciler minute-tick and smoke crons sit
        # there).
-       {"7 * * * *", FluxVale.Workers.ZeroBalanceSweep}
+       {"7 * * * *", FluxVale.Workers.ZeroBalanceSweep},
+       # #154's stranded-instance sweeper, hourly at :13 — off :07 and
+       # the top of the hour (same stance).
+       {"13 * * * *", FluxVale.Workers.StrandedInstanceSweep}
      ]},
     # Retention for finished jobs (completed/cancelled/discarded) — v1
     # never pruned oban_jobs; adopted on review (#39). 7d keeps a
