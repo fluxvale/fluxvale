@@ -9,8 +9,11 @@ defmodule FluxVale.Billing.Operations.CompleteTopupTest do
 
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
+  alias FluxVale.Billing.LedgerEntry
   alias FluxVale.Billing.Topup
   alias FluxVale.TestSupport.BillingFixtures
+
+  require Ash.Query
 
   defp topup!(amount_cents, opts \\ []) do
     {org, _wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
@@ -22,7 +25,9 @@ defmodule FluxVale.Billing.Operations.CompleteTopupTest do
           amount_cents: amount_cents,
           buyer_email: "buyer@example.com",
           billing_country: Keyword.get(opts, :billing_country),
-          tax_cents: Keyword.get(opts, :tax_cents, 0)
+          billing_state: Keyword.get(opts, :billing_state),
+          tax_cents: Keyword.get(opts, :tax_cents, 0),
+          tax_rate_bp: Keyword.get(opts, :tax_rate_bp, 0)
         },
         authorize?: false
       )
@@ -171,6 +176,38 @@ defmodule FluxVale.Billing.Operations.CompleteTopupTest do
              })
   end
 
+  test "the credit persists the top-up's tax fields (gate 3)" do
+    topup =
+      topup!(500,
+        payment_request_id: "pr_1",
+        billing_country: "US",
+        billing_state: "CA",
+        tax_rate_bp: 2000
+      )
+
+    assert {:ok, _completed} = Billing.complete_topup(outcome(topup))
+
+    wallet = wallet_of(topup)
+    entry = wallet_credit(wallet, "hitpay:pay_1")
+
+    assert entry.billing_country == "US"
+    assert entry.billing_state == "CA"
+    assert entry.applied_rate == 2000
+  end
+
+  test "a top-up without tax facts credits with null tax fields" do
+    topup = topup!(500, payment_request_id: "pr_1")
+
+    assert {:ok, _completed} = Billing.complete_topup(outcome(topup))
+
+    wallet = wallet_of(topup)
+    entry = wallet_credit(wallet, "hitpay:pay_1")
+
+    assert entry.billing_country == nil
+    assert entry.billing_state == nil
+    assert entry.applied_rate == 0
+  end
+
   # Defensive: the billing surface provisions the wallet on mount, so a
   # top-up without one is an org built outside that flow. The credit
   # must fail closed — no wallet, no post — and the row stays pending.
@@ -196,5 +233,12 @@ defmodule FluxVale.Billing.Operations.CompleteTopupTest do
     org = Organization.get_by_id!(topup.organization_id, authorize?: false)
     {:ok, wallet} = Billing.ensure_wallet(org)
     wallet
+  end
+
+  defp wallet_credit(wallet, idempotency_key) do
+    LedgerEntry
+    |> Ash.Query.for_read(:read, %{}, authorize?: false)
+    |> Ash.Query.filter(wallet_id == ^wallet.id and idempotency_key == ^idempotency_key)
+    |> Ash.read_one!(authorize?: false)
   end
 end
