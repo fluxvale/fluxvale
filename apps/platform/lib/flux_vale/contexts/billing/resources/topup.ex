@@ -3,16 +3,23 @@ defmodule FluxVale.Billing.Topup do
   One wallet top-up intent (M6, ADR-0029): the org, the whole-dollar
   amount, and the gateway's identifiers once a checkout exists.
 
+  Prepaid credits are a single-purpose voucher — VAT is collected at
+  top-up, added on top of the credit value (#138, ADR-0029 Am. 3 gate 2):
+  `amount_cents` is the NET credit value, `tax_cents` is the VAT on it,
+  and the gateway is charged the GROSS (`amount_cents + tax_cents`) while
+  the wallet credit posts the NET. The rate rides `tax_rate_bp` (integer
+  basis points, 20% = 2000) snapshotted at checkout time — effective
+  dating means a later row never rewrites a charge.
+
   `payment_request_id` is HitPay's payment request (the webhook matches
   on it); `payment_id` is the charge that succeeded — the ledger credit's
   idempotency key (`hitpay:<payment_id>`) so a replayed webhook or the
   Confirmation step's reconciliation can never double-credit.
 
-  `billing_country` and `tax_rate_bp` exist from day one for ADR-0029
-  Am. 3 gate 3 ("a return is a query, not a reconstruction"): the
-  checkout tax layer (#138) populates them; it does not add columns.
-  The rate is integer basis points (20% = 2000), 0 until that layer
-  lands.
+  The buyer-evidence fields (`billing_country`, `billing_state`,
+  `customer_type`, `vat_number`, `ip_country`, `reverse_charge?`,
+  `location_verified?`) persist ADR-0029 Am. 3 gate 2's checkout capture
+  so gate 3's per-country return is a query, not a reconstruction.
 
   Actors read their org's top-ups; every write is a system operation
   (`authorize?: false`) — rows are created by the checkout flow and
@@ -59,6 +66,15 @@ defmodule FluxVale.Billing.Topup do
       public?(true)
     end
 
+    # VAT on the net (single-purpose voucher: VAT at top-up). The gateway
+    # is charged the gross — net + this — the wallet credit posts the net.
+    attribute :tax_cents, :integer do
+      allow_nil?(false)
+      default(0)
+      constraints(min: 0)
+      public?(true)
+    end
+
     attribute :status, FluxVale.Billing.Types.TopupStatus do
       allow_nil?(false)
       default(:pending)
@@ -85,8 +101,42 @@ defmodule FluxVale.Billing.Topup do
     end
 
     # Gate-3 schema commitment (ADR-0029 Am. 3): persisted from day one,
-    # populated by the tax layer (#138).
+    # populated by the checkout tax layer (#138).
     attribute :billing_country, :string do
+      public?(true)
+    end
+
+    # US state code; nil is country-wide (everywhere but the US).
+    attribute :billing_state, :string do
+      public?(true)
+    end
+
+    attribute :customer_type, FluxVale.Billing.Types.CustomerType do
+      allow_nil?(false)
+      default(:consumer)
+      public?(true)
+    end
+
+    # The B2B reverse-charge proof — format-checked at capture; real
+    # VIES validation is a launch-gate item (ADR-0029 Am. 3).
+    attribute :vat_number, :string do
+      public?(true)
+    end
+
+    # Second location proof (OSS evidence) — the geo header at checkout.
+    attribute :ip_country, :string do
+      public?(true)
+    end
+
+    attribute :reverse_charge?, :boolean do
+      allow_nil?(false)
+      default(false)
+      public?(true)
+    end
+
+    attribute :location_verified?, :boolean do
+      allow_nil?(false)
+      default(false)
       public?(true)
     end
 
@@ -112,9 +162,16 @@ defmodule FluxVale.Billing.Topup do
       accept([
         :organization_id,
         :amount_cents,
+        :tax_cents,
         :buyer_email,
         :buyer_name,
         :billing_country,
+        :billing_state,
+        :customer_type,
+        :vat_number,
+        :ip_country,
+        :reverse_charge?,
+        :location_verified?,
         :tax_rate_bp
       ])
     end

@@ -17,6 +17,45 @@ defmodule FluxVale.Billing.TopupTest do
     topup
   end
 
+  test "create accepts the checkout tax layer's fields with the settled defaults" do
+    {org, _wallet} = BillingFixtures.funded_wallet!()
+
+    assert {:ok, topup} =
+             Topup.create(
+               %{
+                 organization_id: org.id,
+                 amount_cents: 500,
+                 tax_cents: 95,
+                 billing_country: "DE",
+                 billing_state: nil,
+                 customer_type: :business,
+                 vat_number: "DE123456789",
+                 ip_country: "DE",
+                 reverse_charge?: true,
+                 location_verified?: true,
+                 tax_rate_bp: 1900
+               },
+               authorize?: false
+             )
+
+    assert topup.tax_cents == 95
+    assert topup.billing_country == "DE"
+    assert topup.customer_type == :business
+    assert topup.vat_number == "DE123456789"
+    assert topup.ip_country == "DE"
+    assert topup.reverse_charge? == true
+    assert topup.location_verified? == true
+    assert topup.tax_rate_bp == 1900
+
+    # Defaults for a bare create — a top-up is 0% VAT and consumer
+    # unless the checkout says otherwise.
+    bare = topup!(org)
+    assert bare.tax_cents == 0
+    assert bare.customer_type == :consumer
+    assert bare.reverse_charge? == false
+    assert bare.location_verified? == false
+  end
+
   test "members read their org's top-ups; strangers don't" do
     {org, _wallet} = BillingFixtures.funded_wallet!()
     topup = topup!(org)
