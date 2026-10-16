@@ -14,6 +14,14 @@ defmodule FluxVale.Billing.LedgerEntry do
   on that column makes a double reversal impossible at the database —
   ADR-0029's accepted refund obligation.
 
+  Charge credits (reason `:purchase`) also persist the checkout tax
+  layer's facts — `billing_country`, `billing_state` (US), and the
+  `applied_rate` in basis points at charge time — so the quarterly
+  per-country tax summary is a query, not a reconstruction (ADR-0029
+  Am. 3 gate 3). Every other posting stays null, and all history before
+  those fields landed (M6, #139) stays null: the ledger is append-only,
+  no backfill.
+
   Append-only means only `:read`/`:create` exist — no update, no destroy,
   and no `updated_at` (rows never change). Actors may read their org's
   entries; posting is a system operation (`authorize?: false`, the
@@ -94,6 +102,21 @@ defmodule FluxVale.Billing.LedgerEntry do
     attribute :reverses_id, :uuid do
       public?(true)
     end
+
+    # The charge-side tax facts (gate 3, ADR-0029 Am. 3) — purchase
+    # credits only; the rate mirrors Topup.tax_rate_bp's basis points.
+    attribute :billing_country, :string do
+      public?(true)
+    end
+
+    attribute :billing_state, :string do
+      public?(true)
+    end
+
+    attribute :applied_rate, :integer do
+      constraints(min: 0, max: 10_000)
+      public?(true)
+    end
   end
 
   relationships do
@@ -108,7 +131,18 @@ defmodule FluxVale.Billing.LedgerEntry do
 
     create :create do
       primary? true
-      accept([:wallet_id, :amount, :type, :reason, :idempotency_key, :reverses_id])
+
+      accept([
+        :wallet_id,
+        :amount,
+        :type,
+        :reason,
+        :idempotency_key,
+        :reverses_id,
+        :billing_country,
+        :billing_state,
+        :applied_rate
+      ])
     end
 
     # #123's history surface: keyset-paginated (newest first) — the
@@ -121,6 +155,25 @@ defmodule FluxVale.Billing.LedgerEntry do
       filter(expr(wallet_id == ^arg(:wallet_id)))
 
       pagination(keyset?: true, required?: true, default_limit: 25)
+    end
+
+    # ADR-0029 Am. 3 gate 3: the quarterly per-country tax summary's
+    # source rows — the period's charge credits carrying the checkout
+    # tax facts. Rows without a persisted country or rate can't be
+    # attributed to a return. Half-open [from, to): a boundary row
+    # lands in exactly one period.
+    read :tax_charges do
+      description "Purchase credits with persisted tax facts in a date range (the tax summary's source)."
+      argument(:from, :utc_datetime, allow_nil?: false)
+      argument(:to, :utc_datetime, allow_nil?: false)
+
+      filter(
+        expr(
+          type == :credit and reason == :purchase and
+            not is_nil(billing_country) and not is_nil(applied_rate) and
+            created_at >= ^arg(:from) and created_at < ^arg(:to)
+        )
+      )
     end
   end
 

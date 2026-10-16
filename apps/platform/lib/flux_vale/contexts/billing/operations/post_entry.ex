@@ -13,6 +13,11 @@ defmodule FluxVale.Billing.Operations.PostEntry do
   `(wallet_id, idempotency_key)` identity and surfaces as an error — the
   correct failure mode, never a double-post. Keyless posts always insert.
 
+  `fields:` (a map) carries extra accepted ledger attributes onto the
+  created row — the charge credits' tax facts (billing country/state,
+  applied rate, ADR-0029 Am. 3 gate 3). CompleteTopup is the only
+  caller that passes it; every other posting stays null.
+
   System operation — runs with `authorize?: false` (the posting machinery;
   actors read the ledger, they never post to it).
   """
@@ -30,6 +35,7 @@ defmodule FluxVale.Billing.Operations.PostEntry do
       when type in [:credit, :debit] and is_integer(amount) and amount > 0 do
     idempotency_key = Keyword.get(opts, :idempotency_key)
     reverses_id = Keyword.get(opts, :reverses_id)
+    fields = Keyword.get(opts, :fields) || %{}
 
     with :none <- existing_for_key(wallet, idempotency_key) do
       create_entry(
@@ -38,7 +44,8 @@ defmodule FluxVale.Billing.Operations.PostEntry do
         type,
         reason,
         idempotency_key,
-        reverses_id
+        reverses_id,
+        fields
       )
     end
   end
@@ -74,17 +81,23 @@ defmodule FluxVale.Billing.Operations.PostEntry do
     end
   end
 
-  defp create_entry(wallet, amount, type, reason, key, reverses_id) do
+  defp create_entry(wallet, amount, type, reason, key, reverses_id, fields) do
+    params =
+      Map.merge(
+        %{
+          wallet_id: wallet.id,
+          amount: amount,
+          type: type,
+          reason: reason,
+          idempotency_key: key,
+          reverses_id: reverses_id
+        },
+        fields
+      )
+
     result =
       LedgerEntry
-      |> Ash.Changeset.for_create(:create, %{
-        wallet_id: wallet.id,
-        amount: amount,
-        type: type,
-        reason: reason,
-        idempotency_key: key,
-        reverses_id: reverses_id
-      })
+      |> Ash.Changeset.for_create(:create, params)
       # return_notifications? — LedgerEntry has no notifiers, and postings
       # often run inside a caller-managed transaction (settle, reverse);
       # taking the (empty) notification list keeps those transactions from

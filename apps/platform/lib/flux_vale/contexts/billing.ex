@@ -45,6 +45,11 @@ defmodule FluxVale.Billing do
 
   defdelegate sweep_zero_balance(wallet), to: Operations.SweepZeroBalance, as: :call
 
+  # ADR-0029 Am. 3 gate 3: the quarterly per-country tax summary — the
+  # return is a query over the ledger's persisted tax fields, never a
+  # reconstruction.
+  defdelegate tax_summary(from, to, opts \\ []), to: Operations.TaxSummary, as: :call
+
   # M6 (#136): the checkout seams — top-ups open, complete, and fail
   # through gateway-verified facts only (ADR-0029).
   defdelegate start_topup(org, params, opts \\ []),

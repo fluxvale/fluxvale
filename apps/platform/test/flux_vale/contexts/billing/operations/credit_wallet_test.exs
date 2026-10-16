@@ -34,4 +34,17 @@ defmodule FluxVale.Billing.Operations.CreditWalletTest do
 
     assert_raise FunctionClauseError, fn -> Billing.credit_wallet(wallet, 0) end
   end
+
+  test "the charge's tax fields ride the credit onto the ledger row" do
+    {_org, wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
+
+    assert {:ok, entry} =
+             Billing.credit_wallet(wallet, 500,
+               idempotency_key: "hitpay_pay_9",
+               fields: %{billing_country: "SG", applied_rate: 900}
+             )
+
+    assert entry.billing_country == "SG"
+    assert entry.applied_rate == 900
+  end
 end
