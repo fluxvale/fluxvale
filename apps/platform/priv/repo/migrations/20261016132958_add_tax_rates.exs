@@ -15,7 +15,7 @@ defmodule FluxVale.Repo.Migrations.AddTaxRates do
       add :vat_number, :text
       add :ip_country, :text
       add :reverse_charge?, :boolean, null: false, default: false
-      add :location_verified?, :boolean, null: false, default: false
+      add :ip_matches_billing?, :boolean, null: false, default: false
     end
 
     create table(:pricing_tax_rates, primary_key: false) do
@@ -48,7 +48,7 @@ defmodule FluxVale.Repo.Migrations.AddTaxRates do
     drop table(:pricing_tax_rates)
 
     alter table(:billing_topups) do
-      remove :location_verified?
+      remove :ip_matches_billing?
       remove :reverse_charge?
       remove :ip_country
       remove :vat_number

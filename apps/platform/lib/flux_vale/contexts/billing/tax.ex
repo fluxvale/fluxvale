@@ -42,20 +42,22 @@ defmodule FluxVale.Billing.Tax do
   def reverse_charge?(_customer_type, _vat_number), do: false
 
   @doc """
-  The OSS location evidence: the billing country matching the IP country
-  exactly. A mismatch or a missing IP country is tolerated and recorded,
-  never blocking — VPNs and roaming make IP a weak proof; the exact
-  match is what counts as verified.
+  Whether the recorded IP country matches the billing country exactly —
+  a recorded signal, never a verification: the header is whatever the
+  edge forwarded (client-settable behind a bare proxy) and VPNs/roaming
+  make IP weak either way. The billing address is the SOLE rate-deciding
+  proof; this signal is recorded for the return's evidence trail, and a
+  mismatch or a missing IP country never blocks the buyer.
   """
-  @spec location_verified?(String.t() | nil, String.t() | nil) :: boolean()
-  def location_verified?(nil, _ip_country), do: false
+  @spec ip_matches_billing?(String.t() | nil, String.t() | nil) :: boolean()
+  def ip_matches_billing?(nil, _ip_country), do: false
 
-  def location_verified?(billing_country, ip_country),
+  def ip_matches_billing?(billing_country, ip_country),
     do: billing_country == ip_country
 
   @doc """
   Basis points as a percent label for the VAT line: 1900 → "19",
-  2550 → "25.5".
+  2550 → "25.5", 5 → "0.05".
   """
   @spec percent_label(non_neg_integer()) :: String.t()
   def percent_label(rate_bp) when is_integer(rate_bp) and rate_bp >= 0 do
@@ -69,11 +71,13 @@ defmodule FluxVale.Billing.Tax do
     end
   end
 
-  # Basis-point fractions land on tenths in the shipped table (25.5%);
-  # a trailing zero in the hundredths position is never a real digit.
+  # Basis points are hundredths of a percent — pad the fraction to two
+  # digits before trimming trailing zeros, or 5 bp would mislabel as
+  # "0.5" instead of "0.05".
   defp trim_zero(part) do
     part
     |> Integer.to_string()
+    |> String.pad_leading(2, "0")
     |> String.replace_trailing("0", "")
   end
 end

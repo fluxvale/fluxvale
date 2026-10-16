@@ -32,7 +32,7 @@ defmodule FluxVale.Billing.TopupTest do
                  vat_number: "DE123456789",
                  ip_country: "DE",
                  reverse_charge?: true,
-                 location_verified?: true,
+                 ip_matches_billing?: true,
                  tax_rate_bp: 1900
                },
                authorize?: false
@@ -44,7 +44,7 @@ defmodule FluxVale.Billing.TopupTest do
     assert topup.vat_number == "DE123456789"
     assert topup.ip_country == "DE"
     assert topup.reverse_charge? == true
-    assert topup.location_verified? == true
+    assert topup.ip_matches_billing? == true
     assert topup.tax_rate_bp == 1900
 
     # Defaults for a bare create — a top-up is 0% VAT and consumer
@@ -53,7 +53,7 @@ defmodule FluxVale.Billing.TopupTest do
     assert bare.tax_cents == 0
     assert bare.customer_type == :consumer
     assert bare.reverse_charge? == false
-    assert bare.location_verified? == false
+    assert bare.ip_matches_billing? == false
   end
 
   test "members read their org's top-ups; strangers don't" do

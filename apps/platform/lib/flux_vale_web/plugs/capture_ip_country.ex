@@ -1,21 +1,25 @@
 defmodule FluxValeWeb.Plugs.CaptureIpCountry do
   @moduledoc """
-  Records the buyer's IP country as checkout location evidence (#138,
+  Records the buyer's IP country as a checkout location signal (#138,
   ADR-0029 Am. 3 gate 2): reads the edge-owned `cf-ipcountry` header and
   stores it in the session, where the top-up wizard picks it up in
   mount.
 
-  Only the edge's header is trusted — Cloudflare overwrites/sanitizes
-  `cf-ipcountry` on every request, while arbitrary `x-*` headers are
-  client-settable and would let a buyer forge the OSS location evidence.
+  Only the edge's header is trusted — arbitrary `x-*` headers are
+  client-settable and would let a buyer fake the signal. And the signal
+  is record-only regardless: behind a bare proxy the header itself is
+  client-settable too, so it can never VERIFY anything. The billing
+  address is the sole rate-deciding proof; this value rides along so
+  the return's evidence trail shows whether it matched
+  (`FluxVale.Billing.Tax.ip_matches_billing?/2`).
 
-  Tolerant by design — the IP is the weak second proof (VPNs, roaming):
-  a missing header records nothing, a mismatch is recorded and never
-  blocks the buyer (`FluxVale.Billing.Tax.location_verified?/2`). The
-  value is trimmed and uppercased; no shape validation — an odd header
-  ("T1" for Tor) just never matches a billing country. A request
-  without the header clears any stale session value, so evidence can
-  never outlive the request that produced it.
+  Tolerant by design — VPNs and roaming make IP weak either way: a
+  missing header records nothing, a mismatch is recorded and never
+  blocks the buyer. The value is trimmed and uppercased; no shape
+  validation — an odd header ("T1" for Tor) just never matches a
+  billing country. A request without the header clears any stale
+  session value, so a signal can never outlive the request that
+  produced it.
 
   Dependency-free and pipeline-order-agnostic beyond needing the
   session (it only writes it); testable by setting the request header

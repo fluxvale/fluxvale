@@ -201,7 +201,7 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "location_verified?",
+      "source": "ip_matches_billing?",
       "type": "boolean"
     },
     {

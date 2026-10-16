@@ -62,9 +62,9 @@ defmodule FluxValeWeb.BillingLive.Topup do
               vat_number: ""
             }
           )
-          # The second location proof rides the session (the edge geo
+          # The second location signal rides the session (the edge geo
           # header, CaptureIpCountry). Absent is fine — recorded, never
-          # blocking.
+          # blocking; the billing address decides the rate.
           |> assign(ip_country: session["ip_country"])
           |> assign(tax_rate_bp: 0, reverse_charge?: false)
           |> assign(amount_dollars: nil)

@@ -18,8 +18,10 @@ defmodule FluxVale.Billing.Topup do
 
   The buyer-evidence fields (`billing_country`, `billing_state`,
   `customer_type`, `vat_number`, `ip_country`, `reverse_charge?`,
-  `location_verified?`) persist ADR-0029 Am. 3 gate 2's checkout capture
-  so gate 3's per-country return is a query, not a reconstruction.
+  `ip_matches_billing?`) persist ADR-0029 Am. 3 gate 2's checkout
+  capture so gate 3's per-country return is a query, not a
+  reconstruction. The billing address is the sole rate-deciding proof;
+  the IP match is a recorded signal, never a verification.
 
   Actors read their org's top-ups; every write is a system operation
   (`authorize?: false`) — rows are created by the checkout flow and
@@ -123,7 +125,8 @@ defmodule FluxVale.Billing.Topup do
       public?(true)
     end
 
-    # Second location proof (OSS evidence) — the geo header at checkout.
+    # Second location signal (record-only) — the edge geo header at
+    # checkout.
     attribute :ip_country, :string do
       public?(true)
     end
@@ -134,7 +137,10 @@ defmodule FluxVale.Billing.Topup do
       public?(true)
     end
 
-    attribute :location_verified?, :boolean do
+    # The second location signal (record-only — the billing address is
+    # the sole rate-deciding proof): whether the edge-reported IP
+    # country matched the billing country exactly.
+    attribute :ip_matches_billing?, :boolean do
       allow_nil?(false)
       default(false)
       public?(true)
@@ -171,7 +177,7 @@ defmodule FluxVale.Billing.Topup do
         :vat_number,
         :ip_country,
         :reverse_charge?,
-        :location_verified?,
+        :ip_matches_billing?,
         :tax_rate_bp
       ])
     end

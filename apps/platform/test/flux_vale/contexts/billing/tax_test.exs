@@ -62,19 +62,19 @@ defmodule FluxVale.Billing.TaxTest do
     end
   end
 
-  describe "location_verified?/2 — exact billing vs IP match" do
-    test "an exact match is verified" do
-      assert Tax.location_verified?("DE", "DE")
+  describe "ip_matches_billing?/2 — the recorded match signal" do
+    test "an exact match records the signal" do
+      assert Tax.ip_matches_billing?("DE", "DE")
     end
 
-    test "a mismatch is tolerated and recorded, never verified" do
-      refute Tax.location_verified?("DE", "FR")
+    test "a mismatch is recorded, never a block" do
+      refute Tax.ip_matches_billing?("DE", "FR")
     end
 
     test "a missing side records nothing" do
-      refute Tax.location_verified?("DE", nil)
-      refute Tax.location_verified?(nil, "DE")
-      refute Tax.location_verified?(nil, nil)
+      refute Tax.ip_matches_billing?("DE", nil)
+      refute Tax.ip_matches_billing?(nil, "DE")
+      refute Tax.ip_matches_billing?(nil, nil)
     end
   end
 
@@ -86,9 +86,16 @@ defmodule FluxVale.Billing.TaxTest do
       assert Tax.percent_label(10_000) == "100"
     end
 
-    test "fractional percents keep the tenth" do
+    test "a half percent keeps its tenth" do
       assert Tax.percent_label(2550) == "25.5"
       assert Tax.percent_label(50) == "0.5"
+    end
+
+    test "sub-tenth rates keep their hundredth (no 10x mislabel)" do
+      assert Tax.percent_label(5) == "0.05"
+      assert Tax.percent_label(1) == "0.01"
+      assert Tax.percent_label(10) == "0.1"
+      assert Tax.percent_label(15) == "0.15"
     end
   end
 end

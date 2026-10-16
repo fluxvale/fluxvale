@@ -10,12 +10,15 @@ defmodule FluxVale.Billing.Operations.StartTopup do
 
   Credits are a single-purpose voucher — VAT added on top (#138,
   ADR-0029 Am. 3 gate 2): the row's `amount_cents` is the NET credit,
-  `tax_cents` the VAT on it (the caller's figure, or
-  `FluxVale.Billing.Tax.tax_cents/2` from `tax_rate_bp` when absent —
-  one formula, never inlined twice), and the gateway is charged the
-  GROSS. `reverse_charge?` and `location_verified?` are derived here
-  from the caller's evidence (`FluxVale.Billing.Tax`), so the recorded
-  proofs cannot fork from the buyer input.
+  `tax_cents` the VAT on it — always `FluxVale.Billing.Tax.tax_cents/2`
+  from the row's rate (0 when reverse-charge), never inlined twice. A
+  caller-supplied `tax_cents` that contradicts that figure fails the
+  top-up closed (`:tax_cents_mismatch`) — a persisted or charged tax
+  inconsistent with the row's rate would poison the gate-3 return and
+  the completion guard. The gateway is charged the GROSS.
+  `reverse_charge?` and `ip_matches_billing?` are derived here from the
+  caller's evidence (`FluxVale.Billing.Tax`), so the recorded signals
+  cannot fork from the buyer input.
 
   Checkout failure marks the row `:failed` (terminal, auditable) and
   returns the error; the buyer retries with a fresh row. System
@@ -82,29 +85,47 @@ defmodule FluxVale.Billing.Operations.StartTopup do
     # resolves the rate the same way for its display).
     rate_bp = if reverse_charge?, do: 0, else: params[:tax_rate_bp] || 0
 
-    tax_cents =
-      if reverse_charge?,
-        do: 0,
-        else: params[:tax_cents] || Tax.tax_cents(params.amount_cents, rate_bp)
+    # The resolved rate is authoritative: the tax is always the
+    # helper's figure from the row's rate. A caller figure that
+    # contradicts it fails closed before anything is persisted.
+    tax_cents = Tax.tax_cents(params.amount_cents, rate_bp)
 
-    Topup.create(
-      %{
-        organization_id: org.id,
-        amount_cents: params.amount_cents,
-        buyer_email: params[:buyer_email],
-        buyer_name: params[:buyer_name],
-        billing_country: params[:billing_country],
-        billing_state: params[:billing_state],
-        customer_type: customer_type,
-        vat_number: params[:vat_number],
-        ip_country: params[:ip_country],
-        tax_rate_bp: rate_bp,
-        tax_cents: tax_cents,
-        reverse_charge?: reverse_charge?,
-        location_verified?: Tax.location_verified?(params[:billing_country], params[:ip_country])
-      },
-      authorize?: false
-    )
+    with :ok <- check_tax_cents(params[:tax_cents], tax_cents) do
+      Topup.create(
+        %{
+          organization_id: org.id,
+          amount_cents: params.amount_cents,
+          buyer_email: params[:buyer_email],
+          buyer_name: params[:buyer_name],
+          billing_country: params[:billing_country],
+          billing_state: params[:billing_state],
+          customer_type: customer_type,
+          vat_number: params[:vat_number],
+          ip_country: params[:ip_country],
+          tax_rate_bp: rate_bp,
+          tax_cents: tax_cents,
+          reverse_charge?: reverse_charge?,
+          ip_matches_billing?:
+            Tax.ip_matches_billing?(
+              params[:billing_country],
+              params[:ip_country]
+            )
+        },
+        authorize?: false
+      )
+    end
+  end
+
+  # A supplied figure is a cross-check, never a source: only a caller
+  # that computed the same tax from the same rate may proceed.
+  defp check_tax_cents(nil, _authoritative), do: :ok
+
+  defp check_tax_cents(supplied, authoritative) when is_integer(supplied) do
+    if supplied == authoritative do
+      :ok
+    else
+      {:error, :tax_cents_mismatch}
+    end
   end
 
   defp attach(topup, request_id, url) do

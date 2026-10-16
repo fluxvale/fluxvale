@@ -67,7 +67,8 @@ defmodule FluxVale.Billing.Operations.StartTopupTest do
       {:ok, %Req.Response{status: 200, body: %{"id" => "pr_1", "url" => "https://checkout/pr_1"}}}
     end)
 
-    # The wizard's figures: 19% on the $5.00 net.
+    # The wizard's figures: 19% on the $5.00 net — a caller figure that
+    # matches the rate's arithmetic passes the cross-check.
     params = Map.merge(@params, %{tax_rate_bp: 1900, tax_cents: 95})
 
     assert {:ok, topup, _url} = Billing.start_topup(org, params)
@@ -78,6 +79,54 @@ defmodule FluxVale.Billing.Operations.StartTopupTest do
 
     assert_receive {:form, form}
     assert {"amount", "5.95"} in form
+  end
+
+  test "a caller tax_cents contradicting the row's rate fails closed, nothing persisted" do
+    {org, _wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
+
+    # No gateway call may happen — the mismatch rejects before any
+    # charge.
+    stub(Req, :post, fn _req, _opts ->
+      {:ok, %Req.Response{status: 200, body: %{"id" => "pr_leak", "url" => "https://x/pr_leak"}}}
+    end)
+
+    params = Map.merge(@params, %{tax_rate_bp: 1900, tax_cents: 100})
+
+    assert {:error, :tax_cents_mismatch} = Billing.start_topup(org, params)
+
+    rows =
+      Topup
+      |> Ash.Query.filter(organization_id == ^org.id)
+      |> Ash.read!(authorize?: false)
+
+    assert rows == []
+  end
+
+  test "a reverse-charge caller tax_cents contradicting the 0% figure fails closed" do
+    {org, _wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
+
+    stub(Req, :post, fn _req, _opts ->
+      {:ok, %Req.Response{status: 200, body: %{"id" => "pr_leak", "url" => "https://x/pr_leak"}}}
+    end)
+
+    # Reverse charge zeroes the rate, so the authoritative tax is 0 —
+    # a caller still carrying the 19% figure is a contradiction.
+    params =
+      Map.merge(@params, %{
+        customer_type: :business,
+        vat_number: "DE123456789",
+        tax_rate_bp: 1900,
+        tax_cents: 95
+      })
+
+    assert {:error, :tax_cents_mismatch} = Billing.start_topup(org, params)
+
+    rows =
+      Topup
+      |> Ash.Query.filter(organization_id == ^org.id)
+      |> Ash.read!(authorize?: false)
+
+    assert rows == []
   end
 
   test "derives tax_cents from tax_rate_bp when the caller omits it" do
@@ -116,12 +165,13 @@ defmodule FluxVale.Billing.Operations.StartTopupTest do
     assert topup.billing_state == "ca"
     assert topup.customer_type == :consumer
     assert topup.ip_country == "DE"
-    # A mismatched IP is the weak proof — tolerated, recorded, not verified.
-    assert topup.location_verified? == false
+    # A mismatched IP is a weak signal — recorded, never a block; the
+    # billing address decides the rate.
+    assert topup.ip_matches_billing? == false
     assert topup.reverse_charge? == false
   end
 
-  test "an exact billing/IP country match verifies the location evidence" do
+  test "an exact billing/IP country match records the signal" do
     {org, _wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
 
     expect(Req, :post, fn _req, _opts ->
@@ -131,7 +181,7 @@ defmodule FluxVale.Billing.Operations.StartTopupTest do
     params = Map.merge(@params, %{ip_country: "DE"})
 
     assert {:ok, topup, _url} = Billing.start_topup(org, params)
-    assert topup.location_verified? == true
+    assert topup.ip_matches_billing? == true
   end
 
   test "a business buyer with a valid VAT number records the reverse-charge proof at 0%" do
@@ -142,14 +192,15 @@ defmodule FluxVale.Billing.Operations.StartTopupTest do
       {:ok, %Req.Response{status: 200, body: %{"id" => "pr_1", "url" => "https://checkout/pr_1"}}}
     end)
 
-    # The caller passes a non-zero rate: StartTopup enforces the
-    # reverse-charge invariant — the applied rate is 0, tax is 0.
+    # The caller passes a non-zero rate with a matching (reverse-charge
+    # zeroed) tax figure: StartTopup enforces the invariant — the
+    # applied rate is 0 and the tax is the rate's own figure, 0.
     params =
       Map.merge(@params, %{
         customer_type: :business,
         vat_number: "DE123456789",
         tax_rate_bp: 1900,
-        tax_cents: 95
+        tax_cents: 0
       })
 
     assert {:ok, topup, _url} = Billing.start_topup(org, params)

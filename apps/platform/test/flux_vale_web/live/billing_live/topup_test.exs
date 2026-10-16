@@ -526,7 +526,7 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
     } do
       # The edge geo header lands in the session (CaptureIpCountry) on
       # the way through the :browser pipeline — the header, not a
-      # hand-set session value, is the evidence path.
+      # hand-set session value, is the signal's path.
       conn = Plug.Conn.put_req_header(conn, "cf-ipcountry", "de")
 
       view = to_payment(conn)
@@ -543,7 +543,7 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
         |> Ash.Query.filter(organization_id == ^org.id)
         |> Ash.read!(authorize?: false)
 
-      assert [%Topup{billing_country: "DE", ip_country: "DE", location_verified?: true}] =
+      assert [%Topup{billing_country: "DE", ip_country: "DE", ip_matches_billing?: true}] =
                topups
     end
 
