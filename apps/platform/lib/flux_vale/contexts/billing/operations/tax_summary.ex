@@ -7,9 +7,9 @@ defmodule FluxVale.Billing.Operations.TaxSummary do
   US (Am. 3: state-level totals are the US economic-nexus monitor).
 
   Each row sums the NET wallet credits (the gateway charge is gross =
-  net + tax) and derives the tax from the persisted applied rate:
-  round(net * rate / 10_000), half-up — the same rounding the tax layer
-  applies at charge time. Rate and country ride the group key, so every
+  net + tax) and derives the tax from the persisted applied rate,
+  half-up — `Billing.Tax.tax_cents/2`, the same rounding the charge
+  itself went through. Rate and country ride the group key, so every
   row's derivation sits on a single persisted rate. Rows without a
   persisted country or rate can't be attributed to a return and are
   excluded (`:tax_charges`'s filter). Read only, over the append-only
@@ -17,11 +17,8 @@ defmodule FluxVale.Billing.Operations.TaxSummary do
   """
 
   alias FluxVale.Billing.LedgerEntry
+  alias FluxVale.Billing.Tax
 
-  @basis_points 10_000
-  # Integer half-up for non-negative values: add half the divisor, then
-  # truncate — no float ever touches the money.
-  @half_divisor 5_000
   @us "US"
 
   @spec call(Date.t(), Date.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
@@ -71,7 +68,7 @@ defmodule FluxVale.Billing.Operations.TaxSummary do
         state: state,
         applied_rate: rate,
         net_cents: net,
-        tax_cents: tax(net, rate)
+        tax_cents: Tax.tax_cents(net, rate)
       }
     end)
     |> Enum.sort_by(&{&1.country, &1.state || "", &1.applied_rate})
@@ -84,6 +81,4 @@ defmodule FluxVale.Billing.Operations.TaxSummary do
 
     {entry.billing_country, state, entry.applied_rate}
   end
-
-  defp tax(net_cents, rate), do: div(net_cents * rate + @half_divisor, @basis_points)
 end
