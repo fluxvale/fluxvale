@@ -21,7 +21,8 @@ defmodule FluxVale.Billing.Operations.CompleteTopupTest do
           organization_id: org.id,
           amount_cents: amount_cents,
           buyer_email: "buyer@example.com",
-          billing_country: Keyword.get(opts, :billing_country)
+          billing_country: Keyword.get(opts, :billing_country),
+          tax_cents: Keyword.get(opts, :tax_cents, 0)
         },
         authorize?: false
       )
@@ -123,6 +124,29 @@ defmodule FluxVale.Billing.Operations.CompleteTopupTest do
     # The row stays pending — an operator reconciles it by hand.
     reloaded = Topup.get_by_id!(topup.id, authorize?: false)
     assert reloaded.status == :pending
+    wallet = wallet_of(topup)
+    assert {:ok, 0} = Billing.balance(wallet, authorize?: false)
+  end
+
+  test "a gross outcome (net + VAT) completes and credits the net" do
+    topup = topup!(500, payment_request_id: "pr_1", tax_cents: 95)
+
+    outcome = outcome(topup, amount_cents: 595)
+    assert {:ok, completed} = Billing.complete_topup(outcome)
+    assert completed.status == :completed
+
+    # Single-purpose voucher: the buyer paid the gross, the wallet posts
+    # the net credit value.
+    wallet = wallet_of(topup)
+    assert {:ok, 500} = Billing.balance(wallet, authorize?: false)
+  end
+
+  test "the net without the VAT is a mismatch — the guard compares gross" do
+    topup = topup!(500, payment_request_id: "pr_1", tax_cents: 95)
+
+    outcome = outcome(topup, amount_cents: 500)
+    assert {:error, :amount_mismatch} = Billing.complete_topup(outcome)
+
     wallet = wallet_of(topup)
     assert {:ok, 0} = Billing.balance(wallet, authorize?: false)
   end

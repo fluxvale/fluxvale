@@ -7,6 +7,12 @@ defmodule FluxVale.Billing.Operations.CompleteTopup do
   `credit_wallet/3` with the outcome's idempotency key (the provider
   prefix travels with the caller — `"hitpay:<payment_id>"`).
 
+  Credits are a single-purpose voucher — VAT added on top (#138,
+  ADR-0029 Am. 3 gate 2): the gateway was charged the GROSS
+  (net + VAT), so the outcome's amount is guarded against
+  `amount_cents + tax_cents`, while the wallet credit posts the NET
+  (`amount_cents`) — the credit value the buyer actually bought.
+
   Resolution prefers the row at hand (`topup_id`: the confirmation
   path, and the webhook's `reference_number` fallback that heals an
   attach-then-crash window), then the payment-request id. An
@@ -98,12 +104,16 @@ defmodule FluxVale.Billing.Operations.CompleteTopup do
   end
 
   defp complete(%Topup{} = topup, outcome) do
-    if outcome.amount_cents == topup.amount_cents do
+    # The gateway was charged the gross (net + VAT, #138) — the guard
+    # compares against that; the credit below posts the net.
+    gross = topup.amount_cents + topup.tax_cents
+
+    if outcome.amount_cents == gross do
       post_credit(topup, outcome)
     else
       Logger.error(
-        "Top-up #{topup.id} amount mismatch: row #{topup.amount_cents}¢, " <>
-          "payment #{outcome.amount_cents}¢ — not crediting"
+        "Top-up #{topup.id} amount mismatch: row #{gross}¢ (net #{topup.amount_cents}¢ " <>
+          "+ VAT #{topup.tax_cents}¢), payment #{outcome.amount_cents}¢ — not crediting"
       )
 
       {:error, :amount_mismatch}

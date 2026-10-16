@@ -1,0 +1,123 @@
+# FluxVale VAT rate seed data — the checkout tax layer (#138, ADR-0029
+# Am. 3 gate 2). EU-27 standard rates + UK only at launch; every other
+# market stays threshold-gated at 0% until registration (the ADR's
+# watchlist and gates).
+#
+# LAUNCH DATA, NOT AN AUDITED FEED: re-verify the shipped rates against
+# the official source before production charges — the registrations
+# gate. Sources stay unnamed in the repo (ADR-0018 Am. 1).
+#
+# Adding or repricing a rate is purely additive: append/edit an entry
+# and re-run seeds — FluxVale.Seeds.seed_tax_rates!/0 converges rows to
+# match the YAML, idempotently. rate_bp edits are safe; a NEW effective
+# date is a new row (the old row stays, it just stops resolving — no
+# effective_to, the next effective_from is the boundary).
+#
+# Lookup key — (country, state, effective_from): never change an
+# existing row's date in place to mean "superseded now"; add the new
+# row instead, or the seed orphans the old one.
+#
+# Field notes: rate_bp is integer basis points (20% = 2000).
+# effective_from is a UTC ISO 8601 timestamp (midnight where a date is
+# the intent). state is the US state code — absent here (EU/UK launch
+# table, country-wide rows only); US state rows would be added the same
+# way when US nexus registers.
+- country: AT
+  rate_bp: 2000
+  effective_from: "2021-01-01T00:00:00Z"
+- country: BE
+  rate_bp: 2100
+  effective_from: "2021-01-01T00:00:00Z"
+- country: BG
+  rate_bp: 2000
+  effective_from: "2021-01-01T00:00:00Z"
+- country: CY
+  rate_bp: 1900
+  effective_from: "2021-01-01T00:00:00Z"
+- country: CZ
+  rate_bp: 2100
+  effective_from: "2021-01-01T00:00:00Z"
+- country: DE
+  rate_bp: 1900
+  effective_from: "2021-01-01T00:00:00Z"
+- country: DK
+  rate_bp: 2500
+  effective_from: "2021-01-01T00:00:00Z"
+- country: EE
+  rate_bp: 2000
+  effective_from: "2021-01-01T00:00:00Z"
+- country: EE
+  rate_bp: 2200
+  effective_from: "2024-01-01T00:00:00Z"
+- country: EE
+  rate_bp: 2400
+  effective_from: "2025-07-01T00:00:00Z"
+- country: ES
+  rate_bp: 2100
+  effective_from: "2021-01-01T00:00:00Z"
+- country: FI
+  rate_bp: 2400
+  effective_from: "2021-01-01T00:00:00Z"
+- country: FI
+  rate_bp: 2550
+  effective_from: "2024-09-01T00:00:00Z"
+- country: FR
+  rate_bp: 2000
+  effective_from: "2021-01-01T00:00:00Z"
+- country: GB
+  rate_bp: 2000
+  effective_from: "2021-01-01T00:00:00Z"
+- country: GR
+  rate_bp: 2400
+  effective_from: "2021-01-01T00:00:00Z"
+- country: HR
+  rate_bp: 2500
+  effective_from: "2021-01-01T00:00:00Z"
+- country: HU
+  rate_bp: 2700
+  effective_from: "2021-01-01T00:00:00Z"
+- country: IE
+  rate_bp: 2300
+  effective_from: "2021-01-01T00:00:00Z"
+- country: IT
+  rate_bp: 2200
+  effective_from: "2021-01-01T00:00:00Z"
+- country: LT
+  rate_bp: 2100
+  effective_from: "2021-01-01T00:00:00Z"
+- country: LU
+  rate_bp: 1700
+  effective_from: "2021-01-01T00:00:00Z"
+- country: LV
+  rate_bp: 2100
+  effective_from: "2021-01-01T00:00:00Z"
+- country: MT
+  rate_bp: 1800
+  effective_from: "2021-01-01T00:00:00Z"
+- country: NL
+  rate_bp: 2100
+  effective_from: "2021-01-01T00:00:00Z"
+- country: PL
+  rate_bp: 2300
+  effective_from: "2021-01-01T00:00:00Z"
+- country: PT
+  rate_bp: 2300
+  effective_from: "2021-01-01T00:00:00Z"
+- country: RO
+  rate_bp: 1900
+  effective_from: "2021-01-01T00:00:00Z"
+- country: RO
+  rate_bp: 2100
+  effective_from: "2025-08-01T00:00:00Z"
+- country: SE
+  rate_bp: 2500
+  effective_from: "2021-01-01T00:00:00Z"
+- country: SI
+  rate_bp: 2200
+  effective_from: "2021-01-01T00:00:00Z"
+- country: SK
+  rate_bp: 2000
+  effective_from: "2021-01-01T00:00:00Z"
+- country: SK
+  rate_bp: 2300
+  effective_from: "2025-01-01T00:00:00Z"
