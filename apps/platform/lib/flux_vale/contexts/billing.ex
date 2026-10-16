@@ -54,4 +54,8 @@ defmodule FluxVale.Billing do
   defdelegate complete_topup(outcome), to: Operations.CompleteTopup, as: :call
 
   defdelegate fail_topup(payment_request_id), to: Operations.FailTopup, as: :call
+
+  # M6 (#137): the Confirmation step's reconciliation — same credit
+  # path as the webhook, promptness only.
+  defdelegate reconcile_topup(payment_request_id), to: Operations.ReconcileTopup, as: :call
 end

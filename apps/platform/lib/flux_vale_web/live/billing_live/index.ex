@@ -6,9 +6,9 @@ defmodule FluxValeWeb.BillingLive.Index do
   "Load more" — cursors survive rows landing between pages, offset
   windows wouldn't.
 
-  "Add credits" renders disabled until M6's checkout (ADR-0029) — the
-  placeholder is the commitment, not a dead button. No live updates:
-  balance reads at mount; M6's checkout refreshes on its own action.
+  "Add credits" opens the top-up wizard (#137). No live updates:
+  balance reads at mount; the wizard's confirmation refreshes on its
+  own navigation.
   """
 
   use FluxValeWeb, :live_view
@@ -91,10 +91,12 @@ defmodule FluxValeWeb.BillingLive.Index do
               {format_balance(@balance)}
             </p>
             <div class="flex flex-wrap items-center gap-3">
-              <button id="add-credits" class="btn btn-primary btn-sm" disabled>
+              <.link navigate={~p"/billing/topup"} class="btn btn-primary btn-sm" id="add-credits">
                 Add credits
-              </button>
-              <span class="text-xs opacity-60">Checkout is coming soon — credits top up at launch.</span>
+              </.link>
+              <span class="text-xs opacity-60">
+                Credits can be used for any app, never expire, and are non-refundable.
+              </span>
             </div>
           </div>
         </div>
