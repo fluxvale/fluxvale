@@ -151,7 +151,7 @@ defmodule FluxVale.Billing.Operations.TaxSummaryTest do
   # accepts — forced on the create changeset (the action itself runs,
   # so validations still gate the row).
   defp charge!(wallet, amount_cents, fields, opts \\ []) do
-    changeset =
+    base =
       Ash.Changeset.for_create(
         LedgerEntry,
         :create,
@@ -170,8 +170,8 @@ defmodule FluxVale.Billing.Operations.TaxSummaryTest do
 
     changeset =
       case Keyword.fetch(opts, :posted_at) do
-        {:ok, at} -> Ash.Changeset.force_change_attribute(changeset, :created_at, at)
-        :error -> changeset
+        {:ok, at} -> Ash.Changeset.force_change_attribute(base, :created_at, at)
+        :error -> base
       end
 
     Ash.create!(changeset)
