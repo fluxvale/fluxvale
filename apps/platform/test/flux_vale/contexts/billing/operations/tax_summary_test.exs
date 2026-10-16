@@ -1,9 +1,10 @@
 defmodule FluxVale.Billing.Operations.TaxSummaryTest do
   @moduledoc """
   The quarterly per-country tax summary (#139, ADR-0029 Am. 3 gate 3):
-  the period's charge credits grouped by billing country — and by state
-  within the US — with tax derived half-up from the persisted applied
-  rate. A return is a query, not a reconstruction.
+  the period's tax-bearing entries grouped by billing country — and by
+  state within the US — summing the net and the collected tax, signed
+  by entry type (charge +, refund −). A return is a query, not a
+  reconstruction.
   """
 
   use FluxVale.DataCase, async: true
@@ -18,24 +19,38 @@ defmodule FluxVale.Billing.Operations.TaxSummaryTest do
     %{wallet: wallet}
   end
 
-  test "groups the period's charge credits by country, deriving tax from the applied rate", %{
+  test "groups the period's charge credits by country, summing the collected tax", %{
     wallet: wallet
   } do
     {from, to} = current_month()
-    charge!(wallet, 1000, country: "US", state: "CA", rate: 2000)
-    charge!(wallet, 1000, country: "DE", rate: 1900)
+    charge!(wallet, 1000, country: "US", state: "CA", rate: 2000, tax: 200)
+    charge!(wallet, 1000, country: "DE", rate: 1900, tax: 190)
 
     assert summary!(from, to) == [
-             %{country: "DE", state: nil, applied_rate: 1900, net_cents: 1000, tax_cents: 190},
-             %{country: "US", state: "CA", applied_rate: 2000, net_cents: 1000, tax_cents: 200}
+             %{
+               country: "DE",
+               state: nil,
+               applied_rate: 1900,
+               reverse_charge?: false,
+               net_cents: 1000,
+               tax_cents: 190
+             },
+             %{
+               country: "US",
+               state: "CA",
+               applied_rate: 2000,
+               reverse_charge?: false,
+               net_cents: 1000,
+               tax_cents: 200
+             }
            ]
   end
 
   test "splits the US by billing state; other countries group by country alone", %{wallet: wallet} do
     {from, to} = current_month()
-    charge!(wallet, 500, country: "US", state: "CA", rate: 2000)
-    charge!(wallet, 833, country: "US", state: "NY", rate: 2000)
-    charge!(wallet, 250, country: "GB", rate: 2000)
+    charge!(wallet, 500, country: "US", state: "CA", rate: 2000, tax: 100)
+    charge!(wallet, 833, country: "US", state: "NY", rate: 2000, tax: 167)
+    charge!(wallet, 250, country: "GB", rate: 2000, tax: 50)
 
     rows = summary!(from, to)
 
@@ -46,30 +61,72 @@ defmodule FluxVale.Billing.Operations.TaxSummaryTest do
            ]
   end
 
-  # 25 * 1000 / 10_000 = 2.5 — the .5 lands up, integer math (no float
-  # ever touches the derivation).
-  test "rounds the derived tax half-up at the boundary", %{wallet: wallet} do
+  # The persisted tax is summed, never re-derived: the group's tax is
+  # the stored tax_cents of its entries, whatever a recomputation from
+  # net * rate would say.
+  test "sums the persisted collected tax over the period", %{wallet: wallet} do
     {from, to} = current_month()
-    charge!(wallet, 25, country: "US", state: "TX", rate: 1000)
+    charge!(wallet, 500, country: "US", state: "CA", rate: 1900, tax: 95)
+    charge!(wallet, 1000, country: "US", state: "CA", rate: 1900, tax: 190)
 
-    assert [%{tax_cents: 3}] = summary!(from, to)
+    assert [%{net_cents: 1500, tax_cents: 285}] = summary!(from, to)
   end
 
-  test "sums a country-state-rate group's charges into one row", %{wallet: wallet} do
+  test "keeps reverse-charge rows apart from untaxed consumer rows", %{wallet: wallet} do
     {from, to} = current_month()
-    charge!(wallet, 400, country: "US", state: "CA", rate: 2000)
-    charge!(wallet, 600, country: "US", state: "CA", rate: 2000)
+    charge!(wallet, 1000, country: "DE", rate: 0, tax: 0)
+    charge!(wallet, 1000, country: "DE", rate: 0, tax: 0, reverse_charge?: true)
 
-    assert [%{net_cents: 1000, tax_cents: 200}] = summary!(from, to)
+    rows = summary!(from, to)
+
+    assert Enum.map(rows, &{&1.reverse_charge?, &1.net_cents, &1.tax_cents}) == [
+             {false, 1000, 0},
+             {true, 1000, 0}
+           ]
   end
 
-  test "excludes non-charge postings and rows without persisted tax facts", %{wallet: wallet} do
+  test "a US row without a billing state is its own bucket, never merged into a state's total", %{
+    wallet: wallet
+  } do
     {from, to} = current_month()
-    charge!(wallet, 1000, country: "US", state: "CA", rate: 2000)
+    charge!(wallet, 500, country: "US", state: nil, rate: 2000, tax: 100)
+    charge!(wallet, 700, country: "US", state: "CA", rate: 2000, tax: 140)
+
+    rows = summary!(from, to)
+
+    assert Enum.map(rows, &{&1.state, &1.net_cents, &1.tax_cents}) == [
+             {nil, 500, 100},
+             {"CA", 700, 140}
+           ]
+  end
+
+  test "nets a charge and its reversal to zero per group (net and tax)", %{wallet: wallet} do
+    {from, to} = current_month()
+
+    {:ok, charge} =
+      Billing.credit_wallet(wallet, 1000,
+        idempotency_key: "hitpay_refunded",
+        reason: :purchase,
+        fields: %{
+          billing_country: "US",
+          billing_state: "CA",
+          applied_rate: 2000,
+          tax_cents: 200
+        }
+      )
+
+    assert {:ok, _refund} = Billing.reverse_entry(charge)
+
+    assert [%{net_cents: 0, tax_cents: 0}] = summary!(from, to)
+  end
+
+  test "excludes non-tax postings and rows without persisted tax facts", %{wallet: wallet} do
+    {from, to} = current_month()
+    charge!(wallet, 1000, country: "US", state: "CA", rate: 2000, tax: 200)
 
     # a grant posts a credit with no tax facts; a purchase with no
-    # country (pre-tax-layer history) and a purchase with no rate are
-    # equally unattributable to a return
+    # country (pre-tax-layer history), a purchase with no rate, and an
+    # old-style refund without copied facts are all unattributable
     {:ok, _grant} = Billing.grant_credits(wallet, 500, reason: :adjustment)
 
     {:ok, _uncountryed} =
@@ -90,6 +147,12 @@ defmodule FluxVale.Billing.Operations.TaxSummaryTest do
         authorize?: false
       )
 
+    {:ok, _fieldless_refund} =
+      LedgerEntry.create(
+        %{wallet_id: wallet.id, amount: -300, type: :debit, reason: :refund},
+        authorize?: false
+      )
+
     assert [%{country: "US", net_cents: 1000}] = summary!(from, to)
   end
 
@@ -98,28 +161,28 @@ defmodule FluxVale.Billing.Operations.TaxSummaryTest do
   } do
     today = Date.utc_today()
     midnight = DateTime.new!(today, ~T[00:00:00])
-    charge!(wallet, 1000, country: "US", state: "CA", rate: 2000)
+    charge!(wallet, 1000, country: "US", state: "CA", rate: 2000, tax: 200)
 
     # backdated before the window; a row stamped exactly at the window's
     # exclusive end (tomorrow 00:00 UTC) also stays out
-    charge!(wallet, 400, [country: "US", state: "CA", rate: 2000],
+    charge!(wallet, 400, [country: "US", state: "CA", rate: 2000, tax: 80],
       posted_at: DateTime.add(midnight, -86_400)
     )
 
-    charge!(wallet, 400, [country: "US", state: "CA", rate: 2000],
+    charge!(wallet, 400, [country: "US", state: "CA", rate: 2000, tax: 80],
       posted_at: DateTime.add(midnight, 86_400)
     )
 
-    assert [%{net_cents: 1000}] = summary!(today, today)
+    assert [%{net_cents: 1000, tax_cents: 200}] = summary!(today, today)
   end
 
   test "scopes the summary to the actor's org like every ledger read", %{wallet: wallet} do
     member = org_member(wallet)
     {from, to} = current_month()
-    charge!(wallet, 1000, country: "US", state: "CA", rate: 2000)
+    charge!(wallet, 1000, country: "US", state: "CA", rate: 2000, tax: 200)
 
     {_other_org, other_wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
-    charge!(other_wallet, 700, country: "DE", rate: 1900)
+    charge!(other_wallet, 700, country: "DE", rate: 1900, tax: 133)
     other_member = org_member(other_wallet)
 
     assert [%{country: "US"}] = summary!(from, to, actor: member, authorize?: true)
@@ -163,7 +226,9 @@ defmodule FluxVale.Billing.Operations.TaxSummaryTest do
           idempotency_key: "hitpay_#{System.unique_integer([:positive])}",
           billing_country: fields[:country],
           billing_state: fields[:state],
-          applied_rate: fields[:rate]
+          applied_rate: fields[:rate],
+          tax_cents: fields[:tax],
+          reverse_charge?: fields[:reverse_charge?] || false
         },
         authorize?: false
       )

@@ -12,11 +12,23 @@ defmodule FluxVale.Repo.Migrations.AddLedgerTaxFields do
       add :billing_country, :text
       add :billing_state, :text
       add :applied_rate, :bigint
+      add :tax_cents, :bigint
+      add :reverse_charge?, :boolean, null: false, default: false
     end
+
+    # The tax summary's range scan groups by country over a period —
+    # partial on the rows that carry tax facts (gate 3).
+    create index(:billing_ledger_entries, [:billing_country, :created_at],
+             where: "billing_country IS NOT NULL"
+           )
   end
 
   def down do
+    drop_if_exists index(:billing_ledger_entries, [:billing_country, :created_at])
+
     alter table(:billing_ledger_entries) do
+      remove :reverse_charge?
+      remove :tax_cents
       remove :applied_rate
       remove :billing_state
       remove :billing_country

@@ -14,9 +14,9 @@ defmodule FluxVale.Billing.Operations.PostEntry do
   correct failure mode, never a double-post. Keyless posts always insert.
 
   `fields:` (a map) carries extra accepted ledger attributes onto the
-  created row — the charge credits' tax facts (billing country/state,
-  applied rate, ADR-0029 Am. 3 gate 3). CompleteTopup is the only
-  caller that passes it; every other posting stays null.
+  created row — the tax facts of gate 3 (ADR-0029 Am. 3): charge
+  credits get them from CompleteTopup, refund debits copy the original's
+  from ReverseEntry. Every other posting stays null.
 
   System operation — runs with `authorize?: false` (the posting machinery;
   actors read the ledger, they never post to it).

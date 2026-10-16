@@ -123,12 +123,14 @@ accounting), DIY vs agent filings (Taxually/Marosa/Fonoa class,
 ## Amendment 4 (2026-10-16): gate 3's ledger fields land at M6; settlement confirmed
 
 **Gate 3 landed at M6, not M5 — the deferral resolved.** Ledger charge
-rows persist the checkout tax layer's `billing_country` (US rows:
-`billing_state`) and the applied rate in basis points, carried from the
-top-up at credit time; history stays null (append-only, no backfill).
-The quarterly summaries are per-country queries (US: per-state) over
-those fields — tax derives from the persisted net and rate — never a
-new table.
+rows persist the checkout tax layer's facts — `billing_country` (US
+rows: `billing_state`), the applied rate in basis points, the collected
+`tax_cents`, and the B2B reverse-charge marker — carried from the
+top-up at credit time; refunds copy them onto the compensating debit.
+History stays null (append-only, no backfill). The quarterly summaries
+are per-country queries (US: per-state, reverse-charge kept separate)
+over those fields — each sums the collected tax over the period, net of
+reversals, never re-deriving — never a new table.
 
 **Settlement (Am. 2's open M6 item): charges are USD; HitPay settles
 PHP, auto-converted at the transaction-time exchange rate** — gate 4's

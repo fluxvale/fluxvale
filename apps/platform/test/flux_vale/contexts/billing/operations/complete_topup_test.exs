@@ -182,10 +182,13 @@ defmodule FluxVale.Billing.Operations.CompleteTopupTest do
         payment_request_id: "pr_1",
         billing_country: "US",
         billing_state: "CA",
-        tax_rate_bp: 2000
+        tax_rate_bp: 2000,
+        tax_cents: 100
       )
 
-    assert {:ok, _completed} = complete_outcome(topup)
+    # the gateway charged the gross (net 500 + VAT 100); the credit posts the net
+    outcome = outcome(topup, amount_cents: 600)
+    assert {:ok, _completed} = Billing.complete_topup(outcome)
 
     wallet = wallet_of(topup)
     entry = wallet_credit(wallet, "hitpay:pay_1")
@@ -193,9 +196,11 @@ defmodule FluxVale.Billing.Operations.CompleteTopupTest do
     assert entry.billing_country == "US"
     assert entry.billing_state == "CA"
     assert entry.applied_rate == 2000
+    assert entry.tax_cents == 100
+    assert entry.reverse_charge? == false
   end
 
-  test "a top-up without tax facts credits with null tax fields" do
+  test "a top-up without tax facts credits with the tax defaults" do
     topup = topup!(500, payment_request_id: "pr_1")
 
     assert {:ok, _completed} = complete_outcome(topup)
@@ -206,6 +211,8 @@ defmodule FluxVale.Billing.Operations.CompleteTopupTest do
     assert entry.billing_country == nil
     assert entry.billing_state == nil
     assert entry.applied_rate == 0
+    assert entry.tax_cents == 0
+    assert entry.reverse_charge? == false
   end
 
   # Defensive: the billing surface provisions the wallet on mount, so a

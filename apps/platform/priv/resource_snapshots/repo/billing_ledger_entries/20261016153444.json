@@ -121,6 +121,30 @@
       "type": "bigint"
     },
     {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "tax_cents",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "false",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "reverse_charge?",
+      "type": "boolean"
+    },
+    {
       "allow_nil?": false,
       "default": "nil",
       "generated?": false,
@@ -189,11 +213,39 @@
       "unique": true,
       "using": null,
       "where": "reverses_id IS NOT NULL"
+    },
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "billing_country",
+        "created_at"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "billing_country"
+        },
+        {
+          "type": "atom",
+          "value": "created_at"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": null,
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": "billing_country IS NOT NULL"
     }
   ],
   "custom_statements": [],
   "has_create_action": true,
-  "hash": "0ACC1C1BEC0ABCF94090E93C5CEF66EFC7D14ECD5A8E522405EE1F9EAE3F8D35",
+  "hash": "BF37F17873F2B8DD898C671984E28AF3927E1A7D985A698D25B749E10B05FCC3",
   "identities": [
     {
       "all_tenants?": false,

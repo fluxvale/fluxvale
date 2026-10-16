@@ -142,12 +142,15 @@ defmodule FluxVale.Billing.Operations.CompleteTopup do
 
   # Gate 3 (ADR-0029 Am. 3): the charge's ledger row persists the tax
   # facts the checkout layer (#138) captured on the top-up, so the
-  # quarterly return is a query over the ledger, not a reconstruction.
+  # quarterly return sums what was collected — a query, not a
+  # reconstruction.
   defp credit_fields(topup) do
     %{
       billing_country: topup.billing_country,
       billing_state: topup.billing_state,
-      applied_rate: topup.tax_rate_bp
+      applied_rate: topup.tax_rate_bp,
+      tax_cents: topup.tax_cents,
+      reverse_charge?: topup.reverse_charge?
     }
   end
 
