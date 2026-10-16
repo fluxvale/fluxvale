@@ -6,7 +6,10 @@ defmodule FluxVale.Billing.Operations.ReverseEntry do
   The reversal offsets the original in the opposite direction (`:credit`
   entry → `:debit` reversal, and back) with reason `:refund` by default,
   carrying `reverses_id` so every refund pairs with exactly one charge.
-  A double reversal is rejected — the pre-lock guard answers reads, the
+  The original's tax facts (country/state/rate/collected tax/marker,
+  gate 3) ride along onto the compensating row, so the quarterly summary
+  nets the tax out of the same group the charge sits in. A double
+  reversal is rejected — the pre-lock guard answers reads, the
   partial unique index on `reverses_id` makes the concurrent case lose at
   the database. Serialized on the wallet's advisory lock, same as
   DebitWallet. System operation, `authorize?: false`.
@@ -67,10 +70,14 @@ defmodule FluxVale.Billing.Operations.ReverseEntry do
 
   defp post_reversal(wallet, original, opts) do
     reason = Keyword.get(opts, :reason, @reason_default)
-    opts = Keyword.put(opts, :reverses_id, original.id)
     expected_reverses_id = original.id
 
-    case PostEntry.call(wallet, opposite(original.type), abs(original.amount), reason, opts) do
+    post_opts =
+      opts
+      |> Keyword.put(:reverses_id, original.id)
+      |> Keyword.put(:fields, tax_fields(original))
+
+    case PostEntry.call(wallet, opposite(original.type), abs(original.amount), reason, post_opts) do
       {:ok, %{reverses_id: reverses_id} = entry} when reverses_id == expected_reverses_id ->
         entry
 
@@ -88,6 +95,20 @@ defmodule FluxVale.Billing.Operations.ReverseEntry do
         FluxVale.Repo.rollback(reason)
         # coveralls-ignore-stop
     end
+  end
+
+  # The refund carries the original's tax facts (gate 3, ADR-0029
+  # Am. 3) so the summary nets the collected tax out of the same
+  # country/state/rate/marker group the charge sits in. Non-tax
+  # originals extract to nils — inert on the compensating row.
+  defp tax_fields(original) do
+    %{
+      billing_country: original.billing_country,
+      billing_state: original.billing_state,
+      applied_rate: original.applied_rate,
+      tax_cents: original.tax_cents,
+      reverse_charge?: original.reverse_charge?
+    }
   end
 
   defp existing_reversal(original) do

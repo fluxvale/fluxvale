@@ -15,12 +15,14 @@ defmodule FluxVale.Billing.LedgerEntry do
   ADR-0029's accepted refund obligation.
 
   Charge credits (reason `:purchase`) also persist the checkout tax
-  layer's facts — `billing_country`, `billing_state` (US), and the
-  `applied_rate` in basis points at charge time — so the quarterly
-  per-country tax summary is a query, not a reconstruction (ADR-0029
-  Am. 3 gate 3). Every other posting stays null, and all history before
-  those fields landed (M6, #139) stays null: the ledger is append-only,
-  no backfill.
+  layer's facts — `billing_country`, `billing_state` (US), the
+  `applied_rate` in basis points, the collected `tax_cents`, and the
+  B2B `reverse_charge?` marker — and `ReverseEntry` copies them onto
+  the compensating refund debit, so the quarterly per-country tax
+  summary (ADR-0029 Am. 3 gate 3) sums what was collected, net of
+  reversals, without re-deriving anything. Every other posting keeps
+  these null, and all history before the fields landed (M6, #139)
+  stays null: the ledger is append-only, no backfill.
 
   Append-only means only `:read`/`:create` exist — no update, no destroy,
   and no `updated_at` (rows never change). Actors may read their org's
@@ -51,6 +53,10 @@ defmodule FluxVale.Billing.LedgerEntry do
     # and stay distinct. Under codegen's drift check via custom_indexes.
     custom_indexes do
       index [:reverses_id], unique: true, where: "reverses_id IS NOT NULL"
+
+      # The tax summary's range scan groups by country over a period —
+      # partial on the rows that carry tax facts (gate 3).
+      index [:billing_country, :created_at], where: "billing_country IS NOT NULL"
     end
 
     # Database-level mirror of SignMatchesType: the signed amount must
@@ -104,7 +110,10 @@ defmodule FluxVale.Billing.LedgerEntry do
     end
 
     # The charge-side tax facts (gate 3, ADR-0029 Am. 3) — purchase
-    # credits only; the rate mirrors Topup.tax_rate_bp's basis points.
+    # credits and, copied by ReverseEntry, their refund debits. The rate
+    # mirrors Topup.tax_rate_bp's basis points; tax_cents is the VAT
+    # collected on the charge (a magnitude — the summary signs it by
+    # entry type). History keeps null tax_cents/rate/country.
     attribute :billing_country, :string do
       public?(true)
     end
@@ -115,6 +124,20 @@ defmodule FluxVale.Billing.LedgerEntry do
 
     attribute :applied_rate, :integer do
       constraints(min: 0, max: 10_000)
+      public?(true)
+    end
+
+    attribute :tax_cents, :integer do
+      constraints(min: 0)
+      public?(true)
+    end
+
+    # B2B reverse charge (customer self-accounts) — kept apart from
+    # untaxed consumer rows in the summary so OSS consumer nets are
+    # never inflated. Mirrors Topup.reverse_charge?'s shape.
+    attribute :reverse_charge?, :boolean do
+      allow_nil?(false)
+      default(false)
       public?(true)
     end
   end
@@ -141,7 +164,9 @@ defmodule FluxVale.Billing.LedgerEntry do
         :reverses_id,
         :billing_country,
         :billing_state,
-        :applied_rate
+        :applied_rate,
+        :tax_cents,
+        :reverse_charge?
       ])
     end
 
@@ -158,18 +183,19 @@ defmodule FluxVale.Billing.LedgerEntry do
     end
 
     # ADR-0029 Am. 3 gate 3: the quarterly per-country tax summary's
-    # source rows — the period's charge credits carrying the checkout
-    # tax facts. Rows without a persisted country or rate can't be
+    # source rows — the period's tax-bearing entries: purchase credits
+    # and the refund debits that reverse them (carrying the original's
+    # tax facts). Rows without a persisted country or rate can't be
     # attributed to a return. Half-open [from, to): a boundary row
     # lands in exactly one period.
-    read :tax_charges do
-      description "Purchase credits with persisted tax facts in a date range (the tax summary's source)."
+    read :tax_bearing_entries do
+      description "Tax-bearing entries (charge credits and their refund debits) in a date range — the tax summary's source."
       argument(:from, :utc_datetime, allow_nil?: false)
       argument(:to, :utc_datetime, allow_nil?: false)
 
       filter(
         expr(
-          type == :credit and reason == :purchase and
+          ((type == :credit and reason == :purchase) or (type == :debit and reason == :refund)) and
             not is_nil(billing_country) and not is_nil(applied_rate) and
             created_at >= ^arg(:from) and created_at < ^arg(:to)
         )
