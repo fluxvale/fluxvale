@@ -185,7 +185,7 @@ defmodule FluxVale.Billing.Operations.CompleteTopupTest do
         tax_rate_bp: 2000
       )
 
-    assert {:ok, _completed} = Billing.complete_topup(outcome(topup))
+    assert {:ok, _completed} = complete_outcome(topup)
 
     wallet = wallet_of(topup)
     entry = wallet_credit(wallet, "hitpay:pay_1")
@@ -198,7 +198,7 @@ defmodule FluxVale.Billing.Operations.CompleteTopupTest do
   test "a top-up without tax facts credits with null tax fields" do
     topup = topup!(500, payment_request_id: "pr_1")
 
-    assert {:ok, _completed} = Billing.complete_topup(outcome(topup))
+    assert {:ok, _completed} = complete_outcome(topup)
 
     wallet = wallet_of(topup)
     entry = wallet_credit(wallet, "hitpay:pay_1")
@@ -240,5 +240,10 @@ defmodule FluxVale.Billing.Operations.CompleteTopupTest do
     |> Ash.Query.for_read(:read, %{}, authorize?: false)
     |> Ash.Query.filter(wallet_id == ^wallet.id and idempotency_key == ^idempotency_key)
     |> Ash.read_one!(authorize?: false)
+  end
+
+  defp complete_outcome(topup) do
+    outcome = outcome(topup)
+    Billing.complete_topup(outcome)
   end
 end
