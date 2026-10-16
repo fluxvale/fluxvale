@@ -68,10 +68,10 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
     assert has_element?(view, "[data-testid='wallet-balance']", "$0.00")
   end
 
-  test "add credits is a disabled placeholder", %{conn: conn} do
+  test "add credits opens the top-up wizard (#137)", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/billing")
 
-    assert has_element?(view, "#add-credits[disabled]")
+    assert render(element(view, "#add-credits")) =~ "/billing/topup"
   end
 
   test "load more appends the older page and retires at the end", %{conn: conn, wallet: wallet} do

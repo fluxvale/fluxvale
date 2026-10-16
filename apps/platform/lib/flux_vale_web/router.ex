@@ -90,6 +90,11 @@ defmodule FluxValeWeb.Router do
       live "/instances", InstanceLive.Index
       live "/instances/:id", InstanceLive.Show
       live "/billing", BillingLive.Index
+      # #137: the top-up wizard — steps live in LiveView state; the
+      # return route is the gateway's landing (its reference query
+      # param; the DB row is the truth, the status param is ignored).
+      live "/billing/topup", BillingLive.Topup
+      live "/billing/topup/return", BillingLive.Topup
     end
   end
 
