@@ -1,6 +1,6 @@
 # ADR-0029: Payments — adapter architecture; self-MoR with Stripe (MoR products rejected)
 
-**Status**: Accepted (amended — see Amendments 1–3)
+**Status**: Accepted (amended — see Amendments 1–4)
 **Date**: 2026-09-01
 
 **Context**: v1 used Dodo Payments (checkout + Standard Webhooks). OQ #4
@@ -119,3 +119,20 @@ multi-purpose = at redemption — shifts *when*, not *whether*), PH
 zero-rating evidence shape (what satisfies RR 9-2021's BSP
 accounting), DIY vs agent filings (Taxually/Marosa/Fonoa class,
 ~€100–300/jurisdiction/yr).
+
+## Amendment 4 (2026-10-16): gate 3's ledger fields land at M6; settlement confirmed
+
+**Gate 3 landed at M6, not M5 — the deferral resolved.** Ledger charge
+rows persist the checkout tax layer's facts — `billing_country` (US
+rows: `billing_state`), the applied rate in basis points, the collected
+`tax_cents`, and the B2B reverse-charge marker — carried from the
+top-up at credit time; refunds copy them onto the compensating debit.
+History stays null (append-only, no backfill). The quarterly summaries
+are per-country queries (US: per-state, reverse-charge kept separate)
+over those fields — each sums the collected tax over the period, net of
+reversals, never re-deriving — never a new table.
+
+**Settlement (Am. 2's open M6 item): charges are USD; HitPay settles
+PHP, auto-converted at the transaction-time exchange rate** — gate 4's
+foreign-currency requirement. The conversion evidence lives in HitPay's
+own settlement records, not our ledger.
