@@ -20,8 +20,10 @@ defmodule FluxVale.Seeds do
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Cluster
   alias FluxVale.Pricing.Size
+  alias FluxVale.Pricing.TaxRate
   alias FluxVale.Seeds.CatalogData
   alias FluxVale.Seeds.PricingData
+  alias FluxVale.Seeds.TaxRateData
 
   require Ash.Query
 
@@ -29,16 +31,18 @@ defmodule FluxVale.Seeds do
 
   @doc """
   The promotable bring-up seed — dev `mix setup` and the release's
-  `bin/seed` run the same path: platform admin + prices + catalog.
-  Idempotent: pricing and the catalog converge, the admin get-or-creates.
-  Pricing runs before the catalog — versions reference a size by slug.
-  The `local` Cluster row is deliberately NOT here —
-  `seed_local_cluster!/0` stays dev/local-only (local_seeds.exs).
+  `bin/seed` run the same path: platform admin + prices + tax rates +
+  catalog. Idempotent: pricing, tax rates, and the catalog converge,
+  the admin get-or-creates. Pricing runs before the catalog — versions
+  reference a size by slug. The `local` Cluster row is deliberately NOT
+  here — `seed_local_cluster!/0` stays dev/local-only
+  (local_seeds.exs).
   """
   @spec seed :: :ok
   def seed do
     seed_admin!()
     seed_pricing!()
+    seed_tax_rates!()
     seed_catalog!()
   end
 
@@ -127,6 +131,50 @@ defmodule FluxVale.Seeds do
 
     :ok
   end
+
+  @doc """
+  Seeds the VAT rate table from the shipped YAML (`TaxRateData.entries/0`,
+  #138). The 1-arity takes parsed entries directly — the test suite also
+  drives it with fixture YAML.
+
+  Idempotent — records are looked up by (country, state, effective_from);
+  existing rows have their rate_bp updated to the seed attrs, so
+  re-running converges the rate table to tax_rates.yaml. A new effective
+  date is a new row (no `effective_to` — the next `effective_from` is
+  the boundary).
+  """
+  @spec seed_tax_rates! :: :ok
+  def seed_tax_rates!, do: seed_tax_rates!(TaxRateData.entries())
+
+  @spec seed_tax_rates!([map()]) :: :ok
+  def seed_tax_rates!(entries) do
+    for attrs <- entries do
+      case find_tax_rate!(attrs) do
+        [rate] ->
+          # (country, state, effective_from) is the lookup key —
+          # immutable on update (see the resource).
+          TaxRate.update!(rate, %{rate_bp: attrs.rate_bp}, authorize?: false)
+
+        [] ->
+          TaxRate.create!(attrs, authorize?: false)
+      end
+    end
+
+    :ok
+  end
+
+  # nil-state (country-wide) and state rows must not collide in the
+  # lookup: `state == nil` never matches in SQL, so the nil branch
+  # filters is_nil explicitly.
+  defp find_tax_rate!(%{country: country, state: state, effective_from: effective_from}) do
+    TaxRate
+    |> Ash.Query.filter(country == ^country and effective_from == ^effective_from)
+    |> tax_rate_state_filter(state)
+    |> Ash.read!(authorize?: false)
+  end
+
+  defp tax_rate_state_filter(query, nil), do: Ash.Query.filter(query, is_nil(state))
+  defp tax_rate_state_filter(query, state), do: Ash.Query.filter(query, state == ^state)
 
   @doc """
   Seeds the local cluster row (#72): nil `kubeconfig_ref` is the

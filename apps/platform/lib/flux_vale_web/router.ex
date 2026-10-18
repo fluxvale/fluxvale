@@ -8,6 +8,9 @@ defmodule FluxValeWeb.Router do
     plug :put_root_layout, html: {FluxValeWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    # #138: the edge geo header rides the session as checkout location
+    # evidence (the wizard reads it in mount).
+    plug FluxValeWeb.Plugs.CaptureIpCountry
   end
 
   pipeline :api do

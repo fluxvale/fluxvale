@@ -1,15 +1,21 @@
 defmodule FluxVale.Pricing do
   @moduledoc """
   Pricing: the priceable allocation sizes behind ADR-0028's flat monthly
-  rate ("Kavita: $X/mo, done", #125). Reads are any signed-in actor (the
-  price shows in every catalog/provisioning surface); mutation is
+  rate ("Kavita: $X/mo, done", #125) and — since the checkout tax layer
+  (#138, ADR-0029 Am. 3 gate 2) — the per-country VAT rate table the
+  checkout resolves against. Reads are any signed-in actor (the price
+  shows in every catalog/provisioning surface); mutation is
   platform-admin-only. Opts into AshAdmin (ADR-0027) like Catalog:
-  price changes are business data, admin-editable without a deploy.
+  price and rate changes are business data — admin-editable, and the
+  tax rates ship as YAML seed diffs (rate changes land as reviewable
+  edits, per the settled #138 stance).
   """
 
   use Ash.Domain,
     otp_app: :flux_vale,
     extensions: [AshAdmin.Domain]
+
+  alias FluxVale.Pricing.Operations
 
   admin do
     show? true
@@ -17,6 +23,7 @@ defmodule FluxVale.Pricing do
 
   resources do
     resource FluxVale.Pricing.Size
+    resource FluxVale.Pricing.TaxRate
   end
 
   @doc """
@@ -32,6 +39,14 @@ defmodule FluxVale.Pricing do
 
     "$" <> body
   end
+
+  @doc """
+  The VAT rate a checkout charges (`resolve_tax_rate/3` →
+  `Operations.ResolveTaxRate`): the applied rate in basis points.
+  """
+  defdelegate resolve_tax_rate(country, state \\ nil, time \\ DateTime.utc_now()),
+    to: Operations.ResolveTaxRate,
+    as: :call
 
   @doc """
   The rates an instance settles at — the one resolver (#153: settle's
