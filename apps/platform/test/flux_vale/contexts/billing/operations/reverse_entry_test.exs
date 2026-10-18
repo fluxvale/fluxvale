@@ -29,6 +29,34 @@ defmodule FluxVale.Billing.Operations.ReverseEntryTest do
     assert {:ok, 1_000} = Billing.balance(wallet, authorize?: false)
   end
 
+  # The refund copies the original's tax facts (gate 3) — the summary
+  # nets the collected tax out of the same group the charge sits in.
+  test "the refund carries the original's tax fields", %{wallet: wallet} do
+    {:ok, charge} =
+      Billing.credit_wallet(wallet, 1000,
+        idempotency_key: "pay_taxed",
+        reason: :purchase,
+        fields: %{
+          billing_country: "US",
+          billing_state: "CA",
+          applied_rate: 2000,
+          tax_cents: 200
+        }
+      )
+
+    assert {:ok, refund} = Billing.reverse_entry(charge)
+
+    assert refund.type == :debit
+    assert refund.amount == -1000
+    assert refund.reason == :refund
+    assert refund.reverses_id == charge.id
+    assert refund.billing_country == "US"
+    assert refund.billing_state == "CA"
+    assert refund.applied_rate == 2000
+    assert refund.tax_cents == 200
+    assert refund.reverse_charge? == false
+  end
+
   test "reversing a debit posts the offsetting credit (correcting an erroneous debit)", %{
     wallet: wallet
   } do
