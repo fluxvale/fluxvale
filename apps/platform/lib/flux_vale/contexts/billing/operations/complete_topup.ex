@@ -126,13 +126,32 @@ defmodule FluxVale.Billing.Operations.CompleteTopup do
     # relationship load on the credit path.
     result =
       with {:ok, wallet} <- Wallet.get_by_organization(topup.organization_id, authorize?: false) do
-        CreditWallet.call(wallet, topup.amount_cents, idempotency_key: outcome.idempotency_key)
+        CreditWallet.call(
+          wallet,
+          topup.amount_cents,
+          idempotency_key: outcome.idempotency_key,
+          fields: credit_fields(topup)
+        )
       end
 
     case result do
       {:ok, _entry} -> mark_completed(topup, outcome)
       {:error, _reason} = error -> error
     end
+  end
+
+  # Gate 3 (ADR-0029 Am. 3): the charge's ledger row persists the tax
+  # facts the checkout layer (#138) captured on the top-up, so the
+  # quarterly return sums what was collected — a query, not a
+  # reconstruction.
+  defp credit_fields(topup) do
+    %{
+      billing_country: topup.billing_country,
+      billing_state: topup.billing_state,
+      applied_rate: topup.tax_rate_bp,
+      tax_cents: topup.tax_cents,
+      reverse_charge?: topup.reverse_charge?
+    }
   end
 
   # Terminal-once: the status filter rides the UPDATE's WHERE, so an
