@@ -1,11 +1,12 @@
 defmodule FluxValeWeb.BillingLive.TopupTest do
   @moduledoc false
 
-  # The top-up wizard (#137): the four steps, the 0% VAT line with its
-  # "calculated at checkout" note, the new-balance preview, the
-  # never-expires/non-refundable notice, the checkout handoff, and the
-  # Confirmation step's reconciliation. Gateway calls are Mimic-stubbed
-  # (Req); the webhook path has its own controller suite.
+  # The top-up wizard (#137): the four steps, the live VAT line resolved
+  # from the billing country's rate (#138 — consumer rate, B2B reverse
+  # charge), the new-balance preview, the never-expires/non-refundable
+  # notice, the checkout handoff, and the Confirmation step's
+  # reconciliation. Gateway calls are Mimic-stubbed (Req); the webhook
+  # path has its own controller suite.
 
   # async: false — the "pay" tests stub the global :hitpay app-env block.
   use FluxValeWeb.ConnCase, async: false
@@ -15,10 +16,13 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
 
   alias FluxVale.Billing
   alias FluxVale.Billing.Topup
+  alias FluxVale.Pricing.TaxRate
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
   require Ash.Query
+
+  @effective_from ~U[2021-01-01 00:00:00.000000Z]
 
   setup %{conn: conn} do
     {user, conn} = SessionHelpers.user_with_session(conn)
@@ -89,42 +93,167 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
 
       assert has_element?(view, "#topup-amount-form")
     end
-  end
 
-  describe "step 2 — amount" do
-    defp to_amount(conn) do
+    test "the US state field appears only for US buyers", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/billing/topup")
 
+      refute has_element?(view, "input[name='details[state]']")
+
+      view
+      |> form("#topup-details-form",
+        details: %{name: "Jane Doe", email: "jane@example.com", country: "US"}
+      )
+      |> render_change()
+
+      assert has_element?(view, "input[name='details[state]']")
+
+      # Back to a non-US country and the field folds away again.
       view
       |> form("#topup-details-form",
         details: %{name: "Jane Doe", email: "jane@example.com", country: "DE"}
       )
+      |> render_change()
+
+      refute has_element?(view, "input[name='details[state]']")
+    end
+
+    test "a US buyer must name a state to continue", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/billing/topup")
+
+      details = %{name: "Jane Doe", email: "jane@example.com", country: "US", state: ""}
+
+      # Shape the DOM first (the state field exists only for the US).
+      view
+      |> form("#topup-details-form", details: Map.delete(details, :state))
+      |> render_change()
+
+      view
+      |> form("#topup-details-form", details: details)
+      |> render_submit()
+
+      assert has_element?(view, "#topup-details-form")
+      assert render(view) =~ "2-letter US state"
+    end
+
+    test "the VAT number field appears only for business buyers", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/billing/topup")
+
+      refute has_element?(view, "input[name='details[vat_number]']")
+
+      view
+      |> form("#topup-details-form",
+        details: %{
+          name: "Jane Doe",
+          email: "jane@example.com",
+          country: "DE",
+          customer_type: "business"
+        }
+      )
+      |> render_change()
+
+      assert has_element?(view, "input[name='details[vat_number]']")
+    end
+  end
+
+  describe "step 2 — amount" do
+    # The conditional fields shape the DOM (state for the US, VAT for
+    # business), so the fill runs in two phases: a change to re-render,
+    # then the submit with whatever the shaped DOM renders.
+    defp to_amount(conn, overrides \\ %{}) do
+      {:ok, view, _html} = live(conn, ~p"/billing/topup")
+
+      details =
+        Map.merge(
+          %{
+            name: "Jane Doe",
+            email: "jane@example.com",
+            country: "DE",
+            state: "CA",
+            customer_type: "consumer",
+            vat_number: "DE123456789"
+          },
+          Map.new(overrides)
+        )
+
+      view
+      |> form("#topup-details-form",
+        details: Map.take(details, [:name, :email, :country, :customer_type])
+      )
+      |> render_change()
+
+      view
+      |> form("#topup-details-form", details: dom_details(details))
       |> render_submit()
 
       view
     end
 
-    test "a whole-dollar amount shows the unit line, the 0% VAT line, the total, and the preview",
-         %{conn: conn} do
+    defp dom_details(details) do
+      details
+      |> drop_unless(details.country == "US", :state)
+      |> drop_unless(details.customer_type == "business", :vat_number)
+    end
+
+    defp drop_unless(map, true, _key), do: map
+    defp drop_unless(map, false, key), do: Map.delete(map, key)
+
+    test "an unpriced country shows a 0% VAT line and the unit total", %{conn: conn} do
+      view = to_amount(conn, country: "AU")
+
+      view
+      |> form("#topup-amount-form", amount: %{dollars: "10"})
+      |> render_change()
+
+      taxes = render(element(view, "[data-testid='topup-taxes']"))
+      assert taxes =~ "VAT (0%)"
+      assert taxes =~ "$0.00"
+
+      assert render(element(view, "[data-testid='topup-total']")) =~ "$10.00"
+      assert render(element(view, "[data-testid='topup-new-balance']")) =~ "$10.00"
+    end
+
+    test "a DE consumer sees the country rate on the VAT line", %{conn: conn} do
+      # 19% — the German standard rate the launch table ships.
+      TaxRate.create!(
+        %{country: "DE", rate_bp: 1900, effective_from: @effective_from},
+        authorize?: false
+      )
+
       view = to_amount(conn)
 
       view
       |> form("#topup-amount-form", amount: %{dollars: "10"})
       |> render_change()
 
-      summary = element(view, "[data-testid='topup-summary']")
-      html = render(summary)
-      assert html =~ "10 × $1.00 credit"
-      assert html =~ "$10.00"
+      taxes = render(element(view, "[data-testid='topup-taxes']"))
+      assert taxes =~ "VAT (19%)"
+      assert taxes =~ "$1.90"
+
+      assert render(element(view, "[data-testid='topup-total']")) =~ "$11.90"
+      # The note is gone where a real rate shows.
+      refute render(view) =~ "Final taxes are calculated at checkout."
+    end
+
+    test "a B2B buyer with a valid VAT number reverse-charges at 0%", %{conn: conn} do
+      TaxRate.create!(
+        %{country: "DE", rate_bp: 1900, effective_from: @effective_from},
+        authorize?: false
+      )
+
+      view =
+        to_amount(conn, %{
+          customer_type: "business",
+          vat_number: "de123456789"
+        })
+
+      view
+      |> form("#topup-amount-form", amount: %{dollars: "10"})
+      |> render_change()
 
       taxes = render(element(view, "[data-testid='topup-taxes']"))
-      assert taxes =~ "Taxes (0%)"
+      assert taxes =~ "VAT (reverse charge, 0%)"
       assert taxes =~ "$0.00"
       assert render(element(view, "[data-testid='topup-total']")) =~ "$10.00"
-      assert render(element(view, "[data-testid='topup-new-balance']")) =~ "$10.00"
-
-      # The tax-layer placeholder note rides the same block.
-      assert html =~ "Final taxes are calculated at checkout."
     end
 
     test "the never-expires/non-refundable notice is stated", %{conn: conn} do
@@ -166,8 +295,8 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
   end
 
   describe "step 3 — payment" do
-    defp to_payment(conn) do
-      view = to_amount(conn)
+    defp to_payment(conn, overrides \\ %{}) do
+      view = to_amount(conn, overrides)
 
       submit = form(view, "#topup-amount-form", amount: %{dollars: "5"})
       render_submit(submit)
@@ -212,6 +341,248 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
         |> Ash.read!(authorize?: false)
 
       assert [%Topup{status: :pending, payment_request_id: "pr_1", amount_cents: 500}] = topups
+    end
+
+    test "pay recomputes the rate from the validated details, never a stale assign", %{
+      conn: conn,
+      org: org
+    } do
+      TaxRate.create!(
+        %{country: "DE", rate_bp: 1900, effective_from: @effective_from},
+        authorize?: false
+      )
+
+      TaxRate.create!(
+        %{country: "FR", rate_bp: 2900, effective_from: @effective_from},
+        authorize?: false
+      )
+
+      # DE details carried the wizard to the payment step (rate 19%
+      # resolved along the way). A hostile client can still push a
+      # validate-details event there — the details swap to FR.
+      view = to_payment(conn)
+
+      # A hostile client can push validate-details from the payment
+      # step — the details swap to FR.
+      render_change(view, "validate-details", %{
+        "details" => %{
+          "name" => "Jane Doe",
+          "email" => "jane@example.com",
+          "country" => "FR",
+          "customer_type" => "consumer"
+        }
+      })
+
+      parent = self()
+
+      expect(Req, :post, fn _req, opts ->
+        send(parent, {:form, opts[:form]})
+        {:ok, %Req.Response{status: 200, body: %{"id" => "pr_1", "url" => "https://x/pr_1"}}}
+      end)
+
+      _result = render_click(view, "pay")
+
+      # The charge prices FR at pay time — the stale DE assign (19%,
+      # 95¢ on $5) must not leak into the checkout.
+      assert_receive {:form, form}
+      assert {"amount", "6.45"} in form
+
+      topups =
+        Topup
+        |> Ash.Query.filter(organization_id == ^org.id)
+        |> Ash.read!(authorize?: false)
+
+      assert [
+               %Topup{
+                 billing_country: "FR",
+                 tax_rate_bp: 2900,
+                 tax_cents: 145,
+                 amount_cents: 500
+               }
+             ] = topups
+    end
+
+    test "an invalid detail edit never leaks a rate into a charge", %{
+      conn: conn,
+      org: org
+    } do
+      TaxRate.create!(
+        %{country: "DE", rate_bp: 1900, effective_from: @effective_from},
+        authorize?: false
+      )
+
+      view = to_payment(conn)
+
+      # A hostile validate-details on the payment step with broken
+      # details: the rate assign resets to the 0% placeholder and the
+      # invalid details fail the payable guard — no checkout, no row.
+      render_change(view, "validate-details", %{
+        "details" => %{"name" => "", "email" => "jane@example.com", "country" => "DE"}
+      })
+
+      html = render_click(view, "pay")
+
+      assert html =~ "Review and pay"
+
+      topups =
+        Topup
+        |> Ash.Query.filter(organization_id == ^org.id)
+        |> Ash.read!(authorize?: false)
+
+      assert topups == []
+    end
+
+    test "a DE consumer checkout charges the gross and records the rate", %{
+      conn: conn,
+      org: org
+    } do
+      TaxRate.create!(
+        %{country: "DE", rate_bp: 1900, effective_from: @effective_from},
+        authorize?: false
+      )
+
+      view = to_payment(conn)
+
+      # The stub runs in the LiveView process — send the gateway form
+      # to this test process explicitly.
+      parent = self()
+
+      expect(Req, :post, fn _req, opts ->
+        send(parent, {:form, opts[:form]})
+        {:ok, %Req.Response{status: 200, body: %{"id" => "pr_1", "url" => "https://x/pr_1"}}}
+      end)
+
+      _result = render_click(view, "pay")
+
+      assert_receive {:form, form}
+      assert {"amount", "5.95"} in form
+
+      topups =
+        Topup
+        |> Ash.Query.filter(organization_id == ^org.id)
+        |> Ash.read!(authorize?: false)
+
+      assert [
+               %Topup{
+                 status: :pending,
+                 amount_cents: 500,
+                 tax_rate_bp: 1900,
+                 tax_cents: 95,
+                 customer_type: :consumer,
+                 reverse_charge?: false
+               }
+             ] = topups
+    end
+
+    test "a B2B checkout reverse-charges and records the proofs on the row", %{
+      conn: conn,
+      org: org
+    } do
+      TaxRate.create!(
+        %{country: "DE", rate_bp: 1900, effective_from: @effective_from},
+        authorize?: false
+      )
+
+      view =
+        to_payment(conn, %{customer_type: "business", vat_number: "DE123456789"})
+
+      # The billed-to line carries the VAT proof for business buyers.
+      assert render(element(view, "[data-testid='topup-billed-to']")) =~
+               "VAT DE123456789"
+
+      parent = self()
+
+      expect(Req, :post, fn _req, opts ->
+        send(parent, {:form, opts[:form]})
+        {:ok, %Req.Response{status: 200, body: %{"id" => "pr_1", "url" => "https://x/pr_1"}}}
+      end)
+
+      _result = render_click(view, "pay")
+
+      # 0% — the customer self-accounts.
+      assert_receive {:form, form}
+      assert {"amount", "5.00"} in form
+
+      topups =
+        Topup
+        |> Ash.Query.filter(organization_id == ^org.id)
+        |> Ash.read!(authorize?: false)
+
+      assert [
+               %Topup{
+                 amount_cents: 500,
+                 tax_rate_bp: 0,
+                 tax_cents: 0,
+                 customer_type: :business,
+                 vat_number: "DE123456789",
+                 reverse_charge?: true
+               }
+             ] = topups
+    end
+
+    test "the IP country rides the session into the row's location evidence", %{
+      conn: conn,
+      org: org
+    } do
+      # The edge geo header lands in the session (CaptureIpCountry) on
+      # the way through the :browser pipeline — the header, not a
+      # hand-set session value, is the signal's path.
+      conn = Plug.Conn.put_req_header(conn, "cf-ipcountry", "de")
+
+      view = to_payment(conn)
+
+      expect(Req, :post, fn _req, _opts ->
+        {:ok,
+         %Req.Response{status: 200, body: %{"id" => "pr_1", "url" => "https://checkout/pr_1"}}}
+      end)
+
+      _result = render_click(view, "pay")
+
+      topups =
+        Topup
+        |> Ash.Query.filter(organization_id == ^org.id)
+        |> Ash.read!(authorize?: false)
+
+      assert [%Topup{billing_country: "DE", ip_country: "DE", ip_matches_billing?: true}] =
+               topups
+    end
+
+    test "a US checkout captures the billing state", %{conn: conn, org: org} do
+      view = to_payment(conn, %{country: "US", state: "ca"})
+
+      expect(Req, :post, fn _req, _opts ->
+        {:ok,
+         %Req.Response{status: 200, body: %{"id" => "pr_1", "url" => "https://checkout/pr_1"}}}
+      end)
+
+      _result = render_click(view, "pay")
+
+      topups =
+        Topup
+        |> Ash.Query.filter(organization_id == ^org.id)
+        |> Ash.read!(authorize?: false)
+
+      assert [%Topup{billing_country: "US", billing_state: "CA"}] = topups
+    end
+
+    test "the payment step shows the correction affordance and the gross", %{conn: conn} do
+      TaxRate.create!(
+        %{country: "DE", rate_bp: 1900, effective_from: @effective_from},
+        authorize?: false
+      )
+
+      view = to_payment(conn)
+
+      assert render(element(view, "[data-testid='topup-correction']")) =~
+               "Let us know if this is not correct"
+
+      assert render(element(view, "#topup-pay")) =~ "$5.95"
+
+      # A consumer's billed-to line names the buyer and country — no
+      # dangling "VAT" (an empty vat_number is not a proof).
+      billed_to = render(element(view, "[data-testid='topup-billed-to']"))
+      assert billed_to =~ "Jane Doe · jane@example.com · DE"
+      refute billed_to =~ "VAT"
     end
 
     test "unconfigured payments answer a plain error, nothing charged", %{conn: conn} do
