@@ -25,8 +25,12 @@ defmodule FluxVale.Catalog.AppVersion do
 
   policies do
     policy action_type(:read) do
-      description "Any signed-in actor browses the catalog; public read arrives with M7 pages"
-      authorize_if(actor_present())
+      # Public read includes the blueprint attrs (image, env vars,
+      # healthcheck) — catalog data is upstream-shaped and public. Never
+      # put a secret in default_env_vars; a secret-carrying app version
+      # needs a secret ref, which revisits this policy.
+      description "Public browse — the catalog is a public marketing surface (#164, ADR-00025); writes stay admin-only"
+      authorize_if(always())
     end
 
     policy FluxVale.Checks.ActorIsPlatformAdmin do

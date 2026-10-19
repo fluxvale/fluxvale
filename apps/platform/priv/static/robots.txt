@@ -1,5 +1,10 @@
-# See https://www.robotstxt.org/robotstxt.html for documentation on how to use the robots.txt file
-#
-# To ban all spiders from the entire site uncomment the next two lines:
-# User-agent: *
-# Disallow: /
+# Public site: everything is crawlable (#164, ADR-00025). Non-prod
+# hosts are excluded server-side via X-Robots-Tag + meta robots
+# (FluxValeWeb.Plugs.SeoNoindex), never here — robots.txt is
+# host-relative, so one allow-all file serves every environment.
+User-agent: *
+Allow: /
+
+# The origin here mirrors :canonical_origin (config.exs) — a static file
+# cannot read config; if the origin ever moves, both move together.
+Sitemap: https://fluxvale.com/sitemap.xml
