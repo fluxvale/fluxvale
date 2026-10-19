@@ -1,7 +1,7 @@
 # Release tasks — the prod image's operator surface (docs/deployment.md
 # pipeline, #98). Runs inside the OTP release where Mix is absent: the
-# entrypoints are the `bin/migrate` / `bin/seed` wrappers
-# (rel/overlays/bin/), which call these through `eval`.
+# entrypoints are the `bin/migrate` / `bin/seed` / `bin/ensure-cluster`
+# wrappers (rel/overlays/bin/), which call these through `eval`.
 #
 # Tested under ExUnit: `with_repo/2` reuses an already-started repo, so
 # the suite exercises the real functions against the sandboxed DB — the
@@ -10,12 +10,19 @@
 # outside dev, so the release ships no way to run it.
 defmodule FluxVale.Release do
   @moduledoc """
-  DB tasks for the production release (`bin/migrate`, `bin/seed`).
+  DB tasks for the production release (`bin/migrate`, `bin/seed`,
+  `bin/ensure-cluster`).
 
   `migrate/0` runs pending Ecto migrations per repo (advisory-locked by
-  the migrator — the init container relies on this when pods race) and
-  `seed/0` runs the bring-up seed (platform admin + catalog, idempotent).
+  the migrator — the init container relies on this when pods race),
+  `seed/0` runs the bring-up seed (platform admin + catalog, idempotent)
+  and `ensure_cluster/0` get-or-creates this environment's Cluster row
+  (#155).
   """
+
+  alias FluxVale.Infrastructure.Cluster
+
+  require Logger
 
   @app :flux_vale
 
@@ -48,6 +55,59 @@ defmodule FluxVale.Release do
 
     for repo <- repos() do
       {:ok, :ok, _started} = Ecto.Migrator.with_repo(repo, fn _repo -> FluxVale.Seeds.seed() end)
+    end
+
+    :ok
+  end
+
+  @doc """
+  Get-or-creates this environment's Cluster row (`bin/ensure-cluster`,
+  #155): `CLUSTER_NAME` names it and `kubeconfig_ref` stays NULL — the
+  in-cluster service-account sentinel (ADR-0006 Am. 2). Instance create
+  needs exactly one Cluster row (`ResolveCluster` refuses zero or many),
+  so the row must exist before the first instance. Get-or-create, never
+  converge: an admin-set ref is deliberate drift, same posture as
+  `FluxVale.Seeds.seed_local_cluster!/0`.
+  """
+  @spec ensure_cluster :: :ok
+  def ensure_cluster do
+    load_app()
+
+    case System.get_env("CLUSTER_NAME") do
+      name when name in [nil, ""] ->
+        raise ArgumentError,
+              "CLUSTER_NAME is required: the name of the cluster row to " <>
+                "get-or-create (e.g. CLUSTER_NAME=nuremberg-01 bin/ensure-cluster)"
+
+      name ->
+        ensure_cluster_repos(name)
+
+        :ok
+    end
+  end
+
+  defp ensure_cluster_repos(name) do
+    for repo <- repos() do
+      {:ok, :ok, _started} =
+        Ecto.Migrator.with_repo(repo, fn _repo -> ensure_cluster_row(name) end)
+    end
+  end
+
+  defp ensure_cluster_row(name) do
+    case Cluster.get_by_name(name, authorize?: false) do
+      {:ok, cluster} ->
+        exists =
+          "cluster row #{name} exists (kubeconfig_ref: #{inspect(cluster.kubeconfig_ref)}) — left untouched"
+
+        Logger.info(exists)
+
+      {:error, _not_found} ->
+        Cluster.create!(%{name: name}, authorize?: false)
+
+        created =
+          "created cluster row #{name} (kubeconfig_ref: null — the in-cluster SA sentinel, ADR-0006 Am. 2)"
+
+        Logger.info(created)
     end
 
     :ok

@@ -50,6 +50,21 @@ case System.get_env("INSTANCES_BASE_DOMAIN") do
   domain -> config :flux_vale, :instances_base_domain, domain
 end
 
+# Env-scoped slug prefix (#155): the deployed envs share the
+# *.fluxvale.app wildcard and slug uniqueness is per cluster only, so a
+# non-prod env prefixes its labels (staging: stg) and can never take a
+# prod one; prod — unset, or "" (the classic empty-Secret shape) — mints
+# bare labels. Invalid values raise at boot: a bad prefix would break
+# every instance URL minted after it.
+case System.get_env("INSTANCES_SLUG_PREFIX") do
+  value when value in [nil, ""] ->
+    :ok
+
+  value ->
+    FluxVale.Infrastructure.Instance.GenerateSlug.validate_prefix!(value)
+    config :flux_vale, :instances_slug_prefix, value
+end
+
 case System.get_env("INSTANCE_RBAC_SA_NAMESPACE") do
   namespace when namespace in [nil, ""] ->
     :ok

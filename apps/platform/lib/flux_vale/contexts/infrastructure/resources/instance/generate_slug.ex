@@ -9,6 +9,12 @@ defmodule FluxVale.Infrastructure.Instance.GenerateSlug do
   v1 documented and kept: 40.96M combinations (64x64x10k), 50% collision
   odds only at ~7,500 instances per cluster, a clear error on the rare
   race).
+
+  Uniqueness is per cluster only, and the deployed envs share the
+  `*.fluxvale.app` wildcard — so the env-scoped prefix (#155) is the
+  collision policy: prod (no `INSTANCES_SLUG_PREFIX`) mints bare labels;
+  a non-prod env sets a prefix (staging: `stg`) and can never take a
+  prod label.
   """
 
   use Ash.Resource.Change
@@ -43,6 +49,23 @@ defmodule FluxVale.Infrastructure.Instance.GenerateSlug do
     frost voice paper frog smoke star
   )
 
+  @max_adjective_length @adjectives
+                        |> Enum.map(&String.length/1)
+                        |> Enum.max()
+
+  @max_noun_length @nouns
+                   |> Enum.map(&String.length/1)
+                   |> Enum.max()
+
+  # Longest generated slug ("adjective-noun-####"): adjective + "-" +
+  # noun + "-" + 4 digits, from the word lists above.
+  @max_haikunate_length @max_adjective_length + @max_noun_length + 6
+
+  # Prefix bound: prefix + "-" + the longest slug ≤ 63 (DNS label).
+  @max_prefix_length 63 - 1 - @max_haikunate_length
+
+  @prefix_format ~r/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/
+
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
     cluster_id = Ash.Changeset.get_attribute(changeset, :cluster_id)
@@ -75,7 +98,7 @@ defmodule FluxVale.Infrastructure.Instance.GenerateSlug do
   def generate_unique_slug(_cluster_id, 0), do: {:error, :collision}
 
   def generate_unique_slug(cluster_id, retries_remaining) do
-    slug = generate_haikunate_slug()
+    slug = apply_prefix(generate_haikunate_slug())
 
     if slug_exists?(slug, cluster_id) do
       # retry recursion: only reachable on a random-draw collision
@@ -115,6 +138,48 @@ defmodule FluxVale.Infrastructure.Instance.GenerateSlug do
       |> String.pad_leading(4, "0")
 
     "#{adjective}-#{noun}-#{formatted_number}"
+  end
+
+  @doc """
+  Applies the env-scoped prefix (`config :flux_vale,
+  :instances_slug_prefix`, set from `INSTANCES_SLUG_PREFIX`) to a base
+  slug. nil — the prod default — and "" mint bare labels.
+  """
+  @spec apply_prefix(String.t()) :: String.t()
+  def apply_prefix(base) do
+    case Application.get_env(:flux_vale, :instances_slug_prefix) do
+      prefix when prefix in [nil, ""] -> base
+      prefix -> "#{prefix}-#{base}"
+    end
+  end
+
+  @doc """
+  Validates the `INSTANCES_SLUG_PREFIX` value (runtime.exs calls this at
+  boot, so a bad value fails the deploy, not the first instance create):
+  DNS-label shape, and short enough that prefix + the longest generated
+  slug stays within the 63-char DNS label.
+  """
+  @spec validate_prefix!(String.t() | nil) :: :ok
+  def validate_prefix!(prefix) when prefix in [nil, ""], do: :ok
+
+  def validate_prefix!(prefix) do
+    cond do
+      not Regex.match?(@prefix_format, prefix) ->
+        raise ArgumentError,
+              "INSTANCES_SLUG_PREFIX #{inspect(prefix)} is not a DNS label " <>
+                "(lowercase letters, digits and hyphens, no leading/trailing " <>
+                "hyphen) — fix the env var and redeploy"
+
+      String.length(prefix) > @max_prefix_length ->
+        raise ArgumentError,
+              "INSTANCES_SLUG_PREFIX #{inspect(prefix)} is too long " <>
+                "(#{String.length(prefix)} chars; the bound is #{@max_prefix_length} " <>
+                "so prefix + slug stays within the 63-char DNS label) — " <>
+                "fix the env var and redeploy"
+
+      true ->
+        :ok
+    end
   end
 
   @impl Ash.Resource.Change
