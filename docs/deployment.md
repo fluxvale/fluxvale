@@ -78,6 +78,25 @@ endpoints. So the oracles authenticate differently:
 - **CLI login follows the PAT model** (gh-style): create a PAT in the
   web UI, paste into the CLI — no email-code-over-API endpoints.
 
+### Break-glass sign-in (`bin/owner-signin`, #165)
+
+Prod cannot deliver mail yet (`Swoosh.Adapters.Local`), so a requested
+code dies in the pod's memory and no human can sign in on fluxvale.com.
+Until a prod mailer lands, the operator prints one code on their own
+terminal:
+
+```sh
+kubectl exec -n <namespace> deploy/fluxvale-platform -c platform -- /app/bin/owner-signin
+```
+
+The gate is `OWNER_EMAIL` when set, else the environment's **single
+platform admin** (zero or several raises — set `OWNER_EMAIL`). Nothing
+else can request a code: no route, nothing seeded, no argv. The code
+expires in 10 minutes, one send per address per 60 seconds, and the task
+prints it to stdout — never to the pod log. It runs through
+`eval` (no supervision tree, so the AccessRule cache is read
+straight-through); the AccessRule gate itself still applies.
+
 ### Scheduled monitoring (two layers)
 
 1. **Availability — Grafana Synthetics** (day one, Cloud free tier):

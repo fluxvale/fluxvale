@@ -10,12 +10,15 @@
 # outside dev, so the release ships no way to run it.
 defmodule FluxVale.Release do
   @moduledoc """
-  DB tasks for the production release (`bin/migrate`, `bin/seed`).
+  Operator tasks for the production release (`bin/migrate`, `bin/seed`,
+  `bin/owner-signin`).
 
   `migrate/0` runs pending Ecto migrations per repo (advisory-locked by
   the migrator — the init container relies on this when pods race) and
   `seed/0` runs the bring-up seed (platform admin + catalog, idempotent).
   """
+
+  alias FluxVale.Ops.OwnerSignIn
 
   @app :flux_vale
 
@@ -48,6 +51,31 @@ defmodule FluxVale.Release do
 
     for repo <- repos() do
       {:ok, :ok, _started} = Ecto.Migrator.with_repo(repo, fn _repo -> FluxVale.Seeds.seed() end)
+    end
+
+    :ok
+  end
+
+  @doc """
+  Issues a one-time sign-in code for the platform owner (#165) through
+  `OwnerSignIn` and prints it on the operator's terminal —
+  the break-glass path while prod cannot deliver mail. The gate is
+  `OWNER_EMAIL`, else the environment's single platform admin; nothing
+  is seeded and no route exists.
+  """
+  @spec owner_signin_code :: :ok
+  def owner_signin_code do
+    load_app()
+
+    # `eval` starts no supervision tree, so the AccessRules cache process
+    # is absent (verified live: `GenServer.call` exits `:noproc`). TTL 0
+    # reads the table straight through — the gate still runs, only the
+    # 60s snapshot is skipped, which is what a one-shot operator task wants.
+    Application.put_env(:flux_vale, :access_rules_cache_ttl_seconds, 0)
+
+    for repo <- repos() do
+      {:ok, :ok, _started} =
+        Ecto.Migrator.with_repo(repo, fn _repo -> OwnerSignIn.issue_code() end)
     end
 
     :ok
