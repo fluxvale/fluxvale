@@ -100,6 +100,26 @@ endpoints. So the oracles authenticate differently:
    PR, there's no deploy to blame (a scheduled failure with nothing
    deployed is an environment problem, not a code one).
 
+## Bring-up seeds
+
+`bin/seed` (release rpc — the same `FluxVale.Seeds.seed/0` that dev
+`mix setup` runs) converges bring-up data: platform admin (+ its
+personal org), prices, tax rates, catalog. Idempotent — a re-run
+changes nothing.
+
+The seed also heals the bootstrap admin's missing personal org: org
+provisioning (#119) rides the User `create` action, so accounts created
+before it have no org and can neither deploy nor top up. Any **other**
+legacy account is an operator remedy, never seed data (same posture as
+other operator-entered rows): heal it through the release rpc —
+
+```sh
+/app/bin/flux_vale eval 'FluxVale.Accounts.provision_personal_org(FluxVale.Identity.User.get_by_email!("user@example.com", authorize?: false))'
+```
+
+Idempotent — a second call adds nothing, and the welcome grant rides
+the org create exactly once.
+
 ## Feature flags
 
 Staging/prod divergence is feature flags only — a `FeatureFlag` Ash
