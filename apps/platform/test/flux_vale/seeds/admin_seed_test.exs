@@ -154,5 +154,34 @@ defmodule FluxVale.Seeds.AdminSeedTest do
       # Catalog converged (#70's machinery; Forgejo ships in the YAML)
       assert [_entries] = Ash.read!(FluxVale.Catalog.Category, authorize?: false)
     end
+
+    test "heals a pre-#119 admin through the promotable path" do
+      # Delegation guard: the heal rides seed/0 itself — dropping
+      # seed_admin_org!/0 from it must fail here, not in prod bring-up.
+      Ash.Seed.seed!(User, %{email: "admin@fluxvale.com", platform_role: :admin})
+
+      :ok = Seeds.seed()
+
+      admin = User.get_by_email!("admin@fluxvale.com", authorize?: false)
+
+      assert 1 ==
+               Organization
+               |> Ash.Query.for_read(:read, %{})
+               |> Ash.Query.filter(
+                 memberships.user_id == ^admin.id and memberships.role == :owner
+               )
+               |> Ash.count!(authorize?: false)
+
+      {:ok, org} = Accounts.personal_org_for_user(admin.id, authorize?: false)
+      {:ok, wallet} = Billing.ensure_wallet(org)
+
+      welcome =
+        LedgerEntry
+        |> Ash.Query.for_read(:read, %{})
+        |> Ash.Query.filter(wallet_id == ^wallet.id and reason == :welcome)
+        |> Ash.read!(authorize?: false)
+
+      assert length(welcome) == 1
+    end
   end
 end
