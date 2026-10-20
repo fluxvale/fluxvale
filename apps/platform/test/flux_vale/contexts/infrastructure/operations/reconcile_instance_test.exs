@@ -124,6 +124,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
       assert {:ok, errored} = ReconcileInstance.call(instance)
       assert errored.status == :error
       assert errored.status_message =~ "CrashLoopBackOff: back-off"
+      assert errored.failure_reason == :rollout_failed
     end
 
     test "a ProgressDeadlineExceeded Progressing condition lands :error" do
@@ -144,6 +145,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
       assert {:ok, errored} = ReconcileInstance.call(instance)
       assert errored.status == :error
       assert errored.status_message =~ "ProgressDeadlineExceeded"
+      assert errored.failure_reason == :rollout_failed
     end
 
     test "non-failure conditions (e.g. Progressing True) never demote" do
@@ -177,6 +179,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
       assert {:ok, errored} = ReconcileInstance.call(instance)
       assert errored.status == :error
       assert errored.status_message == "Deployment failed: rollout stalled"
+      assert errored.failure_reason == :rollout_failed
     end
 
     test "a vanished Deployment lands :error" do
@@ -190,6 +193,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
       assert {:ok, errored} = ReconcileInstance.call(instance)
       assert errored.status == :error
       assert errored.status_message =~ "Deployment not found in cluster"
+      assert errored.failure_reason == :missing
     end
   end
 
@@ -240,6 +244,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
       assert {:ok, errored} = ReconcileInstance.call(instance)
       assert errored.status == :error
       assert errored.status_message =~ "timed out"
+      assert errored.failure_reason == :stuck
     end
 
     test "a fresh :deploying instance is the deploy job's state — no-op" do

@@ -235,6 +235,14 @@ defmodule FluxVale.Infrastructure.Instance do
       public?(true)
     end
 
+    # #179: the closed failure classification the user-facing copy maps
+    # through. Technical detail stays in status_message (admin-only
+    # reveal); non-admins get copy derived from this atom. nil on
+    # non-error rows — set only by :error writes, cleared on recovery.
+    attribute :failure_reason, FluxVale.Infrastructure.Types.InstanceFailureReason do
+      public?(false)
+    end
+
     # Staleness signal for the reconcile timeout — set when a deploy is
     # enqueued, not on every write (updated_at bumps on no-op reconciles).
     attribute :deployed_at, :utc_datetime_usec do
@@ -379,8 +387,11 @@ defmodule FluxVale.Infrastructure.Instance do
       description "System status write — the state machine's single funnel (MaintainAnchors + StatusTransition)."
       # namespace deliberately NOT accepted: it is write-once (the deploy
       # action pins fluxvale-app-<id>), and an owner-reachable write here
-      # could point teardown at any namespace on the cluster.
-      accept([:status, :status_message])
+      # could point teardown at any namespace on the cluster. failure_reason
+      # rides the same system-only posture (#179): set on :error writes,
+      # nil on every other — InstanceK8s.update_status enforces the
+      # pairing.
+      accept([:status, :status_message, :failure_reason])
       require_atomic?(false)
 
       change(MaintainAnchors)
@@ -403,6 +414,7 @@ defmodule FluxVale.Infrastructure.Instance do
           |> Ash.Changeset.force_change_attribute(:status, :deploying)
           |> Ash.Changeset.force_change_attribute(:namespace, namespace)
           |> Ash.Changeset.force_change_attribute(:status_message, "Deploying to Kubernetes...")
+          |> Ash.Changeset.force_change_attribute(:failure_reason, nil)
           |> Ash.Changeset.force_change_attribute(:deployed_at, DateTime.utc_now())
         else
           Ash.Changeset.add_error(
@@ -560,6 +572,7 @@ defmodule FluxVale.Infrastructure.Instance do
         changeset
         |> Ash.Changeset.force_change_attribute(:status, :error)
         |> Ash.Changeset.force_change_attribute(:status_message, "Deploy job failed unexpectedly")
+        |> Ash.Changeset.force_change_attribute(:failure_reason, :deploy_failed)
       end)
     end
 
@@ -583,6 +596,7 @@ defmodule FluxVale.Infrastructure.Instance do
           :status_message,
           "Instance teardown failed; retry delete to attempt again"
         )
+        |> Ash.Changeset.force_change_attribute(:failure_reason, :teardown_failed)
       end)
     end
 
@@ -628,7 +642,12 @@ defmodule FluxVale.Infrastructure.Instance do
         "Instance #{deleting.id} teardown enqueue failed: #{Exception.message(exception)}"
       )
 
-      InstanceK8s.update_status(deleting, :error, "Delete failed to enqueue; retry delete")
+      InstanceK8s.update_status(
+        deleting,
+        :error,
+        "Delete failed to enqueue; retry delete",
+        :teardown_failed
+      )
 
       # coveralls-ignore-stop
   end
