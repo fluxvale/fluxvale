@@ -84,7 +84,7 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
 
     OpenTelemetry.Tracer.set_status(:error, message)
 
-    InstanceK8s.update_status(instance, :error, message)
+    InstanceK8s.update_status(instance, :error, message, :deploy_failed)
   end
 
   defp apply_then_transition(kubeconfig, instance) do

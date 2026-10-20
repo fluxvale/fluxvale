@@ -4,13 +4,18 @@ defmodule FluxValeWeb.InstanceLive.Index do
   via the instances:<id> broadcasts (Ash.Notifier.PubSub on Instance) —
   no polling, no full refetch.
 
-  Creates elsewhere (another tab) won't appear until remount — M3's
-  surface is the status of what you can see; no create broadcast.
+  One exception to "no polling" (#179): a lingering provision writes
+  nothing (a reconcile no-op doesn't broadcast), so a status tick
+  re-streams in-flight rows while any exist — otherwise the
+  taking-longer copy could never land on an open list. Creates in
+  another tab ride that same refresh; with nothing in-flight, remount
+  remains the only way creates appear.
   """
 
   use FluxValeWeb, :live_view
 
   alias FluxVale.Infrastructure.Instance
+  alias FluxValeWeb.InstanceStatus
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
@@ -21,13 +26,17 @@ defmodule FluxValeWeb.InstanceLive.Index do
       |> Ash.Query.load(app_version: :app)
       |> Ash.read!()
 
+    in_flight_ids = in_flight_ids(instances)
+
     socket =
       socket
       |> stream(:instances, instances)
       |> assign(:instance_count, length(instances))
+      |> assign(:in_flight_ids, in_flight_ids)
+      |> assign(:tick_scheduled?, false)
       |> subscribe(instances)
 
-    {:ok, socket}
+    {:ok, maybe_schedule_status_tick(socket, in_flight_ids)}
   end
 
   @impl Phoenix.LiveView
@@ -72,8 +81,15 @@ defmodule FluxValeWeb.InstanceLive.Index do
                   <.status_badge status={instance.status} />
                 </div>
               </div>
-              <p :if={instance.status_message} class="text-xs opacity-60 truncate">
-                {instance.status_message}
+              <%!-- #179: friendly copy only — raw status_message never
+              renders here. Quiet on settled states (running/stopped):
+              the badge says enough. --%>
+              <p
+                :if={instance.status in [:pending, :deploying, :starting, :error, :deleting]}
+                class="text-xs opacity-60 truncate"
+                data-testid="instance-status-message"
+              >
+                {InstanceStatus.message(instance)}
               </p>
             </div>
           </.link>
@@ -104,7 +120,18 @@ defmodule FluxValeWeb.InstanceLive.Index do
     case Instance.get_by_id(id, actor: socket.assigns.current_user) do
       {:ok, instance} ->
         instance = Ash.load!(instance, [app_version: :app], actor: socket.assigns.current_user)
-        {:noreply, stream_insert(socket, :instances, instance)}
+
+        ids = track_in_flight(socket.assigns.in_flight_ids, instance)
+
+        socket =
+          socket
+          |> assign(:in_flight_ids, ids)
+          |> stream_insert(:instances, instance)
+          # A broadcast landing in-flight may be the first (mounted
+          # with nothing in-progress) — the tick needs starting.
+          |> maybe_schedule_status_tick(ids)
+
+        {:noreply, socket}
 
       _error ->
         # Destroy races land here too — the destroy clause handles the
@@ -113,10 +140,80 @@ defmodule FluxValeWeb.InstanceLive.Index do
     end
   end
 
+  @impl Phoenix.LiveView
+  # #179's status tick: a lingering provision writes nothing, so this is
+  # what re-streams in-flight rows (fresh clock → taking-longer copy).
+  # Settled rows stop the tick.
+  def handle_info(:status_tick, socket) do
+    unscheduled = assign(socket, :tick_scheduled?, false)
+
+    {refreshed, still_ids} = refresh_in_flight(unscheduled, unscheduled.assigns.in_flight_ids)
+
+    {:noreply,
+     refreshed
+     |> assign(:in_flight_ids, still_ids)
+     |> maybe_schedule_status_tick(still_ids)}
+  end
+
   defp subscribe(socket, instances) do
     Enum.reduce(instances, socket, fn instance, socket ->
       Phoenix.PubSub.subscribe(FluxVale.PubSub, "instances:#{instance.id}")
       socket
     end)
+  end
+
+  # The tick's tracking set — plain ids, not the stream (streams aren't
+  # enumerable; the assign holds only what the tick re-reads).
+  defp in_flight_ids(instances) do
+    instances
+    |> Enum.filter(&InstanceStatus.in_progress?(&1.status))
+    |> Enum.map(& &1.id)
+  end
+
+  defp refresh_in_flight(socket, ids) do
+    Enum.reduce(ids, {socket, []}, fn id, acc ->
+      refresh_one(socket, id, acc)
+    end)
+  end
+
+  # One tracked row: re-streamed either way (a settle whose broadcast
+  # hasn't landed still deserves the fresher copy), tracked only while
+  # still in-flight. A read miss (row torn down mid-tick) is the
+  # destroy broadcast's job.
+  defp refresh_one(socket, id, {acc_socket, still}) do
+    case Instance.get_by_id(id, actor: socket.assigns.current_user) do
+      {:ok, instance} ->
+        instance = Ash.load!(instance, [app_version: :app], actor: socket.assigns.current_user)
+        next_socket = stream_insert(acc_socket, :instances, instance)
+
+        if InstanceStatus.in_progress?(instance.status) do
+          {next_socket, [id | still]}
+        else
+          {next_socket, still}
+        end
+
+      _error ->
+        {acc_socket, still}
+    end
+  end
+
+  defp track_in_flight(ids, instance) do
+    if InstanceStatus.in_progress?(instance.status) do
+      [instance.id | List.delete(ids, instance.id)]
+    else
+      List.delete(ids, instance.id)
+    end
+  end
+
+  # One self-rescheduling tick while any row is in-flight — connected
+  # only (the disconnected static render is thrown away).
+  defp maybe_schedule_status_tick(socket, in_flight_ids) do
+    if connected?(socket) and in_flight_ids != [] and not socket.assigns.tick_scheduled? do
+      interval = InstanceStatus.slow_after_seconds() * 1000
+      Process.send_after(self(), :status_tick, interval)
+      assign(socket, :tick_scheduled?, true)
+    else
+      socket
+    end
   end
 end

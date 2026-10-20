@@ -9,6 +9,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
   use FluxValeWeb.ConnCase, async: true
   use Mimic
 
+  import FluxVale.TestSupport.NoK8sLeaks
   import Phoenix.LiveViewTest
 
   alias FluxVale.Clients.K8s
@@ -90,6 +91,24 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     assert has_element?(view, "button[phx-click='to-env']")
     assert has_element?(view, "[data-testid='version-price-#{version.version}']", "$1.00/mo")
     assert html =~ "published"
+  end
+
+  # #179's surface audit: the stepper renders across all three steps
+  # and flashes after events — none of it may name the platform under
+  # the hood.
+  test "every stepper step and flash renders k8s-free", %{conn: conn, app: app, version: version} do
+    {:ok, view, html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+
+    # The step-guard flash (a crafted event with no pick) too.
+    flashed = render_click(view, "to-env", %{})
+    assert flashed =~ "Pick a version first."
+    refute_k8s_terms(flashed)
+
+    to_step_2(view, version)
+    refute_k8s_terms(render(view))
+
+    to_step_3(view, %{"SMTP_HOST" => "smtp.example.com"})
+    refute_k8s_terms(render(view))
   end
 
   test "unknown slug redirects to the catalog", %{conn: conn} do
