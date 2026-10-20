@@ -71,6 +71,7 @@ defmodule FluxVale.Infrastructure.Operations.StopStartInstanceTest do
       assert {:ok, errored} = StopInstance.call(instance)
       assert errored.status == :error
       assert errored.status_message =~ "Stop failed: cluster on fire"
+      assert errored.failure_reason == :stop_failed
     end
 
     test "a non-running instance is a no-op" do
@@ -108,6 +109,7 @@ defmodule FluxVale.Infrastructure.Operations.StopStartInstanceTest do
       assert {:ok, errored} = StartInstance.call(instance)
       assert errored.status == :error
       assert errored.status_message =~ "Start failed"
+      assert errored.failure_reason == :start_failed
     end
 
     test "a non-stopped instance is a no-op" do

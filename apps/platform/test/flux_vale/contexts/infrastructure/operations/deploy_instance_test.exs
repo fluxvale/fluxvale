@@ -188,6 +188,7 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
       assert {:ok, updated} = DeployInstance.call(instance)
       assert updated.status == :error
       assert updated.status_message =~ "Deploy failed: cluster on fire"
+      assert updated.failure_reason == :deploy_failed
     end
 
     test "a kubeconfig failure lands :error" do
@@ -198,6 +199,7 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
       assert {:ok, updated} = DeployInstance.call(instance)
       assert updated.status == :error
       assert updated.status_message =~ "Deploy failed"
+      assert updated.failure_reason == :deploy_failed
     end
 
     test "a non-:deploying instance is a no-op (superseded retry)" do

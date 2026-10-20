@@ -28,6 +28,8 @@ defmodule FluxValeWeb.CoreComponents do
   """
   use Phoenix.Component
 
+  alias FluxValeWeb.InstanceStatus
+
   alias Phoenix.HTML.Form
   use Gettext, backend: FluxValeWeb.Gettext
 
@@ -461,7 +463,8 @@ defmodule FluxValeWeb.CoreComponents do
   Renders an Instance status badge (#74) — one per state-machine state,
   with a pulse on the in-motion ones (deploying/starting/deleting).
   No DOM id: the badge appears once per row in lists, and ids must stay
-  unique — assert via `.badge` + text.
+  unique — assert via `.badge` + text. The label is #179's user-facing
+  vocabulary (Submitted/Provisioning/…), never the internal atom.
   """
   attr :status, :atom, required: true
 
@@ -476,11 +479,14 @@ defmodule FluxValeWeb.CoreComponents do
       deleting: "badge-error motion-safe:animate-pulse"
     }
 
-    assigns = assign(assigns, :class, Map.get(classes, status, "badge-ghost"))
+    assigns =
+      assigns
+      |> assign(:class, Map.get(classes, status, "badge-ghost"))
+      |> assign(:label, InstanceStatus.label(status))
 
     ~H"""
     <span class={["badge badge-sm font-medium", @class]} data-testid="status-badge">
-      {@status}
+      {@label}
     </span>
     """
   end

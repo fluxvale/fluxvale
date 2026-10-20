@@ -90,6 +90,18 @@ defmodule FluxVale.TestSupport.InstanceFixtures do
   end
 
   @doc """
+  Creates an action-built Instance for `user` on `version` (#179's
+  status-surface tests) — `pending` on creation, like the real entry.
+  """
+  @spec instance!(AppVersion.t(), map()) :: Instance.t()
+  def instance!(version, user) do
+    Instance.create!(
+      %{name: "Inst #{System.unique_integer()}", app_version_id: version.id},
+      actor: user
+    )
+  end
+
+  @doc """
   Pins system-written fields (namespace/deployed_at) on an
   action-created Instance via a forced `:update_status` write — the
   namespace is write-once (the deploy action owns it, and the inline

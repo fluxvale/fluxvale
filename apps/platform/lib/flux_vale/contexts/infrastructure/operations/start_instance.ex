@@ -25,7 +25,8 @@ defmodule FluxVale.Infrastructure.Operations.StartInstance do
         InstanceK8s.update_status(
           instance,
           :error,
-          "Start failed: #{InstanceK8s.format_error(error)}"
+          "Start failed: #{InstanceK8s.format_error(error)}",
+          :start_failed
         )
     end
   end

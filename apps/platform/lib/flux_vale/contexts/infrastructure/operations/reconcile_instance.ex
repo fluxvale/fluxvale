@@ -60,7 +60,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
         "Instance #{instance.id} deploy stuck >#{@deploy_stale_timeout_seconds}s; timing out to :error"
       )
 
-      flip_to_error(instance, "Deploy job stuck; timed out")
+      flip_to_error(instance, "Deploy job stuck; timed out", :stuck)
     else
       {:ok, instance}
     end
@@ -85,7 +85,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
       {:error, %Error{reason: :not_found}} ->
         Logger.warning("Instance #{instance.id}: Deployment not found in cluster; marking :error")
 
-        flip_to_error(instance, "Deployment not found in cluster")
+        flip_to_error(instance, "Deployment not found in cluster", :missing)
 
       {:error, _error} ->
         # Transient K8s API read failure — don't flip status on a failed read.
@@ -108,7 +108,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
           "Instance #{instance.id}: failed rollout condition detected; marking :error (#{message})"
         )
 
-        flip_to_error(instance, message)
+        flip_to_error(instance, message, :rollout_failed)
 
       desired > 0 and ready >= desired ->
         if instance.status == :starting do
@@ -126,10 +126,10 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
 
   # Every :error flip marks the reconcile span failed — Tempo's
   # errored-spans view is the triage entry.
-  defp flip_to_error(instance, message) do
+  defp flip_to_error(instance, message, failure_reason) do
     OpenTelemetry.Tracer.set_status(:error, message)
 
-    InstanceK8s.update_status(instance, :error, message)
+    InstanceK8s.update_status(instance, :error, message, failure_reason)
   end
 
   defp failed_rollout?(conditions) do

@@ -642,6 +642,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       |> then(fn updated ->
         assert updated.status == :error
         assert updated.status_message == "Deploy job failed unexpectedly"
+        assert updated.failure_reason == :deploy_failed
       end)
     end
 
@@ -654,7 +655,33 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       |> then(fn updated ->
         assert updated.status == :error
         assert updated.status_message =~ "retry delete"
+        assert updated.failure_reason == :teardown_failed
       end)
+    end
+
+    # #179: failure_reason is the friendly-copy classification — it
+    # lands with :error writes and clears on recovery, so a retried
+    # provision can never inherit the previous failure's copy.
+    test "failure_reason lands on :error writes and clears on recovery" do
+      instance = created!()
+      deploying = InstanceFixtures.walk_to!(instance, :deploying)
+
+      {:ok, errored} =
+        InstanceK8s.update_status(deploying, :error, "Deploy failed: boom", :deploy_failed)
+
+      assert errored.failure_reason == :deploy_failed
+
+      # Recovery: deploy pins :deploying + clears the reason.
+      {:ok, retrying} = Instance.deploy(errored, actor: owner_of(instance))
+      assert retrying.status == :deploying
+      assert is_nil(retrying.failure_reason)
+
+      # And the funnel never leaves a stale reason on a non-error write.
+      starting = InstanceFixtures.walk_to!(retrying, :starting)
+
+      {:ok, running} = InstanceK8s.update_status(starting, :running, nil)
+
+      assert is_nil(running.failure_reason)
     end
   end
 

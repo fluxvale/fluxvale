@@ -11,6 +11,7 @@ defmodule FluxValeWeb.InstanceLive.Index do
   use FluxValeWeb, :live_view
 
   alias FluxVale.Infrastructure.Instance
+  alias FluxValeWeb.InstanceStatus
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
@@ -72,8 +73,15 @@ defmodule FluxValeWeb.InstanceLive.Index do
                   <.status_badge status={instance.status} />
                 </div>
               </div>
-              <p :if={instance.status_message} class="text-xs opacity-60 truncate">
-                {instance.status_message}
+              <%!-- #179: friendly copy only — raw status_message never
+              renders here. Quiet on settled states (running/stopped):
+              the badge says enough. --%>
+              <p
+                :if={instance.status in [:pending, :deploying, :starting, :error, :deleting]}
+                class="text-xs opacity-60 truncate"
+                data-testid="instance-status-message"
+              >
+                {InstanceStatus.message(instance)}
               </p>
             </div>
           </.link>

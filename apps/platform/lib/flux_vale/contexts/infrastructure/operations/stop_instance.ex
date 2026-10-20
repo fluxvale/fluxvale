@@ -26,7 +26,8 @@ defmodule FluxVale.Infrastructure.Operations.StopInstance do
         InstanceK8s.update_status(
           instance,
           :error,
-          "Stop failed: #{InstanceK8s.format_error(error)}"
+          "Stop failed: #{InstanceK8s.format_error(error)}",
+          :stop_failed
         )
     end
   end

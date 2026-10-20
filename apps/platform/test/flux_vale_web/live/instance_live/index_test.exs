@@ -7,6 +7,7 @@ defmodule FluxValeWeb.InstanceLive.IndexTest do
 
   use FluxValeWeb.ConnCase, async: true
 
+  import FluxVale.TestSupport.NoK8sLeaks
   import Phoenix.LiveViewTest
 
   alias FluxVale.Infrastructure.Instance
@@ -55,21 +56,33 @@ defmodule FluxValeWeb.InstanceLive.IndexTest do
 
     {:ok, view, html} = live(conn, ~p"/instances")
 
-    assert html =~ "pending"
+    assert has_element?(view, ".badge", "Submitted")
+
+    assert has_element?(
+             view,
+             "[data-testid='instance-status-message']",
+             "setup will begin shortly"
+           )
+
     assert html =~ app.name
 
     # A real system write (the reconciler's funnel) — the notification's
     # record carries no loaded relationships, so the view reloads the
     # row's app before re-streaming.
     running = InstanceFixtures.walk_to!(instance, :running)
-    InstanceK8s.update_status(running, :running, "Ready")
+    InstanceK8s.update_status(running, :running, "All replicas ready")
 
     updated_html = render(view)
 
-    assert updated_html =~ "running"
+    assert has_element?(view, ".badge", "Running")
     assert has_element?(view, "#instances-#{running.id}", running.slug)
     assert updated_html =~ app.name
-    assert updated_html =~ "Ready"
+    # #179: settled rows are quiet — the raw status_message ("All
+    # replicas ready") never renders, and running rows carry no
+    # message line at all.
+    refute updated_html =~ "All replicas ready"
+    refute has_element?(view, "#instances-#{running.id} [data-testid='instance-status-message']")
+    refute_k8s_terms(updated_html)
   end
 
   test "a trailing update broadcast for a deleted row is a no-op", %{
@@ -108,5 +121,30 @@ defmodule FluxValeWeb.InstanceLive.IndexTest do
 
     refute has_element?(view, "#instances-#{instance.id}")
     assert html =~ "No instances yet"
+  end
+
+  # #179: a failed deploy's row shows the friendly failure copy — the
+  # verbatim operator message stays on the row, never in the list.
+  test "an errored instance lists friendly failure copy, no operator detail", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    instance = create_instance!(version, user)
+    deployed = InstanceFixtures.walk_to!(instance, :running)
+
+    InstanceK8s.update_status(
+      deployed,
+      :error,
+      "Deploy failed: resourcequotas is forbidden: User system:serviceaccount cannot create",
+      :deploy_failed
+    )
+
+    {:ok, view, html} = live(conn, ~p"/instances")
+
+    assert has_element?(view, "#instances-#{instance.id}", "Failed")
+    assert has_element?(view, "[data-testid='instance-status-message']", "We hit a snag")
+    refute html =~ "resourcequotas"
+    refute_k8s_terms(html)
   end
 end

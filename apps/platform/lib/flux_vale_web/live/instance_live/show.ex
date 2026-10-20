@@ -11,7 +11,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
   use FluxValeWeb, :live_view
 
+  alias FluxVale.Checks.ActorIsPlatformAdmin
   alias FluxVale.Infrastructure.Instance
+  alias FluxValeWeb.InstanceStatus
 
   @impl Phoenix.LiveView
   def mount(%{"id" => id}, _session, socket) do
@@ -23,7 +25,16 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
         Phoenix.PubSub.subscribe(FluxVale.PubSub, "instances:#{instance.id}")
 
-        {:ok, assign(socket, :instance, instance)}
+        # #179: technical detail (raw status_message, namespace, image)
+        # renders only for platform admins — one predicate, shared with
+        # policy-land, so the notion can't fork.
+        socket =
+          assign(socket,
+            instance: instance,
+            admin?: ActorIsPlatformAdmin.platform_admin?(user)
+          )
+
+        {:ok, socket}
 
       _error ->
         # Someone else's instance reads as not-found (owner policy);
@@ -63,26 +74,44 @@ defmodule FluxValeWeb.InstanceLive.Show do
         <div class="card bg-base-200">
           <div class="card-body gap-4">
             <h2 class="card-title text-base">Status</h2>
-            <p
-              :if={@instance.status_message}
-              class="text-sm opacity-80"
-              id="status-message"
-              data-testid="status-message"
-            >
-              {@instance.status_message}
-            </p>
-            <p :if={is_nil(@instance.status_message)} class="text-sm opacity-60">
-              {@instance.status}
+            <%!-- #179: user-facing copy derived from the state machine —
+            the raw status_message never renders to non-admins. --%>
+            <p class="text-sm opacity-80" id="status-message" data-testid="status-message">
+              {InstanceStatus.message(@instance)}
             </p>
 
-            <%= if @instance.status in [:deploying, :starting] do %>
+            <%= if InstanceStatus.in_progress?(@instance.status) do %>
               <div class="flex items-center gap-2 text-sm opacity-70">
                 <.icon name="hero-arrow-path" class="size-4 motion-safe:animate-spin" />
-                Kubernetes is converging — this page updates on its own.
+                This page updates on its own.
               </div>
             <% end %>
           </div>
         </div>
+
+        <%= if @admin? do %>
+          <%!-- #179's admin-only reveal: the full technical trail, in the
+          clear, for staff. Everything a non-admin must not see on this
+          page lives here. --%>
+          <div class="card bg-base-200 border border-base-300">
+            <div class="card-body gap-3">
+              <h2 class="card-title text-base">
+                Technical details <span class="badge badge-ghost badge-sm">admin</span>
+              </h2>
+              <div class="grid gap-2 text-xs font-mono" data-testid="admin-technical">
+                <p>
+                  status: <span data-testid="admin-status">{@instance.status}</span>
+                </p>
+                <p>failure_reason: {@instance.failure_reason || "—"}</p>
+                <p :if={@instance.status_message} class="break-words">
+                  message: {@instance.status_message}
+                </p>
+                <p>namespace: {@instance.namespace || "—"}</p>
+                <p>image: {@instance.image}</p>
+              </div>
+            </div>
+          </div>
+        <% end %>
 
         <div class="card bg-base-200">
           <div class="card-body gap-4">
@@ -96,14 +125,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
                 <span class="opacity-60">Version</span>
                 <span class="font-mono">v{@instance.app_version.version}</span>
               </div>
-              <div class="flex justify-between sm:block">
-                <span class="opacity-60">Image</span>
-                <span class="font-mono text-xs truncate">{@instance.image}</span>
-              </div>
-              <div class="flex justify-between sm:block">
-                <span class="opacity-60">Namespace</span>
-                <span class="font-mono text-xs">{@instance.namespace || "—"}</span>
-              </div>
+              <%!-- #179: image + namespace rows moved to the admin-only
+              technical card — non-admins never see cluster-identifying
+              detail. --%>
               <div class="flex justify-between sm:block">
                 <span class="opacity-60">Resources</span>
                 <span>
