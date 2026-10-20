@@ -37,14 +37,22 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
   to nested calls — the user-facing entry actions (deploy/stop/start/
   delete) carry the ownership policy check. The namespace never changes
   here: it is write-once, pinned by the deploy action.
+
+  `failure_reason` (#179) travels with the status: set only when landing
+  `:error` (the friendly-copy classification), forced nil on every other
+  write — a recovery can never inherit the previous failure's reason.
   """
-  @spec update_status(Instance.t(), atom(), String.t() | nil) ::
+  @spec update_status(Instance.t(), atom(), String.t() | nil, atom() | nil) ::
           {:ok, Instance.t()} | {:error, term()}
-  def update_status(instance, status, status_message) do
+  def update_status(instance, status, status_message, failure_reason \\ nil) do
     # Messages are capped at the resource's 500-char validation — K8s
     # condition strings routinely exceed it, and an over-long message
     # would fail the write itself (a worse outcome than a truncated one).
-    params = %{status: status, status_message: truncate(status_message, 500)}
+    params = %{
+      status: status,
+      status_message: truncate(status_message, 500),
+      failure_reason: if(status == :error, do: failure_reason)
+    }
 
     instance
     |> Ash.Changeset.for_update(:update_status, params, authorize?: false)

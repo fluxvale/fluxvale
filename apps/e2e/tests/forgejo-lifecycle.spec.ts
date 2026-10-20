@@ -61,12 +61,13 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   await page.getByTestId("instance-name").fill(name);
   await page.getByTestId("deploy-submit").click();
 
-  // Status page: deploying → starting → running (live badge; no polling
-  // in-page — PubSub re-renders, this loop just reads). The join wait
-  // covers stop/delete below — their clicks must not race either.
+  // Status page: Provisioning → Starting → Running (live badge; no
+  // polling in-page — PubSub re-renders, this loop just reads). The
+  // join wait covers stop/delete below — their clicks must not race
+  // either.
   await page.waitForURL(/\/instances\//);
   await waitForLiveViewJoin(page);
-  await waitForStatus(page, "running", 12 * 60_000);
+  await waitForStatus(page, "Running", 12 * 60_000);
 
   // The instance URL opens through Traefik (self-signed — ignored at
   // the config level) and actually serves Forgejo, not a placeholder
@@ -86,9 +87,9 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   expect(signUp.status()).toBeLessThan(400);
   expect(await signUp.text()).toMatch(/register|sign up/i);
 
-  // Stop → stopped (K8s scale-to-0, quick)
+  // Stop → Stopped (scale-to-zero under the hood, quick)
   await page.getByTestId("stop-button").click();
-  await waitForStatus(page, "stopped", 60_000);
+  await waitForStatus(page, "Stopped", 60_000);
 
   // Destroy: native confirm() dialog, teardown (async Oban) exits the
   // view to /instances where the fresh user's list is empty again
@@ -98,8 +99,10 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   await expect(page.getByTestId("instance-row")).toHaveCount(0);
 });
 
-// Poll the live badge until `want` shows; `error` fails fast with the
-// status message — waiting out a dead deploy proves nothing.
+// Poll the live badge until `want` shows; "Failed" fails fast with the
+// status message — waiting out a dead deploy proves nothing. The badge
+// reads #179's user-facing vocabulary (Running/Stopped/Failed…), never
+// the internal state-machine atom.
 async function waitForStatus(page: Page, want: string, timeoutMs: number) {
   const deadline = Date.now() + timeoutMs;
 
@@ -110,7 +113,7 @@ async function waitForStatus(page: Page, want: string, timeoutMs: number) {
       .catch(() => null);
 
     if (status?.trim() === want) return;
-    if (status?.trim() === "error") {
+    if (status?.trim() === "Failed") {
       const message = await page
         .getByTestId("status-message")
         .textContent()

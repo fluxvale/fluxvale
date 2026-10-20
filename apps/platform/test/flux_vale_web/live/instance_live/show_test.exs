@@ -10,10 +10,12 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
   use FluxValeWeb.ConnCase, async: true
   use Mimic
 
+  import FluxVale.TestSupport.NoK8sLeaks
   import Phoenix.LiveViewTest
 
   alias FluxVale.Clients.K8s
 
+  alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Ingress
   alias FluxVale.Clients.K8s.Resources.Namespace
@@ -25,6 +27,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
   alias FluxVale.Clients.K8s.Resources.Service
 
   alias FluxVale.Catalog.AppVersion
+  alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.TestSupport.InstanceFixtures
@@ -65,7 +68,11 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     instance = create_instance!(version, user)
     {:ok, view, html} = live(conn, ~p"/instances/#{instance.id}")
 
-    assert has_element?(view, ".badge", "pending")
+    # #179: the arc vocabulary, not the internal atom — and no k8s term
+    # anywhere on the surface.
+    assert has_element?(view, ".badge", "Submitted")
+    assert has_element?(view, "[data-testid='status-message']", "We've got your request")
+    refute_k8s_terms(html)
     assert html =~ "#{instance.slug}.fluxvale.lvh.me"
     assert has_element?(view, "button[phx-click='deploy']", "Deploy")
     assert has_element?(view, "button[phx-click='delete']")
@@ -192,7 +199,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     # the row per broadcast, so a follow-up render is the settled truth.
     render(view)
 
-    assert has_element?(view, ".badge", "starting")
+    assert has_element?(view, ".badge", "Starting")
   end
 
   test "stop and start buttons drive the state machine", %{
@@ -211,13 +218,13 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     |> element("button[phx-click='stop']")
     |> render_click()
 
-    assert has_element?(view, ".badge", "stopped")
+    assert has_element?(view, ".badge", "Stopped")
 
     view
     |> element("button[phx-click='start']")
     |> render_click()
 
-    assert has_element?(view, ".badge", "starting")
+    assert has_element?(view, ".badge", "Starting")
   end
 
   # The illegal-transition arms: a stale event (state moved server-side
@@ -243,7 +250,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     html = render_click(view, "deploy", %{})
 
     assert html =~ "Deploy isn&#39;t possible"
-    assert has_element?(view, ".badge", "running")
+    assert has_element?(view, ".badge", "Running")
   end
 
   test "a stale stop event flashes instead of crashing", %{
@@ -265,7 +272,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     html = render_click(view, "stop", %{})
 
     assert html =~ "action isn&#39;t possible"
-    assert has_element?(view, ".badge", "stopped")
+    assert has_element?(view, ".badge", "Stopped")
   end
 
   test "a deleting instance shows the teardown state and no controls", %{
@@ -282,8 +289,9 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
     html = render(view)
 
-    assert has_element?(view, ".badge", "deleting")
-    assert html =~ "Tearing down"
+    assert has_element?(view, ".badge", "Deleting")
+    assert has_element?(view, "[data-testid='status-message']", "Cleaning up")
+    refute_k8s_terms(html)
     refute has_element?(view, "button[phx-click='delete']")
   end
 
@@ -314,8 +322,9 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
     html = render(view)
 
-    assert has_element?(view, ".badge", "running")
-    assert html =~ "All replicas ready"
+    assert has_element?(view, ".badge", "Running")
+    assert has_element?(view, "[data-testid='status-message']", "up and running")
+    refute_k8s_terms(html)
     assert has_element?(view, "a[href^='https://#{instance.slug}.']")
   end
 
@@ -340,7 +349,213 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
     # Unchanged: the view holds its state (the :destroy clause is the exit)
     assert render(view) =~ instance.name
-    assert has_element?(view, ".badge", "pending")
+    assert has_element?(view, ".badge", "Submitted")
     refute html =~ "isn&#39;t possible"
+  end
+
+  # #179: the friendly arc — every in-flight/landed state renders its
+  # plain-language copy, live off the broadcasts, and no k8s term
+  # renders at any step of the way.
+  test "the provisioning arc renders friendly copy per state", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    stub_deploy_k8s()
+
+    instance = create_instance!(version, user)
+    {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+    assert has_element?(view, ".badge", "Submitted")
+    assert has_element?(view, "[data-testid='status-message']", "setup will begin shortly")
+
+    deploying = InstanceFixtures.walk_to!(instance, :deploying)
+    render(view)
+    assert has_element?(view, ".badge", "Provisioning")
+    assert has_element?(view, "[data-testid='status-message']", "Setting up your app")
+
+    {:ok, _starting} = InstanceK8s.update_status(deploying, :starting, "awaiting readiness")
+    render(view)
+    assert has_element?(view, ".badge", "Starting")
+    assert has_element?(view, "[data-testid='status-message']", "Starting it up")
+
+    InstanceFixtures.walk_to!(instance, :running)
+    html = render(view)
+    assert has_element?(view, ".badge", "Running")
+    assert has_element?(view, "[data-testid='status-message']", "up and running")
+    refute_k8s_terms(html)
+  end
+
+  test "a lingering provision swaps in the taking-longer copy", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    instance = create_instance!(version, user)
+    deploying = InstanceFixtures.walk_to!(instance, :deploying)
+
+    {:ok, view, _html} = live(conn, ~p"/instances/#{deploying.id}")
+
+    assert has_element?(view, "[data-testid='status-message']", "Setting up your app")
+
+    # The provision lingers past the slow threshold — still in-flight
+    # per the state machine, but the copy acknowledges the wait.
+    InstanceFixtures.pin!(deploying, deployed_at: DateTime.add(DateTime.utc_now(), -600, :second))
+
+    html = render(view)
+
+    assert has_element?(
+             view,
+             "[data-testid='status-message']",
+             "This is taking longer than usual"
+           )
+
+    refute_k8s_terms(html)
+  end
+
+  # The observed incident (#179's why), replayed verbatim: the deploy
+  # apply hits a 403 carrying RBAC wording, service-account names, and
+  # the namespace — none of it may reach the surface.
+  test "a failed deploy renders friendly copy, keeping the detail on the row", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+    stub(Namespace, :create, fn _kc, _ns, _spec -> {:ok, %{}} end)
+    stub(RoleBinding, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+    stub(ResourceQuota, :create, fn _kc, ns, _n, _spec ->
+      {:error,
+       %Error{
+         status_code: 403,
+         reason: :forbidden,
+         message:
+           "resourcequotas is forbidden: User \"system:serviceaccount:fluxvale:platform\" " <>
+             "cannot create resource \"resourcequotas\" in API group \"\" in the namespace \"#{ns}\""
+       }}
+    end)
+
+    instance = create_instance!(version, user)
+    {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+    view
+    |> element("button[phx-click='deploy']")
+    |> render_click()
+
+    html = render(view)
+
+    # The user sees the failure vocabulary + a next step — and nothing else.
+    assert has_element?(view, ".badge", "Failed")
+    assert has_element?(view, "[data-testid='status-message']", "We hit a snag")
+    assert has_element?(view, "button[phx-click='deploy']", "Retry deploy")
+    refute_k8s_terms(html)
+
+    # The technical detail lives on, exactly where ops needs it: the
+    # row (admin reveal below asserts it renders for staff only).
+    stored = Instance.get_by_id!(instance.id, authorize?: false)
+    assert stored.status_message =~ "resourcequotas is forbidden"
+    assert stored.status_message =~ "system:serviceaccount"
+    assert stored.failure_reason == :deploy_failed
+    assert stored.namespace == "fluxvale-app-#{instance.id}"
+  end
+
+  test "an admin sees the technical reveal; a non-admin never does", %{
+    conn: conn,
+    version: version
+  } do
+    admin =
+      User.create!(
+        "admin-#{System.unique_integer()}@fluxvale.com",
+        %{platform_role: :admin},
+        authorize?: false
+      )
+
+    instance = create_instance!(version, admin)
+    InstanceFixtures.pin!(instance, namespace: "fluxvale-app-#{instance.id}")
+
+    InstanceK8s.update_status(
+      instance,
+      :error,
+      "Deploy failed: resourcequotas is forbidden: User system:serviceaccount cannot create",
+      :deploy_failed
+    )
+
+    # The admin's own page: friendly copy AND the raw trail — the one
+    # sanctioned surface for k8s terms (#179's admin-only reveal); no
+    # denylist here by design.
+    admin_conn = SessionHelpers.sign_in(conn, admin)
+    {:ok, view, _html} = live(admin_conn, ~p"/instances/#{instance.id}")
+
+    assert has_element?(view, "[data-testid='status-message']", "We hit a snag")
+    assert has_element?(view, "[data-testid='admin-technical']")
+
+    technical =
+      view
+      |> element("[data-testid='admin-technical']")
+      |> render()
+      |> String.downcase()
+
+    assert technical =~ "resourcequotas is forbidden"
+    assert technical =~ "system:serviceaccount"
+    assert technical =~ "fluxvale-app-#{instance.id}"
+    assert technical =~ "deploy_failed"
+
+    # A non-admin owner: the same failure, friendly copy only — the
+    # reveal doesn't exist on their page, denylist enforced.
+    {owner, owner_conn} = SessionHelpers.user_with_session(conn)
+    owned = create_instance!(version, owner)
+
+    InstanceK8s.update_status(owned, :error, "Deploy failed: quota exceeded", :deploy_failed)
+
+    {:ok, owner_view, owner_html} = live(owner_conn, ~p"/instances/#{owned.id}")
+
+    assert has_element?(owner_view, ".badge", "Failed")
+    assert has_element?(owner_view, "[data-testid='status-message']", "We hit a snag")
+    refute has_element?(owner_view, "[data-testid='admin-technical']")
+    refute_k8s_terms(owner_html)
+  end
+
+  # #179's status tick: the taking-longer copy is render-time derived
+  # and a lingering provision writes nothing (a reconcile no-op doesn't
+  # broadcast) — the tick is what re-renders an open page. Pushed
+  # channel-level like the real timer would.
+  test "the status tick re-renders an in-flight page without a status write", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    instance = create_instance!(version, user)
+    deploying = InstanceFixtures.walk_to!(instance, :deploying)
+
+    {:ok, view, _html} = live(conn, ~p"/instances/#{deploying.id}")
+
+    assert has_element?(view, "[data-testid='status-message']", "Setting up your app")
+
+    send(view.pid, :status_tick)
+
+    html = render(view)
+
+    # Fresh clock → still the progress copy; the tick re-rendered
+    # without crashing and without any row write.
+    assert has_element?(view, ".badge", "Provisioning")
+    assert has_element?(view, "[data-testid='status-message']", "Setting up your app")
+    refute_k8s_terms(html)
+  end
+
+  test "the status tick is a no-op on a settled page", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    instance = create_instance!(version, user)
+    running = InstanceFixtures.walk_to!(instance, :running)
+
+    {:ok, view, _html} = live(conn, ~p"/instances/#{running.id}")
+
+    send(view.pid, :status_tick)
+
+    assert has_element?(view, ".badge", "Running")
+    assert has_element?(view, "[data-testid='status-message']", "up and running")
   end
 end

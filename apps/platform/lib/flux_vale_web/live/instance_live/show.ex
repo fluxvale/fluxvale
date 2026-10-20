@@ -11,7 +11,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
   use FluxValeWeb, :live_view
 
+  alias FluxVale.Checks.ActorIsPlatformAdmin
   alias FluxVale.Infrastructure.Instance
+  alias FluxValeWeb.InstanceStatus
 
   @impl Phoenix.LiveView
   def mount(%{"id" => id}, _session, socket) do
@@ -23,7 +25,17 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
         Phoenix.PubSub.subscribe(FluxVale.PubSub, "instances:#{instance.id}")
 
-        {:ok, assign(socket, :instance, instance)}
+        # #179: technical detail (raw status_message, namespace, image)
+        # renders only for platform admins — one predicate, shared with
+        # policy-land, so the notion can't fork.
+        socket =
+          assign(socket,
+            instance: instance,
+            admin?: ActorIsPlatformAdmin.platform_admin?(user),
+            tick_scheduled?: false
+          )
+
+        {:ok, maybe_schedule_status_tick(socket)}
 
       _error ->
         # Someone else's instance reads as not-found (owner policy);
@@ -63,22 +75,16 @@ defmodule FluxValeWeb.InstanceLive.Show do
         <div class="card bg-base-200">
           <div class="card-body gap-4">
             <h2 class="card-title text-base">Status</h2>
-            <p
-              :if={@instance.status_message}
-              class="text-sm opacity-80"
-              id="status-message"
-              data-testid="status-message"
-            >
-              {@instance.status_message}
-            </p>
-            <p :if={is_nil(@instance.status_message)} class="text-sm opacity-60">
-              {@instance.status}
+            <%!-- #179: user-facing copy derived from the state machine —
+            the raw status_message never renders to non-admins. --%>
+            <p class="text-sm opacity-80" id="status-message" data-testid="status-message">
+              {InstanceStatus.message(@instance)}
             </p>
 
-            <%= if @instance.status in [:deploying, :starting] do %>
+            <%= if InstanceStatus.in_progress?(@instance.status) do %>
               <div class="flex items-center gap-2 text-sm opacity-70">
                 <.icon name="hero-arrow-path" class="size-4 motion-safe:animate-spin" />
-                Kubernetes is converging — this page updates on its own.
+                This page updates on its own.
               </div>
             <% end %>
           </div>
@@ -93,6 +99,30 @@ defmodule FluxValeWeb.InstanceLive.Show do
           </div>
         </div>
 
+        <%= if @admin? do %>
+          <%!-- #179's admin-only reveal: the full technical trail, in the
+          clear, for staff. Everything a non-admin must not see on this
+          page lives here. --%>
+          <div class="card bg-base-200 border border-base-300">
+            <div class="card-body gap-3">
+              <h2 class="card-title text-base">
+                Technical details <span class="badge badge-ghost badge-sm">admin</span>
+              </h2>
+              <div class="grid gap-2 text-xs font-mono" data-testid="admin-technical">
+                <p>
+                  status: <span data-testid="admin-status">{@instance.status}</span>
+                </p>
+                <p>failure_reason: {@instance.failure_reason || "—"}</p>
+                <p :if={@instance.status_message} class="break-words">
+                  message: {@instance.status_message}
+                </p>
+                <p>namespace: {@instance.namespace || "—"}</p>
+                <p>image: {@instance.image}</p>
+              </div>
+            </div>
+          </div>
+        <% end %>
+
         <div class="card bg-base-200">
           <div class="card-body gap-4">
             <h2 class="card-title text-base">Details</h2>
@@ -105,14 +135,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
                 <span class="opacity-60">Version</span>
                 <span class="font-mono">v{@instance.app_version.version}</span>
               </div>
-              <div class="flex justify-between sm:block">
-                <span class="opacity-60">Image</span>
-                <span class="font-mono text-xs truncate">{@instance.image}</span>
-              </div>
-              <div class="flex justify-between sm:block">
-                <span class="opacity-60">Namespace</span>
-                <span class="font-mono text-xs">{@instance.namespace || "—"}</span>
-              </div>
+              <%!-- #179: image + namespace rows moved to the admin-only
+              technical card — non-admins never see cluster-identifying
+              detail. --%>
               <div class="flex justify-between sm:block">
                 <span class="opacity-60">Resources</span>
                 <span>
@@ -250,6 +275,23 @@ defmodule FluxValeWeb.InstanceLive.Show do
   end
 
   @impl Phoenix.LiveView
+  # The taking-longer copy (#179) is render-time derived, and a
+  # lingering provision writes nothing (a reconcile no-op doesn't
+  # broadcast) — this tick is what re-renders an open page past the
+  # slow threshold. Self-reschedules while in-progress; one timer max
+  # (the flag guards double-scheduling from mount + broadcasts).
+  def handle_info(:status_tick, socket) do
+    socket = assign(socket, :tick_scheduled?, false)
+
+    if InstanceStatus.in_progress?(socket.assigns.instance.status) do
+      # maybe_schedule assigns → the socket changes → re-render with a
+      # fresh clock evaluation.
+      {:noreply, maybe_schedule_status_tick(socket)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   # Teardown finished: the row is gone, nothing to re-read.
   def handle_info(%Ash.Notifier.Notification{action: %{name: :destroy}}, socket) do
     {:noreply,
@@ -268,12 +310,29 @@ defmodule FluxValeWeb.InstanceLive.Show do
   def handle_info(%Ash.Notifier.Notification{data: %{id: id}}, socket) do
     case fetch(socket, id) do
       nil -> {:noreply, socket}
-      instance -> {:noreply, assign(socket, :instance, instance)}
+      # A broadcast landing in-progress may be the first (mounted on
+      # :pending) — the tick needs starting.
+      instance -> {:noreply, maybe_schedule_status_tick(assign(socket, :instance, instance))}
     end
   end
 
   defp instance_url(instance) do
     "https://#{instance.slug}.#{Application.fetch_env!(:flux_vale, :instances_base_domain)}/"
+  end
+
+  # One self-rescheduling tick while the instance is mid-provision —
+  # connected only (the disconnected static render is thrown away).
+  defp maybe_schedule_status_tick(socket) do
+    instance = socket.assigns.instance
+
+    if connected?(socket) and not socket.assigns.tick_scheduled? and
+         InstanceStatus.in_progress?(instance.status) do
+      interval = InstanceStatus.slow_after_seconds() * 1000
+      Process.send_after(self(), :status_tick, interval)
+      assign(socket, :tick_scheduled?, true)
+    else
+      socket
+    end
   end
 
   # nil on a read miss — see handle_info above.
@@ -296,7 +355,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
     # test can stage without a backdoor
     case fetch(socket, id) do
       nil -> socket
-      instance -> assign(socket, :instance, instance)
+      instance -> maybe_schedule_status_tick(assign(socket, :instance, instance))
     end
 
     # coveralls-ignore-stop
