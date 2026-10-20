@@ -25,6 +25,13 @@ defmodule FluxVale.Infrastructure.Instance do
   prices the accrual — creation-time cents for the first year, the live
   Size row after (settled on #121).
 
+  Allocation (`cpu_cores`/`memory_mb`/`storage_gb`) is user-choosable
+  at create (#180): the AppVersion's defaults are the advisory
+  recommendation (DeriveFromAppVersion applies them when the creator
+  sends none), the attribute constraints are the hard floors, and the
+  below-recommendation acknowledgment is a wizard concern — the
+  resource floors below the recommendation, it doesn't gate on it.
+
   `slug` doubles as the DNS subdomain (`<slug>.<instances_base_domain>`)
   and is haikunate-generated per cluster (v1 port). `stop`/`start` are
   synchronous scale-to-zero/one; `delete` is the async teardown entry.
@@ -292,22 +299,33 @@ defmodule FluxVale.Infrastructure.Instance do
       constraints(min: 0)
     end
 
+    # Allocation is user-choosable at create (#180): the AppVersion's
+    # defaults are the advisory recommendation, not a ceiling or floor.
+    # Derived-field pattern (see image/port): allow_nil? + presence
+    # below — DeriveFromAppVersion fills them from the creator's choice
+    # or the version's defaults, so no static default here to collide
+    # with the derive. The constraints are the hard platform floors —
+    # the same legal-allocation bounds Size holds (its own attribute
+    # notes), so a below-recommendation pick can go as low as a
+    # size-shaped allocation and no lower.
     attribute :cpu_cores, :decimal do
-      allow_nil?(false)
-      default(Decimal.new("0.5"))
       public?(true)
+      constraints(greater_than: 0)
     end
 
+    # The maxima are bigint-encode safety (Postgrex raises past
+    # 2^63-1 — a plainly-typed big number must fail validation, not
+    # crash the writer) with headroom over any current box; not
+    # capacity promises. Revisit when bigger boxes exist.
     attribute :memory_mb, :integer do
-      allow_nil?(false)
-      default(256)
       public?(true)
+      constraints(min: 1, max: 65_536)
     end
 
     attribute :storage_gb, :integer do
-      allow_nil?(false)
-      default(0)
       public?(true)
+      # 0 stays legal — config-only apps (Size's own stance).
+      constraints(min: 0, max: 10_240)
     end
 
     # Merged env (catalog defaults under user values), string values —
@@ -354,7 +372,7 @@ defmodule FluxVale.Infrastructure.Instance do
     defaults([:read])
 
     create :create do
-      accept([:name, :env_vars, :app_version_id])
+      accept([:name, :cpu_cores, :memory_mb, :storage_gb, :env_vars, :app_version_id])
 
       change(SetOrganizationFromActor)
       change(ResolveCluster)
@@ -664,6 +682,12 @@ defmodule FluxVale.Infrastructure.Instance do
     validate(present(:port), on: :create, message: "is required")
 
     validate(present(:healthcheck_path), on: :create, message: "is required")
+
+    validate(present(:cpu_cores), on: :create, message: "is required")
+
+    validate(present(:memory_mb), on: :create, message: "is required")
+
+    validate(present(:storage_gb), on: :create, message: "is required")
 
     validate(
       match(:slug, ~r/^[a-z0-9][a-z0-9-]*[a-z0-9]$/),
