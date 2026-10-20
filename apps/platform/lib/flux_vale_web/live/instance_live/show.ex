@@ -31,10 +31,11 @@ defmodule FluxValeWeb.InstanceLive.Show do
         socket =
           assign(socket,
             instance: instance,
-            admin?: ActorIsPlatformAdmin.platform_admin?(user)
+            admin?: ActorIsPlatformAdmin.platform_admin?(user),
+            tick_scheduled?: false
           )
 
-        {:ok, socket}
+        {:ok, maybe_schedule_status_tick(socket)}
 
       _error ->
         # Someone else's instance reads as not-found (owner policy);
@@ -265,6 +266,23 @@ defmodule FluxValeWeb.InstanceLive.Show do
   end
 
   @impl Phoenix.LiveView
+  # The taking-longer copy (#179) is render-time derived, and a
+  # lingering provision writes nothing (a reconcile no-op doesn't
+  # broadcast) — this tick is what re-renders an open page past the
+  # slow threshold. Self-reschedules while in-progress; one timer max
+  # (the flag guards double-scheduling from mount + broadcasts).
+  def handle_info(:status_tick, socket) do
+    socket = assign(socket, :tick_scheduled?, false)
+
+    if InstanceStatus.in_progress?(socket.assigns.instance.status) do
+      # maybe_schedule assigns → the socket changes → re-render with a
+      # fresh clock evaluation.
+      {:noreply, maybe_schedule_status_tick(socket)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   # Teardown finished: the row is gone, nothing to re-read.
   def handle_info(%Ash.Notifier.Notification{action: %{name: :destroy}}, socket) do
     {:noreply,
@@ -283,12 +301,29 @@ defmodule FluxValeWeb.InstanceLive.Show do
   def handle_info(%Ash.Notifier.Notification{data: %{id: id}}, socket) do
     case fetch(socket, id) do
       nil -> {:noreply, socket}
-      instance -> {:noreply, assign(socket, :instance, instance)}
+      # A broadcast landing in-progress may be the first (mounted on
+      # :pending) — the tick needs starting.
+      instance -> {:noreply, maybe_schedule_status_tick(assign(socket, :instance, instance))}
     end
   end
 
   defp instance_url(instance) do
     "https://#{instance.slug}.#{Application.fetch_env!(:flux_vale, :instances_base_domain)}/"
+  end
+
+  # One self-rescheduling tick while the instance is mid-provision —
+  # connected only (the disconnected static render is thrown away).
+  defp maybe_schedule_status_tick(socket) do
+    instance = socket.assigns.instance
+
+    if connected?(socket) and not socket.assigns.tick_scheduled? and
+         InstanceStatus.in_progress?(instance.status) do
+      interval = InstanceStatus.slow_after_seconds() * 1000
+      Process.send_after(self(), :status_tick, interval)
+      assign(socket, :tick_scheduled?, true)
+    else
+      socket
+    end
   end
 
   # nil on a read miss — see handle_info above.
@@ -311,7 +346,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
     # test can stage without a backdoor
     case fetch(socket, id) do
       nil -> socket
-      instance -> assign(socket, :instance, instance)
+      instance -> maybe_schedule_status_tick(assign(socket, :instance, instance))
     end
 
     # coveralls-ignore-stop

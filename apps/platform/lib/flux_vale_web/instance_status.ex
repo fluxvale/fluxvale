@@ -84,6 +84,17 @@ defmodule FluxValeWeb.InstanceStatus do
   @spec in_progress?(atom()) :: boolean()
   def in_progress?(status), do: status in [:deploying, :starting]
 
+  @doc """
+  Seconds a provision may linger in-flight before the taking-longer
+  copy swaps in. Also the status-tick interval the LiveViews use to
+  re-render an open page — a lingering provision writes nothing (a
+  reconcile no-op doesn't broadcast), so only a tick moves the clock.
+  """
+  @spec slow_after_seconds() :: pos_integer()
+  def slow_after_seconds do
+    Application.get_env(:flux_vale, :provisioning_slow_seconds, 90)
+  end
+
   # The slow clock starts at the provision's beginning: `deployed_at`
   # on a deploy, `updated_at` for a start (the last status write — the
   # start itself). Any state change resets the clock by construction.
@@ -91,9 +102,5 @@ defmodule FluxValeWeb.InstanceStatus do
     clock = instance.deployed_at || instance.updated_at
 
     DateTime.diff(DateTime.utc_now(), clock, :second) > slow_after_seconds()
-  end
-
-  defp slow_after_seconds do
-    Application.get_env(:flux_vale, :provisioning_slow_seconds, 90)
   end
 end

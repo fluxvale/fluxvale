@@ -147,4 +147,44 @@ defmodule FluxValeWeb.InstanceLive.IndexTest do
     refute html =~ "resourcequotas"
     refute_k8s_terms(html)
   end
+
+  # #179's status tick on the list: re-streams in-flight rows without
+  # any broadcast, and drops tracking for rows that left the stream.
+  test "the status tick re-streams in-flight rows and ignores settled ones", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    in_flight = create_instance!(version, user)
+    settled = create_instance!(version, user)
+    deploying = InstanceFixtures.walk_to!(in_flight, :deploying)
+    InstanceFixtures.walk_to!(settled, :running)
+
+    # Mount after the writes — the tick is the only thing that can move
+    # the in-flight row's derived copy now.
+    {:ok, view, _html} = live(conn, ~p"/instances")
+
+    assert has_element?(view, "#instances-#{deploying.id}", "Provisioning")
+
+    # A broadcast landing in-flight exercises the tracking put arm.
+    InstanceK8s.update_status(deploying, :starting, nil)
+
+    send(view.pid, :status_tick)
+
+    html = render(view)
+
+    assert has_element?(view, "#instances-#{deploying.id}", "Starting")
+    assert has_element?(view, "[data-testid='instance-status-message']", "Starting it up")
+    assert has_element?(view, "#instances-#{settled.id}", "Running")
+    refute_k8s_terms(html)
+
+    # A destroyed row leaves the stream; its id survives in the tick's
+    # tracking until the next tick's read miss drops it — no crash.
+    Instance.delete(deploying.id, actor: user)
+
+    send(view.pid, :status_tick)
+
+    refute has_element?(view, "#instances-#{deploying.id}")
+    assert has_element?(view, "#instances-#{settled.id}", "Running")
+  end
 end

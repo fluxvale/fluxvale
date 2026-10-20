@@ -480,4 +480,47 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     refute has_element?(owner_view, "[data-testid='admin-technical']")
     refute_k8s_terms(owner_html)
   end
+
+  # #179's status tick: the taking-longer copy is render-time derived
+  # and a lingering provision writes nothing (a reconcile no-op doesn't
+  # broadcast) — the tick is what re-renders an open page. Pushed
+  # channel-level like the real timer would.
+  test "the status tick re-renders an in-flight page without a status write", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    instance = create_instance!(version, user)
+    deploying = InstanceFixtures.walk_to!(instance, :deploying)
+
+    {:ok, view, _html} = live(conn, ~p"/instances/#{deploying.id}")
+
+    assert has_element?(view, "[data-testid='status-message']", "Setting up your app")
+
+    send(view.pid, :status_tick)
+
+    html = render(view)
+
+    # Fresh clock → still the progress copy; the tick re-rendered
+    # without crashing and without any row write.
+    assert has_element?(view, ".badge", "Provisioning")
+    assert has_element?(view, "[data-testid='status-message']", "Setting up your app")
+    refute_k8s_terms(html)
+  end
+
+  test "the status tick is a no-op on a settled page", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    instance = create_instance!(version, user)
+    running = InstanceFixtures.walk_to!(instance, :running)
+
+    {:ok, view, _html} = live(conn, ~p"/instances/#{running.id}")
+
+    send(view.pid, :status_tick)
+
+    assert has_element?(view, ".badge", "Running")
+    assert has_element?(view, "[data-testid='status-message']", "up and running")
+  end
 end
