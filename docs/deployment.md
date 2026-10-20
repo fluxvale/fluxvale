@@ -119,6 +119,31 @@ straight-through); the AccessRule gate itself still applies.
    PR, there's no deploy to blame (a scheduled failure with nothing
    deployed is an environment problem, not a code one).
 
+## Bring-up: Cluster row + instance slugs
+
+An instance create needs **exactly one** Cluster row (`ResolveCluster`
+refuses zero or many). The row is never seeded — cluster rows are
+operator-entered, and AshAdmin
+([ADR-0027](adr/00027-admin-surface-ashadmin.md)) is the post-bring-up
+CRUD surface. Create it before the first instance:
+
+```sh
+CLUSTER_NAME=nuremberg-01 kubectl exec -n <namespace> \
+  deploy/fluxvale-platform -c platform -- /app/bin/ensure-cluster
+```
+
+`kubeconfig_ref` stays NULL — the in-cluster service-account sentinel
+([ADR-0006](adr/00006-single-cluster-multi-region-ready.md) Am. 2). The
+task is get-or-create and never converges: an admin-set ref is
+deliberate drift it must not revert.
+
+Instance slugs (`<slug>.fluxvale.app`) are unique per cluster only, and
+the deployed envs share the `*.fluxvale.app` wildcard — one cert, one
+TLSStore — so the DB can't prevent a cross-env label collision. The
+policy is an env-scoped prefix: prod (no `INSTANCES_SLUG_PREFIX`) mints
+bare `adjective-noun-####` labels; staging sets `INSTANCES_SLUG_PREFIX=stg`
+(labels `stg-<slug>`) and can never take a prod label.
+
 ## Bring-up seeds
 
 `bin/seed` (release rpc — the same `FluxVale.Seeds.seed/0` that dev

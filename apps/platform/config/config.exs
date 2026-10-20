@@ -61,6 +61,10 @@ config :flux_vale,
   # namespace's IngressRoute. Local = the lvh.me wildcard (ADR-0020);
   # M4's runtime.exs override carries the prod domain.
   instances_base_domain: "fluxvale.lvh.me",
+  # Env-scoped slug prefix (#155): prod (nil) mints bare labels; a
+  # non-prod env sharing the wildcard sets INSTANCES_SLUG_PREFIX so it
+  # can never take a prod label.
+  instances_slug_prefix: nil,
   # The namespace edge ingress is admitted FROM in instance
   # NetworkPolicies (the Traefik chart's namespace locally; M4's fleet
   # repo overrides for prod — same override story as instance_rbac).
