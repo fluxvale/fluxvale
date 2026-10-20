@@ -64,7 +64,10 @@ defmodule FluxVale.Infrastructure.Instance.GenerateSlug do
   # Prefix bound: prefix + "-" + the longest slug ≤ 63 (DNS label).
   @max_prefix_length 63 - 1 - @max_haikunate_length
 
-  @prefix_format ~r/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/
+  # \z, not $ — `$` also matches before a trailing newline, so a value
+  # with a trailing "\n" would clear boot validation and then mint a slug
+  # instance-create rejects (fails safe, but the guard should hold).
+  @prefix_format ~r/^[a-z0-9]([a-z0-9-]*[a-z0-9])?\z/
 
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do

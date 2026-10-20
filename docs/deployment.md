@@ -128,8 +128,8 @@ operator-entered, and AshAdmin
 CRUD surface. Create it before the first instance:
 
 ```sh
-CLUSTER_NAME=nuremberg-01 kubectl exec -n <namespace> \
-  deploy/fluxvale-platform -c platform -- /app/bin/ensure-cluster
+kubectl exec -n <namespace> deploy/fluxvale-platform -c platform -- \
+  env CLUSTER_NAME=nuremberg-01 /app/bin/ensure-cluster
 ```
 
 `kubeconfig_ref` stays NULL — the in-cluster service-account sentinel

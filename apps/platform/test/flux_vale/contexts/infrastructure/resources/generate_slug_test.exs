@@ -60,6 +60,17 @@ defmodule FluxVale.Infrastructure.Instance.GenerateSlugTest do
       end
     end
 
+    # #172: the anchor is \z, not $ — `$` also matches before a trailing
+    # newline, so "stg\n" would clear validation and then mint a slug
+    # instance-create rejects. Both a trailing "\n" and "\r\n" must raise.
+    test "raises on a trailing newline (the \\z anchor, not $)" do
+      for bad <- ["stg\n", "stg\r\n"] do
+        assert_raise ArgumentError, ~r/INSTANCES_SLUG_PREFIX/, fn ->
+          GenerateSlug.validate_prefix!(bad)
+        end
+      end
+    end
+
     test "raises past the length bound (prefix + slug ≤ 63)" do
       one_over = String.duplicate("a", 38)
 
