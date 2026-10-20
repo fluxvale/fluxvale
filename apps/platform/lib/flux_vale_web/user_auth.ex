@@ -7,8 +7,9 @@ defmodule FluxValeWeb.UserAuth do
   too, not just API) plus the AccessRule gate (#26). No actor → the
   sign-in flow.
 
-  Assigns `current_user`; the browser pipeline never resolves it, so
-  this is the only writer.
+  Assigns `current_user`. This module is the only auth writer; the one
+  non-gating reader is `FluxValeWeb.Plugs.MaybeResolveUser` (#164), which
+  reuses `resolve_user/1` for display-only chrome on the public pages.
   """
 
   use FluxValeWeb, :verified_routes
@@ -32,10 +33,17 @@ defmodule FluxValeWeb.UserAuth do
     end
   end
 
-  # The same chain the API session fallback rides: token-store presence
-  # (revocation) then the AccessRule gate (a removed rule severs access
-  # within TTL). Any failure is "not signed in" — no error surface.
-  defp resolve_user(session) do
+  @doc """
+  Resolves the session's user or nil — no gating, no redirect. Shared by
+  the on_mount gate above (its only writer-side use) and, display-only,
+  by `FluxValeWeb.Plugs.MaybeResolveUser` (#164): the public pages' chrome
+  reads this result, it never authorizes anything.
+  """
+  @spec resolve_user(map()) :: User.t() | nil
+  def resolve_user(session) do
+    # The same chain the API session fallback rides: token-store presence
+    # (revocation) then the AccessRule gate (a removed rule severs access
+    # within TTL). Any failure is "not signed in" — no error surface.
     with {:ok, user} <-
            Helpers.authenticate_resource_from_session(User, session, :flux_vale, []),
          :ok <- AccessRules.ensure_allowed(user.email) do
