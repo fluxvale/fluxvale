@@ -1,7 +1,10 @@
 defmodule FluxValeWeb.HealthController do
   use FluxValeWeb, :controller
 
+  alias FluxVale.BootInvariants
   alias FluxVale.Repo
+
+  require Logger
 
   # Liveness + build identity. Deliberately dependency-free: a liveness
   # failure tells Kubernetes to restart the pod, and a dependency blip
@@ -11,20 +14,32 @@ defmodule FluxValeWeb.HealthController do
   end
 
   # Readiness — "gates traffic" (docs/deployment.md): a pod stays out of the
-  # Service/Traefik endpoints until the database answers. Fails soft with
-  # 503 + unhealthy rather than raising.
+  # Service/Traefik endpoints until the database answers AND the boot
+  # invariants hold (#175, ADR-0033: pricing, catalog, exactly one
+  # cluster). Fails soft with 503 + unhealthy rather than raising.
   def ready(conn, _params) do
-    if db_up?() do
+    if db_up?() and invariants_ok?() do
       render(conn, :show, status: "ok")
     else
-      # coveralls-ignore-start - DB-down: ExUnit can't simulate it
-      # (DBConnection reconnects by design) — outages are validated at
-      # the cluster level (AGENTS.md); readiness itself is live-probed
       conn
       |> put_status(:service_unavailable)
       |> render(:show, status: "unhealthy")
+    end
+  end
 
-      # coveralls-ignore-stop
+  # Loud by design (#175): the readiness probe fires every 5s, so a
+  # broken environment names its missing invariant in the error log
+  # until fixed — silence here is what let Oct 20's half-seeded prod
+  # read "healthy".
+  defp invariants_ok? do
+    case BootInvariants.check() do
+      :ok ->
+        true
+
+      {:error, invariants} ->
+        Logger.error("readiness invariants failing: #{Enum.join(invariants, "; ")}")
+
+        false
     end
   end
 

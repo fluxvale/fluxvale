@@ -57,6 +57,17 @@ spec:
                 secretKeyRef:
                   name: fluxvale-cnpg-app
                   key: password
+        # Bring-up seeds before the app starts — local parity with the
+        # fleet's seed init container (ADR-0033): /health/ready gates on
+        # the boot invariants (#175), and the local stack seeded only
+        # post-rollout (the bootstrap's exec), so a fresh cluster would
+        # deadlock its own rollout. local_seeds.exs adds the dev-only
+        # `local` Cluster row. Both idempotent.
+        - name: seed
+          image: fluxvale/platform-dev
+          workingDir: /app
+          command: ["/bin/sh", "-c", "mix run priv/repo/seeds.exs && mix run priv/repo/local_seeds.exs"]
+          env: *app-env
       containers:
         - name: platform
           image: fluxvale/platform-dev

@@ -14,8 +14,10 @@ CI job 1: build OTP release → image → push ghcr.io/fluxvale/fluxvale:sha-<sh
 Flux image automation (fleet repo): bumps staging AND prod manifests (1–5 min)
    │
    ▼
-Rolling update: init container runs migrations (advisory-locked) → readiness
-probe (health + DB check) gates traffic → old pods drain
+Rolling update: init containers run migrations (advisory-locked) then
+bring-up seeds + the cluster row (`bin/seed`, `bin/ensure-cluster` —
+[ADR-0033](adr/00033-auto-seed-on-deploy.md)) → readiness
+probe (health + DB + boot invariants) gates traffic → old pods drain
    │
    ▼
 CI job 2: watch-deploy — poll https://staging.fluxvale.com/health and
@@ -49,8 +51,8 @@ serving); smoke catches boots-fine-but-misbehaves.
 Health routes (issue #4): `GET /health` → `{status, version}`, version
 = build SHA — liveness, deliberately dependency-free (a liveness
 failure restarts the pod). `GET /health/ready` — readiness: health +
-DB connectivity, 503 `unhealthy` on failure; the probe that gates
-traffic.
+DB connectivity + boot invariants (#175), 503 `unhealthy` on failure;
+the probe that gates traffic.
 
 ### Oracle auth: PAT for Bruno, TestInbox for Playwright
 
@@ -122,10 +124,15 @@ straight-through); the AccessRule gate itself still applies.
 ## Bring-up: Cluster row + instance slugs
 
 An instance create needs **exactly one** Cluster row (`ResolveCluster`
-refuses zero or many). The row is never seeded — cluster rows are
-operator-entered, and AshAdmin
-([ADR-0027](adr/00027-admin-surface-ashadmin.md)) is the post-bring-up
-CRUD surface. Create it before the first instance:
+refuses zero or many). The row is created on every deploy by the
+`seed` init container's `bin/ensure-cluster` step, named by the env's
+`CLUSTER_NAME` (prod `nuremberg-01`, staging `local`;
+[ADR-0033](adr/00033-auto-seed-on-deploy.md)) — get-or-create, never
+converge: an admin-set `kubeconfig_ref` is deliberate drift the task
+must not revert. A re-run under a different name raises instead of
+adding a second row. Post-bring-up CRUD stays AshAdmin
+([ADR-0027](adr/00027-admin-surface-ashadmin.md)); the operator path
+still exists for manual re-runs:
 
 ```sh
 kubectl exec -n <namespace> deploy/fluxvale-platform -c platform -- \
@@ -146,10 +153,17 @@ bare `adjective-noun-####` labels; staging sets `INSTANCES_SLUG_PREFIX=stg`
 
 ## Bring-up seeds
 
-`bin/seed` (release rpc — the same `FluxVale.Seeds.seed/0` that dev
-`mix setup` runs) converges bring-up data: platform admin (+ its
-personal org), prices, tax rates, catalog. Idempotent — a re-run
-changes nothing.
+`bin/seed` runs on every deploy (the fleet's `seed` init container,
+after `migrate` — [ADR-0033](adr/00033-auto-seed-on-deploy.md); dev
+`mix setup` and a manual `kubectl exec … bin/seed` run the same
+`FluxVale.Seeds.seed/0`) and converges bring-up data: platform admin
+(+ its personal org), prices, tax rates, catalog. Idempotent — a
+re-run changes nothing except reverting admin edits to the shipped
+YAML rows (edit the YAML, not the row).
+
+Readiness backstops the seed: `/health/ready` fails 503 with an error
+log naming any missing invariant (pricing, catalog, exactly one
+cluster) — a half-seeded env never serves traffic "healthy".
 
 The seed also heals the bootstrap admin's missing personal org: org
 provisioning (#119) rides the User `create` action, so accounts created
