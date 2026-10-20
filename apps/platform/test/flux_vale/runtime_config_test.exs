@@ -1,0 +1,86 @@
+defmodule FluxVale.RuntimeConfigTest do
+  @moduledoc """
+  The env-scoped gates in `config/runtime.exs` that keep a stray shell
+  export from changing a suite/dev run's shape (#172): the
+  `INSTANCES_SLUG_PREFIX` block and the `POSTMARK_API_KEY` mailer gate
+  are both inert in the envs whose config files pin the answer
+  (test.exs pins the Test adapter; config.exs pins Local for dev).
+
+  The file is read through `Config.Reader` — the same evaluation the
+  release uses — so the assertions are about the real file, not a
+  paraphrase of it. Not async: env vars are VM-global.
+  """
+
+  use ExUnit.Case, async: false
+
+  @runtime_config Path.expand("../../config/runtime.exs", __DIR__)
+
+  # Prod's block insists on these; set so the prod reads below don't raise.
+  @prod_env %{
+    "DATABASE_URL" => "ecto://u:p@h/db",
+    "SECRET_KEY_BASE" => "test-secret-key-base",
+    "TOKEN_SIGNING_SECRET" => "test-token-signing-secret"
+  }
+
+  describe "INSTANCES_SLUG_PREFIX" do
+    test "is inert in test — a stray export never prefixes minted slugs" do
+      with_env(%{"INSTANCES_SLUG_PREFIX" => "stg"}, fn ->
+        refute Keyword.has_key?(read!(:test)[:flux_vale] || [], :instances_slug_prefix)
+      end)
+    end
+
+    test "is not validated in test — a bad value can't fail the suite at boot" do
+      with_env(%{"INSTANCES_SLUG_PREFIX" => "Not A Prefix"}, fn ->
+        assert read!(:test)
+      end)
+    end
+
+    test "still applies (and validates) outside test" do
+      with_env(%{"INSTANCES_SLUG_PREFIX" => "stg"}, fn ->
+        assert read!(:dev)[:flux_vale][:instances_slug_prefix] == "stg"
+      end)
+
+      with_env(%{"INSTANCES_SLUG_PREFIX" => "Not A Prefix"}, fn ->
+        assert_raise ArgumentError, ~r/INSTANCES_SLUG_PREFIX/, fn -> read!(:dev) end
+      end)
+    end
+  end
+
+  describe "POSTMARK_API_KEY" do
+    test "is inert in dev — a stray export keeps dev on the Local adapter" do
+      with_env(%{"POSTMARK_API_KEY" => "stray-key"}, fn ->
+        refute Keyword.has_key?(read!(:dev)[:flux_vale], FluxVale.Mailer)
+      end)
+    end
+
+    test "is inert in test — the suite stays on Swoosh.Adapters.Test" do
+      with_env(%{"POSTMARK_API_KEY" => "stray-key"}, fn ->
+        refute Keyword.has_key?(read!(:test)[:flux_vale], FluxVale.Mailer)
+      end)
+    end
+
+    test "flips delivery to Postmark in prod-shaped runs" do
+      with_env(Map.put(@prod_env, "POSTMARK_API_KEY", "prod-key"), fn ->
+        assert read!(:prod)[:flux_vale][FluxVale.Mailer] == [
+                 adapter: Swoosh.Adapters.Postmark,
+                 api_key: "prod-key"
+               ]
+      end)
+    end
+  end
+
+  defp read!(env), do: Config.Reader.read!(@runtime_config, env: env)
+
+  defp with_env(vars, fun) do
+    originals = Map.new(vars, fn {name, _value} -> {name, System.get_env(name)} end)
+
+    on_exit(fn -> Enum.each(originals, &restore_env/1) end)
+
+    Enum.each(vars, fn {name, value} -> System.put_env(name, value) end)
+
+    fun.()
+  end
+
+  defp restore_env({name, nil}), do: System.delete_env(name)
+  defp restore_env({name, value}), do: System.put_env(name, value)
+end

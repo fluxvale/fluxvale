@@ -77,5 +77,40 @@ defmodule FluxVale.ReleaseTest do
 
       assert id == existing.id
     end
+
+    test "a second run with the same name is idempotent — one row, no error" do
+      System.put_env("CLUSTER_NAME", "bringup-twice-01")
+
+      assert :ok = FluxVale.Release.ensure_cluster()
+      assert :ok = FluxVale.Release.ensure_cluster()
+
+      assert {:ok, clusters} = Ash.read(Cluster, authorize?: false)
+      assert [%{name: "bringup-twice-01"}] = clusters
+    end
+
+    # The deploy-breaking edge (#172): the probe is by all-rows, not
+    # by-name, so a re-run with a different CLUSTER_NAME can't add the
+    # second row ResolveCluster rejects.
+    test "refuses a second row under a different name" do
+      Cluster.create!(%{name: "bringup-first-01"}, authorize?: false)
+      System.put_env("CLUSTER_NAME", "bringup-typo-01")
+
+      assert_raise RuntimeError, ~r/already exists, not "bringup-typo-01"/, fn ->
+        FluxVale.Release.ensure_cluster()
+      end
+
+      assert {:ok, clusters} = Ash.read(Cluster, authorize?: false)
+      assert [%{name: "bringup-first-01"}] = clusters
+    end
+
+    test "raises loudly when the table is already in the many-rows state" do
+      Cluster.create!(%{name: "bringup-a-01"}, authorize?: false)
+      Cluster.create!(%{name: "bringup-b-01"}, authorize?: false)
+      System.put_env("CLUSTER_NAME", "bringup-a-01")
+
+      assert_raise RuntimeError, ~r/2 cluster rows already exist/, fn ->
+        FluxVale.Release.ensure_cluster()
+      end
+    end
   end
 end

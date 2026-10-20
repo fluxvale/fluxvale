@@ -129,6 +129,44 @@ defmodule FluxVale.Ops.OwnerSignInTest do
         OwnerSignIn.issue_code(fn _recipient, _code -> {:error, :boom} end)
       end
     end
+
+    # #172: a typo'd OWNER_EMAIL still mints (an operator decision) but
+    # names the mismatch — the session it provisions is not the admin's.
+    test "warns when OWNER_EMAIL does not match the platform admin", %{email: email} do
+      admin = admin!()
+      System.put_env("OWNER_EMAIL", email)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok = OwnerSignIn.issue_code(fn _recipient, _code -> {:ok, :printed} end)
+        end)
+
+      assert log =~ "does not match the platform admin #{admin}"
+      assert log =~ "issuing a code for #{email} anyway"
+    end
+
+    test "no warning when OWNER_EMAIL is the platform admin" do
+      admin = admin!()
+      System.put_env("OWNER_EMAIL", admin)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok = OwnerSignIn.issue_code(fn _recipient, _code -> {:ok, :printed} end)
+        end)
+
+      refute log =~ "does not match"
+    end
+
+    test "no warning on the single-admin fallback — the resolved address is the admin" do
+      admin!()
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok = OwnerSignIn.issue_code(fn _recipient, _code -> {:ok, :printed} end)
+        end)
+
+      refute log =~ "does not match"
+    end
   end
 
   describe "FluxVale.Release.owner_signin_code/0" do
