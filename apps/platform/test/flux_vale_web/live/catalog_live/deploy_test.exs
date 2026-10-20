@@ -40,7 +40,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
   setup %{conn: conn} do
     {user, conn} = SessionHelpers.user_with_session(conn)
-    InstanceFixtures.local_cluster!()
+    cluster = InstanceFixtures.local_cluster!()
 
     version =
       InstanceFixtures.app_version!(
@@ -50,7 +50,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       )
 
     app = Ash.load!(version, :app, authorize?: false).app
-    {:ok, user: user, conn: conn, app: app, version: version}
+    {:ok, user: user, conn: conn, app: app, version: version, cluster: cluster}
   end
 
   defp stub_k8s do
@@ -240,5 +240,29 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
     assert html =~ "Fix the errors above"
     assert has_element?(view, "#env-form")
+  end
+
+  # Oct 20's silent failure (#175): ResolveCluster rejects the create on
+  # :cluster_id — a field no step renders an input for and no bounce-back
+  # exists — so the submit left only a flash about "errors above" with
+  # nothing above. #deploy-errors now carries every such message.
+  test "a create rejection on a step-invisible field renders on the name step (cluster row missing)",
+       %{conn: conn, app: app, version: version, cluster: cluster} do
+    {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+    to_step_2(view, version)
+    to_step_3(view, %{})
+
+    # The cluster row vanishes between the env gate and submit — the
+    # half-seeded-env shape.
+    Ash.destroy!(cluster, authorize?: false)
+
+    html =
+      view
+      |> form("#deploy-form", instance: %{name: "Orphan"})
+      |> render_submit()
+
+    assert html =~ "no cluster is configured"
+    assert has_element?(view, "#deploy-errors")
+    assert has_element?(view, "#deploy-form")
   end
 end

@@ -197,6 +197,13 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                 {FluxVale.Pricing.format_usd(@selected.recommended_size.monthly_cents)}/mo
               </span>
             </div>
+            <ul
+              :if={step_invisible_errors(@form) != []}
+              id="deploy-errors"
+              class="text-sm text-error space-y-1"
+            >
+              <li :for={msg <- step_invisible_errors(@form)}>{msg}</li>
+            </ul>
             <.form for={@form} id="deploy-form" phx-submit="save" class="space-y-4">
               <.input
                 field={@form[:name]}
@@ -284,6 +291,18 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
     form
     |> AshPhoenix.Form.errors(format: :simple)
     |> Keyword.get_values(:env_vars)
+  end
+
+  # Everything the create can reject that the name step renders no
+  # input for (#175): :name errors already show on its own input, and
+  # :env_vars/:app_version_id bounce back to their steps — the rest
+  # (Oct 20's shape: a missing Cluster row erroring on :cluster_id)
+  # used to vanish entirely.
+  defp step_invisible_errors(form) do
+    form
+    |> AshPhoenix.Form.errors(format: :simple)
+    |> Keyword.drop([:name, :env_vars, :app_version_id])
+    |> Keyword.values()
   end
 
   @impl Phoenix.LiveView
