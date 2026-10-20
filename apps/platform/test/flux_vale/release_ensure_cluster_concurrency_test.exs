@@ -95,6 +95,12 @@ defmodule FluxVale.Release.EnsureClusterConcurrencyTest do
       delete_committed!(fn -> Cluster.get_by_name("concurrency-holder-01", authorize?: false) end)
     end)
 
+    # A failing run (e.g. without the lock) can leave the runner's row
+    # behind; clean both names so the shared DB is never stranded.
+    on_exit(fn ->
+      delete_committed!(fn -> Cluster.get_by_name("concurrency-other-01", authorize?: false) end)
+    end)
+
     parent = self()
 
     holder =
@@ -125,6 +131,7 @@ defmodule FluxVale.Release.EnsureClusterConcurrencyTest do
 
     spawn(fn ->
       conn = Sandbox.checkout(Repo, sandbox: false)
+      send(parent, {:runner_ready, backend_pid()})
 
       result =
         try do
@@ -137,8 +144,14 @@ defmodule FluxVale.Release.EnsureClusterConcurrencyTest do
       send(parent, {:done, result})
     end)
 
-    # The holder still owns the lock while the run blocks on it; the
-    # committed row is what the run re-reads once released.
+    # Wait until the runner is genuinely blocked on the advisory lock —
+    # scoped to its own backend PID, not a global lock count — before
+    # releasing the holder. Without this the holder could commit first
+    # and the runner would read the committed row even with the lock
+    # removed (verified: the test still passed without the lock).
+    assert_receive {:runner_ready, runner_pid}, 5_000
+    await_lock_waiter(runner_pid)
+
     send(holder, :commit)
 
     assert_receive :released, 5_000
@@ -147,6 +160,35 @@ defmodule FluxVale.Release.EnsureClusterConcurrencyTest do
 
     assert {:ok, [%{name: "concurrency-holder-01"}]} =
              committed(fn -> Ash.read(Cluster, authorize?: false) end)
+  end
+
+  # The caller's own connection backend PID (distinct from the runner's).
+  defp backend_pid do
+    %{rows: [[pid]]} = Repo.query!("SELECT pg_backend_pid()")
+    pid
+  end
+
+  # Polls pg_locks for an ungranted advisory lock held by `pid` — proof
+  # the runner reached the lock and is waiting, not merely about to.
+  # Polls an external system (Postgres), so sleep is the tool.
+  defp await_lock_waiter(pid, attempts_left \\ 100) do
+    %{rows: [[waiting]]} =
+      Repo.query!(
+        "SELECT count(*) FROM pg_locks WHERE pid = $1 AND locktype = 'advisory' AND NOT granted",
+        [pid]
+      )
+
+    cond do
+      waiting > 0 ->
+        :ok
+
+      attempts_left == 0 ->
+        flunk("ensure_cluster/0 never blocked on the advisory lock")
+
+      true ->
+        Process.sleep(20)
+        await_lock_waiter(pid, attempts_left - 1)
+    end
   end
 
   # Runs fun on a real connection whose writes commit immediately.
