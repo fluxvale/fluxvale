@@ -22,10 +22,12 @@ remembering a manual step.
    converges — an admin-set `kubeconfig_ref` is deliberate drift. The
    seed's converge scope is the shipped YAML (prices, tax rates,
    catalog): admin edits to those revert on the next deploy, so edit
-   the YAML, not the row. Single-writer by construction — replicas
-   stay 1 and only rolling-in pods run init containers; revisit
-   (advisory-lock the seed, as #173 did for `ensure-cluster`) if
-   replicas ever exceed 1.
+   the YAML, not the row. Single-writer among init containers by
+   construction — replicas stay 1 and only rolling-in pods run them;
+   a manual `bin/seed` re-run must not overlap a rollout (the
+   release task's documented single-caller assumption). Revisit
+   (advisory-lock the seed, as #173 did for `ensure-cluster`) when
+   replicas exceed 1 or overlap can no longer be ruled out.
 2. **Flags and access rules stay operator-administered**
    ([ADR-0023](00023-day-one-gates.md) Am. 6,
    [ADR-0030](00030-ops-domain.md)): FeatureFlag and AccessRule rows

@@ -37,7 +37,9 @@ defmodule FluxVale.BootInvariants do
   end
 
   defp missing_reference_data(invariant, resource) do
-    case Ash.count(resource, authorize?: false) do
+    # timeout: the probe's deadline is finite — a stalled count must
+    # return, not hang the readiness response past it (#176 review).
+    case Ash.count(resource, authorize?: false, timeout: 500) do
       {:ok, 0} ->
         ["#{invariant}: no rows — required reference data missing (bin/seed restores it)"]
 
@@ -56,7 +58,7 @@ defmodule FluxVale.BootInvariants do
   end
 
   defp clusters do
-    case Ash.count(Cluster, authorize?: false) do
+    case Ash.count(Cluster, authorize?: false, timeout: 500) do
       {:ok, 1} ->
         []
 
