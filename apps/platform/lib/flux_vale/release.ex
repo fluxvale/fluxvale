@@ -69,6 +69,10 @@ defmodule FluxVale.Release do
   so the row must exist before the first instance. Get-or-create, never
   converge: an admin-set ref is deliberate drift, same posture as
   `FluxVale.Seeds.seed_local_cluster!/0`.
+
+  A re-run under a different `CLUSTER_NAME` than the row already present
+  raises instead of adding a second row — two rows break `ResolveCluster`
+  and every instance create until one is removed.
   """
   @spec ensure_cluster :: :ok
   def ensure_cluster do
@@ -94,21 +98,39 @@ defmodule FluxVale.Release do
     end
   end
 
+  # Reads all cluster rows, matching ResolveCluster's "exactly one"
+  # lookup semantics, so this task can never leave the table in the
+  # zero/many state that breaks every instance create.
   defp ensure_cluster_row(name) do
-    case Cluster.get_by_name(name, authorize?: false) do
-      {:ok, cluster} ->
+    case Ash.read(Cluster, authorize?: false) do
+      {:ok, [%{name: ^name} = cluster]} ->
         exists =
           "cluster row #{name} exists (kubeconfig_ref: #{inspect(cluster.kubeconfig_ref)}) — left untouched"
 
         Logger.info(exists)
 
-      {:error, _not_found} ->
+      {:ok, [%{name: existing}]} ->
+        raise "cluster row #{inspect(existing)} already exists, not #{inspect(name)} — " <>
+                "ResolveCluster needs exactly one row, so re-run with CLUSTER_NAME=#{existing} " <>
+                "(or remove that row first); refusing to add a second"
+
+      {:ok, []} ->
         Cluster.create!(%{name: name}, authorize?: false)
 
         created =
           "created cluster row #{name} (kubeconfig_ref: null — the in-cluster SA sentinel, ADR-0006 Am. 2)"
 
         Logger.info(created)
+
+      {:ok, clusters} ->
+        raise "#{length(clusters)} cluster rows already exist (need exactly one) — " <>
+                "ResolveCluster is already broken; remove the extras in AshAdmin, then re-run"
+
+      # defensive: cluster read DB failure (ExUnit can't kill the DB)
+      # coveralls-ignore-start
+      {:error, error} ->
+        raise "cluster lookup failed: #{inspect(error)}"
+        # coveralls-ignore-stop
     end
 
     :ok

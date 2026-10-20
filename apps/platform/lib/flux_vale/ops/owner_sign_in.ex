@@ -36,10 +36,17 @@ defmodule FluxVale.Ops.OwnerSignIn do
   throttle, AccessRule rejection, or delivery failure — the code exists
   only in the printed output, so a re-run is the retry. Logs the address
   and outcome, never the code.
+
+  When `OWNER_EMAIL` does not match the environment's single platform
+  admin (a typo), it still issues the code but logs a warning — the
+  operator asked for a specific address, so a non-admin session is
+  possible and worth naming.
   """
   @spec issue_code((String.t(), String.t() -> {:ok, term()})) :: :ok
   def issue_code(deliver \\ &print_code/2) do
     email = owner_email()
+
+    warn_if_not_admin(email)
 
     case Identity.request_auth_code(email, deliver) do
       :ok ->
@@ -84,18 +91,44 @@ defmodule FluxVale.Ops.OwnerSignIn do
   end
 
   defp single_admin_email do
-    admins =
-      User
-      |> Ash.Query.filter(platform_role == :admin)
-      |> Ash.read!(authorize?: false)
-
-    case admins do
+    case platform_admins() do
       [%{email: email}] ->
         to_string(email)
 
       admins ->
         raise "#{length(admins)} platform admins found (need exactly one) — set OWNER_EMAIL"
     end
+  end
+
+  # A typo'd OWNER_EMAIL is a valid-address operator decision (issue for
+  # it), but the database may have one admin under a different address —
+  # name that mismatch loudly so the operator can spot the typo. No abort:
+  # the address the operator named wins. Any other admin count (zero,
+  # several) carries no single admin to compare against, so it stays
+  # silent — `single_admin_email/0` owns those cases.
+  defp warn_if_not_admin(email) do
+    case platform_admins() do
+      [%{email: admin_email}] ->
+        admin_email = to_string(admin_email)
+
+        if admin_email != email do
+          Logger.warning(
+            "OWNER_EMAIL #{email} does not match the platform admin #{admin_email} — " <>
+              "issuing a code for #{email} anyway (that session will not be an admin)"
+          )
+        end
+
+        :ok
+
+      _not_exactly_one ->
+        :ok
+    end
+  end
+
+  defp platform_admins do
+    User
+    |> Ash.Query.filter(platform_role == :admin)
+    |> Ash.read!(authorize?: false)
   end
 
   # The public host this environment is served on (PHX_HOST, via

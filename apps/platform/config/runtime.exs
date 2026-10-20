@@ -55,14 +55,18 @@ end
 # non-prod env prefixes its labels (staging: stg) and can never take a
 # prod one; prod — unset, or "" (the classic empty-Secret shape) — mints
 # bare labels. Invalid values raise at boot: a bad prefix would break
-# every instance URL minted after it.
-case System.get_env("INSTANCES_SLUG_PREFIX") do
-  value when value in [nil, ""] ->
-    :ok
+# every instance URL minted after it. Test is excluded (same as the
+# Postmark/PromEx gates): a stray INSTANCES_SLUG_PREFIX in the suite's
+# shell must not prefix every minted slug.
+if config_env() != :test do
+  case System.get_env("INSTANCES_SLUG_PREFIX") do
+    value when value in [nil, ""] ->
+      :ok
 
-  value ->
-    FluxVale.Infrastructure.Instance.GenerateSlug.validate_prefix!(value)
-    config :flux_vale, :instances_slug_prefix, value
+    value ->
+      FluxVale.Infrastructure.Instance.GenerateSlug.validate_prefix!(value)
+      config :flux_vale, :instances_slug_prefix, value
+  end
 end
 
 case System.get_env("INSTANCE_RBAC_SA_NAMESPACE") do
@@ -105,8 +109,12 @@ end
 # Swoosh.ApiClient.Req); message_stream is a per-email provider option —
 # unset sends Postmark's default outbound stream.
 # test is excluded: test.exs pins Swoosh.Adapters.Test, and a stray
-# exported key must not flip the suite onto a network adapter.
-if config_env() != :test do
+# exported key must not flip the suite onto a network adapter. dev is
+# excluded too — config.exs pins Swoosh.Adapters.Local there, and a key
+# exported in a dev shell must not flip dev's delivery shape onto the
+# network (dev exercises the same local-mail shape staging adds a split
+# to).
+if config_env() not in [:test, :dev] do
   case System.get_env("POSTMARK_API_KEY") do
     key when key in [nil, ""] ->
       :ok
