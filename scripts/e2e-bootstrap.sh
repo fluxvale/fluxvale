@@ -80,7 +80,8 @@ kubectl apply -f deploy/local/k8s/10-platform.yaml
 # waits it out either way.)
 kubectl -n "$NAMESPACE" set image deployment/fluxvale-platform \
   "platform=$REGISTRY_CLUSTER/fluxvale/platform-dev:$tag" \
-  "migrate=$REGISTRY_CLUSTER/fluxvale/platform-dev:$tag"
+  "migrate=$REGISTRY_CLUSTER/fluxvale/platform-dev:$tag" \
+  "seed=$REGISTRY_CLUSTER/fluxvale/platform-dev:$tag"
 kubectl apply -f deploy/local/k8s/15-ingressroute.yaml
 
 # The init container crash-loops until CNPG hands out the DB secret —

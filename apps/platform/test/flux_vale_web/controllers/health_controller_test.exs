@@ -3,6 +3,10 @@ defmodule FluxValeWeb.HealthControllerTest do
   # env (read via FluxVale.Build.version/0); it must not race sibling modules
   use FluxValeWeb.ConnCase, async: false
 
+  import ExUnit.CaptureLog
+
+  alias FluxVale.TestSupport.InstanceFixtures
+
   describe "GET /health (liveness)" do
     test "reports ok with version dev when BUILD_SHA is unset", %{conn: conn} do
       stub_build_sha(nil)
@@ -21,10 +25,33 @@ defmodule FluxValeWeb.HealthControllerTest do
   end
 
   describe "GET /health/ready (readiness)" do
-    test "ok when the database answers", %{conn: conn} do
+    test "ok when the database answers and boot invariants hold", %{conn: conn} do
+      # #175: readiness gates on required reference data too — the
+      # fixtures build the full invariant set (app version chain covers
+      # pricing + catalog; the cluster row is the third).
+      InstanceFixtures.app_version!()
+      InstanceFixtures.local_cluster!()
+
       conn = get(conn, ~p"/health/ready")
 
       assert %{"status" => "ok", "version" => _version} = json_response(conn, 200)
+    end
+
+    test "503 + an error log naming the invariant when reference data is missing", %{
+      conn: conn
+    } do
+      # Oct 20's shape: the DB answers, the env is half-seeded. Silence
+      # here is what let prod read "healthy" while every deploy failed.
+      log =
+        capture_log(fn ->
+          conn = get(conn, ~p"/health/ready")
+
+          assert %{"status" => "unhealthy"} = json_response(conn, 503)
+        end)
+
+      assert log =~ "readiness invariants failing"
+      assert log =~ "clusters: 0 rows"
+      assert log =~ "pricing: no rows"
     end
 
     test "liveness stays 200 even when the database connection is broken", %{conn: conn} do
