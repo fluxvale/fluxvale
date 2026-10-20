@@ -112,5 +112,16 @@ defmodule FluxVale.ReleaseTest do
         FluxVale.Release.ensure_cluster()
       end
     end
+
+    # #172 review: the create runs through `Ash.create!` so a bad name
+    # still raises the typed, actionable error instead of an opaque
+    # MatchError. CLUSTER_NAME is unvalidated operator input.
+    test "a non-DNS name raises the typed Ash error, not a MatchError" do
+      System.put_env("CLUSTER_NAME", "Bad_Name")
+
+      assert_raise Ash.Error.Invalid, fn -> FluxVale.Release.ensure_cluster() end
+
+      assert {:ok, []} = Ash.read(Cluster, authorize?: false)
+    end
   end
 end

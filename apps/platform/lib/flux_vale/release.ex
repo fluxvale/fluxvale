@@ -131,13 +131,16 @@ defmodule FluxVale.Release do
                 "(or remove that row first); refusing to add a second"
 
       {:ok, []} ->
-        {:ok, _cluster, _notifications} =
+        {_cluster, _notifications} =
           Cluster
           |> Ash.Changeset.for_create(:create, %{name: name})
-          # return_notifications? — Cluster has no notifiers; taking the
-          # (empty) notification list keeps this transaction from warning
-          # about undelivered notifications (the PostEntry discipline).
-          |> Ash.create(authorize?: false, return_notifications?: true)
+          # return_notifications? — taking the notification list here
+          # keeps this transaction from warning about undelivered ones
+          # (the PostEntry discipline). Cluster's create carries one
+          # addressee-less notification, so the list is non-empty but
+          # delivers nothing; `create!` keeps the typed error a bad name
+          # raises.
+          |> Ash.create!(authorize?: false, return_notifications?: true)
 
         created =
           "created cluster row #{name} (kubeconfig_ref: null — the in-cluster SA sentinel, ADR-0006 Am. 2)"

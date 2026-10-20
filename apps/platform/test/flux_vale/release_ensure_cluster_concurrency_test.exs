@@ -75,6 +75,80 @@ defmodule FluxVale.Release.EnsureClusterConcurrencyTest do
              committed(fn -> Ash.read(Cluster, authorize?: false) end)
   end
 
+  # The arm that actually protects ResolveCluster: a run whose name
+  # differs from the row another run is creating must raise, not land a
+  # second row. Deterministic — a holder process keeps the advisory lock
+  # (with its row inserted) until the moment the task tries to run, so
+  # this is genuine contention, not a race we happen to win.
+  test "a concurrent run under a different name raises, leaving one row" do
+    original = System.get_env("CLUSTER_NAME")
+    System.put_env("CLUSTER_NAME", "concurrency-other-01")
+
+    on_exit(fn ->
+      case original do
+        nil -> System.delete_env("CLUSTER_NAME")
+        value -> System.put_env("CLUSTER_NAME", value)
+      end
+    end)
+
+    on_exit(fn ->
+      delete_committed!(fn -> Cluster.get_by_name("concurrency-holder-01", authorize?: false) end)
+    end)
+
+    parent = self()
+
+    holder =
+      spawn(fn ->
+        conn = Sandbox.checkout(Repo, sandbox: false)
+
+        Repo.transaction(fn ->
+          Repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", ["clusters"])
+
+          # return_notifications? — keep the transaction quiet, same as
+          # the task under test.
+          Cluster
+          |> Ash.Changeset.for_create(:create, %{name: "concurrency-holder-01"})
+          |> Ash.create!(authorize?: false, return_notifications?: true)
+
+          send(parent, :locked)
+
+          receive do
+            :commit -> :ok
+          end
+        end)
+
+        Sandbox.checkin(Repo, conn)
+        send(parent, :released)
+      end)
+
+    assert_receive :locked, 5_000
+
+    spawn(fn ->
+      conn = Sandbox.checkout(Repo, sandbox: false)
+
+      result =
+        try do
+          FluxVale.Release.ensure_cluster()
+        rescue
+          error -> {:raised, error}
+        end
+
+      Sandbox.checkin(Repo, conn)
+      send(parent, {:done, result})
+    end)
+
+    # The holder still owns the lock while the run blocks on it; the
+    # committed row is what the run re-reads once released.
+    send(holder, :commit)
+
+    assert_receive :released, 5_000
+    assert_receive {:done, {:raised, %RuntimeError{} = error}}, 5_000
+    assert Exception.message(error) =~ ~r/already exists, not "concurrency-other-01"/
+
+    assert {:ok, [%{name: "concurrency-holder-01"}]} =
+             committed(fn -> Ash.read(Cluster, authorize?: false) end)
+  end
+
   # Runs fun on a real connection whose writes commit immediately.
   defp committed(fun) do
     conn = Sandbox.checkout(Repo, sandbox: false)
