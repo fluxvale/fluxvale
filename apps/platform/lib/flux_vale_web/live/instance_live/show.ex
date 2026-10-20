@@ -84,6 +84,15 @@ defmodule FluxValeWeb.InstanceLive.Show do
           </div>
         </div>
 
+        <div :if={@instance.app_version.first_run} class="card bg-base-200">
+          <div class="card-body gap-2 py-4">
+            <h2 class="card-title text-base">First open</h2>
+            <p class="text-sm opacity-80" data-testid="first-run-guidance">
+              {@instance.app_version.first_run.guidance}
+            </p>
+          </div>
+        </div>
+
         <div class="card bg-base-200">
           <div class="card-body gap-4">
             <h2 class="card-title text-base">Details</h2>

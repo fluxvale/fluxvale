@@ -93,6 +93,17 @@ defmodule FluxVale.Catalog.AppVersion do
       public?(true)
     end
 
+    # How this app becomes usable on first open (#181, ADR-0034):
+    # pattern + guaranteed env posture + locked-out keys + owner-facing
+    # guidance, one generalized field for every catalog app. nil = no
+    # posture needed (usable out of the box). Contract keys are the
+    # contract's alone (ValidateFirstRunEnv keeps the env-var maps
+    # disjoint); DeriveFromAppVersion applies `env` above every
+    # deploy-time layer and rejects user values that touch either half.
+    attribute :first_run, FluxVale.Catalog.Types.FirstRunContract do
+      public?(true)
+    end
+
     attribute :default_cpu_cores, :decimal do
       allow_nil?(false)
       default(Decimal.new("0.5"))
@@ -151,6 +162,7 @@ defmodule FluxVale.Catalog.AppVersion do
         :instance_url_env,
         :default_env_vars,
         :configurable_env_vars,
+        :first_run,
         :default_cpu_cores,
         :default_memory_mb,
         :default_storage_gb,
@@ -162,6 +174,7 @@ defmodule FluxVale.Catalog.AppVersion do
 
       validate(present(:recommended_size_id))
       validate(FluxVale.Catalog.AppVersion.ValidateSizeMatchesAllocation)
+      validate(FluxVale.Catalog.AppVersion.ValidateFirstRunEnv)
     end
 
     update :update do
@@ -177,6 +190,7 @@ defmodule FluxVale.Catalog.AppVersion do
         :instance_url_env,
         :default_env_vars,
         :configurable_env_vars,
+        :first_run,
         :default_cpu_cores,
         :default_memory_mb,
         :default_storage_gb,
@@ -191,6 +205,7 @@ defmodule FluxVale.Catalog.AppVersion do
 
       validate(present(:recommended_size_id))
       validate(FluxVale.Catalog.AppVersion.ValidateSizeMatchesAllocation)
+      validate(FluxVale.Catalog.AppVersion.ValidateFirstRunEnv)
     end
   end
 

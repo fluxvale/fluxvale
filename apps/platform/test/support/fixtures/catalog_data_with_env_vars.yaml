@@ -24,6 +24,16 @@
           # Resolved against a matching pricing_sizes row (0.5 / 256 / 1)
           # the seed tests create before seeding this fixture.
           recommended_size: fixture-size
+          # First-run contract pass-through (#181): string keys survive
+          # only if the FirstRunContract type accepts them — asserted in
+          # the seed tests.
+          first_run:
+            pattern: first_registered_user_admin
+            env:
+              APP__security__INSTALL_LOCK: "true"
+            forbidden_env:
+              - APP__service__DISABLE_REGISTRATION
+            guidance: Register first; you become admin.
           release_notes: |
             Test release.
           published_at: "2026-06-01T00:00:00Z"

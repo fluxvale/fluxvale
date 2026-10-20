@@ -19,7 +19,8 @@ defmodule FluxVale.Seeds.CatalogData do
 
   Optional fields mirror the resource defaults: `healthcheck_path` "/",
   `default_cpu_cores` "0.5", `default_memory_mb` 256, `default_storage_gb` 0,
-  `published_at` nil, env maps `%{}`.
+  `published_at` nil, env maps `%{}`, `first_run` nil (no first-open
+  posture needed — the contract is optional per app, #181).
 
   `recommended_size` (the priced unit, #125) is **required** in the YAML —
   a version without one cannot be priced (ADR-0028). The loader only
@@ -110,6 +111,10 @@ defmodule FluxVale.Seeds.CatalogData do
       instance_url_env: version["instance_url_env"],
       default_env_vars: Map.get(version, "default_env_vars", %{}),
       configurable_env_vars: Map.get(version, "configurable_env_vars", %{}),
+      # First-run contract (#181, ADR-0034): raw pass-through, string
+      # keys — the FirstRunContract type validates at write time, one
+      # enforcement point like the env-var schema below.
+      first_run: Map.get(version, "first_run"),
       default_cpu_cores: cpu_cores(version),
       default_memory_mb: Map.get(version, "default_memory_mb", 256),
       default_storage_gb: Map.get(version, "default_storage_gb", 0),

@@ -39,6 +39,17 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert version.default_env_vars["FORGEJO__database__DB_TYPE"] == "sqlite3"
 
       assert Map.has_key?(version.configurable_env_vars, "FORGEJO__mailer__SMTP_ADDR")
+
+      # First-run contract passes through raw (string keys — #181);
+      # the FirstRunContract type owns validation. Substrings, not
+      # verbatim equality — copy edits must not break the loader test.
+      assert version.first_run["pattern"] == "first_registered_user_admin"
+      assert version.first_run["env"] == %{"FORGEJO__security__INSTALL_LOCK" => "true"}
+      assert version.first_run["forbidden_env"] == ["FORGEJO__service__DISABLE_REGISTRATION"]
+
+      guidance = version.first_run["guidance"]
+      assert guidance =~ "first account becomes the admin"
+      assert guidance =~ "close public sign-up"
     end
 
     test "comments-only and empty files parse to []" do
@@ -98,6 +109,7 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert version.published_at == nil
       assert version.default_env_vars == %{}
       assert version.configurable_env_vars == %{}
+      assert version.first_run == nil
       assert version.recommended_size == "s"
     end
 

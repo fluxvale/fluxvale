@@ -19,6 +19,7 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Catalog.Category
   alias FluxVale.Catalog.Types.EnvVarSpec
+  alias FluxVale.Catalog.Types.FirstRunContract
   alias FluxVale.Pricing.Size
   alias FluxVale.Seeds
   alias FluxVale.Seeds.CatalogData
@@ -80,14 +81,35 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert version.recommended_size.slug == "small"
     end
 
+    test "seeds the Forgejo first-run contract (#181, ADR-0034)" do
+      assert :ok == Seeds.seed_pricing!()
+      assert :ok == Seeds.seed_catalog!()
+
+      contract = version_for!("forgejo").first_run
+
+      assert %FirstRunContract{} = contract
+      assert contract.pattern == :first_registered_user_admin
+      # INSTALL_LOCK moved from default_env_vars into the contract (its
+      # one home); registration-open rides the upstream default plus
+      # the forbidden lock, not a shipped value.
+      assert contract.env == %{"FORGEJO__security__INSTALL_LOCK" => "true"}
+      assert contract.forbidden_env == ["FORGEJO__service__DISABLE_REGISTRATION"]
+      assert contract.guidance =~ "first account"
+
+      version = version_for!("forgejo")
+      assert version.default_env_vars["FORGEJO__security__INSTALL_LOCK"] == nil
+      assert version.configurable_env_vars["FORGEJO__service__DISABLE_REGISTRATION"] == nil
+    end
+
     test "shipped env-var schema passes the typed cast (issue exit criterion)" do
       assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()
 
       version = version_for!("forgejo")
 
-      assert %EnvVarSpec{} =
-               version.configurable_env_vars["FORGEJO__service__DISABLE_REGISTRATION"]
+      # The sign-up toggle is gone from the deploy-time surface — the
+      # contract owns that key now (asserted above).
+      refute Map.has_key?(version.configurable_env_vars, "FORGEJO__service__DISABLE_REGISTRATION")
 
       passwd = version.configurable_env_vars["FORGEJO__mailer__PASSWD"]
       assert passwd.type == :string
@@ -160,6 +182,18 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert port.default == 587
       assert port.type == :integer
     end
+
+    test "seeds the first-run contract through the typed cast (#181)" do
+      assert :ok == seed_fixture!()
+
+      contract = version_for!("testapp").first_run
+
+      assert %FirstRunContract{} = contract
+      assert contract.pattern == :first_registered_user_admin
+      assert contract.env == %{"APP__security__INSTALL_LOCK" => "true"}
+      assert contract.forbidden_env == ["APP__service__DISABLE_REGISTRATION"]
+      assert contract.guidance == "Register first; you become admin."
+    end
   end
 
   describe "idempotency" do
@@ -197,6 +231,17 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert :ok == seed_fixture!()
 
       assert version_for!("testapp").image == "test/image:1.0"
+    end
+
+    test "converges a dropped first-run contract back to the YAML (#181)" do
+      assert :ok == seed_fixture!()
+
+      version = version_for!("testapp")
+      AppVersion.update!(version, %{first_run: nil}, authorize?: false)
+
+      assert :ok == seed_fixture!()
+
+      assert version_for!("testapp").first_run.pattern == :first_registered_user_admin
     end
 
     test "converges drifted category and app data too (symmetric convergence)" do

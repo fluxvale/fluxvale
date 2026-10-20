@@ -77,6 +77,15 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   expect(opened.status()).toBeLessThan(400);
   expect(await opened.text()).toMatch(/Forgejo/i);
 
+  // #181's done-when: usable within one click of opening — registration
+  // is open, so the owner can sign up (the first registrant becomes the
+  // admin). A closed instance redirects /user/sign_up away to sign-in;
+  // assert we stay put and the registration form answers.
+  const signUp = await request.get(new URL("user/sign_up", url!).toString());
+  expect(signUp.url()).toMatch(/\/user\/sign_up$/);
+  expect(signUp.status()).toBeLessThan(400);
+  expect(await signUp.text()).toMatch(/register|sign up/i);
+
   // Stop → stopped (K8s scale-to-0, quick)
   await page.getByTestId("stop-button").click();
   await waitForStatus(page, "stopped", 60_000);
