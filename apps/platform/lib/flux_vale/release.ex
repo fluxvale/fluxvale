@@ -98,10 +98,26 @@ defmodule FluxVale.Release do
     end
   end
 
-  # Reads all cluster rows, matching ResolveCluster's "exactly one"
-  # lookup semantics, so this task can never leave the table in the
-  # zero/many state that breaks every instance create.
+  # Serialized on a transaction-scoped advisory lock keyed on the
+  # clusters table: concurrent `ensure-cluster` runs (any `CLUSTER_NAME`)
+  # take the lock before the read, so the empty-table case can't race two
+  # inserts — the check-then-insert is atomic under the lock. Held until
+  # the transaction commits, so the next holder reads the winner's row
+  # (the wallet-debit discipline). Reads all rows, matching
+  # `ResolveCluster`'s "exactly one" semantics, so the task can never
+  # leave the table in the zero/many state that breaks instance creates.
   defp ensure_cluster_row(name) do
+    {:ok, outcome} =
+      FluxVale.Repo.transaction(fn ->
+        FluxVale.Repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", ["clusters"])
+
+        reconcile_cluster_row(name)
+      end)
+
+    outcome
+  end
+
+  defp reconcile_cluster_row(name) do
     case Ash.read(Cluster, authorize?: false) do
       {:ok, [%{name: ^name} = cluster]} ->
         exists =
@@ -115,7 +131,13 @@ defmodule FluxVale.Release do
                 "(or remove that row first); refusing to add a second"
 
       {:ok, []} ->
-        Cluster.create!(%{name: name}, authorize?: false)
+        {:ok, _cluster, _notifications} =
+          Cluster
+          |> Ash.Changeset.for_create(:create, %{name: name})
+          # return_notifications? — Cluster has no notifiers; taking the
+          # (empty) notification list keeps this transaction from warning
+          # about undelivered notifications (the PostEntry discipline).
+          |> Ash.create(authorize?: false, return_notifications?: true)
 
         created =
           "created cluster row #{name} (kubeconfig_ref: null — the in-cluster SA sentinel, ADR-0006 Am. 2)"
