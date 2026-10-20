@@ -4,7 +4,19 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="csrf-token" content={get_csrf_token()} />
-    <.live_title default="FluxVale" suffix=" · Phoenix Framework" phx-no-format>{assigns[:page_title]}</.live_title>
+    <%!-- #164: no suffix — controllers set FULL branded titles (any suffix
+    would double-brand them); the landing default is the bare brand. --%>
+    <.live_title default="FluxVale" phx-no-format>{assigns[:page_title]}</.live_title>
+    <%!-- #164 (ADR-00025): description/canonical/OG/Twitter head tags on
+    every page; see FluxValeWeb.Seo. Components receive only the attrs
+    they're given, so the SEO assigns ride the conn and are forwarded
+    here. --%>
+    <FluxValeWeb.Seo.seo_tags
+      page_title={assigns[:page_title]}
+      page_description={assigns[:page_description]}
+      canonical_path={assigns[:canonical_path]}
+      robots_noindex={assigns[:robots_noindex] || false}
+    />
     <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
     <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js"}>
     </script>

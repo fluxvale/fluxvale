@@ -80,6 +80,29 @@ case System.get_env("HITPAY_BASE_URL") do
   base_url -> config :flux_vale, :hitpay, base_url: base_url
 end
 
+# Postmark mailer (ADR-0003 Am. 1, #165): POSTMARK_API_KEY moves delivery
+# off the Local adapter (config.exs) onto Postmark's API. nil and "" (the
+# classic empty-Secret shape) both mean unconfigured — a prod release
+# without the token still boots; sign-in codes just never leave the box.
+# The value is a Postmark *server* token, injected as env by the BWS
+# operator (ADR-0021); env vars don't hot-reload, so rotation needs a
+# pod restart. The adapter needs only api_key (prod.exs already sets
+# Swoosh.ApiClient.Req); message_stream is a per-email provider option —
+# unset sends Postmark's default outbound stream.
+# test is excluded: test.exs pins Swoosh.Adapters.Test, and a stray
+# exported key must not flip the suite onto a network adapter.
+if config_env() != :test do
+  case System.get_env("POSTMARK_API_KEY") do
+    key when key in [nil, ""] ->
+      :ok
+
+    api_key ->
+      config :flux_vale, FluxVale.Mailer,
+        adapter: Swoosh.Adapters.Postmark,
+        api_key: api_key
+  end
+end
+
 # TestInbox gate (#22, ADR-0003 Am. 2 / ADR-0023 Am. 3): dev/test enable
 # via their config files; staging — the same prod-mode release as prod
 # (ADR-0010) — flips this env var, and the recipient split then captures
@@ -252,21 +275,7 @@ if config_env() == :prod do
   #
   # Check `Plug.SSL` for all available options in `force_ssl`.
 
-  # ## Configuring the mailer
-  #
-  # In production you need to configure the mailer to use a different adapter.
-  # Here is an example configuration for Mailgun:
-  #
-  #     config :flux_vale, FluxVale.Mailer,
-  #       adapter: Swoosh.Adapters.Mailgun,
-  #       api_key: System.get_env("MAILGUN_API_KEY"),
-  #       domain: System.get_env("MAILGUN_DOMAIN")
-  #
-  # Most non-SMTP adapters require an API client. Swoosh supports Req, Hackney,
-  # and Finch out-of-the-box. This configuration is typically done at
-  # compile-time in your config/prod.exs:
-  #
-  #     config :swoosh, :api_client, Swoosh.ApiClient.Req
-  #
-  # See https://swoosh.hexdocs.pm/Swoosh.html#module-installation for details.
+  # Mailer: delivery flips to Postmark when POSTMARK_API_KEY is set — the
+  # env gate sits with the other optional-env cases above. prod.exs already
+  # sets Swoosh.ApiClient.Req, the api_client the adapter needs.
 end

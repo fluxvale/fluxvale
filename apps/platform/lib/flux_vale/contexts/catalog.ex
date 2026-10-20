@@ -1,10 +1,11 @@
 defmodule FluxVale.Catalog do
   @moduledoc """
   Catalog: the apps FluxVale one-click-deploys — Category/App/AppVersion
-  (#70, port of v1's domain per docs/v1-salvage.md). Reads are any signed-in
-  actor (the M3 deploy flow #74 browses it; public read relaxes with M7
-  catalog pages); mutation is platform-admin-only. Opts into AshAdmin
-  (ADR-0027): the dashboard rides the same policies, no new auth model.
+  (#70, port of v1's domain per docs/v1-salvage.md). Reads are public
+  (#164, ADR-00025 — the catalog is a marketing surface); mutation is
+  platform-admin-only. Opts into AshAdmin (ADR-0027): the dashboard rides
+  the same policies, no new auth model — dev-only routes, route-gated
+  away from prod.
   """
 
   use Ash.Domain,
