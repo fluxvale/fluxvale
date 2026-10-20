@@ -117,12 +117,18 @@ defmodule FluxVale.Pricing.SizeTest do
       %{admin: admin(), regular: regular_user()}
     end
 
-    test "any signed-in actor reads; anonymous is denied", %{regular: regular} do
+    test "public read — anonymous browse included (#164); mutations stay admin-gated", %{
+      regular: regular
+    } do
       Size.create!(size_attrs(), authorize?: false)
 
       assert {:ok, [_row]} = Ash.read(Size, actor: regular, authorize?: true)
 
-      assert {:error, %Ash.Error.Forbidden{}} = Ash.read(Size, authorize?: true)
+      assert {:ok, [_row]} = Ash.read(Size, authorize?: true)
+
+      blocked = size_attrs(%{slug: "blocked"})
+
+      assert {:error, %Ash.Error.Forbidden{}} = Size.create(blocked, authorize?: true)
     end
 
     test "non-admins cannot mutate; admins create and update — the AshAdmin paths",

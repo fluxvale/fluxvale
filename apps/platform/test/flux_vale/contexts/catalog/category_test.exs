@@ -68,12 +68,17 @@ defmodule FluxVale.Catalog.CategoryTest do
       %{admin: admin(), regular: regular_user()}
     end
 
-    test "any signed-in actor reads; anonymous is denied", %{regular: regular} do
+    test "public read — anonymous browse included (#164); mutations stay admin-gated", %{
+      regular: regular
+    } do
       Category.create!(%{name: "Media", slug: "media"}, authorize?: false)
 
       assert {:ok, [_row]} = Ash.read(Category, actor: regular, authorize?: true)
 
-      assert {:error, %Ash.Error.Forbidden{}} = Ash.read(Category, authorize?: true)
+      assert {:ok, [_row]} = Ash.read(Category, authorize?: true)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Category.create(%{name: "Blocked", slug: "blocked"}, authorize?: true)
     end
 
     test "non-admins cannot mutate; admins create and update — the AshAdmin paths",
