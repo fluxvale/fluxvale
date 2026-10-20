@@ -17,8 +17,10 @@ remembering a manual step.
 1. **Deploy = schema + required reference data.** The fleet base
    Deployment gains a `seed` init container after `migrate`: `bin/seed`
    then `bin/ensure-cluster`, with `CLUSTER_NAME` from the container
-   env (prod `nuremberg-01`; staging `local`, its existing row). Both
-   are idempotent. The cluster row is get-or-create and never
+   env (prod `nuremberg-01`; staging `local`, its existing row). The
+   local stack mirrors it (`deploy/local`, ADR-0020 parity) —
+   readiness gating on seeds requires seeding to precede readiness,
+   and the local stack seeded only post-rollout. Both are idempotent. The cluster row is get-or-create and never
    converges — an admin-set `kubeconfig_ref` is deliberate drift. The
    seed's converge scope is the shipped YAML (prices, tax rates,
    catalog): admin edits to those revert on the next deploy, so edit
