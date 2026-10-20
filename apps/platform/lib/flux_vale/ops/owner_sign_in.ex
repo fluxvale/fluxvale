@@ -1,0 +1,109 @@
+defmodule FluxVale.Ops.OwnerSignIn do
+  @moduledoc """
+  Operator path to issue a one-time sign-in code for the platform owner.
+
+  Exists because prod cannot deliver mail (`Swoosh.Adapters.Local`) —
+  until a prod mailer lands, a code printed by `bin/owner-signin` is
+  the only way an owner signs in. Ops-only: no route, nothing seeded,
+  gated to one address — `OWNER_EMAIL`, else the single platform
+  admin. The address never comes from argv, a URL, or any
+  caller-supplied input.
+  """
+
+  alias FluxVale.Identity
+  alias FluxVale.Identity.User
+
+  require Ash.Query
+  require Logger
+
+  @doc """
+  The owner's address: `OWNER_EMAIL` when set (trimmed), else the
+  single platform admin's email. Raises with a count when the fallback
+  is ambiguous, telling the operator to set `OWNER_EMAIL`.
+  """
+  @spec owner_email :: String.t()
+  def owner_email do
+    case System.get_env("OWNER_EMAIL") do
+      nil -> single_admin_email()
+      value -> if(String.trim(value) == "", do: single_admin_email(), else: String.trim(value))
+    end
+  end
+
+  @doc """
+  Resolves the owner address and requests a code through
+  `FluxVale.Identity.request_auth_code/2`, handing it to `deliver`
+  (default: `print_code/2`). Raises an actionable operator message on
+  throttle, AccessRule rejection, or delivery failure — the code exists
+  only in the printed output, so a re-run is the retry. Logs the address
+  and outcome, never the code.
+  """
+  @spec issue_code((String.t(), String.t() -> {:ok, term()})) :: :ok
+  def issue_code(deliver \\ &print_code/2) do
+    email = owner_email()
+
+    case Identity.request_auth_code(email, deliver) do
+      :ok ->
+        Logger.info("owner sign-in code issued for #{email}")
+
+        :ok
+
+      {:error, :throttled} ->
+        raise "owner sign-in code throttled — one code per address per 60 seconds; wait a minute and re-run"
+
+      {:error, :not_allowed} ->
+        raise "owner sign-in code rejected by AccessRule for #{email} — allow the address or set OWNER_EMAIL"
+
+      {:error, reason} ->
+        raise "owner sign-in code request failed: #{inspect(reason)}"
+    end
+  end
+
+  @doc """
+  The default deliver: prints the address, the code, the 10-minute
+  expiry, and the exact next step to stdout. Returns `{:ok, :printed}`.
+
+  Printed, not logged — the operator's terminal is the delivery channel
+  (`eval` runs outside the container's log stream), same posture as the
+  smoke PAT script. That is the one deliberate `IO.puts` in `lib/`.
+  """
+  @spec print_code(String.t(), String.t()) :: {:ok, :printed}
+  def print_code(email, code) do
+    host = endpoint_host()
+
+    # credo:disable-for-next-line Credo.Check.Refactor.IoPuts
+    IO.puts("""
+    Owner sign-in code for #{email}: #{code}
+
+    Expires in 10 minutes. Next steps:
+      1. open https://#{host}/sign-in
+      2. enter the address #{email}
+      3. enter the code #{code}
+    """)
+
+    {:ok, :printed}
+  end
+
+  defp single_admin_email do
+    admins =
+      User
+      |> Ash.Query.filter(platform_role == :admin)
+      |> Ash.read!(authorize?: false)
+
+    case admins do
+      [%{email: email}] ->
+        to_string(email)
+
+      admins ->
+        raise "#{length(admins)} platform admins found (need exactly one) — set OWNER_EMAIL"
+    end
+  end
+
+  # The public host this environment is served on (PHX_HOST, via
+  # runtime.exs), so the printed URL is the one the operator can click.
+  defp endpoint_host do
+    :flux_vale
+    |> Application.fetch_env!(FluxValeWeb.Endpoint)
+    |> Keyword.fetch!(:url)
+    |> Keyword.fetch!(:host)
+  end
+end

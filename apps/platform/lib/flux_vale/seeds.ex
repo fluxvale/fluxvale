@@ -14,6 +14,7 @@ defmodule FluxVale.Seeds do
   authorize before seed data exists (same posture as the admin seed).
   """
 
+  alias FluxVale.Accounts
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Catalog.Category
@@ -31,16 +32,18 @@ defmodule FluxVale.Seeds do
 
   @doc """
   The promotable bring-up seed — dev `mix setup` and the release's
-  `bin/seed` run the same path: platform admin + prices + tax rates +
-  catalog. Idempotent: pricing, tax rates, and the catalog converge,
-  the admin get-or-creates. Pricing runs before the catalog — versions
-  reference a size by slug. The `local` Cluster row is deliberately NOT
-  here — `seed_local_cluster!/0` stays dev/local-only
-  (local_seeds.exs).
+  `bin/seed` run the same path: platform admin (+ its personal org) +
+  prices + tax rates + catalog. Idempotent: pricing, tax rates, and the
+  catalog converge, the admin get-or-creates, and the admin-org heal
+  provisions at most once (see `seed_admin_org!/0`). Pricing runs before
+  the catalog — versions reference a size by slug. The `local` Cluster
+  row is deliberately NOT here — `seed_local_cluster!/0` stays
+  dev/local-only (local_seeds.exs).
   """
   @spec seed :: :ok
   def seed do
     seed_admin!()
+    seed_admin_org!()
     seed_pricing!()
     seed_tax_rates!()
     seed_catalog!()
@@ -75,6 +78,32 @@ defmodule FluxVale.Seeds do
         User.create!(@admin_email, %{platform_role: :admin}, authorize?: false)
 
         :ok
+    end
+  end
+
+  @doc """
+  Ensures the bootstrap admin's personal org exists — accounts created
+  before #119 never got one (provisioning rode the User create only),
+  and the #122 welcome grant rides the org create, so it fires once per
+  org. Delegates to `FluxVale.Accounts.provision_personal_org/1`
+  (probe-first idempotent); a freshly created admin already has its org,
+  so this is a no-op there.
+  """
+  @spec seed_admin_org! :: :ok
+  def seed_admin_org! do
+    admin = User.get_by_email!(@admin_email, authorize?: false)
+
+    case Accounts.provision_personal_org(admin) do
+      {:ok, _org, _created?} ->
+        :ok
+
+      # defensive: provisioning failure is a lost JIT-signup slug race or
+      # a DB failure — not sequentially reachable; the seed fails loudly
+      # coveralls-ignore-start
+      {:error, reason} ->
+        raise "seed admin org: provisioning failed — #{inspect(reason)}"
+
+        # coveralls-ignore-stop
     end
   end
 

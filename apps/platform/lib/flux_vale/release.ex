@@ -10,8 +10,8 @@
 # outside dev, so the release ships no way to run it.
 defmodule FluxVale.Release do
   @moduledoc """
-  DB tasks for the production release (`bin/migrate`, `bin/seed`,
-  `bin/ensure-cluster`).
+  Operator tasks for the production release (`bin/migrate`, `bin/seed`,
+  `bin/owner-signin`, `bin/ensure-cluster`).
 
   `migrate/0` runs pending Ecto migrations per repo (advisory-locked by
   the migrator — the init container relies on this when pods race),
@@ -21,6 +21,7 @@ defmodule FluxVale.Release do
   """
 
   alias FluxVale.Infrastructure.Cluster
+  alias FluxVale.Ops.OwnerSignIn
 
   require Logger
 
@@ -108,6 +109,31 @@ defmodule FluxVale.Release do
           "created cluster row #{name} (kubeconfig_ref: null — the in-cluster SA sentinel, ADR-0006 Am. 2)"
 
         Logger.info(created)
+    end
+
+    :ok
+  end
+
+  @doc """
+  Issues a one-time sign-in code for the platform owner (#165) through
+  `OwnerSignIn` and prints it on the operator's terminal —
+  the break-glass path while prod cannot deliver mail. The gate is
+  `OWNER_EMAIL`, else the environment's single platform admin; nothing
+  is seeded and no route exists.
+  """
+  @spec owner_signin_code :: :ok
+  def owner_signin_code do
+    load_app()
+
+    # `eval` starts no supervision tree, so the AccessRules cache process
+    # is absent (verified live: `GenServer.call` exits `:noproc`). TTL 0
+    # reads the table straight through — the gate still runs, only the
+    # 60s snapshot is skipped, which is what a one-shot operator task wants.
+    Application.put_env(:flux_vale, :access_rules_cache_ttl_seconds, 0)
+
+    for repo <- repos() do
+      {:ok, :ok, _started} =
+        Ecto.Migrator.with_repo(repo, fn _repo -> OwnerSignIn.issue_code() end)
     end
 
     :ok

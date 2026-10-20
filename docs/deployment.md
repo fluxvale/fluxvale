@@ -78,6 +78,25 @@ endpoints. So the oracles authenticate differently:
 - **CLI login follows the PAT model** (gh-style): create a PAT in the
   web UI, paste into the CLI — no email-code-over-API endpoints.
 
+### Break-glass sign-in (`bin/owner-signin`, #165)
+
+Prod cannot deliver mail yet (`Swoosh.Adapters.Local`), so a requested
+code dies in the pod's memory and no human can sign in on fluxvale.com.
+Until a prod mailer lands, the operator prints one code on their own
+terminal:
+
+```sh
+kubectl exec -n <namespace> deploy/fluxvale-platform -c platform -- /app/bin/owner-signin
+```
+
+The gate is `OWNER_EMAIL` when set, else the environment's **single
+platform admin** (zero or several raises — set `OWNER_EMAIL`). Nothing
+else can request a code: no route, nothing seeded, no argv. The code
+expires in 10 minutes, one send per address per 60 seconds, and the task
+prints it to stdout — never to the pod log. It runs through
+`eval` (no supervision tree, so the AccessRule cache is read
+straight-through); the AccessRule gate itself still applies.
+
 ### Scheduled monitoring (two layers)
 
 1. **Availability — Grafana Synthetics** (day one, Cloud free tier):
@@ -124,6 +143,26 @@ TLSStore — so the DB can't prevent a cross-env label collision. The
 policy is an env-scoped prefix: prod (no `INSTANCES_SLUG_PREFIX`) mints
 bare `adjective-noun-####` labels; staging sets `INSTANCES_SLUG_PREFIX=stg`
 (labels `stg-<slug>`) and can never take a prod label.
+
+## Bring-up seeds
+
+`bin/seed` (release rpc — the same `FluxVale.Seeds.seed/0` that dev
+`mix setup` runs) converges bring-up data: platform admin (+ its
+personal org), prices, tax rates, catalog. Idempotent — a re-run
+changes nothing.
+
+The seed also heals the bootstrap admin's missing personal org: org
+provisioning (#119) rides the User `create` action, so accounts created
+before it have no org and can neither deploy nor top up. Any **other**
+legacy account is an operator remedy, never seed data (same posture as
+other operator-entered rows): heal it through the release rpc —
+
+```sh
+/app/bin/flux_vale eval 'FluxVale.Accounts.provision_personal_org(FluxVale.Identity.User.get_by_email!("user@example.com", authorize?: false))'
+```
+
+Idempotent — a second call adds nothing, and the welcome grant rides
+the org create exactly once.
 
 ## Feature flags
 

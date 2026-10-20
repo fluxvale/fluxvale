@@ -87,7 +87,13 @@ config :flux_vale,
   payments_provider: FluxVale.Billing.Providers.HitPay,
   hitpay: [
     base_url: "https://api.sandbox.hit-pay.com"
-  ]
+  ],
+  # SEO canonical identity (#164, ADR-00025): canonical links, og:url, the
+  # sitemap and the noindex host check all read these — the prod origin is
+  # the truth regardless of the serving host (staging serves prod URLs by
+  # design). One place; helpers never hardcode either value.
+  canonical_origin: "https://fluxvale.com",
+  canonical_host: "fluxvale.com"
 
 # Configure the endpoint
 config :flux_vale, FluxValeWeb.Endpoint,

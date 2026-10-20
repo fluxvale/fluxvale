@@ -27,8 +27,10 @@ defmodule FluxVale.Pricing.Size do
 
   policies do
     policy action_type(:read) do
-      description "Any signed-in actor sees prices (ADR-0028's live $X.XX/mo)"
-      authorize_if(actor_present())
+      # #164: the public catalog show page prices versions for anonymous
+      # visitors (ADR-0028's $X.XX/mo, now on the marketing surface too).
+      description "Public browse — prices show on the public catalog (#164, ADR-00025); writes stay admin-only"
+      authorize_if(always())
     end
 
     policy FluxVale.Checks.ActorIsPlatformAdmin do

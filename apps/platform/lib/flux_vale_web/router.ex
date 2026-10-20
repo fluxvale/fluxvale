@@ -11,6 +11,27 @@ defmodule FluxValeWeb.Router do
     # #138: the edge geo header rides the session as checkout location
     # evidence (the wizard reads it in mount).
     plug FluxValeWeb.Plugs.CaptureIpCountry
+    # #164 (ADR-00025 §4): every non-canonical host is noindex — staging,
+    # PR review envs, local dev. Canonical prod host: no-op.
+    plug FluxValeWeb.Plugs.SeoNoindex
+  end
+
+  # #164 (ADR-00025 §3): the public catalog is a marketing surface —
+  # display-only session resolution for the navbar chrome; never an auth
+  # gate (reads ride the public read policies, the deploy CTA links at
+  # the auth-gated /apps/:slug/deploy route).
+  pipeline :public_seo do
+    plug FluxValeWeb.Plugs.MaybeResolveUser
+  end
+
+  # #164: the sitemap — XML only, no session, no root layout. URLs are
+  # canonical prod origin always (staging serves prod URLs by design,
+  # ADR-00025); the noindex plug still rides so a staging sitemap request
+  # gets the header too.
+  pipeline :sitemap do
+    plug :accepts, ["xml"]
+    plug :put_secure_browser_headers
+    plug FluxValeWeb.Plugs.SeoNoindex
   end
 
   pipeline :api do
@@ -69,6 +90,23 @@ defmodule FluxValeWeb.Router do
       default_model_expand_depth: 4
 
     forward "/", FluxValeWeb.AshJsonApiRouter
+  end
+
+  # #164: the public SEO routes — programmatic-SEO catalog pages, the
+  # anonymous-OK SSR mirrors of the authenticated CatalogLive browse. The
+  # authenticated live_session below is untouched: anonymous deploy clicks
+  # 302 to /sign-in exactly as today.
+  scope "/", FluxValeWeb do
+    pipe_through [:browser, :public_seo]
+
+    get "/catalog", CatalogController, :index
+    get "/catalog/:slug", CatalogController, :show
+  end
+
+  scope "/", FluxValeWeb do
+    pipe_through :sitemap
+
+    get "/sitemap.xml", SitemapController, :show
   end
 
   scope "/", FluxValeWeb do
