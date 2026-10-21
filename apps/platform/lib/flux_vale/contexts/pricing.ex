@@ -18,12 +18,12 @@ defmodule FluxVale.Pricing do
   alias FluxVale.Pricing.Operations
 
   admin do
-    show? true
+    show?(true)
   end
 
   resources do
-    resource FluxVale.Pricing.Size
-    resource FluxVale.Pricing.TaxRate
+    resource(FluxVale.Pricing.Size)
+    resource(FluxVale.Pricing.TaxRate)
   end
 
   @doc """
@@ -49,31 +49,50 @@ defmodule FluxVale.Pricing do
     as: :call
 
   @doc """
+  ADR-0028's price = f(allocation) at ANY allocation (#186): the
+  market-anchor curve behind the seeded table, in whole cents — the
+  wizard's live estimate and the ledger's custom-allocation charge
+  both price through this one call.
+  """
+  @spec price_allocation(%{
+          cpu_cores: Decimal.t(),
+          memory_mb: pos_integer(),
+          storage_gb: non_neg_integer()
+        }) :: %{monthly_cents: non_neg_integer(), stopped_monthly_cents: non_neg_integer()}
+  defdelegate price_allocation(allocation), to: Operations.PriceAllocation, as: :call
+
+  @doc """
   The rates an instance settles at — the one resolver (#153: settle's
   `perform_settle` and the runway projection price through it, so the
   warning fires on the rate the wallet actually bleeds at): the
   creation-time `grandfathered_*` snapshot while `grandfathered_until`
   stands, then the live Size row by the snapshotted `size_id` (#134,
-  settled on #121). `instance` is instance-shaped (a map reading
-  `size_id` + `grandfathered_*`) so Pricing stays decoupled from the
-  Instance struct. `{:ok, nil}` is an unpriced instance (no size —
-  pre-#121 drift): settle forgives the time, runway burns nothing
-  for it.
+  settled on #121). A custom allocation carries no size (#186) — after
+  the grace it prices by the live anchor formula from the instance's
+  own allocation. `instance` is instance-shaped (a map reading
+  `size_id`, `grandfathered_*`, `cpu_cores`, `memory_mb`,
+  `storage_gb`) so Pricing stays decoupled from the Instance struct.
+  `{:ok, nil}` is an unpriced instance (neither a size nor a formula
+  snapshot — pre-#121 drift only): settle forgives the time, runway
+  burns nothing for it.
   """
   @spec settlement_rates(map(), DateTime.t()) ::
           {:ok, %{running: non_neg_integer(), stopped: non_neg_integer()} | nil}
           | {:error, term()}
   def settlement_rates(instance, now) do
     cond do
-      is_nil(instance.size_id) ->
+      unpriced?(instance) ->
         {:ok, nil}
 
-      grandfathered?(instance, now) ->
+      grandfathered?(instance, now) and not is_nil(instance.grandfathered_monthly_cents) ->
         {:ok,
          %{
            running: instance.grandfathered_monthly_cents,
            stopped: instance.grandfathered_stopped_monthly_cents
          }}
+
+      is_nil(instance.size_id) ->
+        formula_rates(instance)
 
       true ->
         live_rates(instance.size_id)
@@ -85,6 +104,26 @@ defmodule FluxVale.Pricing do
   defp grandfathered?(instance, now) do
     not is_nil(instance.grandfathered_until) and
       DateTime.compare(now, instance.grandfathered_until) == :lt
+  end
+
+  # Unpriced = nothing to price from: no size AND no formula snapshot —
+  # the formula snapshot is the cents + clock pair, so a sizeless row
+  # missing either stays forgiven (hand-built/AshAdmin shapes; the
+  # derive writes them atomically). A sizeful row with nil cents inside
+  # its grace prices live instead (the pre-backfill shape).
+  defp unpriced?(instance) do
+    is_nil(instance.size_id) and
+      (is_nil(instance.grandfathered_until) or is_nil(instance.grandfathered_monthly_cents))
+  end
+
+  # A custom allocation past its grace: the live curve at the
+  # instance's own allocation (instance-shaped input carries the
+  # allocation fields; they are presence-validated at create and were
+  # NOT NULL with defaults on all pre-#180 rows).
+  defp formula_rates(instance) do
+    rates = Operations.PriceAllocation.call(instance)
+
+    {:ok, %{running: rates.monthly_cents, stopped: rates.stopped_monthly_cents}}
   end
 
   defp live_rates(size_id) do

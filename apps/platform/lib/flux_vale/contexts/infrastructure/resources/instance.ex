@@ -22,8 +22,10 @@ defmodule FluxVale.Infrastructure.Instance do
   Metering anchors (`running_since`/`running_until`,
   `storage_metering_since`) are maintained by transitions and consumed
   by settlement; the pricing snapshot (`size`, `grandfathered_*`)
-  prices the accrual — creation-time cents for the first year, the live
-  Size row after (settled on #121).
+  prices the accrual — creation-time cents for the first year, then
+  the live Size row (or, for a sizeless custom allocation, the live
+  anchor formula from its own allocation — #186) after (settled on
+  #121).
 
   Allocation (`cpu_cores`/`memory_mb`/`storage_gb`) is user-choosable
   at create (#180): the AppVersion's defaults are the advisory
@@ -279,12 +281,15 @@ defmodule FluxVale.Infrastructure.Instance do
       public?(false)
     end
 
-    # Pricing snapshot (#121): creation-time cents price the accrual
-    # until grandfathered_until lapses (created_at + 1 year), then
-    # settlement reads the live Size row by size_id. Snapshot lands at
-    # create (DeriveFromAppVersion) — price, size, and clock from one
-    # moment. Null on pre-#121 rows whose version lost its size: an
-    # unpriced instance accrues nothing (settle no-ops, loudly logged).
+    # Pricing snapshot (#121/#186): creation-time cents price the
+    # accrual until grandfathered_until lapses (created_at + 1 year),
+    # then settlement reads the live Size row by size_id — or the live
+    # anchor formula from this instance's allocation for a custom
+    # (sizeless) snapshot. Snapshot lands at create
+    # (DeriveFromAppVersion) — price and clock from one moment. Null
+    # with no size on pre-#121 rows whose version lost its size: an
+    # unpriced instance accrues nothing (settle no-ops, loudly
+    # logged).
     attribute :grandfathered_until, :utc_datetime_usec do
       public?(false)
     end

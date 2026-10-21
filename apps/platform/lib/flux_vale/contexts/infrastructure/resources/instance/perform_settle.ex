@@ -18,9 +18,11 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettle do
 
   Prices: the creation-time snapshot (`grandfathered_*`) until
   `grandfathered_until` lapses, then the live `Size` row by the
-  snapshotted `size_id` — resolved by `Pricing.settlement_rates/2`,
-  the one resolver the runway projection prices through too (#153).
-  An unpriced instance (nil size — pre-#121 drift) accrues nothing
+  snapshotted `size_id` — or, for a custom allocation (#186, no size),
+  the live anchor formula from the instance's own allocation —
+  resolved by `Pricing.settlement_rates/2`, the one resolver the
+  runway projection prices through too (#153). An unpriced instance
+  (no size AND no formula snapshot — pre-#121 drift) accrues nothing
   and keeps its anchors: forgiven time is visible as a warning, never
   silent.
 
@@ -142,7 +144,14 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettle do
         # here would bill a PVC that doesn't exist.
         fresh
 
-      match?(%{size_id: nil}, fresh) ->
+      # Unpriced = no size AND no formula snapshot (pre-#121 drift or
+      # a hand-built half-snapshot); custom allocations (#186) carry
+      # the full grandfathered_* triple with a nil size. The formula
+      # snapshot is the cents + clock PAIR — a sizeless row missing
+      # either half is unpriced too (pricing.ex's unpriced?, mirrored
+      # here as the pre-filter).
+      match?(%{size_id: nil, grandfathered_until: nil}, fresh) or
+          match?(%{size_id: nil, grandfathered_monthly_cents: nil}, fresh) ->
         # Unpriced (pre-#121 drift): never guess — the time is forgiven
         # loudly, the anchors stay so the gap stays visible.
         Logger.warning(
@@ -158,8 +167,10 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettle do
 
   defp settle_priced(%Instance{} = fresh, %Wallet{} = wallet, now) do
     case price(fresh, now) do
-      # coveralls-ignore-start - unreachable: settle_priced runs only
-      # with a non-nil size_id (settle_fresh's guard owns nil)
+      # coveralls-ignore-start - unreachable: settle_priced's guard
+      # above filters every unpriced shape (nil size with a nil clock
+      # or nil cents) before price/2 runs; the resolver's {:ok, nil}
+      # arm exists for callers without the pre-filter
       {:ok, nil} ->
         fresh
 

@@ -4,9 +4,10 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
   inside the tick at `monthly_cents`, the rest at `stopped_monthly_cents`,
   exact across stop/start transitions inside a tick (the unbilled carry
   folds each closed interval at the stop, so churn drops nothing); the
-  creation-time snapshot prices the grace, the live size row after; the
-  advanced anchors are the retry arbiter (a committed settle can never
-  re-bill its interval).
+  creation-time snapshot prices the grace, the live size row (or, for a
+  custom allocation, the live anchor formula from the instance's own
+  allocation — #186) after; the advanced anchors are the retry arbiter
+  (a committed settle can never re-bill its interval).
 
   Anchors and carries are backdated through `pin!` — past timestamps are
   states the actions can't produce (the documented seed/force exception).
@@ -274,7 +275,10 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
       backdate!(instance,
         storage_metering_since: month_ago,
         running_since: month_ago,
-        size_id: nil
+        size_id: nil,
+        grandfathered_until: nil,
+        grandfathered_monthly_cents: nil,
+        grandfathered_stopped_monthly_cents: nil
       )
 
       log =
@@ -330,6 +334,74 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
       assert {:ok, _settled} = settle!(instance)
 
       assert usage_entries(wallet) == [%{amount: -999}]
+    end
+
+    test "a custom allocation settles at its formula snapshot inside the grace (#186)", %{
+      wallet: wallet,
+      user: user,
+      version: version
+    } do
+      custom =
+        Instance.create!(
+          %{
+            name: "Custom",
+            app_version_id: version.id,
+            env_vars: %{},
+            cpu_cores: Decimal.new("1"),
+            memory_mb: 512,
+            storage_gb: 10
+          },
+          actor: user,
+          authorize?: false
+        )
+
+      assert custom.size_id == nil
+      assert custom.grandfathered_monthly_cents == 325
+
+      running = running!(custom)
+
+      backdate!(running,
+        storage_metering_since: ago(@month_seconds),
+        running_since: ago(@month_seconds)
+      )
+
+      assert {:ok, _settled} = settle!(running)
+
+      # A month running at 1 CPU / 512 MB / 10 GB: the anchor formula's
+      # 325¢ (the wizard shows the same figure).
+      assert usage_entries(wallet) == [%{amount: -325}]
+    end
+
+    test "a custom allocation past its grace settles at the live formula from its own allocation (#186)",
+         %{wallet: wallet, user: user, version: version} do
+      custom_lapsed =
+        Instance.create!(
+          %{
+            name: "Custom lapsed",
+            app_version_id: version.id,
+            env_vars: %{},
+            cpu_cores: Decimal.new("1"),
+            memory_mb: 512,
+            storage_gb: 10
+          },
+          actor: user,
+          authorize?: false
+        )
+
+      running_lapsed = running!(custom_lapsed)
+
+      backdate!(running_lapsed,
+        storage_metering_since: ago(@month_seconds),
+        running_since: ago(@month_seconds),
+        grandfathered_until: ago(1)
+      )
+
+      # No size row to fall back to (size_id nil — the size lookup path
+      # would error); the live curve prices the tick from the
+      # instance's own allocation.
+      assert {:ok, _settled} = settle!(running_lapsed)
+
+      assert usage_entries(wallet) == [%{amount: -325}]
     end
   end
 
