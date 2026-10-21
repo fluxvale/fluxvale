@@ -39,7 +39,7 @@ defmodule FluxValeWeb.Storybook.Components.CopyButton do
         description: "In situ: a credential row as the instance page renders it",
         attributes: %{
           id: "story-copy-in-situ",
-          value: "Fc44P6AivIUSZOMD8c6wutPfHhnHAX6cjKq9jWD8qr8",
+          value: "EXAMPLEnotARealCredential000000000000000000",
           label: "Copy password"
         },
         # The credential row wraps the button (the instance page's
@@ -49,7 +49,7 @@ defmodule FluxValeWeb.Storybook.Components.CopyButton do
           <span class="text-ink-subtle">Password</span>
           <div class="flex items-start gap-2">
             <code class="min-w-0 flex-1 overflow-x-auto rounded-md border border-line bg-panel-raised px-2 py-1 font-mono text-xs whitespace-nowrap text-ink">
-              Fc44P6AivIUSZOMD8c6wutPfHhnHAX6cjKq9jWD8qr8
+              EXAMPLEnotARealCredential000000000000000000
             </code>
             <.psb-variation />
           </div>
