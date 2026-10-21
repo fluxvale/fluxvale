@@ -73,314 +73,285 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
     <Layouts.app flash={@flash} current_user={@current_user}>
       <div class="max-w-2xl mx-auto space-y-8">
         <div>
-          <.link navigate={~p"/apps/#{@app.slug}"} class="btn btn-ghost btn-sm mb-4">
+          <.button variant="ghost" size="sm" navigate={~p"/apps/#{@app.slug}"} class="-ml-2 mb-4">
             &larr; {@app.name}
-          </.link>
-          <h1 class="text-3xl font-bold tracking-tight">Deploy {@app.name}</h1>
+          </.button>
+          <h1 class="text-2xl font-semibold tracking-tight text-ink">Deploy {@app.name}</h1>
         </div>
 
-        <ul class="steps w-full text-sm">
-          <li class="step step-primary">Version</li>
-          <li class={["step", @step >= 2 && "step-primary"]}>Configuration</li>
-          <li class={["step", @step >= 3 && "step-primary"]}>Resources</li>
-          <li class={["step", @step >= 4 && "step-primary"]}>Name</li>
-        </ul>
+        <.stepper
+          steps={[
+            {"version", "Version"},
+            {"configuration", "Configuration"},
+            {"resources", "Resources"},
+            {"name", "Name"}
+          ]}
+          current={@step - 1}
+        />
 
-        <div :if={@step == 1} class="card bg-base-200">
-          <div class="card-body gap-4">
-            <h2 class="card-title text-base">Pick a version</h2>
-            <div class="form-control gap-2">
+        <.card :if={@step == 1} class="space-y-4">
+          <h2 class="text-base font-medium text-ink">Pick a version</h2>
+          <div class="space-y-2">
+            <label
+              :for={version <- @versions}
+              for={"version-#{version.id}"}
+              class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-panel-raised"
+            >
+              <input
+                type="radio"
+                name="version_id"
+                id={"version-#{version.id}"}
+                value={version.id}
+                checked={@version_id == version.id}
+                phx-click="pick-version"
+                phx-value-id={version.id}
+                class="size-4 accent-primary"
+                data-testid="version-option"
+              />
+              <span class="text-sm text-ink">
+                <span class="font-mono">v{version.version}</span>
+                <span :if={version.published_at} class="ml-1 text-xs text-ink-subtle">
+                  published {Calendar.strftime(version.published_at, "%b %d, %Y")}
+                </span>
+                <span
+                  :if={version.recommended_size}
+                  class="ml-1 text-xs text-ink-subtle"
+                  data-testid={"version-price-#{version.version}"}
+                >
+                  {FluxVale.Pricing.format_usd(version.recommended_size.monthly_cents)}/mo
+                </span>
+              </span>
+            </label>
+          </div>
+          <div class="flex justify-end">
+            <.button
+              size="sm"
+              phx-click="to-env"
+              disabled={is_nil(@version_id)}
+              data-testid="continue-version"
+            >
+              Continue
+            </.button>
+          </div>
+        </.card>
+
+        <.card :if={@step == 2} class="max-w-lg space-y-4">
+          <h2 class="text-base font-medium text-ink">Configuration</h2>
+
+          <ul
+            :if={env_errors(@form) != []}
+            id="env-errors"
+            class="space-y-1 text-sm text-danger"
+          >
+            <li :for={msg <- env_errors(@form)}>{msg}</li>
+          </ul>
+
+          <p :if={@schema == []} class="text-sm text-ink-muted">
+            Nothing to configure for this app — continue.
+          </p>
+
+          <form
+            :if={@schema != []}
+            id="env-form"
+            phx-submit="env-continue"
+            class="space-y-4"
+          >
+            <div :for={{name, spec} <- @schema}>
+              <label class="mb-1.5 block text-sm font-medium text-ink" for={"env-#{name}"}>
+                {spec.label}
+                <span :if={spec.required} class="text-danger">*</span>
+                <span class="ml-1 font-mono text-xs text-ink-subtle">{name}</span>
+              </label>
+              <.env_input
+                name={"env_values[#{name}]"}
+                id={"env-#{name}"}
+                spec={spec}
+                value={Map.get(@env_values, name)}
+              />
+              <p :if={spec.description} class="mt-1.5 text-xs text-ink-subtle">
+                {spec.description}
+              </p>
+            </div>
+            <div class="flex justify-end gap-3 pt-2">
+              <.button variant="ghost" size="sm" type="button" phx-click="back-version">
+                Back
+              </.button>
+              <.button type="submit" size="sm" data-testid="continue-env">
+                Continue
+              </.button>
+            </div>
+          </form>
+
+          <div :if={@schema == []} class="flex justify-end gap-3">
+            <.button variant="ghost" size="sm" type="button" phx-click="back-version">
+              Back
+            </.button>
+            <.button type="button" size="sm" phx-click="env-continue" data-testid="continue-env">
+              Continue
+            </.button>
+          </div>
+        </.card>
+
+        <.card :if={@step == 3} class="space-y-4">
+          <h2 class="text-base font-medium text-ink">Resources</h2>
+
+          <p class="text-sm text-ink-muted">
+            {@app.name} recommends
+            <span class="font-mono text-ink" data-testid="recommended-allocation">
+              {@selected.default_cpu_cores} CPU · {@selected.default_memory_mb} MB · {@selected.default_storage_gb} GB
+            </span>
+            — the defaults below. Allocate more, or less at your own risk.
+          </p>
+
+          <ul
+            :if={@resource_errors != []}
+            id="resource-errors"
+            class="space-y-1 text-sm text-danger"
+          >
+            <li :for={msg <- @resource_errors}>{msg}</li>
+          </ul>
+
+          <form
+            id="resources-form"
+            phx-change="resources-change"
+            phx-submit="resources-continue"
+            class="space-y-4"
+          >
+            <div class="grid gap-4 sm:grid-cols-3 [&>div]:mb-0">
+              <.input
+                id="resource-cpu-cores"
+                name="resources[cpu_cores]"
+                label="CPU cores"
+                type="number"
+                step="0.05"
+                value={@resources["cpu_cores"]}
+                data-testid="resource-cpu"
+              />
+              <.input
+                id="resource-memory-mb"
+                name="resources[memory_mb]"
+                label="Memory (MB)"
+                type="number"
+                step="1"
+                min="1"
+                value={@resources["memory_mb"]}
+                data-testid="resource-memory"
+              />
+              <.input
+                id="resource-storage-gb"
+                name="resources[storage_gb]"
+                label="Storage (GB)"
+                type="number"
+                step="1"
+                min="0"
+                value={@resources["storage_gb"]}
+                data-testid="resource-storage"
+              />
+            </div>
+
+            <.callout
+              :if={@below_recommendation?}
+              id="below-recommendation-warning"
+              tone="warning"
+              role="alert"
+              data-testid="below-recommendation-warning"
+            >
+              <p class="font-medium text-ink">
+                This is below what {@app.name} recommends — it may run slowly or fail.
+              </p>
               <label
-                :for={version <- @versions}
-                for={"version-#{version.id}"}
-                class="label cursor-pointer justify-start gap-3 rounded-lg px-3 py-2 hover:bg-base-300 transition-colors"
+                for="below-recommendation-ack"
+                class="flex cursor-pointer items-center gap-3 pt-2 text-sm text-ink"
               >
                 <input
-                  type="radio"
-                  name="version_id"
-                  id={"version-#{version.id}"}
-                  value={version.id}
-                  checked={@version_id == version.id}
-                  phx-click="pick-version"
-                  phx-value-id={version.id}
-                  class="radio radio-primary radio-sm"
-                  data-testid="version-option"
-                />
-                <span class="label-text">
-                  <span class="font-mono">v{version.version}</span>
-                  <span :if={version.published_at} class="opacity-60 text-xs">
-                    &nbsp;published {Calendar.strftime(version.published_at, "%b %d, %Y")}
-                  </span>
-                  <span
-                    :if={version.recommended_size}
-                    class="opacity-60 text-xs"
-                    data-testid={"version-price-#{version.version}"}
-                  >
-                    &nbsp;{FluxVale.Pricing.format_usd(version.recommended_size.monthly_cents)}/mo
-                  </span>
-                </span>
+                  type="checkbox"
+                  name="resources[below_ack]"
+                  id="below-recommendation-ack"
+                  checked={@below_ack}
+                  class="size-4 accent-warning"
+                  data-testid="below-recommendation-ack"
+                /> I understand — deploy with less than the recommended resources
               </label>
-            </div>
-            <div class="card-actions justify-end">
-              <button
-                type="button"
-                phx-click="to-env"
-                disabled={is_nil(@version_id)}
-                class="btn btn-primary btn-sm"
-                data-testid="continue-version"
-              >
-                Continue
-              </button>
-            </div>
-          </div>
-        </div>
+            </.callout>
 
-        <div :if={@step == 2} class="card bg-base-200">
-          <div class="card-body gap-4">
-            <h2 class="card-title text-base">Configuration</h2>
-
-            <ul
-              :if={env_errors(@form) != []}
-              id="env-errors"
-              class="text-sm text-error space-y-1"
-            >
-              <li :for={msg <- env_errors(@form)}>{msg}</li>
-            </ul>
-
-            <p :if={@schema == []} class="text-sm opacity-70">
-              Nothing to configure for this app — continue.
-            </p>
-
-            <form
-              :if={@schema != []}
-              id="env-form"
-              phx-submit="env-continue"
-              class="space-y-4"
-            >
-              <div :for={{name, spec} <- @schema} class="form-control">
-                <label class="label pb-1" for={"env-#{name}"}>
-                  <span class="label-text">
-                    {spec.label}
-                    <span :if={spec.required} class="text-error">*</span>
-                    <span class="opacity-50 font-mono text-xs">&nbsp;{name}</span>
-                  </span>
-                </label>
-                <.env_input
-                  name={"env_values[#{name}]"}
-                  id={"env-#{name}"}
-                  spec={spec}
-                  value={Map.get(@env_values, name)}
-                />
-                <span :if={spec.description} class="label-text-alt opacity-60 pt-1">
-                  {spec.description}
-                </span>
-              </div>
-              <div class="card-actions justify-end pt-2">
-                <button type="button" phx-click="back-version" class="btn btn-ghost btn-sm">
-                  Back
-                </button>
-                <button type="submit" class="btn btn-primary btn-sm" data-testid="continue-env">
-                  Continue
-                </button>
-              </div>
-            </form>
-
-            <div :if={@schema == []} class="card-actions justify-end">
-              <button type="button" phx-click="back-version" class="btn btn-ghost btn-sm">
-                Back
-              </button>
-              <button
-                type="button"
-                phx-click="env-continue"
-                class="btn btn-primary btn-sm"
-                data-testid="continue-env"
-              >
-                Continue
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div :if={@step == 3} class="card bg-base-200">
-          <div class="card-body gap-4">
-            <h2 class="card-title text-base">Resources</h2>
-
-            <p class="text-sm opacity-70">
-              {@app.name} recommends
-              <span class="font-mono" data-testid="recommended-allocation">
-                {@selected.default_cpu_cores} CPU · {@selected.default_memory_mb} MB · {@selected.default_storage_gb} GB
-              </span>
-              — the defaults below. Allocate more, or less at your own risk.
-            </p>
-
-            <ul
-              :if={@resource_errors != []}
-              id="resource-errors"
-              class="text-sm text-error space-y-1"
-            >
-              <li :for={msg <- @resource_errors}>{msg}</li>
-            </ul>
-
-            <form
-              id="resources-form"
-              phx-change="resources-change"
-              phx-submit="resources-continue"
-              class="space-y-4"
-            >
-              <div class="grid gap-4 sm:grid-cols-3">
-                <div class="form-control">
-                  <label class="label pb-1" for="resource-cpu-cores">
-                    <span class="label-text">CPU cores</span>
-                  </label>
-                  <input
-                    id="resource-cpu-cores"
-                    name="resources[cpu_cores]"
-                    type="number"
-                    step="0.05"
-                    value={@resources["cpu_cores"]}
-                    class="input input-bordered input-sm w-full"
-                    data-testid="resource-cpu"
-                  />
-                </div>
-                <div class="form-control">
-                  <label class="label pb-1" for="resource-memory-mb">
-                    <span class="label-text">Memory (MB)</span>
-                  </label>
-                  <input
-                    id="resource-memory-mb"
-                    name="resources[memory_mb]"
-                    type="number"
-                    step="1"
-                    min="1"
-                    value={@resources["memory_mb"]}
-                    class="input input-bordered input-sm w-full"
-                    data-testid="resource-memory"
-                  />
-                </div>
-                <div class="form-control">
-                  <label class="label pb-1" for="resource-storage-gb">
-                    <span class="label-text">Storage (GB)</span>
-                  </label>
-                  <input
-                    id="resource-storage-gb"
-                    name="resources[storage_gb]"
-                    type="number"
-                    step="1"
-                    min="0"
-                    value={@resources["storage_gb"]}
-                    class="input input-bordered input-sm w-full"
-                    data-testid="resource-storage"
-                  />
-                </div>
-              </div>
-
-              <div
-                :if={@below_recommendation?}
-                id="below-recommendation-warning"
-                class="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm"
-                data-testid="below-recommendation-warning"
-                role="alert"
-              >
-                <p class="font-medium">
-                  This is below what {@app.name} recommends — it may run slowly or fail.
-                </p>
-                <label class="label cursor-pointer justify-start gap-3 pt-2">
-                  <input
-                    type="checkbox"
-                    name="resources[below_ack]"
-                    id="below-recommendation-ack"
-                    checked={@below_ack}
-                    class="checkbox checkbox-warning checkbox-sm"
-                    data-testid="below-recommendation-ack"
-                  />
-                  <span class="label-text">
-                    I understand — deploy with less than the recommended resources
-                  </span>
-                </label>
-              </div>
-
-              <div
-                class="flex items-center justify-between gap-4 rounded-lg bg-base-300/50 px-4 py-3 text-sm"
-                data-testid="resources-price"
-              >
-                <span>
-                  {@app.name} <span class="font-mono">v{@selected.version}</span>
-                  <span :if={@resources} class="opacity-60">
-                    · {allocation_text(@resources)}
-                  </span>
-                </span>
-                <.price_line selected={@selected} resources={@resources} />
-              </div>
-
-              <div class="card-actions justify-end pt-2">
-                <button type="button" phx-click="back-env" class="btn btn-ghost btn-sm">
-                  Back
-                </button>
-                <button
-                  type="submit"
-                  class="btn btn-primary btn-sm"
-                  disabled={@below_recommendation? and not @below_ack}
-                  data-testid="continue-resources"
-                >
-                  Continue
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-
-        <div :if={@step == 4} class="card bg-base-200">
-          <div class="card-body gap-4">
-            <h2 class="card-title text-base">Name your instance</h2>
             <div
-              :if={@selected}
-              class="flex items-center justify-between rounded-lg bg-base-300/50 px-4 py-3 text-sm"
-              data-testid="price-summary"
+              class="flex flex-wrap items-center justify-between gap-4 rounded-xl bg-panel-raised px-4 py-3 text-sm"
+              data-testid="resources-price"
             >
-              <span>
+              <span class="text-ink">
                 {@app.name} <span class="font-mono">v{@selected.version}</span>
-                <span :if={@resources} class="opacity-60">
+                <span :if={@resources} class="text-ink-muted">
                   · {allocation_text(@resources)}
                 </span>
               </span>
               <.price_line selected={@selected} resources={@resources} />
             </div>
-            <ul
-              :if={step_invisible_errors(@form) != []}
-              id="deploy-errors"
-              class="text-sm text-error space-y-1"
-            >
-              <li :for={msg <- step_invisible_errors(@form)}>{msg}</li>
-            </ul>
-            <.form for={@form} id="deploy-form" phx-submit="save" class="space-y-4">
-              <.input
-                field={@form[:name]}
-                type="text"
-                label="Instance name"
-                placeholder={"My #{@app.name}"}
-                required
-                autofocus
-                data-testid="instance-name"
-              />
-              <p class="text-xs opacity-60">
-                We'll generate the subdomain — you can rename nothing else later (M3).
-              </p>
-              <div class="card-actions justify-end pt-2">
-                <button type="button" phx-click="back-resources" class="btn btn-ghost btn-sm">
-                  Back
-                </button>
-                <button
-                  type="submit"
-                  class="btn btn-primary"
-                  phx-disable-with="Deploying…"
-                  data-testid="deploy-submit"
-                >
-                  Deploy {@app.name}
-                </button>
-              </div>
-            </.form>
+
+            <div class="flex justify-end gap-3 pt-2">
+              <.button variant="ghost" size="sm" type="button" phx-click="back-env">
+                Back
+              </.button>
+              <.button
+                type="submit"
+                size="sm"
+                disabled={@below_recommendation? and not @below_ack}
+                data-testid="continue-resources"
+              >
+                Continue
+              </.button>
+            </div>
+          </form>
+        </.card>
+
+        <.card :if={@step == 4} class="space-y-4">
+          <h2 class="text-base font-medium text-ink">Name your instance</h2>
+          <div
+            :if={@selected}
+            class="flex flex-wrap items-center justify-between gap-4 rounded-xl bg-panel-raised px-4 py-3 text-sm"
+            data-testid="price-summary"
+          >
+            <span class="text-ink">
+              {@app.name} <span class="font-mono">v{@selected.version}</span>
+              <span :if={@resources} class="text-ink-muted">
+                · {allocation_text(@resources)}
+              </span>
+            </span>
+            <.price_line selected={@selected} resources={@resources} />
           </div>
-        </div>
+          <ul
+            :if={step_invisible_errors(@form) != []}
+            id="deploy-errors"
+            class="space-y-1 text-sm text-danger"
+          >
+            <li :for={msg <- step_invisible_errors(@form)}>{msg}</li>
+          </ul>
+          <.form for={@form} id="deploy-form" phx-submit="save" class="space-y-4">
+            <.input
+              field={@form[:name]}
+              type="text"
+              label="Instance name"
+              placeholder={"My #{@app.name}"}
+              required
+              autofocus
+              data-testid="instance-name"
+            />
+            <p class="text-xs text-ink-subtle">
+              We'll generate the subdomain — the name is yours to change later, nothing else.
+            </p>
+            <div class="flex justify-end gap-3 pt-2">
+              <.button variant="ghost" size="sm" type="button" phx-click="back-resources">
+                Back
+              </.button>
+              <.button
+                type="submit"
+                phx-disable-with="Deploying…"
+                data-testid="deploy-submit"
+              >
+                Deploy {@app.name}
+              </.button>
+            </div>
+          </.form>
+        </.card>
       </div>
     </Layouts.app>
     """
@@ -404,10 +375,10 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
       )
 
     ~H"""
-    <span :if={@size && @at_recommendation} class="font-semibold">
+    <span :if={@size && @at_recommendation} class="font-semibold text-ink">
       {FluxVale.Pricing.format_usd(@size.monthly_cents)}/mo
     </span>
-    <span :if={not @at_recommendation and not is_nil(@custom_cents)} class="font-semibold">
+    <span :if={not @at_recommendation and not is_nil(@custom_cents)} class="font-semibold text-ink">
       {FluxVale.Pricing.format_usd(@custom_cents)}/mo
     </span>
     """
@@ -428,43 +399,43 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
   # The env surface is a map attribute, not a nested form: plain fields
   # under env_values[NAME] arrive as a map on submit. Values are strings
-  # end to end (the K8s Secret's exact contents).
+  # end to end (the K8s Secret's exact contents). Controls ride the
+  # system's <.input> (no form field — name/value/explicit attrs, #178
+  # wave 2); the label + description stay bespoke (spec metadata).
   defp env_input(%{spec: %{type: :boolean}} = assigns) do
     ~H"""
-    <select
+    <.input
       id={@id}
       name={@name}
-      class="select select-bordered select-sm w-full max-w-xs font-normal"
-    >
-      {Phoenix.HTML.Form.options_for_select(
-        [{"true", "true"}, {"false", "false"}],
-        value(@spec, @value)
-      )}
-    </select>
+      type="select"
+      options={[{"true", "true"}, {"false", "false"}]}
+      value={value(@spec, @value)}
+      class="max-w-xs"
+    />
     """
   end
 
   defp env_input(%{spec: %{type: :integer}} = assigns) do
     ~H"""
-    <input
+    <.input
       id={@id}
       name={@name}
       type="number"
       step="1"
       value={value(@spec, @value)}
-      class="input input-bordered input-sm w-full max-w-xs"
+      class="max-w-xs"
     />
     """
   end
 
   defp env_input(assigns) do
     ~H"""
-    <input
+    <.input
       id={@id}
       name={@name}
       type={input_type(@spec)}
       value={value(@spec, @value)}
-      class="input input-bordered input-sm w-full max-w-xs"
+      class="max-w-xs"
     />
     """
   end

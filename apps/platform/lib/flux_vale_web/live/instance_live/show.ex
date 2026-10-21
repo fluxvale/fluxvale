@@ -53,13 +53,13 @@ defmodule FluxValeWeb.InstanceLive.Show do
     <Layouts.app flash={@flash} current_user={@current_user}>
       <div class="space-y-6">
         <div>
-          <.link navigate={~p"/instances"} class="btn btn-ghost btn-sm mb-4">
+          <.button variant="ghost" size="sm" navigate={~p"/instances"} class="-ml-2 mb-4">
             &larr; Instances
-          </.link>
+          </.button>
 
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div class="flex items-center gap-3">
-              <h1 class="text-3xl font-bold tracking-tight">{@instance.name}</h1>
+              <h1 class="text-2xl font-semibold tracking-tight text-ink">{@instance.name}</h1>
               <.status_badge status={@instance.status} />
             </div>
             <div class="flex gap-2">
@@ -67,105 +67,104 @@ defmodule FluxValeWeb.InstanceLive.Show do
             </div>
           </div>
 
-          <p class="font-mono text-sm opacity-60 mt-1" data-testid="instance-url">
+          <p class="mt-1 font-mono text-sm text-ink-subtle" data-testid="instance-url">
             {instance_url(@instance)}
           </p>
         </div>
 
-        <div class="card bg-base-200">
-          <div class="card-body gap-4">
-            <h2 class="card-title text-base">Status</h2>
-            <%!-- #179: user-facing copy derived from the state machine —
-            the raw status_message never renders to non-admins. --%>
-            <p class="text-sm opacity-80" id="status-message" data-testid="status-message">
-              {InstanceStatus.message(@instance)}
-            </p>
+        <.card class="space-y-4">
+          <h2 class="text-sm font-medium text-ink-muted">Status</h2>
+          <%!-- #179: user-facing copy derived from the state machine —
+          the raw status_message never renders to non-admins. --%>
+          <p class="text-sm text-ink" id="status-message" data-testid="status-message">
+            {InstanceStatus.message(@instance)}
+          </p>
 
-            <%= if InstanceStatus.in_progress?(@instance.status) do %>
-              <div class="flex items-center gap-2 text-sm opacity-70">
-                <.icon name="hero-arrow-path" class="size-4 motion-safe:animate-spin" />
-                This page updates on its own.
-              </div>
-            <% end %>
-          </div>
-        </div>
+          <%= if InstanceStatus.in_progress?(@instance.status) do %>
+            <div class="flex items-center gap-2 text-sm text-ink-subtle">
+              <.icon name="hero-arrow-path" class="size-4 motion-safe:animate-spin" />
+              This page updates on its own.
+            </div>
+          <% end %>
+        </.card>
 
-        <div :if={@instance.app_version.first_run} class="card bg-base-200">
-          <div class="card-body gap-2 py-4">
-            <h2 class="card-title text-base">First open</h2>
-            <p class="text-sm opacity-80" data-testid="first-run-guidance">
-              {@instance.app_version.first_run.guidance}
-            </p>
-          </div>
-        </div>
+        <.callout
+          :if={@instance.app_version.first_run}
+          tone="info"
+          title="First open"
+          data-testid="first-run-guidance"
+        >
+          <p class="text-sm text-ink-muted">
+            {@instance.app_version.first_run.guidance}
+          </p>
+        </.callout>
 
         <%= if @admin? do %>
           <%!-- #179's admin-only reveal: the full technical trail, in the
           clear, for staff. Everything a non-admin must not see on this
           page lives here. --%>
-          <div class="card bg-base-200 border border-base-300">
-            <div class="card-body gap-3">
-              <h2 class="card-title text-base">
-                Technical details <span class="badge badge-ghost badge-sm">admin</span>
-              </h2>
-              <div class="grid gap-2 text-xs font-mono" data-testid="admin-technical">
-                <p>
-                  status: <span data-testid="admin-status">{@instance.status}</span>
-                </p>
-                <p>failure_reason: {@instance.failure_reason || "—"}</p>
-                <p :if={@instance.status_message} class="break-words">
-                  message: {@instance.status_message}
-                </p>
-                <p>namespace: {@instance.namespace || "—"}</p>
-                <p>image: {@instance.image}</p>
-              </div>
+          <.card class="space-y-3 border-dashed border-line-strong">
+            <h2 class="flex items-center gap-2 text-sm font-medium text-ink-muted">
+              Technical details
+              <.badge>admin</.badge>
+            </h2>
+            <div class="grid gap-1.5 font-mono text-xs text-ink-muted" data-testid="admin-technical">
+              <p>
+                status: <span class="text-ink" data-testid="admin-status">{@instance.status}</span>
+              </p>
+              <p>failure_reason: {@instance.failure_reason || "—"}</p>
+              <p :if={@instance.status_message} class="break-words">
+                message: {@instance.status_message}
+              </p>
+              <p>namespace: {@instance.namespace || "—"}</p>
+              <p>image: {@instance.image}</p>
             </div>
-          </div>
+          </.card>
         <% end %>
 
-        <div class="card bg-base-200">
-          <div class="card-body gap-4">
-            <h2 class="card-title text-base">Details</h2>
-            <div class="grid gap-3 sm:grid-cols-2 text-sm">
-              <div class="flex justify-between sm:block">
-                <span class="opacity-60">App</span>
-                <span>{@instance.app_version.app.name}</span>
-              </div>
-              <div class="flex justify-between sm:block">
-                <span class="opacity-60">Version</span>
-                <span class="font-mono">v{@instance.app_version.version}</span>
-              </div>
-              <%!-- #179: image + namespace rows moved to the admin-only
-              technical card — non-admins never see cluster-identifying
-              detail. --%>
-              <div class="flex justify-between sm:block">
-                <span class="opacity-60">Resources</span>
-                <span>
-                  {@instance.cpu_cores} CPU · {@instance.memory_mb} MB · {@instance.storage_gb} GB
+        <.card class="space-y-4">
+          <h2 class="text-sm font-medium text-ink-muted">Details</h2>
+          <div class="grid gap-4 text-sm sm:grid-cols-2">
+            <div class="flex justify-between gap-4 sm:block">
+              <span class="text-ink-subtle">App</span>
+              <span class="text-ink">{@instance.app_version.app.name}</span>
+            </div>
+            <div class="flex justify-between gap-4 sm:block">
+              <span class="text-ink-subtle">Version</span>
+              <span class="font-mono text-ink">v{@instance.app_version.version}</span>
+            </div>
+            <%!-- #179: image + namespace rows moved to the admin-only
+            technical card — non-admins never see cluster-identifying
+            detail. --%>
+            <div class="flex justify-between gap-4 sm:block">
+              <span class="text-ink-subtle">Resources</span>
+              <span class="text-ink">
+                {@instance.cpu_cores} CPU · {@instance.memory_mb} MB · {@instance.storage_gb} GB
+              </span>
+            </div>
+            <%= if size = @instance.app_version.recommended_size do %>
+              <%!-- The instance's configured price, not an accrual
+              statement — settlement owns elapsed-time math (#121).
+              :stopped swaps in the storage-only fee (ADR-0028 §2). --%>
+              <div class="flex justify-between gap-4 sm:block">
+                <span class="text-ink-subtle">Price</span>
+                <span class="text-ink" data-testid="instance-price">
+                  <%= if @instance.status == :stopped do %>
+                    {FluxVale.Pricing.format_usd(size.stopped_monthly_cents)}/mo while stopped
+                  <% else %>
+                    {FluxVale.Pricing.format_usd(size.monthly_cents)}/mo
+                  <% end %>
                 </span>
               </div>
-              <%= if size = @instance.app_version.recommended_size do %>
-                <%!-- The instance's configured price, not an accrual
-                statement — settlement owns elapsed-time math (#121).
-                :stopped swaps in the storage-only fee (ADR-0028 §2). --%>
-                <div class="flex justify-between sm:block">
-                  <span class="opacity-60">Price</span>
-                  <span data-testid="instance-price">
-                    <%= if @instance.status == :stopped do %>
-                      {FluxVale.Pricing.format_usd(size.stopped_monthly_cents)}/mo while stopped
-                    <% else %>
-                      {FluxVale.Pricing.format_usd(size.monthly_cents)}/mo
-                    <% end %>
-                  </span>
-                </div>
-              <% end %>
-              <div class="flex justify-between sm:block">
-                <span class="opacity-60">Created</span>
-                <span>{Calendar.strftime(@instance.created_at, "%b %d, %Y %H:%M UTC")}</span>
-              </div>
+            <% end %>
+            <div class="flex justify-between gap-4 sm:block">
+              <span class="text-ink-subtle">Created</span>
+              <span class="text-ink">
+                {Calendar.strftime(@instance.created_at, "%b %d, %Y %H:%M UTC")}
+              </span>
             </div>
           </div>
-        </div>
+        </.card>
       </div>
     </Layouts.app>
     """
@@ -175,11 +174,10 @@ defmodule FluxValeWeb.InstanceLive.Show do
   # the actions enforce the same, this is presentation.
   defp action_buttons(assigns) do
     ~H"""
-    <button
+    <.button
       :if={@instance.status in [:pending, :error]}
-      type="button"
+      size="sm"
       phx-click="deploy"
-      class="btn btn-primary btn-sm"
       data-testid="deploy-button"
     >
       <%= if @instance.status == :error do %>
@@ -187,49 +185,48 @@ defmodule FluxValeWeb.InstanceLive.Show do
       <% else %>
         Deploy
       <% end %>
-    </button>
+    </.button>
 
-    <a
+    <.button
       :if={@instance.status == :running}
+      size="sm"
       href={instance_url(@instance)}
       target="_blank"
       rel="noopener"
-      class="btn btn-primary btn-sm"
       data-testid="open-instance"
     >
       Open <span aria-hidden="true">&rarr;</span>
-    </a>
+    </.button>
 
-    <button
+    <.button
       :if={@instance.status == :running}
-      type="button"
+      variant="ghost"
+      size="sm"
       phx-click="stop"
-      class="btn btn-ghost btn-sm"
       data-testid="stop-button"
     >
       Stop
-    </button>
+    </.button>
 
-    <button
+    <.button
       :if={@instance.status == :stopped}
-      type="button"
+      size="sm"
       phx-click="start"
-      class="btn btn-primary btn-sm"
       data-testid="start-button"
     >
       Start
-    </button>
+    </.button>
 
-    <button
+    <.button
       :if={@instance.status != :deleting}
-      type="button"
+      variant="destructive"
+      size="sm"
       phx-click="delete"
       data-confirm="Delete this instance and all its data? This cannot be undone."
-      class="btn btn-error btn-outline btn-sm"
       data-testid="delete-button"
     >
       Delete
-    </button>
+    </.button>
     """
   end
 

@@ -35,10 +35,17 @@ in-motion states), `table` (stream-ready), `flash` (toasts), `nav_link`
 
 ## Surfaces on the system
 
-Migrated (#178, wave 1): shared chrome (`Layouts.app`/`public`,
-theme toggle), landing, catalog (live + public SSR), instances index,
-billing index. **Wave 2** (still stock daisyUI classes; dep stays
-until then): sign-in, deploy wizard, instance show, top-up wizard.
+Migrated: **everything** — wave 1 (#185): shared chrome
+(`Layouts.app`/`public`, theme toggle), landing, catalog (live + public
+SSR), instances index, billing index; wave 2: sign-in, deploy wizard
+(instance show, first-run guidance, admin reveal), instance show,
+top-up wizard. **daisyUI is removed from the dependency tree** — every
+surface is hand-written Tailwind on the tokens; the transitional
+aligned-themes stopgap is gone with it.
+
+New in wave 2: `stepper` (wizard progress, testid-prefix aware) and
+`callout` (info/warning/danger/success notices) join the component set;
+`<.input>` now appends caller classes instead of replacing the base.
 
 ## Storybook
 
@@ -55,9 +62,17 @@ until then): sign-in, deploy wizard, instance show, top-up wizard.
 
 ## Vision QA (#178)
 
-Three rounds with an image-capable reviewer model over Playwright
-screenshots (light + dark): round 1 caught the dark-mode viewport
-seam, a crashed table story, blank input stories, and the violet
-workshop chrome; round 2 the billing phantom divider + input crash;
-round 3 converged — **GENUINELY GOOD — ship it**. Final screenshots:
-[docs/design/screenshots/](design/screenshots/) (and the PR body).
+Wave 1 (#185): three rounds with an image-capable reviewer model over
+Playwright screenshots (light + dark) — round 1 caught the dark-mode
+viewport seam, a crashed table story, blank input stories, and the
+violet workshop chrome; round 2 the billing phantom divider + input
+crash; round 3 converged — **GENUINELY GOOD — ship it**.
+
+Wave 2: per-surface convergence with the same loop — sign-in **GOOD**
+(1 round); deploy wizard **GOOD** (3: leaked "(M3)" copy, faint
+disabled-Continue, Configuration card width); instance show **GOOD**
+(1); top-up + new stories **GOOD** (2: a stepper bug where string
+step-ids never matched the atom step and Elixir's term order painted
+every step done, sandbox serif pinned to Inter, paired wizard
+actions). Final screenshots:
+[docs/design/screenshots/wave2/](design/screenshots/wave2/).
