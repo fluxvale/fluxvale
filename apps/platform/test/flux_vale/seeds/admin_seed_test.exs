@@ -13,6 +13,7 @@ defmodule FluxVale.Seeds.AdminSeedTest do
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
   alias FluxVale.Billing.LedgerEntry
+  alias FluxVale.Catalog.Category
   alias FluxVale.Identity.User
   alias FluxVale.Seeds
 
@@ -151,8 +152,11 @@ defmodule FluxVale.Seeds.AdminSeedTest do
       :ok = Seeds.seed()
 
       assert User.get_by_email!("admin@fluxvale.com", authorize?: false)
-      # Catalog converged (#70's machinery; Forgejo ships in the YAML)
-      assert [_entries] = Ash.read!(FluxVale.Catalog.Category, authorize?: false)
+      # Catalog converged (#70's machinery; Forgejo + Kavita ship in the
+      # YAML). Asserted by slug, not row count — the catalog grows.
+      assert {:ok, _forgejo} = Category.get_by_slug("developer-tools", authorize?: false)
+
+      assert {:ok, _kavita} = Category.get_by_slug("media", authorize?: false)
     end
 
     test "heals a pre-#119 admin through the promotable path" do

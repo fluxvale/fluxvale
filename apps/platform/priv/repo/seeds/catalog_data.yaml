@@ -12,9 +12,10 @@
 #
 # Field notes: default_cpu_cores is a QUOTED string (preserves Decimal
 # precision). Optional version fields default to healthcheck_path "/",
-# default_memory_mb 256, default_storage_gb 0, published_at nil, env maps %{},
-# first_run nil (a version without a first-run contract must simply be usable
-# out of the box — see ADR-0034 for the next app's pattern).
+# storage_mount_path "/data", default_memory_mb 256, default_storage_gb 0,
+# published_at nil, env maps %{}, first_run nil (a version without a
+# first-run contract must simply be usable out of the box — see ADR-0034
+# for the next app's pattern).
 # recommended_size is REQUIRED on every version — a slug from
 # pricing_data.yaml whose allocation equals the version's resource
 # defaults; seed_pricing! runs first and the seed runner resolves the id.
@@ -110,3 +111,72 @@
               description: Password for SMTP authentication.
               type: string
               secret: true
+
+- category:
+    name: Media & Entertainment
+    slug: media
+    description: >-
+      Self-hosted media and reading servers for your own library.
+  apps:
+    - name: Kavita
+      slug: kavita
+      tagline: Self-hosted digital library for comics, manga, and ebooks
+      description: |
+        A fast, cross-platform reading server for a personal digital
+        library — comics, manga, and ebooks with a polished in-browser
+        reader, per-user reading progress, OPDS support for third-party
+        clients, and OIDC SSO. All configuration happens in the web UI;
+        no environment variables are needed to boot.
+      icon_url: https://raw.githubusercontent.com/Kareadita/Kavita/develop/Logo/kavita.svg
+      source_url: https://github.com/Kareadita/Kavita
+      docs_url: https://wiki.kavitareader.com
+      versions:
+        - version: "0.9.1"          # upstream stable, 2026-09-02 (assembly 0.9.1.4)
+          # The canonical image: built and pushed by Kavita's own release
+          # workflow (release-workflow.yml) — jvmilazz0/kavita on Docker
+          # Hub is the same workflow's second target, not a distinct build.
+          # Tag is major.minor: upstream tags stable releases by the
+          # truncated assembly version, so `0.9.1` is what the workflow
+          # publishes for 0.9.1.4.
+          image: ghcr.io/kareadita/kavita:0.9.1
+          port: 5000
+          healthcheck_path: /api/health
+          # Kavita's persistent state is NOT on the volume root: it
+          # resolves its config dir from the container's working
+          # directory (/kavita), so the SQLite DB, JWT signing key,
+          # covers and backups only survive a pod restart when the PVC
+          # lands at /kavita/config (#189). The deployer's per-version
+          # mount path makes that catalog data instead of a special case.
+          storage_mount_path: /kavita/config
+          default_cpu_cores: "0.5"
+          default_memory_mb: 512
+          default_storage_gb: 10
+          # The priced unit (#125): `small` is 0.5 CPU / 512 MB / 10 GB —
+          # exactly this version's allocation ($2.79/mo, $0.34 stopped).
+          # Kavita runs on as little as 256 MB (upstream guidance), but
+          # library scans are image-heavy (NetVIPS cover generation), so
+          # the shipped recommendation keeps scan headroom.
+          recommended_size: small
+          release_notes: |
+            First FluxVale catalog release, tracking upstream v0.9.1
+            (0.9.1.4). SQLite on a dedicated volume mounted at
+            /kavita/config; the admin account is created on first open.
+          published_at: "2026-09-02T21:07:38Z"
+          # First-run contract (#189, ADR-0034): Kavita's first boot
+          # shows the registration page and POST /api/account/register
+          # makes the first registrant the admin — its own UI redirects
+          # to /register until an admin exists, so claiming is one click.
+          # There are no env knobs to pin or lock: all configuration
+          # (including closing sign-up) lives in Kavita's admin UI, so
+          # `env` and `forbidden_env` are both empty.
+          first_run:
+            pattern: first_registered_user_admin
+            env: {}
+            forbidden_env: []
+            guidance: >-
+              Open the instance URL and register — the first account
+              becomes the admin. Kavita is then yours to configure in
+              its own admin settings; a library scan needs files on the
+              server first, which the upcoming file-access feature will
+              provide.
+

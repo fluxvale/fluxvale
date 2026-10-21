@@ -224,12 +224,34 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       assert instance.cpu_cores == Decimal.new("0.5")
       assert instance.memory_mb == 512
       assert instance.storage_gb == 10
+      # The mount path snapshots from the version's blueprint (#189).
+      assert instance.storage_mount_path == "/data"
       assert instance.cluster_id
       assert instance.organization_id
       assert instance.status == :pending
       assert instance.namespace == nil
       assert instance.running_since == nil
       assert instance.storage_metering_since == nil
+    end
+
+    test "snapshots the version's storage_mount_path (#189)" do
+      version = InstanceFixtures.app_version!(storage_mount_path: "/kavita/config")
+      InstanceFixtures.local_cluster!()
+
+      instance =
+        Instance.create!(
+          %{name: "Kavita", app_version_id: version.id},
+          actor: user()
+        )
+
+      # A Kavita-shaped version carries its state dir; a version that
+      # omits it keeps the platform default.
+      assert instance.storage_mount_path == "/kavita/config"
+
+      default_version = InstanceFixtures.app_version!()
+      default_instance = InstanceFixtures.instance!(default_version, user())
+
+      assert default_instance.storage_mount_path == "/data"
     end
 
     test "merges stringified defaults under user values (contract > user > operator > schema)" do

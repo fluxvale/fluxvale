@@ -22,12 +22,13 @@ the decision.
 3. **Catalog lineup** — Forgejo #1 ([ADR-0031](adr/0031-build-order.md)
    M3 seed: the org's own git forge; SSH disabled initially,
    HTTPS-only git — the v1 port-22 lesson; SQLite-on-PVC) — seeded
-   (#71, v16.0.5). Kavita **deferred
-   with SFTP** (OQ #6): a library app is useless without file ingest
-   (dropped from #70's seed pre-merge, 2026-09-21). Remaining dogfood
-   apps TBD (v1 queued: ActualBudget, PocketID, SilverBullet, +1).
-   Also: per-app mount-path/command overrides in the deployer (v1
-   #360) — needed for non-`/data` apps.
+   (#71, v16.0.5). Kavita #2 — seeded (#189, v0.9.1), in-app
+   configured, first-registrant-admin; the entry declares its own
+   `/kavita/config` mount path (the per-app override landed with it),
+   so file ingest is the only remaining gap (OQ #6 / #190). Remaining
+   dogfood apps TBD (v1 queued: ActualBudget, PocketID, SilverBullet,
+   +1). Still open: per-app *command* overrides in the deployer (v1
+   #360) — mount path is now catalog data, command is not.
 4. **Payments provider** — resolved by
    [ADR-0029](adr/00029-payments-adapter-selfmor.md): self-MoR with
    HitPay behind a PaymentProvider adapter (PH entity; Stripe
@@ -42,7 +43,12 @@ the decision.
    remaining edge: disposable-email-domain handling.
 6. **SFTP / file access** — deferred post-beta, but it was a v1 gate
    item and churn source (shared gateway vs sidecar, v1 #353/#374).
-   Decide the v2 stance when redefining the gate.
+   Design settled 2026-10-21: a per-app `file_access` sidecar serving
+   WebDAV over the instance's own volume + hostname (#190), with
+   presigned R2 for large files phased in behind it. Decide the v2
+   gate stance when redefining it; the catalog entry (#189) no longer
+   waits on this — a deployed Kavita is claimable and persistent, the
+   library just has no ingest path yet.
 14. **Managed databases as a first-party product** — long-term
     interest (2026-09-25): a Layerbase-shaped offering (flat-rate
     multi-engine DB cloud with branching) sold like an instance.

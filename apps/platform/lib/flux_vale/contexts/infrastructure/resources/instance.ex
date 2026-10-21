@@ -234,6 +234,17 @@ defmodule FluxVale.Infrastructure.Instance do
       public?(true)
     end
 
+    # Where the deployer mounts the data PVC (#189) — snapshotted from
+    # the AppVersion's blueprint (DeriveFromAppVersion) like image/port.
+    # Defaults to "/data" so rows created before this column existed
+    # (and any path the derive doesn't set) keep mounting where the old
+    # hard-coded deployer mounted them.
+    attribute :storage_mount_path, :string do
+      allow_nil?(false)
+      default("/data")
+      public?(true)
+    end
+
     attribute :status, FluxVale.Infrastructure.Types.InstanceStatus do
       allow_nil?(false)
       default(:pending)
