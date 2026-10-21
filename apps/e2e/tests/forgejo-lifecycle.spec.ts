@@ -78,6 +78,18 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   expect(opened.status()).toBeLessThan(400);
   expect(await opened.text()).toMatch(/Forgejo/i);
 
+  // #181's done-when: usable within one click of opening — registration
+  // is open, so the owner can sign up (the first registrant becomes the
+  // admin). A closed instance still renders /user/sign_up (200) with a
+  // "Registration is disabled" notice instead of the form — assert the
+  // form itself, and the notice's absence.
+  const signUp = await request.get(new URL("user/sign_up", url!).toString());
+  expect(signUp.url()).toMatch(/\/user\/sign_up$/);
+  expect(signUp.status()).toBeLessThan(400);
+  const body = await signUp.text();
+  expect(body).not.toMatch(/registration is disabled/i);
+  expect(body).toMatch(/name="password"/);
+
   // Stop → Stopped (scale-to-zero under the hood, quick)
   await page.getByTestId("stop-button").click();
   await waitForStatus(page, "Stopped", 60_000);

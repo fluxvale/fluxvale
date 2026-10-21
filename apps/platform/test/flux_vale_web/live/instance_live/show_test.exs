@@ -129,6 +129,41 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     refute has_element?(view, "[data-testid='instance-price']")
   end
 
+  test "renders the first-run contract's guidance when the version carries one (#181)", %{
+    conn: conn,
+    user: user
+  } do
+    version =
+      InstanceFixtures.app_version!(
+        first_run: %{
+          "pattern" => "first_registered_user_admin",
+          "env" => %{"APP__security__INSTALL_LOCK" => "true"},
+          "forbidden_env" => [],
+          "guidance" => "Register first — the first account becomes admin."
+        }
+      )
+
+    instance = create_instance!(version, user)
+    {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+    assert has_element?(
+             view,
+             "[data-testid='first-run-guidance']",
+             "Register first — the first account becomes admin."
+           )
+  end
+
+  test "no first-run card for a version without a contract (#181)", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    instance = create_instance!(version, user)
+    {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+    refute has_element?(view, "[data-testid='first-run-guidance']")
+  end
+
   test "another actor's instance is not found", %{conn: conn, version: version} do
     other = SessionHelpers.user!()
     theirs = create_instance!(version, other)

@@ -12,7 +12,9 @@
 #
 # Field notes: default_cpu_cores is a QUOTED string (preserves Decimal
 # precision). Optional version fields default to healthcheck_path "/",
-# default_memory_mb 256, default_storage_gb 0, published_at nil, env maps %{}.
+# default_memory_mb 256, default_storage_gb 0, published_at nil, env maps %{},
+# first_run nil (a version without a first-run contract must simply be usable
+# out of the box — see ADR-0034 for the next app's pattern).
 # recommended_size is REQUIRED on every version — a slug from
 # pricing_data.yaml whose allocation equals the version's resource
 # defaults; seed_pricing! runs first and the seed runner resolves the id.
@@ -51,26 +53,36 @@
             First FluxVale catalog release, tracking upstream v16.0.5.
             HTTPS-only git (SSH disabled); SQLite on a dedicated volume.
           published_at: "2026-09-17T15:27:32Z"
-          # Operator-owned config (#71 scope, ADR-0031 M3): skip the web
-          # installer wizard; SQLite-on-PVC (no CNPG dependency — the single
-          # cluster is platform-only, ADR-0009); SSH disabled — the v1
-          # port-22 lesson. #73's deploy op adds FORGEJO__server__ROOT_URL
-          # per instance (the ingress URL isn't catalog data).
+          # Operator-owned config (#71 scope, ADR-0031 M3): SQLite-on-PVC
+          # (no CNPG dependency — the single cluster is platform-only,
+          # ADR-0009); SSH disabled — the v1 port-22 lesson. #73's deploy
+          # op adds FORGEJO__server__ROOT_URL per instance (the ingress
+          # URL isn't catalog data). INSTALL_LOCK lives in the first-run
+          # contract below — it is first-open posture, not operator
+          # preference.
           default_env_vars:
-            FORGEJO__security__INSTALL_LOCK: "true"
             FORGEJO__database__DB_TYPE: sqlite3
             FORGEJO__server__DISABLE_SSH: "true"
+          # First-run contract (#181, ADR-0034): registration is open on
+          # first boot and the first registrant becomes admin.
+          # DISABLE_REGISTRATION is deliberately NOT shipped — Forgejo
+          # defaults it to false (open), and __section__KEY env re-applies
+          # to app.ini at every container start, so pinning it would
+          # silently re-open registration after the owner closes it
+          # in-app. The forbidden_env lock keeps every deploy-time layer
+          # from setting it at all.
+          first_run:
+            pattern: first_registered_user_admin
+            env:
+              FORGEJO__security__INSTALL_LOCK: "true"
+            forbidden_env:
+              - FORGEJO__service__DISABLE_REGISTRATION
+            guidance: >-
+              Open the instance URL and register — the first account
+              becomes the admin. Once you are in, close public sign-up
+              in Forgejo's site administration settings.
           # Deploy-time user settings — rendered by the #74 deploy form.
-          # DISABLE_REGISTRATION defaults to false: the first registrant
-          # becomes admin; users turn it off after claiming the instance.
           configurable_env_vars:
-            FORGEJO__service__DISABLE_REGISTRATION:
-              label: Disable public sign-up
-              description: >-
-                Turn off open registration after creating your admin
-                account.
-              type: boolean
-              default: false
             FORGEJO__mailer__ENABLED:
               label: Enable email sending
               description: Send notifications and confirmation emails via SMTP.

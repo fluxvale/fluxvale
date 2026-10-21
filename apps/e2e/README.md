@@ -50,7 +50,9 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
   local.
 - `forgejo-lifecycle.spec.ts` — Forgejo's full lifecycle through the
   real UI: sign-in via TestInbox → catalog → deploy → running →
-  instance URL → stop → destroy. Crosses the real cluster: `running`
+  instance URL (with the #181 first-open check: `/user/sign_up`
+  answers — registration open, first registrant becomes admin) →
+  stop → destroy. Crosses the real cluster: `running`
   waits out the image pull plus the reconcile cron's minute
   granularity — the test carries a 15-minute budget; a red runner is
   usually a broken flow, not a slow one. Local + staging (#116);

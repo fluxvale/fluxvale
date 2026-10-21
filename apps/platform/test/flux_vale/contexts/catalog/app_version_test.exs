@@ -7,6 +7,7 @@ defmodule FluxVale.Catalog.AppVersionTest do
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Catalog.Category
   alias FluxVale.Catalog.Types.EnvVarSpec
+  alias FluxVale.Catalog.Types.FirstRunContract
   alias FluxVale.Identity.User
   alias FluxVale.Pricing.Size
 
@@ -285,6 +286,180 @@ defmodule FluxVale.Catalog.AppVersionTest do
       port = reloaded.configurable_env_vars["SMTP_PORT"]
       assert port.default == 587
       assert port.type == :integer
+    end
+  end
+
+  describe "first_run (typed by FirstRunContract, #181)" do
+    test "defaults to nil and accepts a string-keyed contract" do
+      plain_attrs = version_attrs(app())
+
+      assert {:ok, plain} = AppVersion.create(plain_attrs, authorize?: false)
+      assert plain.first_run == nil
+
+      contract = %{
+        "pattern" => "first_registered_user_admin",
+        "env" => %{"APP__security__INSTALL_LOCK" => "true"},
+        "forbidden_env" => ["APP__service__DISABLE_REGISTRATION"],
+        "guidance" => "Register first; you become admin."
+      }
+
+      attrs = version_attrs(app(), %{first_run: contract})
+      assert {:ok, version} = AppVersion.create(attrs, authorize?: false)
+
+      assert %FirstRunContract{} = version.first_run
+      assert version.first_run.pattern == :first_registered_user_admin
+    end
+
+    test "round-trips through jsonb as a FirstRunContract struct" do
+      attrs =
+        version_attrs(app(), %{
+          first_run: %{
+            "pattern" => "first_registered_user_admin",
+            "env" => %{"APP__security__INSTALL_LOCK" => "true"},
+            "forbidden_env" => ["APP__service__DISABLE_REGISTRATION"],
+            "guidance" => "g"
+          }
+        })
+
+      version = AppVersion.create!(attrs, authorize?: false)
+
+      # Fresh read — cast_stored re-casts the jsonb map into the struct.
+      assert {:ok, [reloaded]} = Ash.read(AppVersion, authorize?: false)
+      assert reloaded.id == version.id
+      assert %FirstRunContract{} = reloaded.first_run
+      assert reloaded.first_run.env == %{"APP__security__INSTALL_LOCK" => "true"}
+    end
+
+    test "rejects a malformed contract at the resource boundary" do
+      attrs =
+        version_attrs(app(), %{
+          first_run: %{"pattern" => "install_wizard", "guidance" => "g"}
+        })
+
+      assert {:error, %Ash.Error.Invalid{}} = AppVersion.create(attrs, authorize?: false)
+    end
+
+    test "keeps the contract the sole owner of its keys (ValidateFirstRunEnv)" do
+      contract = %{
+        "pattern" => "first_registered_user_admin",
+        "env" => %{"APP__security__INSTALL_LOCK" => "true"},
+        "forbidden_env" => ["APP__service__DISABLE_REGISTRATION"],
+        "guidance" => "g"
+      }
+
+      # env key reappearing as an operator default
+      overlapping_default =
+        version_attrs(app(), %{
+          first_run: contract,
+          default_env_vars: %{"APP__security__INSTALL_LOCK" => "false"}
+        })
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AppVersion.create(overlapping_default, authorize?: false)
+
+      assert Enum.any?(errors, &(&1.message =~ "must not appear in default_env_vars"))
+
+      # forbidden key reappearing as a deploy-time configurable
+      overlapping_configurable =
+        version_attrs(app(), %{
+          first_run: contract,
+          configurable_env_vars: %{
+            "APP__service__DISABLE_REGISTRATION" => %{"label" => "x", "type" => "boolean"}
+          }
+        })
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AppVersion.create(overlapping_configurable, authorize?: false)
+
+      assert Enum.any?(errors, &(&1.message =~ "must not appear in configurable_env_vars"))
+    end
+
+    test "the lock also holds on update — an AshAdmin edit cannot fork the layers" do
+      base = version_attrs(app())
+      version = AppVersion.create!(base, authorize?: false)
+
+      contract = %{
+        "pattern" => "first_registered_user_admin",
+        "env" => %{},
+        "forbidden_env" => ["APP__service__DISABLE_REGISTRATION"],
+        "guidance" => "g"
+      }
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               AppVersion.update(
+                 version,
+                 %{
+                   first_run: contract,
+                   configurable_env_vars: %{
+                     "APP__service__DISABLE_REGISTRATION" => %{
+                       "label" => "x",
+                       "type" => "boolean"
+                     }
+                   }
+                 },
+                 authorize?: false
+               )
+    end
+
+    test "case-variant spellings don't dodge the lock — consumers fold name case" do
+      contract = %{
+        "pattern" => "first_registered_user_admin",
+        "env" => %{"APP__security__INSTALL_LOCK" => "true"},
+        "forbidden_env" => ["APP__service__DISABLE_REGISTRATION"],
+        "guidance" => "g"
+      }
+
+      case_variant_default =
+        version_attrs(app(), %{
+          first_run: contract,
+          default_env_vars: %{"APP__Security__INSTALL_LOCK" => "false"}
+        })
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AppVersion.create(case_variant_default, authorize?: false)
+
+      assert Enum.any?(
+               errors,
+               &(&1.message =~ "must not appear in default_env_vars" and
+                   &1.message =~ "APP__Security__INSTALL_LOCK")
+             )
+
+      case_variant_configurable =
+        version_attrs(app(), %{
+          first_run: contract,
+          configurable_env_vars: %{
+            "APP__Service__DISABLE_REGISTRATION" => %{"label" => "x", "type" => "boolean"}
+          }
+        })
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AppVersion.create(case_variant_configurable, authorize?: false)
+
+      assert Enum.any?(
+               errors,
+               &(&1.message =~ "must not appear in configurable_env_vars" and
+                   &1.message =~ "APP__Service__DISABLE_REGISTRATION")
+             )
+    end
+
+    test "a contract key cannot hide in instance_url_env — the deployer applies it over the contract" do
+      contract = %{
+        "pattern" => "first_registered_user_admin",
+        "env" => %{"APP__server__ROOT_URL" => "true"},
+        "guidance" => "g"
+      }
+
+      attrs =
+        version_attrs(app(), %{first_run: contract, instance_url_env: "APP__server__ROOT_URL"})
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AppVersion.create(attrs, authorize?: false)
+
+      assert Enum.any?(
+               errors,
+               &(&1.message =~ "must not appear in instance_url_env" and
+                   &1.message =~ "APP__server__ROOT_URL")
+             )
     end
   end
 
