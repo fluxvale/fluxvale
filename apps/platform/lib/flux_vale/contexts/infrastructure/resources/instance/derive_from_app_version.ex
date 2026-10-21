@@ -5,7 +5,9 @@ defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
   `storage_gb`, the env merge — user values over operator
   `default_env_vars` over `configurable_env_vars` schema defaults, all
   stringified (env vars are strings end to end; ValidateEnvVars
-  type-checks them after changes run) — and the pricing snapshot (#121):
+  type-checks them after changes run), with the first-run contract's
+  `env` applied **above** every layer (#181, ADR-0034) — and the
+  pricing snapshot (#121):
   the version's `recommended_size` plus both cents and
   `grandfathered_until = created_at + 1 year`, so price, size, and
   clock come from one moment (creation-time pricing with a 1-year
@@ -91,18 +93,65 @@ defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
 
   # user values > operator default_env_vars > configurable schema
   # defaults — operator-explicit beats the catalog's form-suggested
-  # default when both name a key (both stringified).
+  # default when both name a key (both stringified) — and the
+  # first-run contract above all (#181, ADR-0034): a user value naming
+  # a contract key (`env` ∪ `forbidden_env`) is rejected loudly, never
+  # silently overridden — a forbidden key set at deploy time is exactly
+  # the #181 failure mode, and no admin-provisioning path exists to
+  # undo it.
   defp merge_env_defaults(changeset, version) do
     user_env_vars = Ash.Changeset.get_attribute(changeset, :env_vars) || %{}
 
-    operator_defaults = stringified(version.default_env_vars)
-    schema_suggestions = schema_defaults(version.configurable_env_vars)
+    conflicts = contract_conflicts(user_env_vars, version.first_run)
 
-    with_operator = Map.merge(schema_suggestions, operator_defaults)
-    merged = Map.merge(with_operator, user_env_vars)
+    if conflicts == [] do
+      operator_defaults = stringified(version.default_env_vars)
+      schema_suggestions = schema_defaults(version.configurable_env_vars)
 
-    Ash.Changeset.force_change_attribute(changeset, :env_vars, merged)
+      # Contract env merges last: the guarantee outranks every
+      # deploy-time layer. Write-time disjointness
+      # (ValidateFirstRunEnv) keeps the lower layers from naming these
+      # keys; merging last holds the guarantee even for drifted rows.
+      with_operator = Map.merge(schema_suggestions, operator_defaults)
+      with_user = Map.merge(with_operator, user_env_vars)
+      merged = Map.merge(with_user, contract_env(version.first_run))
+
+      Ash.Changeset.force_change_attribute(changeset, :env_vars, merged)
+    else
+      Ash.Changeset.add_error(changeset,
+        field: :env_vars,
+        message:
+          "cannot be set at deploy time, fixed by the app's first-run contract " <>
+            "(#{Enum.join(conflicts, ", ")})"
+      )
+    end
   end
+
+  defp contract_env(nil), do: %{}
+
+  defp contract_env(contract), do: contract.env
+
+  defp contract_conflicts(_user_env_vars, nil), do: []
+
+  # Case-insensitive, reporting the user's own spelling: consumers fold
+  # env names onto config settings without preserving case (Forgejo's
+  # environment-to-ini lowercases ini sections), so an exact-string
+  # lock would miss FORGEJO__Service__… variants of a contract key —
+  # whole-name folding is the conservative superset.
+  defp contract_conflicts(user_env_vars, contract) do
+    contract_keys =
+      contract
+      |> contract_key_list()
+      |> Enum.map(&String.downcase/1)
+      |> MapSet.new()
+
+    user_env_vars
+    |> Map.keys()
+    |> Enum.filter(fn key -> MapSet.member?(contract_keys, String.downcase(key)) end)
+    |> Enum.sort()
+  end
+
+  defp contract_key_list(contract), do: Map.keys(contract.env) ++ contract.forbidden_env
 
   defp stringified(map) do
     Map.new(map, fn {key, value} -> {key, to_string(value)} end)

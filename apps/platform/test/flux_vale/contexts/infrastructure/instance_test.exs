@@ -4,6 +4,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
   use FluxVale.DataCase, async: true
   use Mimic
 
+  alias FluxVale.Catalog.Types.FirstRunContract
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Ingress
@@ -60,10 +61,16 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       default_cpu_cores: Decimal.new("0.5"),
       default_memory_mb: 512,
       default_storage_gb: 10,
+      # Production shape (#181): INSTALL_LOCK and the registration lock
+      # live in the first-run contract, not the operator defaults.
       default_env_vars: %{
-        "FORGEJO__security__INSTALL_LOCK" => "true",
-        "FORGEJO__database__DB_TYPE" => "sqlite3",
-        "FORGEJO__service__DISABLE_REGISTRATION" => false
+        "FORGEJO__database__DB_TYPE" => "sqlite3"
+      },
+      first_run: %{
+        "pattern" => "first_registered_user_admin",
+        "env" => %{"FORGEJO__security__INSTALL_LOCK" => "true"},
+        "forbidden_env" => ["FORGEJO__service__DISABLE_REGISTRATION"],
+        "guidance" => "Register first — the first account becomes admin."
       },
       configurable_env_vars: %{
         "FORGEJO__mailer__SMTP_PORT" => %{
@@ -156,18 +163,102 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       assert instance.storage_metering_since == nil
     end
 
-    test "merges stringified defaults under user values (user > operator > schema)" do
+    test "merges stringified defaults under user values (contract > user > operator > schema)" do
       instance =
         created!(env_vars: %{"FORGEJO__mailer__SMTP_PORT" => "2525", "USER_EXTRA" => "x"})
 
-      # operator defaults, stringified
+      # contract env — the guarantee, above every deploy-time layer
       assert instance.env_vars["FORGEJO__security__INSTALL_LOCK"] == "true"
-      assert instance.env_vars["FORGEJO__service__DISABLE_REGISTRATION"] == "false"
+      # operator defaults, stringified
+      assert instance.env_vars["FORGEJO__database__DB_TYPE"] == "sqlite3"
       # schema defaults fill what the user omits
       assert instance.env_vars["FORGEJO__mailer__ENABLED"] == "false"
-      # user values win
+      # user values win over the layers below the contract
       assert instance.env_vars["FORGEJO__mailer__SMTP_PORT"] == "2525"
       assert instance.env_vars["USER_EXTRA"] == "x"
+      # the forbidden key never ships — registration-open rides the
+      # app's upstream default (#181)
+      refute Map.has_key?(instance.env_vars, "FORGEJO__service__DISABLE_REGISTRATION")
+    end
+
+    test "rejects user values naming a contract key — loudly, both halves (#181)" do
+      attrs = build_attrs()
+
+      # The env half: the guaranteed posture is not a user setting.
+      env_half = Map.put(attrs, :env_vars, %{"FORGEJO__security__INSTALL_LOCK" => "false"})
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               Instance.create(env_half, actor: user())
+
+      assert Enum.any?(
+               errors,
+               &(&1.message =~ "first-run contract" and
+                   &1.message =~ "FORGEJO__security__INSTALL_LOCK")
+             )
+
+      # The forbidden half: the #181 failure mode, closed at the seam.
+      forbidden_half =
+        Map.put(attrs, :env_vars, %{"FORGEJO__service__DISABLE_REGISTRATION" => "true"})
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               Instance.create(forbidden_half, actor: user())
+
+      assert Enum.any?(
+               errors,
+               &(&1.message =~ "first-run contract" and
+                   &1.message =~ "FORGEJO__service__DISABLE_REGISTRATION")
+             )
+
+      # Case-variant spelling of the forbidden key — Forgejo's
+      # environment-to-ini lowercases ini sections, so the folded name
+      # hits the same setting; the lock folds too (hostile-review
+      # finding, #181).
+      case_variant_half =
+        Map.put(attrs, :env_vars, %{"FORGEJO__Service__DISABLE_REGISTRATION" => "true"})
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               Instance.create(case_variant_half, actor: user())
+
+      assert Enum.any?(
+               errors,
+               &(&1.message =~ "first-run contract" and
+                   &1.message =~ "FORGEJO__Service__DISABLE_REGISTRATION")
+             )
+    end
+
+    test "holds the guarantee even for a drifted version (contract merges last, #181)" do
+      # A state actions can't produce (ValidateFirstRunEnv rejects the
+      # overlap at write time): a version whose operator default
+      # contradicts its own contract — forced via seed, same posture
+      # as InstanceFixtures.pin!.
+      {:ok, contract} =
+        FirstRunContract.new(%{
+          "pattern" => "first_registered_user_admin",
+          "env" => %{"APP__security__INSTALL_LOCK" => "true"},
+          "guidance" => "g"
+        })
+
+      app = Ash.load!(forgejo_version(), :app, authorize?: false).app
+
+      drifted =
+        Ash.Seed.seed!(FluxVale.Catalog.AppVersion, %{
+          version: "9.9.9",
+          image: "test/image:9.9",
+          port: 3000,
+          default_env_vars: %{"APP__security__INSTALL_LOCK" => "false"},
+          first_run: contract,
+          app_id: app.id
+        })
+
+      InstanceFixtures.local_cluster!()
+
+      instance =
+        Instance.create!(
+          %{name: "Drifted", app_version_id: drifted.id, env_vars: %{}},
+          actor: user()
+        )
+
+      assert instance.env_vars["APP__security__INSTALL_LOCK"] == "true"
     end
 
     test "generates a haikunate slug unique per cluster" do
