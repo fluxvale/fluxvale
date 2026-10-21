@@ -28,10 +28,25 @@ defmodule FluxVale.Clients.K8s.Resources.ResourceQuotaTest do
       hard = manifest["spec"]["hard"]
       assert hard["requests.cpu"] == "0.5"
       assert hard["requests.memory"] == "512Mi"
-      assert hard["limits.cpu"] == "1.0"
+      assert hard["limits.cpu"] == "1"
       assert hard["limits.memory"] == "1024Mi"
       assert hard["requests.storage"] == "10Gi"
       assert hard["persistentvolumeclaims"] == "1"
+    end
+
+    # #190: the file-access quota arrives as Decimal (float addition
+    # rounds down on legal allocations — 0.35 + 0.05 — and Kernel
+    # arithmetic on Decimal crashes); the manifest must build exactly.
+    test "Decimal cpu stringifies exactly — no float rounding, no Kernel math" do
+      sum = Decimal.new("0.35")
+      cpu = Decimal.add(sum, Decimal.new("0.05"))
+
+      manifest =
+        ResourceQuota.build_manifest("ns", "app-quota", %{cpu: cpu, memory: 576, storage: 10})
+
+      hard = manifest["spec"]["hard"]
+      assert hard["requests.cpu"] == "0.4"
+      assert hard["limits.cpu"] == "0.8"
     end
   end
 

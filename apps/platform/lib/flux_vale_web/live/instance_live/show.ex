@@ -32,6 +32,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
           assign(socket,
             instance: instance,
             admin?: ActorIsPlatformAdmin.platform_admin?(user),
+            dav_password: nil,
             tick_scheduled?: false
           )
 
@@ -98,6 +99,71 @@ defmodule FluxValeWeb.InstanceLive.Show do
             {@instance.app_version.first_run.guidance}
           </p>
         </.callout>
+
+        <%= if @instance.file_access do %>
+          <%!-- #190 (ADR-0035): the WebDAV sidecar's address book — URL
+          and username are config-shaped (no cluster read to render);
+          the password reveal is a live Secret read, the credential's
+          only home. Gated on storage too: the sidecar and its route
+          land only when there's a volume to serve (deploy-side gate). --%>
+          <.card
+            :if={file_access_on?(@instance)}
+            class="space-y-4"
+            data-testid="file-access-panel"
+          >
+            <h2 class="text-sm font-medium text-ink-muted">File access (WebDAV)</h2>
+
+            <div class="grid gap-3 text-sm">
+              <div class="flex justify-between gap-4 sm:block">
+                <span class="text-ink-subtle">Address</span>
+                <span class="font-mono break-all text-ink" data-testid="dav-url">
+                  {dav_url(@instance)}
+                </span>
+              </div>
+              <div class="grid gap-3 sm:grid-cols-2">
+                <div class="flex justify-between gap-4 sm:block">
+                  <span class="text-ink-subtle">Username</span>
+                  <span class="font-mono text-ink" data-testid="dav-username">
+                    {dav_username()}
+                  </span>
+                </div>
+                <div class="flex justify-between gap-4 sm:block">
+                  <span class="text-ink-subtle">Password</span>
+                  <%= if @dav_password do %>
+                    <span class="font-mono break-all text-ink" data-testid="dav-password">
+                      {@dav_password}
+                    </span>
+                  <% else %>
+                    <.button
+                      size="sm"
+                      phx-click="reveal-credentials"
+                      data-testid="reveal-credentials"
+                    >
+                      Show password
+                    </.button>
+                  <% end %>
+                </div>
+              </div>
+            </div>
+
+            <p class="text-xs text-ink-subtle">
+              Mount it with rclone — parallel transfers, verified copies.
+              Each file uploads whole, so keep files under 100 MB through
+              this endpoint (larger library files are a coming phase):
+            </p>
+            <pre
+              class="overflow-x-auto rounded-lg bg-panel-raised p-3 text-xs leading-relaxed text-ink-muted"
+              phx-no-curly-interpolation
+            ><code data-testid="dav-rclone-snippet">rclone config create fluxvale-<%= @instance.slug %> webdav \
+    url <%= dav_url(@instance) %> vendor rclone user <%= dav_username() %> pass YOUR_PASSWORD
+    rclone copy ~/library fluxvale-<%= @instance.slug %>:library --progress</code></pre>
+
+            <p :if={@instance.status == :stopped} class="text-xs text-ink-subtle">
+              The endpoint is down while the instance is stopped — start it to
+              upload.
+            </p>
+          </.card>
+        <% end %>
 
         <%= if @admin? do %>
           <%!-- #179's admin-only reveal: the full technical trail, in the
@@ -256,6 +322,23 @@ defmodule FluxValeWeb.InstanceLive.Show do
     handle_lifecycle(socket, &Instance.start/2)
   end
 
+  # #190: the password reveal — a live read of the namespace's
+  # file-access Secret (the credential's only home, ADR-0035). The
+  # mount's actor-authorized instance read is the ownership check; the
+  # outcomes here are copy, not crash states.
+  def handle_event("reveal-credentials", _params, socket) do
+    case FluxVale.Infrastructure.read_file_access_credential(socket.assigns.instance) do
+      {:ok, %{password: password}} ->
+        {:noreply, assign(socket, :dav_password, password)}
+
+      {:error, :not_deployed} ->
+        {:noreply, put_flash(socket, :error, "Deploy the instance first — no credential yet.")}
+
+      _unavailable ->
+        {:noreply, put_flash(socket, :error, "Credential unavailable — try again shortly.")}
+    end
+  end
+
   def handle_event("delete", _params, socket) do
     instance = socket.assigns.instance
 
@@ -315,6 +398,28 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
   defp instance_url(instance) do
     "https://#{instance.slug}.#{Application.fetch_env!(:flux_vale, :instances_base_domain)}/"
+  end
+
+  # The WebDAV endpoint (#190): same hostname, config-owned path prefix
+  # — the same two config values the deploy op builds the route from,
+  # so the shown address can't drift from the wired one.
+
+  # The panel's gate mirrors the deploy op's: the sidecar lands only for
+  # a file-access instance WITH a volume to serve — at 0 GB there is no
+  # endpoint, no secret, no route, so the page must not advertise one.
+  defp file_access_on?(%{file_access: true, storage_gb: gb}) when gb > 0, do: true
+  defp file_access_on?(_instance), do: false
+
+  defp dav_url(instance) do
+    config = file_access_config()
+
+    "https://#{instance.slug}.#{Application.fetch_env!(:flux_vale, :instances_base_domain)}#{config[:path_prefix]}"
+  end
+
+  defp dav_username, do: file_access_config()[:username]
+
+  defp file_access_config do
+    Application.fetch_env!(:flux_vale, :file_access)
   end
 
   # One self-rescheduling tick while the instance is mid-provision —

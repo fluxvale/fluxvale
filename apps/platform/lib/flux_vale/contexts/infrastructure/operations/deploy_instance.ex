@@ -4,10 +4,12 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   `:deploy` trigger's body (ADR-0005).
 
   Applies, in order: Namespace → RoleBinding → ResourceQuota →
-  NetworkPolicy → PVC → Secret → Deployment → Service → IngressRoute;
-  then flips the Instance to `:starting` (K8s accepted, awaiting
-  readiness — the reconciler owns `:running`) or `:error` with a
-  status_message on failure.
+  NetworkPolicy → PVC → Secret(s) → Deployment → Service → IngressRoute
+  (file-access instances add the `file-access` Secret, a `dav` Service,
+  and an `app-dav` IngressRoute — #190, ADR-0035); then flips the
+  Instance to `:starting` (K8s accepted, awaiting readiness — the
+  reconciler owns `:running`) or `:error` with a status_message on
+  failure.
 
   Ordering notes (mocked unit tests assert shape, not order — reason
   explicitly, v1's lesson):
@@ -17,11 +19,13 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   - the **Secret precedes the Deployment**: the container references it
     via `envFrom.secretRef`, and a missing Secret at scheduling time is a
     transient `CreateContainerConfigError` the reconciler could misread
-    as a `ReplicaFailure`
+    as a `ReplicaFailure` — true for the app-env Secret and the
+    file-access credential alike (#190)
   - the ResourceQuota lands before the Deployment so the quota is
     enforceable from the first pod, not retrofitted
   """
 
+  alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Ingress
   alias FluxVale.Clients.K8s.Resources.Namespace
@@ -37,6 +41,16 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   require OpenTelemetry.Tracer
 
   @env_secret "app-env"
+  @file_secret "file-access"
+  @dav_service "dav"
+  @dav_ingress "app-dav"
+
+  # Sidecar requests (ADR-0035): platform overhead on top of the
+  # purchased allocation — the ResourceQuota widens by exactly this
+  # (limits ride the builders' 2x-requests convention). Decimal, not
+  # float: the quota addition must not round (see quota_spec).
+  @sidecar_cpu Decimal.new("0.05")
+  @sidecar_memory_mb 64
 
   @doc """
   Performs the deploy for a `:deploying` Instance. Returns `{:ok,
@@ -120,12 +134,13 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
            ),
          {:ok, _pvc} <- maybe_create_pvc(kubeconfig, namespace, instance),
          {:ok, _secret} <- maybe_create_secret(kubeconfig, namespace, env),
+         {:ok, _file_secret} <- maybe_create_file_secret(kubeconfig, namespace, instance),
          {:ok, _deployment} <-
            Deployment.create(kubeconfig, namespace, "app", deployment_spec(instance, env)),
          {:ok, _service} <- Service.create(kubeconfig, namespace, "app", service_spec(instance)),
          {:ok, _ingress} <-
            Ingress.create(kubeconfig, namespace, "app-ingress", ingress_spec(instance)) do
-      :ok
+      maybe_create_dav_route(kubeconfig, namespace, instance)
     end
   end
 
@@ -157,9 +172,24 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   end
 
   defp quota_spec(instance) do
+    cpu = Decimal.to_float(instance.cpu_cores)
+    memory = instance.memory_mb
+
+    # The sidecar is platform overhead, not purchased allocation: the
+    # quota widens by exactly its requests so the app pod's share stays
+    # what the user chose (ADR-0035). The addition stays in Decimal —
+    # float math rounds down on legal allocations (0.35 + 0.05) and a
+    # quota below the pod's exact request sum is rejected at admission.
+    total_cpu =
+      if file_access?(instance),
+        do: Decimal.add(instance.cpu_cores, @sidecar_cpu),
+        else: cpu
+
+    total_memory = if(file_access?(instance), do: memory + @sidecar_memory_mb, else: memory)
+
     %{
-      cpu: Decimal.to_float(instance.cpu_cores),
-      memory: instance.memory_mb,
+      cpu: total_cpu,
+      memory: total_memory,
       storage: instance.storage_gb
     }
   end
@@ -183,8 +213,89 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
 
   defp maybe_create_secret(_kubeconfig, _namespace, _env), do: {:ok, nil}
 
-  defp deployment_spec(instance, env) do
+  # File access is on (and has a volume to serve) only when the app
+  # declared it AND the instance allocated storage — a file-access app
+  # at 0 GB has nothing to mount, so the sidecar silently doesn't land
+  # (the wizard allows 0 GB with only a heads-up, so this is an ordinary
+  # outcome, not a crafted one; the instance page gates its panel the
+  # same way).
+  defp file_access?(%{file_access: true, storage_gb: gb}) when gb > 0, do: true
+  defp file_access?(_instance), do: false
+
+  # Get-or-create, never blind-apply: a retrying deploy must not rotate
+  # a credential the owner already configured rclone with — the secret
+  # is the credential's home (ADR-0035's storage decision), so an
+  # existing row IS the credential.
+  defp maybe_create_file_secret(kubeconfig, namespace, instance) do
+    if file_access?(instance) do
+      case Secret.get_data(kubeconfig, namespace, @file_secret) do
+        {:ok, _existing} -> {:ok, nil}
+        {:error, %Error{reason: :not_found}} -> create_file_secret(kubeconfig, namespace)
+        {:error, _error} = error -> error
+      end
+    else
+      {:ok, nil}
+    end
+  end
+
+  defp create_file_secret(kubeconfig, namespace) do
+    # rclone reads basic auth straight from these env vars (RCLONE_USER/
+    # RCLONE_PASS are the env forms of serve's --user/--pass) — the
+    # Secret lands them in the container via envFrom, no shell, no
+    # command-line exposure of the password.
+    data = %{
+      "RCLONE_USER" => file_access_config(:username),
+      "RCLONE_PASS" => credential_password()
+    }
+
+    Secret.create(kubeconfig, namespace, @file_secret, data)
+  end
+
+  # 32 bytes of CSPRNG entropy, URL-safe base64 (43 chars): rclone
+  # accepts any string; this keeps it copy-paste safe for rclone config.
+  defp credential_password do
+    entropy = :crypto.strong_rand_bytes(32)
+    Base.url_encode64(entropy, padding: false)
+  end
+
+  # The rclone serve command (ADR-0035): WebDAV over the shared data
+  # volume, under the route's path prefix, auth from the Secret's env.
+  # Serves the app's own `storage_mount_path` — for Kavita that's
+  # /kavita/config, and since its libraries live in subdirs of the same
+  # volume, serving the mount root exposes the whole volume (#189/#190).
+  defp sidecar_spec(instance) do
+    config = file_access_config()
+    mount_path = instance.storage_mount_path
+
     %{
+      image: config[:image],
+      port: config[:port],
+      args: [
+        "serve",
+        "webdav",
+        mount_path,
+        "--addr",
+        "0.0.0.0:#{config[:port]}",
+        "--baseurl",
+        config[:path_prefix]
+      ],
+      env_from_secret: @file_secret,
+      storage_mount: mount_path,
+      cpu: @sidecar_cpu,
+      memory: @sidecar_memory_mb
+    }
+  end
+
+  defp file_access_config do
+    Application.fetch_env!(:flux_vale, :file_access)
+  end
+
+  defp file_access_config(key) do
+    file_access_config()[key]
+  end
+
+  defp deployment_spec(instance, env) do
+    base = %{
       image: instance.image,
       port: instance.port,
       cpu: Decimal.to_float(instance.cpu_cores),
@@ -193,6 +304,44 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
       storage_mount: storage_mount_path(instance),
       pvc_name: pvc_name(instance),
       env_from_secret: if(env != %{}, do: @env_secret)
+    }
+
+    if file_access?(instance), do: Map.put(base, :sidecar, sidecar_spec(instance)), else: base
+  end
+
+  # The WebDAV route rides the instance hostname under the path prefix
+  # (Host(`slug.domain`) && PathPrefix(`/dav`) — Traefik auto-prioritizes
+  # the longer match above the app's bare Host rule), own Service so the
+  # app's Service/IngressRoute stay untouched.
+  defp maybe_create_dav_route(kubeconfig, namespace, instance) do
+    if file_access?(instance) do
+      with {:ok, _service} <-
+             Service.create(kubeconfig, namespace, @dav_service, dav_service_spec()),
+           {:ok, _ingress} <-
+             Ingress.create(kubeconfig, namespace, @dav_ingress, dav_ingress_spec(instance)) do
+        :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  defp dav_service_spec do
+    %{
+      port: 80,
+      target_port: file_access_config(:port),
+      selector: %{"app.kubernetes.io/name" => "app"}
+    }
+  end
+
+  defp dav_ingress_spec(instance) do
+    %{
+      subdomain: instance.slug,
+      service_name: @dav_service,
+      service_port: 80,
+      tls: true,
+      domain: Application.fetch_env!(:flux_vale, :instances_base_domain),
+      path_prefix: file_access_config(:path_prefix)
     }
   end
 

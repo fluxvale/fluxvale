@@ -25,7 +25,8 @@ the decision.
    (#71, v16.0.5). Kavita #2 — seeded (#189, v0.9.1), in-app
    configured, first-registrant-admin; the entry declares its own
    `/kavita/config` mount path (the per-app override landed with it),
-   so file ingest is the only remaining gap (OQ #6 / #190). Remaining
+   and ships with file access on
+   ([ADR-0035](adr/00035-per-instance-file-access.md)). Remaining
    dogfood apps TBD (v1 queued: ActualBudget, PocketID, SilverBullet,
    +1). Still open: per-app *command* overrides in the deployer (v1
    #360) — mount path is now catalog data, command is not.
@@ -41,14 +42,13 @@ the decision.
    email-code auth (login proves inbox ownership by construction,
    [ADR-0003](adr/00003-ashauthentication-drop-authentik.md));
    remaining edge: disposable-email-domain handling.
-6. **SFTP / file access** — deferred post-beta, but it was a v1 gate
-   item and churn source (shared gateway vs sidecar, v1 #353/#374).
-   Design settled 2026-10-21: a per-app `file_access` sidecar serving
-   WebDAV over the instance's own volume + hostname (#190), with
-   presigned R2 for large files phased in behind it. Decide the v2
-   gate stance when redefining it; the catalog entry (#189) no longer
-   waits on this — a deployed Kavita is claimable and persistent, the
-   library just has no ingest path yet.
+6. **SFTP / file access** — resolved (#190, 2026-10-21):
+   [ADR-0035](adr/00035-per-instance-file-access.md) ships per-instance
+   WebDAV (rclone sidecar over the app's declared mount path — volume
+   root, not just the config dir — with a per-instance generated
+   credential); Kavita carries it day one (#189 seeded); large files go
+   presigned-R2 in its phase 2. SFTP itself stays deferred — the HTTP
+   edge proxy makes the protocol a non-starter.
 14. **Managed databases as a first-party product** — long-term
     interest (2026-09-25): a Layerbase-shaped offering (flat-rate
     multi-engine DB cloud with branching) sold like an instance.

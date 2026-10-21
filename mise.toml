@@ -22,6 +22,10 @@ node = "26.8.1"
 # Local k3d + Tilt stack (ADR-0020)
 k3d = "5.9.0"
 tilt = "0.37.7"
+# WebDAV client for the file-access E2E (#190, ADR-0035) — the same
+# rclone the client docs teach users to configure. GitHub-release
+# binaries via ubi; mise.lock pins URL + checksum.
+rclone = { registry = "ubi:rclone/rclone", version = "v1.75.2" }
 # Latest release within kubectl's ±1-minor skew policy vs k3d 5.9.0's default
 # server. Verified via `k3d version`: default = k3s v1.35.5, so 1.36.4 is
 # +1 minor — supported. (NB: this is the binary's own self-report; older

@@ -30,7 +30,7 @@ defmodule FluxVale.Clients.K8s.Resources.DeploymentTest do
                "memory" => "256Mi"
              }
 
-      assert container(manifest)["resources"]["limits"] == %{"cpu" => "1.0", "memory" => "512Mi"}
+      assert container(manifest)["resources"]["limits"] == %{"cpu" => "1", "memory" => "512Mi"}
     end
 
     test "explicit cpu/memory/replicas override defaults" do
@@ -129,6 +129,76 @@ defmodule FluxVale.Clients.K8s.Resources.DeploymentTest do
       app_container = container(manifest)
 
       refute Map.has_key?(app_container, "envFrom")
+    end
+  end
+
+  describe "build_manifest/3 — sidecar (#190, ADR-0035)" do
+    defp file_access_spec do
+      base_spec()
+      |> Map.put(:storage_mount, "/data")
+      |> Map.put(:pvc_name, "app-data")
+      |> Map.put(:sidecar, %{
+        image: "rclone/rclone:1.75.2",
+        port: 8080,
+        args: ["serve", "webdav", "/data", "--addr", "0.0.0.0:8080", "--baseurl", "/dav"],
+        env_from_secret: "file-access",
+        storage_mount: "/data",
+        cpu: 0.05,
+        memory: 64
+      })
+    end
+
+    test "the sidecar lands as a second container sharing the storage volume" do
+      manifest = Deployment.build_manifest("ns", "app", file_access_spec())
+      pod_spec = get_in(manifest, ["spec", "template", "spec"])
+      [app, sidecar] = pod_spec["containers"]
+
+      # the app container is untouched by the sidecar's presence
+      assert app["name"] == "app"
+      assert app["volumeMounts"] == [%{"name" => "storage", "mountPath" => "/data"}]
+
+      assert sidecar == %{
+               "name" => "file-access",
+               "image" => "rclone/rclone:1.75.2",
+               "ports" => [%{"containerPort" => 8080}],
+               "args" => [
+                 "serve",
+                 "webdav",
+                 "/data",
+                 "--addr",
+                 "0.0.0.0:8080",
+                 "--baseurl",
+                 "/dav"
+               ],
+               "envFrom" => [%{"secretRef" => %{"name" => "file-access"}}],
+               "resources" => %{
+                 "requests" => %{"cpu" => "0.05", "memory" => "64Mi"},
+                 "limits" => %{"cpu" => "0.1", "memory" => "128Mi"}
+               },
+               # same volume, not a second PVC
+               "volumeMounts" => [%{"name" => "storage", "mountPath" => "/data"}]
+             }
+
+      assert length(pod_spec["volumes"]) == 1
+    end
+
+    test "no sidecar container without :sidecar" do
+      manifest = Deployment.build_manifest("ns", "app", base_spec())
+
+      assert length(get_in(manifest, ["spec", "template", "spec", "containers"])) == 1
+    end
+
+    # #190's quota fix companion: the deployer passes the sidecar's
+    # requests as Decimal (exact quota math) — the manifest must build
+    # without Kernel arithmetic and stringify exactly.
+    test "Decimal sidecar cpu builds exactly" do
+      spec = put_in(file_access_spec(), [:sidecar, :cpu], Decimal.new("0.05"))
+
+      manifest = Deployment.build_manifest("ns", "app", spec)
+      sidecar = get_in(manifest, ["spec", "template", "spec", "containers", Access.at(1)])
+
+      assert sidecar["resources"]["requests"]["cpu"] == "0.05"
+      assert sidecar["resources"]["limits"]["cpu"] == "0.1"
     end
   end
 

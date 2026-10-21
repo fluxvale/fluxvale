@@ -13,21 +13,24 @@ defmodule FluxVale.Catalog.App do
     authorizers: [Ash.Policy.Authorizer]
 
   postgres do
-    table "apps"
-    repo FluxVale.Repo
+    table("apps")
+    repo(FluxVale.Repo)
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
-    migration_defaults id: "nil"
+    migration_defaults(id: "nil")
   end
 
   policies do
     policy action_type(:read) do
-      description "Public browse — the catalog is a public marketing surface (#164, ADR-00025); writes stay admin-only"
+      description(
+        "Public browse — the catalog is a public marketing surface (#164, ADR-00025); writes stay admin-only"
+      )
+
       authorize_if(always())
     end
 
     policy FluxVale.Checks.ActorIsPlatformAdmin do
-      description "Platform admins manage catalog apps (ADR-0027, ADR-0030)"
+      description("Platform admins manage catalog apps (ADR-0027, ADR-0030)")
       authorize_if(always())
     end
   end
@@ -71,6 +74,16 @@ defmodule FluxVale.Catalog.App do
     attribute :docs_url, :string do
       public?(true)
     end
+
+    # File access (#190, ADR-0035): instances of this app get the
+    # WebDAV sidecar on their data volume. Catalog-declared, not a
+    # deploy-time choice — every instance of the app gets it, and the
+    # Instance snapshots the flag at create (DeriveFromAppVersion).
+    attribute :file_access, :boolean do
+      allow_nil?(false)
+      default(false)
+      public?(true)
+    end
   end
 
   relationships do
@@ -88,7 +101,7 @@ defmodule FluxVale.Catalog.App do
     defaults([:read, :destroy])
 
     create :create do
-      primary? true
+      primary?(true)
 
       accept([
         :name,
@@ -98,18 +111,28 @@ defmodule FluxVale.Catalog.App do
         :icon_url,
         :source_url,
         :docs_url,
+        :file_access,
         :category_id
       ])
     end
 
     update :update do
-      primary? true
+      primary?(true)
       # slug is the identity seeds look up by — immutable after create.
-      accept([:name, :tagline, :description, :icon_url, :source_url, :docs_url, :category_id])
+      accept([
+        :name,
+        :tagline,
+        :description,
+        :icon_url,
+        :source_url,
+        :docs_url,
+        :file_access,
+        :category_id
+      ])
     end
 
     read :get_by_slug do
-      description "Get an app by its slug"
+      description("Get an app by its slug")
       get?(true)
       argument(:slug, :string, allow_nil?: false)
       filter(expr(slug == ^arg(:slug)))
@@ -117,7 +140,7 @@ defmodule FluxVale.Catalog.App do
   end
 
   code_interface do
-    domain FluxVale.Catalog
+    domain(FluxVale.Catalog)
 
     define(:create)
     define(:update)
