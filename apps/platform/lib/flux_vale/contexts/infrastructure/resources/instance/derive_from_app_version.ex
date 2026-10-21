@@ -13,6 +13,13 @@ defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
   clock come from one moment (creation-time pricing with a 1-year
   grace; settlement reads live prices only after it lapses).
 
+  Allocation (#180): the version's `default_cpu_cores`/
+  `default_memory_mb`/`default_storage_gb` are the advisory
+  recommendation — applied only when the creator sends no allocation.
+  A user-chosen allocation (above or below the recommendation, floor-
+  bounded by the attribute constraints) wins unchanged; the wizard owns
+  the below-recommendation warning + acknowledgment, not the derive.
+
   The Instance is the snapshot, not the live version: editing an
   AppVersion later never mutates a running Instance's spec (same stance
   as v1's derive, ported) — nor its price while grandfathered.
@@ -45,9 +52,18 @@ defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
           |> Ash.Changeset.force_change_attribute(:image, version.image)
           |> Ash.Changeset.force_change_attribute(:port, version.port)
           |> Ash.Changeset.force_change_attribute(:healthcheck_path, version.healthcheck_path)
-          |> Ash.Changeset.force_change_attribute(:cpu_cores, version.default_cpu_cores)
-          |> Ash.Changeset.force_change_attribute(:memory_mb, version.default_memory_mb)
-          |> Ash.Changeset.force_change_attribute(:storage_gb, version.default_storage_gb)
+          |> Ash.Changeset.force_change_attribute(
+            :cpu_cores,
+            chosen(changeset, :cpu_cores, version.default_cpu_cores)
+          )
+          |> Ash.Changeset.force_change_attribute(
+            :memory_mb,
+            chosen(changeset, :memory_mb, version.default_memory_mb)
+          )
+          |> Ash.Changeset.force_change_attribute(
+            :storage_gb,
+            chosen(changeset, :storage_gb, version.default_storage_gb)
+          )
           |> snapshot_price(version)
           |> merge_env_defaults(version)
 
@@ -65,6 +81,17 @@ defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
       # cast/auto-validation before the change runs
       # coveralls-ignore-next-line
       Ash.Changeset.add_error(changeset, field: :app_version_id, message: "is required")
+    end
+  end
+
+  # The user's allocation wins over the recommendation (#180); absent
+  # (not sent) falls back to the version's default. fetch_change, not
+  # get_attribute: the latter reads the record's attribute default as
+  # if chosen (Ash applies attribute defaults after action changes).
+  defp chosen(changeset, key, recommended) do
+    case Ash.Changeset.fetch_change(changeset, key) do
+      {:ok, value} -> value
+      :error -> recommended
     end
   end
 

@@ -38,13 +38,19 @@ defmodule FluxVale.TestSupport.NoK8sLeaks do
   @doc """
   Asserts `html` contains no denylisted term (case-insensitive). On a
   hit, fails naming the term and a snippet of where it leaked.
+
+  Matches the rendered text, not the markup: LiveView's random DOM ids
+  (`phx-Go8k8s…`) can carry a denylisted substring by chance, and the
+  helper hunts user-visible copy, not attribute noise.
   """
   @spec refute_k8s_terms(String.t()) :: true
   def refute_k8s_terms(html) when is_binary(html) do
-    leaked = Enum.find(@denylist, &String.contains?(String.downcase(html), &1))
+    visible = String.replace(html, ~r/<[^>]*>/, " ")
+
+    leaked = Enum.find(@denylist, &String.contains?(String.downcase(visible), &1))
 
     if leaked do
-      excerpt = leak_excerpt(html, leaked)
+      excerpt = leak_excerpt(visible, leaked)
 
       flunk("""
       Kubernetes term rendered to a non-admin surface (#179): "#{leaked}"
