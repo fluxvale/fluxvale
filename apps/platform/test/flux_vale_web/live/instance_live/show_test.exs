@@ -583,6 +583,120 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       refute has_element?(view, "[data-testid='dav-password']")
     end
 
+    # #194: the human copy path. Before the fix the password rendered as
+    # wrapped body text with no copy affordance — a triple-click selected
+    # the neighbouring "Password" label and a trailing newline, so a
+    # correct credential pasted as garbage and 401'd. Every credential
+    # value now carries a copy button holding the exact string.
+    test "every credential value carries a copy button with its exact text", %{
+      conn: conn,
+      user: user
+    } do
+      version = InstanceFixtures.app_version!(file_access: true, default_storage_gb: 10)
+      instance = create_instance!(version, user)
+      url = "https://#{instance.slug}.fluxvale.lvh.me/dav"
+
+      running =
+        instance
+        |> InstanceFixtures.walk_to!(:running)
+        |> InstanceFixtures.pin!(namespace: "fluxvale-app-#{instance.id}")
+
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+
+      expect(Secret, :get_data, fn _kc, _ns, "file-access" ->
+        {:ok,
+         %{
+           "RCLONE_USER" => "fluxvale",
+           "RCLONE_PASS" => "a43charpassword43charsa43charpassword43char"
+         }}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{running.id}")
+
+      render_click(element(view, "[data-testid='reveal-credentials']"))
+
+      # The value rides a data attribute — the copy can't pick up a label
+      # or a newline the way a text selection can.
+      assert has_element?(
+               view,
+               "[data-testid='copy-dav-username'][data-copy-value='fluxvale']"
+             )
+
+      assert has_element?(view, "[data-testid='copy-dav-url'][data-copy-value='#{url}']")
+
+      assert has_element?(
+               view,
+               "[data-testid='copy-dav-password'][data-copy-value='a43charpassword43charsa43charpassword43char']"
+             )
+
+      # The password renders unwrapped: overflowing rather than breaking
+      # across lines, so a hand-selection stays whole.
+      html = render(view)
+
+      assert html =~ "whitespace-nowrap"
+      refute html =~ "break-all"
+    end
+
+    # #194's second cause: rclone guesses whether a `pass` value is
+    # already obscured, and misreads the platform's 43-char base64url
+    # password ~99% of the time — the literal snippet uploaded garbage
+    # and 401'd. `--obscure` forces the plaintext reading.
+    test "the rclone snippet keeps passwords out of argv and forces --obscure", %{
+      conn: conn,
+      user: user
+    } do
+      version = InstanceFixtures.app_version!(file_access: true, default_storage_gb: 10)
+      instance = create_instance!(version, user)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      snippet =
+        view
+        |> element("[data-testid='dav-rclone-snippet']")
+        |> render()
+
+      # The reveal hasn't happened: no credential in the doc, and the
+      # placeholder stands in.
+      assert snippet =~ "YOUR_PASSWORD"
+      assert snippet =~ "--obscure"
+
+      # The copy button carries the identical text, placeholder included.
+      copy =
+        view
+        |> element("[data-testid='copy-dav-snippet']")
+        |> render()
+
+      assert copy =~ "YOUR_PASSWORD"
+    end
+
+    test "the snippet inlines the revealed password for a one-shot copy", %{
+      conn: conn,
+      user: user
+    } do
+      version = InstanceFixtures.app_version!(file_access: true, default_storage_gb: 10)
+      instance = create_instance!(version, user)
+
+      running =
+        instance
+        |> InstanceFixtures.walk_to!(:running)
+        |> InstanceFixtures.pin!(namespace: "fluxvale-app-#{instance.id}")
+
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+
+      expect(Secret, :get_data, fn _kc, _ns, "file-access" ->
+        {:ok, %{"RCLONE_USER" => "fluxvale", "RCLONE_PASS" => "s3cret"}}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{running.id}")
+
+      render_click(element(view, "[data-testid='reveal-credentials']"))
+
+      assert has_element?(
+               view,
+               "[data-testid='copy-dav-snippet'][data-copy-value*=\"pass 's3cret' --obscure\"]"
+             )
+    end
+
     test "no panel for an instance without file access", %{conn: conn, user: user} do
       version = InstanceFixtures.app_version!()
       instance = create_instance!(version, user)

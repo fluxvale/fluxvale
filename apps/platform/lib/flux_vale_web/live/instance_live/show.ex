@@ -113,26 +113,43 @@ defmodule FluxValeWeb.InstanceLive.Show do
           >
             <h2 class="text-sm font-medium text-ink-muted">File access (WebDAV)</h2>
 
-            <div class="grid gap-3 text-sm">
-              <div class="flex justify-between gap-4 sm:block">
-                <span class="text-ink-subtle">Address</span>
-                <span class="font-mono break-all text-ink" data-testid="dav-url">
-                  {dav_url(@instance)}
-                </span>
-              </div>
-              <div class="grid gap-3 sm:grid-cols-2">
-                <div class="flex justify-between gap-4 sm:block">
-                  <span class="text-ink-subtle">Username</span>
-                  <span class="font-mono text-ink" data-testid="dav-username">
-                    {dav_username()}
-                  </span>
-                </div>
-                <div class="flex justify-between gap-4 sm:block">
+            <%!-- #194: every credential value is a no-wrap code block with a
+            copy button that carries the exact rendered string in a
+            data-attribute. Selecting a wrapped 43-char password by hand
+            (triple-click) catches the neighbouring label and the trailing
+            newline, which is how a correct credential produced a 401. --%>
+            <div class="grid gap-4 text-sm">
+              <.dav_field
+                label="Address"
+                value={dav_url(@instance)}
+                testid="dav-url"
+                copy_label="Copy address"
+              />
+
+              <div class="grid gap-4 sm:grid-cols-2">
+                <.dav_field
+                  label="Username"
+                  value={dav_username()}
+                  testid="dav-username"
+                  copy_label="Copy username"
+                />
+
+                <div class="grid gap-1.5">
                   <span class="text-ink-subtle">Password</span>
                   <%= if @dav_password do %>
-                    <span class="font-mono break-all text-ink" data-testid="dav-password">
-                      {@dav_password}
-                    </span>
+                    <div class="flex items-start gap-2">
+                      <code
+                        class="min-w-0 flex-1 overflow-x-auto rounded-md border border-line bg-panel-raised px-2 py-1 font-mono text-xs whitespace-nowrap text-ink"
+                        data-testid="dav-password"
+                      >
+                        {@dav_password}
+                      </code>
+                      <.copy_button
+                        id="copy-dav-password"
+                        value={@dav_password}
+                        label="Copy password"
+                      />
+                    </div>
                   <% else %>
                     <.button
                       size="sm"
@@ -151,12 +168,27 @@ defmodule FluxValeWeb.InstanceLive.Show do
               Each file uploads whole, so keep files under 100 MB through
               this endpoint (larger library files are a coming phase):
             </p>
-            <pre
-              class="overflow-x-auto rounded-lg bg-panel-raised p-3 text-xs leading-relaxed text-ink-muted"
-              phx-no-curly-interpolation
-            ><code data-testid="dav-rclone-snippet">rclone config create fluxvale-<%= @instance.slug %> webdav \
-    url <%= dav_url(@instance) %> vendor rclone user <%= dav_username() %> pass YOUR_PASSWORD
-    rclone copy ~/library fluxvale-<%= @instance.slug %>:library --progress</code></pre>
+
+            <div class="space-y-2">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-xs font-medium text-ink-muted">rclone setup</span>
+                <.copy_button
+                  id="copy-dav-snippet"
+                  value={rclone_snippet(@instance, @dav_password)}
+                  testid="copy-dav-snippet"
+                  label="Copy snippet"
+                />
+              </div>
+              <%!-- #194: `--obscure` is load-bearing. rclone guesses whether a
+              `pass` value is already obscured; the platform's 43-char
+              base64url password is misread as obscured ~99% of the time, so
+              the literal form uploaded garbage and 401'd. --obscure forces
+              the plaintext reading. --%>
+              <pre
+                class="overflow-x-auto rounded-lg bg-panel-raised p-3 text-xs leading-relaxed text-ink-muted"
+                phx-no-curly-interpolation
+              ><code data-testid="dav-rclone-snippet"><%= rclone_snippet(@instance, @dav_password) %></code></pre>
+            </div>
 
             <p :if={@instance.status == :stopped} class="text-xs text-ink-subtle">
               The endpoint is down while the instance is stopped — start it to
@@ -403,6 +435,44 @@ defmodule FluxValeWeb.InstanceLive.Show do
   # The WebDAV endpoint (#190): same hostname, config-owned path prefix
   # — the same two config values the deploy op builds the route from,
   # so the shown address can't drift from the wired one.
+
+  # One labeled credential value: a read-only, no-wrap code block plus
+  # its copy button (#194). The value is never wrapped — a wrapped
+  # 43-char password is what made hand-selection lossy.
+  defp dav_field(assigns) do
+    assigns = assign(assigns, :copy_id, "copy-#{assigns.testid}")
+
+    ~H"""
+    <div class="grid gap-1.5">
+      <span class="text-ink-subtle">{@label}</span>
+      <div class="flex items-start gap-2">
+        <code
+          class="min-w-0 flex-1 overflow-x-auto rounded-md border border-line bg-panel-raised px-2 py-1 font-mono text-xs whitespace-nowrap text-ink"
+          data-testid={@testid}
+        >
+          {@value}
+        </code>
+        <.copy_button id={@copy_id} value={@value} label={@copy_label} />
+      </div>
+    </div>
+    """
+  end
+
+  # The full rclone remote + copy command, password inlined when the
+  # owner has revealed it (#194). `--obscure` is mandatory: see the
+  # panel comment — without it rclone misreads the generated password.
+  defp rclone_snippet(instance, password) do
+    secret = password || "YOUR_PASSWORD"
+    remote = "fluxvale-#{instance.slug}"
+
+    snippet = """
+    rclone config create #{remote} webdav \\
+        url #{dav_url(instance)} vendor rclone user #{dav_username()} pass '#{secret}' --obscure
+    rclone copy ~/library #{remote}:library --progress
+    """
+
+    String.trim_trailing(snippet)
+  end
 
   # The panel's gate mirrors the deploy op's: the sidecar lands only for
   # a file-access instance WITH a volume to serve — at 0 GB there is no

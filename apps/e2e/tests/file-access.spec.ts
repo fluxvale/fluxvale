@@ -1,5 +1,5 @@
 import { execFile, execFileSync } from "node:child_process";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -51,6 +51,7 @@ test.skip(
 test("file access: deploy Kavita → rclone put through /dav → file lands in the instance volume", async ({
   page,
   request,
+  context,
 }) => {
   test.setTimeout(15 * 60_000);
 
@@ -80,22 +81,60 @@ test("file access: deploy Kavita → rclone put through /dav → file lands in t
   // The panel is the client doc: address, username, revealable password.
   await expect(page.getByTestId("file-access-panel")).toBeVisible();
   const davUrl = (await page.getByTestId("dav-url").textContent())?.trim();
-  const username = (await page.getByTestId("dav-username").textContent())?.trim();
+  const username = (
+    await page.getByTestId("dav-username").textContent()
+  )?.trim();
   await page.getByTestId("reveal-credentials").click();
   await expect(page.getByTestId("dav-password")).toBeVisible();
-  const password = (await page.getByTestId("dav-password").textContent())?.trim();
+  const password = (
+    await page.getByTestId("dav-password").textContent()
+  )?.trim();
   expect(davUrl).toMatch(/^https:\/\//);
   expect(username).toBeTruthy();
   expect(password).toBeTruthy();
+
+  // #194: the HUMAN path — what the copy buttons actually hand the
+  // clipboard, not what a test can scrape out of the DOM. The 43-char
+  // password used to render as wrapped body text, so a triple-click
+  // (or a drag) caught the "Password" label and a trailing newline and
+  // the paste 401'd. Click each button and read the real clipboard.
+  const copyValue = (testid: string) =>
+    page.getByTestId(testid).getAttribute("data-copy-value");
+
+  const copiedUrl = await copyValue("copy-dav-url");
+  const copiedUser = await copyValue("copy-dav-username");
+  const copiedPass = await copyValue("copy-dav-password");
+
+  expect(copiedUrl).toBe(davUrl);
+  expect(copiedUser).toBe(username);
+  expect(copiedPass).toBe(password);
+  // The failure shape: anything that isn't the bare password is a 401
+  // in the owner's client. No label, no newline, no wrapping artifact.
+  expect(copiedPass).not.toContain("Password");
+  expect(copiedPass).not.toMatch(/\s/);
+  expect(copiedPass).toHaveLength(43);
+
+  // Click-to-copy end to end: the button writes exactly that string to
+  // the clipboard (the assertion the old suite could not make, because
+  // there was no button to click).
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.getByTestId("copy-dav-password").click();
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe(password);
+
+  // The password line must not wrap: a wrapped line is what made
+  // hand-selection lossy in the first place.
+  const passwordWhiteSpace = await page
+    .getByTestId("dav-password")
+    .evaluate((el) => getComputedStyle(el).whiteSpace);
+  expect(passwordWhiteSpace).toBe("nowrap");
 
   // The credential actually gates: no auth → 401 through the real edge.
   const unauth = await request.get(davUrl!);
   expect(unauth.status()).toBe(401);
 
-  // rclone put through the endpoint (the documented client path). The
-  // remote is built from env vars — no config file to clean up — with
-  // rclone's obscured password encoding (webdav pass never sits in
-  // clear config, matching the docs we ship).
+  // rclone put through the endpoint (the documented client path).
   const obscured = (await run("rclone", ["obscure", password!])).stdout.trim();
   const content = `fluxvale file-access e2e ${runId} — if you can read this, the volume got it`;
   const dir = await mkdtemp(path.join(tmpdir(), "fv-dav-"));
@@ -114,9 +153,50 @@ test("file access: deploy Kavita → rclone put through /dav → file lands in t
     ...(isLocal ? { RCLONE_NO_CHECK_CERTIFICATE: "true" } : {}),
   };
 
-  await run("rclone", ["copyto", localFile, "fv:library/e2e-upload.txt", "--verbose"], { env });
+  await run(
+    "rclone",
+    ["copyto", localFile, "fv:library/e2e-upload.txt", "--verbose"],
+    { env },
+  );
   const listing = (await run("rclone", ["lsf", "fv:library/"], { env })).stdout;
   expect(listing).toContain("e2e-upload.txt");
+
+  // #194's second cause, asserted against the real endpoint: the
+  // snippet's own config line must authenticate. rclone guesses whether
+  // a `pass` value is already obscured and misreads the generated
+  // 43-char base64url password ~99% of the time, so the literal form
+  // 401s — `--obscure` is what makes the copied snippet work. Drive the
+  // snippet's exact flag shape through a fresh config and list the
+  // upload back.
+  const snippetConfig = path.join(dir, "rclone.conf");
+  const snippetRemote = `fluxvale-${runId}`;
+
+  await run("rclone", [
+    "config",
+    "--config",
+    snippetConfig,
+    "create",
+    snippetRemote,
+    "webdav",
+    `url=${davUrl}`,
+    "vendor=rclone",
+    `user=${username}`,
+    `pass=${password}`,
+    "--obscure",
+  ]);
+
+  const snippetEnv = { ...env, RCLONE_CONFIG: snippetConfig };
+  const snippetListing = (
+    await run("rclone", ["lsf", `${snippetRemote}:library/`], {
+      env: snippetEnv,
+    })
+  ).stdout;
+  expect(snippetListing).toContain("e2e-upload.txt");
+
+  // And the config file must not carry the password in the clear —
+  // --obscure is what both fixes auth and keeps the secret off disk.
+  const writtenConfig = await readFile(snippetConfig, "utf8");
+  expect(writtenConfig).not.toContain(password);
 
   // Volume ground truth. Local: cat the file through the pod — from
   // the sidecar container (alpine guarantees coreutils; the app's
