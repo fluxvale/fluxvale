@@ -175,6 +175,29 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     assert has_element?(view, "button[phx-click='to-env']")
   end
 
+  # No configurable env vars on the version: the env step renders its
+  # nothing-to-configure shape and its own Continue advances (#178
+  # wave 2 — the branch rides <.button> component calls now, which
+  # surfaced as coverable lines).
+  test "an env-less version renders the nothing-to-configure step and continues", %{
+    conn: conn
+  } do
+    version = InstanceFixtures.app_version!(configurable_env_vars: %{})
+    app = Ash.load!(version, :app, authorize?: false).app
+
+    {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+    to_step_2(view, version)
+
+    assert render(view) =~ "Nothing to configure for this app"
+    refute has_element?(view, "#env-form")
+
+    view
+    |> element("[data-testid='continue-env']")
+    |> render_click()
+
+    assert has_element?(view, "#resources-form")
+  end
+
   test "the env step renders schema-typed inputs and walks back", %{
     conn: conn,
     app: app,

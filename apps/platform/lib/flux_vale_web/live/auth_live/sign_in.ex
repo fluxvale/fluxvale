@@ -17,8 +17,8 @@ defmodule FluxValeWeb.AuthLive.SignIn do
     <Layouts.app flash={@flash}>
       <div class="mx-auto max-w-sm space-y-6 py-8">
         <div class="space-y-2">
-          <h1 class="text-2xl font-bold tracking-tight">Sign in to FluxVale</h1>
-          <p class="text-sm opacity-70">
+          <h1 class="text-2xl font-semibold tracking-tight text-ink">Sign in to FluxVale</h1>
+          <p class="text-sm text-ink-muted">
             Passwordless — we'll email you a one-time code.
           </p>
         </div>
@@ -50,8 +50,8 @@ defmodule FluxValeWeb.AuthLive.SignIn do
         </.form>
 
         <div :if={@step == :code} class="space-y-4">
-          <p class="text-sm opacity-80">
-            We sent a 6-digit code to <span class="font-medium">{@email}</span>.
+          <p class="text-sm text-ink-muted">
+            We sent a 6-digit code to <span class="font-medium text-ink">{@email}</span>.
             It expires in 10 minutes.
           </p>
 
@@ -87,7 +87,10 @@ defmodule FluxValeWeb.AuthLive.SignIn do
             </.button>
           </.form>
 
-          <button phx-click="change-email" class="text-sm link link-hover">
+          <button
+            phx-click="change-email"
+            class="text-sm font-medium text-primary transition-colors hover:text-primary-hover"
+          >
             Use a different email
           </button>
         </div>

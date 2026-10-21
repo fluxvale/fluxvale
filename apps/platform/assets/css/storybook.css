@@ -191,6 +191,13 @@
 
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
+/* The workshop's own chrome can impose its font on the sandbox (the
+   wave-2 QA caught components rendering serif); the design system's
+   font is part of the contract — pin it on every story container. */
+.psb-sandbox {
+  font-family: var(--font-sans);
+}
+
 html {
   background-color: var(--canvas);
 }

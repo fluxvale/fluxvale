@@ -253,9 +253,12 @@ defmodule FluxValeWeb.BillingLive.Topup do
       ~H"""
       <Layouts.app flash={@flash} current_user={@current_user}>
         <div class="space-y-6">
-          <h1 class="text-3xl font-bold tracking-tight">Add credits</h1>
+          <.header>
+            Add credits
+            <:subtitle>Prepaid balance for your instances.</:subtitle>
+          </.header>
 
-          <.stepper step={@step} />
+          <.stepper steps={topup_steps()} current={step_index(@step)} testid_prefix="topup" />
 
           <%= cond do %>
             <% @step == :details -> %>
@@ -282,56 +285,25 @@ defmodule FluxValeWeb.BillingLive.Topup do
     end
   end
 
-  attr :step, :atom, required: true
-
-  defp stepper(assigns) do
-    steps = [
+  # The wizard's ordered steps — shared by the stepper and step-index
+  # math (public <.stepper> component, #178 wave 2). Ids are the step
+  # ATOMS (the render's @step) — string ids would never match and
+  # find_index's nil makes every index "less than" it (Elixir's total
+  # term order: numbers < atoms), painting all steps done.
+  defp topup_steps do
+    [
       {:details, "Billing details"},
       {:amount, "Amount"},
       {:payment, "Payment"},
       {:confirmation, "Confirmation"}
     ]
-
-    current_index = Enum.find_index(steps, fn {key, _label} -> key == assigns.step end)
-    last_index = length(steps) - 1
-
-    assigns =
-      assigns
-      |> assign(steps: steps)
-      |> assign(current_index: current_index)
-      |> assign(last_index: last_index)
-
-    ~H"""
-    <ol class="flex items-center gap-2 text-sm" data-testid="topup-stepper">
-      <%= for {{key, label}, index} <- Enum.with_index(@steps) do %>
-        <li
-          class={[
-            "flex items-center gap-2",
-            index < @current_index && "text-success",
-            index == @current_index && "font-semibold",
-            index > @current_index && "opacity-50"
-          ]}
-          data-testid={"topup-step-#{key}"}
-        >
-          <span class={[
-            "flex size-6 items-center justify-center rounded-full border text-xs",
-            index < @current_index && "border-success bg-success/10",
-            index == @current_index && "border-primary bg-primary/10",
-            index > @current_index && "border-base-300"
-          ]}>
-            {index + 1}
-          </span>
-          {label}
-        </li>
-        <%= if index < @last_index do %>
-          <span class="h-px w-4 bg-base-300" aria-hidden="true"></span>
-        <% end %>
-      <% end %>
-    </ol>
-    """
   end
 
-  attr :details, :map, required: true
+  defp step_index(step) do
+    Enum.find_index(topup_steps(), fn {key, _label} -> key == step end)
+  end
+
+  attr(:details, :map, required: true)
 
   defp details_form(assigns) do
     form =
@@ -350,58 +322,58 @@ defmodule FluxValeWeb.BillingLive.Topup do
     assigns = assign(assigns, form: form)
 
     ~H"""
-    <div class="card bg-base-200">
-      <div class="card-body gap-4">
-        <h2 class="card-title text-base">Billing details</h2>
-        <p class="text-sm opacity-70">
+    <.card class="space-y-4">
+      <div>
+        <h2 class="text-base font-medium text-ink">Billing details</h2>
+        <p class="mt-1 text-sm text-ink-muted">
           Used for your receipt and to apply the right VAT.
         </p>
-
-        <.form
-          for={@form}
-          id="topup-details-form"
-          phx-change="validate-details"
-          phx-submit="next-details"
-          class="space-y-4"
-        >
-          <.input field={@form[:name]} label="Name" placeholder="Jane Doe" required />
-          <.input
-            field={@form[:email]}
-            label="Email"
-            type="email"
-            placeholder="jane@example.com"
-            required
-          />
-          <.input field={@form[:country]} label="Country code" placeholder="DE" required />
-          <%= if @details.country == "US" do %>
-            <.input field={@form[:state]} label="State" placeholder="CA" required />
-          <% end %>
-          <.input
-            field={@form[:customer_type]}
-            label="Customer type"
-            type="select"
-            options={[{"Consumer", "consumer"}, {"Business", "business"}]}
-          />
-          <%= if @details.customer_type == :business do %>
-            <.input
-              field={@form[:vat_number]}
-              label="VAT number"
-              placeholder="DE123456789"
-            />
-          <% end %>
-          <button type="submit" class="btn btn-primary btn-sm" id="topup-details-next">
-            Continue
-          </button>
-        </.form>
       </div>
-    </div>
+
+      <.form
+        for={@form}
+        id="topup-details-form"
+        phx-change="validate-details"
+        phx-submit="next-details"
+        class="space-y-4"
+      >
+        <.input field={@form[:name]} label="Name" placeholder="Jane Doe" required />
+        <.input
+          field={@form[:email]}
+          label="Email"
+          type="email"
+          placeholder="jane@example.com"
+          required
+        />
+        <.input field={@form[:country]} label="Country code" placeholder="DE" required />
+        <%= if @details.country == "US" do %>
+          <.input field={@form[:state]} label="State" placeholder="CA" required />
+        <% end %>
+        <.input
+          field={@form[:customer_type]}
+          label="Customer type"
+          type="select"
+          options={[{"Consumer", "consumer"}, {"Business", "business"}]}
+        />
+        <%= if @details.customer_type == :business do %>
+          <.input
+            field={@form[:vat_number]}
+            label="VAT number"
+            placeholder="DE123456789"
+          />
+        <% end %>
+        <.button type="submit" size="sm" id="topup-details-next">
+          Continue
+        </.button>
+      </.form>
+    </.card>
     """
   end
 
-  attr :amount_dollars, :integer, default: nil
-  attr :balance, :integer, required: true
-  attr :tax_rate_bp, :integer, required: true
-  attr :reverse_charge?, :boolean, required: true
+  attr(:amount_dollars, :integer, default: nil)
+  attr(:balance, :integer, required: true)
+  attr(:tax_rate_bp, :integer, required: true)
+  attr(:reverse_charge?, :boolean, required: true)
 
   defp amount_step(assigns) do
     dollars =
@@ -415,134 +387,135 @@ defmodule FluxValeWeb.BillingLive.Topup do
       |> assign(totals: totals(assigns))
 
     ~H"""
-    <div class="card bg-base-200">
-      <div class="card-body gap-4">
-        <h2 class="card-title text-base">How much credit?</h2>
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">How much credit?</h2>
 
-        <.form
-          for={@form}
-          id="topup-amount-form"
-          phx-change="validate-amount"
-          phx-submit="next-amount"
-          class="space-y-4"
-        >
-          <.input
-            field={@form[:dollars]}
-            label="Amount (whole US dollars)"
-            type="number"
-            min="1"
-            step="1"
-            placeholder="10"
-            required
-          />
-          <button type="submit" class="btn btn-primary btn-sm" id="topup-amount-next">
+      <.form
+        for={@form}
+        id="topup-amount-form"
+        phx-change="validate-amount"
+        phx-submit="next-amount"
+        class="space-y-4"
+      >
+        <.input
+          field={@form[:dollars]}
+          label="Amount (whole US dollars)"
+          type="number"
+          min="1"
+          step="1"
+          placeholder="10"
+          required
+        />
+        <div class="flex items-center gap-3">
+          <.button type="submit" size="sm" id="topup-amount-next">
             Continue
-          </button>
-        </.form>
+          </.button>
+          <.button variant="ghost" size="sm" type="button" phx-click="back" id="topup-amount-back">
+            Back
+          </.button>
+        </div>
+      </.form>
 
-        <%= if is_integer(@amount_dollars) and @amount_dollars >= 1 do %>
-          <div class="rounded-lg bg-base-300/50 p-4 space-y-2 text-sm" data-testid="topup-summary">
-            <p class="flex justify-between">
-              <span class="opacity-70">{@amount_dollars} × $1.00 credit</span>
-              <span class="font-mono">{Pricing.format_usd(@totals.subtotal)}</span>
-            </p>
-            <p class="flex justify-between" data-testid="topup-taxes">
-              <span class="opacity-70">{taxes_label(@reverse_charge?, @tax_rate_bp)}</span>
-              <span class="font-mono">{Pricing.format_usd(@totals.tax)}</span>
-            </p>
-            <p
-              class="flex justify-between font-semibold border-t border-base-300 pt-2"
-              data-testid="topup-total"
-            >
-              <span>Total</span>
-              <span class="font-mono">{Pricing.format_usd(@totals.total)}</span>
-            </p>
-            <p
-              class="flex justify-between text-xs opacity-70 border-t border-base-300 pt-2"
-              data-testid="topup-new-balance"
-            >
-              <span>New balance after top-up</span>
-              <span class="font-mono">{Pricing.format_usd(@balance + @totals.subtotal)}</span>
-            </p>
-          </div>
-        <% end %>
-
-        <p class="text-xs opacity-60" data-testid="topup-notice">
-          Credits can be used for any app, never expire, and are non-refundable.
-        </p>
-
-        <button phx-click="back" class="btn btn-ghost btn-sm" id="topup-amount-back">Back</button>
-      </div>
-    </div>
-    """
-  end
-
-  attr :details, :map, required: true
-  attr :amount_dollars, :integer, required: true
-  attr :balance, :integer, required: true
-  attr :tax_rate_bp, :integer, required: true
-  attr :reverse_charge?, :boolean, required: true
-
-  defp payment_step(assigns) do
-    assigns = assign(assigns, totals: totals(assigns))
-
-    ~H"""
-    <div class="card bg-base-200">
-      <div class="card-body gap-4">
-        <h2 class="card-title text-base">Review and pay</h2>
-
-        <div class="rounded-lg bg-base-300/50 p-4 space-y-2 text-sm" data-testid="topup-summary">
+      <%= if is_integer(@amount_dollars) and @amount_dollars >= 1 do %>
+        <div class="space-y-2 rounded-xl bg-panel-raised p-4 text-sm" data-testid="topup-summary">
           <p class="flex justify-between">
-            <span class="opacity-70">Credit</span>
-            <span class="font-mono">{@amount_dollars} × $1.00 = {Pricing.format_usd(@totals.subtotal)}</span>
+            <span class="text-ink-muted">{@amount_dollars} × $1.00 credit</span>
+            <span class="font-mono text-ink">{Pricing.format_usd(@totals.subtotal)}</span>
           </p>
           <p class="flex justify-between" data-testid="topup-taxes">
-            <span class="opacity-70">{taxes_label(@reverse_charge?, @tax_rate_bp)}</span>
-            <span class="font-mono">{Pricing.format_usd(@totals.tax)}</span>
+            <span class="text-ink-muted">{taxes_label(@reverse_charge?, @tax_rate_bp)}</span>
+            <span class="font-mono text-ink">{Pricing.format_usd(@totals.tax)}</span>
           </p>
           <p
-            class="flex justify-between font-semibold border-t border-base-300 pt-2"
+            class="flex justify-between border-t border-line pt-2 font-semibold text-ink"
             data-testid="topup-total"
           >
             <span>Total</span>
             <span class="font-mono">{Pricing.format_usd(@totals.total)}</span>
           </p>
           <p
-            class="flex justify-between text-xs opacity-70 border-t border-base-300 pt-2"
+            class="flex justify-between border-t border-line pt-2 text-xs text-ink-muted"
             data-testid="topup-new-balance"
           >
             <span>New balance after top-up</span>
             <span class="font-mono">{Pricing.format_usd(@balance + @totals.subtotal)}</span>
           </p>
-          <p class="flex justify-between text-xs opacity-70">
-            <span>Billed to</span>
-            <span data-testid="topup-billed-to">{billed_to(@details)}</span>
-          </p>
         </div>
+      <% end %>
 
-        <p class="text-xs opacity-60" data-testid="topup-notice">
-          Credits can be used for any app, never expire, and are non-refundable.
+      <p class="text-xs text-ink-subtle" data-testid="topup-notice">
+        Credits can be used for any app, never expire, and are non-refundable.
+      </p>
+    </.card>
+    """
+  end
+
+  attr(:details, :map, required: true)
+  attr(:amount_dollars, :integer, required: true)
+  attr(:balance, :integer, required: true)
+  attr(:tax_rate_bp, :integer, required: true)
+  attr(:reverse_charge?, :boolean, required: true)
+
+  defp payment_step(assigns) do
+    assigns = assign(assigns, totals: totals(assigns))
+
+    ~H"""
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Review and pay</h2>
+
+      <div class="space-y-2 rounded-xl bg-panel-raised p-4 text-sm" data-testid="topup-summary">
+        <p class="flex justify-between">
+          <span class="text-ink-muted">Credit</span>
+          <span class="font-mono text-ink">{@amount_dollars} × $1.00 = {Pricing.format_usd(
+            @totals.subtotal
+          )}</span>
         </p>
-
-        <p class="text-xs opacity-60" data-testid="topup-correction">
-          Billing details or VAT look wrong? Let us know if this is not correct.
+        <p class="flex justify-between" data-testid="topup-taxes">
+          <span class="text-ink-muted">{taxes_label(@reverse_charge?, @tax_rate_bp)}</span>
+          <span class="font-mono text-ink">{Pricing.format_usd(@totals.tax)}</span>
         </p>
-
-        <div class="flex items-center gap-3">
-          <button
-            phx-click="pay"
-            phx-disable-with="Opening checkout…"
-            class="btn btn-primary btn-sm"
-            id="topup-pay"
-          >
-            Pay {Pricing.format_usd(@totals.total)} with HitPay
-          </button>
-          <button phx-click="back" class="btn btn-ghost btn-sm" id="topup-payment-back">
-            Back
-          </button>
-        </div>
+        <p
+          class="flex justify-between border-t border-line pt-2 font-semibold text-ink"
+          data-testid="topup-total"
+        >
+          <span>Total</span>
+          <span class="font-mono">{Pricing.format_usd(@totals.total)}</span>
+        </p>
+        <p
+          class="flex justify-between border-t border-line pt-2 text-xs text-ink-muted"
+          data-testid="topup-new-balance"
+        >
+          <span>New balance after top-up</span>
+          <span class="font-mono">{Pricing.format_usd(@balance + @totals.subtotal)}</span>
+        </p>
+        <p class="flex justify-between text-xs text-ink-muted">
+          <span>Billed to</span>
+          <span data-testid="topup-billed-to">{billed_to(@details)}</span>
+        </p>
       </div>
-    </div>
+
+      <p class="text-xs text-ink-subtle" data-testid="topup-notice">
+        Credits can be used for any app, never expire, and are non-refundable.
+      </p>
+
+      <p class="text-xs text-ink-subtle" data-testid="topup-correction">
+        Billing details or VAT look wrong? Let us know if this is not correct.
+      </p>
+
+      <div class="flex items-center gap-3">
+        <.button
+          size="sm"
+          phx-click="pay"
+          phx-disable-with="Opening checkout…"
+          id="topup-pay"
+        >
+          Pay {Pricing.format_usd(@totals.total)} with HitPay
+        </.button>
+        <.button variant="ghost" size="sm" phx-click="back" id="topup-payment-back">
+          Back
+        </.button>
+      </div>
+    </.card>
     """
   end
 
@@ -572,24 +545,26 @@ defmodule FluxValeWeb.BillingLive.Topup do
 
   defp append_present(parts, _absent), do: parts
 
-  attr :topup, :map, default: nil
-  attr :state, :atom, required: true
+  attr(:topup, :map, default: nil)
+  attr(:state, :atom, required: true)
 
   defp confirmation(%{topup: nil} = assigns) do
     ~H"""
     <div class="space-y-6" data-testid="topup-confirmation">
-      <h1 class="text-3xl font-bold tracking-tight">Add credits</h1>
-      <div class="card bg-base-200">
-        <div class="card-body gap-4">
-          <h2 class="card-title text-base">We couldn't find that top-up</h2>
-          <p class="text-sm opacity-70">
-            The payment reference wasn't recognized for your account.
-          </p>
-          <.link navigate={~p"/billing"} class="btn btn-primary btn-sm">
+      <.header>
+        Add credits
+      </.header>
+      <.card class="space-y-4">
+        <h2 class="text-base font-medium text-ink">We couldn't find that top-up</h2>
+        <p class="text-sm text-ink-muted">
+          The payment reference wasn't recognized for your account.
+        </p>
+        <div>
+          <.button navigate={~p"/billing"} size="sm">
             Back to billing
-          </.link>
+          </.button>
         </div>
-      </div>
+      </.card>
     </div>
     """
   end
@@ -597,40 +572,52 @@ defmodule FluxValeWeb.BillingLive.Topup do
   defp confirmation(assigns) do
     ~H"""
     <div class="space-y-6" data-testid="topup-confirmation">
-      <h1 class="text-3xl font-bold tracking-tight">Add credits</h1>
-      <div class="card bg-base-200">
-        <div class="card-body gap-4">
-          <%= if @state == :completed do %>
-            <h2 class="card-title text-base text-success" data-testid="topup-confirmation-completed">
-              Payment received
-            </h2>
-            <p class="text-sm opacity-70">
-              {Pricing.format_usd(@topup.amount_cents)} of credit was added to your balance.
-            </p>
-          <% end %>
+      <.header>
+        Add credits
+      </.header>
+      <.card class="space-y-4">
+        <%= if @state == :completed do %>
+          <h2
+            class="flex items-center gap-2 text-base font-medium text-success"
+            data-testid="topup-confirmation-completed"
+          >
+            <.icon name="hero-check-circle" class="size-5" /> Payment received
+          </h2>
+          <p class="text-sm text-ink-muted">
+            {Pricing.format_usd(@topup.amount_cents)} of credit was added to your balance.
+          </p>
+        <% end %>
 
-          <%= if @state == :failed do %>
-            <h2 class="card-title text-base text-error" data-testid="topup-confirmation-failed">
-              The payment didn't go through
-            </h2>
-            <p class="text-sm opacity-70">No credit was added and nothing was charged.</p>
-          <% end %>
+        <%= if @state == :failed do %>
+          <h2
+            class="flex items-center gap-2 text-base font-medium text-danger"
+            data-testid="topup-confirmation-failed"
+          >
+            <.icon name="hero-x-circle" class="size-5" /> The payment didn't go through
+          </h2>
+          <p class="text-sm text-ink-muted">No credit was added and nothing was charged.</p>
+        <% end %>
 
-          <%= if @state == :pending do %>
-            <h2 class="card-title text-base" data-testid="topup-confirmation-pending">
-              Finalizing your payment
-            </h2>
-            <p class="text-sm opacity-70">
-              The gateway is still confirming the payment. Your credit lands
-              the moment it does — nothing more to do here.
-            </p>
-          <% end %>
+        <%= if @state == :pending do %>
+          <h2
+            class="flex items-center gap-2 text-base font-medium text-ink"
+            data-testid="topup-confirmation-pending"
+          >
+            <.icon name="hero-arrow-path" class="size-5 motion-safe:animate-spin" />
+            Finalizing your payment
+          </h2>
+          <p class="text-sm text-ink-muted">
+            The gateway is still confirming the payment. Your credit lands
+            the moment it does — nothing more to do here.
+          </p>
+        <% end %>
 
-          <.link navigate={~p"/billing"} class="btn btn-primary btn-sm" id="topup-back-to-billing">
+        <div>
+          <.button navigate={~p"/billing"} size="sm" id="topup-back-to-billing">
             Back to billing
-          </.link>
+          </.button>
         </div>
-      </div>
+      </.card>
     </div>
     """
   end
