@@ -120,6 +120,37 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert smtp_port.default == 587
     end
 
+    test "seeds the shipped Kavita entry and its first-run contract (#189)" do
+      assert :ok == Seeds.seed_pricing!()
+      assert :ok == Seeds.seed_catalog!()
+
+      category = Category.get_by_slug!("media", authorize?: false)
+      assert category.name == "Media & Entertainment"
+
+      app = App.get_by_slug!("kavita", authorize?: false)
+      assert app.category_id == category.id
+      assert app.source_url == "https://github.com/Kareadita/Kavita"
+
+      version = version_for!("kavita")
+      assert version.version == "0.9.1"
+      assert version.image == "ghcr.io/kareadita/kavita:0.9.1"
+      assert version.port == 5000
+      assert version.healthcheck_path == "/api/health"
+      # The mount path is catalog data (#189): Kavita's state survives a
+      # pod restart only when the PVC lands under its working dir.
+      assert version.storage_mount_path == "/kavita/config"
+      assert version.default_storage_gb == 10
+
+      contract = version.first_run
+      assert %FirstRunContract{} = contract
+      assert contract.pattern == :first_registered_user_admin
+      # Kavita has no env-shaped config surface — nothing to pin, nothing
+      # to lock; the contract carries only the posture + guidance.
+      assert contract.env == %{}
+      assert contract.forbidden_env == []
+      assert contract.guidance =~ "first account becomes the admin"
+    end
+
     test "re-seeding the shipped catalog converges without dupes" do
       assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()
@@ -132,6 +163,14 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
 
       assert length(app.app_versions) == 1
       assert hd(app.app_versions).version == "16.0.5"
+
+      kavita =
+        "kavita"
+        |> App.get_by_slug!(authorize?: false)
+        |> Ash.load!([:app_versions], authorize?: false)
+
+      assert length(kavita.app_versions) == 1
+      assert hd(kavita.app_versions).version == "0.9.1"
     end
   end
 

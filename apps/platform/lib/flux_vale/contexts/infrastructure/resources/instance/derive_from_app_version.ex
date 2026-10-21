@@ -1,8 +1,8 @@
 defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
   @moduledoc """
   Snapshots the AppVersion's deploy blueprint onto the Instance at create:
-  `image`, `port`, `healthcheck_path`, `cpu_cores`, `memory_mb`,
-  `storage_gb`, the env merge — user values over operator
+  `image`, `port`, `healthcheck_path`, `storage_mount_path`, `cpu_cores`,
+  `memory_mb`, `storage_gb`, the env merge — user values over operator
   `default_env_vars` over `configurable_env_vars` schema defaults, all
   stringified (env vars are strings end to end; ValidateEnvVars
   type-checks them after changes run), with the first-run contract's
@@ -54,6 +54,10 @@ defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
           |> Ash.Changeset.force_change_attribute(:image, version.image)
           |> Ash.Changeset.force_change_attribute(:port, version.port)
           |> Ash.Changeset.force_change_attribute(:healthcheck_path, version.healthcheck_path)
+          |> Ash.Changeset.force_change_attribute(
+            :storage_mount_path,
+            version.storage_mount_path
+          )
           |> Ash.Changeset.force_change_attribute(
             :cpu_cores,
             chosen(changeset, :cpu_cores, version.default_cpu_cores)

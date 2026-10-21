@@ -71,6 +71,19 @@ defmodule FluxVale.Catalog.AppVersion do
       constraints(match: ~r{^/[\w/.-]*$})
     end
 
+    # Where the deployer mounts the instance's data PVC (#189) —
+    # blueprint, like image/port. Most apps keep their state on the
+    # volume root; Kavita (#189) resolves its config dir from the
+    # container's working directory (`/kavita`), so its SQLite DB only
+    # persists when the volume lands at `/kavita/config`. Defaults to
+    # "/data"; a version with `default_storage_gb` 0 never gets a mount.
+    attribute :storage_mount_path, :string do
+      allow_nil?(false)
+      default("/data")
+      public?(true)
+      constraints(match: ~r{^/[\w/.-]*$})
+    end
+
     # Env var the #73 deploy op fills with the instance's public URL
     # (https://<subdomain>.<base-domain>/): the ingress URL isn't catalog
     # data, but apps like Forgejo need it (FORGEJO__server__ROOT_URL) to
@@ -159,6 +172,7 @@ defmodule FluxVale.Catalog.AppVersion do
         :image,
         :port,
         :healthcheck_path,
+        :storage_mount_path,
         :instance_url_env,
         :default_env_vars,
         :configurable_env_vars,
@@ -187,6 +201,7 @@ defmodule FluxVale.Catalog.AppVersion do
         :image,
         :port,
         :healthcheck_path,
+        :storage_mount_path,
         :instance_url_env,
         :default_env_vars,
         :configurable_env_vars,

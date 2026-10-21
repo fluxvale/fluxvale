@@ -214,7 +214,7 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
     }
   end
 
-  defp storage_mount_path(%{storage_gb: gb}) when gb > 0, do: "/data"
+  defp storage_mount_path(%{storage_gb: gb, storage_mount_path: path}) when gb > 0, do: path
   defp storage_mount_path(_instance), do: nil
 
   defp pvc_name(%{storage_gb: gb}) when gb > 0, do: "app-data"
