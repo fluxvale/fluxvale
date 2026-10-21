@@ -81,9 +81,29 @@ end
 # #196: which platform env this app is — namespace label at deploy,
 # orphan-sweep scope (see config.exs). The label value must be a valid
 # k8s label value; raise at boot rather than mint namespaces the sweep
-# can't match. Test keeps the local default (same exclusion stance as
-# INSTANCES_SLUG_PREFIX).
-if config_env() != :test do
+# can't match. In :prod the env var is REQUIRED, not defaulted: staging
+# and production deploy the same image simultaneously (ADR-0011) onto
+# one shared cluster (ADR-0010) — an unset PLATFORM_ENV would default
+# both envs to the same value and re-open the exact cross-env deletion
+# this label exists to close. Test keeps the local default (same
+# exclusion stance as INSTANCES_SLUG_PREFIX).
+if config_env() == :prod do
+  case System.get_env("PLATFORM_ENV") do
+    value when value in [nil, ""] ->
+      raise ArgumentError,
+            "PLATFORM_ENV is required in production (staging | production): it scopes the " <>
+              "instance-namespace label and the orphan sweep (#196) — unset, every env " <>
+              "would claim the same namespaces"
+
+    value ->
+      unless value =~ ~r/^[a-zA-Z0-9]([a-zA-Z0-9._-]{0,61}[a-zA-Z0-9])?$/ do
+        raise ArgumentError,
+              "PLATFORM_ENV=#{inspect(value)} is not a valid k8s label value — expected e.g. staging | production | local"
+      end
+
+      config :flux_vale, :platform_env, value
+  end
+else
   case System.get_env("PLATFORM_ENV") do
     value when value in [nil, ""] ->
       :ok

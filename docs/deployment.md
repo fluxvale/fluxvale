@@ -157,9 +157,13 @@ the shared cluster — ADR-0010). Deploy stamps
 `fluxvale.io/platform-env=$PLATFORM_ENV` on every instance namespace;
 the orphan sweep deletes only namespaces carrying its own value, so
 foreign-env and unlabeled namespaces are never anyone's sweep to
-delete. Namespaces deployed before the label existed are unlabeled —
-each env claims its own once with `bin/label-instance-namespaces`
-(idempotent, row-backed namespaces only):
+delete. **Ordering prerequisite**: the fleet overlays must set
+`PLATFORM_ENV` (staging/production) in the same deploy — the app
+refuses to boot in :prod without it, because two envs defaulting to
+the same value would re-open the cross-env deletion. Namespaces
+deployed before the label existed are unlabeled — each env claims its
+own once with `bin/label-instance-namespaces` (idempotent,
+row-backed namespaces only), after PLATFORM_ENV is set:
 
 ```sh
 kubectl exec -n <namespace> deploy/fluxvale-platform -c platform -- \

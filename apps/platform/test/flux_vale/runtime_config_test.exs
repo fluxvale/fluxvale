@@ -15,11 +15,14 @@ defmodule FluxVale.RuntimeConfigTest do
 
   @runtime_config Path.expand("../../config/runtime.exs", __DIR__)
 
-  # Prod's block insists on these; set so the prod reads below don't raise.
+  # Prod's block insists on these; set so the prod reads below don't
+  # raise. PLATFORM_ENV rides along (#196): a prod-shaped run without
+  # it is exactly the misconfiguration the block refuses to boot on.
   @prod_env %{
     "DATABASE_URL" => "ecto://u:p@h/db",
     "SECRET_KEY_BASE" => "test-secret-key-base",
-    "TOKEN_SIGNING_SECRET" => "test-token-signing-secret"
+    "TOKEN_SIGNING_SECRET" => "test-token-signing-secret",
+    "PLATFORM_ENV" => "production"
   }
 
   describe "INSTANCES_SLUG_PREFIX" do
@@ -42,6 +45,26 @@ defmodule FluxVale.RuntimeConfigTest do
 
       with_env(%{"INSTANCES_SLUG_PREFIX" => "Not A Prefix"}, fn ->
         assert_raise ArgumentError, ~r/INSTANCES_SLUG_PREFIX/, fn -> read!(:dev) end
+      end)
+    end
+  end
+
+  describe "PLATFORM_ENV (#196)" do
+    test "is required in :prod — unset refuses to boot rather than share one label" do
+      with_env(Map.delete(@prod_env, "PLATFORM_ENV"), fn ->
+        assert_raise ArgumentError, ~r/PLATFORM_ENV is required/, fn -> read!(:prod) end
+      end)
+    end
+
+    test "a bad value raises in any env; unset leaves the config.exs default alone in dev" do
+      # Unset first — with_env restores at test end, not between blocks,
+      # so a lingering bad value would poison the unset read.
+      with_env(%{}, fn ->
+        refute Keyword.has_key?(read!(:dev)[:flux_vale] || [], :platform_env)
+      end)
+
+      with_env(%{"PLATFORM_ENV" => "not a label!"}, fn ->
+        assert_raise ArgumentError, ~r/not a valid k8s label value/, fn -> read!(:dev) end
       end)
     end
   end

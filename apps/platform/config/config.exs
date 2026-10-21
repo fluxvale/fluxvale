@@ -71,8 +71,10 @@ config :flux_vale,
   # ITS OWN value — staging and production share one physical cluster
   # (ADR-0010 same-box), so an unscoped sweep deleted namespaces it had
   # no row for (the Oct-21 incident: prod's sweep deleted staging's
-  # instance). Runtime override PLATFORM_ENV per fleet overlay;
-  # local default for dev.
+  # instance). Runtime override PLATFORM_ENV per fleet overlay —
+  # REQUIRED in :prod (an unset value would default both envs to this
+  # same "local" and re-open the cross-env deletion); "local" is the
+  # dev default.
   platform_env: "local",
   # The namespace edge ingress is admitted FROM in instance
   # NetworkPolicies (the Traefik chart's namespace locally; M4's fleet

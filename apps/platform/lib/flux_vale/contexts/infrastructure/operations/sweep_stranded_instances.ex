@@ -140,6 +140,11 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstances do
   # Arm 2: an accruing row whose namespace is verifiably gone flips to
   # :lost — metering parks atomically (MaintainAnchors rides the
   # funnel), and the owner picks re-deploy or teardown from the UI.
+  # The pass-start snapshot can be minutes stale; the transition
+  # validation IS the re-check — a row that moved to :deploying (retry)
+  # or :deleting (owner delete) mid-pass makes the →:lost write invalid
+  # (neither is a legal lost-source), the match raises into the unit
+  # rescue, and the next hourly pass re-decides. No re-read needed.
   defp sweep_instance(%{status: status} = instance) when status in @stranded_statuses do
     if accruing?(instance) and namespace_definitively_gone?(instance) do
       Logger.warning("Instance #{instance.id}: namespace gone from cluster; marking :lost (#196)")

@@ -188,7 +188,11 @@ defmodule FluxVale.Release do
   skipped too — their namespace is Terminating, and the sweep skips
   Terminating anyway. Any other failure (kubeconfig, API) raises after
   the pass, naming the count: the operator re-runs, and only the
-  stragglers get stamped.
+  stragglers get stamped. Accepted race: a namespace deleted between
+  the exists? check and the apply re-appears as an empty labeled shell
+  (SSA creates it) — rare on a one-shot task, self-healing through the
+  row's normal teardown, and the alternative (apply-without-check)
+  would create shells for every not-yet-reconciled 404.
   """
   @spec label_instance_namespaces :: :ok
   def label_instance_namespaces do

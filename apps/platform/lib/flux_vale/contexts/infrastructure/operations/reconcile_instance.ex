@@ -14,7 +14,10 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
     unreadable as **403** (the per-namespace RoleBinding dies with the
     namespace, so a deleted namespace answers Deployment reads with
     Forbidden, not NotFound — #196's reconciler blind spot) → `:lost`
-    if the namespace went with it (external deletion), else `:error`
+    if the namespace went with it (external deletion); `:error` when
+    only the Deployment is gone (404 in a live namespace); a logged
+    no-op when a live namespace's read was forbidden (RBAC anomaly,
+    not a loss)
   - transient K8s read failures / config errors → no-op, **logged**
     (status never churns on a failed read; `running` never demotes on
     readiness blips — but a detector that fails quietly is
@@ -152,7 +155,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
 
       _namespace_present_or_unreadable ->
         Logger.warning(
-          "Instance #{instance.id}: Deployment read forbidden in a live namespace (#{instance.namespace}) — RBAC anomaly, not a loss; leaving #{instance.status}"
+          "Instance #{instance.id}: Deployment read forbidden with the namespace present or unreadable (#{instance.namespace}) — RBAC anomaly or partial API failure, not a loss; leaving #{instance.status}"
         )
 
         {:ok, instance}
