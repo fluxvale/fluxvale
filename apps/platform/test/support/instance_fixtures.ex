@@ -24,7 +24,8 @@ defmodule FluxVale.TestSupport.InstanceFixtures do
   Creates a category → app → version chain. `attrs` override the
   AppVersion defaults (image, port, env maps, resource defaults) plus
   the fabricated size's prices (`monthly_cents`, `stopped_monthly_cents`
-  — #121's settlement tests pin them).
+  — #121's settlement tests pin them) and the App's `file_access`
+  (#190's snapshot tests).
 
   The version contract (#125) requires a `recommended_size` equal to the
   version's allocation — one is fabricated to match the effective
@@ -36,7 +37,7 @@ defmodule FluxVale.TestSupport.InstanceFixtures do
     n = System.unique_integer()
 
     {pricing, version_attrs} =
-      Map.split(Map.new(attrs), [:monthly_cents, :stopped_monthly_cents])
+      Map.split(Map.new(attrs), [:monthly_cents, :stopped_monthly_cents, :file_access])
 
     category =
       Category.create!(
@@ -51,6 +52,7 @@ defmodule FluxVale.TestSupport.InstanceFixtures do
           slug: "app-#{n}",
           tagline: "test app",
           description: "test app",
+          file_access: Map.get(pricing, :file_access, false),
           category_id: category.id
         },
         authorize?: false

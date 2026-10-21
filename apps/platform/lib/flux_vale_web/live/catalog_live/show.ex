@@ -47,6 +47,9 @@ defmodule FluxValeWeb.CatalogLive.Show do
               <p :if={@app.tagline} class="text-ink-muted">{@app.tagline}</p>
               <div class="flex flex-wrap items-center gap-3 pt-1 text-sm">
                 <.badge>{@app.category.name}</.badge>
+                <.badge :if={@app.file_access} data-testid="file-access-badge">
+                  File access
+                </.badge>
                 <a
                   :if={@app.source_url}
                   href={@app.source_url}

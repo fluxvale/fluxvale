@@ -114,6 +114,64 @@ defmodule FluxVale.Clients.K8s.Resources.IngressTest do
     end
   end
 
+  describe "build_manifest/3 — path-prefix routing (#190)" do
+    test "narrows the subdomain match with PathPrefix for the sidecar route" do
+      spec =
+        base_spec()
+        |> Map.put(:subdomain, "my-app")
+        |> Map.put(:domain, "fluxvale.app")
+        |> Map.put(:path_prefix, "/dav")
+
+      manifest = Ingress.build_manifest("ns", "app-dav", spec)
+
+      assert route_match(manifest) == "Host(`my-app.fluxvale.app`) && PathPrefix(`/dav`)"
+    end
+
+    test "path_prefix composes with a custom host too" do
+      spec =
+        base_spec()
+        |> Map.put(:host, "myapp.example.com")
+        |> Map.put(:path_prefix, "/dav")
+
+      manifest = Ingress.build_manifest("ns", "app-dav", spec)
+
+      assert route_match(manifest) == "Host(`myapp.example.com`) && PathPrefix(`/dav`)"
+    end
+  end
+
+  describe "create/4 — path-prefix gate" do
+    test "rejects a backtick path before any cluster call (no crash on nil kubeconfig)" do
+      spec =
+        base_spec()
+        |> Map.put(:subdomain, "ok")
+        |> Map.put(:path_prefix, "/dav` && true")
+
+      assert {:error, %Error{reason: :invalid_spec}} = Ingress.create(nil, "ns", "app-dav", spec)
+    end
+
+    test "rejects a relative or newline-carrying path" do
+      for bad <- ["dav", "/dav\n", ""] do
+        spec =
+          base_spec()
+          |> Map.put(:subdomain, "ok")
+          |> Map.put(:path_prefix, bad)
+
+        assert {:error, %Error{reason: :invalid_spec}} = Ingress.create(nil, "ns", "r", spec)
+      end
+    end
+
+    test "rejects junk ahead of a clean tail — the regex is anchored" do
+      for bad <- ["`) || PathPrefix(`/evil", "foo`;DELETE/dav", "  /dav"] do
+        spec =
+          base_spec()
+          |> Map.put(:subdomain, "ok")
+          |> Map.put(:path_prefix, bad)
+
+        assert {:error, %Error{reason: :invalid_spec}} = Ingress.create(nil, "ns", "r", spec)
+      end
+    end
+  end
+
   describe "rule escaping — Traefik rule injection" do
     test "escapes backticks in subdomain" do
       manifest =

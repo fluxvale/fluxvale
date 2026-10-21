@@ -78,6 +78,17 @@ config :flux_vale,
     service_account_namespace: "fluxvale-dev",
     workload_role: "fluxvale-platform-workload"
   ],
+  # File access (#190, ADR-0035): file-access instances get an rclone
+  # WebDAV sidecar serving the app's data volume at the instance
+  # hostname's path prefix. The image pin is a deliberate bump (supply
+  # chain); port/path/username feed both the deploy op and the instance
+  # page's credential panel — one source of truth.
+  file_access: [
+    image: "rclone/rclone:1.75.2",
+    port: 8080,
+    path_prefix: "/dav",
+    username: "fluxvale"
+  ],
   # One active payment provider (ADR-0029); per-provider webhook routes
   # and config blocks make the gateway a one-module swap. HitPay is the
   # first implementation (Am. 2) — test mode first: base_url defaults

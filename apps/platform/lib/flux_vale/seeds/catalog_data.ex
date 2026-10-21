@@ -96,6 +96,7 @@ defmodule FluxVale.Seeds.CatalogData do
           icon_url: app["icon_url"],
           source_url: app["source_url"],
           docs_url: app["docs_url"],
+          file_access: Map.get(app, "file_access", false),
           versions: Enum.map(versions, &normalize_version/1)
         }
 

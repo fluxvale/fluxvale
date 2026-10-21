@@ -130,6 +130,11 @@
       icon_url: https://raw.githubusercontent.com/Kareadita/Kavita/develop/Logo/kavita.svg
       source_url: https://github.com/Kareadita/Kavita
       docs_url: https://wiki.kavitareader.com
+      # File access (#190, ADR-0035): Kavita is the flagship file-access
+      # app — the whole point is loading your own library. The sidecar
+      # serves the volume at the app's declared mount path, so libraries
+      # Kavita points into the volume are all reachable via /dav.
+      file_access: true
       versions:
         - version: "0.9.1"          # upstream stable, 2026-09-02 (assembly 0.9.1.4)
           # The canonical image: built and pushed by Kavita's own release

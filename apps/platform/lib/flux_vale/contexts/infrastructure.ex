@@ -13,16 +13,23 @@ defmodule FluxVale.Infrastructure do
     otp_app: :flux_vale,
     extensions: [AshAdmin.Domain]
 
+  alias FluxVale.Infrastructure.Operations.ReadFileAccessCredential
   alias FluxVale.Infrastructure.Operations.SweepStrandedInstances
 
   admin do
-    show? true
+    show?(true)
   end
 
   resources do
-    resource FluxVale.Infrastructure.Cluster
-    resource FluxVale.Infrastructure.Instance
+    resource(FluxVale.Infrastructure.Cluster)
+    resource(FluxVale.Infrastructure.Instance)
   end
 
   defdelegate sweep_stranded_instances(), to: SweepStrandedInstances, as: :call
+
+  # #190's reveal path — the instance page reads the WebDAV credential
+  # from the cluster on demand; the Secret is its only home (ADR-0035).
+  defdelegate read_file_access_credential(instance),
+    to: ReadFileAccessCredential,
+    as: :call
 end

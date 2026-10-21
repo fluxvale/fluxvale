@@ -73,4 +73,22 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
         assert to == ~p"/apps"
     end
   end
+
+  # #190: the catalog-declared file-access flag surfaces as a badge —
+  # the deploy-time surface for "this app's instances carry WebDAV".
+  test "a file-access app shows the badge; others don't", %{conn: conn} do
+    version = InstanceFixtures.app_version!(file_access: true)
+    app = Ash.load!(version, :app, authorize?: false).app
+
+    {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}")
+
+    assert has_element?(view, "[data-testid='file-access-badge']", "File access")
+
+    plain = InstanceFixtures.app_version!()
+    plain_app = Ash.load!(plain, :app, authorize?: false).app
+
+    {:ok, plain_view, _html} = live(conn, ~p"/apps/#{plain_app.slug}")
+
+    refute has_element?(plain_view, "[data-testid='file-access-badge']")
+  end
 end

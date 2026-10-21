@@ -558,4 +558,128 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     assert has_element?(view, "[data-testid=status-badge]", "Running")
     assert has_element?(view, "[data-testid='status-message']", "up and running")
   end
+
+  describe "file access panel (#190, ADR-0035)" do
+    test "renders the WebDAV address, username, and rclone snippet — no password until asked", %{
+      conn: conn,
+      user: user
+    } do
+      version = InstanceFixtures.app_version!(file_access: true, default_storage_gb: 10)
+      instance = create_instance!(version, user)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(view, "[data-testid='file-access-panel']")
+
+      assert has_element?(
+               view,
+               "[data-testid='dav-url']",
+               "https://#{instance.slug}.fluxvale.lvh.me/dav"
+             )
+
+      assert has_element?(view, "[data-testid='dav-username']", "fluxvale")
+      assert has_element?(view, "[data-testid='dav-rclone-snippet']")
+      assert has_element?(view, "[data-testid='reveal-credentials']")
+      refute has_element?(view, "[data-testid='dav-password']")
+    end
+
+    test "no panel for an instance without file access", %{conn: conn, user: user} do
+      version = InstanceFixtures.app_version!()
+      instance = create_instance!(version, user)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      refute has_element?(view, "[data-testid='file-access-panel']")
+    end
+
+    # 0 GB is an ordinary wizard outcome — the deploy side lands no
+    # sidecar, so the page must not advertise an endpoint (review finding).
+    test "no panel for a file-access instance with no storage", %{conn: conn, user: user} do
+      version = InstanceFixtures.app_version!(file_access: true)
+
+      instance =
+        Instance.create!(
+          %{
+            name: "Zero Storage",
+            app_version_id: version.id,
+            env_vars: %{},
+            storage_gb: 0
+          },
+          actor: user
+        )
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      refute has_element?(view, "[data-testid='file-access-panel']")
+    end
+
+    test "reveal reads the credential live from the namespace Secret", %{conn: conn, user: user} do
+      version = InstanceFixtures.app_version!(file_access: true, default_storage_gb: 10)
+      instance = create_instance!(version, user)
+
+      running =
+        instance
+        |> InstanceFixtures.walk_to!(:running)
+        |> InstanceFixtures.pin!(namespace: "fluxvale-app-#{instance.id}")
+
+      ns = "fluxvale-app-#{instance.id}"
+
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+
+      expect(Secret, :get_data, fn _kc, ^ns, "file-access" ->
+        {:ok, %{"RCLONE_USER" => "fluxvale", "RCLONE_PASS" => "s3cret"}}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{running.id}")
+
+      assert has_element?(view, "[data-testid='reveal-credentials']")
+      reveal = element(view, "[data-testid='reveal-credentials']")
+      render_click(reveal)
+
+      assert has_element?(view, "[data-testid='dav-password']", "s3cret")
+    end
+
+    test "reveal before the first deploy flashes instead of crashing", %{conn: conn, user: user} do
+      version = InstanceFixtures.app_version!(file_access: true, default_storage_gb: 10)
+      instance = create_instance!(version, user)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      reveal = element(view, "[data-testid='reveal-credentials']")
+      render_click(reveal)
+
+      assert render(view) =~ "Deploy the instance first"
+      refute has_element?(view, "[data-testid='dav-password']")
+    end
+
+    test "reveal on a cluster hiccup flashes the retry copy", %{conn: conn, user: user} do
+      version = InstanceFixtures.app_version!(file_access: true, default_storage_gb: 10)
+      instance = create_instance!(version, user)
+
+      running =
+        instance
+        |> InstanceFixtures.walk_to!(:running)
+        |> InstanceFixtures.pin!(namespace: "fluxvale-app-#{instance.id}")
+
+      stub(K8s, :kubeconfig, fn nil -> {:error, K8s.Error.connection_error("down")} end)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{running.id}")
+
+      reveal = element(view, "[data-testid='reveal-credentials']")
+      render_click(reveal)
+
+      assert render(view) =~ "Credential unavailable"
+    end
+
+    test "a stopped instance hints the endpoint is down", %{conn: conn, user: user} do
+      version = InstanceFixtures.app_version!(file_access: true, default_storage_gb: 10)
+      instance = create_instance!(version, user)
+      stopped = InstanceFixtures.walk_to!(instance, :stopped)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{stopped.id}")
+
+      assert has_element?(view, "[data-testid='file-access-panel']")
+      assert render(view) =~ "endpoint is down while the instance is stopped"
+    end
+  end
 end

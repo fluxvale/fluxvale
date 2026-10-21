@@ -26,7 +26,12 @@ defmodule FluxVale.Clients.K8s.Resources.ResourceQuota do
 
   @typedoc "Simplified resource quota specification"
   @type spec :: %{
-          required(:cpu) => float(),
+          # Decimal accepted (#190): the file-access sidecar's requests
+          # widen the quota, and float addition rounds down for legal
+          # allocations (0.35 + 0.05 = 0.399…9) — a quota strictly below
+          # the pod's exact sum is rejected at admission. Both shapes
+          # stringify through String.Chars and double exactly.
+          required(:cpu) => float() | Decimal.t(),
           required(:memory) => integer(),
           required(:storage) => integer()
         }
@@ -101,9 +106,16 @@ defmodule FluxVale.Clients.K8s.Resources.ResourceQuota do
   """
   @spec build_manifest(String.t(), String.t(), spec()) :: map()
   def build_manifest(namespace, name, spec) do
-    cpu = spec.cpu
+    # Decimal-normalized (#190): the quota math must not run through
+    # Kernel arithmetic — Decimal values crash it, and float addition
+    # rounds (see the spec type). One canonical form from here down.
+    cpu = decimal_cpu(spec.cpu)
     memory = spec.memory
-    storage = spec.storage
+
+    cpu_limit =
+      cpu
+      |> Decimal.mult(2)
+      |> Decimal.normalize()
 
     %{
       "apiVersion" => "v1",
@@ -118,16 +130,27 @@ defmodule FluxVale.Clients.K8s.Resources.ResourceQuota do
       },
       "spec" => %{
         "hard" => %{
-          "requests.cpu" => to_string(cpu),
+          "requests.cpu" => cpu_string(cpu),
           "requests.memory" => "#{memory}Mi",
-          "limits.cpu" => to_string(cpu * 2),
+          "limits.cpu" => cpu_string(cpu_limit),
           "limits.memory" => "#{memory * 2}Mi",
-          "requests.storage" => "#{storage}Gi",
+          "requests.storage" => "#{spec.storage}Gi",
           "persistentvolumeclaims" => "1"
         }
       }
     }
   end
+
+  # Canonical quantity string: normalized (no scale artifacts like
+  # "0.50" from the doubling) — K8s parses any scale, the canonical
+  # form keeps specs and diffs stable.
+  defp cpu_string(cpu) do
+    normalized = Decimal.normalize(cpu)
+    Decimal.to_string(normalized)
+  end
+
+  defp decimal_cpu(%Decimal{} = cpu), do: cpu
+  defp decimal_cpu(cpu) when is_float(cpu), do: Decimal.from_float(cpu)
 
   defp create_req(kubeconfig) do
     Kubereq.attach(Req.new(), kubeconfig: kubeconfig, api_version: "v1", kind: "ResourceQuota")
