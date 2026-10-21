@@ -161,3 +161,35 @@ fail fast at upload with rclone's clear error until phase 2 lands.
 - OQ #6 (SFTP/file access) is resolved by this ADR: WebDAV now, SFTP
   stays deferred (the proxy constraint is protocol-level), large files
   ride phase 2's R2 path.
+
+## Amendment 1 (2026-10-21): the credential must survive the human path — `--obscure` is not cosmetic
+
+The panel's first dogfood (#194, the same day the ADR landed) failed to
+authenticate. Neither the credential nor the sidecar was at fault: the
+reveal path, the Secret's literal values, and the proxied Basic-auth
+chain all check out (207 with the exact values, 401 without). Two
+avoidable client-side traps did the damage.
+
+**1. rclone's obscured-password guess.** `rclone config create … pass
+<value>` heuristically decides whether the value is already obscured.
+The generated password — 32 random bytes, URL-safe base64, no padding,
+43 chars — is misread as obscured in ~99% of samples (200-sample check),
+so rclone kept the literal and then *decrypted* it, putting garbage on
+the wire. The zero-config `rclone obscure` form never had the bug: it
+pre-obscures. Fix: the panel's snippet passes `--obscure`, forcing the
+plaintext reading. Verified against the pinned `rclone/rclone:1.75.2` —
+the literal form 401s, the `--obscure` form authenticates.
+
+**2. Hand-selection of a wrapped secret.** The 43-char password rendered
+as ordinary wrapped body text with no copy affordance, so a triple-click
+selected the neighbouring "Password" label plus a trailing newline
+(53 chars) — a paste that 401s. Fix: every credential value gets a copy
+button carrying the exact rendered string in a `data-` attribute, and
+the password renders no-wrap.
+
+The lesson generalizes past this ADR: a credential's *representation on
+the page* is part of its contract, and the E2E must exercise the copy
+path a human actually takes rather than consuming the Secret directly.
+The file-access E2E now asserts each copy button's carried value, drives
+a real clipboard write, and runs the snippet's own config line against
+the live endpoint.
