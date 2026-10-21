@@ -6,106 +6,124 @@ and ~p would raise a verified-routes warning until then. --%>
 
 <Layouts.flash_group flash={@flash} />
 
-<header class="navbar px-4 sm:px-6 lg:px-8">
-  <div class="flex-1">
+<header class="sticky top-0 z-40 border-b border-line bg-canvas/80 backdrop-blur">
+  <div class="mx-auto flex h-14 max-w-5xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
     <a href={~p"/"} class="flex w-fit items-center gap-2">
-      <img src={~p"/images/logo.svg"} width="32" height="22" alt="" />
-      <span class="text-sm font-semibold">FluxVale</span>
+      <img src={~p"/images/logo.svg"} width="26" height="26" alt="" />
+      <span class="text-sm font-semibold tracking-tight text-ink">FluxVale</span>
     </a>
+    <nav aria-label="Primary">
+      <ul class="flex items-center gap-2">
+        <li><.nav_link href="/catalog">Apps</.nav_link></li>
+        <li>
+          <.link
+            href={~p"/sign-in"}
+            class="inline-flex h-8 items-center justify-center gap-2 rounded-lg bg-primary px-3 text-xs font-medium text-on-primary shadow-sm transition-colors hover:bg-primary-hover"
+          >
+            Sign in <span aria-hidden="true">&rarr;</span>
+          </.link>
+        </li>
+      </ul>
+    </nav>
   </div>
-  <nav aria-label="Primary" class="flex-none">
-    <ul class="flex items-center gap-2 px-1">
-      <li><a href="/catalog" class="btn btn-ghost btn-sm">Apps</a></li>
-      <li>
-        <a href={~p"/sign-in"} class="btn btn-primary btn-sm">
-          Sign in <span aria-hidden="true">&rarr;</span>
-        </a>
-      </li>
-    </ul>
-  </nav>
 </header>
 
 <main class="px-4 sm:px-6 lg:px-8">
-  <section class="mx-auto max-w-3xl py-16 text-center sm:py-24 lg:py-28">
-    <h1 class="text-4xl font-bold tracking-tight text-balance sm:text-5xl lg:text-6xl">
+  <section class="mx-auto max-w-3xl py-20 text-center sm:py-28">
+    <h1 class="text-4xl font-bold tracking-tight text-balance text-ink sm:text-5xl lg:text-6xl">
       Managed hosting for open source applications
     </h1>
-    <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-base-content/70 sm:text-xl">
+    <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-ink-muted sm:text-xl">
       Pick an open source app, deploy it in minutes, and FluxVale keeps it
       running — updates and monitoring included.
     </p>
     <div class="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
-      <a href="/catalog" class="btn btn-primary btn-lg w-full sm:w-auto">
+      <.link
+        href="/catalog"
+        class="inline-flex h-12 items-center justify-center rounded-lg bg-primary px-6 text-base font-medium text-on-primary shadow-sm transition-colors hover:bg-primary-hover"
+      >
         Browse apps
-      </a>
-      <a href={~p"/sign-in"} class="btn btn-ghost btn-lg w-full sm:w-auto">
+      </.link>
+      <.link
+        href={~p"/sign-in"}
+        class="inline-flex h-12 items-center justify-center rounded-lg px-6 text-base font-medium text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+      >
         Sign in
-      </a>
+      </.link>
     </div>
   </section>
 
-  <section aria-labelledby="how-it-works-title" class="mx-auto max-w-5xl pb-16 sm:pb-24">
+  <section aria-labelledby="how-it-works-title" class="mx-auto max-w-5xl pb-20 sm:pb-28">
     <h2
       id="how-it-works-title"
-      class="text-center text-2xl font-semibold tracking-tight sm:text-3xl"
+      class="text-center text-2xl font-semibold tracking-tight text-ink sm:text-3xl"
     >
       How it works
     </h2>
     <div class="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-3">
-      <div class="card bg-base-200 px-6 py-8 text-center">
-        <span class="badge badge-primary badge-sm">1</span>
-        <h3 class="mt-4 text-lg font-semibold">Pick an app</h3>
-        <p class="mt-2 text-sm leading-6 text-base-content/70">
+      <.card class="px-6 py-8 text-center">
+        <span class="mx-auto flex size-9 items-center justify-center rounded-lg bg-primary-muted text-sm font-semibold text-primary">
+          1
+        </span>
+        <h3 class="mt-4 text-lg font-semibold text-ink">Pick an app</h3>
+        <p class="mt-2 text-sm leading-6 text-ink-muted">
           Choose from a curated catalog of open source applications, ready to run.
         </p>
-      </div>
-      <div class="card bg-base-200 px-6 py-8 text-center">
-        <span class="badge badge-primary badge-sm">2</span>
-        <h3 class="mt-4 text-lg font-semibold">Deploy</h3>
-        <p class="mt-2 text-sm leading-6 text-base-content/70">
+      </.card>
+      <.card class="px-6 py-8 text-center">
+        <span class="mx-auto flex size-9 items-center justify-center rounded-lg bg-primary-muted text-sm font-semibold text-primary">
+          2
+        </span>
+        <h3 class="mt-4 text-lg font-semibold text-ink">Deploy</h3>
+        <p class="mt-2 text-sm leading-6 text-ink-muted">
           One guided flow from app to live URL — no YAML, no servers to babysit.
         </p>
-      </div>
-      <div class="card bg-base-200 px-6 py-8 text-center">
-        <span class="badge badge-primary badge-sm">3</span>
-        <h3 class="mt-4 text-lg font-semibold">We run it</h3>
-        <p class="mt-2 text-sm leading-6 text-base-content/70">
+      </.card>
+      <.card class="px-6 py-8 text-center">
+        <span class="mx-auto flex size-9 items-center justify-center rounded-lg bg-primary-muted text-sm font-semibold text-primary">
+          3
+        </span>
+        <h3 class="mt-4 text-lg font-semibold text-ink">We run it</h3>
+        <p class="mt-2 text-sm leading-6 text-ink-muted">
           Updates and monitoring are on us. Your data stays yours.
         </p>
-      </div>
+      </.card>
     </div>
   </section>
 
-  <section aria-labelledby="pricing-title" class="mx-auto max-w-3xl pb-16 sm:pb-24">
-    <div class="card bg-base-200 px-6 py-10 text-center sm:px-10">
-      <h2 id="pricing-title" class="text-2xl font-semibold tracking-tight sm:text-3xl">
+  <section aria-labelledby="pricing-title" class="mx-auto max-w-3xl pb-20 sm:pb-28">
+    <.card class="px-6 py-10 text-center sm:px-10">
+      <h2 id="pricing-title" class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
         Simple pricing
       </h2>
-      <p class="mx-auto mt-4 max-w-xl leading-7 text-base-content/70">
+      <p class="mx-auto mt-4 max-w-xl leading-7 text-ink-muted">
         One flat monthly rate per app and size — no metered surprises. New
         accounts start with welcome credits; top up when you're ready.
       </p>
-      <a href="/catalog" class="btn btn-primary mt-8">
+      <.link
+        href="/catalog"
+        class="mt-8 inline-flex h-10 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-on-primary shadow-sm transition-colors hover:bg-primary-hover"
+      >
         See the apps and prices
-      </a>
-    </div>
+      </.link>
+    </.card>
   </section>
 
-  <div class="mx-auto max-w-3xl pb-16 text-center sm:pb-24">
-    <p class="text-sm leading-6 text-base-content/60">
+  <div class="mx-auto max-w-3xl pb-20 text-center sm:pb-28">
+    <p class="text-sm leading-6 text-ink-subtle">
       Every app runs on FluxVale's own managed Kubernetes fleet — the same
       infrastructure we run ourselves on.
     </p>
   </div>
 </main>
 
-<footer class="border-t border-base-300 px-4 py-8 sm:px-6 lg:px-8">
+<footer class="border-t border-line px-4 py-8 sm:px-6 lg:px-8">
   <div class="mx-auto flex max-w-5xl flex-col items-center justify-between gap-4 sm:flex-row">
-    <p class="text-sm text-base-content/60">© {Date.utc_today().year} FluxVale</p>
+    <p class="text-sm text-ink-subtle">© {Date.utc_today().year} FluxVale</p>
     <nav aria-label="Footer">
       <ul class="flex items-center gap-4">
-        <li><a href="/catalog" class="link link-hover text-sm">Apps</a></li>
-        <li><a href={~p"/sign-in"} class="link link-hover text-sm">Sign in</a></li>
+        <li><a href="/catalog" class="text-sm text-ink-muted hover:text-ink">Apps</a></li>
+        <li><a href={~p"/sign-in"} class="text-sm text-ink-muted hover:text-ink">Sign in</a></li>
       </ul>
     </nav>
   </div>

@@ -26,7 +26,10 @@ config :flux_vale, FluxValeWeb.Endpoint,
   secret_key_base: "K1/kovUzknueiuo3cZ9gsvaN2AqzJecMmvRv942ey1YIFeuozi2DZuVOoo7VXGJd",
   watchers: [
     esbuild: {Esbuild, :install_and_run, [:flux_vale, ~w(--sourcemap=inline --watch)]},
-    tailwind: {Tailwind, :install_and_run, [:flux_vale, ~w(--watch)]}
+    tailwind: {Tailwind, :install_and_run, [:flux_vale, ~w(--watch)]},
+    # Storybook CSS bundle (#178) — same tailwind binary, storybook profiles
+    storybook_tailwind: {Tailwind, :install_and_run, [:storybook, ~w(--watch)]},
+    storybook_theme_tailwind: {Tailwind, :install_and_run, [:storybook_theme, ~w(--watch)]}
   ]
 
 # ## SSL Support
@@ -83,3 +86,6 @@ config :swoosh, :api_client, false
 # The gated TestInbox (#22) — enabled in dev: Local adapter captures all
 # mail anyway; the viewer + JSON endpoint ride the admin gate.
 config :flux_vale, :test_inbox, enabled: true
+
+# The storybook workshop (#178): on by default in dev (localhost only).
+config :flux_vale, :storybook_enabled, true

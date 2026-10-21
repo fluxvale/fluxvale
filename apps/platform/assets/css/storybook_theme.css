@@ -1,0 +1,26 @@
+/* FluxVale Storybook chrome theme (#178).
+ *
+ * Rethemes the storybook's own UI (sidebar, header, playground — NOT
+ * the components in the sandbox, those ride storybook.css) from the
+ * shipped violet to the FluxVale amber brand. Raw hex values from the
+ * app token set (assets/css/app.css): brand-600 ≈ amber-600 light,
+ * brand-400 ≈ amber-400 dark, on-primary flips dark ink in dark mode.
+ */
+
+:root {
+  --psb-color-primary: #d97706;
+  --psb-color-primary-foreground: #ffffff;
+
+  --psb-color-sidebar-primary: var(--psb-color-primary);
+  --psb-color-sidebar-primary-foreground: var(--psb-color-primary-foreground);
+
+  --psb-radius: 0.5rem;
+}
+
+.psb\:dark {
+  --psb-color-primary: #f5b642;
+  --psb-color-primary-foreground: #3f2c07;
+
+  --psb-color-sidebar-primary: var(--psb-color-primary);
+  --psb-color-sidebar-primary-foreground: var(--psb-color-primary-foreground);
+}

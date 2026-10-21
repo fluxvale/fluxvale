@@ -15,7 +15,14 @@ defmodule FluxVale.MixProject do
       # unix executables only — the generator's .bat overlay wrappers are
       # dead weight in a linux container.
       releases: [
-        flux_vale: [include_executables_for: [:unix]]
+        # Release shape for the prod image (apps/platform/Dockerfile, #98):
+        # unix executables only — the generator's .bat overlay wrappers are
+        # dead weight in a linux container. keep Docs: the storybook (#178)
+        # renders component @doc strings in production releases.
+        flux_vale: [
+          include_executables_for: [:unix],
+          strip_beams: [keep: ["Docs"]]
+        ]
       ],
       listeners: [Phoenix.CodeReloader],
       # coveralls.json task writes cover/excoveralls.json — what CI
@@ -93,6 +100,10 @@ defmodule FluxVale.MixProject do
       {:ash_phoenix, "2.3.25"},
       {:igniter, "0.8.3", only: [:dev, :test]},
       {:phoenix, "1.8.13"},
+      # Design-system workshop (#178) — mounted at /storybook, hosted at
+      # storybook.fluxvale.com (fleet-routed, internal-only). Exact pin,
+      # same rule as every Hex dep.
+      {:phoenix_storybook, "1.5.0"},
       {:phoenix_ecto, "4.7.0"},
       {:ecto_sql, "3.14.0"},
       {:postgrex, "0.22.4"},
@@ -187,9 +198,17 @@ defmodule FluxVale.MixProject do
       # fuzzy path-fixing, no ambiguity when a second lib/ tree lands.
       "coveralls.json": ["ash.setup --quiet", "coveralls.json --subdir apps/platform/"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
-      "assets.build": ["compile", "tailwind flux_vale", "esbuild flux_vale"],
+      "assets.build": [
+        "compile",
+        "tailwind flux_vale",
+        "tailwind storybook",
+        "tailwind storybook_theme",
+        "esbuild flux_vale"
+      ],
       "assets.deploy": [
         "tailwind flux_vale --minify",
+        "tailwind storybook --minify",
+        "tailwind storybook_theme --minify",
         "esbuild flux_vale --minify",
         "phx.digest"
       ],

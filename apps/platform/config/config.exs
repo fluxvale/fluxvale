@@ -131,6 +131,12 @@ config :flux_vale, :test_inbox,
   enabled: false,
   storage_driver: Swoosh.Adapters.Local.Storage.Memory
 
+# The storybook workshop (#178) — same gate shape as the TestInbox
+# above: compiled into every release, 404s until STORYBOOK_ENABLED
+# flips it (runtime.exs; the fleet attaches the internal hostname
+# where it runs). Dev overrides to on.
+config :flux_vale, :storybook_enabled, false
+
 # AshOban: open-source Oban, not Pro (v1's stance, kept)
 config :ash_oban, :pro?, false
 
@@ -165,7 +171,7 @@ config :esbuild,
   version: "0.25.4",
   flux_vale: [
     args:
-      ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
+      ~w(js/app.js js/storybook.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
     cd: Path.expand("../assets", __DIR__),
     env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ]
@@ -177,6 +183,30 @@ config :tailwind,
     args: ~w(
       --input=assets/css/app.css
       --output=priv/static/assets/css/app.css
+    ),
+    cd: Path.expand("..", __DIR__),
+    env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
+  ]
+
+# Storybook CSS bundle (#178): storybook.css mirrors the app's token
+# directives (it loads INSTEAD of app.css in the workshop) and scans
+# the stories folder for utility usage. storybook_theme.css rethemes
+# the workshop's own chrome (amber, not the shipped violet).
+config :tailwind,
+  storybook: [
+    args: ~w(
+      --input=assets/css/storybook.css
+      --output=priv/static/assets/css/storybook.css
+    ),
+    cd: Path.expand("..", __DIR__),
+    env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
+  ]
+
+config :tailwind,
+  storybook_theme: [
+    args: ~w(
+      --input=assets/css/storybook_theme.css
+      --output=priv/static/assets/css/storybook_theme.css
     ),
     cd: Path.expand("..", __DIR__),
     env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}

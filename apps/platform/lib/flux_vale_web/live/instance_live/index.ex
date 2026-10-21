@@ -44,18 +44,18 @@ defmodule FluxValeWeb.InstanceLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_user={@current_user}>
       <div class="space-y-6">
-        <div class="flex items-center justify-between">
-          <h1 class="text-3xl font-bold tracking-tight">Instances</h1>
-          <.link navigate={~p"/apps"} class="btn btn-primary btn-sm">
-            Deploy an app
-          </.link>
-        </div>
+        <.header>
+          Instances
+          <:actions>
+            <.button navigate={~p"/apps"} size="sm">
+              Deploy an app
+            </.button>
+          </:actions>
+        </.header>
 
-        <div :if={@instance_count == 0} class="card bg-base-200">
-          <div class="card-body items-center text-center py-10">
-            <p class="opacity-70">No instances yet — deploy your first app from the catalog.</p>
-          </div>
-        </div>
+        <.empty_state :if={@instance_count == 0} title="No instances yet">
+          Deploy your first app from the catalog.
+        </.empty_state>
 
         <div id="instances" phx-update="stream" class="space-y-3">
           <.link
@@ -63,18 +63,20 @@ defmodule FluxValeWeb.InstanceLive.Index do
             navigate={~p"/instances/#{instance.id}"}
             id={dom_id}
             data-testid="instance-row"
-            class="card bg-base-200 hover:bg-base-300 transition-colors block"
+            class="group block rounded-xl border border-line bg-panel p-5 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
           >
-            <div class="card-body gap-2 py-4">
+            <div class="space-y-2">
               <div class="flex flex-wrap items-center justify-between gap-3">
-                <div class="flex items-center gap-3">
-                  <h2 class="card-title text-base">{instance.name}</h2>
-                  <span class="font-mono text-xs opacity-50">{instance.slug}</span>
+                <div class="flex min-w-0 items-center gap-3">
+                  <h2 class="text-base font-medium text-ink transition-colors group-hover:text-primary">
+                    {instance.name}
+                  </h2>
+                  <span class="font-mono text-xs text-ink-subtle">{instance.slug}</span>
                 </div>
                 <div class="flex items-center gap-3">
-                  <span class="text-sm opacity-70">
+                  <span class="text-sm text-ink-muted">
                     {instance.app_version.app.name}
-                    <span class="font-mono text-xs opacity-60">
+                    <span class="ml-1 font-mono text-xs text-ink-subtle">
                       v{instance.app_version.version}
                     </span>
                   </span>
@@ -86,7 +88,7 @@ defmodule FluxValeWeb.InstanceLive.Index do
               the badge says enough. --%>
               <p
                 :if={instance.status in [:pending, :deploying, :starting, :error, :deleting]}
-                class="text-xs opacity-60 truncate"
+                class="truncate text-xs text-ink-subtle"
                 data-testid="instance-status-message"
               >
                 {InstanceStatus.message(instance)}
