@@ -78,7 +78,7 @@ defmodule FluxVale.MixProject do
       # Every Hex dep is exact-pinned from mix.lock (codified in AGENTS.md):
       # bumps to behavior-bearing libraries — auth, policies, the linter that
       # gates CI — must be deliberate diffs, never a side effect of
-      # deps.update. GitHub deps (heroicons, daisyui) stay tag-pinned.
+      # deps.update. GitHub deps (heroicons) stay tag-pinned.
       # SimpleSat over Picosat: pure-Elixir SAT solver — picosat_elixir is a
       # C NIF that won't compile against musl (alpine dev image,
       # sys/unistd.h is a glibc-ism). Crux auto-selects SimpleSat when Picosat
@@ -124,13 +124,6 @@ defmodule FluxVale.MixProject do
        github: "tailwindlabs/heroicons",
        tag: "v2.2.0",
        sparse: "optimized",
-       app: false,
-       compile: false,
-       depth: 1},
-      {:daisyui,
-       github: "saadeghi/daisyui",
-       tag: "v5.5.20",
-       sparse: "packages/bundle",
        app: false,
        compile: false,
        depth: 1},

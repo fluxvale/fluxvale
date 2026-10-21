@@ -99,7 +99,10 @@ defmodule FluxValeWeb.CoreComponents do
       <.button phx-click="go" variant="secondary" size="sm">Cancel</.button>
       <.button navigate={~p"/"}>Home</.button>
   """
-  attr(:rest, :global, include: ~w(href navigate patch method download name value disabled))
+  attr(:rest, :global,
+    include: ~w(href navigate patch method download name value disabled target rel)
+  )
+
   attr(:class, :any, default: nil, doc: "appended to the variant/size classes")
 
   attr(:variant, :string,
@@ -117,7 +120,12 @@ defmodule FluxValeWeb.CoreComponents do
 
   def button(assigns) do
     base =
-      "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors outline-offset-2 outline-focus focus-visible:outline-2 disabled:pointer-events-none disabled:opacity-50"
+      "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors outline-offset-2 outline-focus focus-visible:outline-2 disabled:pointer-events-none"
+
+    # Disabled reads inert, not faded-in-place: neutral surface + subtle
+    # text (the vision QA flagged white-on-amber-wash as decorative).
+    disabled =
+      "disabled:border disabled:border-line disabled:bg-panel-raised disabled:text-ink-subtle disabled:shadow-none"
 
     variants = %{
       "primary" =>
@@ -138,6 +146,7 @@ defmodule FluxValeWeb.CoreComponents do
       assign(assigns,
         class: [
           base,
+          disabled,
           Map.fetch!(variants, assigns.variant),
           Map.fetch!(sizes, assigns.size),
           assigns[:class]
@@ -222,8 +231,8 @@ defmodule FluxValeWeb.CoreComponents do
   attr(:prompt, :string, default: nil, doc: "the prompt for select inputs")
   attr(:options, :list, doc: "the options to pass to Phoenix.HTML.Form.options_for_select/2")
   attr(:multiple, :boolean, default: false, doc: "the multiple flag for select inputs")
-  attr(:class, :any, default: nil, doc: "the input class to use over defaults")
-  attr(:error_class, :any, default: nil, doc: "the input error class to use over defaults")
+  attr(:class, :any, default: nil, doc: "appended to the control's base classes")
+  attr(:error_class, :any, default: nil, doc: "appended when the field has errors")
 
   attr(:rest, :global,
     include: ~w(accept autocomplete capture cols disabled form list max maxlength min minlength
@@ -339,17 +348,19 @@ defmodule FluxValeWeb.CoreComponents do
   end
 
   # Shared input chrome: control classes flip to danger when the field
-  # has errors (caller may override either via class/error_class).
+  # has errors; caller class/error_class APPEND (the system contract —
+  # "class is appended, never replaces"), so e.g. max-w-xs keeps the
+  # base styling.
   defp control_class(%{errors: errors} = assigns) do
     base =
       "w-full rounded-lg border bg-panel px-3 py-2 text-sm text-ink shadow-sm transition-colors placeholder:text-ink-subtle focus:outline-none focus:ring-2 disabled:opacity-50"
 
-    focus =
+    state =
       if errors != [],
         do: "border-danger focus:border-danger focus:ring-danger/25",
         else: "border-line focus:border-primary focus:ring-focus/25"
 
-    [assigns[:class] || base, assigns[:error_class] || focus]
+    [base, state, assigns[:class], assigns[:error_class]]
     |> Enum.reject(&is_nil/1)
   end
 
@@ -602,6 +613,122 @@ defmodule FluxValeWeb.CoreComponents do
   def icon(%{name: "hero-" <> _} = assigns) do
     ~H"""
     <span class={[@name, @class]} />
+    """
+  end
+
+  @doc """
+  Renders a wizard progress stepper (deploy wizard, top-up wizard,
+  #178 wave 2). Numbered chips: done states in success, the current
+  step in primary, upcoming muted.
+
+  ## Examples
+
+      <.stepper steps={[{"details", "Billing details"}, {"amount", "Amount"}]} current={1} />
+      <.stepper steps={@steps} current={@current} testid_prefix="topup" />
+  """
+  attr(:steps, :list,
+    required: true,
+    doc: "{id, label} pairs in order; the id rides testids and is the stable key"
+  )
+
+  attr(:current, :integer,
+    required: true,
+    doc: "the current step's index (0-based); steps before it render done"
+  )
+
+  attr(:testid_prefix, :string,
+    default: nil,
+    doc: ~S{emits data-testid="<prefix>-stepper" / "<prefix>-step-<id>" when set}
+  )
+
+  def stepper(assigns) do
+    ~H"""
+    <ol
+      class="flex flex-wrap items-center gap-2 text-sm"
+      data-testid={@testid_prefix && "#{@testid_prefix}-stepper"}
+    >
+      <li
+        :for={{step, index} <- Enum.with_index(@steps)}
+        class={[
+          "flex items-center gap-2",
+          index < @current && "text-success",
+          index == @current && "font-semibold text-ink",
+          index > @current && "text-ink-subtle"
+        ]}
+        data-testid={@testid_prefix && "#{@testid_prefix}-step-#{elem(step, 0)}"}
+      >
+        <span class={[
+          "flex size-6 items-center justify-center rounded-full border text-xs font-medium",
+          index < @current && "border-line-success bg-success-muted text-success",
+          index == @current && "border-primary bg-primary-muted text-primary",
+          index > @current && "border-line bg-panel text-ink-subtle"
+        ]}>
+          {index + 1}
+        </span>
+        {elem(step, 1)}
+        <span :if={index < length(@steps) - 1} class="h-px w-4 bg-line" aria-hidden="true" />
+      </li>
+    </ol>
+    """
+  end
+
+  @doc """
+  Renders a callout — an inline notice that deserves visual weight
+  (warnings, first-run guidance, admin reveals).
+
+  ## Examples
+
+      <.callout tone="warning" title="Below the recommendation">
+        It may run slowly or fail.
+      </.callout>
+  """
+  attr(:tone, :string, values: ~w(info warning danger success), default: "info")
+  attr(:title, :string, default: nil)
+  attr(:icon, :string, default: nil, doc: "heroicon name; defaults per tone")
+  attr(:class, :any, default: nil)
+  attr(:rest, :global)
+  slot(:inner_block, required: true)
+
+  def callout(assigns) do
+    tones = %{
+      "info" => "border-primary/25 bg-primary-muted",
+      "warning" => "border-line-warning bg-warning-muted",
+      "danger" => "border-line-danger bg-danger-muted",
+      "success" => "border-line-success bg-success-muted"
+    }
+
+    icons = %{
+      "info" => {"hero-information-circle", "text-primary"},
+      "warning" => {"hero-exclamation-triangle", "text-warning"},
+      "danger" => {"hero-exclamation-circle", "text-danger"},
+      "success" => {"hero-check-circle", "text-success"}
+    }
+
+    # Caller icon wins over the tone default (the attr's documented
+    # contract — CodeRabbit #191: it was declared but ignored).
+    {default_icon, icon_class} = Map.fetch!(icons, assigns.tone)
+    icon_name = assigns.icon || default_icon
+
+    assigns =
+      assign(assigns,
+        tone_class: Map.fetch!(tones, assigns.tone),
+        icon: icon_name,
+        icon_class: icon_class
+      )
+
+    ~H"""
+    <div
+      class={["rounded-xl border px-4 py-3 text-sm text-ink", @tone_class, @class]}
+      {@rest}
+    >
+      <div class="flex items-start gap-2.5">
+        <.icon name={@icon} class={["mt-0.5 size-4 shrink-0", @icon_class]} />
+        <div class="min-w-0 flex-1 space-y-1.5">
+          <p :if={@title} class="font-medium text-ink">{@title}</p>
+          {render_slot(@inner_block)}
+        </div>
+      </div>
+    </div>
     """
   end
 
