@@ -63,6 +63,18 @@ the decision.
     provisioning layer only if instances ever get platform-provisioned
     DBs (unsettled — ADR-0005 instances are namespace + Deployment +
     PVC; Forgejo runs SQLite-on-PVC); then with a clean seam.
+17. **Custom-allocation pricing semantics** (#180) — the wizard now
+    lets users allocate above/below the recommendation; sizes
+    ([ADR-0028](adr/00028-flat-rate-pricing.md)) are the priced unit,
+    so a custom allocation needs semantics: **(a) anchor formula** —
+    evaluate the market-anchor curve
+    ([pricing-calibration.md](pricing-calibration.md)) at any
+    allocation (continuous, matches the seeded prices at size points;
+    needs formula pricing in the wizard and the settle snapshot) — or
+    **(b) smooth snap** — bill the nearest seeded size (zero new
+    pricing code; prices step discontinuously between sizes). Interim
+    shipped with #180's UI: custom allocations bill at the recommended
+    size and the wizard says so.
 
 ## Platform
 

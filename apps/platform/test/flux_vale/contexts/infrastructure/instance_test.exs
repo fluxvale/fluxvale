@@ -418,6 +418,89 @@ defmodule FluxVale.Infrastructure.InstanceTest do
     end
   end
 
+  describe "create/1 — user-chosen allocation (#180)" do
+    test "a chosen allocation wins over the version defaults, above or below the recommendation" do
+      # One cluster, one version, two creates (created! is single-shot —
+      # its second cluster row would trip multi-cluster resolution).
+      version = forgejo_version()
+      InstanceFixtures.local_cluster!()
+
+      base = %{name: "Allocated", app_version_id: version.id, env_vars: %{}}
+
+      above_attrs =
+        Map.merge(base, %{cpu_cores: Decimal.new("2"), memory_mb: 2048, storage_gb: 40})
+
+      above = Instance.create!(above_attrs, actor: user())
+
+      assert above.cpu_cores == Decimal.new("2")
+      assert above.memory_mb == 2048
+      assert above.storage_gb == 40
+
+      below_attrs =
+        Map.merge(base, %{cpu_cores: Decimal.new("0.25"), memory_mb: 128, storage_gb: 2})
+
+      below = Instance.create!(below_attrs, actor: user())
+
+      assert below.cpu_cores == Decimal.new("0.25")
+      assert below.memory_mb == 128
+      assert below.storage_gb == 2
+    end
+
+    test "a partial choice takes the defaults for the untouched dimensions" do
+      instance = created!(memory_mb: 1024)
+
+      assert instance.cpu_cores == Decimal.new("0.5")
+      assert instance.memory_mb == 1024
+      assert instance.storage_gb == 10
+    end
+
+    test "the hard floors block regardless of choice (the recommendation is advisory, the floors are not)" do
+      zero_cpu_attrs = Map.merge(build_attrs(), %{cpu_cores: Decimal.new("0")})
+
+      assert {:error, %Ash.Error.Invalid{errors: cpu_errors}} =
+               Instance.create(zero_cpu_attrs, actor: user())
+
+      assert Enum.any?(cpu_errors, &(&1.field == :cpu_cores))
+
+      zero_memory_attrs = Map.merge(build_attrs(), %{memory_mb: 0})
+
+      assert {:error, %Ash.Error.Invalid{errors: memory_errors}} =
+               Instance.create(zero_memory_attrs, actor: user())
+
+      assert Enum.any?(memory_errors, &(&1.field == :memory_mb))
+
+      negative_storage_attrs = Map.merge(build_attrs(), %{storage_gb: -1})
+
+      assert {:error, %Ash.Error.Invalid{errors: storage_errors}} =
+               Instance.create(negative_storage_attrs, actor: user())
+
+      assert Enum.any?(storage_errors, &(&1.field == :storage_gb))
+    end
+
+    test "the ceilings fail validation instead of crashing the write (bigint encode bounds)" do
+      huge_cpu_attrs = Map.merge(build_attrs(), %{cpu_cores: Decimal.new("1e30")})
+
+      assert {:error, %Ash.Error.Invalid{errors: cpu_errors}} =
+               Instance.create(huge_cpu_attrs, actor: user())
+
+      assert Enum.any?(cpu_errors, &(&1.field == :cpu_cores))
+
+      huge_memory_attrs = Map.merge(build_attrs(), %{memory_mb: 99_999_999_999_999_999_999})
+
+      assert {:error, %Ash.Error.Invalid{errors: memory_errors}} =
+               Instance.create(huge_memory_attrs, actor: user())
+
+      assert Enum.any?(memory_errors, &(&1.field == :memory_mb))
+
+      huge_storage_attrs = Map.merge(build_attrs(), %{storage_gb: 99_999_999})
+
+      assert {:error, %Ash.Error.Invalid{errors: storage_errors}} =
+               Instance.create(huge_storage_attrs, actor: user())
+
+      assert Enum.any?(storage_errors, &(&1.field == :storage_gb))
+    end
+  end
+
   describe "policies" do
     test "owners read their instances; nobody else does" do
       owner = user()

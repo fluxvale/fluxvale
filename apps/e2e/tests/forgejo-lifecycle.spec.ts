@@ -51,12 +51,14 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   await expect(page.getByRole("heading", { name: "Forgejo", exact: true })).toBeVisible();
   await waitForLiveViewJoin(page);
 
-  // Deploy stepper: version → configuration (seed defaults carry) → name
+  // Deploy stepper: version → configuration (seed defaults carry) →
+  // resources (defaults carry — #180's controls) → name
   await page.locator("[data-testid^='deploy-']").first().click();
   await waitForLiveViewJoin(page);
   await page.getByTestId("version-option").first().check();
   await page.getByTestId("continue-version").click();
   await page.getByTestId("continue-env").click();
+  await page.getByTestId("continue-resources").click();
   const name = `e2e-forgejo-${runId}`;
   await page.getByTestId("instance-name").fill(name);
   await page.getByTestId("deploy-submit").click();
