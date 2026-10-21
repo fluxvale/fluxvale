@@ -14,7 +14,8 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
         service_port: 80,             # Required: target service port
         tls: true,                    # Optional: enable TLS (default: false)
         tls_secret_name: "wildcard-fluxvale-app-tls",  # Optional: existing TLS secret
-        cert_resolver: "letsencrypt"  # Optional: cert-manager resolver (when no tls_secret_name)
+        cert_resolver: "letsencrypt", # Optional: cert-manager resolver (when no tls_secret_name)
+        path_prefix: "/dav"           # Optional: match only this sub-path (#190)
       }
 
   Standalone custom-host routing (one IngressRoute per custom domain —
@@ -58,7 +59,8 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
           optional(:tls) => boolean(),
           optional(:domain) => String.t(),
           optional(:tls_secret_name) => String.t(),
-          optional(:cert_resolver) => String.t()
+          optional(:cert_resolver) => String.t(),
+          optional(:path_prefix) => String.t()
         }
 
   @default_cert_resolver nil
@@ -69,12 +71,22 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
   # not slip through ($ matches before a final \n in PCRE).
   @dns_label ~r/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\z/
 
+  # Path-prefix shape (#190): starts at root, URL-path characters only
+  # (alnum, hyphen, underscore, dot, inner slashes) — same injection
+  # posture as @dns_label: a backtick or backslash here is a dead or
+  # hostile rule, rejected before it reaches Traefik. Anchored at both
+  # ends — junk ahead of a clean tail (`") || PathPrefix(\`/evil`) is
+  # still junk.
+  @path_prefix ~r/\A\/[A-Za-z0-9._\/-]*\z/
+
   @doc """
   Creates (server-side-applies) an IngressRoute.
 
   Host-ish values (`:host`, `:subdomain`, `:domain`) are validated as DNS
   names first — an invalid value gets `{:error, %Error{reason: :invalid_spec}}`
-  rather than a Traefik rule that's escaped-but-syntactically-dead.
+  rather than a Traefik rule that's escaped-but-syntactically-dead. A
+  `:path_prefix` (same hostname, sub-path route — the file-access `/dav`,
+  #190) gets the same pre-validation.
   """
   @spec create(Kubereq.Kubeconfig.t(), String.t(), String.t(), spec()) ::
           {:ok, map()} | {:error, Error.t()}
@@ -85,13 +97,22 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
       Map.get(spec, :domain)
     ]
 
-    invalid =
+    invalid_host =
       Enum.find(host_values, fn value -> value != nil and not valid_dns_name?(value) end)
 
-    if invalid do
-      {:error, Error.invalid_spec("Not a valid DNS name: #{inspect(invalid)}")}
-    else
-      do_create(kubeconfig, namespace, name, spec)
+    path_prefix = Map.get(spec, :path_prefix)
+
+    invalid_path? = path_prefix != nil and not Regex.match?(@path_prefix, path_prefix)
+
+    cond do
+      invalid_host ->
+        {:error, Error.invalid_spec("Not a valid DNS name: #{inspect(invalid_host)}")}
+
+      invalid_path? ->
+        {:error, Error.invalid_spec("Not a valid path prefix: #{inspect(path_prefix)}")}
+
+      true ->
+        do_create(kubeconfig, namespace, name, spec)
     end
   end
 
@@ -234,17 +255,24 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
   end
 
   # :host present (standalone custom-domain route) → match the full host;
-  # otherwise compose the primary subdomain route.
+  # otherwise compose the primary subdomain route. A :path_prefix
+  # (#190) narrows the match to that sub-path on the same hostname.
   # Dot access raises a clear KeyError if :subdomain is missing, rather than
   # an opaque FunctionClauseError from escape_traefik_value(nil).
   defp build_host_match(spec, domain) do
-    case Map.get(spec, :host) do
-      host when is_binary(host) and host != "" ->
-        "Host(`#{escape_traefik_value(host)}`)"
+    host_match =
+      case Map.get(spec, :host) do
+        host when is_binary(host) and host != "" ->
+          "Host(`#{escape_traefik_value(host)}`)"
 
-      _nil ->
-        subdomain = spec.subdomain
-        "Host(`#{escape_traefik_value(subdomain)}.#{escape_traefik_value(domain)}`)"
+        _nil ->
+          subdomain = spec.subdomain
+          "Host(`#{escape_traefik_value(subdomain)}.#{escape_traefik_value(domain)}`)"
+      end
+
+    case Map.get(spec, :path_prefix) do
+      nil -> host_match
+      prefix -> "#{host_match} && PathPrefix(`#{prefix}`)"
     end
   end
 

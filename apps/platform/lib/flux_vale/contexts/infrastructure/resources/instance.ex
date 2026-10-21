@@ -9,7 +9,9 @@ defmodule FluxVale.Infrastructure.Instance do
 
   - `:deploy` — one-shot; creates the namespace's K8s resources
     (Namespace, RoleBinding, ResourceQuota, NetworkPolicy, PVC, Secret,
-    Deployment, Service, IngressRoute) and lands `:starting`
+    Deployment, Service, IngressRoute; a file-access instance adds the
+    `file-access` Secret, `dav` Service, and `app-dav` IngressRoute,
+    #190) and lands `:starting`
   - `:reconcile_status` — every minute; mirrors Deployment readiness
     into `status` — the only writer of `:running` — demotes on failed
     rollouts, times out stuck deploys
@@ -68,11 +70,11 @@ defmodule FluxVale.Infrastructure.Instance do
   alias FluxVale.Infrastructure.Operations.StopInstance
 
   postgres do
-    table "instances"
-    repo FluxVale.Repo
+    table("instances")
+    repo(FluxVale.Repo)
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
-    migration_defaults id: "nil"
+    migration_defaults(id: "nil")
   end
 
   oban do
@@ -90,7 +92,7 @@ defmodule FluxVale.Infrastructure.Instance do
         action(:perform_reconcile)
         queue(:reconciler)
         scheduler_cron("* * * * *")
-        where expr(status in [:deploying, :starting, :running])
+        where(expr(status in [:deploying, :starting, :running]))
         worker_module_name(__MODULE__.Reconcile.Worker)
         scheduler_module_name(__MODULE__.Reconcile.Scheduler)
       end
@@ -101,7 +103,7 @@ defmodule FluxVale.Infrastructure.Instance do
         action(:perform_settle)
         queue(:settler)
         scheduler_cron("*/15 * * * *")
-        where expr(not is_nil(storage_metering_since))
+        where(expr(not is_nil(storage_metering_since)))
         worker_module_name(__MODULE__.Settle.Worker)
         scheduler_module_name(__MODULE__.Settle.Scheduler)
       end
@@ -121,17 +123,20 @@ defmodule FluxVale.Infrastructure.Instance do
     # Trigger-fired actions run actorless in the Oban context (v1 stance,
     # fluxvale-ozu): the user-facing entry actions carry the checks.
     bypass AshOban.Checks.AshObanInteraction do
-      description "AshOban trigger interactions bypass actor policies"
+      description("AshOban trigger interactions bypass actor policies")
       authorize_if(always())
     end
 
     policy action_type(:read) do
-      description "Members read their org's instances"
+      description("Members read their org's instances")
       authorize_if(relates_to_actor_via([:organization, :members]))
     end
 
     policy action_type(:create) do
-      description "#124's deploy gate: any signed-in actor with a funded org wallet creates instances (org resolved from actor) — policy-land, so the API can't bypass it"
+      description(
+        "#124's deploy gate: any signed-in actor with a funded org wallet creates instances (org resolved from actor) — policy-land, so the API can't bypass it"
+      )
+
       forbid_unless(actor_present())
       authorize_if(FluxVale.Checks.ActorOrgWalletFunded)
     end
@@ -142,34 +147,34 @@ defmodule FluxVale.Infrastructure.Instance do
     # (#124: "new instance deploys blocked at balance ≤ 0" covers the
     # pending/error retry path, not just fresh creates).
     policy action(:deploy) do
-      description "Deploy/retry needs membership AND a funded wallet (#124)"
+      description("Deploy/retry needs membership AND a funded wallet (#124)")
       forbid_unless(relates_to_actor_via([:organization, :members]))
       authorize_if(FluxVale.Checks.ActorOrgWalletFunded)
     end
 
     policy action(:settle_anchors) do
-      description "System-only: settlement cursor writes (authorize?: false)"
+      description("System-only: settlement cursor writes (authorize?: false)")
       forbid_if(always())
     end
 
     policy action(:stop) do
-      description "Members stop their org's instances"
+      description("Members stop their org's instances")
       authorize_if(relates_to_actor_via([:organization, :members]))
     end
 
     policy action(:start) do
-      description "Resume needs membership AND a funded wallet (#124)"
+      description("Resume needs membership AND a funded wallet (#124)")
       forbid_unless(relates_to_actor_via([:organization, :members]))
       authorize_if(FluxVale.Checks.ActorOrgWalletFunded)
     end
 
     policy action_type(:destroy) do
-      description "Members destroy their org's instances"
+      description("Members destroy their org's instances")
       authorize_if(relates_to_actor_via([:organization, :members]))
     end
 
     policy action(:delete) do
-      description "Ownership is enforced by the authorized get_by_id read inside the action"
+      description("Ownership is enforced by the authorized get_by_id read inside the action")
       authorize_if(actor_present())
     end
   end
@@ -179,7 +184,7 @@ defmodule FluxVale.Infrastructure.Instance do
     # name FluxVale.PubSub calls Phoenix.PubSub.broadcast/3 with the
     # app's pubsub as the first arg (application.ex's child).
     module(Phoenix.PubSub)
-    name FluxVale.PubSub
+    name(FluxVale.PubSub)
 
     # #74: every state-machine writer lands on instances:<id>.
     # :update_status is the system funnel — the deploy/reconcile/teardown
@@ -242,6 +247,17 @@ defmodule FluxVale.Infrastructure.Instance do
     attribute :storage_mount_path, :string do
       allow_nil?(false)
       default("/data")
+      public?(true)
+    end
+
+    # File access snapshot (#190, ADR-0035): copied from the App's
+    # catalog-declared `file_access` at create (DeriveFromAppVersion) —
+    # the deploy op reads it to decide the WebDAV sidecar. Snapshot
+    # stance like image/port: a later catalog edit never re-specs a
+    # running Instance; the sidecar lands on the next deploy instead.
+    attribute :file_access, :boolean do
+      allow_nil?(false)
+      default(false)
       public?(true)
     end
 
@@ -400,14 +416,17 @@ defmodule FluxVale.Infrastructure.Instance do
     end
 
     read :get_by_id do
-      description "Get an instance by id"
+      description("Get an instance by id")
       get?(true)
       argument(:id, :uuid, allow_nil?: false)
       filter(expr(id == ^arg(:id)))
     end
 
     read :list_for_actor do
-      description "The actor's own instances (#74's list surface; sorted newest-first at the query) — org-scoped since #119: instances belong to the actor's org"
+      description(
+        "The actor's own instances (#74's list surface; sorted newest-first at the query) — org-scoped since #119: instances belong to the actor's org"
+      )
+
       filter(expr(exists(organization.memberships, user_id == ^actor(:id))))
     end
 
@@ -415,13 +434,16 @@ defmodule FluxVale.Infrastructure.Instance do
     # seam (the sweep runs authorize?: false); members have no call for
     # an org-wide unpaginated list — list_for_actor is theirs.
     read :list_for_organization do
-      description "The org's instances (#124's runway/burn-rate input)"
+      description("The org's instances (#124's runway/burn-rate input)")
       argument(:organization_id, :uuid, allow_nil?: false)
       filter(expr(organization_id == ^arg(:organization_id)))
     end
 
     update :update_status do
-      description "System status write — the state machine's single funnel (MaintainAnchors + StatusTransition)."
+      description(
+        "System status write — the state machine's single funnel (MaintainAnchors + StatusTransition)."
+      )
+
       # namespace deliberately NOT accepted: it is write-once (the deploy
       # action pins fluxvale-app-<id>), and an owner-reachable write here
       # could point teardown at any namespace on the cluster. failure_reason
@@ -437,7 +459,10 @@ defmodule FluxVale.Infrastructure.Instance do
     end
 
     update :deploy do
-      description "Enqueues the background deploy job; lands :deploying with the namespace pinned."
+      description(
+        "Enqueues the background deploy job; lands :deploying with the namespace pinned."
+      )
+
       require_atomic?(false)
       accept([])
 
@@ -465,7 +490,7 @@ defmodule FluxVale.Infrastructure.Instance do
     end
 
     update :stop do
-      description "Scales the Deployment to 0 — the product's pause (storage keeps accruing)."
+      description("Scales the Deployment to 0 — the product's pause (storage keeps accruing).")
       require_atomic?(false)
       accept([])
 
@@ -486,7 +511,10 @@ defmodule FluxVale.Infrastructure.Instance do
     end
 
     update :start do
-      description "Scales the Deployment back to 1 — lands :starting; the reconciler confirms readiness."
+      description(
+        "Scales the Deployment back to 1 — lands :starting; the reconciler confirms readiness."
+      )
+
       require_atomic?(false)
       accept([])
 
@@ -507,7 +535,7 @@ defmodule FluxVale.Infrastructure.Instance do
     end
 
     action :delete, :struct do
-      description """
+      description("""
       Deletes an instance (async teardown). Deployed instances flip to
       :deleting and enqueue the AshOban :teardown trigger, which tears
       down K8s resources and hard-deletes the row on success (retries
@@ -515,7 +543,7 @@ defmodule FluxVale.Infrastructure.Instance do
       retry hint). Never-deployed rows (no namespace) hard-delete
       synchronously. Ownership is enforced by the authorized get_by_id
       read below (v1's fluxvale-h0l shape).
-      """
+      """)
 
       argument(:id, :uuid, allow_nil?: false, public?: true)
       constraints(instance_of: __MODULE__)
@@ -554,7 +582,7 @@ defmodule FluxVale.Infrastructure.Instance do
     end
 
     update :perform_deploy do
-      description "The :deploy trigger's body — see Operations.DeployInstance."
+      description("The :deploy trigger's body — see Operations.DeployInstance.")
       require_atomic?(false)
       accept([])
 
@@ -562,7 +590,7 @@ defmodule FluxVale.Infrastructure.Instance do
     end
 
     update :perform_reconcile do
-      description "The :reconcile_status trigger's body — see Operations.ReconcileInstance."
+      description("The :reconcile_status trigger's body — see Operations.ReconcileInstance.")
       require_atomic?(false)
       accept([])
 
@@ -570,7 +598,7 @@ defmodule FluxVale.Infrastructure.Instance do
     end
 
     update :perform_settle do
-      description "The :settle_usage trigger's body — see Instance.PerformSettle (#121)."
+      description("The :settle_usage trigger's body — see Instance.PerformSettle (#121).")
       require_atomic?(false)
       accept([])
 
@@ -578,17 +606,20 @@ defmodule FluxVale.Infrastructure.Instance do
     end
 
     update :settle_anchors do
-      description "System-only: settlement's cursor writes (PerformSettle, under the wallet lock)."
+      description(
+        "System-only: settlement's cursor writes (PerformSettle, under the wallet lock)."
+      )
+
       accept([:storage_metering_since, :unbilled_running_usec])
       require_atomic?(false)
     end
 
     update :perform_teardown do
-      description """
+      description("""
       The :teardown trigger's body — tears down K8s resources and
       hard-deletes the row on success; returns an error on K8s failure
       so Oban retries (see Operations.TeardownInstance).
-      """
+      """)
 
       require_atomic?(false)
       accept([])
@@ -597,7 +628,7 @@ defmodule FluxVale.Infrastructure.Instance do
     end
 
     update :mark_deploy_error do
-      description "Error handler for the :deploy trigger — unexpected job failures land :error."
+      description("Error handler for the :deploy trigger — unexpected job failures land :error.")
       require_atomic?(false)
       accept([])
       argument(:error, :map, allow_nil?: true)
@@ -614,11 +645,11 @@ defmodule FluxVale.Infrastructure.Instance do
     end
 
     update :mark_teardown_error do
-      description """
+      description("""
       Error handler for the :teardown trigger — flips to :error once
       retries are exhausted so the failed delete is visible and retryable.
       Keeps the namespace so a retry can find the K8s resources.
-      """
+      """)
 
       require_atomic?(false)
       accept([])
@@ -643,7 +674,7 @@ defmodule FluxVale.Infrastructure.Instance do
   end
 
   code_interface do
-    domain FluxVale.Infrastructure
+    domain(FluxVale.Infrastructure)
 
     define(:create)
     define(:update_status)

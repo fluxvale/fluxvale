@@ -254,6 +254,23 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       assert default_instance.storage_mount_path == "/data"
     end
 
+    # #190: the App's catalog toggle snapshots with the rest of the
+    # blueprint — a later catalog edit never re-specs a running instance.
+    test "snapshots the App's file_access flag (default off, on when declared)" do
+      assert created!().file_access == false
+
+      # created!/0 already pinned the single local cluster row
+      version = InstanceFixtures.app_version!(file_access: true)
+
+      instance =
+        Instance.create!(
+          %{name: "Files", app_version_id: version.id, env_vars: %{}},
+          actor: user()
+        )
+
+      assert instance.file_access == true
+    end
+
     test "merges stringified defaults under user values (contract > user > operator > schema)" do
       instance =
         created!(env_vars: %{"FORGEJO__mailer__SMTP_PORT" => "2525", "USER_EXTRA" => "x"})

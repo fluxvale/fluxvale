@@ -64,6 +64,8 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       app = App.get_by_slug!("forgejo", authorize?: false)
       assert app.category_id == category.id
       assert app.tagline == "Self-hosted Git forge with issues, pull requests, and Actions CI"
+      # #190: file access is deliberate per app — Forgejo ships without
+      assert app.file_access == false
 
       version =
         "forgejo"
@@ -130,6 +132,8 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       app = App.get_by_slug!("kavita", authorize?: false)
       assert app.category_id == category.id
       assert app.source_url == "https://github.com/Kareadita/Kavita"
+      # #190: Kavita ships with file access on
+      assert app.file_access == true
 
       version = version_for!("kavita")
       assert version.version == "0.9.1"

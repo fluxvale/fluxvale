@@ -24,6 +24,10 @@ defmodule FluxVale.Seeds.CatalogDataTest do
 
       assert [%{slug: "forgejo"} = app] = entry.apps
       assert app.name == "Forgejo"
+      # #190: the toggle is deliberate per app — Forgejo ships without
+      # (raw WebDAV into a git forge's data dir is a footgun), Kavita
+      # ships with it (below).
+      assert app.file_access == false
 
       version = hd(app.versions)
       assert version.version == "16.0.5"
@@ -65,6 +69,8 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert [%{slug: "kavita"} = app] = entry.apps
       assert app.name == "Kavita"
       assert app.source_url == "https://github.com/Kareadita/Kavita"
+      # #190: Kavita is the flagship file-access app — the toggle ships on
+      assert app.file_access == true
 
       version = hd(app.versions)
       assert version.version == "0.9.1"
@@ -151,6 +157,10 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert version.first_run == nil
       assert version.storage_mount_path == "/data"
       assert version.recommended_size == "s"
+
+      # #190: the toggle is optional and defaults off
+      entry = hd(CatalogData.entries(path))
+      assert hd(entry.apps).file_access == false
     end
 
     test "raises naming the version when recommended_size is missing (#125)" do

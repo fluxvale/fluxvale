@@ -1,7 +1,8 @@
 defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
   @moduledoc """
   Snapshots the AppVersion's deploy blueprint onto the Instance at create:
-  `image`, `port`, `healthcheck_path`, `storage_mount_path`, `cpu_cores`,
+  `image`, `port`, `healthcheck_path`, `storage_mount_path`,
+  `file_access` (from the App, #190), `cpu_cores`,
   `memory_mb`, `storage_gb`, the env merge — user values over operator
   `default_env_vars` over `configurable_env_vars` schema defaults, all
   stringified (env vars are strings end to end; ValidateEnvVars
@@ -50,10 +51,13 @@ defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
       # signed-in-readable.
       case Ash.get(AppVersion, app_version_id, authorize?: false) do
         {:ok, version} ->
+          app = Ash.load!(version, :app, authorize?: false).app
+
           changeset
           |> Ash.Changeset.force_change_attribute(:image, version.image)
           |> Ash.Changeset.force_change_attribute(:port, version.port)
           |> Ash.Changeset.force_change_attribute(:healthcheck_path, version.healthcheck_path)
+          |> Ash.Changeset.force_change_attribute(:file_access, app.file_access)
           |> Ash.Changeset.force_change_attribute(
             :storage_mount_path,
             version.storage_mount_path

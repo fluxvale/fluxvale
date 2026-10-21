@@ -212,16 +212,17 @@ jobs:
         with:
           persist-credentials: false
 
-      # Binaries only (node/k3d/kubectl/helm), verified against
+      # Binaries only (node/k3d/kubectl/helm/rclone), verified against
       # mise.lock — the same pins and checksums as local. install:
       # false: a bare `mise install` would also pull erlang (source
       # compile, 15+ min — the abandoned CI path in AGENTS.md); the
-      # BEAM stays on setup-beam in the platform job.
+      # BEAM stays on setup-beam in the platform job. rclone joined with
+      # #190: the file-access E2E's client.
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: 2026.9.14
           install: false
-      - run: mise install k3d kubectl helm node
+      - run: mise install k3d kubectl helm node rclone
 
       - name: Bootstrap the local stack
         run: mise x -- scripts/e2e-bootstrap.sh
@@ -407,12 +408,13 @@ jobs:
           persist-credentials: false
 
       # Same pin + install shape as the e2e job: binaries only, node
-      # for Bruno + Playwright.
+      # for Bruno + Playwright, rclone for the staging file-access leg
+      # (#190 — the full suite runs there).
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: 2026.9.14
           install: false
-      - run: mise install node
+      - run: mise install node rclone
 
       - name: Install suites
         run: |

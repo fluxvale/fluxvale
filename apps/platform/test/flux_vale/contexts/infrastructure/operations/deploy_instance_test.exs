@@ -176,7 +176,237 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
       assert {:ok, updated} = DeployInstance.call(instance)
       assert updated.status == :starting
     end
+  end
 
+  describe "call/1 — #190 file access (ADR-0035)" do
+    @describetag :file_access
+
+    test "a file-access instance gets the credential Secret, sidecar, dav Service and route" do
+      stub_kubeconfig()
+      instance = deploying!(file_access: true)
+      ns = "fluxvale-app-#{instance.id}"
+
+      expect(Namespace, :create, fn _kc, ^ns, %{} -> {:ok, %{}} end)
+      stub(RoleBinding, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(PersistentVolumeClaim, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      # Quota widens by exactly the sidecar's requests (platform
+      # overhead, not purchased allocation): 0.5/512 → 0.55/576.
+      # Decimal, not float — 0.35+0.05-style sums must not round down
+      # below the pod's exact request sum (review finding).
+      expect(ResourceQuota, :create, fn _kc, ^ns, "app-quota", spec ->
+        assert spec == %{cpu: Decimal.new("0.55"), memory: 576, storage: 10}
+        assert Decimal.to_string(spec.cpu) == "0.55"
+        {:ok, %{}}
+      end)
+
+      expect(Secret, :create, fn _kc, ^ns, "app-env", _data -> {:ok, %{}} end)
+
+      # First deploy: no credential yet — get-or-create generates one.
+      expect(Secret, :get_data, fn _kc, ^ns, "file-access" ->
+        {:error, %K8s.Error{reason: :not_found}}
+      end)
+
+      expect(Secret, :create, fn _kc, ^ns, "file-access", data ->
+        assert data["RCLONE_USER"] == "fluxvale"
+        # 32 bytes CSPRNG, URL-safe base64: 43 chars, no padding
+        assert Regex.match?(~r/^[A-Za-z0-9_-]{43}$/, data["RCLONE_PASS"])
+        {:ok, %{}}
+      end)
+
+      expect(Deployment, :create, fn _kc, ^ns, "app", spec ->
+        sidecar = spec.sidecar
+        assert sidecar.image == "rclone/rclone:1.75.2"
+        assert sidecar.port == 8080
+
+        assert sidecar.args == [
+                 "serve",
+                 "webdav",
+                 "/data",
+                 "--addr",
+                 "0.0.0.0:8080",
+                 "--baseurl",
+                 "/dav"
+               ]
+
+        assert sidecar.env_from_secret == "file-access"
+        assert sidecar.storage_mount == "/data"
+        assert sidecar.cpu == Decimal.new("0.05")
+        assert sidecar.memory == 64
+        {:ok, %{}}
+      end)
+
+      expect(Service, :create, fn _kc, ^ns, "app", _spec -> {:ok, %{}} end)
+      expect(Ingress, :create, fn _kc, ^ns, "app-ingress", _spec -> {:ok, %{}} end)
+
+      expect(Service, :create, fn _kc, ^ns, "dav", spec ->
+        assert spec == %{
+                 port: 80,
+                 target_port: 8080,
+                 selector: %{"app.kubernetes.io/name" => "app"}
+               }
+
+        {:ok, %{}}
+      end)
+
+      expect(Ingress, :create, fn _kc, ^ns, "app-dav", spec ->
+        assert spec.subdomain == instance.slug
+        assert spec.service_name == "dav"
+        assert spec.service_port == 80
+        assert spec.tls == true
+        assert spec.domain == "fluxvale.lvh.me"
+        assert spec.path_prefix == "/dav"
+        {:ok, %{}}
+      end)
+
+      assert {:ok, updated} = DeployInstance.call(instance)
+      assert updated.status == :starting
+    end
+
+    test "a Kavita-shaped mount path serves the app's own volume layout (#189 × #190)" do
+      stub_kubeconfig()
+
+      instance = deploying!(file_access: true, storage_mount_path: "/kavita/config")
+
+      stub(Namespace, :create, fn _kc, _ns, _spec -> {:ok, %{}} end)
+      stub(RoleBinding, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(ResourceQuota, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(PersistentVolumeClaim, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Secret, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Ingress, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      expect(Secret, :get_data, fn _kc, _ns, "file-access" ->
+        {:ok, %{"RCLONE_USER" => "fluxvale", "RCLONE_PASS" => "existing"}}
+      end)
+
+      expect(Deployment, :create, fn _kc, _ns, "app", spec ->
+        sidecar = spec.sidecar
+
+        assert sidecar.args == [
+                 "serve",
+                 "webdav",
+                 "/kavita/config",
+                 "--addr",
+                 "0.0.0.0:8080",
+                 "--baseurl",
+                 "/dav"
+               ]
+
+        assert sidecar.storage_mount == "/kavita/config"
+        {:ok, %{}}
+      end)
+
+      assert {:ok, updated} = DeployInstance.call(instance)
+      assert updated.status == :starting
+    end
+
+    test "a retry reuses the existing credential — get-or-create, never rotate" do
+      stub_kubeconfig()
+      instance = deploying!(file_access: true)
+
+      stub(Namespace, :create, fn _kc, _ns, _spec -> {:ok, %{}} end)
+      stub(RoleBinding, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(ResourceQuota, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(PersistentVolumeClaim, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Deployment, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Ingress, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      expect(Secret, :create, fn _kc, _ns, "app-env", _data -> {:ok, %{}} end)
+
+      expect(Secret, :get_data, fn _kc, _ns, "file-access" ->
+        {:ok, %{"RCLONE_USER" => "fluxvale", "RCLONE_PASS" => "existing"}}
+      end)
+
+      # Any Secret.create here names "file-access" (the app-env one is
+      # expected above) — a rotation attempt fails the expectation fn.
+      assert {:ok, updated} = DeployInstance.call(instance)
+      assert updated.status == :starting
+    end
+
+    test "file access without a storage allocation lands no sidecar (nothing to serve)" do
+      stub_kubeconfig()
+
+      instance = deploying!(file_access: true, default_storage_gb: 0)
+
+      stub(Namespace, :create, fn _kc, _ns, _spec -> {:ok, %{}} end)
+      stub(RoleBinding, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Deployment, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      expect(ResourceQuota, :create, fn _kc, _ns, "app-quota", spec ->
+        # unbumped: no sidecar overhead without a volume
+        assert spec == %{cpu: 0.5, memory: 512, storage: 0}
+        {:ok, %{}}
+      end)
+
+      expect(Secret, :create, fn _kc, _ns, "app-env", _data -> {:ok, %{}} end)
+      expect(Service, :create, fn _kc, _ns, "app", _spec -> {:ok, %{}} end)
+      expect(Ingress, :create, fn _kc, _ns, "app-ingress", _spec -> {:ok, %{}} end)
+
+      # No credential read without the sidecar; a stray "dav"
+      # Service/Ingress create fails the expectations above (their fn
+      # clauses match only "app"/"app-ingress").
+      reject(Secret, :get_data, 3)
+
+      assert {:ok, updated} = DeployInstance.call(instance)
+      assert updated.status == :starting
+    end
+
+    test "a transient credential-read failure fails the deploy (never skips the sidecar)" do
+      stub_kubeconfig()
+      instance = deploying!(file_access: true)
+
+      stub(Namespace, :create, fn _kc, _ns, _spec -> {:ok, %{}} end)
+      stub(RoleBinding, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(ResourceQuota, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(PersistentVolumeClaim, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Secret, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      expect(Secret, :get_data, fn _kc, _ns, "file-access" ->
+        {:error, K8s.Error.connection_error("api hiccup")}
+      end)
+
+      assert {:ok, updated} = DeployInstance.call(instance)
+      assert updated.status == :error
+      assert updated.status_message =~ "Deploy failed: api hiccup"
+    end
+
+    test "a dav-route apply failure fails the deploy after the app stack landed (review finding)" do
+      stub_kubeconfig()
+      instance = deploying!(file_access: true)
+
+      stub(Namespace, :create, fn _kc, _ns, _spec -> {:ok, %{}} end)
+      stub(RoleBinding, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(ResourceQuota, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(PersistentVolumeClaim, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Secret, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Deployment, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Ingress, :create, fn _kc, _ns, "app-ingress", _spec -> {:ok, %{}} end)
+
+      stub(Secret, :get_data, fn _kc, _ns, "file-access" ->
+        {:ok, %{"RCLONE_USER" => "u", "RCLONE_PASS" => "p"}}
+      end)
+
+      expect(Service, :create, fn _kc, _ns, "app", _spec -> {:ok, %{}} end)
+
+      expect(Service, :create, fn _kc, _ns, "dav", _spec ->
+        {:error, K8s.Error.connection_error("dav service rejected")}
+      end)
+
+      assert {:ok, updated} = DeployInstance.call(instance)
+      assert updated.status == :error
+      assert updated.status_message =~ "Deploy failed: dav service rejected"
+    end
+  end
+
+  describe "call/1 — error paths" do
     test "a failed apply lands :error with the reason" do
       stub_kubeconfig()
       instance = deploying!()

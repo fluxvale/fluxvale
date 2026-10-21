@@ -82,13 +82,18 @@ defmodule FluxVale.Infrastructure.Operations.TeardownInstance do
     {:error, error}
   end
 
-  # Reverse creation order; every delete tolerates :not_found.
+  # Reverse creation order; every delete tolerates :not_found (the
+  # file-access trio deletes for every instance — pre-#190 namespaces
+  # never had them, and :not_found is success here).
   defp teardown_resources(kubeconfig, instance) do
     namespace = instance.namespace
 
-    with {:ok, _ingress} <- safe_delete(Ingress, kubeconfig, namespace, "app-ingress"),
+    with {:ok, _dav_ingress} <- safe_delete(Ingress, kubeconfig, namespace, "app-dav"),
+         {:ok, _dav_service} <- safe_delete(Service, kubeconfig, namespace, "dav"),
+         {:ok, _ingress} <- safe_delete(Ingress, kubeconfig, namespace, "app-ingress"),
          {:ok, _service} <- safe_delete(Service, kubeconfig, namespace, "app"),
          {:ok, _deployment} <- safe_delete(Deployment, kubeconfig, namespace, "app"),
+         {:ok, _file_secret} <- safe_delete(Secret, kubeconfig, namespace, "file-access"),
          {:ok, _secret} <- safe_delete(Secret, kubeconfig, namespace, "app-env"),
          {:ok, _pvc} <- safe_delete(PersistentVolumeClaim, kubeconfig, namespace, "app-data"),
          {:ok, _policy} <-
