@@ -87,7 +87,7 @@ defmodule FluxValeWeb.InstanceLive.Index do
               renders here. Quiet on settled states (running/stopped):
               the badge says enough. --%>
               <p
-                :if={instance.status in [:pending, :deploying, :starting, :error, :deleting]}
+                :if={instance.status in [:pending, :deploying, :starting, :error, :deleting, :lost]}
                 class="truncate text-xs text-ink-subtle"
                 data-testid="instance-status-message"
               >

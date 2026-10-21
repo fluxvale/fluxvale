@@ -50,7 +50,7 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstancesTest do
       assert {:ok, summary} = SweepStrandedInstances.call()
 
       assert summary.requeued_teardown_ids == [instance.id]
-      assert summary.torn_down_ids == []
+      assert summary.lost_ids == []
       assert summary.deleted_orphan_namespaces == []
 
       assert {:error, %Ash.Error.Invalid{}} = Instance.get_by_id(instance.id, authorize?: false)
@@ -101,27 +101,38 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstancesTest do
     end
   end
 
-  describe "arm 2: namespace gone while the row lives" do
-    test "an accruing :stopped row on a dead namespace is torn down — the storage leak" do
-      stub_teardown_deletes()
+  describe "arm 2: namespace gone while the row lives (#196)" do
+    # The external-deletion simulation: the accrual-carrying row whose
+    # namespace was deleted out from under it flips to :lost — metering
+    # parks at detection, nothing is torn down, the owner decides.
 
+    test "an accruing :stopped row on a dead namespace is marked :lost — the storage leak stops" do
       instance = deployed_instance!(:stopped)
       ns = "fluxvale-app-#{instance.id}"
 
       stub(Namespace, :exists?, fn _kc, ^ns -> {:ok, false} end)
-      expect(Namespace, :delete, fn _kc, ^ns -> :ok end)
 
       assert {:ok, summary} = SweepStrandedInstances.call()
 
-      assert summary.torn_down_ids == [instance.id]
+      assert summary.lost_ids == [instance.id]
       assert summary.requeued_teardown_ids == []
 
-      assert {:error, %Ash.Error.Invalid{}} = Instance.get_by_id(instance.id, authorize?: false)
+      assert {:ok, lost} = Instance.get_by_id(instance.id, authorize?: false)
+      assert lost.status == :lost
+      assert lost.lost_detected_at
+
+      # Drain-on-lost: the parked storage anchor is what stops the
+      # accrual (the settle trigger keys on it).
+      assert is_nil(lost.storage_metering_since)
+      assert is_nil(lost.running_since)
+      assert lost.unbilled_running_usec == 0
+
+      # The platform does not destroy the row an outside actor orphaned
+      # — teardown is the owner's call now.
+      assert Mimic.calls(&Namespace.delete/2) == []
     end
 
-    test ":running and ran-then-errored rows on a dead namespace are torn down too" do
-      stub_teardown_deletes()
-
+    test ":running and ran-then-errored rows on a dead namespace are marked :lost too" do
       running = deployed_instance!(:running)
       errored = deployed_instance!(:error)
 
@@ -129,10 +140,30 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstancesTest do
 
       assert {:ok, summary} = SweepStrandedInstances.call()
 
-      assert Enum.sort(summary.torn_down_ids) == Enum.sort([running.id, errored.id])
+      assert Enum.sort(summary.lost_ids) == Enum.sort([running.id, errored.id])
 
-      assert {:error, %Ash.Error.Invalid{}} = Instance.get_by_id(running.id, authorize?: false)
-      assert {:error, %Ash.Error.Invalid{}} = Instance.get_by_id(errored.id, authorize?: false)
+      assert {:ok, running_lost} = Instance.get_by_id(running.id, authorize?: false)
+      assert running_lost.status == :lost
+      assert is_nil(running_lost.running_since)
+
+      assert {:ok, errored_lost} = Instance.get_by_id(errored.id, authorize?: false)
+      assert errored_lost.status == :lost
+    end
+
+    test "a :lost row is this arm's output, not input — no repeated flips or teardowns" do
+      instance = deployed_instance!(:stopped)
+
+      {:ok, lost} = InstanceK8s.update_status(instance, :lost, "gone")
+
+      stub(Namespace, :exists?, fn _kc, _ns -> {:ok, false} end)
+
+      assert {:ok, summary} = SweepStrandedInstances.call()
+
+      assert summary.lost_ids == []
+      assert Mimic.calls(&Namespace.delete/2) == []
+
+      assert {:ok, still} = Instance.get_by_id(lost.id, authorize?: false)
+      assert still.status == :lost
     end
 
     test "a never-ran :error row accrues nothing and stays retryable" do
@@ -153,7 +184,7 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstancesTest do
 
       assert {:ok, summary} = SweepStrandedInstances.call()
 
-      assert summary.torn_down_ids == []
+      assert summary.lost_ids == []
 
       assert {:ok, still} = Instance.get_by_id(never_ran.id, authorize?: false)
       assert still.status == :error
@@ -166,7 +197,7 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstancesTest do
 
       assert {:ok, summary} = SweepStrandedInstances.call()
 
-      assert summary.torn_down_ids == []
+      assert summary.lost_ids == []
 
       assert {:ok, still} = Instance.get_by_id(instance.id, authorize?: false)
       assert still.status == :stopped
@@ -186,7 +217,7 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstancesTest do
 
       assert {:ok, summary} = SweepStrandedInstances.call()
 
-      assert summary.torn_down_ids == []
+      assert summary.lost_ids == []
 
       assert {:ok, still} = Instance.get_by_id(unpinned.id, authorize?: false)
       assert still.status == :running
@@ -199,7 +230,7 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstancesTest do
 
       assert {:ok, summary} = SweepStrandedInstances.call()
 
-      assert summary.torn_down_ids == []
+      assert summary.lost_ids == []
 
       assert {:ok, still} = Instance.get_by_id(instance.id, authorize?: false)
       assert still.status == :stopped
@@ -234,7 +265,7 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstancesTest do
       assert {:ok, summary} = SweepStrandedInstances.call()
 
       assert summary.requeued_teardown_ids == []
-      assert summary.torn_down_ids == []
+      assert summary.lost_ids == []
 
       assert Mimic.calls(&Namespace.exists?/2) == []
 
@@ -244,7 +275,7 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstancesTest do
   end
 
   describe "arm 3: orphaned namespaces" do
-    test "an Active orphan is deleted; live rows', Terminating, and foreign names are kept" do
+    test "an Active own-env orphan is deleted; live rows', Terminating, and foreign names are kept" do
       instance = deployed_instance!(:stopped)
       live_ns = "fluxvale-app-#{instance.id}"
       orphan_ns = "fluxvale-app-00000000-0000-7000-8000-000000000001"
@@ -282,6 +313,35 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstancesTest do
       assert summary.deleted_orphan_namespaces == [orphan_ns]
     end
 
+    # #196's lesson, made permanent: the incident was prod's sweep
+    # deleting staging's namespace for having no row in prod's DB (two
+    # platform envs, one physical box). A foreign-env label — or no
+    # label at all (pre-#196 deploys, operator-placed) — is never this
+    # sweep's to delete.
+    test "a foreign-env namespace is never deleted — the Oct-21 mechanism, closed" do
+      foreign_ns = "fluxvale-app-00000000-0000-7000-8000-000000000006"
+      items = [ns_item(foreign_ns, "Active", %{"fluxvale.io/platform-env" => "staging"})]
+
+      stub(Namespace, :list, fn _kc -> {:ok, items} end)
+
+      assert {:ok, summary} = SweepStrandedInstances.call()
+
+      assert summary.deleted_orphan_namespaces == []
+      assert Mimic.calls(&Namespace.delete/2) == []
+    end
+
+    test "an unlabeled instance-shaped namespace is never deleted (pre-#196 or operator-placed)" do
+      unlabeled_ns = "fluxvale-app-00000000-0000-7000-8000-000000000007"
+      items = [ns_item(unlabeled_ns, "Active", nil)]
+
+      stub(Namespace, :list, fn _kc -> {:ok, items} end)
+
+      assert {:ok, summary} = SweepStrandedInstances.call()
+
+      assert summary.deleted_orphan_namespaces == []
+      assert Mimic.calls(&Namespace.delete/2) == []
+    end
+
     test "a failed cluster list fails the sweep; the instance arms still ran" do
       stub_teardown_deletes()
 
@@ -317,8 +377,6 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstancesTest do
 
   describe "isolation" do
     test "one crashing unit is skipped and fails the pass; the others still run" do
-      stub_teardown_deletes()
-
       crashing = deployed_instance!(:stopped)
       healthy = deployed_instance!(:stopped)
 
@@ -336,7 +394,8 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstancesTest do
       assert {:ok, skipped} = Instance.get_by_id(crashing.id, authorize?: false)
       assert skipped.status == :stopped
 
-      assert {:error, %Ash.Error.Invalid{}} = Instance.get_by_id(healthy.id, authorize?: false)
+      assert {:ok, healthy_lost} = Instance.get_by_id(healthy.id, authorize?: false)
+      assert healthy_lost.status == :lost
     end
   end
 
@@ -390,7 +449,10 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstancesTest do
     |> Repo.insert!()
   end
 
-  defp ns_item(name, phase) do
-    %{"metadata" => %{"name" => name}, "status" => %{"phase" => phase}}
+  # #196: orphans carry the env label DeployInstance stamps; test env
+  # is "local" (config.exs default). `labels: nil` builds an unlabeled
+  # item (the pre-#196 shape).
+  defp ns_item(name, phase, labels \\ %{"fluxvale.io/platform-env" => "local"}) do
+    %{"metadata" => %{"name" => name, "labels" => labels}, "status" => %{"phase" => phase}}
   end
 end

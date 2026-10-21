@@ -13,9 +13,11 @@ defmodule FluxValeWeb.Storybook.Components.StatusBadge do
     [
       %VariationGroup{
         id: :states,
-        description: "All lifecycle states (deploying/starting/deleting pulse)",
+        description:
+          "All lifecycle states (deploying/starting/deleting pulse; lost is the #196 anomaly)",
         variations:
-          for status <- [:pending, :deploying, :starting, :running, :stopped, :error, :deleting] do
+          for status <-
+                [:pending, :deploying, :starting, :running, :stopped, :error, :deleting, :lost] do
             %Variation{id: status, attributes: %{status: status}}
           end
       }

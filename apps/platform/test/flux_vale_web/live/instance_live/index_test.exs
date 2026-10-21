@@ -148,6 +148,31 @@ defmodule FluxValeWeb.InstanceLive.IndexTest do
     refute_k8s_terms(html)
   end
 
+  # #196: the list row says the loss out loud — a lost instance is not a
+  # settled quiet state like running/stopped.
+  test "a lost instance lists the billing-stopped copy", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    instance = create_instance!(version, user)
+    deployed = InstanceFixtures.walk_to!(instance, :running)
+
+    InstanceK8s.update_status(deployed, :lost, "Namespace gone from cluster")
+
+    {:ok, view, html} = live(conn, ~p"/instances")
+
+    assert has_element?(view, "#instances-#{instance.id}", "Lost")
+
+    assert has_element?(
+             view,
+             "[data-testid='instance-status-message']",
+             "billing has been stopped"
+           )
+
+    refute_k8s_terms(html)
+  end
+
   # #179's status tick on the list: re-streams in-flight rows without
   # any broadcast, and drops tracking for rows that left the stream.
   test "the status tick re-streams in-flight rows and ignores settled ones", %{

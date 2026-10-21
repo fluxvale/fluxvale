@@ -846,6 +846,9 @@ defmodule FluxValeWeb.CoreComponents do
         :stopped -> {"border-line bg-panel-raised text-ink-muted", "none"}
         :error -> {"border-line-danger bg-danger-muted text-danger", "static"}
         :deleting -> {"border-line-danger bg-danger-muted text-danger", "pulse"}
+        # #196: externally-deleted — an anomaly, not motion; danger
+        # styling without the pulse.
+        :lost -> {"border-line-danger bg-danger-muted text-danger", "static"}
         _other -> {"border-line bg-panel-raised text-ink-muted", "none"}
       end
 

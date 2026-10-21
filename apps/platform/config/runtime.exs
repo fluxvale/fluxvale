@@ -78,6 +78,26 @@ case System.get_env("INSTANCE_RBAC_SA_NAMESPACE") do
     config :flux_vale, :instance_rbac, Keyword.put(rbac, :service_account_namespace, namespace)
 end
 
+# #196: which platform env this app is — namespace label at deploy,
+# orphan-sweep scope (see config.exs). The label value must be a valid
+# k8s label value; raise at boot rather than mint namespaces the sweep
+# can't match. Test keeps the local default (same exclusion stance as
+# INSTANCES_SLUG_PREFIX).
+if config_env() != :test do
+  case System.get_env("PLATFORM_ENV") do
+    value when value in [nil, ""] ->
+      :ok
+
+    value ->
+      unless value =~ ~r/^[a-zA-Z0-9]([a-zA-Z0-9._-]{0,61}[a-zA-Z0-9])?$/ do
+        raise ArgumentError,
+              "PLATFORM_ENV=#{inspect(value)} is not a valid k8s label value — expected e.g. staging | production | local"
+      end
+
+      config :flux_vale, :platform_env, value
+  end
+end
+
 # HitPay gateway (#136, ADR-0029): BWS-injected in the cluster
 # (ADR-0021), never committed. Unset in dev/test — checkout answers
 # {:error, :missing_config} and the top-up UI says so plainly; sandbox

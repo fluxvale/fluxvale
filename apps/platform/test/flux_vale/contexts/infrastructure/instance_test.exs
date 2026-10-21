@@ -801,6 +801,52 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       assert {:ok, deleting} = InstanceK8s.update_status(instance, :deleting, nil)
       assert deleting.status == :deleting
     end
+
+    # #196: the drain-on-lost guard — entering :lost parks every anchor
+    # atomically with the status write, so a dead row stops accruing at
+    # the detected moment (the incident's sin: billing for nothing).
+    test "entering :lost parks every anchor and stamps lost_detected_at" do
+      instance = created!()
+
+      running =
+        instance
+        |> status!(:deploying)
+        |> status!(:starting)
+        |> status!(:running)
+
+      lost = status!(running, :lost)
+
+      assert lost.status == :lost
+      assert lost.lost_detected_at
+      assert is_nil(lost.running_since)
+      assert lost.unbilled_running_usec == 0
+
+      # The parked storage anchor is what stops the metering: both the
+      # settle trigger's where and settle_fresh key on it.
+      assert is_nil(lost.storage_metering_since)
+    end
+
+    test ":lost enters from the deployed states only; :deleting from :lost rides the any-state rule" do
+      instance = created!()
+
+      # pending has nothing to lose.
+      assert {:error, %Ash.Error.Invalid{}} =
+               InstanceK8s.update_status(instance, :lost, "gone")
+
+      running =
+        instance
+        |> status!(:deploying)
+        |> status!(:starting)
+        |> status!(:running)
+
+      stopped = status!(running, :stopped)
+      lost = status!(stopped, :lost)
+      assert lost.status == :lost
+
+      # Teardown stays reachable from :lost (the owner's exit).
+      assert {:ok, deleting} = InstanceK8s.update_status(lost, :deleting, nil)
+      assert deleting.status == :deleting
+    end
   end
 
   describe "deploy/1" do
@@ -821,7 +867,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       assert fresh.status_message =~ "awaiting readiness"
     end
 
-    test "rejects deploy outside pending/error" do
+    test "rejects deploy outside pending/error/lost" do
       created = created!()
       instance = deployed!(created, :deploying, "fluxvale-app-#{created.id}")
 
@@ -829,6 +875,40 @@ defmodule FluxVale.Infrastructure.InstanceTest do
                Instance.deploy(instance, actor: owner_of(instance))
 
       assert Enum.any?(errors, &(&1.message =~ "cannot deploy instance in deploying"))
+    end
+
+    # #196: the re-deploy affordance — a :lost row re-enters the normal
+    # deploy lane, the parked anchors re-seed on the next :running, and
+    # lost_detected_at clears (the row is no longer describing a loss).
+    test "re-deploys from :lost — fresh deploy, lost_detected_at cleared" do
+      stub_k8s()
+      created = created!()
+      ns = "fluxvale-app-#{created.id}"
+
+      lost =
+        created
+        |> deployed!(:deploying, ns)
+        |> status!(:starting)
+        |> status!(:running)
+        |> status!(:lost)
+
+      assert lost.lost_detected_at
+
+      {:ok, deploying} = Instance.deploy(lost, actor: owner_of(created))
+
+      assert deploying.status == :deploying
+      assert deploying.namespace == ns
+
+      # :inline runs the trigger during the action — re-fetch for the
+      # post-trigger truth (v1 posture).
+      {:ok, fresh} = Instance.get_by_id(created.id, actor: owner_of(created))
+      assert fresh.status == :starting
+      assert is_nil(fresh.lost_detected_at)
+
+      # The fresh epoch re-seeds the parked storage anchor on :running.
+      running = status!(fresh, :running)
+      assert running.storage_metering_since
+      assert running.running_since
     end
   end
 

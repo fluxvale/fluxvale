@@ -308,6 +308,13 @@ defmodule FluxVale.Infrastructure.Instance do
       public?(false)
     end
 
+    # #196: when reconciliation detected the external deletion that
+    # parked the anchors — the billing-stop audit moment (admin-only
+    # display; nil except on :lost rows, cleared on re-deploy).
+    attribute :lost_detected_at, :utc_datetime_usec do
+      public?(false)
+    end
+
     # Pricing snapshot (#121/#186): creation-time cents price the
     # accrual until grandfathered_until lapses (created_at + 1 year),
     # then settlement reads the live Size row by size_id — or the live
@@ -459,9 +466,11 @@ defmodule FluxVale.Infrastructure.Instance do
     end
 
     update :deploy do
-      description(
-        "Enqueues the background deploy job; lands :deploying with the namespace pinned."
-      )
+      description("""
+      Enqueues the background deploy job; lands :deploying with the
+      namespace pinned. From :lost (#196) this is the re-deploy path —
+      the anchors were parked at detection, so a fresh epoch starts.
+      """)
 
       require_atomic?(false)
       accept([])
@@ -469,7 +478,7 @@ defmodule FluxVale.Infrastructure.Instance do
       change(fn changeset, _context ->
         instance = changeset.data
 
-        if instance.status in [:pending, :error] do
+        if instance.status in [:pending, :error, :lost] do
           namespace = "fluxvale-app-#{instance.id}"
 
           changeset
@@ -478,10 +487,11 @@ defmodule FluxVale.Infrastructure.Instance do
           |> Ash.Changeset.force_change_attribute(:status_message, "Deploying to Kubernetes...")
           |> Ash.Changeset.force_change_attribute(:failure_reason, nil)
           |> Ash.Changeset.force_change_attribute(:deployed_at, DateTime.utc_now())
+          |> Ash.Changeset.force_change_attribute(:lost_detected_at, nil)
         else
           Ash.Changeset.add_error(
             changeset,
-            "cannot deploy instance in #{instance.status} state (must be pending or error)"
+            "cannot deploy instance in #{instance.status} state (must be pending, error, or lost)"
           )
         end
       end)

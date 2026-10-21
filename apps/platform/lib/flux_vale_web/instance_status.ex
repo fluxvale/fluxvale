@@ -28,7 +28,8 @@ defmodule FluxValeWeb.InstanceStatus do
     running: "Running",
     stopped: "Stopped",
     error: "Failed",
-    deleting: "Deleting"
+    deleting: "Deleting",
+    lost: "Lost"
   }
 
   @progress_copy %{
@@ -37,7 +38,9 @@ defmodule FluxValeWeb.InstanceStatus do
     starting: "Starting it up.",
     running: "Your app is up and running.",
     stopped: "Your app is stopped. Your data is kept safe — start it again anytime.",
-    deleting: "Cleaning up your app and its data."
+    deleting: "Cleaning up your app and its data.",
+    lost:
+      "This app went missing on our side, and billing has been stopped. Set it up again, or delete it if you're done with it."
   }
 
   # One friendly message per failure_reason, each with a next step;

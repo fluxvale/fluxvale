@@ -76,7 +76,12 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
       instance = deploying!()
       ns = "fluxvale-app-#{instance.id}"
 
-      expect(Namespace, :create, fn _kc, ^ns, %{} -> {:ok, %{}} end)
+      # #196: the namespace carries this platform's env label — the
+      # orphan sweep's ownership scope on the shared box.
+      expect(Namespace, :create, fn _kc, ^ns, spec ->
+        assert spec == %{labels: %{"fluxvale.io/platform-env" => "local"}}
+        {:ok, %{}}
+      end)
 
       expect(RoleBinding, :create, fn _kc, ^ns, "fluxvale-platform", spec ->
         assert spec == %{
@@ -186,7 +191,7 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
       instance = deploying!(file_access: true)
       ns = "fluxvale-app-#{instance.id}"
 
-      expect(Namespace, :create, fn _kc, ^ns, %{} -> {:ok, %{}} end)
+      expect(Namespace, :create, fn _kc, ^ns, _spec -> {:ok, %{}} end)
       stub(RoleBinding, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
       stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
       stub(PersistentVolumeClaim, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
