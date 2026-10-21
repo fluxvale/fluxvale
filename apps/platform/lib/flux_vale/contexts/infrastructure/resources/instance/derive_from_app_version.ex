@@ -7,11 +7,13 @@ defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
   stringified (env vars are strings end to end; ValidateEnvVars
   type-checks them after changes run), with the first-run contract's
   `env` applied **above** every layer (#181, ADR-0034) — and the
-  pricing snapshot (#121):
+  pricing snapshot (#121/#186):
   the version's `recommended_size` plus both cents and
-  `grandfathered_until = created_at + 1 year`, so price, size, and
-  clock come from one moment (creation-time pricing with a 1-year
-  grace; settlement reads live prices only after it lapses).
+  `grandfathered_until = created_at + 1 year` at the recommendation —
+  or, for a custom allocation, the anchor formula's cents with the
+  same 1-year clock and no size — so price and clock come from one
+  moment (creation-time pricing with a 1-year grace; settlement reads
+  live prices only after it lapses).
 
   Allocation (#180): the version's `default_cpu_cores`/
   `default_memory_mb`/`default_storage_gb` are the advisory
@@ -88,34 +90,91 @@ defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
   # (not sent) falls back to the version's default. fetch_change, not
   # get_attribute: the latter reads the record's attribute default as
   # if chosen (Ash applies attribute defaults after action changes).
+  # An explicit nil (a crafted save) reads as absent — the nil-able
+  # attrs accept it at cast, and nil flowing into the allocation
+  # comparison or the curve would crash the change.
   defp chosen(changeset, key, recommended) do
     case Ash.Changeset.fetch_change(changeset, key) do
+      {:ok, nil} -> recommended
       {:ok, value} -> value
       :error -> recommended
     end
   end
 
-  # Creation-time pricing (#121): size, both cents, and the grace clock
-  # snapshot together. Loading the relationship reads the size row the
-  # version validated against at its own write time.
+  # Creation-time pricing (#121/#186): at the recommendation the Size
+  # row snapshots (size_id + cents + the 1-year clock); a custom
+  # allocation prices by the anchor formula instead — cents + clock
+  # snapshot the same way, no size (settlement reads the live formula
+  # from the instance's allocation after the grace lapses). A sizeless
+  # version at the recommendation stays unpriced (pre-#125 drift —
+  # billing never guesses), but a custom allocation on it prices fine:
+  # the formula needs no size.
   defp snapshot_price(changeset, version) do
-    case Ash.load!(version, :recommended_size, authorize?: false).recommended_size do
-      nil ->
-        changeset
+    size = Ash.load!(version, :recommended_size, authorize?: false).recommended_size
 
-      size ->
-        changeset
-        |> Ash.Changeset.force_change_attribute(:size_id, size.id)
-        |> Ash.Changeset.force_change_attribute(:grandfathered_monthly_cents, size.monthly_cents)
-        |> Ash.Changeset.force_change_attribute(
-          :grandfathered_stopped_monthly_cents,
-          size.stopped_monthly_cents
-        )
-        |> Ash.Changeset.force_change_attribute(
-          :grandfathered_until,
-          DateTime.shift(DateTime.utc_now(), year: @grandfather_years)
-        )
+    if custom_allocation?(changeset, version) do
+      snapshot_formula_price(changeset)
+    else
+      snapshot_size_price(changeset, size)
     end
+  end
+
+  defp snapshot_size_price(changeset, nil), do: changeset
+
+  defp snapshot_size_price(changeset, size) do
+    changeset
+    |> Ash.Changeset.force_change_attribute(:size_id, size.id)
+    |> Ash.Changeset.force_change_attribute(:grandfathered_monthly_cents, size.monthly_cents)
+    |> Ash.Changeset.force_change_attribute(
+      :grandfathered_stopped_monthly_cents,
+      size.stopped_monthly_cents
+    )
+    |> snapshot_grace_clock()
+  end
+
+  # The effective allocation (chosen dimension over the version's
+  # default) priced by the one formula (#186). The allocation
+  # force-changes above have already run, so get_attribute reads the
+  # effective values straight off the changeset.
+  defp snapshot_formula_price(changeset) do
+    allocation = %{
+      cpu_cores: Ash.Changeset.get_attribute(changeset, :cpu_cores),
+      memory_mb: Ash.Changeset.get_attribute(changeset, :memory_mb),
+      storage_gb: Ash.Changeset.get_attribute(changeset, :storage_gb)
+    }
+
+    rates = FluxVale.Pricing.price_allocation(allocation)
+
+    changeset
+    |> Ash.Changeset.force_change_attribute(:grandfathered_monthly_cents, rates.monthly_cents)
+    |> Ash.Changeset.force_change_attribute(
+      :grandfathered_stopped_monthly_cents,
+      rates.stopped_monthly_cents
+    )
+    |> snapshot_grace_clock()
+  end
+
+  # A custom allocation: any dimension differs from the version's
+  # defaults. Runs after the allocation force-changes above — the
+  # changeset already carries the effective values (chosen or the
+  # version's default), so the comparison is in place; absent dims read
+  # as the default, i.e. the recommendation, and snapshot the size as
+  # before #186.
+  defp custom_allocation?(changeset, version) do
+    cpu = Ash.Changeset.get_attribute(changeset, :cpu_cores)
+    memory = Ash.Changeset.get_attribute(changeset, :memory_mb)
+    storage = Ash.Changeset.get_attribute(changeset, :storage_gb)
+
+    cpu_off = not Decimal.eq?(cpu, version.default_cpu_cores)
+    memory_off = memory != version.default_memory_mb
+    storage_off = storage != version.default_storage_gb
+
+    cpu_off or memory_off or storage_off
+  end
+
+  defp snapshot_grace_clock(changeset) do
+    one_year = DateTime.shift(DateTime.utc_now(), year: @grandfather_years)
+    Ash.Changeset.force_change_attribute(changeset, :grandfathered_until, one_year)
   end
 
   # user values > operator default_env_vars > configurable schema

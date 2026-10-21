@@ -32,5 +32,22 @@ arithmetic on time and allocation).
    Am. 3), never the ledger.
 5. Welcome credits, wallet mechanics, and payment checkout (adapter + HitPay per [ADR-0029](00029-payments-adapter-selfmor.md) Am. 2) are unaffected.
 
+## Amendment 1 — custom allocations price by the anchor formula (2026-10-21)
+
+User-choosable allocation (#180) needed semantics for allocations that
+match no seeded size. Decided on #186 (the "continuous formula" option;
+the alternative, snapping custom allocations to the nearest seeded
+size, was rejected for its price steps): **the market-anchor curve
+itself is the price function** —
+`FluxVale.Pricing.price_allocation/1` evaluates it at any floor-legal
+allocation (coefficients and rounding in
+[pricing-calibration.md](../pricing-calibration.md); the calibration
+tests pin the seeded table to it exactly). A custom allocation
+snapshots the formula's cents at create with #121's 1-year grace and
+reprices from the live curve after; an at-recommendation instance
+keeps snapshotting its Size row — the paths agree at size points.
+Revisit trigger: an anchor re-version (v5) or per-app price modifiers,
+either of which makes "one global curve" too coarse.
+
 **Amends**: [ADR-00005](00005-customer-instances-as-namespaces.md)
 (settle_usage semantics); [product.md](../product.md) business model.

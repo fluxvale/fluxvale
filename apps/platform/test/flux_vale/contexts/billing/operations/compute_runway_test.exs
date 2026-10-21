@@ -175,11 +175,63 @@ defmodule FluxVale.Billing.Operations.ComputeRunwayTest do
       assert runway.burn_micro_cents_per_hour == hourly(@monthly_cents)
     end
 
+    test "a custom allocation burns at the formula rate (#186)", %{version: version} do
+      {user, wallet} = wallet!(100)
+
+      custom =
+        Instance.create!(
+          %{
+            name: "Custom #{System.unique_integer()}",
+            app_version_id: version.id,
+            env_vars: %{},
+            cpu_cores: Decimal.new("1"),
+            memory_mb: 512,
+            storage_gb: 10
+          },
+          actor: user
+        )
+
+      reached = InstanceFixtures.walk_to!(custom, :running)
+      InstanceFixtures.pin!(reached, namespace: "fluxvale-app-#{custom.id}")
+
+      assert {:ok, runway} = Billing.compute_runway(wallet)
+
+      # 1 CPU / 512 MB / 10 GB on the anchor curve: 325¢/mo — the same
+      # figure the wizard shows and settle bills.
+      assert runway.burn_micro_cents_per_hour == hourly(325)
+    end
+
+    test "a hand-built half-snapshot (sizeless, clock set, cents nil) burns nothing", %{
+      version: version
+    } do
+      {user, wallet} = wallet!(100)
+      instance = instance!(user, :running, version)
+
+      # The formula snapshot is the cents + clock PAIR — a sizeless row
+      # missing either half is unpriced, never a crash in the projection.
+      InstanceFixtures.pin!(instance,
+        size_id: nil,
+        grandfathered_monthly_cents: nil,
+        grandfathered_stopped_monthly_cents: nil
+      )
+
+      assert {:ok, runway} = Billing.compute_runway(wallet)
+
+      assert runway.burn_micro_cents_per_hour == 0
+    end
+
     test "an unpriced instance (pre-#121 drift) burns nothing", %{version: version} do
       {user, wallet} = wallet!(100)
       instance = instance!(user, :running, version)
 
-      InstanceFixtures.pin!(instance, size_id: nil)
+      # Unpriced = no size AND no formula snapshot (#186 tightened the
+      # marker; a nil size alone now means a formula-priced custom).
+      InstanceFixtures.pin!(instance,
+        size_id: nil,
+        grandfathered_until: nil,
+        grandfathered_monthly_cents: nil,
+        grandfathered_stopped_monthly_cents: nil
+      )
 
       assert {:ok, runway} = Billing.compute_runway(wallet)
 
@@ -251,7 +303,10 @@ defmodule FluxVale.Billing.Operations.ComputeRunwayTest do
       InstanceFixtures.pin!(instance,
         storage_metering_since: hour_ago,
         running_since: hour_ago,
-        size_id: nil
+        size_id: nil,
+        grandfathered_until: nil,
+        grandfathered_monthly_cents: nil,
+        grandfathered_stopped_monthly_cents: nil
       )
 
       assert {:ok, runway} = Billing.compute_runway(wallet)

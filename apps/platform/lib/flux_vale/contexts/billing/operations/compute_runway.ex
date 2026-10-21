@@ -6,8 +6,10 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
   resolver (`Pricing.settlement_rates/2` — the same one `settle_usage`
   bills by, #153): `:running` instances accrue the running rate,
   deployed-and-`:stopped` instances the storage-only rate (ADR-0028
-  §2), everything else accrues nothing yet. Unpriced rows (no size —
-  pre-#121 drift) burn nothing, matching settle's forgiveness; a
+  §2), everything else accrues nothing yet. Unpriced rows (no size AND
+  no formula snapshot — pre-#121 drift or a hand-built half-snapshot)
+  burn nothing, matching settle's forgiveness; a sizeless custom
+  allocation burns at the live formula rate (#186); a
   resolver read failure fails the projection rather than under-burning
   silently. No instances → `:infinity` runway, no warning ever.
 

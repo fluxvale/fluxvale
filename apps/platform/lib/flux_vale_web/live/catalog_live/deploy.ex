@@ -15,12 +15,12 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   client-controlled order (the platform's own guardrails are the
   Instance attribute floors, enforced regardless of acknowledgment).
 
-  Pricing interim: the estimate still reads the version's recommended
-  size — allocation-following pricing (formula vs smooth snap) is an
-  open decision (open-questions.md, #180), so until it lands a custom
-  allocation is billed at the recommended size and the UI says so.
-  That keeps the shown price equal to the ledger's charge by
-  construction.
+  Pricing follows the allocation (#186): at the recommendation the
+  estimate is the version's recommended-size price; a custom
+  allocation prices by the anchor formula (ADR-0028's
+  price = f(allocation), docs/pricing-calibration.md) — the same cents
+  the ledger snapshots at create, so the shown price is the charged
+  price by construction.
 
   Submit = `create` → `deploy` → the instance's status page — matching
   the M3 exit demo. Schema defaults are merged server-side
@@ -387,28 +387,43 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   end
 
   # The price line is one component so the resources step and the name
-  # step can't disagree. Interim (#180): only the recommended allocation
-  # carries a live estimate — custom allocations bill at the recommended
-  # size until the allocation-following pricing semantics are decided
-  # (open-questions.md); the shown figure is what the ledger charges.
+  # step can't disagree. The estimate follows the allocation (#186): at
+  # the recommendation it is the version's size price; a custom
+  # allocation prices by the
+  # anchor formula — the same cents the ledger snapshots at create, so
+  # the shown price is the charged price by construction. Mid-typing
+  # garbage parses to no price (the line waits for a number).
   defp price_line(%{selected: selected, resources: resources} = assigns) do
+    at_recommendation = recommendation?(selected, resources)
+
     assigns =
       assign(assigns,
         size: selected.recommended_size,
-        at_recommendation: recommendation?(selected, resources)
+        at_recommendation: at_recommendation,
+        custom_cents: custom_allocation_cents(resources, at_recommendation)
       )
 
     ~H"""
     <span :if={@size && @at_recommendation} class="font-semibold">
       {FluxVale.Pricing.format_usd(@size.monthly_cents)}/mo
     </span>
-    <span :if={@size && not @at_recommendation} class="text-right opacity-70">
-      billed at the recommended size — {FluxVale.Pricing.format_usd(@size.monthly_cents)}/mo
-      <span class="block text-xs">
-        custom-allocation pricing is being finalized
-      </span>
+    <span :if={not @at_recommendation and not is_nil(@custom_cents)} class="font-semibold">
+      {FluxVale.Pricing.format_usd(@custom_cents)}/mo
     </span>
     """
+  end
+
+  defp custom_allocation_cents(_resources, true), do: nil
+
+  defp custom_allocation_cents(resources, false) do
+    case parse_allocation(resources) do
+      {:ok, allocation} ->
+        rates = FluxVale.Pricing.price_allocation(allocation)
+        rates.monthly_cents
+
+      {:error, _errors} ->
+        nil
+    end
   end
 
   # The env surface is a map attribute, not a nested form: plain fields
@@ -748,20 +763,18 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   end
 
   # Hard floors (the Instance attribute constraints): cpu > 0,
-  # memory ≥ 1 MB, storage ≥ 0 GB — legal-allocation bounds mirroring
-  # Size's own, not UX. They block regardless of acknowledgment. The
-  # maxima mirror the resource-side ceilings: instant field errors
-  # here, not an encode crash at save.
+  # memory ≥ 1 MB — legal-allocation bounds mirroring Size's own, not
+  # UX. They block regardless of acknowledgment. Everything that would
+  # crash the curve (negatives, over-DBL_MAX decimals, >308-digit
+  # integers) and every numeric ceiling is rejected at the parse —
+  # the preview prices on every keystroke, so the parse owns input
+  # safety; these floors are the continue-level product rules.
   defp allocation_errors(resources) do
     case parse_allocation(resources) do
       {:ok, allocation} ->
         checks = [
           {Decimal.compare(allocation.cpu_cores, 0) != :gt, "CPU cores must be greater than 0"},
-          {Decimal.compare(allocation.cpu_cores, 64) == :gt, "CPU cores must be at most 64"},
-          {allocation.memory_mb < 1, "Memory must be at least 1 MB"},
-          {allocation.memory_mb > 65_536, "Memory must be at most 65536 MB"},
-          {allocation.storage_gb < 0, "Storage cannot be negative"},
-          {allocation.storage_gb > 10_240, "Storage must be at most 10240 GB"}
+          {allocation.memory_mb < 1, "Memory must be at least 1 MB"}
         ]
 
         keep_errors(checks)
@@ -779,8 +792,18 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
   defp parse_allocation(resources) do
     with {:ok, cpu} <- parse_decimal(resources["cpu_cores"]),
-         {:ok, memory} <- parse_integer(resources["memory_mb"]),
-         {:ok, storage} <- parse_integer(resources["storage_gb"]) do
+         {:ok, memory} <-
+           parse_bounded_integer(
+             resources["memory_mb"],
+             65_536,
+             "Memory must be at most 65536 MB"
+           ),
+         {:ok, storage} <-
+           parse_bounded_integer(
+             resources["storage_gb"],
+             10_240,
+             "Storage must be at most 10240 GB"
+           ) do
       {:ok, %{cpu_cores: cpu, memory_mb: memory, storage_gb: storage}}
     end
   end
@@ -791,10 +814,21 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
         # Ash's own cast rejects non-finite decimals — the preview must
         # not be looser than the authoritative say (NaN would crash
         # every compare; Infinity would walk straight past the floors).
-        if Decimal.nan?(value) or Decimal.inf?(value) do
-          {:error, ["CPU cores must be a number"]}
-        else
-          {:ok, value}
+        # Negatives and over-DBL_MAX magnitudes crash :math.pow /
+        # Decimal.to_float in the curve, and a negative IS under the
+        # floor / over the ceiling, so the parse owns those rejections.
+        cond do
+          Decimal.nan?(value) or Decimal.inf?(value) ->
+            {:error, ["CPU cores must be a number"]}
+
+          Decimal.compare(value, 0) == :lt ->
+            {:error, ["CPU cores must be greater than 0"]}
+
+          Decimal.compare(value, Decimal.new(64)) == :gt ->
+            {:error, ["CPU cores must be at most 64"]}
+
+          true ->
+            {:ok, value}
         end
 
       _other ->
@@ -804,8 +838,28 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
   defp parse_integer(raw) do
     case Integer.parse(raw) do
-      {value, ""} -> {:ok, value}
-      _other -> {:error, ["Memory and storage must be whole numbers"]}
+      {value, ""} ->
+        # Negative memory/storage would crash the curve's fractional
+        # exponent (:math.pow on a negative base); the floor-specific
+        # messages fire at continue for zero.
+        if value < 0 do
+          {:error, ["Memory and storage cannot be negative"]}
+        else
+          {:ok, value}
+        end
+
+      _other ->
+        {:error, ["Memory and storage must be whole numbers"]}
+    end
+  end
+
+  # The integer ceilings: a >308-digit integer crashes the float
+  # division in the curve (the preview prices on every keystroke), and
+  # the ceiling is the resource constraint anyway — the parse owns it.
+  defp parse_bounded_integer(raw, ceiling, message) do
+    case parse_integer(raw) do
+      {:ok, value} when value > ceiling -> {:error, [message]}
+      parsed -> parsed
     end
   end
 

@@ -52,13 +52,19 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   await waitForLiveViewJoin(page);
 
   // Deploy stepper: version → configuration (seed defaults carry) →
-  // resources (defaults carry — #180's controls) → name
+  // resources → name. The resources step exercises #186's formula
+  // pricing with a custom allocation: cpu 1 over Forgejo's `small`
+  // recommendation (0.5/512/10), the live estimate repricing to the
+  // anchor curve's $3.25/mo before continuing.
   await page.locator("[data-testid^='deploy-']").first().click();
   await waitForLiveViewJoin(page);
   await page.getByTestId("version-option").first().check();
   await page.getByTestId("continue-version").click();
   await page.getByTestId("continue-env").click();
+  await page.getByTestId("resource-cpu").fill("1");
+  await expect(page.getByTestId("resources-price")).toContainText("$3.25/mo");
   await page.getByTestId("continue-resources").click();
+  await expect(page.getByTestId("price-summary")).toContainText("$3.25/mo");
   const name = `e2e-forgejo-${runId}`;
   await page.getByTestId("instance-name").fill(name);
   await page.getByTestId("deploy-submit").click();
