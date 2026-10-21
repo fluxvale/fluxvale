@@ -1,19 +1,21 @@
 defmodule FluxValeWeb.Router do
   use FluxValeWeb, :router
 
+  import PhoenixStorybook.Router
+
   pipeline :browser do
-    plug :accepts, ["html"]
-    plug :fetch_session
-    plug :fetch_live_flash
-    plug :put_root_layout, html: {FluxValeWeb.Layouts, :root}
-    plug :protect_from_forgery
-    plug :put_secure_browser_headers
+    plug(:accepts, ["html"])
+    plug(:fetch_session)
+    plug(:fetch_live_flash)
+    plug(:put_root_layout, html: {FluxValeWeb.Layouts, :root})
+    plug(:protect_from_forgery)
+    plug(:put_secure_browser_headers)
     # #138: the edge geo header rides the session as checkout location
     # evidence (the wizard reads it in mount).
-    plug FluxValeWeb.Plugs.CaptureIpCountry
+    plug(FluxValeWeb.Plugs.CaptureIpCountry)
     # #164 (ADR-00025 §4): every non-canonical host is noindex — staging,
     # PR review envs, local dev. Canonical prod host: no-op.
-    plug FluxValeWeb.Plugs.SeoNoindex
+    plug(FluxValeWeb.Plugs.SeoNoindex)
   end
 
   # #164 (ADR-00025 §3): the public catalog is a marketing surface —
@@ -21,7 +23,7 @@ defmodule FluxValeWeb.Router do
   # gate (reads ride the public read policies, the deploy CTA links at
   # the auth-gated /apps/:slug/deploy route).
   pipeline :public_seo do
-    plug FluxValeWeb.Plugs.MaybeResolveUser
+    plug(FluxValeWeb.Plugs.MaybeResolveUser)
   end
 
   # #164: the sitemap — XML only, no session, no root layout. URLs are
@@ -29,33 +31,33 @@ defmodule FluxValeWeb.Router do
   # ADR-00025); the noindex plug still rides so a staging sitemap request
   # gets the header too.
   pipeline :sitemap do
-    plug :accepts, ["xml"]
-    plug :put_secure_browser_headers
-    plug FluxValeWeb.Plugs.SeoNoindex
+    plug(:accepts, ["xml"])
+    plug(:put_secure_browser_headers)
+    plug(FluxValeWeb.Plugs.SeoNoindex)
   end
 
   pipeline :api do
     # "json" maps to the JSON:API media type (config.exs, per the ash_json_api
     # installer) — accepts ["json"] negotiates application/vnd.api+json
-    plug :accepts, ["json"]
+    plug(:accepts, ["json"])
   end
 
   # #24: resolve (Authenticate) then gate (RequireActor) — the machine-client
   # 401/403 contract. fetch_session rides here so the session fallback can
   # read the token-backed session cookie (v1's :api pipeline did the same).
   pipeline :api_auth do
-    plug :fetch_session
-    plug FluxValeWeb.Plugs.Authenticate
-    plug FluxValeWeb.Plugs.RequireActor
+    plug(:fetch_session)
+    plug(FluxValeWeb.Plugs.Authenticate)
+    plug(FluxValeWeb.Plugs.RequireActor)
   end
 
   scope "/", FluxValeWeb do
-    pipe_through :api
+    pipe_through(:api)
 
     # Kubernetes probes + deploy-pipeline poll target (docs/deployment.md):
     # liveness must stay dependency-free; readiness gates traffic on the DB.
-    get "/health", HealthController, :show
-    get "/health/ready", HealthController, :ready
+    get("/health", HealthController, :show)
+    get("/health/ready", HealthController, :ready)
   end
 
   # PromEx scrape endpoint (#98, ADR-0012) — gated + dispatched by
@@ -63,7 +65,31 @@ defmodule FluxValeWeb.Router do
   # is set; exact-path only). Answers 503 while the PromEx tree is down
   # (dev/test); the fleet overlays add the prometheus.io scrape
   # annotations and the token env.
-  forward "/metrics", FluxValeWeb.Plugs.MetricsEndpoint
+  forward("/metrics", FluxValeWeb.Plugs.MetricsEndpoint)
+
+  # The storybook workshop (#178): the design system's living reference
+  # (FluxValeWeb.Storybook). live_storybook/3 defines its own scope with
+  # `pipeline: false`, so this :storybook_browser pipeline is the one it
+  # pipe_throughs — the gate rides here, mirroring the TestInbox: routes
+  # compile into every release, the plug 404s unless STORYBOOK_ENABLED.
+  # Internal-only exposure is the fleet's hostname routing.
+  pipeline :storybook_browser do
+    plug(:accepts, ["html"])
+    plug(:fetch_session)
+    plug(:protect_from_forgery)
+    plug(FluxValeWeb.Plugs.StorybookEnabled)
+  end
+
+  scope "/" do
+    # Tool JS/CSS from the dep itself (Plug.Static on priv, no app
+    # data) — deliberately ungated; the LiveView above is the surface.
+    storybook_assets()
+  end
+
+  live_storybook("/storybook",
+    backend_module: FluxValeWeb.Storybook,
+    pipeline: false
+  )
 
   # Third-party gateway webhooks (#136, ADR-0029): unauthenticated —
   # the caller is the gateway; auth is the HMAC signature each
@@ -71,9 +97,9 @@ defmodule FluxValeWeb.Router do
   # the concurrent-gateways option open: new provider, new controller
   # + route, no dispatch table.
   scope "/webhooks", FluxValeWeb.Webhooks do
-    pipe_through :api
+    pipe_through(:api)
 
-    post "/hitpay", HitPayController, :create
+    post("/hitpay", HitPayController, :create)
   end
 
   # /api/v1 — the versioned JSON:API surface (#24 settles OQ #9: URL-prefix
@@ -83,13 +109,14 @@ defmodule FluxValeWeb.Router do
   # the spec offline from compiled resources anyway (v1's pattern), and
   # swaggerui authenticates through the session fallback in dev.
   scope "/api/v1" do
-    pipe_through [:api, :api_auth]
+    pipe_through([:api, :api_auth])
 
-    forward "/swaggerui", OpenApiSpex.Plug.SwaggerUI,
+    forward("/swaggerui", OpenApiSpex.Plug.SwaggerUI,
       path: "/api/v1/open_api",
       default_model_expand_depth: 4
+    )
 
-    forward "/", FluxValeWeb.AshJsonApiRouter
+    forward("/", FluxValeWeb.AshJsonApiRouter)
   end
 
   # #164: the public SEO routes — programmatic-SEO catalog pages, the
@@ -97,45 +124,45 @@ defmodule FluxValeWeb.Router do
   # authenticated live_session below is untouched: anonymous deploy clicks
   # 302 to /sign-in exactly as today.
   scope "/", FluxValeWeb do
-    pipe_through [:browser, :public_seo]
+    pipe_through([:browser, :public_seo])
 
-    get "/catalog", CatalogController, :index
-    get "/catalog/:slug", CatalogController, :show
+    get("/catalog", CatalogController, :index)
+    get("/catalog/:slug", CatalogController, :show)
   end
 
   scope "/", FluxValeWeb do
-    pipe_through :sitemap
+    pipe_through(:sitemap)
 
-    get "/sitemap.xml", SitemapController, :show
+    get("/sitemap.xml", SitemapController, :show)
   end
 
   scope "/", FluxValeWeb do
-    pipe_through :browser
+    pipe_through(:browser)
 
-    get "/", PageController, :home
+    get("/", PageController, :home)
 
     # #21: passwordless sign-in — LiveView flow + the POST-only session
     # write (token in the body, never a URL)
-    live "/sign-in", AuthLive.SignIn
-    post "/auth/session", SessionController, :create
-    delete "/auth/session", SessionController, :delete
+    live("/sign-in", AuthLive.SignIn)
+    post("/auth/session", SessionController, :create)
+    delete("/auth/session", SessionController, :delete)
 
     # #74: the authenticated app surface — catalog browse, deploy stepper,
     # instance status. The on_mount gate resolves the actor from the M2
     # session and redirects to /sign-in without one.
     live_session :authenticated,
       on_mount: {FluxValeWeb.UserAuth, :ensure_authenticated} do
-      live "/apps", CatalogLive.Index
-      live "/apps/:slug", CatalogLive.Show
-      live "/apps/:slug/deploy", CatalogLive.Deploy
-      live "/instances", InstanceLive.Index
-      live "/instances/:id", InstanceLive.Show
-      live "/billing", BillingLive.Index
+      live("/apps", CatalogLive.Index)
+      live("/apps/:slug", CatalogLive.Show)
+      live("/apps/:slug/deploy", CatalogLive.Deploy)
+      live("/instances", InstanceLive.Index)
+      live("/instances/:id", InstanceLive.Show)
+      live("/billing", BillingLive.Index)
       # #137: the top-up wizard — steps live in LiveView state; the
       # return route is the gateway's landing (its reference query
       # param; the DB row is the truth, the status param is ignored).
-      live "/billing/topup", BillingLive.Topup
-      live "/billing/topup/return", BillingLive.Topup
+      live("/billing/topup", BillingLive.Topup)
+      live("/billing/topup/return", BillingLive.Topup)
     end
   end
 
@@ -152,36 +179,36 @@ defmodule FluxValeWeb.Router do
   # TEST_INBOX_ENABLED (runtime.exs); under prod config it 404s, which is
   # the route-absent exit criterion.
   pipeline :test_inbox_api do
-    plug :fetch_session
-    plug FluxValeWeb.Plugs.TestInboxEnabled
-    plug FluxValeWeb.Plugs.Authenticate
-    plug FluxValeWeb.Plugs.RequirePlatformAdmin, :json
+    plug(:fetch_session)
+    plug(FluxValeWeb.Plugs.TestInboxEnabled)
+    plug(FluxValeWeb.Plugs.Authenticate)
+    plug(FluxValeWeb.Plugs.RequirePlatformAdmin, :json)
   end
 
   # No protect_from_forgery, deliberately: the stock Swoosh preview's
   # clear-mailbox form carries no CSRF token, and the only POST it enables
   # clears a non-prod, admin-gated test inbox — no asset worth the 403s.
   pipeline :test_inbox_browser do
-    plug :fetch_session
-    plug :put_secure_browser_headers
-    plug FluxValeWeb.Plugs.TestInboxEnabled
-    plug FluxValeWeb.Plugs.Authenticate
-    plug FluxValeWeb.Plugs.RequirePlatformAdmin, :html
+    plug(:fetch_session)
+    plug(:put_secure_browser_headers)
+    plug(FluxValeWeb.Plugs.TestInboxEnabled)
+    plug(FluxValeWeb.Plugs.Authenticate)
+    plug(FluxValeWeb.Plugs.RequirePlatformAdmin, :html)
   end
 
   scope "/test-inbox", FluxValeWeb do
-    pipe_through :test_inbox_api
+    pipe_through(:test_inbox_api)
 
-    get "/api/mails", TestInboxController, :index
-    get "/api/mails/latest", TestInboxController, :latest
+    get("/api/mails", TestInboxController, :index)
+    get("/api/mails/latest", TestInboxController, :latest)
   end
 
   scope "/test-inbox" do
-    pipe_through :test_inbox_browser
+    pipe_through(:test_inbox_browser)
 
     # The stock Swoosh preview (list + per-mail pages) behind the gates;
     # the wrapper injects the runtime storage driver per-request
-    forward "/", FluxValeWeb.Plugs.TestInboxPreview
+    forward("/", FluxValeWeb.Plugs.TestInboxPreview)
   end
 
   # Enable LiveDashboard in development
@@ -194,9 +221,9 @@ defmodule FluxValeWeb.Router do
     import Phoenix.LiveDashboard.Router
 
     scope "/dev" do
-      pipe_through :browser
+      pipe_through(:browser)
 
-      live_dashboard "/dashboard", metrics: FluxValeWeb.Telemetry
+      live_dashboard("/dashboard", metrics: FluxValeWeb.Telemetry)
       # No Swoosh /dev/mailbox here: ADR-0023 Am. 3 — the gated TestInbox
       # above (#22) is the only sanctioned mail viewer; the stock mount
       # is public-by-design (it displays live login codes)
@@ -211,17 +238,17 @@ defmodule FluxValeWeb.Router do
     # #25, Catalog with #70, Infrastructure with #72.
     if Application.compile_env(:flux_vale, :ash_admin_domains) == [] do
       scope "/admin", FluxValeWeb do
-        pipe_through :browser
+        pipe_through(:browser)
 
-        get "/", AdminPlaceholderController, :home
+        get("/", AdminPlaceholderController, :home)
       end
     else
       import AshAdmin.Router
 
       scope "/admin" do
-        pipe_through :browser
+        pipe_through(:browser)
 
-        ash_admin "/"
+        ash_admin("/")
       end
     end
   end

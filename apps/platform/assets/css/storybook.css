@@ -1,0 +1,201 @@
+/* FluxVale Storybook bundle (#178).
+ *
+ * PhoenixStorybook loads THIS file instead of app.css, so it mirrors
+ * the app's token directives: ramp, Inter, semantic vars, dark-mode
+ * variant, heroicons plugin. Deliberately NO daisyUI — the design
+ * system is hand-written Tailwind, and the workshop must prove the
+ * components stand on the tokens alone.
+ */
+
+@import "tailwindcss" source(none);
+@source "../css";
+@source "../js";
+@source "../../lib/flux_vale_web";
+@source "../../storybook";
+
+@plugin "../vendor/heroicons";
+
+/* ------------------------------------------------------------------ */
+/* Brand ramp — Flux Stream amber (v1 heritage, static in both modes)  */
+/* ------------------------------------------------------------------ */
+@theme {
+  --color-brand-50: oklch(97% 0.02 70);
+  --color-brand-100: oklch(95% 0.045 68);
+  --color-brand-200: oklch(90% 0.08 65);
+  --color-brand-300: oklch(84% 0.12 60);
+  --color-brand-400: oklch(78% 0.15 58);
+  --color-brand-500: oklch(72% 0.17 55);
+  --color-brand-600: oklch(60% 0.17 50);
+  --color-brand-700: oklch(52% 0.15 48);
+  --color-brand-800: oklch(42% 0.11 47);
+  --color-brand-900: oklch(32% 0.07 48);
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/inter-latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/inter-latin-500-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/inter-latin-600-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/inter-latin-700-normal.woff2") format("woff2");
+}
+
+/* ------------------------------------------------------------------ */
+/* Semantic tokens — light (role-based; what components use)           */
+/* ------------------------------------------------------------------ */
+:root {
+  --primary: var(--color-brand-600);
+  --primary-hover: var(--color-brand-700);
+  --primary-active: var(--color-brand-800);
+  --primary-muted: var(--color-brand-50);
+  --on-primary: #ffffff;
+
+  --canvas: #fafaf9;
+  --panel: #ffffff;
+  --panel-raised: #f5f5f4;
+  --panel-sunken: #f0f0ef;
+
+  --ink: #1c1917;
+  --ink-muted: #57534e;
+  --ink-subtle: #78716c;
+
+  --line: #e7e5e4;
+  --line-strong: #d6d3d1;
+
+  --focus: var(--color-brand-500);
+
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --danger-hover: #b91c1c;
+
+  --success-muted: #ecfdf5;
+  --warning-muted: #fffbeb;
+  --danger-muted: #fef2f2;
+
+  --border-success: #6ee7b7;
+  --border-warning: #fcd34d;
+  --border-danger: #fca5a5;
+}
+
+/* ------------------------------------------------------------------ */
+/* Semantic tokens — dark. Both selectors: the app flips [data-theme]  */
+/* on <html>; the storybook's color-mode toggle puts .dark on the      */
+/* sandbox container.                                                  */
+/* ------------------------------------------------------------------ */
+[data-theme="dark"],
+.dark {
+  --primary: var(--color-brand-400);
+  --primary-hover: var(--color-brand-300);
+  --primary-active: var(--color-brand-500);
+  --primary-muted: oklch(78% 0.15 58 / 0.15);
+  --on-primary: var(--color-brand-900);
+
+  --canvas: #0f172a;
+  --panel: #1e293b;
+  --panel-raised: #334155;
+  --panel-sunken: #020617;
+
+  --ink: #f1f5f9;
+  --ink-muted: #94a3b8;
+  --ink-subtle: #64748b;
+
+  --line: #334155;
+  --line-strong: #475569;
+
+  --focus: var(--color-brand-400);
+
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --danger-hover: #ef4444;
+
+  --success-muted: oklch(70% 0.17 152 / 0.15);
+  --warning-muted: oklch(75% 0.18 70 / 0.15);
+  --danger-muted: oklch(70% 0.19 22 / 0.15);
+
+  --border-success: oklch(70% 0.17 152 / 0.3);
+  --border-warning: oklch(75% 0.18 70 / 0.3);
+  --border-danger: oklch(70% 0.19 22 / 0.3);
+}
+
+@theme inline {
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-muted: var(--primary-muted);
+  --color-on-primary: var(--on-primary);
+
+  --color-canvas: var(--canvas);
+  --color-panel: var(--panel);
+  --color-panel-raised: var(--panel-raised);
+  --color-panel-sunken: var(--panel-sunken);
+
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-subtle: var(--ink-subtle);
+
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-line-success: var(--border-success);
+  --color-line-warning: var(--border-warning);
+  --color-line-danger: var(--border-danger);
+
+  --color-focus: var(--focus);
+
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-success-muted: var(--success-muted);
+  --color-warning-muted: var(--warning-muted);
+  --color-danger-muted: var(--danger-muted);
+}
+
+@utility bg-brand-gradient {
+  background-image: linear-gradient(
+    135deg,
+    var(--color-brand-400),
+    var(--color-brand-600),
+    var(--color-brand-700)
+  );
+}
+
+/* Both dark-mode triggers (see the dark token block above). */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *, .dark, .dark *));
+
+[data-phx-session], [data-phx-teleported-src] { display: contents }
+
+html {
+  background-color: var(--canvas);
+}
+
+body {
+  background-color: var(--canvas);
+  color: var(--ink);
+}

@@ -7,9 +7,16 @@
     :ash_phoenix,
     :ecto,
     :ecto_sql,
-    :phoenix
+    :phoenix,
+    # keeps the storybook DSL (#178) paren-free, like the app's
+    :phoenix_storybook
   ],
   subdirectories: ["priv/*/migrations"],
   plugins: [Spark.Formatter, Phoenix.LiveView.HTMLFormatter],
-  inputs: ["*.{heex,ex,exs}", "{config,lib,test}/**/*.{heex,ex,exs}", "priv/*/seeds.exs"]
+  inputs: [
+    "*.{heex,ex,exs}",
+    "{config,lib,test}/**/*.{heex,ex,exs}",
+    "priv/*/seeds.exs",
+    "storybook/**/*.exs"
+  ]
 ]

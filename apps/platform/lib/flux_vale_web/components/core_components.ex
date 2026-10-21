@@ -1,31 +1,23 @@
 defmodule FluxValeWeb.CoreComponents do
   @moduledoc """
-  Provides core UI components.
+  The FluxVale design system (#178): the core UI components on the
+  amber token set (see `assets/css/app.css` — v1 heritage ramp).
 
-  At first glance, this module may seem daunting, but its goal is to provide
-  core building blocks for your application, such as tables, forms, and
-  inputs. The components consist mostly of markup and are well-documented
-  with doc strings and declarative assigns. You may customize and style
-  them in any way you want, based on your application growth and needs.
+  Hand-written Tailwind utilities on semantic tokens (`bg-primary`,
+  `text-ink`, `border-line`, …) — no daisyUI classes here. The full set
+  is showcased in the storybook (`FluxValeWeb.Storybook`, /storybook):
+  every component there renders through this module, so the storybook
+  is the living reference.
 
-  The foundation for styling is Tailwind CSS, a utility-first CSS framework,
-  augmented with daisyUI, a Tailwind CSS plugin that provides UI components
-  and themes. Here are useful references:
+  Colors: `primary` (amber) for actions and emphasis; `ink`/`ink-muted`/
+  `ink-subtle` for text; `canvas`/`panel`/`panel-raised` for surfaces;
+  `success`/`warning`/`danger` for state. Both modes flip via
+  `[data-theme=dark]`.
 
-    * [daisyUI](https://daisyui.com/docs/intro/) - a good place to get
-      started and see the available components.
-
-    * [Tailwind CSS](https://tailwindcss.com) - the foundational framework
-      we build on. You will use it for layout, sizing, flexbox, grid, and
-      spacing.
-
-    * [Heroicons](https://heroicons.com) - see `icon/1` for usage.
-
-    * [Phoenix.Component](https://phoenix-live-view.hexdocs.pm/Phoenix.Component.html) -
-      the component system used by Phoenix. Some components, such as `<.link>`
-      and `<.form>`, are defined there.
-
+  Callers may pass `class` to any component: it is appended to (not
+  replacing) the component's own classes.
   """
+
   use Phoenix.Component
 
   alias FluxValeWeb.InstanceStatus
@@ -36,7 +28,7 @@ defmodule FluxValeWeb.CoreComponents do
   alias Phoenix.LiveView.JS
 
   @doc """
-  Renders flash notices.
+  Renders flash notices as top-right toasts.
 
   ## Examples
 
@@ -50,13 +42,13 @@ defmodule FluxValeWeb.CoreComponents do
         Welcome Back!
       </.flash>
   """
-  attr :id, :string, doc: "the optional id of flash container"
-  attr :flash, :map, default: %{}, doc: "the map of flash messages to display"
-  attr :title, :string, default: nil
-  attr :kind, :atom, values: [:info, :error], doc: "used for styling and flash lookup"
-  attr :rest, :global, doc: "the arbitrary HTML attributes to add to the flash container"
+  attr(:id, :string, doc: "the optional id of flash container")
+  attr(:flash, :map, default: %{}, doc: "the map of flash messages to display")
+  attr(:title, :string, default: nil)
+  attr(:kind, :atom, values: [:info, :error], doc: "used for styling and flash lookup")
+  attr(:rest, :global, doc: "the arbitrary HTML attributes to add to the flash container")
 
-  slot :inner_block, doc: "the optional inner block that renders the flash message"
+  slot(:inner_block, doc: "the optional inner block that renders the flash message")
 
   def flash(assigns) do
     assigns = assign_new(assigns, :id, fn -> "flash-#{assigns.kind}" end)
@@ -67,23 +59,30 @@ defmodule FluxValeWeb.CoreComponents do
       id={@id}
       phx-click={JS.push("lv:clear-flash", value: %{key: @kind}) |> hide("##{@id}")}
       role="alert"
-      class="toast toast-top toast-end z-50"
+      class="fixed top-4 right-4 z-50 w-[calc(100%-2rem)] max-w-sm"
       {@rest}
     >
       <div class={[
-        "alert w-80 sm:w-96 max-w-80 sm:max-w-96 text-wrap",
-        @kind == :info && "alert-info",
-        @kind == :error && "alert-error"
+        "pointer-events-auto flex items-start gap-3 rounded-xl border bg-panel p-4 shadow-lg",
+        @kind == :info && "border-line text-ink",
+        @kind == :error && "border-line-danger text-ink"
       ]}>
-        <.icon :if={@kind == :info} name="hero-information-circle" class="size-5 shrink-0" />
-        <.icon :if={@kind == :error} name="hero-exclamation-circle" class="size-5 shrink-0" />
-        <div>
-          <p :if={@title} class="font-semibold">{@title}</p>
-          <p>{msg}</p>
+        <.icon
+          :if={@kind == :info}
+          name="hero-information-circle"
+          class="mt-0.5 size-5 shrink-0 text-primary"
+        />
+        <.icon
+          :if={@kind == :error}
+          name="hero-exclamation-circle"
+          class="mt-0.5 size-5 shrink-0 text-danger"
+        />
+        <div class="min-w-0 flex-1">
+          <p :if={@title} class="text-sm font-semibold">{@title}</p>
+          <p class="text-sm text-ink-muted">{msg}</p>
         </div>
-        <div class="flex-1" />
-        <button type="button" class="group self-start cursor-pointer" aria-label={gettext("close")}>
-          <.icon name="hero-x-mark" class="size-5 opacity-40 group-hover:opacity-70" />
+        <button type="button" class="group -m-1 cursor-pointer p-1" aria-label={gettext("close")}>
+          <.icon name="hero-x-mark" class="size-4 text-ink-subtle group-hover:text-ink-muted" />
         </button>
       </div>
     </div>
@@ -91,31 +90,61 @@ defmodule FluxValeWeb.CoreComponents do
   end
 
   @doc """
-  Renders a button with navigation support.
+  Renders a button (or link, via `href`/`navigate`/`patch`) on the
+  design system's button styles.
 
   ## Examples
 
       <.button>Send!</.button>
-      <.button phx-click="go" variant="primary">Send!</.button>
+      <.button phx-click="go" variant="secondary" size="sm">Cancel</.button>
       <.button navigate={~p"/"}>Home</.button>
   """
-  attr :rest, :global, include: ~w(href navigate patch method download name value disabled)
-  attr :class, :any
-  attr :variant, :string, values: ~w(primary)
+  attr(:rest, :global, include: ~w(href navigate patch method download name value disabled))
+  attr(:class, :any, default: nil, doc: "appended to the variant/size classes")
+
+  attr(:variant, :string,
+    values: ~w(primary secondary ghost destructive),
+    default: "primary",
+    doc: "primary = amber action, secondary = bordered panel, ghost = text"
+  )
+
+  attr(:size, :string, values: ~w(sm md lg), default: "md")
+
   # #21: form-submit buttons need explicit type="submit" (default is "button"
   # per the HTML spec only when inside forms — be deliberate)
-  attr :type, :string, default: nil
-  slot :inner_block, required: true
+  attr(:type, :string, default: nil)
+  slot(:inner_block, required: true)
 
-  def button(%{rest: rest} = assigns) do
-    variants = %{"primary" => "btn-primary", nil => "btn-primary btn-soft"}
+  def button(assigns) do
+    base =
+      "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors outline-offset-2 outline-focus focus-visible:outline-2 disabled:pointer-events-none disabled:opacity-50"
+
+    variants = %{
+      "primary" =>
+        "bg-primary text-on-primary shadow-sm hover:bg-primary-hover active:bg-primary-active",
+      "secondary" =>
+        "border border-line-strong bg-panel text-ink shadow-sm hover:bg-panel-raised",
+      "ghost" => "text-ink-muted hover:bg-panel-raised hover:text-ink",
+      "destructive" => "border border-line-danger bg-panel text-danger hover:bg-danger-muted"
+    }
+
+    sizes = %{
+      "sm" => "h-8 px-3 text-xs",
+      "md" => "h-10 px-4 text-sm",
+      "lg" => "h-12 px-6 text-base"
+    }
 
     assigns =
-      assign_new(assigns, :class, fn ->
-        ["btn", Map.fetch!(variants, assigns[:variant])]
-      end)
+      assign(assigns,
+        class: [
+          base,
+          Map.fetch!(variants, assigns.variant),
+          Map.fetch!(sizes, assigns.size),
+          assigns[:class]
+        ]
+      )
 
-    if rest[:href] || rest[:navigate] || rest[:patch] do
+    if assigns.rest[:href] || assigns.rest[:navigate] || assigns.rest[:patch] do
       ~H"""
       <.link class={@class} {@rest}>
         {render_slot(@inner_block)}
@@ -170,39 +199,49 @@ defmodule FluxValeWeb.CoreComponents do
   For more information on what kind of data can be passed to `options` see
   [`options_for_select`](https://phoenix-html.hexdocs.pm/Phoenix.HTML.Form.html#options_for_select/2).
   """
-  attr :id, :any, default: nil
-  attr :name, :any
-  attr :label, :string, default: nil
-  attr :value, :any
+  attr(:id, :any, default: nil)
+  # default nil: stories/playground call without a form field — a bare
+  # attr would KeyError on @name there (the field clause sets it for
+  # form callers).
+  attr(:name, :any, default: nil)
+  attr(:label, :string, default: nil)
+  attr(:value, :any, default: nil)
 
-  attr :type, :string,
+  attr(:type, :string,
     default: "text",
     values: ~w(checkbox color date datetime-local email file month number password
                search select tel text textarea time url week hidden)
+  )
 
-  attr :field, Phoenix.HTML.FormField,
+  attr(:field, Phoenix.HTML.FormField,
     doc: "a form field struct retrieved from the form, for example: @form[:email]"
+  )
 
-  attr :errors, :list, default: []
-  attr :checked, :boolean, doc: "the checked flag for checkbox inputs"
-  attr :prompt, :string, default: nil, doc: "the prompt for select inputs"
-  attr :options, :list, doc: "the options to pass to Phoenix.HTML.Form.options_for_select/2"
-  attr :multiple, :boolean, default: false, doc: "the multiple flag for select inputs"
-  attr :class, :any, default: nil, doc: "the input class to use over defaults"
-  attr :error_class, :any, default: nil, doc: "the input error class to use over defaults"
+  attr(:errors, :list, default: [])
+  attr(:checked, :boolean, doc: "the checked flag for checkbox inputs")
+  attr(:prompt, :string, default: nil, doc: "the prompt for select inputs")
+  attr(:options, :list, doc: "the options to pass to Phoenix.HTML.Form.options_for_select/2")
+  attr(:multiple, :boolean, default: false, doc: "the multiple flag for select inputs")
+  attr(:class, :any, default: nil, doc: "the input class to use over defaults")
+  attr(:error_class, :any, default: nil, doc: "the input error class to use over defaults")
 
-  attr :rest, :global,
+  attr(:rest, :global,
     include: ~w(accept autocomplete capture cols disabled form list max maxlength min minlength
                 multiple pattern placeholder readonly required rows size step)
+  )
 
   def input(%{field: %Phoenix.HTML.FormField{} = field} = assigns) do
     errors = if Phoenix.Component.used_input?(field), do: field.errors, else: []
 
+    # explicit caller attrs win over the field's; the attr defaults
+    # (nil) would otherwise shadow the field via assign_new
+    name = assigns[:name] || if(assigns.multiple, do: field.name <> "[]", else: field.name)
+
     assigns
     |> assign(field: nil, id: assigns.id || field.id)
     |> assign(:errors, Enum.map(errors, &translate_error(&1)))
-    |> assign_new(:name, fn -> if assigns.multiple, do: field.name <> "[]", else: field.name end)
-    |> assign_new(:value, fn -> field.value end)
+    |> assign(:name, name)
+    |> assign(:value, assigns[:value] || field.value)
     |> input()
   end
 
@@ -219,41 +258,37 @@ defmodule FluxValeWeb.CoreComponents do
       end)
 
     ~H"""
-    <div class="fieldset mb-2">
-      <label for={@id}>
-        <input
-          type="hidden"
-          name={@name}
-          value="false"
-          disabled={@rest[:disabled]}
-          form={@rest[:form]}
-        />
-        <span class="label">
-          <input
-            type="checkbox"
-            id={@id}
-            name={@name}
-            value="true"
-            checked={@checked}
-            class={@class || "checkbox checkbox-sm"}
-            {@rest}
-          />{@label}
-        </span>
-      </label>
-      <.error :for={msg <- @errors}>{msg}</.error>
-    </div>
+    <label for={@id} class="flex items-center gap-2.5 mb-4 text-sm text-ink">
+      <input
+        type="hidden"
+        name={@name}
+        value="false"
+        disabled={@rest[:disabled]}
+        form={@rest[:form]}
+      />
+      <input
+        type="checkbox"
+        id={@id}
+        name={@name}
+        value="true"
+        checked={@checked}
+        class={@class || "size-4 rounded border-line-strong accent-primary"}
+        {@rest}
+      />{@label}
+    </label>
+    <.error :for={msg <- @errors}>{msg}</.error>
     """
   end
 
   def input(%{type: "select"} = assigns) do
     ~H"""
-    <div class="fieldset mb-2">
+    <div class="mb-4">
       <label for={@id}>
-        <span :if={@label} class="label mb-1">{@label}</span>
+        <span :if={@label} class="mb-1.5 block text-sm font-medium text-ink">{@label}</span>
         <select
           id={@id}
           name={@name}
-          class={[@class || "w-full select", @errors != [] && (@error_class || "select-error")]}
+          class={control_class(assigns)}
           multiple={@multiple}
           {@rest}
         >
@@ -268,16 +303,13 @@ defmodule FluxValeWeb.CoreComponents do
 
   def input(%{type: "textarea"} = assigns) do
     ~H"""
-    <div class="fieldset mb-2">
+    <div class="mb-4">
       <label for={@id}>
-        <span :if={@label} class="label mb-1">{@label}</span>
+        <span :if={@label} class="mb-1.5 block text-sm font-medium text-ink">{@label}</span>
         <textarea
           id={@id}
           name={@name}
-          class={[
-            @class || "w-full textarea",
-            @errors != [] && (@error_class || "textarea-error")
-          ]}
+          class={control_class(assigns) ++ ["min-h-24"]}
           {@rest}
         >{Form.normalize_value("textarea", @value)}</textarea>
       </label>
@@ -289,18 +321,15 @@ defmodule FluxValeWeb.CoreComponents do
   # All other inputs text, datetime-local, url, password, etc. are handled here...
   def input(assigns) do
     ~H"""
-    <div class="fieldset mb-2">
+    <div class="mb-4">
       <label for={@id}>
-        <span :if={@label} class="label mb-1">{@label}</span>
+        <span :if={@label} class="mb-1.5 block text-sm font-medium text-ink">{@label}</span>
         <input
           type={@type}
           name={@name}
           id={@id}
           value={Form.normalize_value(@type, @value)}
-          class={[
-            @class || "w-full input",
-            @errors != [] && (@error_class || "input-error")
-          ]}
+          class={control_class(assigns)}
           {@rest}
         />
       </label>
@@ -309,36 +338,146 @@ defmodule FluxValeWeb.CoreComponents do
     """
   end
 
+  # Shared input chrome: control classes flip to danger when the field
+  # has errors (caller may override either via class/error_class).
+  defp control_class(%{errors: errors} = assigns) do
+    base =
+      "w-full rounded-lg border bg-panel px-3 py-2 text-sm text-ink shadow-sm transition-colors placeholder:text-ink-subtle focus:outline-none focus:ring-2 disabled:opacity-50"
+
+    focus =
+      if errors != [],
+        do: "border-danger focus:border-danger focus:ring-danger/25",
+        else: "border-line focus:border-primary focus:ring-focus/25"
+
+    [assigns[:class] || base, assigns[:error_class] || focus]
+    |> Enum.reject(&is_nil/1)
+  end
+
   # Helper used by inputs to generate form errors
   defp error(assigns) do
     ~H"""
-    <p class="mt-1.5 flex gap-2 items-center text-sm text-error">
-      <.icon name="hero-exclamation-circle" class="size-5" />
+    <p class="mt-1.5 flex gap-1.5 items-center text-xs text-danger">
+      <.icon name="hero-exclamation-circle-mini" class="size-4 shrink-0" />
       {render_slot(@inner_block)}
     </p>
     """
   end
 
   @doc """
-  Renders a header with title.
+  Renders a page header with title, optional subtitle, and actions.
+
+  ## Examples
+
+      <.header>
+        Catalog
+        <:subtitle>One click from browse to a running instance.</:subtitle>
+        <:actions><.button>Deploy</.button></:actions>
+      </.header>
   """
-  slot :inner_block, required: true
-  slot :subtitle
-  slot :actions
+  slot(:inner_block, required: true)
+  slot(:subtitle)
+  slot(:actions)
 
   def header(assigns) do
     ~H"""
-    <header class={[@actions != [] && "flex items-center justify-between gap-6", "pb-4"]}>
+    <header class={[@actions != [] && "flex flex-wrap items-center justify-between gap-4", "pb-6"]}>
       <div>
-        <h1 class="text-lg font-semibold leading-8">
+        <h1 class="text-2xl font-semibold tracking-tight text-ink">
           {render_slot(@inner_block)}
         </h1>
-        <p :if={@subtitle != []} class="text-sm text-base-content/70">
+        <p :if={@subtitle != []} class="mt-1 text-sm text-ink-muted">
           {render_slot(@subtitle)}
         </p>
       </div>
       <div class="flex-none">{render_slot(@actions)}</div>
     </header>
+    """
+  end
+
+  @doc """
+  Renders a card — the system's primary surface for grouping content.
+
+  ## Examples
+
+      <.card>
+        <h2 class="font-semibold">Balance</h2>
+      </.card>
+      <.card class="p-6">…</.card>
+  """
+  attr(:class, :any, default: nil, doc: "appended classes (e.g. padding overrides)")
+  attr(:rest, :global)
+  slot(:inner_block, required: true)
+
+  def card(assigns) do
+    ~H"""
+    <div class={["rounded-xl border border-line bg-panel shadow-sm p-5", @class]} {@rest}>
+      {render_slot(@inner_block)}
+    </div>
+    """
+  end
+
+  @doc """
+  Renders a small pill for metadata (categories, sizes, prices) or
+  status. For instance lifecycle states use `status_badge/1`.
+
+  ## Examples
+
+      <.badge>2 CPU</.badge>
+      <.badge tone="primary">$9/mo</.badge>
+  """
+  attr(:tone, :string, values: ~w(neutral primary success warning danger), default: "neutral")
+  attr(:class, :any, default: nil)
+  attr(:rest, :global)
+  slot(:inner_block, required: true)
+
+  def badge(assigns) do
+    tones = %{
+      "neutral" => "border-line bg-panel-raised text-ink-muted",
+      "primary" => "border-primary/25 bg-primary-muted text-primary",
+      "success" => "border-line-success bg-success-muted text-success",
+      "warning" => "border-line-warning bg-warning-muted text-warning",
+      "danger" => "border-line-danger bg-danger-muted text-danger"
+    }
+
+    assigns = assign(assigns, :class, [Map.fetch!(tones, assigns.tone), assigns[:class]])
+
+    ~H"""
+    <span
+      class={[
+        "fv-badge inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
+        @class
+      ]}
+      {@rest}
+    >
+      {render_slot(@inner_block)}
+    </span>
+    """
+  end
+
+  @doc """
+  Renders an empty-state block (no instances yet, empty catalog, …).
+
+  ## Examples
+
+      <.empty_state title="No instances yet">
+        Deploy your first app from the catalog.
+      </.empty_state>
+  """
+  attr(:title, :string, required: true)
+  attr(:class, :any, default: nil)
+  slot(:inner_block, doc: "optional supporting copy below the title")
+
+  def empty_state(assigns) do
+    ~H"""
+    <div class={[
+      "flex flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-line-strong bg-panel px-6 py-16 text-center",
+      @class
+    ]}>
+      <p class="text-sm font-medium text-ink">{@title}</p>
+      <p :if={@inner_block != []} class="text-sm text-ink-muted">
+        {render_slot(@inner_block)}
+      </p>
+    </div>
     """
   end
 
@@ -352,20 +491,21 @@ defmodule FluxValeWeb.CoreComponents do
         <:col :let={user} label="username">{user.username}</:col>
       </.table>
   """
-  attr :id, :string, required: true
-  attr :rows, :list, required: true
-  attr :row_id, :any, default: nil, doc: "the function for generating the row id"
-  attr :row_click, :any, default: nil, doc: "the function for handling phx-click on each row"
+  attr(:id, :string, required: true)
+  attr(:rows, :list, required: true)
+  attr(:row_id, :any, default: nil, doc: "the function for generating the row id")
+  attr(:row_click, :any, default: nil, doc: "the function for handling phx-click on each row")
 
-  attr :row_item, :any,
+  attr(:row_item, :any,
     default: &Function.identity/1,
     doc: "the function for mapping each row before calling the :col and :action slots"
+  )
 
   slot :col, required: true do
-    attr :label, :string
+    attr(:label, :string)
   end
 
-  slot :action, doc: "the slot for showing user actions in the last table column"
+  slot(:action, doc: "the slot for showing user actions in the last table column")
 
   def table(assigns) do
     assigns =
@@ -374,34 +514,40 @@ defmodule FluxValeWeb.CoreComponents do
       end
 
     ~H"""
-    <table class="table table-zebra">
-      <thead>
-        <tr>
-          <th :for={col <- @col}>{col[:label]}</th>
-          <th :if={@action != []}>
-            <span class="sr-only">{gettext("Actions")}</span>
-          </th>
-        </tr>
-      </thead>
-      <tbody id={@id} phx-update={is_struct(@rows, Phoenix.LiveView.LiveStream) && "stream"}>
-        <tr :for={row <- @rows} id={@row_id && @row_id.(row)}>
-          <td
-            :for={col <- @col}
-            phx-click={@row_click && @row_click.(row)}
-            class={@row_click && "hover:cursor-pointer"}
+    <div class="overflow-x-auto rounded-xl border border-line bg-panel">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-line text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
+            <th :for={col <- @col} class="px-4 py-3 font-medium">{col[:label]}</th>
+            <th :if={@action != []}>
+              <span class="sr-only">{gettext("Actions")}</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody id={@id} phx-update={is_struct(@rows, Phoenix.LiveView.LiveStream) && "stream"}>
+          <tr
+            :for={row <- @rows}
+            id={@row_id && @row_id.(row)}
+            class="border-b border-line last:border-0 hover:bg-panel-raised/60"
           >
-            {render_slot(col, @row_item.(row))}
-          </td>
-          <td :if={@action != []} class="w-0 font-semibold">
-            <div class="flex gap-4">
-              <%= for action <- @action do %>
-                {render_slot(action, @row_item.(row))}
-              <% end %>
-            </div>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+            <td
+              :for={col <- @col}
+              phx-click={@row_click && @row_click.(row)}
+              class={["px-4 py-3", @row_click && "hover:cursor-pointer"]}
+            >
+              {render_slot(col, @row_item.(row))}
+            </td>
+            <td :if={@action != []} class="w-0 px-4 py-3 font-semibold">
+              <div class="flex gap-4">
+                <%= for action <- @action do %>
+                  {render_slot(action, @row_item.(row))}
+                <% end %>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
     """
   end
 
@@ -416,16 +562,16 @@ defmodule FluxValeWeb.CoreComponents do
       </.list>
   """
   slot :item, required: true do
-    attr :title, :string, required: true
+    attr(:title, :string, required: true)
   end
 
   def list(assigns) do
     ~H"""
-    <ul class="list">
-      <li :for={item <- @item} class="list-row">
-        <div class="list-col-grow">
-          <div class="font-bold">{item.title}</div>
-          <div>{render_slot(item)}</div>
+    <ul class="divide-y divide-line">
+      <li :for={item <- @item} class="flex gap-4 py-3">
+        <div class="min-w-0 flex-1">
+          <div class="text-sm font-medium text-ink">{item.title}</div>
+          <div class="text-sm text-ink-muted">{render_slot(item)}</div>
         </div>
       </li>
     </ul>
@@ -450,8 +596,8 @@ defmodule FluxValeWeb.CoreComponents do
       <.icon name="hero-x-mark" />
       <.icon name="hero-arrow-path" class="ml-1 size-3 motion-safe:animate-spin" />
   """
-  attr :name, :string, required: true
-  attr :class, :any, default: "size-4"
+  attr(:name, :string, required: true)
+  attr(:class, :any, default: "size-4")
 
   def icon(%{name: "hero-" <> _} = assigns) do
     ~H"""
@@ -461,33 +607,79 @@ defmodule FluxValeWeb.CoreComponents do
 
   @doc """
   Renders an Instance status badge (#74) — one per state-machine state,
-  with a pulse on the in-motion ones (deploying/starting/deleting).
+  with a pulsing dot on the in-motion ones (deploying/starting/deleting).
   No DOM id: the badge appears once per row in lists, and ids must stay
-  unique — assert via `.badge` + text. The label is #179's user-facing
-  vocabulary (Submitted/Provisioning/…), never the internal atom.
+  unique — assert via `[data-testid=status-badge]` + text. The label
+  is #179's user-facing vocabulary (Submitted/Provisioning/…), never
+  the internal atom.
   """
-  attr :status, :atom, required: true
+  attr(:status, :atom, required: true)
 
   def status_badge(%{status: status} = assigns) do
-    classes = %{
-      pending: "badge-ghost",
-      deploying: "badge-warning motion-safe:animate-pulse",
-      starting: "badge-warning motion-safe:animate-pulse",
-      running: "badge-success",
-      stopped: "badge-ghost",
-      error: "badge-error",
-      deleting: "badge-error motion-safe:animate-pulse"
-    }
+    # {classes, dot} — dot pulses on in-motion states.
+    {classes, dot} =
+      case status do
+        :pending -> {"border-line bg-panel-raised text-ink-muted", "static"}
+        :deploying -> {"border-line-warning bg-warning-muted text-warning", "pulse"}
+        :starting -> {"border-line-warning bg-warning-muted text-warning", "pulse"}
+        :running -> {"border-line-success bg-success-muted text-success", "static"}
+        :stopped -> {"border-line bg-panel-raised text-ink-muted", "none"}
+        :error -> {"border-line-danger bg-danger-muted text-danger", "static"}
+        :deleting -> {"border-line-danger bg-danger-muted text-danger", "pulse"}
+        _other -> {"border-line bg-panel-raised text-ink-muted", "none"}
+      end
 
     assigns =
-      assigns
-      |> assign(:class, Map.get(classes, status, "badge-ghost"))
-      |> assign(:label, InstanceStatus.label(status))
+      assign(assigns,
+        classes: classes,
+        dot: dot,
+        label: InstanceStatus.label(status)
+      )
 
     ~H"""
-    <span class={["badge badge-sm font-medium", @class]} data-testid="status-badge">
+    <span
+      class={[
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
+        @classes
+      ]}
+      data-testid="status-badge"
+    >
+      <span
+        :if={@dot != "none"}
+        class={["size-1.5 rounded-full bg-current", @dot == "pulse" && "motion-safe:animate-pulse"]}
+      />
       {@label}
     </span>
+    """
+  end
+
+  @doc """
+  Renders a nav bar link (app chrome, public chrome, landing header).
+  Active state highlights with the primary-muted wash.
+
+  ## Examples
+
+      <.nav_link navigate={~p"/apps"} active={@active}>Catalog</.nav_link>
+  """
+  attr(:active, :boolean, default: false)
+  attr(:class, :any, default: nil)
+  attr(:rest, :global, include: ~w(href navigate patch method download))
+
+  slot(:inner_block, required: true)
+
+  def nav_link(assigns) do
+    ~H"""
+    <.link
+      class={[
+        "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+        @active && "bg-primary-muted text-primary",
+        !@active && "text-ink-muted hover:bg-panel-raised hover:text-ink",
+        @class
+      ]}
+      {@rest}
+    >
+      {render_slot(@inner_block)}
+    </.link>
     """
   end
 
@@ -518,10 +710,10 @@ defmodule FluxValeWeb.CoreComponents do
   Translates an error message using gettext.
   """
   def translate_error({msg, opts}) do
-    # When using gettext, we typically pass the strings we want
-    # to translate as a static argument:
+    # When using gettext, we typically pass the strings we want to
+    # translate as a static argument:
     #
-    #     # Translate the number of files with plural rules
+    #     # Translate the plural forms of the number of files
     #     dngettext("errors", "1 file", "%{count} files", count)
     #
     # However the error messages in our forms and APIs are generated

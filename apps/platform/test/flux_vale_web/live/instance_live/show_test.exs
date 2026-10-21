@@ -70,7 +70,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
     # #179: the arc vocabulary, not the internal atom — and no k8s term
     # anywhere on the surface.
-    assert has_element?(view, ".badge", "Submitted")
+    assert has_element?(view, "[data-testid=status-badge]", "Submitted")
     assert has_element?(view, "[data-testid='status-message']", "We've got your request")
     refute_k8s_terms(html)
     assert html =~ "#{instance.slug}.fluxvale.lvh.me"
@@ -199,7 +199,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     # the row per broadcast, so a follow-up render is the settled truth.
     render(view)
 
-    assert has_element?(view, ".badge", "Starting")
+    assert has_element?(view, "[data-testid=status-badge]", "Starting")
   end
 
   test "stop and start buttons drive the state machine", %{
@@ -218,13 +218,13 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     |> element("button[phx-click='stop']")
     |> render_click()
 
-    assert has_element?(view, ".badge", "Stopped")
+    assert has_element?(view, "[data-testid=status-badge]", "Stopped")
 
     view
     |> element("button[phx-click='start']")
     |> render_click()
 
-    assert has_element?(view, ".badge", "Starting")
+    assert has_element?(view, "[data-testid=status-badge]", "Starting")
   end
 
   # The illegal-transition arms: a stale event (state moved server-side
@@ -250,7 +250,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     html = render_click(view, "deploy", %{})
 
     assert html =~ "Deploy isn&#39;t possible"
-    assert has_element?(view, ".badge", "Running")
+    assert has_element?(view, "[data-testid=status-badge]", "Running")
   end
 
   test "a stale stop event flashes instead of crashing", %{
@@ -272,7 +272,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     html = render_click(view, "stop", %{})
 
     assert html =~ "action isn&#39;t possible"
-    assert has_element?(view, ".badge", "Stopped")
+    assert has_element?(view, "[data-testid=status-badge]", "Stopped")
   end
 
   test "a deleting instance shows the teardown state and no controls", %{
@@ -289,7 +289,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
     html = render(view)
 
-    assert has_element?(view, ".badge", "Deleting")
+    assert has_element?(view, "[data-testid=status-badge]", "Deleting")
     assert has_element?(view, "[data-testid='status-message']", "Cleaning up")
     refute_k8s_terms(html)
     refute has_element?(view, "button[phx-click='delete']")
@@ -322,7 +322,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
     html = render(view)
 
-    assert has_element?(view, ".badge", "Running")
+    assert has_element?(view, "[data-testid=status-badge]", "Running")
     assert has_element?(view, "[data-testid='status-message']", "up and running")
     refute_k8s_terms(html)
     assert has_element?(view, "a[href^='https://#{instance.slug}.']")
@@ -349,7 +349,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
     # Unchanged: the view holds its state (the :destroy clause is the exit)
     assert render(view) =~ instance.name
-    assert has_element?(view, ".badge", "Submitted")
+    assert has_element?(view, "[data-testid=status-badge]", "Submitted")
     refute html =~ "isn&#39;t possible"
   end
 
@@ -366,22 +366,22 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     instance = create_instance!(version, user)
     {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
 
-    assert has_element?(view, ".badge", "Submitted")
+    assert has_element?(view, "[data-testid=status-badge]", "Submitted")
     assert has_element?(view, "[data-testid='status-message']", "setup will begin shortly")
 
     deploying = InstanceFixtures.walk_to!(instance, :deploying)
     render(view)
-    assert has_element?(view, ".badge", "Provisioning")
+    assert has_element?(view, "[data-testid=status-badge]", "Provisioning")
     assert has_element?(view, "[data-testid='status-message']", "Setting up your app")
 
     {:ok, _starting} = InstanceK8s.update_status(deploying, :starting, "awaiting readiness")
     render(view)
-    assert has_element?(view, ".badge", "Starting")
+    assert has_element?(view, "[data-testid=status-badge]", "Starting")
     assert has_element?(view, "[data-testid='status-message']", "Starting it up")
 
     InstanceFixtures.walk_to!(instance, :running)
     html = render(view)
-    assert has_element?(view, ".badge", "Running")
+    assert has_element?(view, "[data-testid=status-badge]", "Running")
     assert has_element?(view, "[data-testid='status-message']", "up and running")
     refute_k8s_terms(html)
   end
@@ -446,7 +446,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     html = render(view)
 
     # The user sees the failure vocabulary + a next step — and nothing else.
-    assert has_element?(view, ".badge", "Failed")
+    assert has_element?(view, "[data-testid=status-badge]", "Failed")
     assert has_element?(view, "[data-testid='status-message']", "We hit a snag")
     assert has_element?(view, "button[phx-click='deploy']", "Retry deploy")
     refute_k8s_terms(html)
@@ -510,7 +510,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
     {:ok, owner_view, owner_html} = live(owner_conn, ~p"/instances/#{owned.id}")
 
-    assert has_element?(owner_view, ".badge", "Failed")
+    assert has_element?(owner_view, "[data-testid=status-badge]", "Failed")
     assert has_element?(owner_view, "[data-testid='status-message']", "We hit a snag")
     refute has_element?(owner_view, "[data-testid='admin-technical']")
     refute_k8s_terms(owner_html)
@@ -538,7 +538,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
     # Fresh clock → still the progress copy; the tick re-rendered
     # without crashing and without any row write.
-    assert has_element?(view, ".badge", "Provisioning")
+    assert has_element?(view, "[data-testid=status-badge]", "Provisioning")
     assert has_element?(view, "[data-testid='status-message']", "Setting up your app")
     refute_k8s_terms(html)
   end
@@ -555,7 +555,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
     send(view.pid, :status_tick)
 
-    assert has_element?(view, ".badge", "Running")
+    assert has_element?(view, "[data-testid=status-badge]", "Running")
     assert has_element?(view, "[data-testid='status-message']", "up and running")
   end
 end

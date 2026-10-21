@@ -145,6 +145,14 @@ if System.get_env("TEST_INBOX_ENABLED") in ["true", "1"] do
   config :swoosh, :local, true
 end
 
+# The storybook workshop (#178): same gated-release shape as the
+# TestInbox — staging (the same prod-mode release as prod, ADR-0010)
+# flips it where the fleet attaches storybook.fluxvale.com; prod leaves
+# it unset and /storybook 404s (= absent).
+if System.get_env("STORYBOOK_ENABLED") in ["true", "1"] do
+  config :flux_vale, :storybook_enabled, true
+end
+
 # Repo connection: DATABASE_URL wins; otherwise discrete DB_* vars compose
 # it (the in-cluster shape — Kubernetes can't template a URL from Secret
 # refs, so the Deployment passes DB_USER/DB_PASSWORD via secretKeyRef).
@@ -203,7 +211,9 @@ if config_env() == :dev do
         ~r"priv/gettext/.*\.po$"E,
         # Router, Controllers, LiveViews and LiveComponents
         ~r"lib/flux_vale_web/router\.ex$"E,
-        ~r"lib/flux_vale_web/(controllers|live|components)/.*\.(ex|heex)$"E
+        ~r"lib/flux_vale_web/(controllers|live|components)/.*\.(ex|heex)$"E,
+        # Storybook stories (#178) — reload the workshop on story edits
+        ~r"storybook/.*\.exs$"E
       ]
     ]
 end
@@ -247,10 +257,22 @@ if config_env() == :prod do
 
   host = System.get_env("PHX_HOST") || "example.com"
 
+  # The storybook host rides the same endpoint (#178): the LiveView
+  # socket's Origin check would otherwise reject it (check_origin
+  # defaults to PHX_HOST's origin only), leaving the workshop's UI
+  # dead on its own hostname. Widened only while the gate is on.
+  storybook_origins =
+    if System.get_env("STORYBOOK_ENABLED") in ["true", "1"] do
+      ["https://" <> (System.get_env("STORYBOOK_HOST") || "storybook.fluxvale.com")]
+    else
+      []
+    end
+
   config :flux_vale, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
   config :flux_vale, FluxValeWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
+    check_origin: ["https://" <> host | storybook_origins],
     http: [
       # Enable IPv6 and bind on all interfaces.
       # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.

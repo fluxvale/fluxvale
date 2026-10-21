@@ -1,5 +1,20 @@
-/* See the Tailwind configuration guide for advanced usage
-   https://tailwindcss.com/docs/configuration */
+/* FluxVale design system (#178).
+ *
+ * Tokens are the v1 heritage, ported from v1's index.css: the Flux
+ * Stream amber ramp (OKLCH, hue ~55), Inter, and the semantic
+ * surface/content structure (dark side verbatim; light neutrals warmed
+ * from v1's grays to stone to sit with amber). v2 flips modes with
+ * [data-theme=dark] (v1 used .dark) — the root layout's theme script
+ * already sets that attribute.
+ *
+ * Layout: static ramp in @theme, semantic values on :root/[data-theme],
+ * mapped to utilities via @theme inline so `bg-primary` etc. resolve
+ * through the semantic vars (and flip with the mode).
+ *
+ * daisyUI stays installed below ONLY for un-migrated stock surfaces
+ * (sign-in, deploy wizard, instance show); the design system and every
+ * migrated surface use zero daisyUI classes. Wave 2 removes it.
+ */
 
 @import "tailwindcss" source(none);
 @import "phoenix-colocated/flux_vale/colocated.css";
@@ -13,29 +28,30 @@
    The heroicons installation itself is managed by your mix.exs */
 @plugin "../vendor/heroicons";
 
-/* daisyUI Tailwind Plugin. */
+/* daisyUI — transitional, see header comment. */
 @plugin "daisyui/packages/bundle/daisyui" {
   themes: false;
 }
-
-/* daisyUI theme plugin.
-  We ship with two themes, a light one inspired on Phoenix colors and a dark one inspired
-  on Elixir colors. Build your own at: https://daisyui.com/theme-generator/ */
+/* daisyUI — transitional, see header comment. The dark theme below is
+   ALIGNED to the design system (amber primary — the lane's
+   non-negotiable; daisy ships violet — plus slate surfaces) so
+   un-migrated wave-2 surfaces render brand-coherent until the dep
+   removal. */
 @plugin "daisyui/packages/bundle/daisyui-theme" {
   name: "dark";
   default: false;
   prefersdark: true;
   color-scheme: "dark";
-  --color-base-100: oklch(30.33% 0.016 252.42);
-  --color-base-200: oklch(25.26% 0.014 253.1);
-  --color-base-300: oklch(20.15% 0.012 254.09);
-  --color-base-content: oklch(97.807% 0.029 256.847);
-  --color-primary: oklch(58% 0.233 277.117);
-  --color-primary-content: oklch(96% 0.018 272.314);
-  --color-secondary: oklch(58% 0.233 277.117);
-  --color-secondary-content: oklch(96% 0.018 272.314);
-  --color-accent: oklch(60% 0.25 292.717);
-  --color-accent-content: oklch(96% 0.016 293.756);
+  --color-base-100: #0f172a;
+  --color-base-200: #1e293b;
+  --color-base-300: #334155;
+  --color-base-content: #f1f5f9;
+  --color-primary: oklch(78% 0.15 58);
+  --color-primary-content: oklch(32% 0.07 48);
+  --color-secondary: oklch(78% 0.15 58);
+  --color-secondary-content: oklch(32% 0.07 48);
+  --color-accent: oklch(60% 0.17 50);
+  --color-accent-content: #ffffff;
   --color-neutral: oklch(37% 0.044 257.287);
   --color-neutral-content: oklch(98% 0.003 247.858);
   --color-info: oklch(58% 0.158 241.966);
@@ -61,12 +77,12 @@
   default: true;
   prefersdark: false;
   color-scheme: "light";
-  --color-base-100: oklch(98% 0 0);
-  --color-base-200: oklch(96% 0.001 286.375);
-  --color-base-300: oklch(92% 0.004 286.32);
-  --color-base-content: oklch(21% 0.006 285.885);
-  --color-primary: oklch(70% 0.213 47.604);
-  --color-primary-content: oklch(98% 0.016 73.684);
+  --color-base-100: #fafaf9;
+  --color-base-200: #ffffff;
+  --color-base-300: #f5f5f4;
+  --color-base-content: #1c1917;
+  --color-primary: oklch(60% 0.17 50);
+  --color-primary-content: #ffffff;
   --color-secondary: oklch(55% 0.027 264.364);
   --color-secondary-content: oklch(98% 0.002 247.839);
   --color-accent: oklch(0% 0 0);
@@ -91,15 +107,207 @@
   --noise: 0;
 }
 
+/* ------------------------------------------------------------------ */
+/* Brand ramp — Flux Stream amber (v1 heritage, static in both modes)  */
+/* ------------------------------------------------------------------ */
+@theme {
+  --color-brand-50: oklch(97% 0.02 70);
+  --color-brand-100: oklch(95% 0.045 68);
+  --color-brand-200: oklch(90% 0.08 65);
+  --color-brand-300: oklch(84% 0.12 60);
+  --color-brand-400: oklch(78% 0.15 58);
+  --color-brand-500: oklch(72% 0.17 55);
+  --color-brand-600: oklch(60% 0.17 50);
+  --color-brand-700: oklch(52% 0.15 48);
+  --color-brand-800: oklch(42% 0.11 47);
+  --color-brand-900: oklch(32% 0.07 48);
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Inter, v1 heritage — vendored woff2 (priv/static/fonts), no external
+   requests. Weights 400/500/600/700 only: what the system uses. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/inter-latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/inter-latin-500-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/inter-latin-600-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/inter-latin-700-normal.woff2") format("woff2");
+}
+
+/* ------------------------------------------------------------------ */
+/* Semantic tokens — light (role-based; what components use)           */
+/* ------------------------------------------------------------------ */
+:root {
+  --primary: var(--color-brand-600);
+  --primary-hover: var(--color-brand-700);
+  --primary-active: var(--color-brand-800);
+  --primary-muted: var(--color-brand-50);
+  --on-primary: #ffffff;
+
+  --canvas: #fafaf9;
+  --panel: #ffffff;
+  --panel-raised: #f5f5f4;
+  --panel-sunken: #f0f0ef;
+
+  --ink: #1c1917;
+  --ink-muted: #57534e;
+  --ink-subtle: #78716c;
+
+  --line: #e7e5e4;
+  --line-strong: #d6d3d1;
+
+  --focus: var(--color-brand-500);
+
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --danger-hover: #b91c1c;
+
+  --success-muted: #ecfdf5;
+  --warning-muted: #fffbeb;
+  --danger-muted: #fef2f2;
+
+  --border-success: #6ee7b7;
+  --border-warning: #fcd34d;
+  --border-danger: #fca5a5;
+}
+
+/* ------------------------------------------------------------------ */
+/* Semantic tokens — dark. Both selectors: the app flips [data-theme]  */
+/* on <html>; the storybook's color-mode toggle puts .dark on the      */
+/* sandbox container.                                                  */
+/* ------------------------------------------------------------------ */
+[data-theme="dark"],
+.dark {
+  --primary: var(--color-brand-400);
+  --primary-hover: var(--color-brand-300);
+  --primary-active: var(--color-brand-500);
+  --primary-muted: oklch(78% 0.15 58 / 0.15);
+  --on-primary: var(--color-brand-900);
+
+  --canvas: #0f172a;
+  --panel: #1e293b;
+  --panel-raised: #334155;
+  --panel-sunken: #020617;
+
+  --ink: #f1f5f9;
+  --ink-muted: #94a3b8;
+  --ink-subtle: #64748b;
+
+  --line: #334155;
+  --line-strong: #475569;
+
+  --focus: var(--color-brand-400);
+
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --danger-hover: #ef4444;
+
+  --success-muted: oklch(70% 0.17 152 / 0.15);
+  --warning-muted: oklch(75% 0.18 70 / 0.15);
+  --danger-muted: oklch(70% 0.19 22 / 0.15);
+
+  --border-success: oklch(70% 0.17 152 / 0.3);
+  --border-warning: oklch(75% 0.18 70 / 0.3);
+  --border-danger: oklch(70% 0.19 22 / 0.3);
+}
+
+/* ------------------------------------------------------------------ */
+/* Semantic tokens → Tailwind utilities (bg-primary, text-ink, …)      */
+/* ------------------------------------------------------------------ */
+@theme inline {
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-muted: var(--primary-muted);
+  --color-on-primary: var(--on-primary);
+
+  --color-canvas: var(--canvas);
+  --color-panel: var(--panel);
+  --color-panel-raised: var(--panel-raised);
+  --color-panel-sunken: var(--panel-sunken);
+
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-subtle: var(--ink-subtle);
+
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-line-success: var(--border-success);
+  --color-line-warning: var(--border-warning);
+  --color-line-danger: var(--border-danger);
+
+  --color-focus: var(--focus);
+
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-success-muted: var(--success-muted);
+  --color-warning-muted: var(--warning-muted);
+  --color-danger-muted: var(--danger-muted);
+}
+
+/* ------------------------------------------------------------------ */
+/* Brand gradient — Flux Stream amber (v1 heritage). Reserved for      */
+/* hero/marketing surfaces only (landing, sign-in).                    */
+/* ------------------------------------------------------------------ */
+@utility bg-brand-gradient {
+  background-image: linear-gradient(
+    135deg,
+    var(--color-brand-400),
+    var(--color-brand-600),
+    var(--color-brand-700)
+  );
+}
+
 /* Add variants based on LiveView classes */
 @custom-variant phx-click-loading (.phx-click-loading&, .phx-click-loading &);
 @custom-variant phx-submit-loading (.phx-submit-loading&, .phx-submit-loading &);
 @custom-variant phx-change-loading (.phx-change-loading&, .phx-change-loading &);
 
-/* Use the data attribute for dark mode  */
-@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+/* Use the data attribute for dark mode (plus .dark, the storybook
+   color-mode toggle's sandbox class — see storybook.css) */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *, .dark, .dark *));
 
 /* Make LiveView wrapper divs transparent for layout */
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
-/* This file is for your main application CSS */
+/* Root canvas: html carries the background so the full viewport paints
+   (body-only leaves the under-content region to whatever else claims
+   it — daisyUI's base-100 during the transition, the browser default
+   after) — the dark-mode seam the vision QA flagged. */
+html {
+  background-color: var(--canvas);
+}
+
+body {
+  background-color: var(--canvas);
+  color: var(--ink);
+}

@@ -61,3 +61,7 @@ config :phoenix,
 # tests exercise the real config; the Swoosh.Test adapter stays the
 # configured delivery path for non-test-account mail.
 config :flux_vale, :test_inbox, enabled: true
+
+# The storybook (#178) — on in test so the gate's allow-path and the
+# route are exercised (see storybook plug/route tests).
+config :flux_vale, :storybook_enabled, true

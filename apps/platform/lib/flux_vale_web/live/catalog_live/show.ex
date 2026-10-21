@@ -33,24 +33,24 @@ defmodule FluxValeWeb.CatalogLive.Show do
     <Layouts.app flash={@flash} current_user={@current_user}>
       <div class="space-y-8">
         <div>
-          <.link navigate={~p"/apps"} class="btn btn-ghost btn-sm mb-4">
+          <.button variant="ghost" size="sm" navigate={~p"/apps"} class="-ml-2 mb-4">
             &larr; Catalog
-          </.link>
+          </.button>
 
           <div class="flex items-start gap-4">
-            <div class="size-14 rounded-lg bg-primary/15 text-primary flex items-center justify-center text-xl font-semibold">
-              <img :if={@app.icon_url} src={@app.icon_url} alt={@app.name} class="size-14 rounded-lg" />
+            <div class="flex size-14 shrink-0 items-center justify-center rounded-xl bg-primary-muted text-xl font-semibold text-primary">
+              <img :if={@app.icon_url} src={@app.icon_url} alt={@app.name} class="size-14 rounded-xl" />
               <span :if={is_nil(@app.icon_url)}>{String.first(@app.name)}</span>
             </div>
-            <div class="space-y-1">
-              <h1 class="text-3xl font-bold tracking-tight">{@app.name}</h1>
-              <p :if={@app.tagline} class="opacity-70">{@app.tagline}</p>
-              <div class="flex gap-3 text-sm">
-                <span class="badge badge-ghost badge-sm">{@app.category.name}</span>
+            <div class="space-y-1.5">
+              <h1 class="text-2xl font-semibold tracking-tight text-ink">{@app.name}</h1>
+              <p :if={@app.tagline} class="text-ink-muted">{@app.tagline}</p>
+              <div class="flex flex-wrap items-center gap-3 pt-1 text-sm">
+                <.badge>{@app.category.name}</.badge>
                 <a
                   :if={@app.source_url}
                   href={@app.source_url}
-                  class="link link-hover"
+                  class="font-medium text-primary hover:underline"
                   target="_blank"
                   rel="noopener"
                 >
@@ -59,7 +59,7 @@ defmodule FluxValeWeb.CatalogLive.Show do
                 <a
                   :if={@app.docs_url}
                   href={@app.docs_url}
-                  class="link link-hover"
+                  class="font-medium text-primary hover:underline"
                   target="_blank"
                   rel="noopener"
                 >
@@ -70,41 +70,41 @@ defmodule FluxValeWeb.CatalogLive.Show do
           </div>
         </div>
 
-        <p :if={@app.description} class="whitespace-pre-line leading-relaxed">{@app.description}</p>
+        <p :if={@app.description} class="leading-relaxed whitespace-pre-line text-ink-muted">
+          {@app.description}
+        </p>
 
         <div class="space-y-4">
-          <h2 class="text-xl font-semibold">Versions</h2>
+          <h2 class="text-lg font-semibold tracking-tight text-ink">Versions</h2>
 
           <div class="space-y-4">
-            <div :for={version <- @versions} id={"version-#{version.id}"} class="card bg-base-200">
-              <div class="card-body gap-4 py-4">
-                <div class="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h3 class="font-semibold font-mono">v{version.version}</h3>
-                    <p :if={version.published_at} class="text-xs opacity-60">
-                      Published {Calendar.strftime(version.published_at, "%b %d, %Y")}
-                    </p>
-                  </div>
-                  <.link
-                    navigate={~p"/apps/#{@app.slug}/deploy"}
-                    class="btn btn-primary btn-sm"
-                    id={"deploy-#{version.id}"}
-                    data-testid={"deploy-#{version.version}"}
-                  >
-                    Deploy
-                  </.link>
+            <.card :for={version <- @versions} id={"version-#{version.id}"} class="space-y-4">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 class="font-mono font-semibold text-ink">v{version.version}</h3>
+                  <p :if={version.published_at} class="mt-0.5 text-xs text-ink-subtle">
+                    Published {Calendar.strftime(version.published_at, "%b %d, %Y")}
+                  </p>
                 </div>
-                <p :if={version.release_notes} class="whitespace-pre-line text-sm opacity-70">
-                  {version.release_notes}
-                </p>
-                <div class="flex flex-wrap gap-2 text-xs">
-                  <span class="badge badge-ghost">{version.default_cpu_cores} CPU</span>
-                  <span class="badge badge-ghost">{version.default_memory_mb} MB RAM</span>
-                  <span class="badge badge-ghost">{version.default_storage_gb} GB storage</span>
-                  <.price_badge version={version} />
-                </div>
+                <.button
+                  navigate={~p"/apps/#{@app.slug}/deploy"}
+                  size="sm"
+                  id={"deploy-#{version.id}"}
+                  data-testid={"deploy-#{version.version}"}
+                >
+                  Deploy
+                </.button>
               </div>
-            </div>
+              <p :if={version.release_notes} class="text-sm whitespace-pre-line text-ink-muted">
+                {version.release_notes}
+              </p>
+              <div class="flex flex-wrap gap-2">
+                <.badge>{version.default_cpu_cores} CPU</.badge>
+                <.badge>{version.default_memory_mb} MB RAM</.badge>
+                <.badge>{version.default_storage_gb} GB storage</.badge>
+                <.price_badge version={version} />
+              </div>
+            </.card>
           </div>
         </div>
       </div>
@@ -121,13 +121,13 @@ defmodule FluxValeWeb.CatalogLive.Show do
   # pre-#125 rows heal through seed convergence, not a backfill.
   defp price_badge(assigns) do
     ~H"""
-    <span
+    <.badge
       :if={@version.recommended_size}
-      class="badge badge-primary badge-outline"
+      tone="primary"
       data-testid={"price-#{@version.version}"}
     >
       {FluxVale.Pricing.format_usd(@version.recommended_size.monthly_cents)}/mo
-    </span>
+    </.badge>
     """
   end
 end
