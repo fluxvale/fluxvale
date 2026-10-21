@@ -704,7 +704,10 @@ defmodule FluxValeWeb.CoreComponents do
       "success" => {"hero-check-circle", "text-success"}
     }
 
-    {icon_name, icon_class} = Map.get(icons, assigns.tone)
+    # Caller icon wins over the tone default (the attr's documented
+    # contract — CodeRabbit #191: it was declared but ignored).
+    {default_icon, icon_class} = Map.fetch!(icons, assigns.tone)
+    icon_name = assigns.icon || default_icon
 
     assigns =
       assign(assigns,
