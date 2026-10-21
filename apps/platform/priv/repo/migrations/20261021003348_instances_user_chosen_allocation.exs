@@ -11,6 +11,8 @@ defmodule FluxVale.Repo.Migrations.InstancesUserChosenAllocation do
   # the derived-field pattern (image/port): nullable, no DB default;
   # DeriveFromAppVersion always fills them (creator's choice or the
   # version's defaults) and presence validations hold the floor.
+  # (Regenerated on the post-#182 combined tree so the snapshot carries
+  # failure_reason too — same three-column alter as the original.)
   def up do
     alter table(:instances) do
       modify(:cpu_cores, :decimal, null: true, default: nil)
