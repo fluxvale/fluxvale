@@ -617,6 +617,99 @@ defmodule FluxValeWeb.CoreComponents do
   end
 
   @doc """
+  Renders a button that copies `value` to the clipboard.
+
+  The value rides a `data-` attribute rather than being read back out of
+  the DOM: what the button copies is exactly what the server rendered, so
+  a partial selection — a triple-click that catches the neighbouring
+  label, a wrapped line — can't corrupt the copy (#194). Callers pass a
+  unique `id`; the colocated hook keys off the element.
+
+  ## Examples
+
+      <.copy_button id="copy-url" value={@url} />
+      <.copy_button id="copy-key" value={@key} label="Copy key" />
+  """
+  attr(:id, :string, required: true, doc: "unique DOM id — the hook's target")
+  attr(:value, :string, required: true, doc: "the exact text to copy")
+  attr(:label, :string, default: "Copy")
+  attr(:testid, :string, default: nil, doc: "defaults to `id`")
+  attr(:class, :any, default: nil)
+  attr(:rest, :global)
+
+  def copy_button(assigns) do
+    assigns = assign(assigns, :testid, assigns.testid || assigns.id)
+
+    ~H"""
+    <button
+      type="button"
+      id={@id}
+      class={[
+        "inline-flex shrink-0 items-center gap-1.5 rounded-md border border-line bg-panel px-2 py-1",
+        "text-xs font-medium text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink",
+        "data-[copied=true]:border-line-success data-[copied=true]:text-success",
+        @class
+      ]}
+      phx-hook=".CopyToClipboard"
+      data-copy-value={@value}
+      data-testid={@testid}
+      {@rest}
+    >
+      <.icon name="hero-clipboard" class="size-3.5" />
+      <span data-copy-text>{@label}</span>
+    </button>
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".CopyToClipboard">
+      export default {
+        mounted() {
+          this.label = this.el.querySelector("[data-copy-text]")
+          this.labelText = this.label.textContent
+          this.el.addEventListener("click", () => this.write(this.el.dataset.copyValue || ""))
+        },
+        write(value) {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(value).then(
+              () => this.confirm(true),
+              () => this.confirm(this.legacyWrite(value)),
+            )
+          } else {
+            this.confirm(this.legacyWrite(value))
+          }
+        },
+        // Async clipboard needs a secure context; a plain-http dev box
+        // falls back to the selection dance.
+        legacyWrite(value) {
+          const area = document.createElement("textarea")
+          area.value = value
+          area.setAttribute("readonly", "")
+          area.style.position = "fixed"
+          area.style.opacity = "0"
+          document.body.appendChild(area)
+          area.select()
+          let ok = false
+          try {
+            ok = document.execCommand("copy")
+          } catch (_error) {
+            ok = false
+          }
+          document.body.removeChild(area)
+          return ok
+        },
+        confirm(written) {
+          if (!written) return
+          if (this.timer) clearTimeout(this.timer)
+          this.label.textContent = "Copied"
+          this.el.dataset.copied = "true"
+          this.timer = setTimeout(() => {
+            this.label.textContent = this.labelText
+            delete this.el.dataset.copied
+          }, 1500)
+        },
+      }
+    </script>
+    """
+  end
+
+  @doc """
   Renders a wizard progress stepper (deploy wizard, top-up wizard,
   #178 wave 2). Numbered chips: done states in success, the current
   step in primary, upcoming muted.

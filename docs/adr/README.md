@@ -43,7 +43,7 @@ already ruled out.
 | [ADR-0032](00032-uuid-v7-ids.md) | IDs: UUIDv7 for uuid primary keys (app-side generation; ordering approximate, never a contract) | Accepted |
 | [ADR-0033](00033-auto-seed-on-deploy.md) | Bring-up data seeds on deploy; missing invariants fail loudly | Accepted |
 | [ADR-0034](00034-first-run-contract.md) | First-run contract: catalog-declared first-open posture (guaranteed env + locked-out keys + guidance) | Accepted |
-| [ADR-0035](00035-per-instance-file-access.md) | Per-instance file access: rclone WebDAV sidecar + per-instance generated credential (presigned R2 phase 2) | Accepted |
+| [ADR-0035](00035-per-instance-file-access.md) | Per-instance file access: rclone WebDAV sidecar + per-instance generated credential (presigned R2 phase 2) | Accepted (amended — see Amendment 1) |
 
 ## Conventions
 
