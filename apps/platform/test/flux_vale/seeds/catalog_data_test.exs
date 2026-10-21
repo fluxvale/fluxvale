@@ -14,7 +14,7 @@ defmodule FluxVale.Seeds.CatalogDataTest do
 
   describe "entries/1" do
     test "shipped catalog_data.yaml normalizes the Forgejo entry (#71)" do
-      [entry] = CatalogData.entries(default_catalog_path())
+      entry = entry_by_slug("developer-tools")
 
       assert entry.category == %{
                name: "Developer Tools",
@@ -30,6 +30,7 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert version.image == "codeberg.org/forgejo/forgejo:16.0.5"
       assert version.port == 3000
       assert version.healthcheck_path == "/api/healthz"
+      assert version.storage_mount_path == "/data"
       assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.5"))
       assert version.default_memory_mb == 512
       assert version.default_storage_gb == 10
@@ -50,6 +51,44 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       guidance = version.first_run["guidance"]
       assert guidance =~ "first account becomes the admin"
       assert guidance =~ "close public sign-up"
+    end
+
+    test "shipped catalog_data.yaml normalizes the Kavita entry (#189)" do
+      entry = entry_by_slug("media")
+
+      assert entry.category == %{
+               name: "Media & Entertainment",
+               slug: "media",
+               description: "Self-hosted media and reading servers for your own library."
+             }
+
+      assert [%{slug: "kavita"} = app] = entry.apps
+      assert app.name == "Kavita"
+      assert app.source_url == "https://github.com/Kareadita/Kavita"
+
+      version = hd(app.versions)
+      assert version.version == "0.9.1"
+      # The canonical upstream image (its own release workflow), not a
+      # re-published mirror.
+      assert version.image == "ghcr.io/kareadita/kavita:0.9.1"
+      assert version.port == 5000
+      assert version.healthcheck_path == "/api/health"
+      # Kavita's state lives under its working dir, not the volume root.
+      assert version.storage_mount_path == "/kavita/config"
+      assert version.default_memory_mb == 512
+      assert version.default_storage_gb == 10
+      assert version.recommended_size == "small"
+      assert version.published_at == ~U[2026-09-02 21:07:38Z]
+
+      # All config is in-app; no env surface at boot.
+      assert version.default_env_vars == %{}
+      assert version.configurable_env_vars == %{}
+
+      # Register-first-admin, with no env keys to pin or lock.
+      assert version.first_run["pattern"] == "first_registered_user_admin"
+      assert version.first_run["env"] == %{}
+      assert version.first_run["forbidden_env"] == []
+      assert version.first_run["guidance"] =~ "first account becomes the admin"
     end
 
     test "comments-only and empty files parse to []" do
@@ -110,6 +149,7 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert version.default_env_vars == %{}
       assert version.configurable_env_vars == %{}
       assert version.first_run == nil
+      assert version.storage_mount_path == "/data"
       assert version.recommended_size == "s"
     end
 
@@ -196,6 +236,14 @@ defmodule FluxVale.Seeds.CatalogDataTest do
     :flux_vale
     |> :code.priv_dir()
     |> Path.join("repo/seeds/catalog_data.yaml")
+  end
+
+  # The shipped file carries multiple categories (#71's Forgejo, #189's
+  # Kavita) — select by slug so adding an app never breaks these tests.
+  defp entry_by_slug(slug) do
+    default_catalog_path()
+    |> CatalogData.entries()
+    |> Enum.find(fn entry -> entry.category.slug == slug end)
   end
 
   defp first_version([entry | _rest]) do

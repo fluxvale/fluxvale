@@ -202,6 +202,34 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
       assert updated.failure_reason == :deploy_failed
     end
 
+    test "the Deployment mounts the PVC at the instance's snapshotted path (#189)" do
+      stub_kubeconfig()
+
+      instance =
+        deploying!(storage_mount_path: "/kavita/config", default_storage_gb: 10)
+
+      ns = "fluxvale-app-#{instance.id}"
+      expect(Namespace, :create, fn _kc, ^ns, _spec -> {:ok, %{}} end)
+      stub(RoleBinding, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(ResourceQuota, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(PersistentVolumeClaim, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Secret, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Ingress, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      expect(Deployment, :create, fn _kc, _ns, "app", spec ->
+        # Not the platform default: the version's blueprint wins, so
+        # Kavita's config dir lands on the volume.
+        assert spec.storage_mount == "/kavita/config"
+        assert spec.pvc_name == "app-data"
+        {:ok, %{}}
+      end)
+
+      assert {:ok, updated} = DeployInstance.call(instance)
+      assert updated.status == :starting
+    end
+
     test "a non-:deploying instance is a no-op (superseded retry)" do
       instance = deploying!()
 

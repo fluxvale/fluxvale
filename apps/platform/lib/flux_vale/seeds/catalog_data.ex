@@ -3,8 +3,9 @@ defmodule FluxVale.Seeds.CatalogData do
   Declarative catalog seed data, loaded from `priv/repo/seeds/catalog_data.yaml`.
 
   The shipped file carries Forgejo (#71, ADR-0031 M3) — the org's own git
-  forge, dogfooded from day one. Kavita (v1's seed) was dropped: a library
-  app needs file access, and SFTP is deferred post-beta (OQ #6).
+  forge, dogfooded from day one. Kavita (#189) joined it: seeded anyway,
+  because a deployed instance is claimable and its state persists on the
+  volume; the library's file-ingest path is the separate #190 work.
 
   Adding a catalog app is purely additive: append a YAML entry. The seed
   runner (`FluxVale.Seeds.seed_catalog!/0`) looks each record up by its
@@ -18,9 +19,10 @@ defmodule FluxVale.Seeds.CatalogData do
     * `published_at` — ISO 8601 string; parsed to `DateTime`.
 
   Optional fields mirror the resource defaults: `healthcheck_path` "/",
-  `default_cpu_cores` "0.5", `default_memory_mb` 256, `default_storage_gb` 0,
-  `published_at` nil, env maps `%{}`, `first_run` nil (no first-open
-  posture needed — the contract is optional per app, #181).
+  `storage_mount_path` "/data", `default_cpu_cores` "0.5",
+  `default_memory_mb` 256, `default_storage_gb` 0, `published_at` nil,
+  env maps `%{}`, `first_run` nil (no first-open posture needed — the
+  contract is optional per app, #181).
 
   `recommended_size` (the priced unit, #125) is **required** in the YAML —
   a version without one cannot be priced (ADR-0028). The loader only
@@ -108,6 +110,7 @@ defmodule FluxVale.Seeds.CatalogData do
       image: version["image"],
       port: version["port"],
       healthcheck_path: Map.get(version, "healthcheck_path", "/"),
+      storage_mount_path: Map.get(version, "storage_mount_path", "/data"),
       instance_url_env: version["instance_url_env"],
       default_env_vars: Map.get(version, "default_env_vars", %{}),
       configurable_env_vars: Map.get(version, "configurable_env_vars", %{}),
