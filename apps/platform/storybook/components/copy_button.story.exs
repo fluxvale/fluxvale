@@ -22,8 +22,7 @@ defmodule FluxValeWeb.Storybook.Components.CopyButton do
         description: "Resting state",
         attributes: %{
           id: "story-copy",
-          value: "https://empty-dust-9937.fluxvale.lvh.me/dav",
-          testid: "story-copy"
+          value: "https://empty-dust-9937.fluxvale.lvh.me/dav"
         }
       },
       %Variation{
@@ -32,31 +31,30 @@ defmodule FluxValeWeb.Storybook.Components.CopyButton do
         attributes: %{
           id: "story-copy-labeled",
           value: "fluxvale",
-          label: "Copy username",
-          testid: "story-copy-labeled"
+          label: "Copy username"
         }
       },
       %Variation{
         id: :in_situ,
         description: "In situ: a credential row as the instance page renders it",
-        slots: [
-          """
-          <div class="grid gap-1.5 text-sm">
-            <span class="text-ink-subtle">Password</span>
-            <div class="flex items-start gap-2">
-              <code class="min-w-0 flex-1 overflow-x-auto rounded-md border border-line bg-panel-raised px-2 py-1 font-mono text-xs whitespace-nowrap text-ink">
-                Fc44P6AivIUSZOMD8c6wutPfHhnHAX6cjKq9jWD8qr8
-              </code>
-              <.copy_button
-                id="story-copy-in-situ"
-                value="Fc44P6AivIUSZOMD8c6wutPfHhnHAX6cjKq9jWD8qr8"
-                testid="story-copy-in-situ"
-                label="Copy password"
-              />
-            </div>
+        attributes: %{
+          id: "story-copy-in-situ",
+          value: "Fc44P6AivIUSZOMD8c6wutPfHhnHAX6cjKq9jWD8qr8",
+          label: "Copy password"
+        },
+        # The credential row wraps the button (the instance page's
+        # `dav_field/1` shape), so it rides a variation template, not slots.
+        template: """
+        <div class="grid gap-1.5 text-sm">
+          <span class="text-ink-subtle">Password</span>
+          <div class="flex items-start gap-2">
+            <code class="min-w-0 flex-1 overflow-x-auto rounded-md border border-line bg-panel-raised px-2 py-1 font-mono text-xs whitespace-nowrap text-ink">
+              Fc44P6AivIUSZOMD8c6wutPfHhnHAX6cjKq9jWD8qr8
+            </code>
+            <.psb-variation />
           </div>
-          """
-        ]
+        </div>
+        """
       }
     ]
   end

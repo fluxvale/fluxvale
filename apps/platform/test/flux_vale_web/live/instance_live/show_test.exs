@@ -630,11 +630,17 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
              )
 
       # The password renders unwrapped: overflowing rather than breaking
-      # across lines, so a hand-selection stays whole.
-      html = render(view)
+      # across lines, so a hand-selection stays whole. Scoped to the
+      # password element — the shared button/1 base classes carry
+      # `whitespace-nowrap` too, so a whole-page assertion would pass
+      # even if this element lost the class (review finding).
+      password_html =
+        view
+        |> element("[data-testid='dav-password']")
+        |> render()
 
-      assert html =~ "whitespace-nowrap"
-      refute html =~ "break-all"
+      assert password_html =~ "whitespace-nowrap"
+      refute password_html =~ "break-all"
     end
 
     # #194's second cause: rclone guesses whether a `pass` value is

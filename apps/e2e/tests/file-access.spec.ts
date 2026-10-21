@@ -162,32 +162,33 @@ test("file access: deploy Kavita → rclone put through /dav → file lands in t
   expect(listing).toContain("e2e-upload.txt");
 
   // #194's second cause, asserted against the real endpoint: the
-  // snippet's own config line must authenticate. rclone guesses whether
+  // snippet's OWN config line must authenticate. rclone guesses whether
   // a `pass` value is already obscured and misreads the generated
   // 43-char base64url password ~99% of the time, so the literal form
-  // 401s — `--obscure` is what makes the copied snippet work. Drive the
-  // snippet's exact flag shape through a fresh config and list the
-  // upload back.
+  // 401s — `--obscure` is what makes the copied snippet work. Execute
+  // the text the panel actually carries (read straight off the copy
+  // button) so a drift in the rendered snippet can't pass by virtue of
+  // this test retyping the flags correctly.
+  const snippet = await page
+    .getByTestId("copy-dav-snippet")
+    .getAttribute("data-copy-value");
+  expect(snippet).toBeTruthy();
+
+  const configEnd = snippet!.indexOf("\nrclone copy");
+  expect(configEnd).toBeGreaterThan(0);
+  const snippetConfigCommand = snippet!.slice(0, configEnd);
+  const snippetRemote = snippetConfigCommand.match(
+    /rclone config create (\S+)/,
+  )?.[1];
+  expect(snippetRemote).toBeTruthy();
+
   const snippetConfig = path.join(dir, "rclone.conf");
-  const snippetRemote = `fluxvale-${runId}`;
-
-  await run("rclone", [
-    "config",
-    "--config",
-    snippetConfig,
-    "create",
-    snippetRemote,
-    "webdav",
-    `url=${davUrl}`,
-    "vendor=rclone",
-    `user=${username}`,
-    `pass=${password}`,
-    "--obscure",
-  ]);
-
   const snippetEnv = { ...env, RCLONE_CONFIG: snippetConfig };
+
+  await run("sh", ["-c", snippetConfigCommand], { env: snippetEnv });
+
   const snippetListing = (
-    await run("rclone", ["lsf", `${snippetRemote}:library/`], {
+    await run("rclone", ["lsf", `${snippetRemote!}:library/`], {
       env: snippetEnv,
     })
   ).stdout;
