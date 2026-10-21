@@ -100,7 +100,10 @@ if config_env() != :test do
       :ok
 
     {_env, value} ->
-      unless value =~ ~r/^[a-zA-Z0-9]([a-zA-Z0-9._-]{0,61}[a-zA-Z0-9])?$/ do
+      # \z, not $ — PCRE's $ matches before a trailing newline, and a
+      # value like "staging\n" (a mounted-Secret read) must fail HERE,
+      # not at the k8s label rejection on the first deploy.
+      unless value =~ ~r/^[a-zA-Z0-9]([a-zA-Z0-9._-]{0,61}[a-zA-Z0-9])?\z/ do
         raise ArgumentError,
               "PLATFORM_ENV=#{inspect(value)} is not a valid k8s label value — expected e.g. staging | production | local"
       end

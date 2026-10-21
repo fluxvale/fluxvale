@@ -153,7 +153,7 @@ bare `adjective-noun-####` labels; staging sets `INSTANCES_SLUG_PREFIX=stg`
 
 Instance namespaces carry the same env scoping (#196, the Oct-21
 incident: prod's orphan sweep deleted staging's running instance on
-the shared cluster — ADR-0010). Deploy stamps
+the shared cluster — [ADR-00010](adr/00010-staging-namespace-flag-gated.md)). Deploy stamps
 `fluxvale.io/platform-env=$PLATFORM_ENV` on every instance namespace;
 the orphan sweep deletes only namespaces carrying its own value, so
 foreign-env and unlabeled namespaces are never anyone's sweep to

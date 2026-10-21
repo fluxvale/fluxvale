@@ -66,6 +66,13 @@ defmodule FluxVale.RuntimeConfigTest do
       with_env(%{"PLATFORM_ENV" => "not a label!"}, fn ->
         assert_raise ArgumentError, ~r/not a valid k8s label value/, fn -> read!(:dev) end
       end)
+
+      # \z, not $: PCRE's $ matches before a trailing newline, and a
+      # "staging\n" off a mounted Secret must fail at boot — not at the
+      # k8s label rejection on the first deploy.
+      with_env(%{"PLATFORM_ENV" => "staging\n"}, fn ->
+        assert_raise ArgumentError, ~r/not a valid k8s label value/, fn -> read!(:dev) end
+      end)
     end
   end
 
