@@ -98,37 +98,40 @@ test("file access: deploy Kavita → rclone put through /dav → file lands in t
   // password used to render as wrapped body text, so a triple-click
   // (or a drag) caught the "Password" label and a trailing newline and
   // the paste 401'd. Click each button and read the real clipboard.
-  const copyValue = (testid: string) =>
-    page.getByTestId(testid).getAttribute("data-copy-value");
+  await test.step("panel reveal hands over the exact credential", async () => {
+    const copyValue = (testid: string) =>
+      page.getByTestId(testid).getAttribute("data-copy-value");
 
-  const copiedUrl = await copyValue("copy-dav-url");
-  const copiedUser = await copyValue("copy-dav-username");
-  const copiedPass = await copyValue("copy-dav-password");
+    const copiedUrl = await copyValue("copy-dav-url");
+    const copiedUser = await copyValue("copy-dav-username");
+    const copiedPass = await copyValue("copy-dav-password");
 
-  expect(copiedUrl).toBe(davUrl);
-  expect(copiedUser).toBe(username);
-  expect(copiedPass).toBe(password);
-  // The failure shape: anything that isn't the bare password is a 401
-  // in the owner's client. No label, no newline, no wrapping artifact.
-  expect(copiedPass).not.toContain("Password");
-  expect(copiedPass).not.toMatch(/\s/);
-  expect(copiedPass).toHaveLength(43);
+    expect(copiedUrl).toBe(davUrl);
+    expect(copiedUser).toBe(username);
+    expect(copiedPass).toBe(password);
+    // The failure shape: anything that isn't the bare password is a 401
+    // in the owner's client. No label, no newline, no wrapping artifact.
+    expect(copiedPass).not.toContain("Password");
+    expect(copiedPass).not.toMatch(/\s/);
+    expect(copiedPass).toHaveLength(43);
+  });
 
-  // Click-to-copy end to end: the button writes exactly that string to
-  // the clipboard (the assertion the old suite could not make, because
-  // there was no button to click).
-  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await page.getByTestId("copy-dav-password").click();
-  await expect
-    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-    .toBe(password);
+  await test.step("the copy button writes it to the real clipboard", async () => {
+    // The assertion the old suite could not make: there was no button.
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.getByTestId("copy-dav-password").click();
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(password);
+  });
 
-  // The password line must not wrap: a wrapped line is what made
-  // hand-selection lossy in the first place.
-  const passwordWhiteSpace = await page
-    .getByTestId("dav-password")
-    .evaluate((el) => getComputedStyle(el).whiteSpace);
-  expect(passwordWhiteSpace).toBe("nowrap");
+  await test.step("the password renders no-wrap", async () => {
+    // A wrapped line is what made hand-selection lossy in the first place.
+    const passwordWhiteSpace = await page
+      .getByTestId("dav-password")
+      .evaluate((el) => getComputedStyle(el).whiteSpace);
+    expect(passwordWhiteSpace).toBe("nowrap");
+  });
 
   // The credential actually gates: no auth → 401 through the real edge.
   const unauth = await request.get(davUrl!);
@@ -185,19 +188,21 @@ test("file access: deploy Kavita → rclone put through /dav → file lands in t
   const snippetConfig = path.join(dir, "rclone.conf");
   const snippetEnv = { ...env, RCLONE_CONFIG: snippetConfig };
 
-  await run("sh", ["-c", snippetConfigCommand], { env: snippetEnv });
+  await test.step("the panel's own rclone snippet authenticates", async () => {
+    await run("sh", ["-c", snippetConfigCommand], { env: snippetEnv });
 
-  const snippetListing = (
-    await run("rclone", ["lsf", `${snippetRemote!}:library/`], {
-      env: snippetEnv,
-    })
-  ).stdout;
-  expect(snippetListing).toContain("e2e-upload.txt");
+    const snippetListing = (
+      await run("rclone", ["lsf", `${snippetRemote!}:library/`], {
+        env: snippetEnv,
+      })
+    ).stdout;
+    expect(snippetListing).toContain("e2e-upload.txt");
 
-  // And the config file must not carry the password in the clear —
-  // --obscure is what both fixes auth and keeps the secret off disk.
-  const writtenConfig = await readFile(snippetConfig, "utf8");
-  expect(writtenConfig).not.toContain(password);
+    // And the config file must not carry the password in the clear —
+    // --obscure is what both fixes auth and keeps the secret off disk.
+    const writtenConfig = await readFile(snippetConfig, "utf8");
+    expect(writtenConfig).not.toContain(password);
+  });
 
   // Volume ground truth. Local: cat the file through the pod — from
   // the sidecar container (alpine guarantees coreutils; the app's
