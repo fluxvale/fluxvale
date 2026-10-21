@@ -4,6 +4,9 @@ defmodule FluxVale.Infrastructure.InstanceTest do
   use FluxVale.DataCase, async: true
   use Mimic
 
+  alias FluxVale.Catalog.App
+  alias FluxVale.Catalog.AppVersion
+  alias FluxVale.Catalog.Category
   alias FluxVale.Catalog.Types.FirstRunContract
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Resources.Deployment
@@ -146,6 +149,72 @@ defmodule FluxVale.Infrastructure.InstanceTest do
                :lt
     end
 
+    test "a custom allocation snapshots the formula's cents with the same 1-year clock, no size (#186)" do
+      version = InstanceFixtures.app_version!(monthly_cents: 279, stopped_monthly_cents: 34)
+      InstanceFixtures.local_cluster!()
+
+      before = DateTime.utc_now()
+
+      instance =
+        Instance.create!(
+          %{
+            name: "Custom priced",
+            app_version_id: version.id,
+            env_vars: %{},
+            cpu_cores: Decimal.new("1"),
+            memory_mb: 512,
+            storage_gb: 10
+          },
+          actor: user()
+        )
+
+      after_create = DateTime.utc_now()
+
+      # No size row — the anchor formula prices the allocation, and the
+      # wizard shows exactly these cents (325/34 at 1 CPU / 512 MB /
+      # 10 GB; the fabricated size price of 279 must NOT bleed in).
+      assert instance.size_id == nil
+      assert instance.grandfathered_monthly_cents == 325
+      assert instance.grandfathered_stopped_monthly_cents == 34
+
+      assert DateTime.compare(instance.grandfathered_until, DateTime.shift(before, year: 1)) ==
+               :gt
+
+      assert DateTime.compare(instance.grandfathered_until, DateTime.shift(after_create, year: 1)) ==
+               :lt
+    end
+
+    test "a partial custom allocation snapshots the formula at the effective allocation (#186)" do
+      # One cluster, one version (created! is single-shot).
+      version = forgejo_version()
+      InstanceFixtures.local_cluster!()
+
+      # Only memory chosen: cpu/storage ride the version's defaults —
+      # the allocation differs, so the formula prices the blend.
+      instance =
+        Instance.create!(
+          %{
+            name: "Partial custom",
+            app_version_id: version.id,
+            env_vars: %{},
+            memory_mb: 1024
+          },
+          actor: user()
+        )
+
+      effective = %{
+        cpu_cores: version.default_cpu_cores,
+        memory_mb: 1024,
+        storage_gb: version.default_storage_gb
+      }
+
+      rates = FluxVale.Pricing.price_allocation(effective)
+
+      assert instance.size_id == nil
+      assert instance.grandfathered_monthly_cents == rates.monthly_cents
+      assert instance.grandfathered_stopped_monthly_cents == rates.stopped_monthly_cents
+    end
+
     test "derives image/port/probes/resources from the AppVersion, pins owner + cluster" do
       instance = created!()
 
@@ -241,7 +310,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       app = Ash.load!(forgejo_version(), :app, authorize?: false).app
 
       drifted =
-        Ash.Seed.seed!(FluxVale.Catalog.AppVersion, %{
+        Ash.Seed.seed!(AppVersion, %{
           version: "9.9.9",
           image: "test/image:9.9",
           port: 3000,
@@ -349,6 +418,78 @@ defmodule FluxVale.Infrastructure.InstanceTest do
                )
 
       assert Enum.any?(errors, &(&1.message =~ "all env var keys and values must be strings"))
+    end
+
+    test "a custom allocation on a sizeless version still prices by the formula (#186)" do
+      # Ash.seed! — the only way to produce a sizeless AppVersion: the
+      # create/update actions require a recommended_size (present
+      # validations); pre-#125 drift rows look exactly like this.
+      n = System.unique_integer()
+
+      category =
+        Category.create!(
+          %{name: "Sizeless #{n}", slug: "sizeless-cat-#{n}", description: "test"},
+          authorize?: false
+        )
+
+      app =
+        App.create!(
+          %{
+            name: "Sizeless #{n}",
+            slug: "sizeless-#{n}",
+            tagline: "test",
+            description: "test",
+            category_id: category.id
+          },
+          authorize?: false
+        )
+
+      version =
+        Ash.Seed.seed!(AppVersion, %{
+          version: "1.0.0",
+          image: "registry.example.com/app:1.0",
+          port: 3000,
+          default_cpu_cores: Decimal.new("0.5"),
+          default_memory_mb: 512,
+          default_storage_gb: 10,
+          app_id: app.id
+        })
+
+      InstanceFixtures.local_cluster!()
+
+      # Custom allocation: the formula needs no size — priced snapshot.
+      custom =
+        Instance.create!(
+          %{
+            name: "Custom on sizeless",
+            app_version_id: version.id,
+            env_vars: %{},
+            cpu_cores: Decimal.new("1")
+          },
+          actor: user()
+        )
+
+      rates =
+        FluxVale.Pricing.price_allocation(%{
+          cpu_cores: Decimal.new("1"),
+          memory_mb: 512,
+          storage_gb: 10
+        })
+
+      assert custom.size_id == nil
+      assert custom.grandfathered_monthly_cents == rates.monthly_cents
+
+      # At the recommendation on the same version: unpriced (billing
+      # never guesses a size it wasn't given).
+      at_rec =
+        Instance.create!(
+          %{name: "At rec on sizeless", app_version_id: version.id, env_vars: %{}},
+          actor: user()
+        )
+
+      assert at_rec.size_id == nil
+      assert at_rec.grandfathered_monthly_cents == nil
+      assert at_rec.grandfathered_until == nil
     end
 
     test "requires a real app version" do

@@ -337,6 +337,25 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
     [instance] = Instance.list_for_actor!(actor: user)
 
+    # An explicit nil allocation rides the same path: the nil-able
+    # attrs accept it at cast, the derive normalizes it to the default
+    # (nil into the allocation comparison or the curve would crash).
+    {:ok, view2, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+
+    to_step_2(view2, version)
+
+    render_click(view2, "save", %{"instance" => %{"name" => "Nil Ghost", "cpu_cores" => nil}})
+
+    assert_redirect(view2)
+
+    instances = Instance.list_for_actor!(actor: user, authorize?: false)
+    nil_instance = Enum.find(instances, &(&1.name == "Nil Ghost"))
+
+    assert nil_instance.cpu_cores == Decimal.new("0.5")
+    assert nil_instance.memory_mb == 256
+    assert nil_instance.storage_gb == 10
+    assert nil_instance.size_id
+
     assert instance.name == "Ghost"
     assert instance.cpu_cores == Decimal.new("0.5")
     assert instance.memory_mb == 256
@@ -404,8 +423,25 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       assert has_element?(view, "#resource-storage-gb[value='10']")
       assert has_element?(view, "[data-testid='recommended-allocation']")
 
-      # At the recommendation: no warning, no ack.
+      # At the recommendation: no warning, no ack, the size price
+      # (the fixture's fabricated size — the seeded size/formula
+      # equivalence is the calibration tests' contract, not this
+      # fixture's).
       refute has_element?(view, "#below-recommendation-warning")
+      assert has_element?(view, "[data-testid='resources-price']", "$1.00/mo")
+
+      # The estimate tracks the inputs live (#186's done-when): a bump
+      # reprices, and back at the recommendation the size price returns.
+      view
+      |> form("#resources-form", resources: %{cpu_cores: "1"})
+      |> render_change()
+
+      assert has_element?(view, "[data-testid='resources-price']", "$2.90/mo")
+
+      view
+      |> form("#resources-form", resources: %{cpu_cores: "0.5"})
+      |> render_change()
+
       assert has_element?(view, "[data-testid='resources-price']", "$1.00/mo")
 
       to_step_4(view)
@@ -413,7 +449,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       assert has_element?(view, "[data-testid='price-summary']", "$1.00/mo")
     end
 
-    test "an above-recommendation allocation deploys unrestricted, billed at the recommended size meanwhile",
+    test "an above-recommendation allocation deploys unrestricted at the formula price",
          %{user: user, view: view} do
       stub_k8s()
 
@@ -425,12 +461,15 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
       refute has_element?(view, "#below-recommendation-warning")
 
+      # The live estimate follows the allocation (#186): the anchor
+      # formula at 1 CPU / 512 MB / 20 GB, on the resources step and
+      # carried to the name step. No interim copy remains.
+      assert has_element?(view, "[data-testid='resources-price']", "$3.48/mo")
+
       to_step_4(view)
 
-      # Interim pricing note (#180 decision pending): the estimate stays
-      # the recommended size's, matching what the ledger charges.
-      assert has_element?(view, "[data-testid='price-summary']", "$1.00/mo")
-      assert render(view) =~ "billed at the recommended size"
+      assert has_element?(view, "[data-testid='price-summary']", "$3.48/mo")
+      refute render(view) =~ "billed at the recommended size"
 
       view
       |> form("#deploy-form", instance: %{name: "Bigger"})
@@ -443,6 +482,13 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       assert instance.cpu_cores == Decimal.new("1")
       assert instance.memory_mb == 512
       assert instance.storage_gb == 20
+
+      # The ledger charges exactly what the wizard showed: the formula
+      # cents snapshot at create (no size for a custom allocation).
+      assert instance.size_id == nil
+      assert instance.grandfathered_monthly_cents == 348
+      assert instance.grandfathered_stopped_monthly_cents == 57
+      assert instance.grandfathered_until
     end
 
     test "a below-recommendation allocation warns and gates on an explicit acknowledgment",
@@ -463,6 +509,10 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       assert html =~ "Acknowledge the below-recommendation warning"
       assert has_element?(view, "#resources-form")
 
+      # The estimate follows the below-recommendation allocation too —
+      # the ack flow prices, it doesn't hide.
+      assert has_element?(view, "[data-testid='resources-price']", "$2.24/mo")
+
       # The ack rides the form; Continue proceeds and the deploy lands
       # at the chosen (lower) allocation.
       to_step_4(view, %{memory_mb: "128", below_ack: "on"})
@@ -478,6 +528,10 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       assert instance.memory_mb == 128
       assert instance.cpu_cores == Decimal.new("0.5")
       assert instance.storage_gb == 10
+
+      # Formula-priced: the below-recommendation snapshot.
+      assert instance.size_id == nil
+      assert instance.grandfathered_monthly_cents == 224
     end
 
     test "the hard floors block even with the acknowledgment", %{user: user, view: view} do
@@ -551,6 +605,52 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
       assert infinity_html =~ "CPU cores must be a number"
       assert has_element?(view, "#resources-form")
+    end
+
+    test "curve-crashing values die at the parse, not in the preview", %{view: view} do
+      # Negatives and past-DBL_MAX magnitudes would raise inside
+      # :math.pow / Decimal.to_float — the preview prices on every
+      # keystroke, so the parse owns them (the curve assumes
+      # floor-legal input).
+      view
+      |> form("#resources-form", resources: %{memory_mb: "128"})
+      |> render_change()
+
+      change_html =
+        view
+        |> form("#resources-form", resources: %{cpu_cores: "-1"})
+        |> render_change()
+
+      # Live view survived; no price line for an unparseable allocation.
+      assert has_element?(view, "#resources-form")
+      refute change_html =~ "$"
+
+      negative_html = to_step_4(view, %{cpu_cores: "-1"})
+
+      assert negative_html =~ "CPU cores must be greater than 0"
+
+      overflow_html = to_step_4(view, %{cpu_cores: "1e309"})
+
+      assert overflow_html =~ "CPU cores must be at most 64"
+
+      # A valid cpu so the memory arm's parse actually runs.
+      negative_memory_html = to_step_4(view, %{cpu_cores: "0.5", memory_mb: "-5"})
+
+      assert negative_memory_html =~ "Memory and storage cannot be negative"
+
+      # A pasted >308-digit integer would crash the curve's float
+      # division on every keystroke — the parse-level ceiling owns it.
+      huge = String.duplicate("9", 400)
+
+      view
+      |> form("#resources-form", resources: %{memory_mb: huge})
+      |> render_change()
+
+      assert has_element?(view, "#resources-form")
+
+      overflow_int_html = to_step_4(view, %{memory_mb: huge})
+
+      assert overflow_int_html =~ "Memory must be at most 65536 MB"
     end
 
     test "a back-nav round trip keeps the chosen allocation", %{view: view} do

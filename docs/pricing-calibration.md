@@ -91,3 +91,10 @@ PR, and note it on the issue. Instances snapshot their creation-time
 price for one year from create, then reprice live (#121's call, shipped
 with the settle trigger — existing rows were backfilled from their
 version's size; sizeless legacy rows stay unpriced and logged).
+
+Since #186 the curve is also code — `FluxVale.Pricing.price_allocation/1`
+prices custom allocations (wizard estimate, ledger snapshot, and live
+repricing after the grace). The constants live once, in lib; the
+calibration tests assert the YAML against that module, so the table and
+the formula cannot drift apart silently. Re-anchoring means changing
+the module's constants and this doc together.
