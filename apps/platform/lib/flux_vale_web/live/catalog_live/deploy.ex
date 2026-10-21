@@ -757,6 +757,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
       {:ok, allocation} ->
         checks = [
           {Decimal.compare(allocation.cpu_cores, 0) != :gt, "CPU cores must be greater than 0"},
+          {Decimal.compare(allocation.cpu_cores, 64) == :gt, "CPU cores must be at most 64"},
           {allocation.memory_mb < 1, "Memory must be at least 1 MB"},
           {allocation.memory_mb > 65_536, "Memory must be at most 65536 MB"},
           {allocation.storage_gb < 0, "Storage cannot be negative"},

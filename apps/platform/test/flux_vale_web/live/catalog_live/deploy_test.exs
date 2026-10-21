@@ -504,6 +504,13 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
       assert html =~ "Memory must be at most 65536 MB"
       assert has_element?(view, "#resources-form")
+
+      # Finite-but-huge decimals pass the > 0 floor and would crash the
+      # Postgrex numeric write — the cpu ceiling catches them first.
+      cpu_html = to_step_4(view, %{cpu_cores: "1e30"})
+
+      assert cpu_html =~ "CPU cores must be at most 64"
+      assert has_element?(view, "#resources-form")
     end
 
     test "non-numeric input errors at continue, not per keystroke", %{view: view} do

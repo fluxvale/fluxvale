@@ -310,7 +310,10 @@ defmodule FluxVale.Infrastructure.Instance do
     # size-shaped allocation and no lower.
     attribute :cpu_cores, :decimal do
       public?(true)
-      constraints(greater_than: 0)
+      # Same numeric-encode safety stance as the maxima below: a
+      # finite-but-huge Decimal (1e400000) passes greater_than: 0 and
+      # then crashes the Postgrex write.
+      constraints(greater_than: 0, max: 64)
     end
 
     # The maxima are bigint-encode safety (Postgrex raises past

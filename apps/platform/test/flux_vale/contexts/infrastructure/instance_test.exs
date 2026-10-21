@@ -478,6 +478,13 @@ defmodule FluxVale.Infrastructure.InstanceTest do
     end
 
     test "the ceilings fail validation instead of crashing the write (bigint encode bounds)" do
+      huge_cpu_attrs = Map.merge(build_attrs(), %{cpu_cores: Decimal.new("1e30")})
+
+      assert {:error, %Ash.Error.Invalid{errors: cpu_errors}} =
+               Instance.create(huge_cpu_attrs, actor: user())
+
+      assert Enum.any?(cpu_errors, &(&1.field == :cpu_cores))
+
       huge_memory_attrs = Map.merge(build_attrs(), %{memory_mb: 99_999_999_999_999_999_999})
 
       assert {:error, %Ash.Error.Invalid{errors: memory_errors}} =
