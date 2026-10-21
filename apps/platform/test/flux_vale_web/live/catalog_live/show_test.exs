@@ -33,7 +33,7 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
     {:ok, view, html} = live(conn, ~p"/apps/#{linked_app.slug}")
 
     assert has_element?(view, "h1", app.name)
-    assert has_element?(view, ".badge", app.category.name)
+    assert has_element?(view, ".fv-badge", app.category.name)
     assert has_element?(view, "#version-#{version.id}", "v#{version.version}")
     assert has_element?(view, "#deploy-#{version.id}")
 

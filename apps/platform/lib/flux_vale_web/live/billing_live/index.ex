@@ -36,7 +36,12 @@ defmodule FluxValeWeb.BillingLive.Index do
         socket =
           socket
           |> stream(:entries, page.results)
-          |> assign(wallet: wallet, balance: balance, page: page)
+          |> assign(
+            wallet: wallet,
+            balance: balance,
+            page: page,
+            history_empty?: page.results == []
+          )
 
         {:ok, socket}
 
@@ -82,57 +87,61 @@ defmodule FluxValeWeb.BillingLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_user={@current_user}>
       <div class="space-y-6">
-        <h1 class="text-3xl font-bold tracking-tight">Billing</h1>
+        <.header>
+          Billing
+          <:subtitle>Prepaid credits fund your instances.</:subtitle>
+        </.header>
 
-        <div class="card bg-base-200">
-          <div class="card-body gap-4">
-            <h2 class="card-title text-base">Balance</h2>
-            <p class="text-4xl font-bold tracking-tight" data-testid="wallet-balance">
-              {format_balance(@balance)}
-            </p>
-            <div class="flex flex-wrap items-center gap-3">
-              <.link navigate={~p"/billing/topup"} class="btn btn-primary btn-sm" id="add-credits">
-                Add credits
-              </.link>
-              <span class="text-xs opacity-60">
-                Credits can be used for any app, never expire, and are non-refundable.
+        <.card class="space-y-4">
+          <div class="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h2 class="text-sm font-medium text-ink-muted">Balance</h2>
+              <p class="mt-1 text-4xl font-bold tracking-tight text-ink" data-testid="wallet-balance">
+                {format_balance(@balance)}
+              </p>
+            </div>
+            <.button navigate={~p"/billing/topup"} size="sm" id="add-credits">
+              Add credits
+            </.button>
+          </div>
+          <p class="text-xs text-ink-subtle">
+            Credits can be used for any app, never expire, and are non-refundable.
+          </p>
+        </.card>
+
+        <.card>
+          <h2 class="text-sm font-medium text-ink-muted">History</h2>
+          <%!-- Empty state lives OUTSIDE the stream container: streams
+              can't count, and an in-stream hidden placeholder makes
+              divide/border selectors render a phantom row divider
+              (vision QA round 2). --%>
+          <p :if={@history_empty?} class="mt-3 text-sm text-ink-subtle">
+            No activity yet.
+          </p>
+          <div id="entries" phx-update="stream" class="mt-2">
+            <div
+              :for={{dom_id, entry} <- @streams.entries}
+              id={dom_id}
+              data-testid="ledger-row"
+              class="flex items-center justify-between gap-4 border-t border-line py-3 first:border-t-0"
+            >
+              <span class="text-sm whitespace-nowrap text-ink-muted">
+                {Calendar.strftime(entry.created_at, "%b %d, %Y %H:%M UTC")}
+              </span>
+              <span class="min-w-0 flex-1 truncate text-sm text-ink capitalize">
+                {reason_label(entry.reason)}
+              </span>
+              <span class={["font-mono text-sm whitespace-nowrap", amount_color(entry)]}>
+                {format_amount(entry.amount)}
               </span>
             </div>
           </div>
-        </div>
-
-        <div class="card bg-base-200">
-          <div class="card-body gap-4">
-            <h2 class="card-title text-base">History</h2>
-            <div id="entries" phx-update="stream" class="divide-y divide-base-300">
-              <div id="entries-empty" class="py-3 text-sm opacity-60 hidden only:block">
-                No activity yet.
-              </div>
-              <div
-                :for={{dom_id, entry} <- @streams.entries}
-                id={dom_id}
-                data-testid="ledger-row"
-                class="flex items-center justify-between gap-3 py-3"
-              >
-                <span class="text-sm opacity-70">
-                  {Calendar.strftime(entry.created_at, "%b %d, %Y %H:%M UTC")}
-                </span>
-                <span class="text-sm capitalize">{entry.reason}</span>
-                <span class={["font-mono text-sm", amount_color(entry)]}>
-                  {format_amount(entry.amount)}
-                </span>
-              </div>
-            </div>
-            <button
-              :if={@page.more?}
-              id="load-more"
-              phx-click="load-more"
-              class="btn btn-ghost btn-sm"
-            >
+          <div class="mt-4">
+            <.button :if={@page.more?} id="load-more" variant="ghost" size="sm" phx-click="load-more">
               Load more
-            </button>
+            </.button>
           </div>
-        </div>
+        </.card>
       </div>
     </Layouts.app>
     """
@@ -169,6 +178,15 @@ defmodule FluxValeWeb.BillingLive.Index do
   end
 
   defp amount_color(%LedgerEntry{type: :debit}) do
-    "text-error"
+    "text-danger"
+  end
+
+  # Display copy at the billing seam: raw reason atoms read as bare
+  # words — "welcome" deserves its product name (vision QA round 2).
+  defp reason_label(:welcome), do: "Welcome credit"
+
+  defp reason_label(reason) when is_atom(reason) do
+    word = to_string(reason)
+    String.capitalize(word)
   end
 end

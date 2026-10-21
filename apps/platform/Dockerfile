@@ -31,6 +31,7 @@ COPY config config
 COPY priv priv
 COPY assets assets
 COPY rel rel
+COPY storybook storybook
 
 # Assets: Hex-managed tailwind/esbuild — no Node. phx.digest writes the
 # cache manifest prod.exs configures.

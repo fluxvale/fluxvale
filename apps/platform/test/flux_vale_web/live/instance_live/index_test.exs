@@ -56,7 +56,7 @@ defmodule FluxValeWeb.InstanceLive.IndexTest do
 
     {:ok, view, html} = live(conn, ~p"/instances")
 
-    assert has_element?(view, ".badge", "Submitted")
+    assert has_element?(view, "[data-testid=status-badge]", "Submitted")
 
     assert has_element?(
              view,
@@ -74,7 +74,7 @@ defmodule FluxValeWeb.InstanceLive.IndexTest do
 
     updated_html = render(view)
 
-    assert has_element?(view, ".badge", "Running")
+    assert has_element?(view, "[data-testid=status-badge]", "Running")
     assert has_element?(view, "#instances-#{running.id}", running.slug)
     assert updated_html =~ app.name
     # #179: settled rows are quiet — the raw status_message ("All
