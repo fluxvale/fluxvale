@@ -779,6 +779,25 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       refute has_element?(view, "[data-testid='file-access-panel']")
     end
 
+    # #196: the sidecar, route, and credential Secret die with the
+    # namespace — a :lost row must not advertise an address book whose
+    # reveal can only fail. Re-deploy mints a fresh credential.
+    test "no panel for a :lost instance — the namespace and its Secret are gone", %{
+      conn: conn,
+      user: user
+    } do
+      version = InstanceFixtures.app_version!(file_access: true, default_storage_gb: 10)
+      pending = create_instance!(version, user)
+
+      running = InstanceFixtures.walk_to!(pending, :running)
+
+      {:ok, lost} = InstanceK8s.update_status(running, :lost, "Namespace gone from cluster")
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{lost.id}")
+
+      refute has_element?(view, "[data-testid='file-access-panel']")
+    end
+
     # 0 GB is an ordinary wizard outcome — the deploy side lands no
     # sidecar, so the page must not advertise an endpoint (review finding).
     test "no panel for a file-access instance with no storage", %{conn: conn, user: user} do

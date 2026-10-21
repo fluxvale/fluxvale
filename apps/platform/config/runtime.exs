@@ -86,29 +86,20 @@ end
 # one shared cluster (ADR-0010) — an unset PLATFORM_ENV would default
 # both envs to the same value and re-open the exact cross-env deletion
 # this label exists to close. Test keeps the local default (same
-# exclusion stance as INSTANCES_SLUG_PREFIX).
-if config_env() == :prod do
-  case System.get_env("PLATFORM_ENV") do
-    value when value in [nil, ""] ->
+# exclusion stance as INSTANCES_SLUG_PREFIX — a stray PLATFORM_ENV in
+# the suite's shell must not flip every label assertion).
+if config_env() != :test do
+  case {config_env(), System.get_env("PLATFORM_ENV")} do
+    {:prod, value} when value in [nil, ""] ->
       raise ArgumentError,
             "PLATFORM_ENV is required in production (staging | production): it scopes the " <>
               "instance-namespace label and the orphan sweep (#196) — unset, every env " <>
               "would claim the same namespaces"
 
-    value ->
-      unless value =~ ~r/^[a-zA-Z0-9]([a-zA-Z0-9._-]{0,61}[a-zA-Z0-9])?$/ do
-        raise ArgumentError,
-              "PLATFORM_ENV=#{inspect(value)} is not a valid k8s label value — expected e.g. staging | production | local"
-      end
-
-      config :flux_vale, :platform_env, value
-  end
-else
-  case System.get_env("PLATFORM_ENV") do
-    value when value in [nil, ""] ->
+    {_env, value} when value in [nil, ""] ->
       :ok
 
-    value ->
+    {_env, value} ->
       unless value =~ ~r/^[a-zA-Z0-9]([a-zA-Z0-9._-]{0,61}[a-zA-Z0-9])?$/ do
         raise ArgumentError,
               "PLATFORM_ENV=#{inspect(value)} is not a valid k8s label value — expected e.g. staging | production | local"

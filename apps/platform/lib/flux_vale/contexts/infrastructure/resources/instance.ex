@@ -5,7 +5,9 @@ defmodule FluxVale.Infrastructure.Instance do
   a Pod (ADR-0005). Created as a snapshot of the AppVersion's deploy
   blueprint; driven by a state machine
   (`pending → deploying → starting → running ⇄ stopped`; `error` from any
-  state; `deleting`) through four AshOban triggers:
+  state; `deleting`; `lost` when the namespace vanished externally —
+  metering parked, the owner re-deploys or tears down, #196) through
+  four AshOban triggers:
 
   - `:deploy` — one-shot; creates the namespace's K8s resources
     (Namespace, RoleBinding, ResourceQuota, NetworkPolicy, PVC, Secret,

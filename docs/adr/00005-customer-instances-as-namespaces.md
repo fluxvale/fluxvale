@@ -52,17 +52,20 @@ namespace with no row in *its own* DB. Three changes, all settled on #196:
   `PLATFORM_ENV`); the orphan sweep deletes only namespaces carrying its
   own value. Foreign-env and unlabeled namespaces are never the sweep's
   to touch.
-- **`lost` state**: reconciliation (the per-minute reconciler and the
-  hourly sweep) now detects a namespace that vanished under a live row and
-  flips it to `:lost` instead of accruing forever — metering anchors park
-  atomically with the flip (billing stops at detection), and the owner
-  re-deploys or tears down from the UI. `lost` enters from the deployed
-  states; its exits are re-deploy (`:deploying`) and teardown.
+- **`lost` state**: reconciliation now detects a namespace that vanished
+  under a live row and flips it to `:lost` instead of accruing forever —
+  the per-minute reconciler covers `:starting`/`:running`, the hourly
+  sweep backstops accruing `:running`/`:stopped`/`:error` rows
+  (never-ran `:error` rows accrue nothing and stay retryable). Metering
+  anchors park atomically with the flip (billing stops at detection),
+  and the owner re-deploys or tears down from the UI. `lost` enters from
+  the deployed states; its exits are re-deploy (`:deploying`) and
+  teardown.
 - **The reconciler's 403 blind spot**: the platform SA's deployment reads
   ride the per-namespace RoleBinding, which dies with the namespace — so a
   deleted namespace answers Deployment GETs with **403, not 404**, and the
   `:not_found`-only match silently no-op'd for 90+ minutes. Both 403 and
   404 now double-check the namespace (the SA's cluster-scoped namespace
-  read sees through a dead namespace), and every reconcile no-op arm logs —
-  a detector that fails quietly is indistinguishable from one that
+  read sees through a dead namespace), and every reconcile *failure* arm
+  logs — a detector that fails quietly is indistinguishable from one that
   affirmed health.

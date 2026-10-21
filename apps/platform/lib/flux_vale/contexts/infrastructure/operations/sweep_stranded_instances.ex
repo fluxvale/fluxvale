@@ -140,13 +140,16 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstances do
   # Arm 2: an accruing row whose namespace is verifiably gone flips to
   # :lost — metering parks atomically (MaintainAnchors rides the
   # funnel), and the owner picks re-deploy or teardown from the UI.
-  # The pass-start snapshot can be minutes stale; the transition
-  # validation IS the re-check — a row that moved to :deploying (retry)
-  # or :deleting (owner delete) mid-pass makes the →:lost write invalid
-  # (neither is a legal lost-source), the match raises into the unit
-  # rescue, and the next hourly pass re-decides. No re-read needed.
+  # Arm 3's discipline on the destructive write: the pass-start
+  # snapshot is as old as the pass's cluster reads, so the row is
+  # re-read immediately before the flip — a row that moved to
+  # :deploying (retry) or :deleting (owner delete) mid-pass is not ours
+  # to park, and a destroyed row must not be resurrected by the write.
+  # The same-instant interleave remains last-write-wins (no row lock —
+  # every status writer's stance) and converges through the funnel.
   defp sweep_instance(%{status: status} = instance) when status in @stranded_statuses do
-    if accruing?(instance) and namespace_definitively_gone?(instance) do
+    if accruing?(instance) and namespace_definitively_gone?(instance) and
+         still_stranded?(instance) do
       Logger.warning("Instance #{instance.id}: namespace gone from cluster; marking :lost (#196)")
 
       {:ok, _lost} = InstanceK8s.update_status(instance, :lost, @lost_message)
@@ -160,6 +163,37 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstances do
   # :pending (never deployed), :deploying/:starting (the reconciler's
   # lane — stale timeout and Deployment mirroring converge them).
   defp sweep_instance(_instance), do: {:ok, nil}
+
+  # The row as it is NOW, not as the snapshot remembers it. Only a
+  # still-stranded row flips; moved rows skip (the next pass re-decides
+  # under whatever owns them now), and an unreadable row skips — never
+  # park anchors on a failed read.
+  defp still_stranded?(instance) do
+    case Ash.get(Instance, instance.id, authorize?: false) do
+      {:ok, %Instance{status: status}} when status in @stranded_statuses ->
+        true
+
+      # coveralls-ignore-start - race-window arm: reachable only when
+      # the row's status moved between call/0's snapshot read and this
+      # re-read microseconds-to-minutes later; not expressible in a
+      # synchronous single-transaction test.
+      {:ok, %Instance{status: moved}} ->
+        Logger.info(
+          "Instance #{instance.id}: status moved to #{moved} during the sweep pass; leaving it"
+        )
+
+        false
+
+      # coveralls-ignore-stop
+
+      # coveralls-ignore-start - race/DB-failure arm: covers both a row
+      # destroyed mid-pass (Ash NotFound) and a read error that needs
+      # the DB down; neither is expressible in a synchronous test.
+      {:error, _error} ->
+        false
+        # coveralls-ignore-stop
+    end
+  end
 
   defp accruing?(instance), do: not is_nil(instance.storage_metering_since)
 

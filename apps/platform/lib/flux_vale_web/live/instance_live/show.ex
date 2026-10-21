@@ -483,6 +483,12 @@ defmodule FluxValeWeb.InstanceLive.Show do
   # The panel's gate mirrors the deploy op's: the sidecar lands only for
   # a file-access instance WITH a volume to serve — at 0 GB there is no
   # endpoint, no secret, no route, so the page must not advertise one.
+  defp file_access_on?(%{status: :lost}), do: false
+
+  # #190 (ADR-0035): the sidecar, route, and credential Secret all live
+  # in the instance namespace — when it vanished externally (#196's
+  # :lost), the address book and the reveal are dead until re-deploy
+  # mints a fresh one. Never render an affordance that cannot work.
   defp file_access_on?(%{file_access: true, storage_gb: gb}) when gb > 0, do: true
   defp file_access_on?(_instance), do: false
 
