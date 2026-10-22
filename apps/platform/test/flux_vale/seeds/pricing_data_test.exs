@@ -28,13 +28,47 @@ defmodule FluxVale.Seeds.PricingDataTest do
       assert Decimal.equal?(small.cpu_cores, Decimal.new("0.5"))
       assert small.memory_mb == 512
       assert small.storage_gb == 10
-      assert small.monthly_cents == 279
-      assert small.stopped_monthly_cents == 34
+      assert small.monthly_cents == 335
+      assert small.stopped_monthly_cents == 40
+    end
+  end
+
+  # Ground truth, copied from docs/pricing-recalibration-2026-10.md's
+  # Option B′ table (the owner's #200 decision) — literals, not derived:
+  # if the YAML or the curve drifts from the DECIDED table, this fails
+  # even if the two stay mutually consistent.
+  @doc_b_prime %{
+    micro: {283, 24},
+    small: {335, 40},
+    medium: {409, 40},
+    standard: {621, 68},
+    plus: {996, 135},
+    pro: {1606, 228}
+  }
+
+  describe "the decided B′ table (#206, docs/pricing-recalibration-2026-10.md)" do
+    test "every shipped size carries the doc's B′ cents, running and stopped" do
+      for size <- PricingData.entries() do
+        # to_existing_atom: the @doc_b_prime keys already exist — a
+        # YAML slug matching no doc row must raise, not mint an atom.
+        slug_atom = String.to_existing_atom(size.slug)
+        {monthly, stopped} = Map.fetch!(@doc_b_prime, slug_atom)
+
+        assert {size.monthly_cents, size.stopped_monthly_cents} == {monthly, stopped},
+               "size #{size.slug}: {#{size.monthly_cents}, #{size.stopped_monthly_cents}} ≠ the doc's B′ {#{monthly}, #{stopped}}"
+      end
+    end
+
+    test "no SG rows ship — the standby variant is structure, not seeds" do
+      slugs = Enum.map(PricingData.entries(), & &1.slug)
+
+      refute Enum.any?(slugs, &String.contains?(&1, ["sg", "singapore"])),
+             "B′-SG prices must not seed until the SG box exists (#206 scope)"
     end
   end
 
   describe "calibration vs the market anchor" do
-    test "every shipped running price equals the v4 curve (half-up cents)" do
+    test "every shipped running price equals the v5 curve (half-up cents)" do
       for size <- PricingData.entries() do
         expected = Pricing.price_allocation(size).monthly_cents
 
@@ -43,7 +77,7 @@ defmodule FluxVale.Seeds.PricingDataTest do
       end
     end
 
-    test "every shipped stopped price equals the v4 storage term (half-up cents)" do
+    test "every shipped stopped price equals the v5 storage term (half-up cents)" do
       for size <- PricingData.entries() do
         expected = Pricing.price_allocation(size).stopped_monthly_cents
 
@@ -68,8 +102,8 @@ defmodule FluxVale.Seeds.PricingDataTest do
         cpu_cores: "0.25"
         memory_mb: 512
         storage_gb: 5
-        monthly_cents: 236
-        stopped_monthly_cents: 20
+        monthly_cents: 283
+        stopped_monthly_cents: 24
       """
 
       path = tmp_path(yaml)
@@ -80,8 +114,8 @@ defmodule FluxVale.Seeds.PricingDataTest do
                  cpu_cores: Decimal.new("0.25"),
                  memory_mb: 512,
                  storage_gb: 5,
-                 monthly_cents: 236,
-                 stopped_monthly_cents: 20
+                 monthly_cents: 283,
+                 stopped_monthly_cents: 24
                }
              ]
     end

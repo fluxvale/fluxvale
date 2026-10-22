@@ -26,10 +26,11 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
   require Ash.Query
 
   # The average Gregorian month (PerformSettle's proration base) and the
-  # seeded "small" prices — assertions compute from the spec formula.
+  # seeded "small" prices at B′ (#206) — assertions compute from the
+  # spec formula.
   @month_seconds 2_629_746
-  @monthly_cents 279
-  @stopped_cents 34
+  @monthly_cents 335
+  @stopped_cents 40
 
   setup do
     # Grant-free org — the welcome grant rides JIT provisioning (#122),
@@ -162,7 +163,7 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
       # Three days running, stopped and restarted within the same tick:
       # the carry holds all three days at the full rate — the days can
       # not be repriced as storage-only by churn (the folded carry is
-      # 27.5¢: -27 posts, the fraction pools).
+      # 33.0¢ at B′: -33 posts, the fraction pools).
       running = running!(instance)
       three_days = 3 * 86_400
 
@@ -181,8 +182,8 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
 
       assert {:ok, _settled} = settle!(restarted)
 
-      # 27.5¢ of full rate: -27 posts, the fraction pools.
-      assert usage_entries(wallet) == [%{amount: -27}]
+      # 33.0¢ of full rate: -33 posts, the fraction pools.
+      assert usage_entries(wallet) == [%{amount: -33}]
 
       expected_dec = prorated(three_days, 0)
       expected_micros = Decimal.to_integer(expected_dec)
@@ -356,7 +357,7 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
         )
 
       assert custom.size_id == nil
-      assert custom.grandfathered_monthly_cents == 325
+      assert custom.grandfathered_monthly_cents == 391
 
       running = running!(custom)
 
@@ -367,9 +368,9 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
 
       assert {:ok, _settled} = settle!(running)
 
-      # A month running at 1 CPU / 512 MB / 10 GB: the anchor formula's
-      # 325¢ (the wizard shows the same figure).
-      assert usage_entries(wallet) == [%{amount: -325}]
+      # A month running at 1 CPU / 512 MB / 10 GB: the v5 formula's
+      # 391¢ (the wizard shows the same figure).
+      assert usage_entries(wallet) == [%{amount: -391}]
     end
 
     test "a custom allocation past its grace settles at the live formula from its own allocation (#186)",
@@ -401,7 +402,7 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
       # instance's own allocation.
       assert {:ok, _settled} = settle!(running_lapsed)
 
-      assert usage_entries(wallet) == [%{amount: -325}]
+      assert usage_entries(wallet) == [%{amount: -391}]
     end
   end
 

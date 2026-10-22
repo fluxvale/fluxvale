@@ -196,9 +196,9 @@ defmodule FluxVale.Billing.Operations.ComputeRunwayTest do
 
       assert {:ok, runway} = Billing.compute_runway(wallet)
 
-      # 1 CPU / 512 MB / 10 GB on the anchor curve: 325¢/mo — the same
-      # figure the wizard shows and settle bills.
-      assert runway.burn_micro_cents_per_hour == hourly(325)
+      # 1 CPU / 512 MB / 10 GB on the v5 curve (#206): 391¢/mo — the
+      # same figure the wizard shows and settle bills.
+      assert runway.burn_micro_cents_per_hour == hourly(391)
     end
 
     test "a hand-built half-snapshot (sizeless, clock set, cents nil) burns nothing", %{

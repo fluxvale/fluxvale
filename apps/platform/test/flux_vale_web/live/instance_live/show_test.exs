@@ -78,7 +78,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     assert has_element?(view, "button[phx-click='delete']")
     # ADR-0028's flat rate on the status surface (#125): the fixture
     # size prices at 100¢ running.
-    assert has_element?(view, "[data-testid='instance-price']", "$1.00/mo")
+    assert has_element?(view, "[data-testid='instance-price']", "$1.00/mo · billed hourly")
   end
 
   test "a stopped instance shows the storage-only fee", %{
@@ -90,7 +90,11 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     instance = InstanceFixtures.walk_to!(pending, :stopped)
     {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
 
-    assert has_element?(view, "[data-testid='instance-price']", "$0.10/mo while stopped")
+    assert has_element?(
+             view,
+             "[data-testid='instance-price']",
+             "$0.10/mo while stopped · billed hourly"
+           )
   end
 
   test "a non-stopped lifecycle state shows the configured running price", %{
@@ -106,7 +110,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
     {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
 
-    assert has_element?(view, "[data-testid='instance-price']", "$1.00/mo")
+    assert has_element?(view, "[data-testid='instance-price']", "$1.00/mo · billed hourly")
     refute has_element?(view, "[data-testid='instance-price']", "while stopped")
   end
 

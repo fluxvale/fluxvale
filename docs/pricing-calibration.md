@@ -6,16 +6,15 @@ re-derive: `cd apps/platform && mix test
 test/flux_vale/seeds/pricing_data_test.exs` re-asserts the table below
 against the anchor on every run.
 
-> **Open recalibration (#200)**: the renewal floor for the (single)
-> Nuremberg box is RS-4000-class rolling — €87/mo, ~4.2× this check's
-> €21.61 basis — and the density model changes under the actual
-> product bet (oversubscription + scale-to-zero, a lane this pricing
-> assumes): the ceiling becomes storage (~46 smalls), current prices
-> cover the floor only at 83–93% fill, and pricing goes
-> per-datencenter. Options and a recommendation live in
-> [pricing-recalibration-2026-10.md](pricing-recalibration-2026-10.md)
-> — **proposal only**; the table below stays authoritative until the
-> owner decides.
+> **Recalibration DECIDED (2026-10-22, on
+> [#200](https://github.com/fluxvale/fluxvale/issues/200))**: Option
+> **B′ ×1.2** — the owner's pick from
+> [pricing-recalibration-2026-10.md](pricing-recalibration-2026-10.md),
+> whose model section (oversubscription density, storage-bound ~46
+> smalls per box, per-datencenter pricing) supersedes this check's
+> original legacy-box math. The table below is now the **B′ table**;
+> charging at B′ presumes the scale-to-zero lane lands before
+> production charging (the recalibration doc's dependency note).
 
 ## The anchor: the market reference curve
 
@@ -42,70 +41,75 @@ fee is the storage term alone — no $1 floor; "pause it and it costs
 almost nothing" is the pitch
 ([ADR-0028](adr/00028-flat-rate-pricing.md) §2).
 
+**Curve v5 (B′, #206)**: the shipped curve is the v4 curve **× 1.2**
+(Nuremberg's surcharge) — constants and rounding unchanged, prices are
+v5's exact half-up cents. `PriceAllocation` carries the surcharge per
+region (`:singapore` ×1.25 is the decided standby variant, pinned to
+the recalibration doc's B′-SG table by test, seeded nowhere until the
+SG box exists).
+
 ## The table
 
 Prices are whole US cents (1 credit = 1 US cent), rounded half-up from
-the anchor at each size's allocation. Live in
+curve v5 (= v4 × 1.2) at each size's allocation. Live in
 `priv/repo/seeds/pricing_data.yaml`; the shipped Forgejo version
-recommends `small`.
+recommends `small`. Shown everywhere as a monthly-equivalent rate,
+billed hourly (#206).
 
 | slug | CPU | RAM | Storage | $/mo running | stopped ¢/mo |
 |---|---|---|---|---|---|
-| micro | 0.25 | 512 MB | 5 GB | 2.36 | 20 |
-| small | 0.5 | 512 MB | 10 GB | 2.79 | 34 |
-| medium | 0.5 | 1 GB | 10 GB | 3.41 | 34 |
-| standard | 1 | 2 GB | 20 GB | 5.18 | 57 |
-| plus | 2 | 4 GB | 50 GB | 8.30 | 113 |
-| pro | 4 | 8 GB | 100 GB | 13.39 | 190 |
+| micro | 0.25 | 512 MB | 5 GB | 2.83 | 24 |
+| small | 0.5 | 512 MB | 10 GB | 3.35 | 40 |
+| medium | 0.5 | 1 GB | 10 GB | 4.09 | 40 |
+| standard | 1 | 2 GB | 20 GB | 6.21 | 68 |
+| plus | 2 | 4 GB | 50 GB | 9.96 | 135 |
+| pro | 4 | 8 GB | 100 GB | 16.06 | 228 |
+
+The doc's own verification point: the anchor's 0.25 core / 0.25 GB /
+0 GB calculator default prices $1.80 at v4 → **$2.16** at v5 (pinned
+in `price_allocation_test.exs`).
 
 ## Density vs the box (the sanity check)
 
-One box = the COGS anchor: Netcup RS 2000 G12, 8 dedicated EPYC cores /
-16 GB ECC / 512 GB NVMe, **€21.61/mo** actual billed
-([product.md](product.md)) ≈ **$24.20/mo** at EUR/USD 1.12 (1.1199 Yahoo
-close 2026-10-11; 1.1259 FRED 2026-10-05 — 1.12 stated, drift noted
-below). Platform overheads leave **~8–10 GB RAM** for customer instances
-([architecture.md](architecture.md)'s resource budget) — RAM is the
-binding constraint, as everywhere on this box.
+The recalibration doc owns the current model
+([pricing-recalibration-2026-10.md](pricing-recalibration-2026-10.md)):
+oversubscription with scale-to-zero makes **storage** the ceiling —
+~46 `small` instances of the renewal-floor RS 4000 box (€87/mo rolling,
+~$103.64 lean / $118.64 full with platform extras). At B′ the full
+rolling bill is covered at **78% fill (36 of 46)** with margin building
+beyond (+23% full at cap); the legacy €21.61 pool is cash-positive
+from ~10 smalls. `small` stays the worst-case basis and the size the
+catalog sells.
 
-Worst-case basis: every instance at `small` ($2.79) — the size the live
-catalog actually sells (Forgejo's recommendation; `micro` is seeded for
-future apps nothing references yet):
-
-| Scenario | Fill (of 8–10 GB headroom) | Revenue/mo | vs COGS | Gross margin |
-|---|---|---|---|---|
-| conservative | 12 instances (6 GB) | $33.48 | 1.38× | 28% |
-| nominal | 16 (8 GB) | $44.64 | 1.84× | 46% |
-| aggressive | 20 (10 GB) | $55.80 | 2.31× | 57% |
-
-**Break-even: 9 `small` instances.** Nominal fill is ~1.8× break-even;
-storage is nowhere near binding (20 × 10 GB = 200 of ~460 usable GB).
-
-Sensitivity: an all-`micro` fill (RAM allows the same densities — micro
-is also 512 MB) clears COGS too: 12 × $2.36 = $28.32, 1.17× COGS;
-break-even 11. No seeded size prices below micro, so this is the floor.
+This check's original legacy-box math (8–10 GB RAM headroom, break-even
+9 smalls) is superseded — see the recalibration doc's restated finding
+for the derivation and the fill-mix sensitivity.
 
 ## What the check deliberately excludes
 
 ADR-0028 scopes the gate to box COGS. Not modeled: R2 backups, Grafana
 Cloud, Cloudflare, domain (free tiers at v1 scale); HitPay payment fees
 (M6); FX drift on the €-denominated invoice; the second box's cost
-arriving before its revenue (the growth model's overlap window). Revisit
-the margin, not the anchor, when those get real.
+arriving before its revenue (the growth model's overlap window —
+treatment (b), margin absorbs it, per the #200 decision). Revisit the
+margin, not the anchor, when those get real.
 
 ## Changing prices
 
 Edit `pricing_data.yaml` (or AshAdmin) and re-run seeds — convergence is
 idempotent. The `pricing_data_test.exs` calibration tests fail on drift
-from this anchor: re-anchor deliberately, update this doc in the same
+from the anchor: re-anchor deliberately, update this doc in the same
 PR, and note it on the issue. Instances snapshot their creation-time
 price for one year from create, then reprice live (#121's call, shipped
 with the settle trigger — existing rows were backfilled from their
-version's size; sizeless legacy rows stay unpriced and logged).
+version's size; sizeless legacy rows stay unpriced and logged). The
+zero-customers window (charges gated on the ADR-0029 Am. 3 VAT
+registrations) is when repricing touches nobody.
 
-Since #186 the curve is also code — `FluxVale.Pricing.price_allocation/1`
-prices custom allocations (wizard estimate, ledger snapshot, and live
-repricing after the grace). The constants live once, in lib; the
-calibration tests assert the YAML against that module, so the table and
-the formula cannot drift apart silently. Re-anchoring means changing
-the module's constants and this doc together.
+Since #186 the curve is also code — `FluxVale.Pricing.price_allocation/2`
+(region defaults to `:nuremberg`) prices custom allocations (wizard
+estimate, ledger snapshot, and live repricing after the grace). The
+constants live once, in lib; the calibration tests assert the YAML
+against that module, so the table and the formula cannot drift apart
+silently. Re-anchoring means changing the module's constants and this
+doc together.

@@ -51,3 +51,22 @@ either of which makes "one global curve" too coarse.
 
 **Amends**: [ADR-00005](00005-customer-instances-as-namespaces.md)
 (settle_usage semantics); [product.md](../product.md) business model.
+
+## Amendment 2 — curve v5: regional surcharges on the anchor (2026-10-22)
+
+The #200 renewal-cost recalibration (owner decision: **B′ ×1.2**)
+re-priced the curve without changing its shape: v5 = the v4 curve × a
+per-region surcharge (`PriceAllocation`'s multiplier map —
+`:nuremberg` 1.2 shipped; `:singapore` 1.25 decided but on standby,
+unseeded until the SG box exists). Pricing is per-datencenter
+([pricing-recalibration-2026-10.md](../pricing-recalibration-2026-10.md)):
+a region's floor rides its own multiplier, never a second curve.
+Activation gate: charging at B′ presumes the scale-to-zero lane —
+the density economics assume sleeping instances. Display framing
+(#206): every customer-facing price states monthly-equivalent ·
+billed hourly (µs accrual — Decision §3 here,
+[ADR-0005](00005-customer-instances-as-namespaces.md) Am. 1).
+
+**Amends**: the calibration basis of Decision §1
+([pricing-calibration.md](../pricing-calibration.md) now carries the
+B′ table).

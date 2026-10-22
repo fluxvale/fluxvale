@@ -18,8 +18,8 @@ defmodule FluxVale.Seeds.PricingSeedTest do
       assert Decimal.equal?(small.cpu_cores, Decimal.new("0.5"))
       assert small.memory_mb == 512
       assert small.storage_gb == 10
-      assert small.monthly_cents == 279
-      assert small.stopped_monthly_cents == 34
+      assert small.monthly_cents == 335
+      assert small.stopped_monthly_cents == 40
     end
 
     test "re-seeding converges drifted prices back to the YAML" do
@@ -30,7 +30,7 @@ defmodule FluxVale.Seeds.PricingSeedTest do
 
       assert :ok == Seeds.seed_pricing!()
 
-      assert Size.get_by_slug!("small", authorize?: false).monthly_cents == 279
+      assert Size.get_by_slug!("small", authorize?: false).monthly_cents == 335
     end
 
     test "re-seeding produces no duplicates" do
@@ -49,14 +49,14 @@ defmodule FluxVale.Seeds.PricingSeedTest do
           cpu_cores: Decimal.new("0.25"),
           memory_mb: 512,
           storage_gb: 5,
-          monthly_cents: 236,
-          stopped_monthly_cents: 20
+          monthly_cents: 283,
+          stopped_monthly_cents: 24
         }
       ]
 
       assert :ok == Seeds.seed_pricing!(entries)
 
-      assert Size.get_by_slug!(hd(entries).slug, authorize?: false).monthly_cents == 236
+      assert Size.get_by_slug!(hd(entries).slug, authorize?: false).monthly_cents == 283
     end
   end
 end

@@ -48,7 +48,7 @@
           default_memory_mb: 512
           default_storage_gb: 10
           # The priced unit (#125): `small` is 0.5 CPU / 512 MB / 10 GB —
-          # exactly this version's allocation ($2.79/mo, $0.34 stopped).
+          # exactly this version's allocation ($3.35/mo, $0.40 stopped — B′).
           recommended_size: small
           release_notes: |
             First FluxVale catalog release, tracking upstream v16.0.5.
@@ -157,7 +157,7 @@
           default_memory_mb: 512
           default_storage_gb: 10
           # The priced unit (#125): `small` is 0.5 CPU / 512 MB / 10 GB —
-          # exactly this version's allocation ($2.79/mo, $0.34 stopped).
+          # exactly this version's allocation ($3.35/mo, $0.40 stopped — B′).
           # Kavita runs on as little as 256 MB (upstream guidance), but
           # library scans are image-heavy (NetVIPS cover generation), so
           # the shipped recommendation keeps scan headroom.

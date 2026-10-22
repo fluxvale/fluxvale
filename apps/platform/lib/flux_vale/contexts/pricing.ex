@@ -52,14 +52,30 @@ defmodule FluxVale.Pricing do
   ADR-0028's price = f(allocation) at ANY allocation (#186): the
   market-anchor curve behind the seeded table, in whole cents — the
   wizard's live estimate and the ledger's custom-allocation charge
-  both price through this one call.
+  both price through this one call. `region` selects the v5 regional
+  surcharge — the default lives HERE and nowhere else
+  (`:nuremberg`, the one seeded region; `:singapore` on standby,
+  unseeded).
   """
-  @spec price_allocation(%{
-          cpu_cores: Decimal.t(),
-          memory_mb: pos_integer(),
-          storage_gb: non_neg_integer()
-        }) :: %{monthly_cents: non_neg_integer(), stopped_monthly_cents: non_neg_integer()}
-  defdelegate price_allocation(allocation), to: Operations.PriceAllocation, as: :call
+  @spec price_allocation(
+          %{cpu_cores: Decimal.t(), memory_mb: pos_integer(), storage_gb: non_neg_integer()},
+          atom()
+        ) :: %{monthly_cents: non_neg_integer(), stopped_monthly_cents: non_neg_integer()}
+  defdelegate price_allocation(allocation, region \\ :nuremberg),
+    to: Operations.PriceAllocation,
+    as: :call
+
+  @doc """
+  The customer-facing monthly-rate label (#206): the flat figure is a
+  monthly-EQUIVALENT rate — billing accrues it µs-hourly against the
+  wallet (`perform_settle`'s proration, #121), never as a monthly
+  invoice. Every price surface states both, so "$X/mo" can't read as
+  monthly billing.
+  """
+  @spec format_monthly_rate(non_neg_integer()) :: String.t()
+  def format_monthly_rate(cents) when is_integer(cents) and cents >= 0 do
+    format_usd(cents) <> "/mo · billed hourly"
+  end
 
   @doc """
   The rates an instance settles at — the one resolver (#153: settle's
@@ -119,9 +135,10 @@ defmodule FluxVale.Pricing do
   # A custom allocation past its grace: the live curve at the
   # instance's own allocation (instance-shaped input carries the
   # allocation fields; they are presence-validated at create and were
-  # NOT NULL with defaults on all pre-#180 rows).
+  # NOT NULL with defaults on all pre-#180 rows). The default region
+  # prices it until the region-dimension lane wires instance regions.
   defp formula_rates(instance) do
-    rates = Operations.PriceAllocation.call(instance)
+    rates = price_allocation(instance)
 
     {:ok, %{running: rates.monthly_cents, stopped: rates.stopped_monthly_cents}}
   end

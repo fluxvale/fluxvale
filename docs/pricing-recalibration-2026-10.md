@@ -1,12 +1,15 @@
 # Pricing recalibration 2026-10 — renewal infrastructure costs (#200)
 
-**Status: PROPOSAL — awaiting the owner's pick.** Nothing here changes
-shipped prices. The #186 machinery stays exactly as is
-([ADR-0028](adr/00028-flat-rate-pricing.md) Am. 1): every option below
-re-prices by changing the curve's constants and the seeded cents
-**together**, so the table keeps reproducing through the formula and the
-calibration tests keep passing by construction. The live table remains
-[pricing-calibration.md](pricing-calibration.md) until a decision lands.
+**Status: DECIDED — B′ ×1.2 (2026-10-22).** The owner picked B′ from
+the options below (#200; implemented on #206); B′-SG ×1.25 stays on
+standby. The model sections stand as the derivation record; the live
+table is [pricing-calibration.md](pricing-calibration.md). The #186
+machinery stayed exactly as is
+([ADR-0028](adr/00028-flat-rate-pricing.md) Am. 1): the re-price
+surcharged the curve (a per-region ×1.2 multiplier on the unchanged
+v4 constants) and re-seeded the cents **together**, so the table
+keeps reproducing through the formula and the calibration tests keep
+passing by construction.
 
 ## Design principles (owner, 2026-10-22)
 
@@ -311,13 +314,14 @@ draft's ×1.8. The VAT gates are the natural synchronization point.
   custom (0.25 cpu / 256 MB / 5 GB) prices $2.00 (C) / $2.40 (B′) /
   $3.00 (A′) — curve-continuous; the wizard's live estimate remains
   the charge by construction (#186).
-- **Reproduction guarantee**: implementation changes the
-  `PriceAllocation` constants and `pricing_data.yaml` cents in one PR
-  — plus the expectations in `pricing_data_test.exs` /
-  `pricing_seed_test.exs` AND the calculator-point assertion in
-  `price_allocation_test.exs` (0.25 cpu / 0.25 GB / 0 GB: 180¢ →
-  216¢ at B′, 270¢ at A′) — the YAML equals the curve at every size
-  by construction.
+- **Reproduction guarantee** (as implemented, #206): the regional
+  surcharge map in `PriceAllocation` and the `pricing_data.yaml`
+  cents change in one PR — plus the doc-table literals in
+  `pricing_data_test.exs` / `pricing_seed_test.exs` and the
+  calculator-point assertion in `price_allocation_test.exs` (0.25
+  cpu / 0.25 GB / 0 GB: 180¢ → 216¢ at B′, 270¢ at A′) — the YAML
+  equals the curve at every size by construction. The v4 constants
+  themselves are untouched (ADR-0028 Am. 2).
 
 ## Implementation lanes (out of scope here — flagged)
 
@@ -357,6 +361,7 @@ SG surcharge line-item (as before); also ×0.95 — the pure
 "self-sufficient at 100% fill" floor prices below the market anchor
 and buys zero cushion.
 
-**Decision requested on #200**: A′ / B′ / C (or a named multiplier)
-for the baseline, plus the growth treatment (a)/(b) — the SG extension
-table rides along as the contingent regional floor.
+**Decision (2026-10-22, #200)**: **B′ (×1.2)** on the one-box
+baseline — B′-SG (×1.25) as the contingent extension — with treatment
+**(b)** on growth (the 85%-fill box-add trigger is margin-absorbed:
+operational stance, not code). Implemented on #206.

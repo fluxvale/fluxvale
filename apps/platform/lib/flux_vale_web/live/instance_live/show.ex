@@ -244,16 +244,23 @@ defmodule FluxValeWeb.InstanceLive.Show do
               </span>
             </div>
             <%= if size = @instance.app_version.recommended_size do %>
-              <%!-- The instance's configured price, not an accrual
-              statement — settlement owns elapsed-time math (#121).
-              :stopped swaps in the storage-only fee (ADR-0028 §2). --%>
+              <%!-- The version's recommended-size rate, not an
+              accrual statement — settlement owns elapsed-time math
+              (#121); :stopped swaps in the storage-only fee
+              (ADR-0028 §2). KNOWN GAP (pre-existing shape, outside
+              #206's scope; flagged as a follow-up in the closing
+              PR's body): a custom-allocation instance bills its own
+              formula snapshot (#186) while this row keeps showing
+              the recommended size's cents. The label states
+              monthly-equivalent · billed hourly on every surface
+              (#206 — no monthly-billing ambiguity). --%>
               <div class="flex justify-between gap-4 sm:block">
                 <span class="text-ink-subtle">Price</span>
                 <span class="text-ink" data-testid="instance-price">
                   <%= if @instance.status == :stopped do %>
-                    {FluxVale.Pricing.format_usd(size.stopped_monthly_cents)}/mo while stopped
+                    {FluxVale.Pricing.format_usd(size.stopped_monthly_cents)}/mo while stopped · billed hourly
                   <% else %>
-                    {FluxVale.Pricing.format_usd(size.monthly_cents)}/mo
+                    {FluxVale.Pricing.format_monthly_rate(size.monthly_cents)}
                   <% end %>
                 </span>
               </div>
