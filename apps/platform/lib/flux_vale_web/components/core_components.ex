@@ -375,6 +375,89 @@ defmodule FluxValeWeb.CoreComponents do
   end
 
   @doc """
+  Renders a stepped slider (#195) — the selectable control for a
+  continuous dimension (the deploy wizard's CPU/memory/storage, where
+  free text is not an option).
+
+  Native range semantics carry the accessibility: the label is wired by
+  `for`/`id`, arrow keys step by `step`, Home/End jump to the bounds,
+  and `aria-valuetext` announces the unit. The visible readout mirrors
+  the number the browser already announces, so it is `aria-hidden` —
+  one value, not two.
+
+  ## Examples
+
+      <.slider
+        id="resource-cpu-cores"
+        name="resources[cpu_cores]"
+        label="CPU cores"
+        value="0.5"
+        min="0.25"
+        max="64"
+        step="0.25"
+        unit="cores"
+      />
+  """
+  attr(:id, :string, required: true)
+  attr(:name, :string, required: true)
+  attr(:label, :string, required: true)
+
+  attr(:value, :string,
+    required: true,
+    doc: "the current value, rendered as the thumb's position"
+  )
+
+  attr(:min, :string, required: true, doc: "the dimension's floor")
+  attr(:max, :string, required: true, doc: "the dimension's ceiling")
+
+  attr(:step, :string,
+    required: true,
+    doc: "the fixed snap granularity (arrow keys step by this)"
+  )
+
+  attr(:unit, :string, default: nil, doc: "shown beside the value and announced with it")
+  attr(:class, :any, default: nil)
+  attr(:rest, :global)
+
+  def slider(assigns) do
+    assigns = assign(assigns, :readout, readout(assigns.value, assigns.unit))
+
+    ~H"""
+    <div class={@class}>
+      <div class="flex items-baseline justify-between gap-3">
+        <label for={@id} class="text-sm font-medium text-ink">{@label}</label>
+        <span class="font-mono text-sm text-ink" aria-hidden="true">{@readout}</span>
+      </div>
+      <input
+        type="range"
+        id={@id}
+        name={@name}
+        value={@value}
+        min={@min}
+        max={@max}
+        step={@step}
+        aria-valuetext={@readout}
+        class={[
+          "mt-2 h-5 w-full cursor-pointer appearance-none bg-transparent",
+          "outline-offset-4 outline-focus focus-visible:outline-2",
+          "[&::-webkit-slider-runnable-track]:h-1.5 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-panel-sunken",
+          "[&::-webkit-slider-thumb]:mt-[-5px] [&::-webkit-slider-thumb]:size-4",
+          "[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full",
+          "[&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:shadow-sm",
+          "[&::-moz-range-track]:h-1.5 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-panel-sunken",
+          "[&::-moz-range-thumb]:size-4 [&::-moz-range-thumb]:rounded-full",
+          "[&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary"
+        ]}
+        {@rest}
+      />
+    </div>
+    """
+  end
+
+  defp readout(value, nil), do: to_string(value)
+  defp readout(value, unit), do: "#{value} #{unit}"
+
+  @doc """
   Renders a page header with title, optional subtitle, and actions.
 
   ## Examples
