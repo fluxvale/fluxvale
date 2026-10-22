@@ -6,9 +6,9 @@ re-derive: `cd apps/platform && mix test
 test/flux_vale/seeds/pricing_data_test.exs` re-asserts the table below
 against the anchor on every run.
 
-> **Open recalibration (#200)**: NetCup renewal moves both regions to
-> RS-4000-class rolling rates (€87 EU-US / €101 Singapore — ~4.2× this
-> check's €21.61 basis), pricing goes per-datencenter (region pools, no
+> **Open recalibration (#200)**: the renewal floor for the (single)
+> Nuremberg box is RS-4000-class rolling — €87/mo, ~4.2× this check's
+> €21.61 basis — pricing goes per-datencenter (region pools, no
 > cross-subsidy), and today's prices are underwater at renewal at any
 > sold fill. Options and a recommendation live in
 > [pricing-recalibration-2026-10.md](pricing-recalibration-2026-10.md)
