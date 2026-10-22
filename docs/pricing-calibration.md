@@ -6,10 +6,10 @@ re-derive: `cd apps/platform && mix test
 test/flux_vale/seeds/pricing_data_test.exs` re-asserts the table below
 against the anchor on every run.
 
-> **Open recalibration (#200)**: NetCup's renewal rates more than
-> double the box cost this check was calibrated against (€21.61 → €46),
-> and today's prices are underwater at renewal on every tier. Options
-> and a recommendation live in
+> **Open recalibration (#200)**: NetCup renewal moves both locations to
+> RS-4000-class rolling rates (€87 Nuremberg / €101 Singapore — ~4.2×
+> this check's €21.61 basis), and today's prices are underwater at
+> renewal at any sold fill. Options and a recommendation live in
 > [pricing-recalibration-2026-10.md](pricing-recalibration-2026-10.md)
 > — **proposal only**; the table below stays authoritative until the
 > owner decides.
