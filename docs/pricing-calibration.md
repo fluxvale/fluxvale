@@ -8,9 +8,11 @@ against the anchor on every run.
 
 > **Open recalibration (#200)**: the renewal floor for the (single)
 > Nuremberg box is RS-4000-class rolling — €87/mo, ~4.2× this check's
-> €21.61 basis — pricing goes per-datencenter (region pools, no
-> cross-subsidy), and today's prices are underwater at renewal at any
-> sold fill. Options and a recommendation live in
+> €21.61 basis — and the density model changes under the actual
+> product bet (oversubscription + scale-to-zero, a lane this pricing
+> assumes): the ceiling becomes storage (~46 smalls), current prices
+> cover the floor only at 83–93% fill, and pricing goes
+> per-datencenter. Options and a recommendation live in
 > [pricing-recalibration-2026-10.md](pricing-recalibration-2026-10.md)
 > — **proposal only**; the table below stays authoritative until the
 > owner decides.
