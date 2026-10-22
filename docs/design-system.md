@@ -28,10 +28,11 @@ on staging (fleet-routed, internal-only, `STORYBOOK_ENABLED`-gated).
 All hand-written Tailwind on the tokens (repo rule: no daisyUI in the
 system). `class` passed by a caller is **appended**, never replaces.
 Component set: `button` (4 variants × 3 sizes, link-aware), `input`
-(text/select/textarea/checkbox, danger-error state), `card`, `badge`
-(5 tones), `status_badge` (instance lifecycle, pulsing dot on
-in-motion states), `table` (stream-ready), `flash` (toasts), `nav_link`
-(active state), `header`, `empty_state`, `icon`, `list`.
+(text/select/textarea/checkbox, danger-error state), `slider` (stepped
+range with label + unit readout, #195), `card`, `badge`, `status_badge`
+(instance lifecycle, pulsing dot on in-motion states), `table`
+(stream-ready), `flash` (toasts), `nav_link` (active state), `header`,
+`empty_state`, `icon`, `list`.
 
 ## Surfaces on the system
 
@@ -46,6 +47,24 @@ aligned-themes stopgap is gone with it.
 New in wave 2: `stepper` (wizard progress, testid-prefix aware) and
 `callout` (info/warning/danger/success notices) join the component set;
 `<.input>` now appends caller classes instead of replacing the base.
+Since then: `slider` (#195) — the selectable continuous control, used by
+the deploy wizard's resources step, which now picks allocations instead
+of typing them.
+
+## The resource picker (#195)
+
+![Resources step, light](design/screenshots/resource-picker/resources-picker-light.png)
+
+The deploy wizard's resources step is **selectable, never typed**:
+seeded sizes are quick-pick buttons and each dimension is a stepped
+slider on the platform's own bounds. The picker's states — light, dark,
+below-recommendation, and a slider custom — live in
+[design/screenshots/resource-picker/](design/screenshots/resource-picker/).
+The wave-2 record's two resources-step frames
+(`docs/design/screenshots/wave2/deploy-step3-light.png`,
+`deploy-step3-warning-light.png`) are re-captured to the picker in the
+same commit, so the surface record shows what ships rather than the
+retired typed inputs.
 
 ## Storybook
 

@@ -6,14 +6,25 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   forms straight onto resources); steps are UI state, not separate
   forms. The version steps carry ADR-0028's live $X.XX/mo estimate.
 
-  The resources step (#180): CPU/memory/storage controls default to
-  the version's recommended allocation (its defaults, kept equal to
+  The resources step (#180): CPU/memory/storage default to the
+  version's recommended allocation (its defaults, kept equal to
   `recommended_size` by ValidateSizeMatchesAllocation). Above the
   recommendation is unrestricted; below shows a heads-up ("it may run
   slowly or fail") and requires an explicit acknowledgment before
   Continue proceeds — a wizard-level gate, mirroring the env step's
   client-controlled order (the platform's own guardrails are the
   Instance attribute floors, enforced regardless of acknowledgment).
+
+  The allocation is **selected, never typed** (#195, owner feedback):
+  the seeded `Size` rows are quick-pick buttons and each dimension has
+  a stepped slider bounded by the platform's own range and snapped to a
+  fixed granularity (`resource_dimensions/0`). No text control renders
+  on this step. Every allocation a *user* can reach is a ladder value
+  by construction (`initial_resources/1` snaps the version default,
+  `preset_sizes/1` filters the picks to representable sizes, and a
+  range input only ever emits ladder values); the parse and the
+  floor/ceiling checks below stay the authoritative say for a crafted
+  event.
 
   Pricing follows the allocation (#186): at the recommendation the
   estimate is the version's recommended-size price; a custom
@@ -34,6 +45,53 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
   alias FluxVale.Catalog
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Pricing.Size
+
+  # The sliders' bounds and snap (#195): the platform's own ceilings on
+  # the max (the Instance attribute constraints) and the smallest
+  # allocation the wizard sells on the min, at a fixed granularity.
+  # Every seeded size lands exactly on all three ladders
+  # (0.25 / 128 / 5 divide micro…pro) — a test pins that — and every
+  # value the step renders is snapped to a ladder value (see
+  # initial_resources/1, preset_sizes/1), so an off-ladder allocation
+  # can never reach a range input and get rounded under the state's
+  # feet. Values below the min stay legal at the API (the resource
+  # floors are enforced there, unchanged); this step just never offers
+  # them.
+  defp resource_dimensions do
+    [
+      %{
+        key: "cpu_cores",
+        id: "resource-cpu-cores",
+        label: "CPU cores",
+        testid: "resource-cpu",
+        min: "0.25",
+        max: "64",
+        step: "0.25",
+        unit: "cores"
+      },
+      %{
+        key: "memory_mb",
+        id: "resource-memory-mb",
+        label: "Memory",
+        testid: "resource-memory",
+        min: "128",
+        max: "65536",
+        step: "128",
+        unit: "MB"
+      },
+      %{
+        key: "storage_gb",
+        id: "resource-storage-gb",
+        label: "Storage",
+        testid: "resource-storage",
+        min: "0",
+        max: "10240",
+        step: "5",
+        unit: "GB"
+      }
+    ]
+  end
 
   @impl Phoenix.LiveView
   def mount(%{"slug" => slug}, _session, socket) do
@@ -50,6 +108,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
           |> assign(step: 1, version_id: nil, selected: nil, env_values: %{}, schema: %{})
           |> assign(resources: nil, below_recommendation?: false, below_ack: false)
           |> assign(resource_errors: [])
+          |> assign(:pricing_sizes, preset_sizes(user))
           |> assign(
             :form,
             Instance
@@ -69,6 +128,12 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
   @impl Phoenix.LiveView
   def render(assigns) do
+    # The quick-pick rows carry their own pressed/recommended state —
+    # `aria-pressed` is a string attribute (a bare boolean renders as an
+    # empty value and announces nothing), and the allocation parses once
+    # per size instead of twice.
+    assigns = assign(assigns, :presets, preset_options(assigns))
+
     ~H"""
     <Layouts.app flash={@flash} current_user={@current_user}>
       <div class="max-w-2xl mx-auto space-y-8">
@@ -197,10 +262,13 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
           <p class="text-sm text-ink-muted">
             {@app.name} recommends
-            <span class="font-mono text-ink" data-testid="recommended-allocation">
+            <span
+              class="font-mono text-ink"
+              data-testid="recommended-allocation"
+            >
               {@selected.default_cpu_cores} CPU · {@selected.default_memory_mb} MB · {@selected.default_storage_gb} GB
             </span>
-            — the defaults below. Allocate more, or less at your own risk.
+            for this version — allocate more, or less at your own risk.
           </p>
 
           <ul
@@ -215,37 +283,66 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
             id="resources-form"
             phx-change="resources-change"
             phx-submit="resources-continue"
-            class="space-y-4"
+            class="space-y-5"
           >
-            <div class="grid gap-4 sm:grid-cols-3 [&>div]:mb-0">
-              <.input
-                id="resource-cpu-cores"
-                name="resources[cpu_cores]"
-                label="CPU cores"
-                type="number"
-                step="0.05"
-                value={@resources["cpu_cores"]}
-                data-testid="resource-cpu"
-              />
-              <.input
-                id="resource-memory-mb"
-                name="resources[memory_mb]"
-                label="Memory (MB)"
-                type="number"
-                step="1"
-                min="1"
-                value={@resources["memory_mb"]}
-                data-testid="resource-memory"
-              />
-              <.input
-                id="resource-storage-gb"
-                name="resources[storage_gb]"
-                label="Storage (GB)"
-                type="number"
-                step="1"
-                min="0"
-                value={@resources["storage_gb"]}
-                data-testid="resource-storage"
+            <div class="space-y-2">
+              <p class="text-sm font-medium text-ink" id="quick-picks-label">Quick picks</p>
+              <div
+                class="grid gap-2 sm:grid-cols-2"
+                role="group"
+                aria-labelledby="quick-picks-label"
+              >
+                <button
+                  :for={preset <- @presets}
+                  type="button"
+                  id={"preset-#{preset.slug}"}
+                  phx-click="pick-size"
+                  phx-value-slug={preset.slug}
+                  aria-pressed={preset.pressed}
+                  data-testid={"preset-#{preset.slug}"}
+                  class={[
+                    "flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition-colors",
+                    "outline-offset-2 outline-focus focus-visible:outline-2",
+                    if(preset.pressed == "true",
+                      do: "border-primary bg-primary-muted",
+                      else: "border-line bg-panel hover:border-line-strong hover:bg-panel-raised"
+                    )
+                  ]}
+                >
+                  <span class="min-w-0">
+                    <span class="block text-sm font-medium text-ink capitalize">
+                      {preset.slug}
+                      <span
+                        :if={preset.recommended}
+                        class="ml-1 align-middle rounded-full bg-primary-muted px-1.5 py-0.5 text-[0.6875rem] font-normal text-primary"
+                      >
+                        recommended
+                      </span>
+                    </span>
+                    <span class="block truncate font-mono text-xs text-ink-muted">
+                      {preset.allocation}
+                    </span>
+                  </span>
+                  <span class="flex-none text-sm font-semibold text-ink">
+                    {preset.price}/mo
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <div class="space-y-4 border-t border-line pt-5">
+              <p class="text-sm font-medium text-ink">Fine-tune</p>
+              <.slider
+                :for={dimension <- resource_dimensions()}
+                id={dimension.id}
+                name={"resources[#{dimension.key}]"}
+                label={dimension.label}
+                value={@resources[dimension.key]}
+                min={dimension.min}
+                max={dimension.max}
+                step={dimension.step}
+                unit={dimension.unit}
+                data-testid={dimension.testid}
               />
             </div>
 
@@ -360,10 +457,11 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   # The price line is one component so the resources step and the name
   # step can't disagree. The estimate follows the allocation (#186): at
   # the recommendation it is the version's size price; a custom
-  # allocation prices by the
-  # anchor formula — the same cents the ledger snapshots at create, so
-  # the shown price is the charged price by construction. Mid-typing
-  # garbage parses to no price (the line waits for a number).
+  # allocation prices by the anchor formula — the same cents the ledger
+  # snapshots at create, so the shown price is the charged price by
+  # construction. An unparseable allocation (only reachable via a
+  # crafted event since #195) parses to no price: the line waits for a
+  # number rather than guessing.
   defp price_line(%{selected: selected, resources: resources} = assigns) do
     at_recommendation = recommendation?(selected, resources)
 
@@ -511,11 +609,11 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
     {:noreply, assign(socket, step: 2)}
   end
 
-  # Live: every keystroke re-renders the below-recommendation warning
-  # and keeps the ack coherent (an edit that leaves the recommendation
-  # band drops a stale ack). Floor errors don't fire here — a number
-  # mid-typing ("0" of "0.5") must not flash errors; they gate at
-  # continue, and again at the form cast on save.
+  # Live: every slider move or preset pick re-renders the
+  # below-recommendation warning and keeps the ack coherent (a change
+  # that leaves the recommendation band drops a stale ack). Floor errors
+  # don't fire here — a partial state must not flash errors; they gate
+  # at continue, and again at the form cast on save.
   def handle_event("resources-change", %{"resources" => params}, socket) do
     # Crafted events before a version is picked must not crash on the
     # nil selected version (same posture as to-env's guard); the
@@ -539,9 +637,42 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
   def handle_event("back-resources", _params, socket) do
     # Step 3 renders the selected version — crafted from before a pick
-    # there is nothing to render (to-env's guard posture).
+    # there is nothing to render (to-env's guard posture). A genuine
+    # back-nav carries the allocation the env gate set; a crafted one
+    # before it gets the recommendation, so the step always renders a
+    # full control set (#195) instead of a nil-valued one.
     if socket.assigns.selected do
-      {:noreply, assign(socket, step: 3)}
+      resources = socket.assigns.resources || initial_resources(socket.assigns.selected)
+
+      socket =
+        socket
+        |> assign_resource_state(resources, socket.assigns.below_ack)
+        |> assign(:step, 3)
+
+      {:noreply, socket}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  # A quick pick (#195): the seeded size's whole allocation at once —
+  # the same state a slider round trip would reach, priced from the
+  # Size row (its allocation is the recommendation-shaped point on the
+  # curve). The ack starts cold: switching allocation always earns a
+  # fresh look at the heads-up, and a preset that lands at or above the
+  # recommendation never mounts one.
+  def handle_event("pick-size", %{"slug" => slug}, socket) do
+    if socket.assigns.selected do
+      case Enum.find(socket.assigns.pricing_sizes, &(&1.slug == slug)) do
+        nil ->
+          # A crafted slug (or a size deleted mid-step): the rendered
+          # buttons can't produce one. Nothing to read, nothing changes.
+          {:noreply, socket}
+
+        size ->
+          socket = assign_resource_state(socket, size_resources(size), false)
+          {:noreply, socket}
+      end
     else
       {:noreply, socket}
     end
@@ -666,17 +797,134 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   end
 
   # --- Resources step (#180) ------------------------------------------------
-  # Input state is strings end to end (the number inputs' exact
-  # contents); parsing happens at the edges — here for warnings, at
+  # Input state is strings end to end (the sliders' exact values);
+  # parsing happens at the edges — here for warnings, at
   # resources-continue for floor errors, at the form cast for the
   # authoritative say.
 
-  defp initial_resources(version) do
+  # The quick picks (#195): the seeded Sizes, cheapest first — business
+  # data (admin-editable, ADR-0027), read once at mount like the rest of
+  # the catalog, so an edit lands on the next visit rather than under a
+  # wizard already open. Reads are actor-scoped like every other catalog
+  # surface. Sizes the sliders can't represent (an admin allocation off
+  # the ladder or past a bound) are omitted: a quick pick that its own
+  # wizard would refuse or silently clamp is worse than no pick at all.
+  defp preset_sizes(user) do
+    Size
+    |> Ash.Query.for_read(:read, %{}, actor: user)
+    |> Ash.Query.sort(monthly_cents: :asc)
+    |> Ash.read!()
+    |> Enum.filter(&representable_size?/1)
+  end
+
+  defp representable_size?(size) do
+    Decimal.eq?(size.cpu_cores, snap_decimal(size.cpu_cores, "0.25", "0.25", "64")) and
+      size.memory_mb == snap_integer(size.memory_mb, 128, 128, 65_536) and
+      size.storage_gb == snap_integer(size.storage_gb, 0, 5, 10_240)
+  end
+
+  defp size_resources(size) do
     %{
-      "cpu_cores" => Decimal.to_string(version.default_cpu_cores),
-      "memory_mb" => Integer.to_string(version.default_memory_mb),
-      "storage_gb" => Integer.to_string(version.default_storage_gb)
+      "cpu_cores" => decimal_string(size.cpu_cores),
+      "memory_mb" => Integer.to_string(size.memory_mb),
+      "storage_gb" => Integer.to_string(size.storage_gb)
     }
+  end
+
+  defp size_allocation(size) do
+    "#{decimal_string(size.cpu_cores)} CPU · #{size.memory_mb} MB · #{size.storage_gb} GB"
+  end
+
+  # One row per seeded size, resolved once for the template: the slug,
+  # the allocation and price it carries, whether it is the version's
+  # recommendation, and whether the current allocation IS the size
+  # (`aria-pressed` — a string, not a bare boolean, so a screen reader
+  # hears the state).
+  defp preset_options(assigns) do
+    for size <- assigns.pricing_sizes do
+      %{
+        slug: size.slug,
+        allocation: size_allocation(size),
+        price: FluxVale.Pricing.format_usd(size.monthly_cents),
+        recommended: recommended_preset?(assigns.selected, size),
+        pressed: to_string(preset_active?(assigns.resources, size))
+      }
+    end
+  end
+
+  defp recommended_preset?(version, size) do
+    not is_nil(version) and not is_nil(version.recommended_size) and
+      version.recommended_size.slug == size.slug
+  end
+
+  # A preset reads as pressed only when the allocation IS the size —
+  # same comparison the recommendation check makes, so a repriced or
+  # re-allocated size row degrades to "nothing pressed" instead of
+  # lying. A nil allocation (any render before the resources step
+  # assigns one) is nothing pressed; an unparseable allocation (a
+  # crafted change event) likewise.
+  defp preset_active?(nil, _size), do: false
+
+  defp preset_active?(resources, size) do
+    case parse_allocation(resources) do
+      {:ok, allocation} ->
+        Decimal.eq?(allocation.cpu_cores, size.cpu_cores) and
+          allocation.memory_mb == size.memory_mb and
+          allocation.storage_gb == size.storage_gb
+
+      {:error, _errors} ->
+        false
+    end
+  end
+
+  defp initial_resources(version) do
+    cpu = snap_decimal(version.default_cpu_cores, "0.25", "0.25", "64")
+    memory = snap_integer(version.default_memory_mb, 128, 128, 65_536)
+    storage = snap_integer(version.default_storage_gb, 0, 5, 10_240)
+
+    %{
+      "cpu_cores" => decimal_string(cpu),
+      "memory_mb" => Integer.to_string(memory),
+      "storage_gb" => Integer.to_string(storage)
+    }
+  end
+
+  # A value on its dimension's ladder, always: the nearest multiple of
+  # `step`, clamped to the bounds. A range input snaps an off-ladder
+  # value in the browser the moment it renders, so an admin-entered
+  # version default (ADR-0027 permits allocations the ladders can't
+  # express) would otherwise show one number and submit another — the
+  # shown price forking from the charge. Snapping here keeps state,
+  # readout, thumb and submit one value; a snap that lands below the
+  # recommendation correctly reads as below it.
+  defp snap_decimal(value, step, min, max) do
+    value
+    |> Decimal.div(Decimal.new(step))
+    |> Decimal.round(0, :half_up)
+    |> Decimal.mult(Decimal.new(step))
+    |> clamp_decimal(Decimal.new(min), Decimal.new(max))
+    |> Decimal.normalize()
+  end
+
+  # A snapped Decimal as a form value: normalized (so 0.50 and 0.5 are
+  # one number) and expanded (predicate-form normalizing lowercases the
+  # exponent, so `normalize(10)` is 1E+1 — never a valid range value).
+  defp decimal_string(value), do: Decimal.to_string(value, :normal)
+
+  defp clamp_decimal(value, min, max) do
+    cond do
+      Decimal.compare(value, min) == :lt -> min
+      Decimal.compare(value, max) == :gt -> max
+      true -> value
+    end
+  end
+
+  # Integer dimension (memory/storage): offset from the floor, so a
+  # nonzero floor keeps every ladder value reachable.
+  defp snap_integer(value, min, step, max) do
+    snapped = min + round((value - min) / step) * step
+    clamped_low = max(snapped, min)
+    min(clamped_low, max)
   end
 
   # Partial params merge over the current state — or the
@@ -848,7 +1096,10 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
   # nil resources (a channel-level save or crafted nav from before the
   # resources step) read as the recommendation: the derive applies the
-  # version defaults.
+  # version defaults. #195 made step 3 assign an allocation on every
+  # way in, so no render reaches this — the clause stays as the
+  # defensive say for a nil that would otherwise crash the parse.
+  # coveralls-ignore-next-line — defensive: both step-3 entries assign resources first
   defp recommendation?(_version, nil), do: true
 
   defp recommendation?(version, resources) do
