@@ -129,7 +129,7 @@ defmodule FluxValeWeb.CatalogLive.Show do
       tone="primary"
       data-testid={"price-#{@version.version}"}
     >
-      {FluxVale.Pricing.format_usd(@version.recommended_size.monthly_cents)}/mo
+      {FluxVale.Pricing.format_monthly_rate(@version.recommended_size.monthly_cents)}
     </.badge>
     """
   end

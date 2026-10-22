@@ -35,14 +35,15 @@ backups. The user just logs in and uses the app.
 - **Prepaid credits**: 1 credit = 1 US cent. Wallet per organization; balance is
   a live `sum` over an append-only ledger (never a stored column).
 - **Flat-rate pricing** (ADR-00028): an instance's price is derived from its
-  allocation (cpu/ram/storage) and shown as a simple **monthly rate**
-  ("$X.XX/mo"), charged from credits pro-rata over elapsed time regardless
+  allocation (cpu/ram/storage) and shown as a **monthly-equivalent rate**
+  ("$X.XX/mo · billed hourly" on every price surface, #206), charged from
+  credits pro-rata (µs accrual) over elapsed time regardless
   of actual usage. Running = flat rate; stopped = storage-only flat fee
   ("pause it and it costs almost nothing"). No metered usage billing.
-- **COGS anchor**: one Netcup RS 2000 G12 (8 dedicated EPYC cores, 16 GB ECC,
-  512 GB NVMe) ≈ €21.61/mo actual billed price. Launch-gate sanity check:
-  sum of flat prices at target density clears the box COGS with margin —
-  see architecture.md's resource budget.
+- **COGS anchor**: renewal-floor Netcup RS 4000-class, oversubscribed with
+  scale-to-zero (storage-bound ~46 smalls/box); prices are per-datencenter,
+  B′ ×1.2 Nuremberg, B′-SG ×1.25 standby — decided #200, see
+  pricing-recalibration-2026-10.md; pricing-calibration.md keeps the table.
 - Welcome credits on signup (anti-abuse TBD — open question #9).
 
 ## Non-goals (for the foreseeable future)

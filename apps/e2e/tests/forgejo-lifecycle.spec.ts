@@ -44,30 +44,36 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   // the app nav lives on the app's own pages, so go there directly).
   // Each page's first phx interaction waits for the join (#148 —
   // helpers/live-view.ts); later pages ride the same socket.
+  // The catalog's price badge carries B′ (#206): Forgejo recommends
+  // `small`, $3.35/mo — stated as a monthly-equivalent, billed hourly.
   await page.goto("/apps");
   await waitForLiveViewJoin(page);
   await expect(page.getByRole("heading", { name: "Catalog" })).toBeVisible();
   await page.getByTestId("app-forgejo").click();
   await expect(page.getByRole("heading", { name: "Forgejo", exact: true })).toBeVisible();
   await waitForLiveViewJoin(page);
+  await expect(page.locator("[data-testid^='price-']").first()).toContainText(
+    "$3.35/mo · billed hourly",
+  );
 
   // Deploy stepper: version → configuration (seed defaults carry) →
   // resources → name. The resources step exercises #186's formula
   // pricing with a custom allocation: cpu 1 over Forgejo's `small`
   // recommendation (0.5/512/10), the live estimate repricing to the
-  // anchor curve's $3.25/mo before continuing. The allocation is
-  // selected (#195 — sliders + quick picks, no text field); `fill`
-  // sets a range input's value directly (Playwright's supported path
-  // for range, including its actionability checks).
+  // v5 B′ curve's $3.91/mo before continuing (#206 — the label also
+  // states billed-hourly). The allocation is selected (#195 —
+  // sliders + quick picks, no text field); `fill` sets a range
+  // input's value directly (Playwright's supported path for range,
+  // including its actionability checks).
   await page.locator("[data-testid^='deploy-']").first().click();
   await waitForLiveViewJoin(page);
   await page.getByTestId("version-option").first().check();
   await page.getByTestId("continue-version").click();
   await page.getByTestId("continue-env").click();
   await page.getByTestId("resource-cpu").fill("1");
-  await expect(page.getByTestId("resources-price")).toContainText("$3.25/mo");
+  await expect(page.getByTestId("resources-price")).toContainText("$3.91/mo · billed hourly");
   await page.getByTestId("continue-resources").click();
-  await expect(page.getByTestId("price-summary")).toContainText("$3.25/mo");
+  await expect(page.getByTestId("price-summary")).toContainText("$3.91/mo · billed hourly");
   const name = `e2e-forgejo-${runId}`;
   await page.getByTestId("instance-name").fill(name);
   await page.getByTestId("deploy-submit").click();
@@ -79,6 +85,16 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   await page.waitForURL(/\/instances\//);
   await waitForLiveViewJoin(page);
   await waitForStatus(page, "Running", 12 * 60_000);
+
+  // The instance page shows the version's recommended-size rate
+  // (small, $3.35 at B′) — pre-#206 shape: this custom-allocation
+  // instance actually bills its $3.91 snapshot (#186); repricing that
+  // surface is flagged as a follow-up in the closing PR's body, not
+  // #206's scope. Framing is the same
+  // monthly-equivalent/billed-hourly as every surface.
+  await expect(page.getByTestId("instance-price")).toContainText(
+    "$3.35/mo · billed hourly",
+  );
 
   // The instance URL opens through Traefik (self-signed — ignored at
   // the config level) and actually serves Forgejo, not a placeholder
@@ -101,9 +117,13 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   expect(body).not.toMatch(/registration is disabled/i);
   expect(body).toMatch(/name="password"/);
 
-  // Stop → Stopped (scale-to-zero under the hood, quick)
+  // Stop → Stopped (scale-to-zero under the hood, quick); the price
+  // line swaps to the storage-only fee — small stopped, $0.40 at B′.
   await page.getByTestId("stop-button").click();
   await waitForStatus(page, "Stopped", 60_000);
+  await expect(page.getByTestId("instance-price")).toContainText(
+    "$0.40/mo while stopped · billed hourly",
+  );
 
   // Destroy: native confirm() dialog, teardown (async Oban) exits the
   // view to /instances where the fresh user's list is empty again

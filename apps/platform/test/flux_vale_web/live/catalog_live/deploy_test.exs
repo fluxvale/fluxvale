@@ -99,7 +99,13 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
     assert has_element?(view, "#version-#{version.id}")
     assert has_element?(view, "button[phx-click='to-env']")
-    assert has_element?(view, "[data-testid='version-price-#{version.version}']", "$1.00/mo")
+
+    assert has_element?(
+             view,
+             "[data-testid='version-price-#{version.version}']",
+             "$1.00/mo · billed hourly"
+           )
+
     assert html =~ "published"
   end
 
@@ -224,7 +230,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     to_step_4(view)
 
     # The name step carries ADR-0028's estimate for the picked version.
-    assert has_element?(view, "[data-testid='price-summary']", "$1.00/mo")
+    assert has_element?(view, "[data-testid='price-summary']", "$1.00/mo · billed hourly")
 
     # From the name step, back returns to resources, and again to env
     view
@@ -398,7 +404,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     render_click(view, "back-resources", %{})
 
     assert has_element?(view, "#resources-form")
-    assert has_element?(view, "[data-testid='resources-price']", "$1.00/mo")
+    assert has_element?(view, "[data-testid='resources-price']", "$1.00/mo · billed hourly")
   end
 
   test "a channel-level back-resources before a pick stays on the version step", %{
@@ -655,9 +661,9 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
       # The price follows the allocation (#186): the anchor formula at
       # 1 CPU / 2048 MB / 20 GB — which the seeded table pins at the
-      # standard size's $5.18 — never this fixture's $1.00 size price.
-      assert has_element?(view, "[data-testid='resources-price']", "$5.18/mo")
-      refute has_element?(view, "[data-testid='resources-price']", "$1.00/mo")
+      # standard size's $6.21 (B′) — never this fixture's $1.00 size price.
+      assert has_element?(view, "[data-testid='resources-price']", "$6.21/mo · billed hourly")
+      refute has_element?(view, "[data-testid='resources-price']", "$1.00/mo · billed hourly")
 
       assert has_element?(view, "[data-testid='preset-standard'][aria-pressed='true']")
     end
@@ -726,7 +732,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       # equivalence is the calibration tests' contract, not this
       # fixture's).
       refute has_element?(view, "#below-recommendation-warning")
-      assert has_element?(view, "[data-testid='resources-price']", "$1.00/mo")
+      assert has_element?(view, "[data-testid='resources-price']", "$1.00/mo · billed hourly")
 
       # The estimate tracks the inputs live (#186's done-when): a bump
       # reprices, and back at the recommendation the size price returns.
@@ -734,17 +740,17 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       |> form("#resources-form", resources: %{cpu_cores: "1"})
       |> render_change()
 
-      assert has_element?(view, "[data-testid='resources-price']", "$2.90/mo")
+      assert has_element?(view, "[data-testid='resources-price']", "$3.48/mo · billed hourly")
 
       view
       |> form("#resources-form", resources: %{cpu_cores: "0.5"})
       |> render_change()
 
-      assert has_element?(view, "[data-testid='resources-price']", "$1.00/mo")
+      assert has_element?(view, "[data-testid='resources-price']", "$1.00/mo · billed hourly")
 
       to_step_4(view)
 
-      assert has_element?(view, "[data-testid='price-summary']", "$1.00/mo")
+      assert has_element?(view, "[data-testid='price-summary']", "$1.00/mo · billed hourly")
     end
 
     test "an above-recommendation allocation deploys unrestricted at the formula price",
@@ -762,11 +768,11 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       # The live estimate follows the allocation (#186): the anchor
       # formula at 1 CPU / 512 MB / 20 GB, on the resources step and
       # carried to the name step. No interim copy remains.
-      assert has_element?(view, "[data-testid='resources-price']", "$3.48/mo")
+      assert has_element?(view, "[data-testid='resources-price']", "$4.18/mo · billed hourly")
 
       to_step_4(view)
 
-      assert has_element?(view, "[data-testid='price-summary']", "$3.48/mo")
+      assert has_element?(view, "[data-testid='price-summary']", "$4.18/mo · billed hourly")
       refute render(view) =~ "billed at the recommended size"
 
       view
@@ -784,8 +790,8 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       # The ledger charges exactly what the wizard showed: the formula
       # cents snapshot at create (no size for a custom allocation).
       assert instance.size_id == nil
-      assert instance.grandfathered_monthly_cents == 348
-      assert instance.grandfathered_stopped_monthly_cents == 57
+      assert instance.grandfathered_monthly_cents == 418
+      assert instance.grandfathered_stopped_monthly_cents == 68
       assert instance.grandfathered_until
     end
 
@@ -809,7 +815,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
       # The estimate follows the below-recommendation allocation too —
       # the ack flow prices, it doesn't hide.
-      assert has_element?(view, "[data-testid='resources-price']", "$2.24/mo")
+      assert has_element?(view, "[data-testid='resources-price']", "$2.68/mo · billed hourly")
 
       # The ack rides the form; Continue proceeds and the deploy lands
       # at the chosen (lower) allocation.
@@ -829,7 +835,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
       # Formula-priced: the below-recommendation snapshot.
       assert instance.size_id == nil
-      assert instance.grandfathered_monthly_cents == 224
+      assert instance.grandfathered_monthly_cents == 268
     end
 
     test "the hard floors block even with the acknowledgment", %{user: user, view: view} do

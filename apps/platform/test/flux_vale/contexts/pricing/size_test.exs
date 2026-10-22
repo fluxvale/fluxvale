@@ -29,8 +29,8 @@ defmodule FluxVale.Pricing.SizeTest do
         cpu_cores: Decimal.new("0.5"),
         memory_mb: 512,
         storage_gb: 10,
-        monthly_cents: 279,
-        stopped_monthly_cents: 34
+        monthly_cents: 335,
+        stopped_monthly_cents: 40
       },
       Map.new(overrides)
     )
@@ -43,8 +43,8 @@ defmodule FluxVale.Pricing.SizeTest do
       assert {:ok, size} = Size.create(attrs, authorize?: false)
 
       assert Decimal.equal?(size.cpu_cores, Decimal.new("0.5"))
-      assert size.monthly_cents == 279
-      assert size.stopped_monthly_cents == 34
+      assert size.monthly_cents == 335
+      assert size.stopped_monthly_cents == 40
     end
 
     test "rejects non-URL-shaped slugs" do
@@ -197,9 +197,11 @@ defmodule FluxVale.Pricing.SizeTest do
       assert Pricing.format_usd(0) == "$0.00"
       assert Pricing.format_usd(5) == "$0.05"
       assert Pricing.format_usd(20) == "$0.20"
-      assert Pricing.format_usd(279) == "$2.79"
-      assert Pricing.format_usd(1339) == "$13.39"
-      assert Pricing.format_usd(133_900) == "$1339.00"
+      # micro and pro at B′ (#206) — values a reader can triangulate
+      # against the live table.
+      assert Pricing.format_usd(283) == "$2.83"
+      assert Pricing.format_usd(1606) == "$16.06"
+      assert Pricing.format_usd(160_600) == "$1606.00"
     end
   end
 end

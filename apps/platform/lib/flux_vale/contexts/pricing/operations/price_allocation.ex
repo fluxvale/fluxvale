@@ -10,12 +10,22 @@ defmodule FluxVale.Pricing.Operations.PriceAllocation do
            + 1.45·ram_gb^0.8          (memory)
            + 0.06·storage_gb^0.75     (storage)
 
-  Stopped = the storage term alone (ADR-0028 §2). Whole US cents,
-  halves rounded up — the same rounding the seeded table was built
-  with, so the formula reproduces every seeded size's cents exactly
-  (pinned by the calibration tests). One module owns the curve: the
-  seed-calibration tests assert the shipped YAML against THIS module,
-  never a second copy of the constants.
+  Curve v5 (#206, decided on #200 from
+  docs/pricing-recalibration-2026-10.md): the v4 curve times a
+  per-region surcharge m — pricing is per-datencenter, so a region's
+  floor rides its own multiplier, not a second curve. `:nuremberg`
+  (the one seeded region) is B′ ×1.2; `:singapore` is the decided
+  B′-SG ×1.25 on standby — present so the variant is structure, not
+  a rewrite, but seeded nowhere (no SG rows ship until the SG box
+  exists; activating it is a seed diff plus region wiring, no
+  migration).
+
+  Stopped = the storage term alone (ADR-0028 §2), surcharge included.
+  Whole US cents, halves rounded up — the same rounding the seeded
+  table was built with, so the formula reproduces every seeded size's
+  cents exactly (pinned by the calibration tests). One module owns
+  the curve: the seed-calibration tests assert the shipped YAML
+  against THIS module, never a second copy of the constants.
 
   Terence's #180 decision (option a, continuous formula): the wizard's
   live estimate and the ledger's charge both price through here, so a
@@ -35,6 +45,14 @@ defmodule FluxVale.Pricing.Operations.PriceAllocation do
   @storage_multiplier 0.06
   @storage_exponent 0.75
 
+  # v5's regional surcharges (#206): the v4 curve ×m, per datencenter.
+  # A new region slots in as one map entry — everything downstream
+  # (rounding, seeds, snapshots) is region-agnostic by construction.
+  @regional_multipliers %{
+    nuremberg: 1.2,
+    singapore: 1.25
+  }
+
   @gb_mb 1024
 
   @doc """
@@ -43,13 +61,23 @@ defmodule FluxVale.Pricing.Operations.PriceAllocation do
   and storage are integers in MB / GB. The allocation is assumed
   floor-legal (the Instance attribute constraints) — every floor-legal
   value is mathematically fine here (0 storage prices to 0¢ stopped).
+
+  `region` selects the v5 surcharge — required here; the domain's
+  `price_allocation/2` owns the default (`:nuremberg`, the one seeded
+  region), so the default lives at exactly one seam. An unknown
+  region raises rather than pricing at a guess: a typo'd region on a
+  charge path must fail loudly.
   """
-  @spec call(%{cpu_cores: Decimal.t(), memory_mb: pos_integer(), storage_gb: non_neg_integer()}) ::
+  @spec call(
+          %{cpu_cores: Decimal.t(), memory_mb: pos_integer(), storage_gb: non_neg_integer()},
+          atom()
+        ) ::
           %{
             monthly_cents: non_neg_integer(),
             stopped_monthly_cents: non_neg_integer()
           }
-  def call(allocation) do
+  def call(allocation, region) do
+    surcharge = regional_surcharge(region)
     cpu_cores = Decimal.to_float(allocation.cpu_cores)
     memory_gb = allocation.memory_mb / @gb_mb
     storage_gb = allocation.storage_gb / 1
@@ -61,7 +89,17 @@ defmodule FluxVale.Pricing.Operations.PriceAllocation do
         @memory_multiplier * :math.pow(memory_gb, @memory_exponent) +
         storage_usd
 
-    %{monthly_cents: half_up_cents(usd), stopped_monthly_cents: half_up_cents(storage_usd)}
+    %{
+      monthly_cents: half_up_cents(surcharge * usd),
+      stopped_monthly_cents: half_up_cents(surcharge * storage_usd)
+    }
+  end
+
+  defp regional_surcharge(region) do
+    case Map.fetch(@regional_multipliers, region) do
+      {:ok, surcharge} -> surcharge
+      :error -> raise ArgumentError, "unknown pricing region #{inspect(region)}"
+    end
   end
 
   defp storage_term(storage_gb) do

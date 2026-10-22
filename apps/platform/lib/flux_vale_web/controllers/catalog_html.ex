@@ -19,7 +19,7 @@ defmodule FluxValeWeb.CatalogHTML do
       class="badge badge-primary badge-outline"
       data-testid={"price-#{@version.version}"}
     >
-      {FluxVale.Pricing.format_usd(@version.recommended_size.monthly_cents)}/mo
+      {FluxVale.Pricing.format_monthly_rate(@version.recommended_size.monthly_cents)}
     </span>
     """
   end

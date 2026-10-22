@@ -40,7 +40,13 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
     assert has_element?(view, "#deploy-#{version.id}[href='/apps/#{linked_app.slug}/deploy']")
     assert has_element?(view, "a[href='https://example.com/src']", "Source")
     assert has_element?(view, "a[href='https://example.com/docs']", "Docs")
-    assert has_element?(view, "[data-testid='price-#{version.version}']", "$1.00/mo")
+
+    assert has_element?(
+             view,
+             "[data-testid='price-#{version.version}']",
+             "$1.00/mo · billed hourly"
+           )
+
     assert html =~ "First FluxVale catalog release."
     assert html =~ "Published"
   end

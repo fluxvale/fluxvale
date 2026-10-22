@@ -183,7 +183,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                   class="ml-1 text-xs text-ink-subtle"
                   data-testid={"version-price-#{version.version}"}
                 >
-                  {FluxVale.Pricing.format_usd(version.recommended_size.monthly_cents)}/mo
+                  {FluxVale.Pricing.format_monthly_rate(version.recommended_size.monthly_cents)}
                 </span>
               </span>
             </label>
@@ -324,7 +324,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                     </span>
                   </span>
                   <span class="flex-none text-sm font-semibold text-ink">
-                    {preset.price}/mo
+                    {preset.price}
                   </span>
                 </button>
               </div>
@@ -474,10 +474,10 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
     ~H"""
     <span :if={@size && @at_recommendation} class="font-semibold text-ink">
-      {FluxVale.Pricing.format_usd(@size.monthly_cents)}/mo
+      {FluxVale.Pricing.format_monthly_rate(@size.monthly_cents)}
     </span>
     <span :if={not @at_recommendation and not is_nil(@custom_cents)} class="font-semibold text-ink">
-      {FluxVale.Pricing.format_usd(@custom_cents)}/mo
+      {FluxVale.Pricing.format_monthly_rate(@custom_cents)}
     </span>
     """
   end
@@ -845,7 +845,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
       %{
         slug: size.slug,
         allocation: size_allocation(size),
-        price: FluxVale.Pricing.format_usd(size.monthly_cents),
+        price: FluxVale.Pricing.format_monthly_rate(size.monthly_cents),
         recommended: recommended_preset?(assigns.selected, size),
         pressed: to_string(preset_active?(assigns.resources, size))
       }

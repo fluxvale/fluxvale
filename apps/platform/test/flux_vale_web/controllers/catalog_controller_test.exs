@@ -135,7 +135,7 @@ defmodule FluxValeWeb.CatalogControllerTest do
       assert html =~ ~s(href="https://example.com/docs")
       assert html =~ ~s(href="/apps/#{app.slug}/deploy")
       assert html =~ ~s(data-testid="price-#{version.version}")
-      assert html =~ "$1.00/mo"
+      assert html =~ "$1.00/mo · billed hourly"
       assert html =~ "Published"
       assert html =~ "First FluxVale catalog release."
     end

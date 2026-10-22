@@ -31,9 +31,11 @@ defmodule FluxVale.Pricing.Operations.PriceAllocationTest do
       end
     end
 
-    test "the doc's verified calculator point holds (0.25 core / 0.25 GB / 0 GB = $1.80)" do
+    test "the doc's verified calculator point holds (0.25 core / 0.25 GB / 0 GB = $1.80 ×1.2)" do
       # pricing-calibration.md's own anchor verification: the source's
-      # public calculator shows $1.80 for its 0.25/0.25/0 default.
+      # public calculator shows $1.80 for its 0.25/0.25/0 default — v4.
+      # v5 surcharges the curve (B′ ×1.2): 180¢ → 216¢, the value
+      # docs/pricing-recalibration-2026-10.md pins for B′.
       rates =
         Pricing.price_allocation(%{
           cpu_cores: Decimal.new("0.25"),
@@ -41,7 +43,50 @@ defmodule FluxVale.Pricing.Operations.PriceAllocationTest do
           storage_gb: 0
         })
 
-      assert rates == %{monthly_cents: 180, stopped_monthly_cents: 0}
+      assert rates == %{monthly_cents: 216, stopped_monthly_cents: 0}
+    end
+  end
+
+  describe "regional variants (curve v5, #206)" do
+    test ":nuremberg is the default — both arities price identically" do
+      allocation = %{cpu_cores: Decimal.new("0.5"), memory_mb: 512, storage_gb: 10}
+
+      assert Pricing.price_allocation(allocation) ==
+               Pricing.price_allocation(allocation, :nuremberg)
+    end
+
+    # The SG extension proof: a ×1.25 variant slots in as ONE map
+    # entry in PriceAllocation (no migration, no curve rewrite) — this
+    # pins the standby variant to the recalibration doc's B′-SG table,
+    # ready for the day SG prices seed. No SG rows ship in the YAML.
+    test ":singapore (standby, unseeded) prices the doc's B′-SG table exactly" do
+      # Ground truth: docs/pricing-recalibration-2026-10.md, "The
+      # Singapore extension" — B′-SG ×1.25 column.
+      b_prime_sg = %{
+        micro: {294, 25},
+        small: {349, 42},
+        medium: {427, 42},
+        standard: {647, 71},
+        plus: {1038, 141},
+        pro: {1673, 237}
+      }
+
+      for {slug, {monthly, stopped}} <- b_prime_sg do
+        allocation = allocation_for(slug)
+
+        rates = Pricing.price_allocation(allocation, :singapore)
+
+        assert rates == %{monthly_cents: monthly, stopped_monthly_cents: stopped},
+               "B′-SG #{slug}: #{inspect(rates)} drifts from the doc's table"
+      end
+    end
+
+    test "an unknown region raises rather than pricing a guess" do
+      allocation = %{cpu_cores: Decimal.new("0.5"), memory_mb: 512, storage_gb: 10}
+
+      assert_raise ArgumentError, "unknown pricing region :mars", fn ->
+        Pricing.price_allocation(allocation, :mars)
+      end
     end
   end
 
@@ -142,6 +187,18 @@ defmodule FluxVale.Pricing.Operations.PriceAllocationTest do
         storage_gb: :rand.uniform(512)
       }
     end)
+  end
+
+  # The seeded allocation behind a slug (PricingData carries the six
+  # sizes) — table-driven tests iterate the doc's per-size tables.
+  defp allocation_for(slug) do
+    size = Enum.find(PricingData.entries(), &(&1.slug == Atom.to_string(slug)))
+
+    %{
+      cpu_cores: size.cpu_cores,
+      memory_mb: size.memory_mb,
+      storage_gb: size.storage_gb
+    }
   end
 
   defp cpu_hundredths do
