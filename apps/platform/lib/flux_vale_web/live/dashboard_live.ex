@@ -186,7 +186,8 @@ defmodule FluxValeWeb.DashboardLive do
   end
 
   @impl Phoenix.LiveView
-  # Teardown's hard delete — the row leaves the stream.
+  # Teardown's hard delete — the row leaves the stream, and the wallet
+  # follows: a stopped burn changes the runway (CodeRabbit #207).
   def handle_info(
         %Ash.Notifier.Notification{action: %{name: :destroy}} = notification,
         socket
@@ -195,18 +196,26 @@ defmodule FluxValeWeb.DashboardLive do
       socket
       |> stream_delete(:instances, notification.data)
       |> assign(:instance_count, socket.assigns.instance_count - 1)
+      |> refresh_wallet()
 
     {:noreply, socket}
   end
 
   # Re-read the row on broadcast (the DB is the one ordering that can't
   # lie — a trailing notification can predate fresher writes) and
-  # re-stream it loaded: the row template renders the app name.
+  # re-stream it loaded: the row template renders the app name. The
+  # wallet rides along: a transition that changes burn (starting →
+  # running) must move the runway card with it, or the dashboard
+  # contradicts its own live status.
   def handle_info(%Ash.Notifier.Notification{data: %{id: id}}, socket) do
     case Instance.get_by_id(id, actor: socket.assigns.current_user) do
       {:ok, instance} ->
         instance = Ash.load!(instance, [app_version: :app], actor: socket.assigns.current_user)
-        {:noreply, stream_insert(socket, :instances, instance)}
+
+        {:noreply,
+         socket
+         |> stream_insert(:instances, instance)
+         |> refresh_wallet()}
 
       _error ->
         # Destroy races land here too — the destroy clause handles the
@@ -244,6 +253,10 @@ defmodule FluxValeWeb.DashboardLive do
       :none ->
         :none
     end
+  end
+
+  defp refresh_wallet(socket) do
+    assign(socket, :wallet, wallet_summary(socket.assigns.current_user))
   end
 
   # The shared formatter is `Pricing.format_usd/1` (non-negative by

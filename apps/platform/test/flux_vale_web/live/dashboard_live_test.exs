@@ -173,6 +173,33 @@ defmodule FluxValeWeb.DashboardLiveTest do
     assert has_element?(view, "#instances-#{deployed.id}", "Starting")
   end
 
+  # CodeRabbit #207: a transition that changes burn must move the
+  # runway card with the row — a live "Running" badge under a stale
+  # "No active burn" contradicts the dashboard's own live status.
+  test "a burn-starting broadcast refreshes the runway card", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    instance = InstanceFixtures.instance!(version, user)
+    deployed = InstanceFixtures.walk_to!(instance, :deploying)
+
+    {:ok, view, _html} = dashboard(conn)
+
+    assert has_element?(view, "[data-testid='dashboard-runway']", "No active burn")
+
+    {:ok, starting} = InstanceK8s.update_status(deployed, :starting, nil)
+    InstanceK8s.update_status(starting, :running, nil)
+
+    assert has_element?(view, "#instances-#{instance.id}", "Running")
+
+    assert has_element?(
+             view,
+             "[data-testid='dashboard-runway']",
+             ~r/at \$[\d.]+\/mo current burn/
+           )
+  end
+
   test "a destroy broadcast drops the row and the count follows", %{
     conn: conn,
     user: user,
