@@ -55,7 +55,10 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   // resources → name. The resources step exercises #186's formula
   // pricing with a custom allocation: cpu 1 over Forgejo's `small`
   // recommendation (0.5/512/10), the live estimate repricing to the
-  // anchor curve's $3.25/mo before continuing.
+  // anchor curve's $3.25/mo before continuing. The allocation is
+  // selected (#195 — sliders + quick picks, no text field); `fill`
+  // sets a range input's value directly (Playwright's supported path
+  // for range, including its actionability checks).
   await page.locator("[data-testid^='deploy-']").first().click();
   await waitForLiveViewJoin(page);
   await page.getByTestId("version-option").first().check();

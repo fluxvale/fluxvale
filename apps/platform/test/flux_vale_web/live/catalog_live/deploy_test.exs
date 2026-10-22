@@ -25,6 +25,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
   alias FluxVale.Clients.K8s.Resources.Service
 
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Pricing.Size
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
@@ -429,6 +430,280 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     assert has_element?(view, "#below-recommendation-warning")
   end
 
+  describe "the resource picker (#195 — selectable, never typed)" do
+    setup %{conn: conn, app: app, version: version} do
+      # The quick picks are the seeded sizes (shipped business data);
+      # the shared test DB carries none until a seed test runs, so seed
+      # them for this suite's transaction.
+      :ok = FluxVale.Seeds.seed_pricing!()
+
+      {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+      to_step_2(view, version)
+      to_step_3(view)
+
+      %{view: view, version: version}
+    end
+
+    test "no free-text control renders on the resources step", %{view: view} do
+      # The whole point of #195: the allocation is picked, never typed.
+      refute has_element?(view, "#resources-form input[type='text']")
+      refute has_element?(view, "#resources-form input[type='number']")
+      refute has_element?(view, "#resources-form textarea")
+
+      # …and the selectable controls are there instead.
+      assert has_element?(
+               view,
+               "#resources-form input[type='range'][name='resources[cpu_cores]']"
+             )
+
+      assert has_element?(
+               view,
+               "#resources-form input[type='range'][name='resources[memory_mb]']"
+             )
+
+      assert has_element?(
+               view,
+               "#resources-form input[type='range'][name='resources[storage_gb]']"
+             )
+    end
+
+    test "every slider is bounded by the platform range and snapped", %{view: view} do
+      # The bounds are the platform's own ceilings; the step is the
+      # fixed granularity the arrow keys snap to.
+      assert has_element?(view, "#resource-cpu-cores[min='0.25'][max='64'][step='0.25']")
+      assert has_element?(view, "#resource-memory-mb[min='128'][max='65536'][step='128']")
+      assert has_element?(view, "#resource-storage-gb[min='0'][max='10240'][step='5']")
+    end
+
+    test "the sliders carry accessible labels and a unit-announcing readout", %{view: view} do
+      html = render(view)
+
+      assert html =~ ~s(for="resource-cpu-cores")
+      assert html =~ ~s(aria-valuetext="0.5 cores")
+      assert html =~ ~s(aria-valuetext="256 MB")
+      assert html =~ ~s(aria-valuetext="10 GB")
+    end
+
+    test "every seeded size sits exactly on the three sliders' ladders", %{view: view} do
+      # The picker's contract (the comment on resource_dimensions/0):
+      # the granularities divide every seeded size, so a preset's value
+      # is always a ladder value — the thumb can never round beneath the
+      # state and fork the shown price from the charge. A seed/price
+      # edit that breaks this hides that size from the quick picks
+      # (representable_size?/1), and that is what the second half pins.
+      sizes = Ash.read!(Size, authorize?: false)
+      assert sizes != []
+
+      for size <- sizes do
+        cpu = Decimal.to_string(size.cpu_cores)
+        on_cpu_ladder = Decimal.rem(size.cpu_cores, Decimal.new("0.25"))
+        assert Decimal.eq?(on_cpu_ladder, Decimal.new(0)), cpu
+        assert Decimal.compare(size.cpu_cores, Decimal.new("0.25")) != :lt
+        assert Decimal.compare(size.cpu_cores, Decimal.new("64")) != :gt
+        assert rem(size.memory_mb, 128) == 0 and size.memory_mb in 128..65_536, cpu
+        assert rem(size.storage_gb, 5) == 0 and size.storage_gb in 0..10_240, cpu
+        assert has_element?(view, "[data-testid='preset-#{size.slug}']")
+      end
+    end
+
+    test "an off-ladder version default snaps to the ladder, keeping price and value one number",
+         %{conn: conn} do
+      # ADR-0027 can put an allocation the ladders can't express on a
+      # version's defaults (the admin path); a range input would round it
+      # in the browser the moment it renders, so the server snaps first
+      # — the shown readout, the submitted value and the price line all
+      # describe one allocation. 300 MB snaps down to 256 (the fixture's
+      # memory default) and 0.1 CPU snaps up to the 0.25 floor.
+      version =
+        InstanceFixtures.app_version!(
+          default_cpu_cores: Decimal.new("0.1"),
+          default_memory_mb: 300,
+          default_storage_gb: 7,
+          published_at: DateTime.utc_now()
+        )
+
+      app = Ash.load!(version, :app, authorize?: false).app
+
+      {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+      to_step_2(view, version)
+
+      # This fixture carries no env schema — the env step's
+      # nothing-to-configure Continue (the #178 wave 2 branch).
+      view
+      |> element("[data-testid='continue-env']")
+      |> render_click()
+
+      assert has_element?(view, "#resource-cpu-cores[value='0.25']")
+      assert has_element?(view, "#resource-memory-mb[value='256']")
+      assert has_element?(view, "#resource-storage-gb[value='5']")
+
+      # The readout announces the snapped value, not the admin's raw one.
+      # (The "recommends …" copy above still names the app's true
+      # default — that is a statement about the app, not about what the
+      # picker can offer; the controls and their readouts are what must
+      # never disagree with the submitted value.)
+      html = render(view)
+      assert html =~ ~s(aria-valuetext="0.25 cores")
+      assert html =~ ~s(aria-valuetext="256 MB")
+      refute html =~ ~s(aria-valuetext="300 MB")
+      refute has_element?(view, "#resource-memory-mb[value='300']")
+
+      # The copy no longer claims the controls match the recommendation:
+      # 256 MB IS below the app's 300 MB, so the heads-up is honest and
+      # mounts on the first render without any user action.
+      refute html =~ "the defaults below"
+      assert has_element?(view, "#below-recommendation-warning")
+
+      # An unrelated event re-renders from state without forking the
+      # number the inputs carry.
+      render_change(view, "resources-change", %{"resources" => %{"memory_mb" => "256"}})
+
+      assert has_element?(view, "#resource-cpu-cores[value='0.25']")
+      assert has_element?(view, "#resource-memory-mb[value='256']")
+    end
+
+    test "an integer-valued ladder default renders expanded, never in scientific notation",
+         %{conn: conn} do
+      # Decimal.normalize/1 lowers the exponent, so an integer whose
+      # coefficient ends in a zero inspects as 1E+1 — a value no range
+      # input can carry. A 10-core default must render "10".
+      version =
+        InstanceFixtures.app_version!(
+          default_cpu_cores: Decimal.new("10"),
+          default_memory_mb: 2048,
+          default_storage_gb: 20,
+          published_at: DateTime.utc_now()
+        )
+
+      app = Ash.load!(version, :app, authorize?: false).app
+
+      {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+      to_step_2(view, version)
+
+      view
+      |> element("[data-testid='continue-env']")
+      |> render_click()
+
+      assert has_element?(view, "#resource-cpu-cores[value='10']")
+      refute render(view) =~ "1E+1"
+    end
+
+    test "an admin allocation the ladders can't express is not offered as a quick pick",
+         %{conn: conn, app: app, version: version} do
+      # ADR-0027 lets an admin add any Size the schema accepts; a preset
+      # that its own wizard would refuse or silently clamp is worse than
+      # none, so representable_size?/1 filters it out of the picks.
+      off_ladder =
+        Size.create!(
+          %{
+            slug: "off-ladder-#{System.unique_integer([:positive])}",
+            cpu_cores: Decimal.new("0.3"),
+            memory_mb: 300,
+            storage_gb: 7,
+            monthly_cents: 123,
+            stopped_monthly_cents: 12
+          },
+          authorize?: false
+        )
+
+      {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+      to_step_2(view, version)
+      to_step_3(view)
+
+      # Its neighbours (the seeded sizes) are still offered — the filter
+      # is per size, not a blanket bail-out.
+      assert has_element?(view, "[data-testid='preset-small']")
+      refute has_element?(view, "[data-testid='preset-#{off_ladder.slug}']")
+
+      # And a crafted pick of it still can't smuggle in an unclamped
+      # allocation (the handler looks it up in the filtered list).
+      render_click(view, "pick-size", %{"slug" => off_ladder.slug})
+
+      assert has_element?(view, "#resource-memory-mb[value='256']")
+    end
+
+    test "the seeded sizes render as quick picks, the recommendation called out",
+         %{view: view, version: version} do
+      for slug <- ~w(micro small medium standard plus pro) do
+        assert has_element?(view, "[data-testid='preset-#{slug}']")
+      end
+
+      # The version's own recommended size is called out (the fixture's
+      # fabricated size — loaded here, it rides the fixture unloaded).
+      recommended =
+        Ash.load!(version, :recommended_size, authorize?: false).recommended_size.slug
+
+      assert has_element?(view, "#preset-#{recommended}", "recommended")
+
+      # The fixture fabricates its size to match the version's defaults,
+      # so the recommendation is also the pressed quick pick — a
+      # meaningful `aria-pressed="true"`, not just the attribute's
+      # presence.
+      assert has_element?(view, "#preset-#{recommended}[aria-pressed='true']")
+    end
+
+    test "picking a size sets the whole allocation and reprices from the curve", %{view: view} do
+      # `standard` is 1 CPU / 2048 MB / 20 GB — a custom allocation for
+      # this fixture's version (0.5/256/10).
+      view
+      |> element("[data-testid='preset-standard']")
+      |> render_click()
+
+      assert has_element?(view, "#resource-cpu-cores[value='1']")
+      assert has_element?(view, "#resource-memory-mb[value='2048']")
+      assert has_element?(view, "#resource-storage-gb[value='20']")
+
+      # The price follows the allocation (#186): the anchor formula at
+      # 1 CPU / 2048 MB / 20 GB — which the seeded table pins at the
+      # standard size's $5.18 — never this fixture's $1.00 size price.
+      assert has_element?(view, "[data-testid='resources-price']", "$5.18/mo")
+      refute has_element?(view, "[data-testid='resources-price']", "$1.00/mo")
+
+      assert has_element?(view, "[data-testid='preset-standard'][aria-pressed='true']")
+    end
+
+    test "a preset above the recommendation never warns", %{view: view} do
+      view
+      |> element("[data-testid='preset-pro']")
+      |> render_click()
+
+      refute has_element?(view, "#below-recommendation-warning")
+      assert has_element?(view, "[data-testid='resources-price']")
+    end
+
+    test "a size below the recommendation trips the heads-up + ack flow", %{view: view} do
+      # `micro` (0.25/512/5) is below this fixture's 0.5/256/10 on CPU
+      # only — enough for the gate.
+      view
+      |> element("[data-testid='preset-micro']")
+      |> render_click()
+
+      assert has_element?(view, "#below-recommendation-warning")
+      assert has_element?(view, "#below-recommendation-ack")
+    end
+
+    test "a crafted unknown preset slug changes nothing", %{view: view} do
+      render_click(view, "pick-size", %{"slug" => "does-not-exist"})
+
+      # The rendered buttons can't produce one; a hostile client gets
+      # silence, not a crash and not a bogus allocation.
+      assert has_element?(view, "#resource-cpu-cores[value='0.5']")
+      assert has_element?(view, "#resource-memory-mb[value='256']")
+      assert has_element?(view, "#resources-form")
+    end
+
+    test "a crafted preset pick before a version is picked neither crashes nor advances",
+         %{conn: conn, app: app} do
+      {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+
+      render_click(view, "pick-size", %{"slug" => "standard"})
+
+      # Still on the version step (to-env's guard posture).
+      assert has_element?(view, "button[phx-click='to-env']")
+      refute has_element?(view, "#resources-form")
+    end
+  end
+
   describe "the resources step (#180)" do
     setup %{conn: conn, app: app, version: version} do
       {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
@@ -644,9 +919,12 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
         |> form("#resources-form", resources: %{cpu_cores: "-1"})
         |> render_change()
 
-      # Live view survived; no price line for an unparseable allocation.
+      # Live view survived; no price line for an unparseable allocation
+      # (the quick picks above still carry their own size prices, so the
+      # assertion is scoped to the price line, not the page).
       assert has_element?(view, "#resources-form")
-      refute change_html =~ "$"
+      refute has_element?(view, "[data-testid='resources-price']", "$")
+      assert change_html =~ "resources-form"
 
       negative_html = to_step_4(view, %{cpu_cores: "-1"})
 
