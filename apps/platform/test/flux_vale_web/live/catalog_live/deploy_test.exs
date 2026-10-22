@@ -546,7 +546,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       assert html =~ ~s(aria-valuetext="0.25 cores")
       assert html =~ ~s(aria-valuetext="256 MB")
       refute html =~ ~s(aria-valuetext="300 MB")
-      refute html =~ ~s(#resource-memory-mb value="300")
+      refute has_element?(view, "#resource-memory-mb[value='300']")
 
       # The copy no longer claims the controls match the recommendation:
       # 256 MB IS below the app's 300 MB, so the heads-up is honest and
