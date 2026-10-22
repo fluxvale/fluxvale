@@ -32,7 +32,8 @@ Component set: `button` (4 variants × 3 sizes, link-aware), `input`
 range with label + unit readout, #195), `card`, `badge`, `status_badge`
 (instance lifecycle, pulsing dot on in-motion states), `table`
 (stream-ready), `flash` (toasts), `nav_link` (active state), `header`,
-`empty_state`, `icon`, `list`.
+`empty_state`, `icon`, `list`, `metric_card` (single-value stat on a
+card), `user_menu` (signed-in avatar dropdown, #205).
 
 ## Surfaces on the system
 
@@ -44,12 +45,21 @@ top-up wizard. **daisyUI is removed from the dependency tree** — every
 surface is hand-written Tailwind on the tokens; the transitional
 aligned-themes stopgap is gone with it.
 
+Since the waves: the session-aware root (#205) — `/` is the marketing
+landing for anonymous visitors (unchanged) and the dashboard LiveView
+for signed-in sessions (instances overview with live status, balance +
+runway `metric_card`s, quick actions, fresh-account empty states);
+the landing lives on at `/about` (canonical to `/`); every chrome —
+app, public, landing — renders `user_menu` when signed in.
+
 New in wave 2: `stepper` (wizard progress, testid-prefix aware) and
 `callout` (info/warning/danger/success notices) join the component set;
 `<.input>` now appends caller classes instead of replacing the base.
 Since then: `slider` (#195) — the selectable continuous control, used by
 the deploy wizard's resources step, which now picks allocations instead
-of typing them.
+of typing them; `metric_card` + `user_menu` (#205) — the session-aware
+root's dashboard cards and the signed-in chrome's avatar dropdown
+(a native `<details>`: zero-JS on the dead marketing pages).
 
 ## The resource picker (#195)
 
@@ -95,3 +105,9 @@ step-ids never matched the atom step and Elixir's term order painted
 every step done, sandbox serif pinned to Inter, paired wizard
 actions). Final screenshots:
 [docs/design/screenshots/wave2/](design/screenshots/wave2/).
+
+Session-aware root (#205): one ephemeral lane agent (Kimi K3) over
+the same loop — round 1 caught the public footer still offering
+"Sign in" to a signed-in visitor (the header had swapped, the footer
+hadn't); round 2 converged — **GOOD**. Final screenshots:
+[docs/design/screenshots/root/](design/screenshots/root/).

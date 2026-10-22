@@ -136,10 +136,21 @@ defmodule FluxValeWeb.Router do
     get("/sitemap.xml", SitemapController, :show)
   end
 
+  # #205: the session-aware root. `:public_seo`'s display-only
+  # resolution feeds PageController's GitHub-style swap (anonymous ->
+  # landing dead view, signed-in -> dashboard LiveView) and the
+  # landing's own signed-in chrome. The plug stays display-only —
+  # the swap decision is the controller's, the auth gate is the
+  # dashboard LiveView's on_mount.
   scope "/", FluxValeWeb do
-    pipe_through(:browser)
+    pipe_through([:browser, :public_seo])
 
     get("/", PageController, :home)
+    get("/about", PageController, :about)
+  end
+
+  scope "/", FluxValeWeb do
+    pipe_through(:browser)
 
     # #21: passwordless sign-in — LiveView flow + the POST-only session
     # write (token in the body, never a URL)

@@ -49,9 +49,9 @@ defmodule FluxValeWeb.Layouts do
 
   @doc """
   Public chrome for the SEO surfaces (#164): logo, Apps, sign-in — or
-  the visitor's email + sign-out when `MaybeResolveUser` resolved them
-  display-only. Mirrors `app/1`'s markup; anonymous visitors have no
-  app surface links (Instances/Billing) to show.
+  the user menu when `MaybeResolveUser` resolved them display-only
+  (#205). Mirrors `app/1`'s markup; anonymous visitors have no app
+  surface links (Instances/Billing) to show.
   """
 
   attr(:flash, :map, required: true, doc: "the map of flash messages")
@@ -99,20 +99,12 @@ defmodule FluxValeWeb.Layouts do
               <.nav_link navigate={~p"/catalog"}>Apps</.nav_link>
             </li>
             <li><.theme_toggle /></li>
-            <li :if={@current_user} class="ml-2 hidden items-center gap-2 sm:flex">
-              <span class="max-w-40 truncate text-sm text-ink-muted" title={@current_user.email}>
-                {@current_user.email}
-              </span>
-              <form action={~p"/auth/session"} method="post">
-                <input type="hidden" name="_method" value="delete" />
-                <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
-                <button
-                  type="submit"
-                  class="text-sm font-medium text-ink-muted transition-colors hover:text-ink"
-                >
-                  Sign out
-                </button>
-              </form>
+            <%!-- #205: the signed-in chrome is the user menu — the same
+            component on app and public chrome; it retires both the
+            plain email + sign-out text and the signed-in "Sign in"
+            bug (the button now renders only for anonymous visitors). --%>
+            <li :if={@current_user} class="ml-2">
+              <.user_menu email={@current_user.email} />
             </li>
             <li :if={is_nil(@current_user)} class="ml-1">
               <.button navigate={~p"/sign-in"} size="sm">
@@ -136,8 +128,13 @@ defmodule FluxValeWeb.Layouts do
             <li>
               <.link navigate={~p"/catalog"} class="text-sm text-ink-muted hover:text-ink">Apps</.link>
             </li>
-            <li>
+            <%!-- #205: the footer follows the header's session awareness —
+            inward for a session, sign-in for a visitor. --%>
+            <li :if={is_nil(@current_user)}>
               <.link navigate={~p"/sign-in"} class="text-sm text-ink-muted hover:text-ink">Sign in</.link>
+            </li>
+            <li :if={@current_user}>
+              <.link navigate={~p"/"} class="text-sm text-ink-muted hover:text-ink">Dashboard</.link>
             </li>
           </ul>
         </nav>

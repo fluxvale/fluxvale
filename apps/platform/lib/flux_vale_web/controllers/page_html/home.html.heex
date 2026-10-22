@@ -1,5 +1,9 @@
-<%!-- Self-contained landing page: its own header/footer, no session logic,
-no phx-* attributes — plain server-rendered HEEx for a fast first paint.
+<%!-- Self-contained landing page: its own header/footer, no phx-* attributes
+— plain server-rendered HEEx for a fast first paint. Session logic stays
+display-only (#205): the template branches on @current_user for the chrome
+(user menu, dashboard CTA) but the anonymous render is unchanged. The landing
+is also mounted at /about — canonical to / — so signed-in sessions keep a
+path to it once / becomes the dashboard.
 Copy lives inline on purpose; the wording is reviewed at merge (#164).
 /catalog hrefs are literal: the route registers with the catalog slice,
 and ~p would raise a verified-routes warning until then. --%>
@@ -15,13 +19,16 @@ and ~p would raise a verified-routes warning until then. --%>
     <nav aria-label="Primary">
       <ul class="flex items-center gap-2">
         <li><.nav_link href="/catalog">Apps</.nav_link></li>
-        <li>
+        <li :if={is_nil(@current_user)}>
           <.link
             href={~p"/sign-in"}
             class="inline-flex h-8 items-center justify-center gap-2 rounded-lg bg-primary px-3 text-xs font-medium text-on-primary shadow-sm transition-colors hover:bg-primary-hover"
           >
             Sign in <span aria-hidden="true">&rarr;</span>
           </.link>
+        </li>
+        <li :if={@current_user}>
+          <.user_menu email={@current_user.email} />
         </li>
       </ul>
     </nav>
@@ -45,10 +52,18 @@ and ~p would raise a verified-routes warning until then. --%>
         Browse apps
       </.link>
       <.link
+        :if={is_nil(@current_user)}
         href={~p"/sign-in"}
         class="inline-flex h-12 items-center justify-center rounded-lg px-6 text-base font-medium text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
       >
         Sign in
+      </.link>
+      <.link
+        :if={@current_user}
+        href={~p"/"}
+        class="inline-flex h-12 items-center justify-center rounded-lg px-6 text-base font-medium text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+      >
+        Your dashboard
       </.link>
     </div>
   </section>
@@ -123,7 +138,12 @@ and ~p would raise a verified-routes warning until then. --%>
     <nav aria-label="Footer">
       <ul class="flex items-center gap-4">
         <li><a href="/catalog" class="text-sm text-ink-muted hover:text-ink">Apps</a></li>
-        <li><a href={~p"/sign-in"} class="text-sm text-ink-muted hover:text-ink">Sign in</a></li>
+        <li :if={is_nil(@current_user)}>
+          <a href={~p"/sign-in"} class="text-sm text-ink-muted hover:text-ink">Sign in</a>
+        </li>
+        <li :if={@current_user}>
+          <a href={~p"/"} class="text-sm text-ink-muted hover:text-ink">Dashboard</a>
+        </li>
       </ul>
     </nav>
   </div>
