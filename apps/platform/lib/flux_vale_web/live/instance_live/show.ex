@@ -214,6 +214,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
               <p :if={@instance.status_message} class="break-words">
                 message: {@instance.status_message}
               </p>
+              <p :if={@instance.lost_detected_at} data-testid="admin-lost-detected-at">
+                lost_detected_at: {DateTime.to_iso8601(@instance.lost_detected_at)}
+              </p>
               <p>namespace: {@instance.namespace || "—"}</p>
               <p>image: {@instance.image}</p>
             </div>
@@ -273,15 +276,18 @@ defmodule FluxValeWeb.InstanceLive.Show do
   defp action_buttons(assigns) do
     ~H"""
     <.button
-      :if={@instance.status in [:pending, :error]}
+      :if={@instance.status in [:pending, :error, :lost]}
       size="sm"
       phx-click="deploy"
       data-testid="deploy-button"
     >
-      <%= if @instance.status == :error do %>
-        Retry deploy
-      <% else %>
-        Deploy
+      <%= cond do %>
+        <% @instance.status == :error -> %>
+          Retry deploy
+        <% @instance.status == :lost -> %>
+          Re-deploy
+        <% true -> %>
+          Deploy
       <% end %>
     </.button>
 
@@ -477,6 +483,12 @@ defmodule FluxValeWeb.InstanceLive.Show do
   # The panel's gate mirrors the deploy op's: the sidecar lands only for
   # a file-access instance WITH a volume to serve — at 0 GB there is no
   # endpoint, no secret, no route, so the page must not advertise one.
+  defp file_access_on?(%{status: :lost}), do: false
+
+  # #190 (ADR-0035): the sidecar, route, and credential Secret all live
+  # in the instance namespace — when it vanished externally (#196's
+  # :lost), the address book and the reveal are dead until re-deploy
+  # mints a fresh one. Never render an affordance that cannot work.
   defp file_access_on?(%{file_access: true, storage_gb: gb}) when gb > 0, do: true
   defp file_access_on?(_instance), do: false
 

@@ -295,6 +295,56 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     refute has_element?(view, "button[phx-click='delete']")
   end
 
+  # #196: the lost surface — the anomaly is visible, billing-stopped is
+  # said out loud, and both exits (re-deploy, teardown) are offered.
+  test "a lost instance surfaces the anomaly with re-deploy and teardown affordances", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    pending = create_instance!(version, user)
+    running = InstanceFixtures.walk_to!(pending, :running)
+
+    {:ok, _lost} = InstanceK8s.update_status(running, :lost, "Namespace gone from cluster")
+
+    {:ok, view, html} = live(conn, ~p"/instances/#{running.id}")
+
+    assert has_element?(view, "[data-testid=status-badge]", "Lost")
+    assert has_element?(view, "[data-testid='status-message']", "billing has been stopped")
+    assert has_element?(view, "button[phx-click='deploy']", "Re-deploy")
+    assert has_element?(view, "button[phx-click='delete']")
+
+    # stop/start are not offered — nothing is running to stop or start.
+    refute has_element?(view, "button[phx-click='stop']")
+    refute has_element?(view, "button[phx-click='start']")
+    refute_k8s_terms(html)
+  end
+
+  test "re-deploy from the lost surface re-enters the deploy lane", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    stub_deploy_k8s()
+
+    pending = create_instance!(version, user)
+    running = InstanceFixtures.walk_to!(pending, :running)
+
+    {:ok, lost} = InstanceK8s.update_status(running, :lost, "Namespace gone from cluster")
+
+    {:ok, view, _html} = live(conn, ~p"/instances/#{lost.id}")
+
+    view
+    |> element("button[phx-click='deploy']")
+    |> render_click()
+
+    # Same shape as the pending-deploy test: the inline trigger runs the
+    # deploy through to :starting; a follow-up render is the settled truth.
+    render(view)
+
+    assert has_element?(view, "[data-testid=status-badge]", "Starting")
+  end
+
   test "delete exits through the destroy broadcast", %{conn: conn, user: user, version: version} do
     instance = create_instance!(version, user)
     {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
@@ -500,6 +550,23 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     assert technical =~ "system:serviceaccount"
     assert technical =~ "fluxvale-app-#{instance.id}"
     assert technical =~ "deploy_failed"
+
+    # #196: a lost row's reveal also carries the detection moment — the
+    # billing-stop audit trail, admin-side only.
+    {:ok, errored} = Instance.get_by_id(instance.id, authorize?: false)
+    running = InstanceFixtures.walk_to!(errored, :running)
+    {:ok, _lost} = InstanceK8s.update_status(running, :lost, "Namespace gone")
+
+    {:ok, lost_view, _html} = live(admin_conn, ~p"/instances/#{instance.id}")
+
+    lost_technical =
+      lost_view
+      |> element("[data-testid='admin-technical']")
+      |> render()
+      |> String.downcase()
+
+    assert lost_technical =~ "lost_detected_at"
+    assert lost_technical =~ "namespace gone"
 
     # A non-admin owner: the same failure, friendly copy only — the
     # reveal doesn't exist on their page, denylist enforced.
@@ -708,6 +775,25 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       instance = create_instance!(version, user)
 
       {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      refute has_element?(view, "[data-testid='file-access-panel']")
+    end
+
+    # #196: the sidecar, route, and credential Secret die with the
+    # namespace — a :lost row must not advertise an address book whose
+    # reveal can only fail. Re-deploy mints a fresh credential.
+    test "no panel for a :lost instance — the namespace and its Secret are gone", %{
+      conn: conn,
+      user: user
+    } do
+      version = InstanceFixtures.app_version!(file_access: true, default_storage_gb: 10)
+      pending = create_instance!(version, user)
+
+      running = InstanceFixtures.walk_to!(pending, :running)
+
+      {:ok, lost} = InstanceK8s.update_status(running, :lost, "Namespace gone from cluster")
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{lost.id}")
 
       refute has_element?(view, "[data-testid='file-access-panel']")
     end

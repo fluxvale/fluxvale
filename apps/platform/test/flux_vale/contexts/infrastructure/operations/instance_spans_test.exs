@@ -148,6 +148,10 @@ defmodule FluxVale.Infrastructure.Operations.InstanceSpansTest do
         {:error, K8s.Error.from_response({:ok, %{status: 404, body: %{}}})}
       end)
 
+      # #196: a vanished Deployment's read double-checks the namespace —
+      # live here, so the pass demotes :error (the span's :error mark).
+      stub(Namespace, :exists?, fn _kc, _ns -> {:ok, true} end)
+
       instance = creating!()
       starting = walk_to!(instance, :starting)
 

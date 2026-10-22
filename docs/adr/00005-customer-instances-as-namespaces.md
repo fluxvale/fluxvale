@@ -38,3 +38,34 @@ instance's **flat monthly rate** over elapsed time (running) or the
 storage-only flat fee (stopped) — the anchors, advisory locks, and
 idempotency machinery are unchanged; only the per-interval computation
 simplifies from measured usage to allocation × rate.
+
+## Amendment 2 (2026-10-22)
+
+The Oct-21 incident (fluxvale/fluxvale#196): a running staging instance's
+namespace was deleted by **our own production orphan sweep** — staging and
+production share one physical cluster (ADR-0010 same-box), each with a
+Cluster row, and the stranded-instance sweep deleted any instance-shaped
+namespace with no row in *its own* DB. Three changes, all settled on #196:
+
+- **Env-scoped namespaces**: deploy stamps every instance namespace with
+  `fluxvale.io/platform-env` (config `:platform_env`, fleet sets
+  `PLATFORM_ENV`); the orphan sweep deletes only namespaces carrying its
+  own value. Foreign-env and unlabeled namespaces are never the sweep's
+  to touch.
+- **`lost` state**: reconciliation now detects a namespace that vanished
+  under a live row and flips it to `:lost` instead of accruing forever —
+  the per-minute reconciler covers `:starting`/`:running`, the hourly
+  sweep backstops accruing `:running`/`:stopped`/`:error` rows
+  (never-ran `:error` rows accrue nothing and stay retryable). Metering
+  anchors park atomically with the flip (billing stops at detection),
+  and the owner re-deploys or tears down from the UI. `lost` enters from
+  the deployed states; its exits are re-deploy (`:deploying`) and
+  teardown.
+- **The reconciler's 403 blind spot**: the platform SA's deployment reads
+  ride the per-namespace RoleBinding, which dies with the namespace — so a
+  deleted namespace answers Deployment GETs with **403, not 404**, and the
+  `:not_found`-only match silently no-op'd for 90+ minutes. Both 403 and
+  404 now double-check the namespace (the SA's cluster-scoped namespace
+  read sees through a dead namespace), and every reconcile *failure* arm
+  logs — a detector that fails quietly is indistinguishable from one that
+  affirmed health.

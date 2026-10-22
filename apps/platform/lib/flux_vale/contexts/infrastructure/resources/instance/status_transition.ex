@@ -6,16 +6,20 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
 
   - pending → deploying, error
   - deploying → starting, error
-  - starting → running, error
-  - running → stopped, error
-  - stopped → starting, error
-  - error → deploying, starting
+  - starting → running, error, lost
+  - running → stopped, error, lost
+  - stopped → starting, error, lost
+  - error → deploying, starting, lost
+  - lost → deploying (the re-deploy path; teardown rides `:deleting`
+    from anywhere)
 
   `:error` and `:deleting` are enterable from any state (failure
   recovery; a row can always be torn down). `running → starting` is
   deliberately absent — the reconciler must not churn on transient
   readiness blips. The reconciler is the only writer of `:running`;
   `deploy`/`start` land in `:starting` and readiness confirms the rest.
+  `:lost` (#196) enters only from deployed states — `:deploying` is the
+  deploy job's own failure lane, `:pending` has nothing to lose.
   """
 
   use Ash.Resource.Validation
@@ -26,14 +30,19 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
   @valid_transitions %{
     pending: [:deploying, :error],
     deploying: [:starting, :error],
-    starting: [:running, :error],
-    running: [:stopped, :error],
-    stopped: [:starting, :error],
-    error: [:deploying, :starting],
+    starting: [:running, :error, :lost],
+    running: [:stopped, :error, :lost],
+    stopped: [:starting, :error, :lost],
+    error: [:deploying, :starting, :lost],
     # Entered from any state (async teardown); its only exit on retry
     # exhaustion is :error (mark_teardown_error). A successful teardown
     # hard-deletes the row instead of transitioning.
-    deleting: [:error]
+    deleting: [:error],
+    # #196: externally-deleted namespace. Re-deploy is the only funnel
+    # exit (the :deploy action force-changes past this validation, but
+    # the map stays the machine's source of truth); teardown rides
+    # :deleting-from-anywhere.
+    lost: [:deploying]
   }
 
   @impl Validation

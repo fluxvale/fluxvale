@@ -120,7 +120,13 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   defp apply_resources(kubeconfig, namespace, instance) do
     env = deploy_env(instance)
 
-    with {:ok, _namespace} <- Namespace.create(kubeconfig, namespace, %{}),
+    # #196: the env label scopes namespace ownership — the orphan sweep
+    # only deletes namespaces carrying its own platform_env, so two
+    # platform envs sharing one physical cluster (ADR-0010 same-box)
+    # can never treat each other's namespaces as orphans.
+    namespace_labels = %{"fluxvale.io/platform-env" => platform_env()}
+
+    with {:ok, _namespace} <- Namespace.create(kubeconfig, namespace, %{labels: namespace_labels}),
          {:ok, _binding} <-
            RoleBinding.create(kubeconfig, namespace, "fluxvale-platform", role_binding_spec()),
          {:ok, _quota} <-
@@ -159,6 +165,12 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   defp instance_url(instance) do
     base_domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
     "https://#{instance.slug}.#{base_domain}/"
+  end
+
+  # #196: the owning platform env (config.exs/runtime.exs) — labels the
+  # instance namespace at deploy; the orphan sweep matches it.
+  defp platform_env do
+    Application.fetch_env!(:flux_vale, :platform_env)
   end
 
   defp role_binding_spec do

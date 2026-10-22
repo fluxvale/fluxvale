@@ -151,6 +151,25 @@ policy is an env-scoped prefix: prod (no `INSTANCES_SLUG_PREFIX`) mints
 bare `adjective-noun-####` labels; staging sets `INSTANCES_SLUG_PREFIX=stg`
 (labels `stg-<slug>`) and can never take a prod label.
 
+Instance namespaces carry the same env scoping (#196, the Oct-21
+incident: prod's orphan sweep deleted staging's running instance on
+the shared cluster — [ADR-00010](adr/00010-staging-namespace-flag-gated.md)). Deploy stamps
+`fluxvale.io/platform-env=$PLATFORM_ENV` on every instance namespace;
+the orphan sweep deletes only namespaces carrying its own value, so
+foreign-env and unlabeled namespaces are never anyone's sweep to
+delete. **Ordering prerequisite**: the fleet overlays must set
+`PLATFORM_ENV` (staging/production) in the same deploy — the app
+refuses to boot in :prod without it, because two envs defaulting to
+the same value would re-open the cross-env deletion. Namespaces
+deployed before the label existed are unlabeled — each env claims its
+own once with `bin/label-instance-namespaces` (idempotent,
+row-backed namespaces only), after PLATFORM_ENV is set:
+
+```sh
+kubectl exec -n <namespace> deploy/fluxvale-platform -c platform -- \
+  /app/bin/label-instance-namespaces
+```
+
 ## Bring-up seeds
 
 `bin/seed` runs on every deploy (the fleet's `seed` init container,

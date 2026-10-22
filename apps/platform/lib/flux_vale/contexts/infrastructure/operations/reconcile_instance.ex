@@ -10,9 +10,18 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
   - `:starting` + readyReplicas ≥ replicas → `:running`
   - `:starting`/`:running` + failed rollout conditions
     (`ReplicaFailure`, `ProgressDeadlineExceeded`) → `:error`
-  - `:starting`/`:running` whose Deployment vanished → `:error`
-  - transient K8s read failures / config errors → no-op (status never
-    churns on a failed read; `running` never demotes on readiness blips)
+  - `:starting`/`:running` whose Deployment vanished (404) or became
+    unreadable as **403** (the per-namespace RoleBinding dies with the
+    namespace, so a deleted namespace answers Deployment reads with
+    Forbidden, not NotFound — #196's reconciler blind spot) → `:lost`
+    if the namespace went with it (external deletion); `:error` when
+    only the Deployment is gone (404 in a live namespace); a logged
+    no-op when a live namespace's read was forbidden (RBAC anomaly,
+    not a loss)
+  - transient K8s read failures / config errors → no-op, **logged**
+    (status never churns on a failed read; `running` never demotes on
+    readiness blips — but a detector that fails quietly is
+    indistinguishable from one that affirmed health)
 
   Staleness reads `deployed_at`, not `updated_at` — every reconcile bumps
   `updated_at` even on a no-op (v1 finding, kept).
@@ -20,6 +29,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
 
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Deployment
+  alias FluxVale.Clients.K8s.Resources.Namespace
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
 
@@ -71,8 +81,13 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
       {:ok, kubeconfig} ->
         mirror_deployment_status(kubeconfig, instance)
 
-      # Cluster/kubeconfig resolution failure — don't flip on config errors.
-      {:error, _error} ->
+      # Cluster/kubeconfig resolution failure — don't flip on config
+      # errors, but never silently (#196's visibility rule).
+      {:error, error} ->
+        Logger.warning(
+          "Instance #{instance.id}: kubeconfig resolution failed (#{inspect(error)}); leaving #{instance.status}"
+        )
+
         {:ok, instance}
     end
   end
@@ -82,13 +97,67 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
       {:ok, deployment_status} ->
         transition_for(instance, deployment_status)
 
-      {:error, %Error{reason: :not_found}} ->
+      {:error, %Error{reason: reason}} when reason in [:not_found, :forbidden] ->
+        vanished_deployment_outcome(kubeconfig, instance, reason)
+
+      {:error, error} ->
+        # Transient K8s API read failure — don't flip status on a failed
+        # read. Logged, never silent: a detector that fails quietly is
+        # indistinguishable from one that affirmed health (#196's
+        # 90-minute blind spot).
+        Logger.warning(
+          "Instance #{instance.id}: reconcile read failed (#{error.message}); leaving #{instance.status}"
+        )
+
+        {:ok, instance}
+    end
+  end
+
+  # A vanished or forbidden Deployment read means one of three things
+  # (#196):
+  #
+  # - the namespace went with it — the external-deletion signature,
+  #   `:lost` (metering parks, the owner decides). This is why
+  #   `:forbidden` joins `:not_found` here: the platform SA's deployment
+  #   reads ride the per-namespace RoleBinding
+  #   (fluxvale-platform-workload), which dies WITH the namespace — so a
+  #   deleted namespace answers Deployment GETs with **403, not 404**
+  #   (the cluster-scoped role has no deployments verb). The pre-#196
+  #   code matched `:not_found` only and silently no-op'd on the 403
+  #   every minute — the incident's reconciler blind spot.
+  # - the namespace lives and only the Deployment is gone — the
+  #   pre-existing :error/:missing shape.
+  # - the namespace lives and the read was forbidden — an RBAC anomaly,
+  #   not a loss: warn and leave the row alone.
+  #
+  # The namespace double-check is authoritative either way: the
+  # cluster-scoped role carries namespaces get, so `exists?` sees
+  # through a dead namespace where the Deployment read cannot.
+  defp vanished_deployment_outcome(kubeconfig, instance, deployment_reason) do
+    case Namespace.exists?(kubeconfig, instance.namespace) do
+      {:ok, false} ->
+        Logger.warning(
+          "Instance #{instance.id}: namespace not found in cluster; marking :lost (#196)"
+        )
+
+        OpenTelemetry.Tracer.set_status(:error, "namespace not found in cluster")
+
+        InstanceK8s.update_status(
+          instance,
+          :lost,
+          "Namespace gone from cluster; marked lost"
+        )
+
+      _namespace_present_or_unreadable when deployment_reason == :not_found ->
         Logger.warning("Instance #{instance.id}: Deployment not found in cluster; marking :error")
 
         flip_to_error(instance, "Deployment not found in cluster", :missing)
 
-      {:error, _error} ->
-        # Transient K8s API read failure — don't flip status on a failed read.
+      _namespace_present_or_unreadable ->
+        Logger.warning(
+          "Instance #{instance.id}: Deployment read forbidden with the namespace present or unreadable (#{instance.namespace}) — RBAC anomaly or partial API failure, not a loss; leaving #{instance.status}"
+        )
+
         {:ok, instance}
     end
   end

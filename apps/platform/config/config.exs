@@ -65,6 +65,17 @@ config :flux_vale,
   # non-prod env sharing the wildcard sets INSTANCES_SLUG_PREFIX so it
   # can never take a prod label.
   instances_slug_prefix: nil,
+  # Which platform env this app is (#196): stamped as the
+  # fluxvale.io/platform-env label on every instance namespace at
+  # deploy, and the orphan sweep only ever deletes namespaces carrying
+  # ITS OWN value — staging and production share one physical cluster
+  # (ADR-0010 same-box), so an unscoped sweep deleted namespaces it had
+  # no row for (the Oct-21 incident: prod's sweep deleted staging's
+  # instance). Runtime override PLATFORM_ENV per fleet overlay —
+  # REQUIRED in :prod (an unset value would default both envs to this
+  # same "local" and re-open the cross-env deletion); "local" is the
+  # dev default.
+  platform_env: "local",
   # The namespace edge ingress is admitted FROM in instance
   # NetworkPolicies (the Traefik chart's namespace locally; M4's fleet
   # repo overrides for prod — same override story as instance_rbac).

@@ -7,6 +7,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Deployment
+  alias FluxVale.Clients.K8s.Resources.Namespace
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
@@ -182,7 +183,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
       assert errored.failure_reason == :rollout_failed
     end
 
-    test "a vanished Deployment lands :error" do
+    test "a vanished Deployment in a live namespace lands :error" do
       stub_kubeconfig()
       instance = instance!(:starting)
 
@@ -190,9 +191,95 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
         {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
       end)
 
+      stub(Namespace, :exists?, fn _kc, _ns -> {:ok, true} end)
+
       assert {:ok, errored} = ReconcileInstance.call(instance)
       assert errored.status == :error
       assert errored.status_message =~ "Deployment not found in cluster"
+      assert errored.failure_reason == :missing
+    end
+
+    # #196: the external-deletion simulation — namespace and Deployment
+    # both gone is the actor-outside-the-platform signature. Detection
+    # must transition the row to :lost and stop metering at that
+    # moment, not keep accruing on a dead row.
+    test "a vanished Deployment with a vanished namespace lands :lost with metering parked" do
+      stub_kubeconfig()
+      instance = instance!(:running)
+      ns = "fluxvale-app-#{instance.id}"
+
+      expect(Deployment, :status, fn _kc, ^ns, "app" ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      expect(Namespace, :exists?, fn _kc, ^ns -> {:ok, false} end)
+
+      assert {:ok, lost} = ReconcileInstance.call(instance)
+
+      assert lost.status == :lost
+      assert lost.status_message =~ "marked lost"
+      assert is_nil(lost.failure_reason)
+      assert lost.lost_detected_at
+
+      # The drain-on-lost guard: every anchor parked, atomically with
+      # the flip — nothing settles or accrues past detection.
+      assert is_nil(lost.running_since)
+      assert lost.unbilled_running_usec == 0
+      assert is_nil(lost.storage_metering_since)
+    end
+
+    test "a forbidden Deployment read in a deleted namespace lands :lost — the 403-not-404 shape (#196)" do
+      stub_kubeconfig()
+      instance = instance!(:running)
+      ns = "fluxvale-app-#{instance.id}"
+
+      # The incident's exact shape: the per-namespace RoleBinding dies
+      # with the namespace, so the Deployment GET answers 403, not 404 —
+      # the old code's `:not_found`-only match silently no-op'd on this
+      # every minute for 90+ minutes.
+      expect(Deployment, :status, fn _kc, ^ns, "app" ->
+        {:error, Error.from_response({:ok, %{status: 403, body: %{"reason" => "Forbidden"}}})}
+      end)
+
+      expect(Namespace, :exists?, fn _kc, ^ns -> {:ok, false} end)
+
+      assert {:ok, lost} = ReconcileInstance.call(instance)
+
+      assert lost.status == :lost
+      assert lost.lost_detected_at
+      assert is_nil(lost.running_since)
+      assert lost.unbilled_running_usec == 0
+      assert is_nil(lost.storage_metering_since)
+    end
+
+    test "a forbidden Deployment read in a live namespace is an RBAC anomaly, not a loss" do
+      stub_kubeconfig()
+      instance = instance!(:running)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:error, Error.from_response({:ok, %{status: 403, body: %{"reason" => "Forbidden"}}})}
+      end)
+
+      stub(Namespace, :exists?, fn _kc, _ns -> {:ok, true} end)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :running
+    end
+
+    test "an unreadable namespace read keeps the conservative :error (never claim lost on a failed read)" do
+      stub_kubeconfig()
+      instance = instance!(:running)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub(Namespace, :exists?, fn _kc, _ns ->
+        {:error, Error.connection_error("ns read failed")}
+      end)
+
+      assert {:ok, errored} = ReconcileInstance.call(instance)
+      assert errored.status == :error
       assert errored.failure_reason == :missing
     end
   end

@@ -11,32 +11,46 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstances do
     rows mid-teardown), so the sweep re-enqueues the teardown trigger —
     the same machinery a user retry drives. `:not_found`-tolerant
     deletes make a race with a straggler job harmless.
-  - **Namespace gone, row alive** — accruing rows (`:running`/
+  - **Namespace gone, row alive** (#196) — accruing rows (`:running`/
     `:stopped`/`:error` with `storage_metering_since` set) whose
-    namespace 404s. `:stopped` is the worst leak: outside the
-    reconciler entirely, it accrues storage forever on a dead
-    namespace. Driven through the standard funnel (`:deleting` +
-    teardown) — rows die only through teardown. Never-ran `:error`
-    rows accrue nothing and stay retryable. Only a definitive 404
-    counts: kubeconfig or API failures skip the row, never strand it.
+    namespace 404s flip to `:lost`: metering parks atomically with the
+    flip (MaintainAnchors), the row surfaces with re-deploy/teardown
+    affordances, and the owner decides — the platform no longer
+    silently destroys a row whose namespace an outside actor deleted
+    (the Oct-21 incident kept accruing on a dead row for exactly this
+    silence). `:stopped` is the worst leak the arm catches: outside the
+    reconciler entirely, it would accrue storage forever. Never-ran
+    `:error` rows accrue nothing and stay retryable; `:lost` rows are
+    this arm's output, not input (no repeated flips). Only a definitive
+    404 counts: kubeconfig or API failures skip the row, never strand
+    it.
   - **Orphaned namespaces** — `fluxvale-app-<uuid>`-shaped, phase
-    `Active`, no matching row: deleted, with the row re-checked
-    immediately before the destructive call (the live-id snapshot is
-    stale by however long the pass's cluster reads took — a deploy
-    landing mid-pass must not lose its fresh namespace, and an
-    unreadable re-read protects the candidate and fails the pass).
-    `Terminating` is skipped — that's normal teardown GC (the row dies
-    before the namespace finishes disappearing). A 404 on the delete
-    is the goal already achieved, not a failure.
+    `Active`, **labeled with THIS platform's env** (#196), no matching
+    row: deleted, with the row re-checked immediately before the
+    destructive call (the live-id snapshot is stale by however long the
+    pass's cluster reads took — a deploy landing mid-pass must not lose
+    its fresh namespace, and an unreadable re-read protects the
+    candidate and fails the pass). The env label is the Oct-21
+    incident's lesson: staging and production share one physical
+    cluster (ADR-0010) with a Cluster row each, so an unscoped sweep
+    deleted another env's namespace for having no row in *this* DB —
+    prod's pass deleted staging's running instance at 13:13. Only
+    own-env labels are candidates; foreign-env and unlabeled
+    namespaces (pre-#196 deploys, operator-placed) are never the
+    sweep's to delete. `Terminating` is skipped — that's normal teardown
+    GC (the row dies before the namespace finishes disappearing). A 404
+    on the delete is the goal already achieved, not a failure.
 
   Complements, never fights: `:starting`/`:running` stay the
-  reconciler's (it flips both to `:error` within a minute of the
-  namespace dying; `:deploying` converges on its own stale-deploy
-  timeout) and the next sweep catches the `:error`; the #124 ladder
+  reconciler's (it detects an externally-deleted namespace within a
+  minute, `:lost` since #196; `:deploying` converges on its own
+  stale-deploy timeout); this sweep is the backstop that also covers
+  `:stopped`/`:error` rows the reconciler never reads. The #124 ladder
   keeps the only time-based destroy authority — this sweep is
   condition-based only, so races with the ladder converge (a live
   teardown job is a skip; a lost one gets re-driven to the same
-  terminal state the ladder already decided).
+  terminal state the ladder already decided; a `:lost` row the ladder
+  destroys rides the normal teardown funnel).
   """
 
   import Ecto.Query, only: [where: 3]
@@ -54,6 +68,10 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstances do
   # platform namespace (the RBAC SA namespace, the edge, ...).
   @instance_namespace_regex ~r/^fluxvale-app-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
+  # #196: the ownership label DeployInstance stamps from
+  # config :platform_env — the orphan sweep's scope on the shared box.
+  @env_label "fluxvale.io/platform-env"
+
   # The jobs table IS the lease: a teardown job in any of these states
   # means the row's destroy is still in flight. Cancelled/discarded
   # jobs are lapsed — re-drive. Must equal Oban's incomplete set (the
@@ -67,14 +85,14 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstances do
   # construction; on :error the anchor check filters never-ran rows.
   @stranded_statuses [:running, :stopped, :error]
 
-  @teardown_message "Namespace gone from cluster; sweeper tearing down"
+  @lost_message "Namespace gone from cluster; marked lost (#196)"
 
-  @enforce_keys [:requeued_teardown_ids, :torn_down_ids, :deleted_orphan_namespaces]
-  defstruct [:requeued_teardown_ids, :torn_down_ids, :deleted_orphan_namespaces]
+  @enforce_keys [:requeued_teardown_ids, :lost_ids, :deleted_orphan_namespaces]
+  defstruct [:requeued_teardown_ids, :lost_ids, :deleted_orphan_namespaces]
 
   @type t :: %__MODULE__{
           requeued_teardown_ids: [Ash.UUID.t()],
-          torn_down_ids: [Ash.UUID.t()],
+          lost_ids: [Ash.UUID.t()],
           deleted_orphan_namespaces: [String.t()]
         }
 
@@ -119,15 +137,24 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstances do
     end
   end
 
-  # Arm 2: an accruing row whose namespace is verifiably gone goes
-  # through the standard teardown funnel.
+  # Arm 2: an accruing row whose namespace is verifiably gone flips to
+  # :lost — metering parks atomically (MaintainAnchors rides the
+  # funnel), and the owner picks re-deploy or teardown from the UI.
+  # Arm 3's discipline on the destructive write: the pass-start
+  # snapshot is as old as the pass's cluster reads, so the row is
+  # re-read immediately before the flip — a row that moved to
+  # :deploying (retry) or :deleting (owner delete) mid-pass is not ours
+  # to park, and a destroyed row must not be resurrected by the write.
+  # The same-instant interleave remains last-write-wins (no row lock —
+  # every status writer's stance) and converges through the funnel.
   defp sweep_instance(%{status: status} = instance) when status in @stranded_statuses do
-    if accruing?(instance) and namespace_definitively_gone?(instance) do
-      {:ok, deleting} = InstanceK8s.update_status(instance, :deleting, @teardown_message)
+    if accruing?(instance) and namespace_definitively_gone?(instance) and
+         still_stranded?(instance) do
+      Logger.warning("Instance #{instance.id}: namespace gone from cluster; marking :lost (#196)")
 
-      AshOban.run_trigger(deleting, :teardown)
+      {:ok, _lost} = InstanceK8s.update_status(instance, :lost, @lost_message)
 
-      {:ok, {:torn_down, instance.id}}
+      {:ok, {:lost, instance.id}}
     else
       {:ok, nil}
     end
@@ -136,6 +163,37 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstances do
   # :pending (never deployed), :deploying/:starting (the reconciler's
   # lane — stale timeout and Deployment mirroring converge them).
   defp sweep_instance(_instance), do: {:ok, nil}
+
+  # The row as it is NOW, not as the snapshot remembers it. Only a
+  # still-stranded row flips; moved rows skip (the next pass re-decides
+  # under whatever owns them now), and an unreadable row skips — never
+  # park anchors on a failed read.
+  defp still_stranded?(instance) do
+    case Ash.get(Instance, instance.id, authorize?: false) do
+      {:ok, %Instance{status: status}} when status in @stranded_statuses ->
+        true
+
+      # coveralls-ignore-start - race-window arm: reachable only when
+      # the row's status moved between call/0's snapshot read and this
+      # re-read microseconds-to-minutes later; not expressible in a
+      # synchronous single-transaction test.
+      {:ok, %Instance{status: moved}} ->
+        Logger.info(
+          "Instance #{instance.id}: status moved to #{moved} during the sweep pass; leaving it"
+        )
+
+        false
+
+      # coveralls-ignore-stop
+
+      # coveralls-ignore-start - race/DB-failure arm: covers both a row
+      # destroyed mid-pass (Ash NotFound) and a read error that needs
+      # the DB down; neither is expressible in a synchronous test.
+      {:error, _error} ->
+        false
+        # coveralls-ignore-stop
+    end
+  end
 
   defp accruing?(instance), do: not is_nil(instance.storage_metering_since)
 
@@ -280,14 +338,17 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstances do
     end
   end
 
-  # An instance namespace by name shape and phase, with a live row to
-  # answer it — anything else (platform namespaces, uuid-malformed
-  # names, Terminating GC) is not ours to touch.
+  # An instance namespace by name shape, phase, and OUR env label, with
+  # a live row to answer it — anything else (platform namespaces,
+  # uuid-malformed names, Terminating GC, foreign-env or unlabeled
+  # namespaces) is not ours to touch (#196: the env label is what stops
+  # one platform env from deleting another's namespaces on the shared
+  # box). The label comes off the list item itself — no extra read.
   defp orphan_name(item, live_ids) do
     name = get_in(item, ["metadata", "name"])
     phase = get_in(item, ["status", "phase"])
 
-    if orphan_shaped?(name, phase) do
+    if orphan_shaped?(item, name, phase) do
       id = String.trim_leading(name, "fluxvale-app-")
 
       if MapSet.member?(live_ids, id), do: nil, else: name
@@ -296,8 +357,15 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstances do
     end
   end
 
-  defp orphan_shaped?(name, phase) do
-    is_binary(name) and Regex.match?(@instance_namespace_regex, name) and phase == "Active"
+  # Unlabeled (pre-#196 deploys, operator-placed) reads as foreign:
+  # never deleted, only re-labeled by a re-deploy.
+  defp orphan_shaped?(item, name, phase) do
+    is_binary(name) and Regex.match?(@instance_namespace_regex, name) and phase == "Active" and
+      get_in(item, ["metadata", "labels", @env_label]) == platform_env()
+  end
+
+  defp platform_env do
+    Application.fetch_env!(:flux_vale, :platform_env)
   end
 
   defp teardown_job_live?(instance_id) do
@@ -325,7 +393,7 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstances do
 
     %__MODULE__{
       requeued_teardown_ids: collect(entries, :requeued_teardown),
-      torn_down_ids: collect(entries, :torn_down),
+      lost_ids: collect(entries, :lost),
       deleted_orphan_namespaces: orphan_names(entries)
     }
   end

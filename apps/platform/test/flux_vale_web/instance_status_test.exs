@@ -24,6 +24,7 @@ defmodule FluxValeWeb.InstanceStatusTest do
       assert InstanceStatus.label(:stopped) == "Stopped"
       assert InstanceStatus.label(:error) == "Failed"
       assert InstanceStatus.label(:deleting) == "Deleting"
+      assert InstanceStatus.label(:lost) == "Lost"
     end
   end
 
@@ -32,7 +33,7 @@ defmodule FluxValeWeb.InstanceStatusTest do
       assert InstanceStatus.in_progress?(:deploying)
       assert InstanceStatus.in_progress?(:starting)
 
-      for status <- [:pending, :running, :stopped, :error, :deleting] do
+      for status <- [:pending, :running, :stopped, :error, :deleting, :lost] do
         refute InstanceStatus.in_progress?(status)
       end
     end
@@ -133,6 +134,27 @@ defmodule FluxValeWeb.InstanceStatusTest do
 
       assert InstanceStatus.message(failed) ==
                "Something went wrong on our side. Try again — if it keeps happening, we're on it."
+    end
+
+    # #196: the lost copy says what happened, that billing stopped, and
+    # what to do next — without naming the platform's internals.
+    test "a :lost row reads the gone copy — billing stopped, next step offered", %{
+      version: version
+    } do
+      user = User.create!("vocab-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+      instance = InstanceFixtures.instance!(version, user)
+      deployed = InstanceFixtures.walk_to!(instance, :running)
+
+      {:ok, lost} = InstanceK8s.update_status(deployed, :lost, "Namespace gone from cluster")
+
+      message = InstanceStatus.message(lost)
+
+      assert message =~ "billing has been stopped"
+      assert message =~ "Set it up again"
+      assert message =~ "delete it"
+      refute_k8s_terms(message)
+      # The technical status_message never rides into user copy.
+      refute message =~ "Namespace"
     end
   end
 end

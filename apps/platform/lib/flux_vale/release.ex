@@ -11,21 +11,30 @@
 defmodule FluxVale.Release do
   @moduledoc """
   Operator tasks for the production release (`bin/migrate`, `bin/seed`,
-  `bin/owner-signin`, `bin/ensure-cluster`).
+  `bin/ensure-cluster`, `bin/label-instance-namespaces`, `bin/owner-signin`).
 
   `migrate/0` runs pending Ecto migrations per repo (advisory-locked by
   the migrator — the init container relies on this when pods race),
   `seed/0` runs the bring-up seed (platform admin + catalog, idempotent)
   and `ensure_cluster/0` get-or-creates this environment's Cluster row
-  (#155).
+  (#155); `label_instance_namespaces/0` claims this env's pre-#196
+  instance namespaces for the env-scoped orphan sweep (#196).
   """
 
+  alias FluxVale.Clients.K8s.Resources.Namespace
   alias FluxVale.Infrastructure.Cluster
+  alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Ops.OwnerSignIn
 
   require Logger
 
   @app :flux_vale
+
+  # #196: the same label key DeployInstance stamps and
+  # SweepStrandedInstances scopes on — owned outright here like every
+  # operation's constants.
+  @env_label "fluxvale.io/platform-env"
 
   @spec migrate :: :ok
   def migrate do
@@ -159,6 +168,90 @@ defmodule FluxVale.Release do
     end
 
     :ok
+  end
+
+  @doc """
+  Stamps this env's ownership label on every instance namespace this
+  DB has a row for (`bin/label-instance-namespaces`, #196). The orphan
+  sweep deletes only namespaces carrying its own `:platform_env`, and
+  every namespace deployed before #196 is unlabeled — foreign by the
+  sweep's rules — so each env claims its own once, after the fleet
+  sets `PLATFORM_ENV`. The row is the authority (the namespace name
+  embeds the instance uuid; each env's DB holds only rows it minted):
+  a namespace no row answers for is never labeled here, and never any
+  env's sweep to delete. Idempotent — the stamp is the same
+  server-side-apply the deploy path runs, so a re-run is a no-op.
+
+  A namespace that already 404s is skipped, not failed — that row is
+  the sweeper's `:lost` lane (detection is the sweep's job, a one-shot
+  labeling pass never flips rows). Rows mid-teardown (`:deleting`) are
+  skipped too — their namespace is Terminating, and the sweep skips
+  Terminating anyway. Any other failure (kubeconfig, API) raises after
+  the pass, naming the count: the operator re-runs, and only the
+  stragglers get stamped. Accepted race: a namespace deleted between
+  the exists? check and the apply re-appears as an empty labeled shell
+  (SSA creates it) — rare on a one-shot task, self-healing through the
+  row's normal teardown, and the alternative (apply-without-check)
+  would create shells for every not-yet-reconciled 404.
+  """
+  @spec label_instance_namespaces :: :ok
+  def label_instance_namespaces do
+    load_app()
+
+    for repo <- repos() do
+      {:ok, :ok, _started} =
+        Ecto.Migrator.with_repo(repo, fn _repo -> label_namespaces() end)
+    end
+
+    :ok
+  end
+
+  defp label_namespaces do
+    env = Application.fetch_env!(:flux_vale, :platform_env)
+
+    # A nil namespace never deployed; :deleting is Terminating (skipped
+    # above). Everything else with a row here is this env's to claim.
+    candidates =
+      Instance
+      |> Ash.read!(authorize?: false)
+      |> Enum.reject(fn instance ->
+        is_nil(instance.namespace) or instance.status == :deleting
+      end)
+
+    failures =
+      Enum.count(candidates, fn instance ->
+        match?(:error, label_namespace(instance, env))
+      end)
+
+    if failures > 0 do
+      raise "label-instance-namespaces: #{failures} namespace(s) failed to label — " <>
+              "already-stamped ones are no-ops; re-run after fixing"
+    end
+
+    :ok
+  end
+
+  defp label_namespace(instance, env) do
+    with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance),
+         {:ok, true} <- Namespace.exists?(kubeconfig, instance.namespace),
+         {:ok, _namespace} <-
+           Namespace.create(kubeconfig, instance.namespace, %{labels: %{@env_label => env}}) do
+      Logger.info("labeled #{instance.namespace} with #{@env_label}=#{env}")
+
+      :ok
+    else
+      {:ok, false} ->
+        Logger.warning(
+          "#{instance.namespace} not found in cluster — left for the sweeper's :lost lane"
+        )
+
+        :skip
+
+      {:error, reason} ->
+        Logger.error("labeling #{instance.namespace} failed: #{inspect(reason)}")
+
+        :error
+    end
   end
 
   @doc """

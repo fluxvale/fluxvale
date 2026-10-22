@@ -92,7 +92,7 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
 
   # pending/deploying/starting haven't started accruing; :error holds no
   # running meter (its anchors stopped at the transition); :deleting is
-  # on the way out.
+  # on the way out; :lost parks every anchor (#196) — zero burn.
   defp monthly_rate(_instance, _rates), do: 0
 
   defp hourly_micro(monthly_cents) do

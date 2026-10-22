@@ -16,6 +16,16 @@ defmodule FluxVale.Infrastructure.Instance.MaintainAnchors do
     `unbilled_running_usec` (accumulating any already-pending time), and
     `running_since` clears. Duration, not timestamps: stop/start churn
     inside one settle tick can never drop or lose an interval.
+  - Entering `:lost` (#196): every anchor parks — `running_since` nil,
+    `unbilled_running_usec` 0, `storage_metering_since` nil,
+    `lost_detected_at` now. The namespace (and its PVC) is gone, so
+    nothing accrues from detection on: the settle trigger keys on the
+    storage anchor, and `settle_fresh` skips nil-anchor rows. The
+    un-drained remainder (≤ one settle tick of running time plus
+    detection latency) is deliberately forgiven — the incident's sin
+    was billing for nothing, and a few micro-cents of undercharge is
+    the safe direction. Re-deploy re-seeds a fresh epoch on the next
+    `:running` (the enter-:running branch seeds the nil anchor).
 
   Transitions never post to the ledger; `settle_usage` is the only
   consumer of the anchors.
@@ -38,6 +48,9 @@ defmodule FluxVale.Infrastructure.Instance.MaintainAnchors do
 
       # coveralls-ignore-stop
 
+      new_status == :lost and old_status != :lost ->
+        enter_lost(changeset)
+
       new_status == :running and old_status != :running ->
         enter_running(changeset)
 
@@ -59,6 +72,20 @@ defmodule FluxVale.Infrastructure.Instance.MaintainAnchors do
     if is_nil(changeset.data.storage_metering_since),
       do: Changeset.change_attribute(changeset, :storage_metering_since, now),
       else: changeset
+  end
+
+  # #196's drain-on-lost guard: parking the storage anchor is what
+  # stops metering (the settle trigger and settle_fresh both key on it),
+  # atomically with the status write — no window where a dead row keeps
+  # accruing. lost_detected_at is the billing-stop audit moment.
+  defp enter_lost(changeset) do
+    now = DateTime.utc_now()
+
+    changeset
+    |> Changeset.change_attribute(:running_since, nil)
+    |> Changeset.change_attribute(:unbilled_running_usec, 0)
+    |> Changeset.change_attribute(:storage_metering_since, nil)
+    |> Changeset.change_attribute(:lost_detected_at, now)
   end
 
   # Running billing stops at the transition; the interval's unbilled
