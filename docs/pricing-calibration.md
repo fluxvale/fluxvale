@@ -6,6 +6,15 @@ re-derive: `cd apps/platform && mix test
 test/flux_vale/seeds/pricing_data_test.exs` re-asserts the table below
 against the anchor on every run.
 
+> **Open recalibration (#200)**: the renewal floor for the (single)
+> Nuremberg box is RS-4000-class rolling — €87/mo, ~4.2× this check's
+> €21.61 basis — pricing goes per-datencenter (region pools, no
+> cross-subsidy), and today's prices are underwater at renewal at any
+> sold fill. Options and a recommendation live in
+> [pricing-recalibration-2026-10.md](pricing-recalibration-2026-10.md)
+> — **proposal only**; the table below stays authoritative until the
+> owner decides.
+
 ## The anchor: the market reference curve
 
 Pricing is market-anchored ([ADR-0028](adr/00028-flat-rate-pricing.md)):
