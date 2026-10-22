@@ -69,3 +69,15 @@ namespace with no row in *its own* DB. Three changes, all settled on #196:
   read sees through a dead namespace), and every reconcile *failure* arm
   logs — a detector that fails quietly is indistinguishable from one that
   affirmed health.
+
+## Amendment 3 (2026-10-22)
+
+Per [ADR-0036](00036-scale-to-zero-wake-on-use.md) (#203): the state
+machine gains **`sleeping`** — the idle loop's own leg. `running →
+sleeping` is the platform's idle sweep (scale-to-zero, edge routes
+re-pointed at the wake endpoint); `sleeping → starting` is the wake
+(any visitor, or the owner's Wake button — the start lane, the
+reconciler still the only writer of `:running`). Metering-wise sleeping
+is stopped: leaving `:running` folds the running interval and the
+storage anchor keeps accruing storage-only. Stop stays the owner's
+verb; sleep is the platform's, and traffic reverses it.

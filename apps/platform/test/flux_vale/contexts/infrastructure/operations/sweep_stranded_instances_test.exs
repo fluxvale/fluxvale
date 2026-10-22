@@ -132,6 +132,23 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstancesTest do
       assert Mimic.calls(&Namespace.delete/2) == []
     end
 
+    # #203: a sleeping row accrues on the storage anchor below the
+    # reconciler's trigger — this sweep is its loss detector.
+    test "a :sleeping row on a dead namespace is marked :lost too" do
+      sleeping = deployed_instance!(:sleeping)
+
+      stub(Namespace, :exists?, fn _kc, _ns -> {:ok, false} end)
+
+      assert {:ok, summary} = SweepStrandedInstances.call()
+
+      assert summary.lost_ids == [sleeping.id]
+
+      assert {:ok, sleeping_lost} = Instance.get_by_id(sleeping.id, authorize?: false)
+      assert sleeping_lost.status == :lost
+      # Parked anchors: no storage accrual from detection on.
+      assert is_nil(sleeping_lost.storage_metering_since)
+    end
+
     test ":running and ran-then-errored rows on a dead namespace are marked :lost too" do
       running = deployed_instance!(:running)
       errored = deployed_instance!(:error)

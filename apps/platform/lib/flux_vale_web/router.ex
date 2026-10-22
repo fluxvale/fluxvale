@@ -58,6 +58,23 @@ defmodule FluxValeWeb.Router do
     # liveness must stay dependency-free; readiness gates traffic on the DB.
     get("/health", HealthController, :show)
     get("/health/ready", HealthController, :ready)
+
+    # #203 (ADR-0036): the activity beacon Traefik's forwardAuth
+    # consults on every forwarded request — method-blind (the beacon
+    # only reads the query), never authed (Traefik is the INTENDED
+    # caller; the route is public, which adds nothing over hitting the
+    # instance's own URL — visiting IS traffic).
+    match(:*, "/internal/edge/touch", EdgeTouchController, :touch)
+  end
+
+  # #203: the wake endpoint — instance-host requests land here after
+  # EdgeHost's rewrite onto the reserved prefix (arbitrary visitor
+  # paths, so a glob; the prefix is ours alone, no collisions). The
+  # controller keys off the marker header; no pipeline — anonymous
+  # edge traffic, no session/CSRF/accepts, HTML negotiated in the
+  # controller (browsers the interstitial, machines 503+Retry-After).
+  scope "/", FluxValeWeb do
+    match(:*, "/_fluxvale_edge/*path", EdgeWakeController, :wake)
   end
 
   # PromEx scrape endpoint (#98, ADR-0012) — gated + dispatched by

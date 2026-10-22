@@ -4,7 +4,9 @@ defmodule FluxVale.Infrastructure.Instance do
   unit of customer workload: an entire `fluxvale-app-<id>` namespace, not
   a Pod (ADR-0005). Created as a snapshot of the AppVersion's deploy
   blueprint; driven by a state machine
-  (`pending → deploying → starting → running ⇄ stopped`; `error` from any
+  (`pending → deploying → starting → running ⇄ stopped`, with `running →
+  sleeping → starting` as the platform-initiated, traffic-reversible
+  idle loop — #203, ADR-0036; `error` from any
   state; `deleting`; `lost` when the namespace vanished externally —
   metering parked, the owner re-deploys or tears down, #196) through
   four AshOban triggers:
@@ -40,7 +42,10 @@ defmodule FluxVale.Infrastructure.Instance do
 
   `slug` doubles as the DNS subdomain (`<slug>.<instances_base_domain>`)
   and is haikunate-generated per cluster (v1 port). `stop`/`start` are
-  synchronous scale-to-zero/one; `delete` is the async teardown entry.
+  synchronous scale-to-zero/one; `sleep` is the idle sweep's
+  platform-initiated scale-to-zero (#203 — edges re-point at the wake
+  endpoint, the next visitor wakes it); `delete` is the async teardown
+  entry.
 
   Every status-writing action broadcasts the record on `instances:<id>`
   (Ash.Notifier.PubSub, #74): the LiveView status surface subscribes
@@ -68,6 +73,7 @@ defmodule FluxVale.Infrastructure.Instance do
   alias FluxVale.Infrastructure.Instance.StatusTransition
   alias FluxVale.Infrastructure.Instance.ValidateEnvVars
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.Infrastructure.Operations.SleepInstance
   alias FluxVale.Infrastructure.Operations.StartInstance
   alias FluxVale.Infrastructure.Operations.StopInstance
 
@@ -157,6 +163,24 @@ defmodule FluxVale.Infrastructure.Instance do
     policy action(:settle_anchors) do
       description("System-only: settlement cursor writes (authorize?: false)")
       forbid_if(always())
+    end
+
+    # #203: the sleep sweep and edge beacon run actorless — the same
+    # system-only posture. A member wanting their instance down has
+    # `stop`; sleep is the platform's call.
+    policy action(:sleep) do
+      description("System-only: the idle sweep's sleep (authorize?: false)")
+      forbid_if(always())
+    end
+
+    policy action(:touch) do
+      description("System-only: the edge beacon's idle-clock write (authorize?: false)")
+      forbid_if(always())
+    end
+
+    policy action(:set_always_on) do
+      description("Members toggle their org's instance always-on (#203)")
+      authorize_if(relates_to_actor_via([:organization, :members]))
     end
 
     policy action(:stop) do
@@ -315,6 +339,29 @@ defmodule FluxVale.Infrastructure.Instance do
     # display; nil except on :lost rows, cleared on re-deploy).
     attribute :lost_detected_at, :utc_datetime_usec do
       public?(false)
+    end
+
+    # #203 (ADR-0036): the idle clock's bookmark — the last edge traffic
+    # this instance saw. Written by the edge beacon (debounced — at most
+    # one write per window however hot the traffic) and reset on every
+    # `:running` entry; the idle sweep sleeps `:running` rows whose
+    # marker is older than `idle_sleep_after_seconds` (re-read right
+    # before sleeping, so the decision is at most one debounce window
+    # stale). Internal: probes and monitors must not move it (the
+    # beacon filters them by name).
+    attribute :last_used_at, :utc_datetime_usec do
+      public?(false)
+    end
+
+    # #203 (ADR-0036): the owner's opt-out of scale-to-zero — the idle
+    # sweep skips always-on rows. A paid premium per the owner decision;
+    # the billing tier (flat surcharge vs 24/7 running-rate) is the open
+    # sub-decision on #203 — behaviorally, always-on instances simply
+    # never stop accruing the running rate.
+    attribute :always_on, :boolean do
+      allow_nil?(false)
+      default(false)
+      public?(true)
     end
 
     # Pricing snapshot (#121/#186): creation-time cents price the
@@ -523,9 +570,12 @@ defmodule FluxVale.Infrastructure.Instance do
     end
 
     update :start do
-      description(
-        "Scales the Deployment back to 1 — lands :starting; the reconciler confirms readiness."
-      )
+      description("""
+      Scales the Deployment back to 1 — lands :starting; the reconciler
+      confirms readiness. From `:sleeping` (#203, ADR-0036) this is the
+      wake: same mechanics, same funded-wallet gate — traffic-reversible
+      is `start`, nothing more.
+      """)
 
       require_atomic?(false)
       accept([])
@@ -533,17 +583,70 @@ defmodule FluxVale.Infrastructure.Instance do
       change(fn changeset, _context ->
         instance = changeset.data
 
-        if instance.status == :stopped do
+        if instance.status in [:stopped, :sleeping] do
           Ash.Changeset.after_action(changeset, fn _changeset, instance ->
             StartInstance.call(instance)
           end)
         else
           Ash.Changeset.add_error(
             changeset,
-            "cannot start instance in #{instance.status} state (must be stopped)"
+            "cannot start instance in #{instance.status} state (must be stopped or sleeping)"
           )
         end
       end)
+    end
+
+    update :sleep do
+      description("""
+      The idle sweep's arm (#203, ADR-0036): scales the Deployment to 0
+      and re-points the edge routes at the wake endpoint. System-only —
+      a member's manual pause is `stop` (sleep is platform-initiated,
+      traffic-reversible; stopped is owner-initiated, owner-reversible).
+      """)
+
+      require_atomic?(false)
+      accept([])
+
+      change(fn changeset, _context ->
+        instance = changeset.data
+
+        if instance.status == :running do
+          Ash.Changeset.after_action(changeset, fn _changeset, instance ->
+            SleepInstance.call(instance)
+          end)
+        else
+          Ash.Changeset.add_error(
+            changeset,
+            "cannot sleep instance in #{instance.status} state (must be running)"
+          )
+        end
+      end)
+    end
+
+    update :touch do
+      description("""
+      System-only: the edge beacon's idle-clock bookmark write (#203).
+      Debounced by the caller — one write per window per instance.
+      """)
+
+      require_atomic?(false)
+      accept([])
+
+      change(fn changeset, _context ->
+        Ash.Changeset.change_attribute(changeset, :last_used_at, DateTime.utc_now())
+      end)
+    end
+
+    update :set_always_on do
+      description("""
+      The org members' scale-to-zero opt-out toggle (#203, ADR-0036) —
+      same member posture as stop/start; the idle sweep skips
+      always-on rows. Billing tier rides the open sub-decision on #203;
+      the flag is behavior today.
+      """)
+
+      require_atomic?(false)
+      accept([:always_on])
     end
 
     action :delete, :struct do
@@ -698,6 +801,9 @@ defmodule FluxVale.Infrastructure.Instance do
     define(:deploy)
     define(:stop)
     define(:start)
+    define(:sleep)
+    define(:touch)
+    define(:set_always_on)
   end
 
   identities do

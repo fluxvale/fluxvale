@@ -7,7 +7,8 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
   - pending → deploying, error
   - deploying → starting, error
   - starting → running, error, lost
-  - running → stopped, error, lost
+  - running → stopped, sleeping, error, lost
+  - sleeping → starting, error, lost (wake re-enters the start lane; #203)
   - stopped → starting, error, lost
   - error → deploying, starting, lost
   - lost → deploying (the re-deploy path; teardown rides `:deleting`
@@ -20,6 +21,9 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
   `deploy`/`start` land in `:starting` and readiness confirms the rest.
   `:lost` (#196) enters only from deployed states — `:deploying` is the
   deploy job's own failure lane, `:pending` has nothing to lose.
+  `:sleeping` (#203, ADR-0036) enters only from `:running` (the idle
+  sweep never races a half-built instance) and leaves the same way
+  `:stopped` does — wake is `start`, stranded is `:lost`.
   """
 
   use Ash.Resource.Validation
@@ -31,7 +35,8 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
     pending: [:deploying, :error],
     deploying: [:starting, :error],
     starting: [:running, :error, :lost],
-    running: [:stopped, :error, :lost],
+    running: [:stopped, :sleeping, :error, :lost],
+    sleeping: [:starting, :error, :lost],
     stopped: [:starting, :error, :lost],
     error: [:deploying, :starting, :lost],
     # Entered from any state (async teardown); its only exit on retry

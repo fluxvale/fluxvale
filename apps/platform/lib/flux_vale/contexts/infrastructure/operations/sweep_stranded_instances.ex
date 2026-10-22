@@ -83,7 +83,9 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstances do
   # Arm 2's candidates: statuses nothing else converges once the
   # namespace is gone. :running/:stopped carry the storage anchor by
   # construction; on :error the anchor check filters never-ran rows.
-  @stranded_statuses [:running, :stopped, :error]
+  # :sleeping (#203) joins them — it accrues on the same anchor and is
+  # below the reconciler's trigger, so this sweep is its loss detector.
+  @stranded_statuses [:running, :stopped, :sleeping, :error]
 
   @lost_message "Namespace gone from cluster; marked lost (#196)"
 

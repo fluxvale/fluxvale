@@ -133,6 +133,41 @@ defmodule FluxVale.Clients.K8s.Resources.ServiceTest do
     end
   end
 
+  describe "build_manifest/3 — ExternalName (#203)" do
+    test "aliases the DNS name with the wake port, no selector" do
+      manifest =
+        Service.build_manifest("ns", "wake", %{
+          external_name: "fluxvale-platform.fluxvale-dev.svc.cluster.local",
+          port: 4000
+        })
+
+      assert manifest["spec"]["type"] == "ExternalName"
+
+      assert manifest["spec"]["externalName"] ==
+               "fluxvale-platform.fluxvale-dev.svc.cluster.local"
+
+      assert manifest["spec"]["ports"] == [%{"port" => 4000, "protocol" => "TCP"}]
+      refute Map.has_key?(manifest["spec"], "selector")
+    end
+
+    test "an invalid external_name is rejected before any cluster call" do
+      assert {:error, %Error{reason: :invalid_spec, message: msg}} =
+               Service.create(nil, "ns", "wake", %{external_name: "not a dns name", port: 4000})
+
+      assert msg =~ "Not a valid DNS name"
+    end
+
+    test "a valid external_name applies" do
+      stub(Kubereq, :apply, fn _req, _manifest, _manager -> {:ok, %{status: 201, body: %{}}} end)
+
+      assert {:ok, _body} =
+               Service.create(%{}, "ns", "wake", %{
+                 external_name: "platform.fluxvale-dev.svc.cluster.local",
+                 port: 4000
+               })
+    end
+  end
+
   test "attaches the request with the right api_version/kind (routing pin)" do
     expect(Kubereq, :attach, fn _req, opts ->
       assert opts[:api_version] == "v1"

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="refresh" content={@refresh_seconds} />
+    <title>Waking up…</title>
+    <link rel="stylesheet" href="/assets/css/app.css" />
+  </head>
+  <body class="bg-canvas text-ink min-h-dvh flex items-center justify-center p-6">
+    <main class="max-w-sm w-full text-center space-y-4" data-testid="waking-page">
+      <div class="mx-auto flex size-12 items-center justify-center rounded-full bg-primary-muted">
+        <svg
+          class="size-6 text-primary motion-safe:animate-spin"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          aria-hidden="true"
+        >
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 3a9 9 0 1 0 9 9" />
+        </svg>
+      </div>
+      <h1 class="text-lg font-semibold tracking-tight">Waking {@name} up…</h1>
+      <p class="text-sm text-ink-subtle">
+        It sleeps when nobody visits — this usually takes a few seconds.
+        This page refreshes itself.
+      </p>
+    </main>
+  </body>
+</html>

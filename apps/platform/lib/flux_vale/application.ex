@@ -31,6 +31,9 @@ defmodule FluxVale.Application do
           {Phoenix.PubSub, name: FluxVale.PubSub},
           # AccessRules snapshot cache (#26) — lazy reads, no startup DB hit
           FluxVale.Ops.AccessRules.Cache,
+          # Edge activity debounce (#203, ADR-0036) — the beacon's
+          # in-memory last-flush markers; DB state survives restarts.
+          FluxVale.Edge.Activity,
           # Start a worker by calling: FluxVale.Worker.start_link(arg)
           # {FluxVale.Worker, arg},
           # Start to serve requests, typically the last entry

@@ -100,6 +100,30 @@ config :flux_vale,
     path_prefix: "/dav",
     username: "fluxvale"
   ],
+  # Scale-to-zero (#203, ADR-0036). idle threshold = the settled owner
+  # number (1h); probe user-agents never count as traffic (settled) —
+  # the beacon filters them before the idle clock. E2E shortens the
+  # threshold via runtime.exs (IDLE_SLEEP_AFTER_SECONDS).
+  idle_sleep_after_seconds: 3600,
+  edge_probe_user_agents: [
+    ~r/\Akube-probe\//i,
+    ~r/\APrometheus\//i,
+    ~r/\ABlackbox-Exporter\//i,
+    ~r/\AUptimeRobot\//i,
+    ~r/\ABetter ?Uptime\//i,
+    ~r/\APingdom\.com\//i,
+    ~r/\ASite24x7\//i,
+    ~r/\AHetrixTools\//i,
+    ~r/\AUptime-Kuma\//i
+  ],
+  # The activity beacon's target: the platform's own in-cluster
+  # service. Namespace rides instance_rbac's service_account_namespace
+  # (the same value the RoleBindings use — one source, and
+  # INSTANCE_RBAC_SA_NAMESPACE overrides both at once).
+  edge_beacon: [
+    service: "fluxvale-platform",
+    port: 4000
+  ],
   # One active payment provider (ADR-0029); per-provider webhook routes
   # and config blocks make the gateway a one-module swap. HitPay is the
   # first implementation (Am. 2) — test mode first: base_url defaults
@@ -180,7 +204,11 @@ config :flux_vale, Oban,
        {"7 * * * *", FluxVale.Workers.ZeroBalanceSweep},
        # #154's stranded-instance sweeper, hourly at :13 — off :07 and
        # the top of the hour (same stance).
-       {"13 * * * *", FluxVale.Workers.StrandedInstanceSweep}
+       {"13 * * * *", FluxVale.Workers.StrandedInstanceSweep},
+       # #203's idle sweep, every 5 minutes — the 1-hour idle promise
+       # rounds to at most threshold + one cadence (the minute-tick
+       # reconciler already crosses the top of the hour every minute).
+       {"*/5 * * * *", FluxVale.Workers.IdleInstanceSweep}
      ]},
     # Retention for finished jobs (completed/cancelled/discarded) — v1
     # never pruned oban_jobs; adopted on review (#39). 7d keeps a

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <%= if @status == :service_unavailable do %>
+      <meta http-equiv="refresh" content={@refresh_seconds} />
+    <% end %>
+    <title>Unavailable</title>
+    <link rel="stylesheet" href="/assets/css/app.css" />
+  </head>
+  <body class="bg-canvas text-ink min-h-dvh flex items-center justify-center p-6">
+    <main class="max-w-sm w-full text-center space-y-4" data-testid="edge-status-page">
+      <div class="mx-auto flex size-12 items-center justify-center rounded-full bg-warning-muted">
+        <svg
+          class="size-6 text-warning"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          aria-hidden="true"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M20.354 15.354A9 9 0 0 1 8.646 3.646 9.003 9.003 0 0 0 12 21a9.003 9.003 0 0 0 8.354-5.646Z"
+          />
+        </svg>
+      </div>
+      <h1 class="text-lg font-semibold tracking-tight">{status_title(@status)}</h1>
+      <%= if @body do %>
+        <p class="text-sm text-ink-subtle" data-testid="edge-status-body">{@body}</p>
+      <% end %>
+      <%= if @status == :service_unavailable do %>
+        <p class="text-xs text-ink-subtle">This page keeps checking.</p>
+      <% end %>
+    </main>
+  </body>
+</html>

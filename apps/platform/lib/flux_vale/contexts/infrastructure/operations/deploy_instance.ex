@@ -4,12 +4,13 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   `:deploy` trigger's body (ADR-0005).
 
   Applies, in order: Namespace → RoleBinding → ResourceQuota →
-  NetworkPolicy → PVC → Secret(s) → Deployment → Service → IngressRoute
-  (file-access instances add the `file-access` Secret, a `dav` Service,
-  and an `app-dav` IngressRoute — #190, ADR-0035); then flips the
-  Instance to `:starting` (K8s accepted, awaiting readiness — the
-  reconciler owns `:running`) or `:error` with a status_message on
-  failure.
+  NetworkPolicy → PVC → Secret(s) → Deployment → Service(s) → edge
+  routes (`EdgeRoutes.apply_serving/2` — the IngressRoutes plus #203's
+  activity-beacon Middleware; file-access instances add the
+  `file-access` Secret and a `dav` Service whose route rides the same
+  call — #190, ADR-0035); then flips the Instance to `:starting` (K8s
+  accepted, awaiting readiness — the reconciler owns `:running`) or
+  `:error` with a status_message on failure.
 
   Ordering notes (mocked unit tests assert shape, not order — reason
   explicitly, v1's lesson):
@@ -27,7 +28,6 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
 
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Deployment
-  alias FluxVale.Clients.K8s.Resources.Ingress
   alias FluxVale.Clients.K8s.Resources.Namespace
   alias FluxVale.Clients.K8s.Resources.NetworkPolicy
   alias FluxVale.Clients.K8s.Resources.PersistentVolumeClaim
@@ -36,6 +36,7 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.InstanceK8s
 
   require OpenTelemetry.Tracer
@@ -43,7 +44,6 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   @env_secret "app-env"
   @file_secret "file-access"
   @dav_service "dav"
-  @dav_ingress "app-dav"
 
   # Sidecar requests (ADR-0035): platform overhead on top of the
   # purchased allocation — the ResourceQuota widens by exactly this
@@ -144,9 +144,17 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
          {:ok, _deployment} <-
            Deployment.create(kubeconfig, namespace, "app", deployment_spec(instance, env)),
          {:ok, _service} <- Service.create(kubeconfig, namespace, "app", service_spec(instance)),
-         {:ok, _ingress} <-
-           Ingress.create(kubeconfig, namespace, "app-ingress", ingress_spec(instance)) do
-      maybe_create_dav_route(kubeconfig, namespace, instance)
+         {:ok, _dav_service} <- maybe_create_dav_service(kubeconfig, namespace, instance) do
+      deploy_edge(kubeconfig, instance)
+    end
+  end
+
+  # Serving routes now, dormant wake targets alongside: the first
+  # sleep must only rewrite a route Traefik already watches (see
+  # EdgeRoutes.ensure_wake_targets/2 for the observed alternative).
+  defp deploy_edge(kubeconfig, instance) do
+    with :ok <- EdgeRoutes.apply_serving(kubeconfig, instance) do
+      EdgeRoutes.ensure_wake_targets(kubeconfig, instance)
     end
   end
 
@@ -324,17 +332,13 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   # The WebDAV route rides the instance hostname under the path prefix
   # (Host(`slug.domain`) && PathPrefix(`/dav`) — Traefik auto-prioritizes
   # the longer match above the app's bare Host rule), own Service so the
-  # app's Service/IngressRoute stay untouched.
-  defp maybe_create_dav_route(kubeconfig, namespace, instance) do
+  # app's Service stays untouched; the route itself is EdgeRoutes' (it
+  # owns every ingress shape, #203).
+  defp maybe_create_dav_service(kubeconfig, namespace, instance) do
     if file_access?(instance) do
-      with {:ok, _service} <-
-             Service.create(kubeconfig, namespace, @dav_service, dav_service_spec()),
-           {:ok, _ingress} <-
-             Ingress.create(kubeconfig, namespace, @dav_ingress, dav_ingress_spec(instance)) do
-        :ok
-      end
+      Service.create(kubeconfig, namespace, @dav_service, dav_service_spec())
     else
-      :ok
+      {:ok, nil}
     end
   end
 
@@ -346,32 +350,11 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
     }
   end
 
-  defp dav_ingress_spec(instance) do
-    %{
-      subdomain: instance.slug,
-      service_name: @dav_service,
-      service_port: 80,
-      tls: true,
-      domain: Application.fetch_env!(:flux_vale, :instances_base_domain),
-      path_prefix: file_access_config(:path_prefix)
-    }
-  end
-
   defp service_spec(instance) do
     %{
       port: 80,
       target_port: instance.port,
       selector: %{"app.kubernetes.io/name" => "app"}
-    }
-  end
-
-  defp ingress_spec(instance) do
-    %{
-      subdomain: instance.slug,
-      service_name: "app",
-      service_port: 80,
-      tls: true,
-      domain: Application.fetch_env!(:flux_vale, :instances_base_domain)
     }
   end
 

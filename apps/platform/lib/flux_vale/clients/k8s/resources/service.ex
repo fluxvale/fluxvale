@@ -3,7 +3,12 @@ defmodule FluxVale.Clients.K8s.Resources.Service do
   CRUD operations for Kubernetes Services.
 
   `ClusterIP` services front the app pods inside the namespace; Traefik
-  IngressRoutes expose them externally.
+  IngressRoutes expose them externally. An `ExternalName` variant
+  (#203, ADR-0036) aliases a DNS name elsewhere — the instance
+  namespace's `wake` service points at the platform, so a sleeping
+  instance's edge route can hand visitors to the wake endpoint without
+  any cross-namespace Traefik reference (the provider flag
+  `allowExternalNameServices` gates Traefik's side).
 
   ## Simplified Spec Format
 
@@ -11,6 +16,13 @@ defmodule FluxVale.Clients.K8s.Resources.Service do
         port: 80,                      # Required: service port
         target_port: 8080,             # Optional: container port (default: port)
         selector: %{"app" => "name"}   # Required: pod selector labels
+      }
+
+  ExternalName (#203):
+
+      %{
+        external_name: "fluxvale-platform.fluxvale-dev.svc.cluster.local",
+        port: 4000
       }
   """
 
@@ -22,13 +34,29 @@ defmodule FluxVale.Clients.K8s.Resources.Service do
   @type spec :: %{
           required(:port) => integer(),
           optional(:target_port) => integer(),
-          required(:selector) => map()
+          optional(:selector) => map(),
+          optional(:external_name) => String.t()
         }
 
-  @doc "Creates (server-side-applies) a ClusterIP service."
+  @doc """
+  Creates (server-side-applies) a Service. An `external_name` (#203) is
+  validated as a DNS name first — an invalid value gets
+  `{:error, %Error{reason: :invalid_spec}}` rather than a dead alias
+  (the Ingress posture: config-derived values still fail loudly).
+  """
   @spec create(Kubereq.Kubeconfig.t(), String.t(), String.t(), spec()) ::
           {:ok, map()} | {:error, Error.t()}
   def create(kubeconfig, namespace, name, spec) do
+    external_name = Map.get(spec, :external_name)
+
+    if external_name != nil and not valid_dns_name?(external_name) do
+      {:error, Error.invalid_spec("Not a valid DNS name: #{inspect(external_name)}")}
+    else
+      do_create(kubeconfig, namespace, name, spec)
+    end
+  end
+
+  defp do_create(kubeconfig, namespace, name, spec) do
     req = create_req(kubeconfig)
     manifest = build_manifest(namespace, name, spec)
 
@@ -101,13 +129,16 @@ defmodule FluxVale.Clients.K8s.Resources.Service do
     end
   end
 
-  @doc "Builds the ClusterIP Service manifest from the simplified spec."
+  @doc """
+  Builds the ClusterIP (or ExternalName, #203) Service manifest from
+  the simplified spec.
+  """
   @spec build_manifest(String.t(), String.t(), spec()) :: map()
   def build_manifest(namespace, name, spec) do
     port = spec.port
     target_port = Map.get(spec, :target_port, port)
 
-    %{
+    base = %{
       "apiVersion" => "v1",
       "kind" => "Service",
       "metadata" => %{
@@ -117,15 +148,38 @@ defmodule FluxVale.Clients.K8s.Resources.Service do
           "app.kubernetes.io/managed-by" => "fluxvale",
           "app.kubernetes.io/name" => name
         }
-      },
-      "spec" => %{
-        "type" => "ClusterIP",
-        "selector" => spec.selector,
-        "ports" => [
-          %{"port" => port, "targetPort" => target_port, "protocol" => "TCP"}
-        ]
       }
     }
+
+    case Map.get(spec, :external_name) do
+      external_name when is_binary(external_name) ->
+        Map.put(base, "spec", external_name_spec(external_name, port))
+
+      _nil ->
+        Map.put(base, "spec", %{
+          "type" => "ClusterIP",
+          "selector" => spec.selector,
+          "ports" => [
+            %{"port" => port, "targetPort" => target_port, "protocol" => "TCP"}
+          ]
+        })
+    end
+  end
+
+  defp external_name_spec(external_name, port) do
+    %{
+      "type" => "ExternalName",
+      "externalName" => external_name,
+      "ports" => [%{"port" => port, "protocol" => "TCP"}]
+    }
+  end
+
+  # Same DNS-label shape the Ingress builder enforces: dot-separated
+  # labels, alnum + inner hyphens. The external_name is config-derived,
+  # not user input — this is fail-loudly defense, not a trust boundary.
+  defp valid_dns_name?(value) when is_binary(value) do
+    labels = String.split(value, ".")
+    Enum.all?(labels, &Regex.match?(~r/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\z/, &1))
   end
 
   defp create_req(kubeconfig) do

@@ -40,6 +40,14 @@ backups. The user just logs in and uses the app.
   credits pro-rata (µs accrual) over elapsed time regardless
   of actual usage. Running = flat rate; stopped = storage-only flat fee
   ("pause it and it costs almost nothing"). No metered usage billing.
+- **Scale-to-zero** ([ADR-0036](adr/00036-scale-to-zero-wake-on-use.md)):
+  an instance with no visitors for an hour sleeps automatically —
+  storage-only billing while asleep, waking in a few seconds on the next
+  visit. The economic model rests on it: instances idle most of the
+  time, and idle capacity bills nobody value. Health probes and uptime
+  monitors never keep an app awake; owners who need never-sleeping buy
+  **always-on** (a paid premium — pricing tier open, the flag ships as
+  behavior: never-sleep bills the running rate around the clock).
 - **COGS anchor**: renewal-floor Netcup RS 4000-class, oversubscribed with
   scale-to-zero (storage-bound ~46 smalls/box); prices are per-datencenter,
   B′ ×1.2 Nuremberg, B′-SG ×1.25 standby — decided #200, see

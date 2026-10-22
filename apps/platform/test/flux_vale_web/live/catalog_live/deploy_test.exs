@@ -16,6 +16,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Ingress
+  alias FluxVale.Clients.K8s.Resources.Middleware
   alias FluxVale.Clients.K8s.Resources.Namespace
   alias FluxVale.Clients.K8s.Resources.NetworkPolicy
   alias FluxVale.Clients.K8s.Resources.PersistentVolumeClaim
@@ -67,6 +68,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     stub(Deployment, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
     stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
     stub(Ingress, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+    stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
   end
 
   defp to_step_2(view, version) do

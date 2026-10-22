@@ -125,16 +125,18 @@ defmodule FluxVale.TestSupport.InstanceFixtures do
   @doc """
   Advances an Instance through the funnel's legal chain to `target` —
   StatusTransition rejects shortcuts, mirroring the real triggers
-  (pending→deploying→starting→running⇄stopped).
+  (pending→deploying→starting→running⇄stopped, and #203's
+  running→sleeping).
   """
-  @spec walk_to!(Instance.t(), :deploying | :starting | :running | :stopped) ::
+  @spec walk_to!(Instance.t(), :deploying | :starting | :running | :stopped | :sleeping) ::
           Instance.t()
   def walk_to!(instance, target) do
     path = %{
       deploying: [:deploying],
       starting: [:deploying, :starting],
       running: [:deploying, :starting, :running],
-      stopped: [:deploying, :starting, :running, :stopped]
+      stopped: [:deploying, :starting, :running, :stopped],
+      sleeping: [:deploying, :starting, :running, :sleeping]
     }
 
     Enum.reduce(path[target], instance, fn status, current ->

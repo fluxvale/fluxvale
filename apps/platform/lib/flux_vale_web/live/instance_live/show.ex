@@ -89,6 +89,46 @@ defmodule FluxValeWeb.InstanceLive.Show do
           <% end %>
         </.card>
 
+        <%!-- #203 (ADR-0036): the idle posture — auto-sleep is the
+        default economics, always-on the premium opt-out. Billing tier
+        rides the open sub-decision on #203; the flag is behavior. --%>
+        <.card class="space-y-3" data-testid="availability-card">
+          <div class="flex items-center justify-between gap-3">
+            <h2 class="text-sm font-medium text-ink-muted">Availability</h2>
+            <span
+              class={[
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
+                if(@instance.always_on,
+                  do: "border-line-success bg-success-muted text-success",
+                  else: "border-line bg-primary-muted text-primary"
+                )
+              ]}
+              data-testid="availability-mode"
+            >
+              {if(@instance.always_on, do: "Always on", else: "Sleeps when idle")}
+            </span>
+          </div>
+
+          <p class="text-sm text-ink-subtle">
+            <%= if @instance.always_on do %>
+              Always-on instances never sleep, so they bill the full rate around the clock.
+            <% else %>
+              Apps sleep after an hour without visitors and wake on the next visit — you pay
+              only storage while one sleeps.
+            <% end %>
+          </p>
+
+          <.button
+            size="sm"
+            variant="ghost"
+            phx-click="toggle-always-on"
+            phx-value-always_on={to_string(not @instance.always_on)}
+            data-testid="always-on-toggle"
+          >
+            {if(@instance.always_on, do: "Let it sleep when idle", else: "Keep always on (premium)")}
+          </.button>
+        </.card>
+
         <.callout
           :if={@instance.app_version.first_run}
           tone="info"
@@ -194,6 +234,11 @@ defmodule FluxValeWeb.InstanceLive.Show do
               The endpoint is down while the instance is stopped — start it to
               upload.
             </p>
+
+            <p :if={@instance.status == :sleeping} class="text-xs text-ink-subtle">
+              The endpoint sleeps with the app — it wakes on the next upload
+              attempt (retrying clients pick it up in a few seconds).
+            </p>
           </.card>
         <% end %>
 
@@ -257,8 +302,12 @@ defmodule FluxValeWeb.InstanceLive.Show do
               <div class="flex justify-between gap-4 sm:block">
                 <span class="text-ink-subtle">Price</span>
                 <span class="text-ink" data-testid="instance-price">
-                  <%= if @instance.status == :stopped do %>
-                    {FluxVale.Pricing.format_usd(size.stopped_monthly_cents)}/mo while stopped · billed hourly
+                  <%= if @instance.status in [:stopped, :sleeping] do %>
+                    {FluxVale.Pricing.format_usd(size.stopped_monthly_cents)}/mo while {if(
+                      @instance.status == :sleeping,
+                      do: "asleep",
+                      else: "stopped"
+                    )} · billed hourly
                   <% else %>
                     {FluxVale.Pricing.format_monthly_rate(size.monthly_cents)}
                   <% end %>
@@ -299,7 +348,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
     </.button>
 
     <.button
-      :if={@instance.status == :running}
+      :if={@instance.status in [:running, :sleeping]}
       size="sm"
       href={instance_url(@instance)}
       target="_blank"
@@ -317,6 +366,17 @@ defmodule FluxValeWeb.InstanceLive.Show do
       data-testid="stop-button"
     >
       Stop
+    </.button>
+
+    <%!-- #203: wake = start from :sleeping — the same action, the
+    traffic-reversible verb; the edge wakes it for a visitor too. --%>
+    <.button
+      :if={@instance.status == :sleeping}
+      size="sm"
+      phx-click="wake"
+      data-testid="wake-button"
+    >
+      Wake up
     </.button>
 
     <.button
@@ -365,6 +425,36 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
   def handle_event("start", _params, socket) do
     handle_lifecycle(socket, &Instance.start/2)
+  end
+
+  # #203: the Wake button — `start` with the sleeping-arc's verb. A
+  # separate event so the copy and the flash stay honest ("wake" vs
+  # "start"), the action identical.
+  def handle_event("wake", _params, socket) do
+    handle_lifecycle(socket, &Instance.start/2)
+  end
+
+  # #203 (ADR-0036): the always-on opt-out — a paid premium; the
+  # billing tier is the open sub-decision on #203, the toggle is
+  # behavior today (the idle sweep skips always-on rows).
+  def handle_event("toggle-always-on", %{"always_on" => always_on} = _params, socket) do
+    instance = socket.assigns.instance
+    # phx-value strings in, booleans out — the attribute is boolean.
+    always_on = always_on == "true"
+
+    case Instance.set_always_on(instance, %{always_on: always_on},
+           actor: socket.assigns.current_user
+         ) do
+      {:ok, updated} ->
+        {:noreply, assign(socket, :instance, reload(updated, socket))}
+
+      # coveralls-ignore-start - defensive: the action's error arm is a
+      # DB-level failure; no deterministic test can stage one without a
+      # backdoor (the delete handler's stance, same shape).
+      {:error, _error} ->
+        {:noreply, put_flash(socket, :error, "Couldn't change the availability setting.")}
+        # coveralls-ignore-stop
+    end
   end
 
   # #190: the password reveal — a live read of the namespace's

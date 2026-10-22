@@ -7,7 +7,9 @@ defmodule FluxValeWeb.InstanceStatus do
   from internal state to rendered words:
 
   - the provisioning arc reads `submitted → provisioning → starting →
-    running` (issue copy), mapped off the state machine's atoms
+    running` (issue copy), mapped off the state machine's atoms; the
+    idle arc's `sleeping` (#203) reads as its own resting state,
+    distinct from `stopped` (the owner's manual pause)
   - failures map through the row's `failure_reason` classification to
     a friendly message with a next step; the technical `status_message`
     stays on the DB row and renders only in the admin-only reveal
@@ -26,6 +28,7 @@ defmodule FluxValeWeb.InstanceStatus do
     deploying: "Provisioning",
     starting: "Starting",
     running: "Running",
+    sleeping: "Sleeping",
     stopped: "Stopped",
     error: "Failed",
     deleting: "Deleting",
@@ -37,6 +40,8 @@ defmodule FluxValeWeb.InstanceStatus do
     deploying: "Setting up your app.",
     starting: "Starting it up.",
     running: "Your app is up and running.",
+    sleeping:
+      "Your app is asleep after a stretch without visitors — it wakes automatically the next time someone opens it (a few seconds), and costs only storage while it rests.",
     stopped: "Your app is stopped. Your data is kept safe — start it again anytime.",
     deleting: "Cleaning up your app and its data.",
     lost:

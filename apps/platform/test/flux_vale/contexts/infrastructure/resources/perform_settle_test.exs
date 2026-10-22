@@ -96,6 +96,27 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
       assert {:ok, -@stopped_cents} = Billing.balance(wallet, authorize?: false)
     end
 
+    # #203 (ADR-0036): sleeping bills storage-only — the same stopped
+    # stream over the same anchors, no settle-side sleeping arm exists.
+    test "a month asleep debits the storage-only rate", %{
+      wallet: wallet,
+      instance: instance
+    } do
+      asleep = InstanceFixtures.walk_to!(instance, :sleeping)
+      month_ago = ago(@month_seconds)
+
+      backdate!(asleep,
+        storage_metering_since: month_ago,
+        running_since: nil,
+        unbilled_running_usec: 0
+      )
+
+      assert {:ok, _settled} = settle!(asleep)
+
+      assert usage_entries(wallet) == [%{amount: -@stopped_cents}]
+      assert {:ok, -@stopped_cents} = Billing.balance(wallet, authorize?: false)
+    end
+
     test "a stop inside the tick prorates both streams (the carry folds the interval)", %{
       wallet: wallet,
       instance: instance

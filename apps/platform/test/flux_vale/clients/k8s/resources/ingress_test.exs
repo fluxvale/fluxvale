@@ -274,6 +274,28 @@ defmodule FluxVale.Clients.K8s.Resources.IngressTest do
     end
   end
 
+  describe "build_manifest/3 — middlewares (#203)" do
+    test "the route references each middleware by name, in spec order" do
+      manifest =
+        Ingress.build_manifest("ns", "app-ingress", %{
+          subdomain: "my-app",
+          service_name: "app",
+          service_port: 80,
+          middlewares: ["fluxvale-activity"]
+        })
+
+      route = get_in(manifest, ["spec", "routes", Access.at(0)])
+      assert route["middlewares"] == [%{"name" => "fluxvale-activity"}]
+    end
+
+    test "no middlewares key, no references — the pre-#203 shape" do
+      manifest = Ingress.build_manifest("ns", "app-ingress", base_spec())
+
+      route = get_in(manifest, ["spec", "routes", Access.at(0)])
+      refute Map.has_key?(route, "middlewares")
+    end
+  end
+
   test "attaches the request with the right api_version/kind (routing pin)" do
     expect(Kubereq, :attach, fn _req, opts ->
       assert opts[:api_version] == "traefik.io/v1alpha1"

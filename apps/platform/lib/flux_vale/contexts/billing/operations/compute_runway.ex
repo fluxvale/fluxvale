@@ -89,6 +89,9 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
 
   defp monthly_rate(%Instance{status: :running}, rates), do: rates.running
   defp monthly_rate(%Instance{status: :stopped}, rates), do: rates.stopped
+  # #203: a sleeping instance burns the storage-only rate — the same
+  # stopped-rate accrual settlement runs on its anchors.
+  defp monthly_rate(%Instance{status: :sleeping}, rates), do: rates.stopped
 
   # pending/deploying/starting haven't started accruing; :error holds no
   # running meter (its anchors stopped at the transition); :deleting is

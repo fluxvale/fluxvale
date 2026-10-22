@@ -66,6 +66,12 @@ rules:
   - apiGroups: ["traefik.io"]
     resources: ["ingressroutes"]
     verbs: ["create", "get", "patch", "delete"]
+  # #203 (ADR-0036): the activity-beacon and wake-marker Middlewares
+  # the edge routes reference — same create/get/patch/delete shape as
+  # the routes themselves (SSA applies ride patch on re-runs).
+  - apiGroups: ["traefik.io"]
+    resources: ["middlewares"]
+    verbs: ["create", "get", "patch", "delete"]
   - apiGroups: ["cert-manager.io"]
     resources: ["certificates"]
     verbs: ["create", "get", "patch", "delete"]
