@@ -20,6 +20,10 @@ defmodule FluxValeWeb.CoreComponents do
 
   use Phoenix.Component
 
+  # Verified routes without the full :html use — html_helpers imports
+  # CoreComponents (circular); this block only wires ~p.
+  use FluxValeWeb, :verified_routes
+
   alias FluxValeWeb.InstanceStatus
 
   alias Phoenix.HTML.Form
@@ -511,6 +515,33 @@ defmodule FluxValeWeb.CoreComponents do
   end
 
   @doc """
+  Renders a single-value metric on a card (#205's dashboard: balance,
+  runway — the shape later widgets reuse).
+
+  ## Examples
+
+      <.metric_card label="Balance" value="$3.00" hint="Credits never expire." />
+      <.metric_card label="Runway" value="≈ 2 months" hint="at $4.10/mo burn" />
+  """
+  attr(:label, :string, required: true, doc: "the metric's name (small, muted)")
+  attr(:value, :string, required: true, doc: "the formatted value (large)")
+  attr(:hint, :string, default: nil, doc: "one line of context under the value")
+  attr(:class, :any, default: nil)
+  attr(:rest, :global)
+
+  def metric_card(assigns) do
+    ~H"""
+    <.card class={["flex items-start justify-between gap-4", @class]} {@rest}>
+      <div class="min-w-0">
+        <h2 class="text-sm font-medium text-ink-muted">{@label}</h2>
+        <p class="mt-1 text-3xl font-bold tracking-tight text-ink">{@value}</p>
+        <p :if={@hint} class="mt-1 text-xs text-ink-subtle">{@hint}</p>
+      </div>
+    </.card>
+    """
+  end
+
+  @doc """
   Renders a small pill for metadata (categories, sizes, prices) or
   status. For instance lifecycle states use `status_badge/1`.
 
@@ -987,6 +1018,88 @@ defmodule FluxValeWeb.CoreComponents do
       {render_slot(@inner_block)}
     </.link>
     """
+  end
+
+  @doc """
+  Renders the signed-in user menu (#205): avatar bubble + dropdown —
+  GitHub-style, replacing both the plain "Sign in" button and the
+  email + sign-out text in every chrome. A native `<details>` dropdown:
+  it needs zero JS on the dead marketing pages (phx-click bindings
+  only fire with a live socket), toggles by keyboard, and closes on
+  link navigation — the links are plain hrefs, so every navigation is
+  a full page load and no live patch can strand the panel open.
+
+  ## Examples
+
+      <.user_menu email={@current_user.email} />
+  """
+  attr(:email, :string, required: true)
+  attr(:class, :any, default: nil)
+  attr(:rest, :global)
+
+  def user_menu(assigns) do
+    ~H"""
+    <details data-testid="user-menu" class={["group relative", @class]} {@rest}>
+      <summary
+        class="flex cursor-pointer list-none items-center gap-1.5 rounded-full border border-line bg-panel p-1 pr-2.5 shadow-sm transition-colors hover:bg-panel-raised [&::-webkit-details-marker]:hidden"
+        aria-label="Account menu"
+        data-testid="user-menu-button"
+      >
+        <span
+          class="grid size-7 place-items-center rounded-full bg-primary-muted text-xs font-semibold text-primary"
+          aria-hidden="true"
+        >
+          {initial(@email)}
+        </span>
+        <.icon
+          name="hero-chevron-down-micro"
+          class="size-3.5 text-ink-subtle transition-transform group-open:rotate-180"
+        />
+      </summary>
+      <div
+        class="absolute right-0 z-50 mt-2 w-56 rounded-xl border border-line bg-panel p-1.5 shadow-lg"
+        data-testid="user-menu-panel"
+      >
+        <p class="truncate px-3 py-2 text-xs text-ink-subtle" title={@email}>{@email}</p>
+        <div class="my-1 border-t border-line" aria-hidden="true"></div>
+        <%!-- href, not navigate: full page loads close the dropdown on
+        every surface — a live patch would strand it open (#205). --%>
+        <.link
+          href={~p"/billing"}
+          class="block rounded-lg px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+        >
+          Billing
+        </.link>
+        <.link
+          href={~p"/about"}
+          class="block rounded-lg px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+        >
+          About FluxVale
+        </.link>
+        <div class="my-1 border-t border-line" aria-hidden="true"></div>
+        <form action={~p"/auth/session"} method="post">
+          <input type="hidden" name="_method" value="delete" />
+          <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
+          <button
+            type="submit"
+            class="block w-full cursor-pointer rounded-lg px-3 py-1.5 text-left text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+          >
+            Sign out
+          </button>
+        </form>
+      </div>
+    </details>
+    """
+  end
+
+  # The avatar glyph: the email's first grapheme, uppercased — no
+  # external avatar source in v1. Emails are CiStrings at the Ash
+  # boundary; downcast before String owns it.
+  defp initial(email) do
+    email
+    |> to_string()
+    |> String.first()
+    |> String.upcase()
   end
 
   ## JS Commands

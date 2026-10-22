@@ -2,8 +2,9 @@ defmodule FluxValeWeb.Plugs.MaybeResolveUser do
   @moduledoc """
   Display-only session resolution for the public pages' chrome (#164):
   reuses `FluxValeWeb.UserAuth.resolve_user/1` to put the session's user
-  (or nil) into `:current_user`, so the public navbar can show the email
-  + sign-out of a signed-in visitor.
+  (or nil) into `:current_user`, so the public chrome can show the user
+  menu of a signed-in visitor (#205) — and `PageController` can swap
+  `/` from the landing to the dashboard.
 
   A display hint, never an auth gate — the on_mount gate on the
   authenticated `live_session` stays the only auth writer.
