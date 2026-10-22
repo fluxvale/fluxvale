@@ -99,6 +99,18 @@ defmodule FluxVale.Clients.K8s.Resources.MiddlewareTest do
       assert msg =~ "single-line"
     end
 
+    test "a spec with BOTH strategies is rejected — exactly one per object" do
+      spec = %{
+        forward_auth: %{address: "http://platform.svc:4000/touch"},
+        request_headers: %{"X-FluxVale-Instance" => "id"}
+      }
+
+      assert {:error, %Error{reason: :invalid_spec, message: msg}} =
+               Middleware.create(nil, "ns", "greedy", spec)
+
+      assert msg =~ "exactly one"
+    end
+
     test "an empty spec is rejected — a Middleware must do something" do
       assert {:error, %Error{reason: :invalid_spec, message: msg}} =
                Middleware.create(nil, "ns", "empty", %{})

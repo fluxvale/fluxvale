@@ -14,7 +14,10 @@ defmodule FluxValeWeb.EdgeWakeController do
 
   - `:sleeping` + funded + real visitor → trigger `start`, serve the
     waking page (JS-free: a 2s meta-refresh re-requests this endpoint;
-    the reload after `:running` lands on the restored app route).
+    the reload after `:running` lands on the restored app route) —
+    GET only: a meta refresh cannot replay a request body, so
+    submissions (form POSTs, PUTs) get the retryable 503 instead of a
+    page that would silently drop them.
   - `:sleeping` + unfunded → 503: asleep until the org tops up (the
     #124 gate — waking it would re-enter the ladder's stop arm).
   - `:starting` → the waking page (already waking; no re-trigger).
@@ -55,10 +58,41 @@ defmodule FluxValeWeb.EdgeWakeController do
       Edge.probe_request?(ua) ->
         send_resp(conn, :service_unavailable, "asleep")
 
+      conn.method != "GET" ->
+        # The wake still triggers; the BODY cannot be replayed by a
+        # meta refresh, so submissions get the honest retry signal.
+        wake_then_retry(conn, instance_id)
+
       true ->
         instance = Instance.get_by_id(instance_id, authorize?: false)
         answer(conn, instance)
     end
+  end
+
+  defp wake_then_retry(conn, instance_id) do
+    case Instance.get_by_id(instance_id, authorize?: false) do
+      {:ok, %{status: :sleeping} = instance} ->
+        # The wake's funded gate decides the copy: an unfunded sleep
+        # never wakes, and "resend" would be a lie.
+        case Infrastructure.wake_instance(instance) do
+          {:ok, _waking} -> retry_signal(conn)
+          {:error, :unfunded} -> unfunded_signal(conn)
+        end
+
+      {:ok, _already_waking_or_serving} ->
+        retry_signal(conn)
+
+      {:error, _not_found} ->
+        send_resp(conn, :not_found, "not found")
+    end
+  end
+
+  defp retry_signal(conn) do
+    respond(conn, :service_unavailable, "waking up — resend the request shortly")
+  end
+
+  defp unfunded_signal(conn) do
+    respond(conn, :service_unavailable, "asleep — the owner's balance needs a top-up to wake it")
   end
 
   defp answer(conn, {:ok, %{status: :sleeping} = instance}) do
@@ -189,15 +223,36 @@ defmodule FluxValeWeb.EdgeWakeController do
     # rewrite preserved it; the app serves it once the routes flip.
     # Router-level callers (tests) carry no rewrite: derive from the
     # prefixed path.
-    case conn.private[:fluxvale_edge_original] do
-      %{path: path, query: query} ->
-        suffix = if query == "", do: "", else: "?#{query}"
-        path <> suffix
+    target =
+      case conn.private[:fluxvale_edge_original] do
+        %{path: path, query: query} ->
+          suffix = if query == "", do: "", else: "?#{query}"
+          path <> suffix
 
-      nil ->
-        prefix = EdgeHost.prefix()
-        suffix = if conn.query_string == "", do: "", else: "?#{conn.query_string}"
-        String.replace_prefix(conn.request_path, prefix, "") <> suffix
-    end
+        nil ->
+          prefix = EdgeHost.prefix()
+          suffix = if conn.query_string == "", do: "", else: "?#{conn.query_string}"
+          String.replace_prefix(conn.request_path, prefix, "") <> suffix
+      end
+
+    local_path(target)
+  end
+
+  # Redirect targets must stay same-origin: a request path of
+  # "//evil.example" (or "/\evil.example") would otherwise render a
+  # Location browsers treat as off-site.
+  # Defense-in-depth for router-level callers: the EdgeHost rewrite
+  # normalizes real traffic's paths (its own test pins that), and
+  # Plug.Test reshapes // paths before they reach a controller — the
+  # arm itself isn't stageable end to end.
+  # coveralls-ignore-start
+  defp local_path("//" <> rest) do
+    local_path("/" <> rest)
+  end
+
+  # coveralls-ignore-stop
+
+  defp local_path("/" <> _rest = target) do
+    target
   end
 end

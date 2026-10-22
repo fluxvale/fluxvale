@@ -16,6 +16,13 @@ defmodule FluxValeWeb.Endpoint do
     longpoll: [connect_info: [session: @session_options]]
   )
 
+  # #203 (ADR-0036): instance-host dispatch BEFORE the static plug —
+  # an instance serves arbitrary paths (including /assets/…), and the
+  # static plug would otherwise answer platform assets for a sleeping
+  # instance's own paths, bypassing the wake flow entirely. The wake
+  # page inlines its CSS, so nothing it serves needs this plug.
+  plug(FluxValeWeb.Plugs.EdgeHost)
+
   # Serve at "/" the static files from "priv/static" directory.
   #
   # When code reloading is disabled (e.g., in production),
@@ -60,10 +67,5 @@ defmodule FluxValeWeb.Endpoint do
   plug(Plug.Head)
   plug(Plug.Session, @session_options)
 
-  # #203 (ADR-0036): instance-host dispatch BEFORE the router — an
-  # instance serves arbitrary paths, several of which collide with real
-  # platform routes; the rewrite puts them where only the wake
-  # endpoint listens (see the plug's moduledoc).
-  plug(FluxValeWeb.Plugs.EdgeHost)
   plug(FluxValeWeb.Router)
 end

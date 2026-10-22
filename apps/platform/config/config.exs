@@ -106,15 +106,15 @@ config :flux_vale,
   # threshold via runtime.exs (IDLE_SLEEP_AFTER_SECONDS).
   idle_sleep_after_seconds: 3600,
   edge_probe_user_agents: [
-    ~r/\Akube-probe\//i,
-    ~r/\APrometheus\//i,
-    ~r/\ABlackbox-Exporter\//i,
-    ~r/\AUptimeRobot\//i,
-    ~r/\ABetter ?Uptime\//i,
-    ~r/\APingdom\.com\//i,
-    ~r/\ASite24x7\//i,
-    ~r/\AHetrixTools\//i,
-    ~r/\AUptime-Kuma\//i
+    ~r/\Akube-probe\//iE,
+    ~r/\APrometheus\//iE,
+    ~r/\ABlackbox-Exporter\//iE,
+    ~r/\AUptimeRobot\//iE,
+    ~r/\ABetter ?Uptime\//iE,
+    ~r/\APingdom\.com\//iE,
+    ~r/\ASite24x7\//iE,
+    ~r/\AHetrixTools\//iE,
+    ~r/\AUptime-Kuma\//iE
   ],
   # The activity beacon's target: the platform's own in-cluster
   # service. Namespace rides instance_rbac's service_account_namespace

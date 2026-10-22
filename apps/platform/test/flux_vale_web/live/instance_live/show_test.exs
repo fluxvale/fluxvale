@@ -689,6 +689,24 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       assert has_element?(view, "[data-testid=status-badge]", "Starting")
     end
 
+    test "enabling always-on on a sleeping instance wakes it", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      stub_deploy_k8s()
+      sleeping = sleeping_instance!(version, user)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{sleeping.id}")
+
+      view
+      |> element("[data-testid=always-on-toggle]")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid=availability-mode]", "Always on")
+      assert has_element?(view, "[data-testid=status-badge]", "Starting")
+    end
+
     test "the availability card toggles always-on", %{
       conn: conn,
       user: user,

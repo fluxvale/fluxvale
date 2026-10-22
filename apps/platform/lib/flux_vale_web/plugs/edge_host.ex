@@ -30,11 +30,16 @@ defmodule FluxValeWeb.Plugs.EdgeHost do
 
   @prefix "/_fluxvale_edge"
 
+  # Only the (constant) header name rides init: prod compiles plug
+  # options into the release (`plug_init_mode` stays :compile there),
+  # and the base domain is runtime config (INSTANCES_BASE_DOMAIN) —
+  # baking it at build time would ship the wrong domain. Read it per
+  # request; the fetch is an ets lookup.
   @impl Plug
   def init(_opts) do
     routes = FluxVale.Infrastructure.Operations.EdgeRoutes
-    header = String.downcase(routes.instance_header())
-    [base_domain: base_domain(), marker_header: header]
+
+    [marker_header: String.downcase(routes.instance_header())]
   end
 
   @impl Plug
@@ -48,7 +53,7 @@ defmodule FluxValeWeb.Plugs.EdgeHost do
 
   defp edge_request?(conn, opts) do
     host = conn.host
-    base = opts[:base_domain]
+    base = Application.fetch_env!(:flux_vale, :instances_base_domain)
     marker_headers = Conn.get_req_header(conn, opts[:marker_header])
     marked = List.first(marker_headers)
 
@@ -56,12 +61,20 @@ defmodule FluxValeWeb.Plugs.EdgeHost do
   end
 
   defp rewrite_to_edge(conn) do
-    original = %{path: conn.request_path, query: conn.query_string}
+    # Collapse leading slashes ("//host/path" shapes): kept verbatim
+    # they confuse glob routing and can render off-site Locations
+    # downstream — the platform's own router normalizes the same way.
+    path = normalize_leading_slashes(conn.request_path)
+    original = %{path: path, query: conn.query_string}
 
     conn
     |> Conn.put_private(:fluxvale_edge_original, original)
     |> Conn.put_private(:fluxvale_edge_host, conn.host)
-    |> rewrite(@prefix <> conn.request_path)
+    |> rewrite(@prefix <> path)
+  end
+
+  defp normalize_leading_slashes(path) do
+    String.replace(path, ~r/\A\/+/, "/")
   end
 
   # Plug.Conn has no request_path writer (path_info is the routed
@@ -76,8 +89,4 @@ defmodule FluxValeWeb.Plugs.EdgeHost do
   @doc "The reserved prefix instance-host requests are rewritten onto."
   @spec prefix() :: String.t()
   def prefix, do: @prefix
-
-  defp base_domain do
-    Application.fetch_env!(:flux_vale, :instances_base_domain)
-  end
 end

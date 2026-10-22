@@ -142,11 +142,15 @@ test.describe.serial("forgejo: scale-to-zero", () => {
       await new Promise((r) => setTimeout(r, 2_000));
     }
 
-    // Outlive one sweep cadence: if probes woke (or marked) anything,
-    // the badge would have left Sleeping.
-    await new Promise((r) => setTimeout(r, 6 * 60_000));
-    const badge = await page.getByTestId("status-badge").innerText();
-    expect(badge.trim()).toBe("Sleeping");
+    // Outlive one sweep cadence, polling the badge the whole way: a
+    // probe-caused wake (and even a wake→re-sleep inside the window)
+    // must fail the test, not just a wake that persists to the end.
+    const until = Date.now() + 6 * 60_000;
+    while (Date.now() < until) {
+      const badge = await page.getByTestId("status-badge").innerText();
+      expect(badge.trim(), "probe traffic must not wake a sleeping instance").toBe("Sleeping");
+      await new Promise((r) => setTimeout(r, 30_000));
+    }
   });
 });
 

@@ -126,11 +126,16 @@ defmodule FluxVale.Clients.K8s.Resources.Middleware do
 
   defp validate(spec) do
     cond do
-      auth = Map.get(spec, :forward_auth) ->
-        validate_forward_auth(auth)
+      Map.has_key?(spec, :forward_auth) and Map.has_key?(spec, :request_headers) ->
+        # Exactly one strategy per object — a both-keys spec would
+        # silently drop one from the manifest.
+        {:error, "middleware spec takes exactly one of forward_auth or request_headers"}
 
-      headers = Map.get(spec, :request_headers) ->
-        validate_request_headers(headers)
+      Map.has_key?(spec, :forward_auth) ->
+        validate_forward_auth(spec.forward_auth)
+
+      Map.has_key?(spec, :request_headers) ->
+        validate_request_headers(spec.request_headers)
 
       true ->
         {:error, "middleware spec needs forward_auth or request_headers"}

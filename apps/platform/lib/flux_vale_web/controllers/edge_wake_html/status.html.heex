@@ -7,13 +7,32 @@
       <meta http-equiv="refresh" content={@refresh_seconds} />
     <% end %>
     <title>Unavailable</title>
-    <link rel="stylesheet" href="/assets/css/app.css" />
+    <%!-- Inline styles, deliberately: same stance as the waking page —
+    this surface serves from inside instance-host dispatch, where a
+    stylesheet link would route back into the wake flow. --%>
+    <style>
+      body {
+        margin: 0; min-height: 100dvh; display: flex; align-items: center;
+        justify-content: center; padding: 1.5rem;
+        background: #fafaf9; color: #1c1917;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      main { max-width: 24rem; width: 100%; text-align: center; }
+      .ring {
+        width: 3rem; height: 3rem; margin: 0 auto 1rem; border-radius: 9999px;
+        display: flex; align-items: center; justify-content: center;
+        background: #fffbeb;
+      }
+      .ring svg { width: 1.5rem; height: 1.5rem; color: #d97706; }
+      h1 { font-size: 1.125rem; font-weight: 600; letter-spacing: -0.025em; margin: 0 0 0.5rem; }
+      p { font-size: 0.875rem; line-height: 1.5; color: #78716c; margin: 0.25rem 0; }
+      small { font-size: 0.75rem; color: #a8a29e; }
+    </style>
   </head>
-  <body class="bg-canvas text-ink min-h-dvh flex items-center justify-center p-6">
-    <main class="max-w-sm w-full text-center space-y-4" data-testid="edge-status-page">
-      <div class="mx-auto flex size-12 items-center justify-center rounded-full bg-warning-muted">
+  <body>
+    <main data-testid="edge-status-page">
+      <div class="ring">
         <svg
-          class="size-6 text-warning"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -27,12 +46,12 @@
           />
         </svg>
       </div>
-      <h1 class="text-lg font-semibold tracking-tight">{status_title(@status)}</h1>
+      <h1>{status_title(@status)}</h1>
       <%= if @body do %>
-        <p class="text-sm text-ink-subtle" data-testid="edge-status-body">{@body}</p>
+        <p data-testid="edge-status-body">{@body}</p>
       <% end %>
       <%= if @status == :service_unavailable do %>
-        <p class="text-xs text-ink-subtle">This page keeps checking.</p>
+        <small>This page keeps checking.</small>
       <% end %>
     </main>
   </body>

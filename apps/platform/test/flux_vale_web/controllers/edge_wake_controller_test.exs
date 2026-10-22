@@ -123,6 +123,56 @@ defmodule FluxValeWeb.EdgeWakeControllerTest do
     assert waking.status == :starting
   end
 
+  test "a POST wakes but never meta-refreshes — the retryable 503", %{conn: conn} do
+    stub_k8s()
+    instance = instance!(:sleeping)
+
+    conn =
+      build_conn()
+      |> then(&%{&1 | host: "#{instance.slug}.fluxvale.lvh.me"})
+      |> put_req_header(@header, instance.id)
+      |> post("/_fluxvale_edge/edge-wake-path", %{"form" => "data"})
+
+    assert response(conn, 503) =~ "resend"
+    assert get_resp_header(conn, "retry-after") == ["3"]
+
+    waking = Instance.get_by_id!(instance.id, authorize?: false)
+    assert waking.status == :starting
+  end
+
+  test "a POST to an unfunded sleep says top-up, not resend", %{conn: conn} do
+    stub_k8s()
+    unfunded = instance!(:sleeping, false)
+
+    conn =
+      %{build_conn() | host: "#{unfunded.slug}.fluxvale.lvh.me"}
+      |> put_req_header(@header, unfunded.id)
+      |> post("/_fluxvale_edge/path", %{})
+
+    assert response(conn, 503) =~ "top-up"
+  end
+
+  test "a POST to a running row or a ghost retries/404s", %{conn: conn} do
+    stub_k8s()
+    running = instance!(:running)
+
+    running_conn =
+      %{build_conn() | host: "#{running.slug}.fluxvale.lvh.me"}
+      |> put_req_header(@header, running.id)
+      |> post("/_fluxvale_edge/path", %{})
+
+    assert response(running_conn, 503) =~ "resend"
+
+    ghost = "00000000-0000-7000-8000-000000000000"
+
+    ghost_conn =
+      %{build_conn() | host: "ghost.fluxvale.lvh.me"}
+      |> put_req_header(@header, ghost)
+      |> post("/_fluxvale_edge/path", %{})
+
+    assert response(ghost_conn, 404)
+  end
+
   test "an unfunded sleeping instance stays asleep — plainly", %{conn: conn} do
     stub_k8s()
     instance = instance!(:sleeping, false)

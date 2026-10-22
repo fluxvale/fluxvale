@@ -446,7 +446,17 @@ defmodule FluxValeWeb.InstanceLive.Show do
            actor: socket.assigns.current_user
          ) do
       {:ok, updated} ->
-        {:noreply, assign(socket, :instance, reload(updated, socket))}
+        # "Never sleeps" said while the instance sleeps is a lie:
+        # enabling always-on wakes a sleeping instance (the visitor's
+        # next open would too — this just doesn't wait for one).
+        socket =
+          if always_on and updated.status == :sleeping do
+            wake_on_enable(socket, updated)
+          else
+            assign(socket, :instance, reload(updated, socket))
+          end
+
+        {:noreply, socket}
 
       # coveralls-ignore-start - defensive: the action's error arm is a
       # DB-level failure; no deterministic test can stage one without a
@@ -485,6 +495,23 @@ defmodule FluxValeWeb.InstanceLive.Show do
       # DB-level failures (the action handles every status shape)
       {:error, _error} ->
         {:noreply, put_flash(socket, :error, "Delete failed — try again.")}
+        # coveralls-ignore-stop
+    end
+  end
+
+  # A start error here still leaves the flag set and the row honest
+  # (sleeping): the sweep skips it from now on, and any visitor's
+  # request wakes it. Flash the outcome, don't crash.
+  defp wake_on_enable(socket, sleeping) do
+    case Instance.start(sleeping, actor: socket.assigns.current_user) do
+      {:ok, waking} ->
+        assign(socket, :instance, reload(waking, socket))
+
+      # coveralls-ignore-start - the action-level error arm is the
+      # stale-view race (the row moved between render and event); the
+      # K8s path reports through status, not error tuples.
+      {:error, _error} ->
+        put_flash(socket, :error, "Always-on is set — open the app once to wake it now.")
         # coveralls-ignore-stop
     end
   end
