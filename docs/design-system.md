@@ -59,16 +59,22 @@ Since then: `slider` (#195) — the selectable continuous control, used by
 the deploy wizard's resources step, which now picks allocations instead
 of typing them; `metric_card` + `user_menu` (#205) — the session-aware
 root's dashboard cards and the signed-in chrome's avatar dropdown
-(a native `<details>`: zero-JS on the dead marketing pages).
+(a native `<details>`: zero-JS on the dead marketing pages). The slider
+went **rungs-only** (#221): the input addresses its dimension's ladder
+by index (one arrow press = one rung, thumb never between rungs), the
+tick row labels the rungs and highlights the active one, and the
+readout names the stopped value.
 
-## The resource picker (#195)
+## The resource picker (#195, rungs-only #221)
 
 ![Resources step, light](design/screenshots/resource-picker/resources-picker-light.png)
 
 The deploy wizard's resources step is **selectable, never typed**:
-seeded sizes are quick-pick buttons and each dimension is a stepped
-slider on the platform's own bounds. The picker's states — light, dark,
-below-recommendation, and a slider custom — live in
+seeded sizes are quick-pick buttons and each dimension is a rung slider
+over the seeded ladder's values — index-stepped, so keyboard and drag
+both stop on the labeled rungs (never between), with the active tick
+highlighted and the rung's value in the readout. The picker's states —
+light, dark, below-recommendation, and a slider custom — live in
 [design/screenshots/resource-picker/](design/screenshots/resource-picker/).
 The wave-2 record's two resources-step frames
 (`docs/design/screenshots/wave2/deploy-step3-light.png`,
