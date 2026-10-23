@@ -237,35 +237,37 @@ jobs:
           install: false
       - run: mise install k3d kubectl helm node rclone
 
-      # v4.4.1 — pinned to commit (repo rule above). The GHA layer
-      # cache the bootstrap's buildx build rides needs the container
-      # driver (#210; same pattern as the release-image job)
+      # v4.4.1 — pinned to commit (repo rule above). The bootstrap's
+      # manual buildx build needs a buildkit builder for the gha layer
+      # cache (#210). build-push-action wires a builder internally for
+      # the release job; a run:-step buildx call does not get one
       - name: Set up Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+
+      # v4.0.0 — pinned to commit (repo rule above). Exposes
+      # ACTIONS_RUNTIME_TOKEN/URL to run: steps — the runner injects
+      # them only into uses: steps, and without them buildx SILENTLY
+      # drops the type=gha cache config (no error, no cache)
+      - name: Expose GitHub runtime for the gha cache
+        uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487
 
       - name: Bootstrap the local stack
         run: mise x -- scripts/e2e-bootstrap.sh
 
       # #210: npm ci + playwright install re-downloaded everything
       # every run — and stalled 12m once (runner/network variance).
-      # Keyed on the lockfile (pins @playwright/test exactly) plus the
-      # resolved version for belt and braces; exact key only — a bump
+      # The lockfile pins @playwright/test — and so the browser build
+      # — exactly; its hash covers both. Exact key only: a bump
       # re-downloads once instead of restoring a stale browser set.
-      - name: Read Playwright version
-        id: pw-version
-        run: |
-          version="$(jq -r '.packages["node_modules/@playwright/test"].version' apps/e2e/package-lock.json)"
-          echo "playwright=$version"
-          test -n "$version"
-          echo "version=$version" >>"$GITHUB_OUTPUT"
-
+      # The --with-deps apt libraries still install per run — seconds,
+      # not the stall class.
       - name: Restore npm + Playwright browser cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.npm
             ~/.cache/ms-playwright
-          key: ${{ runner.os }}-e2e-npm-pw-${{ steps.pw-version.outputs.version }}-${{ hashFiles('apps/e2e/package-lock.json') }}
+          key: ${{ runner.os }}-e2e-npm-pw-${{ hashFiles('apps/e2e/package-lock.json') }}
 
       - name: Install suite deps + browser
         run: |

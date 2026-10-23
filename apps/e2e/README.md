@@ -46,8 +46,14 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
 
 - `health.spec.ts`, `public-pages.spec.ts` — read-only, run anywhere
   (the production subset).
+- `landing.spec.ts` — the marketing landing renders (hero, CTAs).
+- `root-session.spec.ts` — `/` is session-aware (#207): marketing
+  landing signed out, dashboard + user menu signed in.
 - `sign-in.spec.ts` — the human login flow via TestInbox; staging and
   local.
+- `file-access.spec.ts` — #190: deploy Kavita → rclone put through
+  /dav → the file lands in the instance volume. Local + staging;
+  needs rclone on PATH.
 - `forgejo-lifecycle.spec.ts` — Forgejo's full lifecycle through the
   real UI: sign-in via TestInbox → catalog → deploy → running →
   instance URL (with the #181 first-open check: `/user/sign_up`
@@ -63,5 +69,5 @@ script on an ephemeral k3d — sharded by file (#210): a `lifecycle`
 leg (instance-deploying specs) and a `pages` leg (the rest), one
 report artifact per leg. A new spec file joins a leg's list in the
 workflow matrix — it won't run in PR CI otherwise. The deploy-gated
-smoke job runs the staging and production runtimes post-deploy (full
-suite, unsharded).
+smoke job runs the suite post-deploy unsharded — staging full,
+production the read-only subset (ADR-0024).
