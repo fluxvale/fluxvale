@@ -73,6 +73,62 @@ if config_env() != :test do
   end
 end
 
+# #210 part 3: the idle sweep's cadence (ADR-0036's settled */5 default
+# lives in config.exs's crontab). The E2E bootstrap sets an
+# every-minute sweep (and the timers CI leg a 45s threshold too), so
+# a sleep lands within ~4 minutes (105s on the timers leg) instead
+# of one ~8-minute cycle; the nightly full-cadence run keeps the
+# real pair proven daily. Same stance as IDLE_SLEEP_AFTER_SECONDS:
+# test excluded, invalid values raise at boot (Oban's parser would
+# raise too, but the message wouldn't name the env var).
+if config_env() != :test do
+  case System.get_env("IDLE_SWEEP_CRONEXPR") do
+    cron when cron in [nil, ""] ->
+      :ok
+
+    cron ->
+      case Oban.Plugins.Cron.parse(cron) do
+        {:ok, _expression} ->
+          # Reslot ONLY the idle-sweep entry of the compiled crontab —
+          # Application.get_env reads what config.exs already set by
+          # the time runtime.exs evaluates; rebuilding the list here
+          # would fork the other three entries' home. Both entry
+          # shapes: Oban's crontab allows {expr, worker, opts}.
+          oban_config = Application.get_env(:flux_vale, Oban, [])
+          plugins = Keyword.get(oban_config, :plugins, [])
+
+          plugins =
+            Enum.map(plugins, fn
+              {Oban.Plugins.Cron, opts} = plugin ->
+                crontab = Keyword.get(opts, :crontab, [])
+
+                crontab =
+                  Enum.map(crontab, fn
+                    {_expr, FluxVale.Workers.IdleInstanceSweep} ->
+                      {cron, FluxVale.Workers.IdleInstanceSweep}
+
+                    {_expr, FluxVale.Workers.IdleInstanceSweep, entry_opts} ->
+                      {cron, FluxVale.Workers.IdleInstanceSweep, entry_opts}
+
+                    entry ->
+                      entry
+                  end)
+
+                {Oban.Plugins.Cron, Keyword.put(opts, :crontab, crontab)}
+
+              plugin ->
+                plugin
+            end)
+
+          config :flux_vale, Oban, plugins: plugins
+
+        {:error, _exception} ->
+          raise ArgumentError,
+                "IDLE_SWEEP_CRONEXPR=#{inspect(cron)} is not a valid cron expression"
+      end
+  end
+end
+
 # Env-scoped slug prefix (#155): the deployed envs share the
 # *.fluxvale.app wildcard and slug uniqueness is per cluster only, so a
 # non-prod env prefixes its labels (staging: stg) and can never take a

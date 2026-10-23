@@ -41,6 +41,11 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
 | `E2E_TESTINBOX_TOKEN` | Admin PAT for the TestInbox JSON API ([ADR-0024](../../docs/adr/00024-e2e-review-environments.md) Am. 1); the sign-in and lifecycle tests skip without it |
 | `E2E_RUNTIME` | Narrows what runs; the BASE_URL host sets the ceiling — any non-local, non-staging host is production-class (read-only) no matter what this says. Gates: lifecycle runs on local + staging (#116); sign-in never runs against production |
 | `E2E_RUN_ID` | Run-scoped uniqueness (email + instance names); defaults to a timestamp |
+| `E2E_IDLE_SLEEP_AFTER_SECONDS` | Bootstrap seam (#210 part 3): overrides the stack's idle threshold (default 180s; the timers CI leg sets 45s, the nightly 3600s) |
+| `E2E_SWEEP_CRONEXPR` | Bootstrap seam (#210 part 3): overrides the stack's idle-sweep cron (default every-minute for E2E; the nightly restores `*/5`) |
+| `E2E_SLEEP_WAIT_MS` | scale-to-zero spec: budget for reaching `Sleeping` (default 9 min; nightly 70 min) |
+| `E2E_TEST_TIMEOUT_MS` | scale-to-zero spec: per-test timeout (default 30 min; nightly 75 min) |
+| `E2E_PROBE_WINDOW_MS` | scale-to-zero spec: how long the probe test outlives one sweep cadence (default 6 min; timers CI leg 150s) |
 
 ## Tests
 
@@ -65,16 +70,20 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
   production stays read-only.
 - `scale-to-zero.spec.ts` — #203 ([ADR-0036](../../docs/adr/00036-scale-to-zero-wake-on-use.md)): deploy → idle → sleeps
   (storage-only billing) → request → wakes → serves, and probe
-  traffic must not wake a sleeper. Serial, local-only: the
-  bootstrap's shortened idle threshold makes it waitable; the sweep
-  cadence stays real (~8 min worst per idle cycle).
+  traffic must not wake a sleeper. Serial, local-only: the timers CI
+  leg's compressed knobs (#210 part 3 — 45s threshold + every-minute
+  sweep) make each idle cycle ~105s; a local bootstrap run keeps the
+  180s threshold (beacon-staleness guard) for ~4-minute cycles; the
+  nightly full-cadence workflow runs the real 1h + */5 pair.
 
 CI: the `e2e` job (`.github/workflows/ci.yml`) bootstraps the same
 script on an ephemeral k3d — sharded by file (#210): a `lifecycle`
 leg (instance-deploying specs), a `timers` leg (platform-timer-bound
-specs — scale-to-zero today, at real cadence until #210 part 3
-compresses it), and a `pages` leg (the rest), one report artifact per
-leg. A new spec file joins a leg's list in the workflow matrix — it
-won't run in PR CI otherwise. The deploy-gated smoke job runs the
-suite post-deploy unsharded — staging full, production the read-only
-subset ([ADR-0024](../../docs/adr/00024-e2e-review-environments.md)).
+specs — scale-to-zero on the bootstrap's compressed cadence), and a
+`pages` leg (the rest), one report artifact per leg. A new spec file
+joins a leg's list in the workflow matrix — it won't run in PR CI
+otherwise. The deploy-gated smoke job runs the suite post-deploy
+unsharded — staging full, production the read-only subset
+([ADR-0024](../../docs/adr/00024-e2e-review-environments.md)); the
+nightly workflow (`.github/workflows/e2e-nightly.yml`) runs the full
+suite at the real 1h + */5 cadence on main, daily.

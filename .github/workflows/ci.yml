@@ -62,6 +62,7 @@ jobs:
               - "deploy/local/**"
               - "scripts/e2e-bootstrap.sh"
               - "Tiltfile" # the bootstrap parses its pins — a bump here is an e2e change
+              - ".github/workflows/e2e-nightly.yml" # the nightly drives the same bootstrap + suite
               - "mise.toml"
               - ".github/workflows/ci.yml"
 
@@ -196,10 +197,11 @@ jobs:
   # the suite is serial by design (one app under test), so legs split
   # the FILES, each leg on its own stack. Lifecycle holds the
   # instance-deploying specs (cold Forgejo/Kavita pulls dominate);
-  # timers the platform-timer-bound specs (today: scale-to-zero at the
-  # real threshold + cadence, ~18m — #210 part 3 compresses the E2E
-  # timers and drops this leg to minutes); pages the rest. Legs stay
-  # independent, never sharing state.
+  # timers the platform-timer-bound specs (scale-to-zero on the
+  # compressed every-minute cadence + the leg-scoped 45s threshold —
+  # #210 part 3; the nightly full-cadence workflow holds the real
+  # pair); pages the rest. Legs stay independent, never sharing
+  # state.
   e2e:
     # Matrix check names default to every matrix value — pin the leg
     # name so checks read "E2E (pages)" and not the whole spec list
@@ -218,8 +220,15 @@ jobs:
             specs: tests/health.spec.ts tests/landing.spec.ts tests/public-pages.spec.ts tests/root-session.spec.ts tests/sign-in.spec.ts
           - name: lifecycle
             specs: tests/forgejo-lifecycle.spec.ts tests/file-access.spec.ts
+          # #210 part 3: threshold 45s + probe window 150s are safe
+          # HERE only — this leg's instance gets no traffic, so the
+          # 30s beacon staleness that guards the other legs' 180s
+          # default can't cause a false idle (scripts/e2e-bootstrap.sh
+          # carries the reasoning)
           - name: timers
             specs: tests/scale-to-zero.spec.ts
+            idle_sleep_seconds: "45"
+            probe_window_ms: "150000"
     env:
       # mise x must USE the four installed binaries without
       # auto-installing the config's other pins (erlang = source
@@ -281,10 +290,15 @@ jobs:
           mise x -- npx playwright install --with-deps chromium
 
       # Env-indirected, not ${{ }}-inline: specs are repo-controlled,
-      # but the env seam keeps the run: block free of template injection
+      # but the env seam keeps the run: block free of template injection.
+      # The timers leg's per-leg knobs ride along (empty elsewhere —
+      # the bootstrap's ${E2E_IDLE_SLEEP_AFTER_SECONDS:-180} and the
+      # spec's default probe window then apply)
       - name: Run the suite
         env:
           LEG_SPECS: ${{ matrix.leg.specs }}
+          E2E_IDLE_SLEEP_AFTER_SECONDS: ${{ matrix.leg.idle_sleep_seconds }}
+          E2E_PROBE_WINDOW_MS: ${{ matrix.leg.probe_window_ms }}
         run: |
           set -a; . apps/e2e/.e2e-env; set +a
           cd apps/e2e

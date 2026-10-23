@@ -49,6 +49,38 @@ defmodule FluxVale.RuntimeConfigTest do
     end
   end
 
+  describe "IDLE_SWEEP_CRONEXPR (#210 part 3)" do
+    test "is inert in test — a stray export never compresses the suite's cadence" do
+      with_env(%{"IDLE_SWEEP_CRONEXPR" => "* * * * *"}, fn ->
+        oban = read!(:test)[:flux_vale][Oban] || []
+        refute Keyword.has_key?(oban, :plugins)
+      end)
+    end
+
+    test "reslots only the idle-sweep entry outside test" do
+      with_env(%{"IDLE_SWEEP_CRONEXPR" => "* * * * *"}, fn ->
+        oban = read!(:dev)[:flux_vale][Oban]
+        plugins = Keyword.get(oban, :plugins, [])
+        {_plugin, cron_opts} = List.keyfind(plugins, Oban.Plugins.Cron, 0)
+        crontab = Keyword.get(cron_opts, :crontab, [])
+
+        assert {"* * * * *", FluxVale.Workers.IdleInstanceSweep} in crontab
+        # The other three entries keep their config.exs homes — the
+        # override reslots one line, it doesn't fork the crontab.
+        assert {"0 3 * * *", FluxVale.Janitor.PruneExpiredTokens} in crontab
+        assert {"7 * * * *", FluxVale.Workers.ZeroBalanceSweep} in crontab
+        assert {"13 * * * *", FluxVale.Workers.StrandedInstanceSweep} in crontab
+        assert length(crontab) == 4
+      end)
+    end
+
+    test "raises on a malformed expression — name the env var, not Oban's parser" do
+      with_env(%{"IDLE_SWEEP_CRONEXPR" => "not a cron"}, fn ->
+        assert_raise ArgumentError, ~r/IDLE_SWEEP_CRONEXPR/, fn -> read!(:dev) end
+      end)
+    end
+  end
+
   describe "PLATFORM_ENV (#196)" do
     test "is required in :prod — unset refuses to boot rather than share one label" do
       with_env(Map.delete(@prod_env, "PLATFORM_ENV"), fn ->
