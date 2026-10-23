@@ -76,14 +76,12 @@ the decision.
     and reprice from the live curve after the 1-year grace. Seeded
     sizes keep snapshotting their Size rows — at size points the two
     paths agree exactly (calibration tests pin it).
-18. **Always-on billing tier** (#203) — the always-on flag ships as
-    behavior ([ADR-0036](adr/00036-scale-to-zero-wake-on-use.md): the
-    idle sweep skips always-on rows). **Owner pick pending**: (a) a
-    flat monthly surcharge for the flag — prices the density break
-    explicitly, needs a surcharge rate + accrual arm; or (b) no
-    explicit charge — an always-on instance simply never drops to
-    storage-only, so it bills the running rate 24/7 (what the shipped
-    behavior bills by construction; zero new billing surface).
+18. **Always-on billing tier** (#203) — resolved (2026-10-23):
+    **(b), the 24/7 running rate** — an always-on instance simply
+    never drops to storage-only, so it bills the running rate
+    continuously (what the shipped behavior bills by construction;
+    zero new billing surface — no surcharge rate, no accrual arm).
+    [ADR-0036](adr/00036-scale-to-zero-wake-on-use.md) Am. 1.
 
 ## Platform
 

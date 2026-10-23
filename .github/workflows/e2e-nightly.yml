@@ -1,0 +1,107 @@
+# E2E nightly, full cadence (#210 part 3): the fidelity guard for the
+# scale-to-zero timing claims. PR CI's timers leg runs the compressed
+# pair (45s threshold + every-minute sweep via the ci.yml matrix env)
+# so it fits a review budget; these claims are about the REAL pair —
+#   * a sleep lands within threshold + one cadence (1h + */5),
+#   * probe traffic doesn't wake a sleeping instance,
+#   * the sleeping bill is storage-only
+# — and stay proven daily here instead of gating any PR. Runs the
+# FULL suite unsharded (the serial-by-file local shape) on one stack.
+# schedule: fires on the default branch only — main-only by
+# construction; the dispatch arm (also on PR branches, for validating
+# changes to this file) passes the same real-value env.
+name: E2E nightly (full cadence)
+
+on:
+  schedule:
+    - cron: "23 2 * * *" # off the top-of-hour chart/app cron rush
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-full-cadence:
+    name: E2E full cadence
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    # Real pair worst case: two idle cycles at 1h + one cadence each
+    # (~65m apiece), the deploy walk, and the rest of the suite
+    # serially — ~150m typical, ~200m at the spec ceilings. Retries
+    # are OFF below (a 70-minute retry doubles the worst case and a
+    # nightly flake is the signal, not something to sleep off), so
+    # the ceiling holds one clean attempt with report-upload margin.
+    timeout-minutes: 300
+    env:
+      MISE_AUTO_INSTALL: "0"
+      # The REAL pair — the same envs the bootstrap compresses by
+      # default (scripts/e2e-bootstrap.sh). Threshold 1h, sweep */5.
+      E2E_IDLE_SLEEP_AFTER_SECONDS: "3600"
+      E2E_SWEEP_CRONEXPR: "*/5 * * * *"
+      # Scale-to-zero budgets sized for the real pair: sleep within
+      # 3600s + 300s + slack; a test may spend one whole cycle.
+      E2E_SLEEP_WAIT_MS: "4200000"
+      E2E_TEST_TIMEOUT_MS: "4500000"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Same pins + install shape as the e2e job in ci.yml — binaries
+      # only (node/k3d/kubectl/helm/rclone), verified against
+      # mise.lock. rclone: the file-access spec's client.
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          version: 2026.9.14
+          install: false
+      - run: mise install k3d kubectl helm node rclone
+
+      # v4.4.1 — pinned to commit (repo rule). Same cache plumbing as
+      # the e2e job: the nightly rides the same warm layers, so its
+      # fixed cost is the cluster, not the compile.
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+
+      # v4.0.0 — pinned to commit (repo rule). Exposes the runtime
+      # credentials the bootstrap's manual buildx build needs for the
+      # gha cache; without them buildx silently drops the cache.
+      - name: Expose GitHub runtime for the gha cache
+        uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487
+
+      - name: Bootstrap the local stack
+        run: mise x -- scripts/e2e-bootstrap.sh
+
+      # Same key as the e2e job — one lockfile, one browser set.
+      - name: Restore npm + Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.npm
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-e2e-npm-pw-${{ hashFiles('apps/e2e/package-lock.json') }}
+
+      - name: Install suite deps + browser
+        run: |
+          cd apps/e2e
+          mise x -- npm ci
+          mise x -- npx playwright install --with-deps chromium
+
+      - name: Run the suite (full cadence)
+        run: |
+          set -a; . apps/e2e/.e2e-env; set +a
+          cd apps/e2e
+          mise x -- npx playwright test --retries=0
+
+      # always(), not !cancelled(): a TIMEOUT cancels the job, and a
+      # timed-out nightly's partial report is exactly the evidence
+      # wanted — it must not die with the runner
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-playwright-report
+          path: apps/e2e/playwright-report

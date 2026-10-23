@@ -208,6 +208,9 @@ config :flux_vale, Oban,
        # #203's idle sweep, every 5 minutes — the 1-hour idle promise
        # rounds to at most threshold + one cadence (the minute-tick
        # reconciler already crosses the top of the hour every minute).
+       # E2E compresses the cadence via runtime.exs
+       # (IDLE_SWEEP_CRONEXPR) — #210 part 3; deployed envs keep this
+       # default.
        {"*/5 * * * *", FluxVale.Workers.IdleInstanceSweep}
      ]},
     # Retention for finished jobs (completed/cancelled/discarded) — v1

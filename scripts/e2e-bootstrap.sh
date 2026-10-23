@@ -101,12 +101,23 @@ kubectl -n "$NAMESPACE" set image deployment/fluxvale-platform \
   "seed=$REGISTRY_CLUSTER/fluxvale/platform-dev:$tag"
 kubectl apply -f deploy/local/k8s/15-ingressroute.yaml
 
-# #203 (ADR-0036): shorten the idle-sleep threshold for the e2e suite —
-# a real 1h idle isn't waitable in a test budget (the sweep's own */5
-# cadence stays; the sleep lands within threshold + one cadence). Dev
-# stacks (tilt up) never set this — they keep the settled 1h default.
+# #203 (ADR-0036) + #210 part 3: compress the idle-sweep knobs for the
+# e2e suite — a real 1h idle isn't waitable in a test budget. The
+# sweep CADENCE is now env-tunable (runtime.exs reads
+# IDLE_SWEEP_CRONEXPR); every-minute is the floor Oban's cron allows,
+# and it is safe for every leg (it only tightens when a sleeping
+# instance's state lands, never causes one). The THRESHOLD default
+# stays #209's 180s: the beacon's last-used marker is up to 30s stale
+# under traffic, so a lower default risks sweeping a LIVE instance on
+# the lifecycle legs mid-spec. The timers leg — no traffic by design
+# — compresses further via its own env (ci.yml matrix:
+# E2E_IDLE_SLEEP_AFTER_SECONDS=45 there). The nightly full-cadence
+# run (e2e-nightly.yml) overrides both to the real 1h + */5 pair
+# through the same envs. Dev stacks (tilt up) set neither — they keep
+# the settled 1h + */5 defaults.
 kubectl -n "$NAMESPACE" set env deployment/fluxvale-platform \
-  IDLE_SLEEP_AFTER_SECONDS=180
+  "IDLE_SLEEP_AFTER_SECONDS=${E2E_IDLE_SLEEP_AFTER_SECONDS:-180}" \
+  "IDLE_SWEEP_CRONEXPR=${E2E_SWEEP_CRONEXPR:-* * * * *}"
 
 # The init container crash-loops until CNPG hands out the DB secret —
 # by design (never half-migrated); the rollout just waits through it.

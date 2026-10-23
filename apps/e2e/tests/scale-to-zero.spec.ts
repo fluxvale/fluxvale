@@ -8,15 +8,39 @@ import { TestInbox } from "./helpers/test-inbox";
 // deploy → idle → sleeps (storage-only) → request → wakes → serves,
 // plus the settled owner rule that probes never count as traffic.
 //
-// Local-only: the bootstrap shortens the idle threshold
-// (IDLE_SLEEP_AFTER_SECONDS=180) and the sweep runs every 5 minutes, so
-// a sleep lands within threshold + one cadence. Staging keeps the real
-// 1h promise — not waitable in a suite budget; the unit tests pin the
-// threshold semantics instead.
+// Local-only: the bootstrap compresses the sweep CADENCE (and the
+// timers CI leg compresses the threshold too — #210 part 3,
+// IDLE_SLEEP_AFTER_SECONDS / IDLE_SWEEP_CRONEXPR), so a sleep lands
+// within ~105s there. The nightly full-cadence run (e2e-nightly.yml)
+// runs the real 1h + */5 pair and raises the budgets below
+// accordingly. Staging keeps the real promise — not waitable in any
+// suite budget; the unit tests pin the threshold semantics instead.
 
 const testInboxToken = process.env.E2E_TESTINBOX_TOKEN;
 const runId = process.env.E2E_RUN_ID ?? `run${Date.now()}`;
 const runtime = runtimeFor(process.env.BASE_URL);
+
+// Timer budgets scale with the environment's threshold + cadence
+// (#210 part 3): sleep lands within threshold + one sweep, so the
+// waits are env knobs, not constants. Defaults fit the pre-part-3
+// bootstrap (180s + */5); the compressed PR-CI timers leg and the
+// nightly set their own. Present-but-garbage THROWS — a mistyped
+// budget must fail at load, not as a "timing flake" hours in (the
+// runtime.exs stance: fail loud, name the env).
+function numberEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${name}=${raw} is not a positive number`);
+  }
+  return parsed;
+}
+
+const sleepWaitMs = numberEnv("E2E_SLEEP_WAIT_MS", 9 * 60_000);
+const testTimeoutMs = numberEnv("E2E_TEST_TIMEOUT_MS", 30 * 60_000);
+const probeWindowMs = numberEnv("E2E_PROBE_WINDOW_MS", 6 * 60_000);
 
 test.skip(
   !testInboxToken,
@@ -29,7 +53,7 @@ test.skip(
 );
 
 test.describe.serial("forgejo: scale-to-zero", () => {
-  test.setTimeout(30 * 60_000);
+  test.setTimeout(testTimeoutMs);
 
   let page: Page;
   let instanceUrl: string;
@@ -73,8 +97,9 @@ test.describe.serial("forgejo: scale-to-zero", () => {
 
   test("idle → sleeps → bills storage-only", async () => {
     // The idle clock: no visitor after the deploy. Badge flips to
-    // Sleeping within threshold + one sweep cadence (~8 min worst).
-    await waitForStatus(page, "Sleeping", 9 * 60_000);
+    // Sleeping within threshold + one sweep cadence — an env-scaled
+    // budget (compressed in PR CI, real in the nightly).
+    await waitForStatus(page, "Sleeping", sleepWaitMs);
 
     // The sleeping bill is the storage-only bill — the instance page's
     // price row swaps to the asleep fee (the ledger's identical accrual
@@ -131,7 +156,7 @@ test.describe.serial("forgejo: scale-to-zero", () => {
   test("probe traffic does not wake a sleeping instance", async ({ request }) => {
     // Second idle cycle: let it sleep again, then hit it with an honest
     // probe UA. Probes must not count as traffic — no wake, no clock.
-    await waitForStatus(page, "Sleeping", 9 * 60_000);
+    await waitForStatus(page, "Sleeping", sleepWaitMs);
 
     for (let i = 0; i < 3; i++) {
       const res = await request.get(instanceUrl!, {
@@ -145,7 +170,9 @@ test.describe.serial("forgejo: scale-to-zero", () => {
     // Outlive one sweep cadence, polling the badge the whole way: a
     // probe-caused wake (and even a wake→re-sleep inside the window)
     // must fail the test, not just a wake that persists to the end.
-    const until = Date.now() + 6 * 60_000;
+    // One cadence + margin — an env knob like the other budgets
+    // (default fits */5; the compressed timers leg shortens it).
+    const until = Date.now() + probeWindowMs;
     while (Date.now() < until) {
       const badge = await page.getByTestId("status-badge").innerText();
       expect(badge.trim(), "probe traffic must not wake a sleeping instance").toBe("Sleeping");

@@ -1,6 +1,6 @@
 # ADR-0036: Scale-to-zero with wake-on-use
 
-**Status**: Accepted
+**Status**: Accepted (amended — see Amendment 1)
 **Date**: 2026-10-22
 **Issue**: fluxvale/fluxvale#203
 
@@ -131,3 +131,26 @@ is a billing-tier question, not a price change. The open sub-decision
 - RBAC: the workload ClusterRole gains `traefik.io/middlewares` verbs;
   the beacon address rides the platform's own service DNS, namespace
   derived from `instance_rbac` (one config source).
+
+## Amendment 1 (2026-10-23): always-on billing = Option B, and an E2E cadence knob
+
+Two follow-ups, both decided outside the original review:
+
+- **§5's open sub-decision is resolved: Option B** — the 24/7
+  running rate. An always-on instance simply never drops to
+  storage-only; no surcharge rate, no accrual arm. What shipped in
+  #209 already bills this by construction; the owner picked it in
+  [docs/open-questions.md](../open-questions.md) #18.
+- **The idle sweep's cadence is now env-tunable**
+  (`IDLE_SWEEP_CRONEXPR`, read in `runtime.exs` exactly like
+  `IDLE_SLEEP_AFTER_SECONDS`; the `*/5` default and the 1-hour
+  threshold default in `config.exs` are untouched). The E2E bootstrap
+  sets an every-minute sweep (Oban's cron floor) with #209's 180s
+  threshold; the timers CI leg compresses the threshold to 45s too
+  (safe there: no traffic — the beacon staleness that pins the other
+  legs at 180s can't cause a false idle) so a sleep lands within
+  ~105s instead of ~8 minutes (#210 part 3); the nightly
+  full-cadence workflow (`.github/workflows/e2e-nightly.yml`) runs
+  the real 1h + */5 pair daily — the timing claims this ADR makes
+  stay proven without gating PRs. Deployed envs set neither and keep
+  the settled defaults.
