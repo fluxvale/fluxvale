@@ -84,11 +84,34 @@ jobs:
             ~/.cache/ms-playwright
           key: ${{ runner.os }}-e2e-npm-pw-${{ hashFiles('apps/e2e/package-lock.json') }}
 
+      # Same deb-cache as the e2e job (#210 slice C): the nightly's
+      # fixed cost should be the cluster, not a mirror-throttled apt
+      # fetch. Same key — one lockfile, one dep set; seeding, not
+      # dpkg (see ci.yml for the downgrade rationale).
+      - name: Restore Playwright apt cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.pw-apt
+          key: ${{ runner.os }}-pw-apt-${{ hashFiles('apps/e2e/package-lock.json') }}
+
       - name: Install suite deps + browser
         run: |
           cd apps/e2e
           mise x -- npm ci
+          # Seed apt's download dir; version resolution stays apt's.
+          if compgen -G "$HOME"/.pw-apt/*.deb >/dev/null; then
+            staged=$(ls "$HOME"/.pw-apt/*.deb | wc -l)
+            sudo cp "$HOME"/.pw-apt/*.deb /var/cache/apt/archives/ 2>/dev/null || true
+            echo "pw apt cache: seeded $staged debs (apt resolves versions; the index fetch still runs)"
+          else
+            echo "pw apt cache: cold — playwright's apt pass downloads the set once"
+          fi
           mise x -- npx playwright install --with-deps chromium
+          # Persist apt's fetched debs (first write wins per key).
+          mkdir -p "$HOME/.pw-apt"
+          sudo cp -n /var/cache/apt/archives/*.deb "$HOME/.pw-apt/" 2>/dev/null || true
+          sudo chown -R "$(id -u):$(id -g)" "$HOME/.pw-apt"
+          echo "pw apt cache: $(ls "$HOME"/.pw-apt/*.deb | wc -l) debs staged for save"
 
       - name: Run the suite (full cadence)
         run: |
