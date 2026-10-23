@@ -79,7 +79,9 @@ test.describe.serial("forgejo: scale-to-zero", () => {
     await page.getByTestId("version-option").first().check();
     await page.getByTestId("continue-version").click();
     await page.getByTestId("continue-env").click();
-    await page.getByTestId("resource-cpu").fill("1");
+    // 1 core (rung index 2 — the wire is index-based since #221) over
+    // the 0.5-core `small` recommendation, like the lifecycle spec.
+    await page.getByTestId("resource-cpu").fill("2");
     await page.getByTestId("continue-resources").click();
     await page.getByTestId("instance-name").fill(`e2e-s2z-${runId}`);
     await page.getByTestId("deploy-submit").click();

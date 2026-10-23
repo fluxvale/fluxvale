@@ -48,6 +48,10 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     version =
       InstanceFixtures.app_version!(
         configurable_env_vars: @schema,
+        # #221: the wizard is rungs-only, so the fixture's default
+        # allocation must sit on the sliders' ladders to open AT the
+        # recommendation — 1024 MB is the memory ladder's second rung.
+        default_memory_mb: 1024,
         default_storage_gb: 10,
         published_at: DateTime.utc_now()
       )
@@ -88,8 +92,8 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
   end
 
   # The resources step's Continue — `resources` overrides the inputs
-  # (string values, as the number inputs carry them); defaults flow
-  # when omitted.
+  # (slider indices, the rungs' positions, as the range inputs carry
+  # them); the current allocation flows when omitted.
   defp to_step_4(view, resources \\ %{}) do
     view
     |> form("#resources-form", resources: resources)
@@ -161,7 +165,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
     # Crafted before any version is selected: nil selected version must
     # not crash the handler (to-env's guard posture).
-    _html = render_click(view, "resources-change", %{"resources" => %{"memory_mb" => "128"}})
+    _html = render_click(view, "resources-change", %{"resources" => %{"memory_mb" => "0"}})
 
     assert has_element?(view, "button[phx-click='to-env']")
 
@@ -304,7 +308,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     assert instance.app_version_id == version.id
     # untouched resource controls default to the recommendation (#180)
     assert instance.cpu_cores == Decimal.new("0.5")
-    assert instance.memory_mb == 256
+    assert instance.memory_mb == 1024
     assert instance.storage_gb == 10
   end
 
@@ -384,13 +388,13 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     nil_instance = Enum.find(instances, &(&1.name == "Nil Ghost"))
 
     assert nil_instance.cpu_cores == Decimal.new("0.5")
-    assert nil_instance.memory_mb == 256
+    assert nil_instance.memory_mb == 1024
     assert nil_instance.storage_gb == 10
     assert nil_instance.size_id
 
     assert instance.name == "Ghost"
     assert instance.cpu_cores == Decimal.new("0.5")
-    assert instance.memory_mb == 256
+    assert instance.memory_mb == 1024
     assert instance.storage_gb == 10
   end
 
@@ -429,12 +433,12 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     # @resources is nil here: the sent key lands on the recommendation
     # base, so the untouched dimensions keep the version's defaults.
     # (State updates even off-step; the crafted nav makes it visible.)
-    render_click(view, "resources-change", %{"resources" => %{"memory_mb" => "128"}})
+    render_click(view, "resources-change", %{"resources" => %{"memory_mb" => "0"}})
 
     render_click(view, "back-resources", %{})
 
-    assert has_element?(view, "#resource-cpu-cores[value='0.5']")
-    assert has_element?(view, "#resource-memory-mb[value='128']")
+    assert has_element?(view, "#resource-cpu-cores[value='1']")
+    assert has_element?(view, "#resource-memory-mb[value='0']")
     assert has_element?(view, "#below-recommendation-warning")
   end
 
@@ -475,12 +479,16 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
              )
     end
 
-    test "every slider is bounded by the platform range and snapped", %{view: view} do
-      # The bounds are the platform's own ceilings; the step is the
-      # fixed granularity the arrow keys snap to.
-      assert has_element?(view, "#resource-cpu-cores[min='0.25'][max='64'][step='0.25']")
-      assert has_element?(view, "#resource-memory-mb[min='128'][max='65536'][step='128']")
-      assert has_element?(view, "#resource-storage-gb[min='0'][max='10240'][step='5']")
+    test "the sliders step the ladder's rungs by index", %{view: view} do
+      # A range input can only carry a uniform step, so it addresses
+      # the rungs by position (#221): min 0, max the last rung's
+      # index, step 1. The native semantics are then the detents —
+      # one arrow press is one rung, Home/End are the ladder's ends,
+      # and the browser quantizes the thumb to whole rungs during a
+      # drag: it never rests between rungs.
+      assert has_element?(view, "#resource-cpu-cores[min='0'][max='4'][step='1']")
+      assert has_element?(view, "#resource-memory-mb[min='0'][max='4'][step='1']")
+      assert has_element?(view, "#resource-storage-gb[min='0'][max='4'][step='1']")
     end
 
     test "the sliders carry accessible labels and a unit-announcing readout", %{view: view} do
@@ -488,40 +496,113 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
       assert html =~ ~s(for="resource-cpu-cores")
       assert html =~ ~s(aria-valuetext="0.5 cores")
-      assert html =~ ~s(aria-valuetext="256 MB")
+      assert html =~ ~s(aria-valuetext="1024 MB")
       assert html =~ ~s(aria-valuetext="10 GB")
     end
 
-    test "every seeded size sits exactly on the three sliders' ladders", %{view: view} do
+    test "the tick row labels the rungs and highlights the one under the thumb", %{view: view} do
+      # Where you stopped must be unmistakable (#221): every rung is a
+      # labeled, equally spaced tick (the index scale is equal-width),
+      # the active one carries data-active, and the readout names the
+      # rung's value.
+      for rung <- ~w(0.25 0.5 1 2 4) do
+        assert has_element?(view, "#resource-cpu-cores-ticks [data-value='#{rung}']", rung)
+      end
+
+      for rung <- ~w(512 1024 2048 4096 8192) do
+        assert has_element?(view, "#resource-memory-mb-ticks [data-value='#{rung}']", rung)
+      end
+
+      for rung <- ~w(5 10 20 50 100) do
+        assert has_element?(view, "#resource-storage-gb-ticks [data-value='#{rung}']", rung)
+      end
+
+      # The fixture's defaults sit on the ladder, so entry shows each
+      # dimension's recommended rung active — thumb, tick, readout all
+      # describe one allocation.
+      assert has_element?(
+               view,
+               "#resource-cpu-cores-ticks [data-value='0.5'][data-active='true']"
+             )
+
+      assert has_element?(
+               view,
+               "#resource-memory-mb-ticks [data-value='1024'][data-active='true']"
+             )
+
+      assert has_element?(
+               view,
+               "#resource-storage-gb-ticks [data-value='10'][data-active='true']"
+             )
+
+      # One index move — an arrow press's worth — walks the highlight
+      # and the readout to the next rung together.
+      view
+      |> form("#resources-form", resources: %{cpu_cores: "2"})
+      |> render_change()
+
+      assert has_element?(view, "#resource-cpu-cores[value='2']")
+      assert has_element?(view, "#resource-cpu-cores-ticks [data-value='1'][data-active='true']")
+
+      refute has_element?(
+               view,
+               "#resource-cpu-cores-ticks [data-value='0.5'][data-active='true']"
+             )
+
+      assert render(view) =~ ~s(aria-valuetext="1 cores")
+    end
+
+    test "the rungs are the seeded ladder's per-dimension values", %{view: view} do
       # The picker's contract (the comment on resource_dimensions/0):
-      # the granularities divide every seeded size, so a preset's value
-      # is always a ladder value — the thumb can never round beneath the
-      # state and fork the shown price from the charge. A seed/price
-      # edit that breaks this hides that size from the quick picks
-      # (representable_size?/1), and that is what the second half pins.
+      # the arrays ARE the seeds' distinct per-dimension values — the
+      # quick picks and the sliders offer the same allocations, so a
+      # preset is always a reachable thumb position and vice versa. A
+      # seed edit that breaks this hides that size from the quick picks
+      # (representable_size?/1); the arrays grow only deliberately.
       sizes = Ash.read!(Size, authorize?: false)
       assert sizes != []
 
-      for size <- sizes do
-        cpu = Decimal.to_string(size.cpu_cores)
-        on_cpu_ladder = Decimal.rem(size.cpu_cores, Decimal.new("0.25"))
-        assert Decimal.eq?(on_cpu_ladder, Decimal.new(0)), cpu
-        assert Decimal.compare(size.cpu_cores, Decimal.new("0.25")) != :lt
-        assert Decimal.compare(size.cpu_cores, Decimal.new("64")) != :gt
-        assert rem(size.memory_mb, 128) == 0 and size.memory_mb in 128..65_536, cpu
-        assert rem(size.storage_gb, 5) == 0 and size.storage_gb in 0..10_240, cpu
-        assert has_element?(view, "[data-testid='preset-#{size.slug}']")
+      for {field, id} <- [
+            {:cpu_cores, "resource-cpu-cores"},
+            {:memory_mb, "resource-memory-mb"},
+            {:storage_gb, "resource-storage-gb"}
+          ] do
+        expected =
+          sizes
+          |> Enum.map(fn size ->
+            case Map.get(size, field) do
+              %Decimal{} = decimal -> Decimal.to_string(decimal, :normal)
+              int -> Integer.to_string(int)
+            end
+          end)
+          |> Enum.uniq()
+          |> Enum.sort_by(&Decimal.new/1, Decimal)
+
+        # The ticks' DOM order is the ladder's order — extracted from
+        # the one scoped container, not the page.
+        rendered =
+          view
+          |> element("##{id}-ticks")
+          |> render()
+          |> then(&Regex.scan(~r/data-value="([^"]+)"/, &1))
+          |> Enum.map(&Enum.at(&1, 1))
+
+        assert rendered == expected
+
+        for size <- sizes do
+          assert has_element?(view, "[data-testid='preset-#{size.slug}']")
+        end
       end
     end
 
-    test "an off-ladder version default snaps to the ladder, keeping price and value one number",
+    test "an off-ladder version default floors to the next rung at or above it",
          %{conn: conn} do
-      # ADR-0027 can put an allocation the ladders can't express on a
-      # version's defaults (the admin path); a range input would round it
-      # in the browser the moment it renders, so the server snaps first
-      # — the shown readout, the submitted value and the price line all
-      # describe one allocation. 300 MB snaps down to 256 (the fixture's
-      # memory default) and 0.1 CPU snaps up to the 0.25 floor.
+      # ADR-0027 can put an allocation the ladder can't express on a
+      # version's defaults (the admin path); rungs-only (#221) must
+      # keep the app's minimum satisfiable, so the initial allocation
+      # clamps UP — 0.1 CPU floors to 0.25, 300 MB to 512, 7 GB to 10.
+      # (#195's nearest-step snap could land UNDER the default and open
+      # the step already warning; the floor never does.)
       version =
         InstanceFixtures.app_version!(
           default_cpu_cores: Decimal.new("0.1"),
@@ -541,40 +622,46 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       |> element("[data-testid='continue-env']")
       |> render_click()
 
-      assert has_element?(view, "#resource-cpu-cores[value='0.25']")
-      assert has_element?(view, "#resource-memory-mb[value='256']")
-      assert has_element?(view, "#resource-storage-gb[value='5']")
+      # The readout announces the floored rung, not the admin's raw
+      # default; the thumbs sit on rung indices 0/0/1.
+      assert has_element?(view, "#resource-cpu-cores[value='0']")
+      assert has_element?(view, "#resource-memory-mb[value='0']")
+      assert has_element?(view, "#resource-storage-gb[value='1']")
 
-      # The readout announces the snapped value, not the admin's raw one.
-      # (The "recommends …" copy above still names the app's true
-      # default — that is a statement about the app, not about what the
-      # picker can offer; the controls and their readouts are what must
-      # never disagree with the submitted value.)
       html = render(view)
       assert html =~ ~s(aria-valuetext="0.25 cores")
-      assert html =~ ~s(aria-valuetext="256 MB")
+      assert html =~ ~s(aria-valuetext="512 MB")
+      assert html =~ ~s(aria-valuetext="10 GB")
       refute html =~ ~s(aria-valuetext="300 MB")
-      refute has_element?(view, "#resource-memory-mb[value='300']")
 
-      # The copy no longer claims the controls match the recommendation:
-      # 256 MB IS below the app's 300 MB, so the heads-up is honest and
-      # mounts on the first render without any user action.
-      refute html =~ "the defaults below"
-      assert has_element?(view, "#below-recommendation-warning")
+      # Floored up, the entry allocation is never below the app's
+      # stated minimum: no heads-up mounts on the first render. (The
+      # "recommends …" copy above still names the app's true default —
+      # that is a statement about the app, not about what the picker
+      # can offer; the controls and their readouts are what must never
+      # disagree with the submitted value.)
+      refute has_element?(view, "#below-recommendation-warning")
+
+      # Not the recommendation either (the defaults are off-ladder):
+      # the price follows the floored allocation by the anchor formula.
+      assert has_element?(view, "[data-testid='resources-price']", "$2.99/mo · billed hourly")
 
       # An unrelated event re-renders from state without forking the
-      # number the inputs carry.
-      render_change(view, "resources-change", %{"resources" => %{"memory_mb" => "256"}})
+      # rung the inputs carry.
+      render_change(view, "resources-change", %{"resources" => %{"memory_mb" => "0"}})
 
-      assert has_element?(view, "#resource-cpu-cores[value='0.25']")
-      assert has_element?(view, "#resource-memory-mb[value='256']")
+      assert has_element?(view, "#resource-cpu-cores[value='0']")
+      assert has_element?(view, "#resource-memory-mb[value='0']")
     end
 
-    test "an integer-valued ladder default renders expanded, never in scientific notation",
-         %{conn: conn} do
-      # Decimal.normalize/1 lowers the exponent, so an integer whose
-      # coefficient ends in a zero inspects as 1E+1 — a value no range
-      # input can carry. A 10-core default must render "10".
+    test "a default above the ladder's top rung clamps down to it", %{conn: conn} do
+      # Past the ladder's end there is no at-or-above rung: the floor
+      # lands on the top rung (4 CPU), which IS under the app's stated
+      # 10-core minimum — the heads-up honestly mounts and gates, and
+      # the user cannot improve it (4 is the most the wizard offers; a
+      # 10-core allocation is legal at the API — the Instance
+      # constraints, the authoritative say at save — this step just
+      # never offers it).
       version =
         InstanceFixtures.app_version!(
           default_cpu_cores: Decimal.new("10"),
@@ -592,8 +679,9 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       |> element("[data-testid='continue-env']")
       |> render_click()
 
-      assert has_element?(view, "#resource-cpu-cores[value='10']")
-      refute render(view) =~ "1E+1"
+      assert has_element?(view, "#resource-cpu-cores[value='4']")
+      assert render(view) =~ ~s(aria-valuetext="4 cores")
+      assert has_element?(view, "#below-recommendation-warning")
     end
 
     test "an admin allocation the ladders can't express is not offered as a quick pick",
@@ -623,11 +711,39 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       assert has_element?(view, "[data-testid='preset-small']")
       refute has_element?(view, "[data-testid='preset-#{off_ladder.slug}']")
 
-      # And a crafted pick of it still can't smuggle in an unclamped
+      # And a crafted pick of it still can't smuggle in an unrunged
       # allocation (the handler looks it up in the filtered list).
       render_click(view, "pick-size", %{"slug" => off_ladder.slug})
 
-      assert has_element?(view, "#resource-memory-mb[value='256']")
+      assert has_element?(view, "#resource-memory-mb[value='1']")
+
+      # A size numerically ON the ladder but written with trailing
+      # zeros (1.0 cores, not 1) is still one number with the rung —
+      # decimal_string/1 normalizes before the string membership
+      # check, and the pick's state lands on the rung's exact string.
+      trailing =
+        Size.create!(
+          %{
+            slug: "trailing-#{System.unique_integer([:positive])}",
+            cpu_cores: Decimal.new("1.0"),
+            memory_mb: 2048,
+            storage_gb: 20,
+            monthly_cents: 621,
+            stopped_monthly_cents: 68
+          },
+          authorize?: false
+        )
+
+      {:ok, fresh, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+      to_step_2(fresh, version)
+      to_step_3(fresh)
+
+      assert has_element?(fresh, "[data-testid='preset-#{trailing.slug}']")
+
+      render_click(fresh, "pick-size", %{"slug" => trailing.slug})
+
+      assert has_element?(fresh, "#resource-cpu-cores[value='2']")
+      assert render(fresh) =~ ~s(aria-valuetext="1 cores")
     end
 
     test "the seeded sizes render as quick picks, the recommendation called out",
@@ -651,15 +767,16 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     end
 
     test "picking a size sets the whole allocation and reprices from the curve", %{view: view} do
-      # `standard` is 1 CPU / 2048 MB / 20 GB — a custom allocation for
-      # this fixture's version (0.5/256/10).
+      # `standard` is 1 CPU / 2048 MB / 20 GB — rung index 2 on all
+      # three ladders — a custom allocation for this fixture's version
+      # (0.5/1024/10).
       view
       |> element("[data-testid='preset-standard']")
       |> render_click()
 
-      assert has_element?(view, "#resource-cpu-cores[value='1']")
-      assert has_element?(view, "#resource-memory-mb[value='2048']")
-      assert has_element?(view, "#resource-storage-gb[value='20']")
+      assert has_element?(view, "#resource-cpu-cores[value='2']")
+      assert has_element?(view, "#resource-memory-mb[value='2']")
+      assert has_element?(view, "#resource-storage-gb[value='2']")
 
       # The price follows the allocation (#186): the anchor formula at
       # 1 CPU / 2048 MB / 20 GB — which the seeded table pins at the
@@ -680,8 +797,8 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     end
 
     test "a size below the recommendation trips the heads-up + ack flow", %{view: view} do
-      # `micro` (0.25/512/5) is below this fixture's 0.5/256/10 on CPU
-      # only — enough for the gate.
+      # `micro` (0.25/512/5) is below this fixture's 0.5/1024/10 on CPU
+      # and storage — enough for the gate.
       view
       |> element("[data-testid='preset-micro']")
       |> render_click()
@@ -690,13 +807,36 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       assert has_element?(view, "#below-recommendation-ack")
     end
 
+    test "a crafted index that names no rung changes nothing", %{view: view} do
+      # The sliders emit positions; the LiveView owns the values. An
+      # out-of-range, negative or fractional index can't name a rung,
+      # so the payload is silence (pick-size's unknown-slug posture):
+      # a hostile client gets neither a crash nor a bogus allocation.
+      render_change(view, "resources-change", %{
+        "resources" => %{"cpu_cores" => "99", "memory_mb" => "-1", "storage_gb" => "1.5"}
+      })
+
+      assert has_element?(view, "#resource-cpu-cores[value='1']")
+      assert has_element?(view, "#resource-memory-mb[value='1']")
+      assert has_element?(view, "#resource-storage-gb[value='1']")
+
+      # Non-numeric, and a non-string a crafted event can smuggle
+      # where a browser only sends strings — both are equally nameless.
+      render_change(view, "resources-change", %{"resources" => %{"cpu_cores" => "zero"}})
+      render_change(view, "resources-change", %{"resources" => %{"memory_mb" => 512}})
+
+      assert has_element?(view, "#resource-cpu-cores[value='1']")
+      assert has_element?(view, "#resource-memory-mb[value='1']")
+      assert has_element?(view, "#resources-form")
+    end
+
     test "a crafted unknown preset slug changes nothing", %{view: view} do
       render_click(view, "pick-size", %{"slug" => "does-not-exist"})
 
       # The rendered buttons can't produce one; a hostile client gets
       # silence, not a crash and not a bogus allocation.
-      assert has_element?(view, "#resource-cpu-cores[value='0.5']")
-      assert has_element?(view, "#resource-memory-mb[value='256']")
+      assert has_element?(view, "#resource-cpu-cores[value='1']")
+      assert has_element?(view, "#resource-memory-mb[value='1']")
       assert has_element?(view, "#resources-form")
     end
 
@@ -722,11 +862,11 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     end
 
     test "defaults to the recommendation and prices at it", %{view: view} do
-      # The version's defaults (0.5 CPU / 256 MB / 10 GB) prefill the
-      # controls and label the recommendation.
-      assert has_element?(view, "#resource-cpu-cores[value='0.5']")
-      assert has_element?(view, "#resource-memory-mb[value='256']")
-      assert has_element?(view, "#resource-storage-gb[value='10']")
+      # The version's defaults (0.5 CPU / 1024 MB / 10 GB) prefill the
+      # controls — rung indices 1/1/1 — and label the recommendation.
+      assert has_element?(view, "#resource-cpu-cores[value='1']")
+      assert has_element?(view, "#resource-memory-mb[value='1']")
+      assert has_element?(view, "#resource-storage-gb[value='1']")
       assert has_element?(view, "[data-testid='recommended-allocation']")
 
       # At the recommendation: no warning, no ack, the size price
@@ -736,16 +876,17 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       refute has_element?(view, "#below-recommendation-warning")
       assert has_element?(view, "[data-testid='resources-price']", "$1.00/mo · billed hourly")
 
-      # The estimate tracks the inputs live (#186's done-when): a bump
-      # reprices, and back at the recommendation the size price returns.
+      # The estimate tracks the inputs live (#186's done-when): one
+      # rung up (cpu index 2 = 1 core) reprices, and back at the
+      # recommendation the size price returns.
       view
-      |> form("#resources-form", resources: %{cpu_cores: "1"})
+      |> form("#resources-form", resources: %{cpu_cores: "2"})
       |> render_change()
 
-      assert has_element?(view, "[data-testid='resources-price']", "$3.48/mo · billed hourly")
+      assert has_element?(view, "[data-testid='resources-price']", "$4.65/mo · billed hourly")
 
       view
-      |> form("#resources-form", resources: %{cpu_cores: "0.5"})
+      |> form("#resources-form", resources: %{cpu_cores: "1"})
       |> render_change()
 
       assert has_element?(view, "[data-testid='resources-price']", "$1.00/mo · billed hourly")
@@ -759,22 +900,26 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
          %{user: user, view: view} do
       stub_k8s()
 
+      # Rung picks over the 0.5/1024/10 recommendation: cpu index 2
+      # (1 core) and storage index 2 (20) above it, memory left at its
+      # default rung — the warning is any dimension strictly under, and
+      # none is.
       view
       |> form("#resources-form",
-        resources: %{cpu_cores: "1", memory_mb: "512", storage_gb: "20"}
+        resources: %{cpu_cores: "2", memory_mb: "1", storage_gb: "2"}
       )
       |> render_change()
 
       refute has_element?(view, "#below-recommendation-warning")
 
       # The live estimate follows the allocation (#186): the anchor
-      # formula at 1 CPU / 512 MB / 20 GB, on the resources step and
+      # formula at 1 CPU / 1024 MB / 20 GB, on the resources step and
       # carried to the name step. No interim copy remains.
-      assert has_element?(view, "[data-testid='resources-price']", "$4.18/mo · billed hourly")
+      assert has_element?(view, "[data-testid='resources-price']", "$4.92/mo · billed hourly")
 
       to_step_4(view)
 
-      assert has_element?(view, "[data-testid='price-summary']", "$4.18/mo · billed hourly")
+      assert has_element?(view, "[data-testid='price-summary']", "$4.92/mo · billed hourly")
       refute render(view) =~ "billed at the recommended size"
 
       view
@@ -786,13 +931,13 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       [instance] = Instance.list_for_actor!(actor: user)
 
       assert instance.cpu_cores == Decimal.new("1")
-      assert instance.memory_mb == 512
+      assert instance.memory_mb == 1024
       assert instance.storage_gb == 20
 
       # The ledger charges exactly what the wizard showed: the formula
       # cents snapshot at create (no size for a custom allocation).
       assert instance.size_id == nil
-      assert instance.grandfathered_monthly_cents == 418
+      assert instance.grandfathered_monthly_cents == 492
       assert instance.grandfathered_stopped_monthly_cents == 68
       assert instance.grandfathered_until
     end
@@ -801,8 +946,10 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
          %{user: user, view: view} do
       stub_k8s()
 
+      # Storage one rung under the default (index 0 = 5 GB): below the
+      # recommendation on that dimension.
       view
-      |> form("#resources-form", resources: %{memory_mb: "128"})
+      |> form("#resources-form", resources: %{storage_gb: "0"})
       |> render_change()
 
       assert has_element?(view, "#below-recommendation-warning")
@@ -810,18 +957,18 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
       # A channel-level continue without the ack stays put (the disabled
       # button is client-side only).
-      html = render_click(view, "resources-continue", %{"resources" => %{"memory_mb" => "128"}})
+      html = render_click(view, "resources-continue", %{"resources" => %{"storage_gb" => "0"}})
 
       assert html =~ "Acknowledge the below-recommendation warning"
       assert has_element?(view, "#resources-form")
 
       # The estimate follows the below-recommendation allocation too —
       # the ack flow prices, it doesn't hide.
-      assert has_element?(view, "[data-testid='resources-price']", "$2.68/mo · billed hourly")
+      assert has_element?(view, "[data-testid='resources-price']", "$3.93/mo · billed hourly")
 
       # The ack rides the form; Continue proceeds and the deploy lands
       # at the chosen (lower) allocation.
-      to_step_4(view, %{memory_mb: "128", below_ack: "on"})
+      to_step_4(view, %{storage_gb: "0", below_ack: "on"})
 
       view
       |> form("#deploy-form", instance: %{name: "Smaller"})
@@ -831,140 +978,18 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
       [instance] = Instance.list_for_actor!(actor: user)
 
-      assert instance.memory_mb == 128
+      assert instance.memory_mb == 1024
       assert instance.cpu_cores == Decimal.new("0.5")
-      assert instance.storage_gb == 10
+      assert instance.storage_gb == 5
 
       # Formula-priced: the below-recommendation snapshot.
       assert instance.size_id == nil
-      assert instance.grandfathered_monthly_cents == 268
-    end
-
-    test "the hard floors block even with the acknowledgment", %{user: user, view: view} do
-      # Below the recommendation first — that mounts the warning and its
-      # ack checkbox (the crafted continue below must clear a rendered
-      # gate, not one that never existed).
-      view
-      |> form("#resources-form", resources: %{memory_mb: "128"})
-      |> render_change()
-
-      assert has_element?(view, "#below-recommendation-ack")
-
-      # cpu 0 is under the hard floor: blocked even acknowledged.
-      html = to_step_4(view, %{cpu_cores: "0", memory_mb: "128", below_ack: "on"})
-
-      assert html =~ "CPU cores must be greater than 0"
-      assert has_element?(view, "#resources-form")
-      assert Instance.list_for_actor!(actor: user) == []
-    end
-
-    test "the ceilings error at continue — a plainly-typed big number must not crash the save",
-         %{view: view} do
-      html = to_step_4(view, %{memory_mb: "99999999999999999999"})
-
-      assert html =~ "Memory must be at most 65536 MB"
-      assert has_element?(view, "#resources-form")
-
-      # Finite-but-huge decimals pass the > 0 floor and would crash the
-      # Postgrex numeric write — the cpu ceiling catches them first.
-      cpu_html = to_step_4(view, %{cpu_cores: "1e30"})
-
-      assert cpu_html =~ "CPU cores must be at most 64"
-      assert has_element?(view, "#resources-form")
-    end
-
-    test "non-numeric input errors at continue, not per keystroke", %{view: view} do
-      view
-      |> form("#resources-form", resources: %{memory_mb: "128"})
-      |> render_change()
-
-      # Mid-typing garbage shows no error flash — assessment happens at
-      # continue (a number half-typed must not bounce the step).
-      change_html =
-        view
-        |> form("#resources-form", resources: %{cpu_cores: "zero"})
-        |> render_change()
-
-      refute change_html =~ "must be a number"
-
-      continue_html = to_step_4(view, %{cpu_cores: "zero"})
-
-      assert continue_html =~ "CPU cores must be a number"
-      assert has_element?(view, "#resources-form")
-    end
-
-    test "fractional memory errors at continue", %{view: view} do
-      html = to_step_4(view, %{memory_mb: "3.5"})
-
-      assert html =~ "Memory and storage must be whole numbers"
-      assert has_element?(view, "#resources-form")
-    end
-
-    test "non-finite decimals never reach the compares or the floors", %{view: view} do
-      # NaN would crash Decimal.compare on every later event; Infinity
-      # would walk the floors. Both are cast out up front.
-      nan_html = to_step_4(view, %{cpu_cores: "NaN"})
-
-      assert nan_html =~ "CPU cores must be a number"
-
-      infinity_html = to_step_4(view, %{cpu_cores: "Infinity"})
-
-      assert infinity_html =~ "CPU cores must be a number"
-      assert has_element?(view, "#resources-form")
-    end
-
-    test "curve-crashing values die at the parse, not in the preview", %{view: view} do
-      # Negatives and past-DBL_MAX magnitudes would raise inside
-      # :math.pow / Decimal.to_float — the preview prices on every
-      # keystroke, so the parse owns them (the curve assumes
-      # floor-legal input).
-      view
-      |> form("#resources-form", resources: %{memory_mb: "128"})
-      |> render_change()
-
-      change_html =
-        view
-        |> form("#resources-form", resources: %{cpu_cores: "-1"})
-        |> render_change()
-
-      # Live view survived; no price line for an unparseable allocation
-      # (the quick picks above still carry their own size prices, so the
-      # assertion is scoped to the price line, not the page).
-      assert has_element?(view, "#resources-form")
-      refute has_element?(view, "[data-testid='resources-price']", "$")
-      assert change_html =~ "resources-form"
-
-      negative_html = to_step_4(view, %{cpu_cores: "-1"})
-
-      assert negative_html =~ "CPU cores must be greater than 0"
-
-      overflow_html = to_step_4(view, %{cpu_cores: "1e309"})
-
-      assert overflow_html =~ "CPU cores must be at most 64"
-
-      # A valid cpu so the memory arm's parse actually runs.
-      negative_memory_html = to_step_4(view, %{cpu_cores: "0.5", memory_mb: "-5"})
-
-      assert negative_memory_html =~ "Memory and storage cannot be negative"
-
-      # A pasted >308-digit integer would crash the curve's float
-      # division on every keystroke — the parse-level ceiling owns it.
-      huge = String.duplicate("9", 400)
-
-      view
-      |> form("#resources-form", resources: %{memory_mb: huge})
-      |> render_change()
-
-      assert has_element?(view, "#resources-form")
-
-      overflow_int_html = to_step_4(view, %{memory_mb: huge})
-
-      assert overflow_int_html =~ "Memory must be at most 65536 MB"
+      assert instance.grandfathered_monthly_cents == 393
     end
 
     test "a back-nav round trip keeps the chosen allocation", %{view: view} do
       view
-      |> form("#resources-form", resources: %{cpu_cores: "1", memory_mb: "512"})
+      |> form("#resources-form", resources: %{cpu_cores: "2", memory_mb: "2"})
       |> render_change()
 
       view
@@ -975,9 +1000,9 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       |> element("#env-form")
       |> render_submit(%{env_values: %{}})
 
-      # The env detour preserved the values; only the ack starts cold.
-      assert has_element?(view, "#resource-cpu-cores[value='1']")
-      assert has_element?(view, "#resource-memory-mb[value='512']")
+      # The env detour preserved the rungs; only the ack starts cold.
+      assert has_element?(view, "#resource-cpu-cores[value='2']")
+      assert has_element?(view, "#resource-memory-mb[value='2']")
       refute has_element?(view, "#below-recommendation-warning")
     end
   end

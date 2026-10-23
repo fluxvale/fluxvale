@@ -379,15 +379,22 @@ defmodule FluxValeWeb.CoreComponents do
   end
 
   @doc """
-  Renders a stepped slider (#195) — the selectable control for a
-  continuous dimension (the deploy wizard's CPU/memory/storage, where
-  free text is not an option).
+  Renders a rung slider (#221) — the selectable control for a discrete
+  dimension (the deploy wizard's CPU/memory/storage, whose offerable
+  values are the seeded ladder's rungs, not a continuous range).
 
-  Native range semantics carry the accessibility: the label is wired by
-  `for`/`id`, arrow keys step by `step`, Home/End jump to the bounds,
-  and `aria-valuetext` announces the unit. The visible readout mirrors
-  the number the browser already announces, so it is `aria-hidden` —
-  one value, not two.
+  The input addresses the rungs **by index** — a native range input
+  can only carry a uniform step, so it runs `0 … last rung` at `step
+  1` and the rung *value* is the caller's to map (the wizard's
+  `resources` params carry indices; the LiveView owns the arrays).
+  The native semantics are then the detents themselves: one arrow
+  press moves exactly one rung, Home/End jump to the ladder's ends,
+  and the browser quantizes the thumb to whole rungs while dragging —
+  it never rests between rungs. `aria-valuetext` announces the
+  unit-bearing readout; the visible readout mirrors it and is
+  `aria-hidden` — one value, not two. The tick row labels the rungs
+  (equally spaced, like the thumb's index scale) and highlights the
+  active one, so where you stopped is unmistakable.
 
   ## Examples
 
@@ -396,9 +403,7 @@ defmodule FluxValeWeb.CoreComponents do
         name="resources[cpu_cores]"
         label="CPU cores"
         value="0.5"
-        min="0.25"
-        max="64"
-        step="0.25"
+        values={["0.25", "0.5", "1", "2", "4"]}
         unit="cores"
       />
   """
@@ -408,15 +413,12 @@ defmodule FluxValeWeb.CoreComponents do
 
   attr(:value, :string,
     required: true,
-    doc: "the current value, rendered as the thumb's position"
+    doc: "the current rung value, rendered as the thumb's position and the active tick"
   )
 
-  attr(:min, :string, required: true, doc: "the dimension's floor")
-  attr(:max, :string, required: true, doc: "the dimension's ceiling")
-
-  attr(:step, :string,
+  attr(:values, :list,
     required: true,
-    doc: "the fixed snap granularity (arrow keys step by this)"
+    doc: "the dimension's rungs, ascending strings — the only values the control can express"
   )
 
   attr(:unit, :string, default: nil, doc: "shown beside the value and announced with it")
@@ -424,22 +426,27 @@ defmodule FluxValeWeb.CoreComponents do
   attr(:rest, :global)
 
   def slider(assigns) do
-    assigns = assign(assigns, :readout, readout(assigns.value, assigns.unit))
+    assigns =
+      assign(assigns,
+        readout: readout(assigns.value, assigns.unit),
+        index: Enum.find_index(assigns.values, &(&1 == assigns.value)),
+        top: length(assigns.values) - 1
+      )
 
     ~H"""
     <div class={@class}>
       <div class="flex items-baseline justify-between gap-3">
         <label for={@id} class="text-sm font-medium text-ink">{@label}</label>
-        <span class="font-mono text-sm text-ink" aria-hidden="true">{@readout}</span>
+        <span class="font-mono text-sm font-semibold text-ink" aria-hidden="true">{@readout}</span>
       </div>
       <input
         type="range"
         id={@id}
         name={@name}
-        value={@value}
-        min={@min}
-        max={@max}
-        step={@step}
+        value={@index}
+        min="0"
+        max={@top}
+        step="1"
         aria-valuetext={@readout}
         class={[
           "mt-2 h-5 w-full cursor-pointer appearance-none bg-transparent",
@@ -454,12 +461,41 @@ defmodule FluxValeWeb.CoreComponents do
         ]}
         {@rest}
       />
+      <div id={"#{@id}-ticks"} class="relative mt-1.5 h-5 select-none" aria-hidden="true">
+        <span
+          :for={{rung, i} <- Enum.with_index(@values)}
+          data-value={rung}
+          data-active={if(i == @index, do: "true")}
+          style={"left: #{tick_left(i, @top)}"}
+          class="absolute top-0 flex -translate-x-1/2 flex-col items-center gap-1"
+        >
+          <span class={[
+            "size-1.5 rounded-full transition-colors",
+            if(i == @index, do: "bg-primary", else: "bg-line-strong")
+          ]} />
+          <span class={[
+            "font-mono text-xs transition-colors",
+            if(i == @index, do: "text-ink", else: "text-ink-subtle")
+          ]}>
+            {rung}
+          </span>
+        </span>
+      </div>
     </div>
     """
   end
 
   defp readout(value, nil), do: to_string(value)
   defp readout(value, unit), do: "#{value} #{unit}"
+
+  # A tick sits exactly under its thumb's CENTER: a native range input
+  # parks the thumb at [T/2, W − T/2] (T = the thumb's 1rem width), not
+  # [0, W] — so rung i sits at that band's fraction, not i/top of the
+  # full width (which would drift up to half a thumb at the edges). A
+  # single-rung ladder has no travel; the thumb parks at T/2.
+  defp tick_left(_i, 0), do: "0.5rem"
+
+  defp tick_left(i, top), do: "calc(0.5rem + (100% - 1rem) * #{Float.round(i / top, 4)})"
 
   @doc """
   Renders a page header with title, optional subtitle, and actions.

@@ -13,18 +13,21 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   slowly or fail") and requires an explicit acknowledgment before
   Continue proceeds — a wizard-level gate, mirroring the env step's
   client-controlled order (the platform's own guardrails are the
-  Instance attribute floors, enforced regardless of acknowledgment).
+  Instance attribute constraints, enforced regardless of acknowledgment).
 
-  The allocation is **selected, never typed** (#195, owner feedback):
-  the seeded `Size` rows are quick-pick buttons and each dimension has
-  a stepped slider bounded by the platform's own range and snapped to a
-  fixed granularity (`resource_dimensions/0`). No text control renders
-  on this step. Every allocation a *user* can reach is a ladder value
-  by construction (`initial_resources/1` snaps the version default,
-  `preset_sizes/1` filters the picks to representable sizes, and a
-  range input only ever emits ladder values); the parse and the
-  floor/ceiling checks below stay the authoritative say for a crafted
-  event.
+  The allocation is **selected, never typed** (#195) and **rungs-only**
+  (#221, the owner's call closing #195's control-shape question): the
+  seeded `Size` rows are quick-pick buttons and each dimension's slider
+  steps through that ladder's rungs — index-based
+  (`resource_dimensions/0`), so one arrow press is one rung and the
+  thumb never rests between rungs. No text control renders on this
+  step, and every allocation the state can hold is a rung by
+  construction: `initial_resources/1` floors the version default to
+  the next rung at or above it, `preset_sizes/1` filters the picks to
+  representable sizes, and `resource_strings/1` maps slider indices
+  back to rungs — a crafted index that names no rung is silence, like
+  an unknown preset slug. The form cast on save stays the
+  authoritative say.
 
   Pricing follows the allocation (#186): at the recommendation the
   estimate is the version's recommended-size price; a custom
@@ -47,17 +50,14 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Pricing.Size
 
-  # The sliders' bounds and snap (#195): the platform's own ceilings on
-  # the max (the Instance attribute constraints) and the smallest
-  # allocation the wizard sells on the min, at a fixed granularity.
-  # Every seeded size lands exactly on all three ladders
-  # (0.25 / 128 / 5 divide micro…pro) — a test pins that — and every
-  # value the step renders is snapped to a ladder value (see
-  # initial_resources/1, preset_sizes/1), so an off-ladder allocation
-  # can never reach a range input and get rounded under the state's
-  # feet. Values below the min stay legal at the API (the resource
-  # floors are enforced there, unchanged); this step just never offers
-  # them.
+  # The sliders' rungs (#221): each dimension's ladder is the seeded
+  # Size rows' distinct values for it (micro…pro — the same business
+  # data the quick picks and pricing carry), ascending; a test pins
+  # the arrays to the seeds. The sliders address rungs by index (a
+  # range input can only step uniformly), so the LiveView — not the
+  # browser — owns the value arrays. Values outside the ladder stay
+  # legal at the API (the Instance attribute constraints, unchanged);
+  # this step just never offers them.
   defp resource_dimensions do
     [
       %{
@@ -65,9 +65,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
         id: "resource-cpu-cores",
         label: "CPU cores",
         testid: "resource-cpu",
-        min: "0.25",
-        max: "64",
-        step: "0.25",
+        values: ["0.25", "0.5", "1", "2", "4"],
         unit: "cores"
       },
       %{
@@ -75,9 +73,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
         id: "resource-memory-mb",
         label: "Memory",
         testid: "resource-memory",
-        min: "128",
-        max: "65536",
-        step: "128",
+        values: ["512", "1024", "2048", "4096", "8192"],
         unit: "MB"
       },
       %{
@@ -85,9 +81,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
         id: "resource-storage-gb",
         label: "Storage",
         testid: "resource-storage",
-        min: "0",
-        max: "10240",
-        step: "5",
+        values: ["5", "10", "20", "50", "100"],
         unit: "GB"
       }
     ]
@@ -107,7 +101,6 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
           |> assign(app: app, versions: versions)
           |> assign(step: 1, version_id: nil, selected: nil, env_values: %{}, schema: %{})
           |> assign(resources: nil, below_recommendation?: false, below_ack: false)
-          |> assign(resource_errors: [])
           |> assign(:pricing_sizes, preset_sizes(user))
           |> assign(
             :form,
@@ -271,14 +264,6 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
             for this version — allocate more, or less at your own risk.
           </p>
 
-          <ul
-            :if={@resource_errors != []}
-            id="resource-errors"
-            class="space-y-1 text-sm text-danger"
-          >
-            <li :for={msg <- @resource_errors}>{msg}</li>
-          </ul>
-
           <form
             id="resources-form"
             phx-change="resources-change"
@@ -338,9 +323,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                 name={"resources[#{dimension.key}]"}
                 label={dimension.label}
                 value={@resources[dimension.key]}
-                min={dimension.min}
-                max={dimension.max}
-                step={dimension.step}
+                values={dimension.values}
                 unit={dimension.unit}
                 data-testid={dimension.testid}
               />
@@ -459,9 +442,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   # the recommendation it is the version's size price; a custom
   # allocation prices by the anchor formula — the same cents the ledger
   # snapshots at create, so the shown price is the charged price by
-  # construction. An unparseable allocation (only reachable via a
-  # crafted event since #195) parses to no price: the line waits for a
-  # number rather than guessing.
+  # construction.
   defp price_line(%{selected: selected, resources: resources} = assigns) do
     at_recommendation = recommendation?(selected, resources)
 
@@ -485,14 +466,9 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   defp custom_allocation_cents(_resources, true), do: nil
 
   defp custom_allocation_cents(resources, false) do
-    case parse_allocation(resources) do
-      {:ok, allocation} ->
-        rates = FluxVale.Pricing.price_allocation(allocation)
-        rates.monthly_cents
-
-      {:error, _errors} ->
-        nil
-    end
+    current = allocation(resources)
+    rates = FluxVale.Pricing.price_allocation(current)
+    rates.monthly_cents
   end
 
   # The env surface is a map attribute, not a nested form: plain fields
@@ -611,9 +587,9 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
   # Live: every slider move or preset pick re-renders the
   # below-recommendation warning and keeps the ack coherent (a change
-  # that leaves the recommendation band drops a stale ack). Floor errors
-  # don't fire here — a partial state must not flash errors; they gate
-  # at continue, and again at the form cast on save.
+  # that leaves the recommendation band drops a stale ack). A crafted
+  # index that names no rung is dropped in resource_strings/1, so a
+  # partial or hostile payload just keeps the current allocation.
   def handle_event("resources-change", %{"resources" => params}, socket) do
     # Crafted events before a version is picked must not crash on the
     # nil selected version (same posture as to-env's guard); the
@@ -748,27 +724,18 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   defp resources_continue(params, socket) do
     resources = merged_resources(socket, params)
     socket = assign_resource_state(socket, resources, acked?(params))
-    errors = allocation_errors(socket.assigns.resources)
 
-    cond do
-      errors != [] ->
-        {:noreply,
-         socket
-         |> assign(:resource_errors, errors)
-         |> put_flash(:error, "Fix the resource errors below.")}
+    if socket.assigns.below_recommendation? and not socket.assigns.below_ack do
+      # The disabled button is client-side only — the server-side gate
+      # holds for a crafted event (same posture as to-env).
+      {:noreply, put_flash(socket, :error, "Acknowledge the below-recommendation warning.")}
+    else
+      socket =
+        socket
+        |> validate_step(allocation_params(socket.assigns.resources))
+        |> assign(:step, 4)
 
-      socket.assigns.below_recommendation? and not socket.assigns.below_ack ->
-        # The disabled button is client-side only — the server-side gate
-        # holds for a crafted event (same posture as to-env).
-        {:noreply, put_flash(socket, :error, "Acknowledge the below-recommendation warning.")}
-
-      true ->
-        socket =
-          socket
-          |> validate_step(allocation_params(socket.assigns.resources))
-          |> assign(:step, 4)
-
-        {:noreply, socket}
+      {:noreply, socket}
     end
   end
 
@@ -797,9 +764,9 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   end
 
   # --- Resources step (#180) ------------------------------------------------
-  # Input state is strings end to end (the sliders' exact values);
-  # parsing happens at the edges — here for warnings, at
-  # resources-continue for floor errors, at the form cast for the
+  # Input state is rung strings end to end (#221): the sliders emit
+  # indices, resource_strings/1 maps them back to rungs, and nothing
+  # off-ladder can enter the state. The form cast on save is the
   # authoritative say.
 
   # The quick picks (#195): the seeded Sizes, cheapest first — business
@@ -817,10 +784,21 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
     |> Enum.filter(&representable_size?/1)
   end
 
+  # A quick pick the sliders can state (#221): every dimension value on
+  # its ladder — an admin allocation (#221's arrays are the seeds') a
+  # rung slider can't express would land as a preset its own wizard
+  # refuses or silently clamps: worse than no pick at all, so it stays
+  # off the list.
   defp representable_size?(size) do
-    Decimal.eq?(size.cpu_cores, snap_decimal(size.cpu_cores, "0.25", "0.25", "64")) and
-      size.memory_mb == snap_integer(size.memory_mb, 128, 128, 65_536) and
-      size.storage_gb == snap_integer(size.storage_gb, 0, 5, 10_240)
+    size_values = %{
+      "cpu_cores" => decimal_string(size.cpu_cores),
+      "memory_mb" => Integer.to_string(size.memory_mb),
+      "storage_gb" => Integer.to_string(size.storage_gb)
+    }
+
+    dimensions = resource_dimensions()
+
+    Enum.all?(dimensions, fn dimension -> size_values[dimension.key] in dimension.values end)
   end
 
   defp size_resources(size) do
@@ -861,95 +839,97 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   # same comparison the recommendation check makes, so a repriced or
   # re-allocated size row degrades to "nothing pressed" instead of
   # lying. A nil allocation (any render before the resources step
-  # assigns one) is nothing pressed; an unparseable allocation (a
-  # crafted change event) likewise.
+  # assigns one) is nothing pressed.
   defp preset_active?(nil, _size), do: false
 
   defp preset_active?(resources, size) do
-    case parse_allocation(resources) do
-      {:ok, allocation} ->
-        Decimal.eq?(allocation.cpu_cores, size.cpu_cores) and
-          allocation.memory_mb == size.memory_mb and
-          allocation.storage_gb == size.storage_gb
+    current = allocation(resources)
 
-      {:error, _errors} ->
-        false
-    end
+    Decimal.eq?(current.cpu_cores, size.cpu_cores) and
+      current.memory_mb == size.memory_mb and
+      current.storage_gb == size.storage_gb
   end
 
+  # The app's minimum is the version's defaults (the recommendation).
+  # They equal a seeded size's allocation by contract, so they name a
+  # rung; when they don't (an admin size the ladder can't express,
+  # ADR-0027), the floor still has to be SATISFIABLE: the initial
+  # allocation clamps up to the next rung at or above the default, so
+  # within the ladder the step never opens under the app's stated
+  # minimum. A default PAST the top rung floors to the top rung —
+  # which is below the stated minimum, and the heads-up honestly says
+  # so: rungs-only simply never offers more (a test pins both).
   defp initial_resources(version) do
-    cpu = snap_decimal(version.default_cpu_cores, "0.25", "0.25", "64")
-    memory = snap_integer(version.default_memory_mb, 128, 128, 65_536)
-    storage = snap_integer(version.default_storage_gb, 0, 5, 10_240)
-
-    %{
-      "cpu_cores" => decimal_string(cpu),
-      "memory_mb" => Integer.to_string(memory),
-      "storage_gb" => Integer.to_string(storage)
+    defaults = %{
+      "cpu_cores" => decimal_string(version.default_cpu_cores),
+      "memory_mb" => Integer.to_string(version.default_memory_mb),
+      "storage_gb" => Integer.to_string(version.default_storage_gb)
     }
+
+    dimensions = resource_dimensions()
+
+    Map.new(dimensions, fn dimension ->
+      {dimension.key, floor_rung(dimension, defaults[dimension.key])}
+    end)
   end
 
-  # A value on its dimension's ladder, always: the nearest multiple of
-  # `step`, clamped to the bounds. A range input snaps an off-ladder
-  # value in the browser the moment it renders, so an admin-entered
-  # version default (ADR-0027 permits allocations the ladders can't
-  # express) would otherwise show one number and submit another — the
-  # shown price forking from the charge. Snapping here keeps state,
-  # readout, thumb and submit one value; a snap that lands below the
-  # recommendation correctly reads as below it.
-  defp snap_decimal(value, step, min, max) do
-    value
-    |> Decimal.div(Decimal.new(step))
-    |> Decimal.round(0, :half_up)
-    |> Decimal.mult(Decimal.new(step))
-    |> clamp_decimal(Decimal.new(min), Decimal.new(max))
-    |> Decimal.normalize()
-  end
+  defp floor_rung(dimension, default) do
+    floor = Decimal.new(default)
 
-  # A snapped Decimal as a form value: normalized (so 0.50 and 0.5 are
-  # one number) and expanded (predicate-form normalizing lowercases the
-  # exponent, so `normalize(10)` is 1E+1 — never a valid range value).
-  defp decimal_string(value), do: Decimal.to_string(value, :normal)
-
-  defp clamp_decimal(value, min, max) do
-    cond do
-      Decimal.compare(value, min) == :lt -> min
-      Decimal.compare(value, max) == :gt -> max
-      true -> value
+    at_or_above? = fn value ->
+      rung = Decimal.new(value)
+      Decimal.compare(rung, floor) != :lt
     end
+
+    dimension.values
+    |> Enum.find(at_or_above?)
+    |> Kernel.||(List.last(dimension.values))
   end
 
-  # Integer dimension (memory/storage): offset from the floor, so a
-  # nonzero floor keeps every ladder value reachable.
-  defp snap_integer(value, min, step, max) do
-    snapped = min + round((value - min) / step) * step
-    clamped_low = max(snapped, min)
-    min(clamped_low, max)
+  # A Decimal as a form value: normalized first (so 0.50, 1.0 and 1
+  # are one number — the ladder strings are in shortest form, and both
+  # the quick-pick membership check and the sliders' index lookup are
+  # string comparisons), then expanded (`:normal` undoes the exponent
+  # form normalize lowers to — normalize(10) prints "10", never "1E+1").
+  defp decimal_string(value) do
+    normalized = Decimal.normalize(value)
+    Decimal.to_string(normalized, :normal)
   end
 
   # Partial params merge over the current state — or the
   # recommendation when no allocation state exists yet (a crafted
-  # event between the version and env gates), so the parsers always
-  # see all three strings.
+  # event between the version and env gates), so every consumer always
+  # sees all three rungs.
   defp merged_resources(socket, params) do
     base = socket.assigns.resources || initial_resources(socket.assigns.selected)
     Map.merge(base, resource_strings(params))
   end
 
-  # Only the keys this LiveView renders, only strings (the inputs'
-  # format) — inside a map-shaped payload a crafted change event can't
-  # smuggle extra state in or a non-string that would crash the
-  # parsers. A non-map payload is a malformed event like any other
-  # unmatched shape (save without "instance" — main's posture).
-  # Absent keys carry no opinion (a browser sends every input;
-  # LiveViewTest sends the ones under test), so the caller merges over
-  # the current state.
+  # The sliders' wire format (#221): indices into the dimension's
+  # rungs, translated here — only a well-formed index of the
+  # dimension's own ladder becomes state, and every other index VALUE
+  # (a crafted event: out of range, negative, fractional, non-numeric,
+  # a non-string) is silence, exactly like an unknown preset slug. A
+  # non-map `resources` payload is a malformed event like any other
+  # unmatched shape (save without "instance" — main's posture). Absent
+  # keys carry no opinion (a browser sends every input; LiveViewTest
+  # sends the ones under test), so the caller merges over the current
+  # state.
   defp resource_strings(params) do
-    keys = ~w(cpu_cores memory_mb storage_gb)
+    resource_dimensions()
+    |> Map.new(fn dimension ->
+      {dimension.key, rung_at(dimension, Map.get(params, dimension.key))}
+    end)
+    |> Map.reject(fn {_key, value} -> is_nil(value) end)
+  end
 
-    keys
-    |> Map.new(fn key -> {key, Map.get(params, key)} end)
-    |> Map.reject(fn {_key, value} -> not is_binary(value) end)
+  defp rung_at(_dimension, index) when not is_binary(index), do: nil
+
+  defp rung_at(dimension, index) do
+    case Integer.parse(index) do
+      {i, ""} when i >= 0 -> Enum.at(dimension.values, i)
+      _crafted_or_malformed -> nil
+    end
   end
 
   # The checkbox rides the form's phx-change; its presence is the state.
@@ -963,123 +943,28 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
     |> assign(:resources, resources)
     |> assign(:below_recommendation?, below?)
     |> assign(:below_ack, acked and below?)
-    |> assign(:resource_errors, [])
   end
 
   # Below the recommendation: any dimension strictly under the version's
-  # default. Unparseable input can't be assessed for below-ness — it
-  # only errors (at continue).
+  # default.
   defp below_recommendation?(resources, version) do
-    case parse_allocation(resources) do
-      {:ok, allocation} ->
-        Decimal.compare(allocation.cpu_cores, version.default_cpu_cores) == :lt or
-          allocation.memory_mb < version.default_memory_mb or
-          allocation.storage_gb < version.default_storage_gb
+    current = allocation(resources)
 
-      {:error, _errors} ->
-        false
-    end
+    Decimal.compare(current.cpu_cores, version.default_cpu_cores) == :lt or
+      current.memory_mb < version.default_memory_mb or
+      current.storage_gb < version.default_storage_gb
   end
 
-  # Hard floors (the Instance attribute constraints): cpu > 0,
-  # memory ≥ 1 MB — legal-allocation bounds mirroring Size's own, not
-  # UX. They block regardless of acknowledgment. Everything that would
-  # crash the curve (negatives, over-DBL_MAX decimals, >308-digit
-  # integers) and every numeric ceiling is rejected at the parse —
-  # the preview prices on every keystroke, so the parse owns input
-  # safety; these floors are the continue-level product rules.
-  defp allocation_errors(resources) do
-    case parse_allocation(resources) do
-      {:ok, allocation} ->
-        checks = [
-          {Decimal.compare(allocation.cpu_cores, 0) != :gt, "CPU cores must be greater than 0"},
-          {allocation.memory_mb < 1, "Memory must be at least 1 MB"}
-        ]
-
-        keep_errors(checks)
-
-      {:error, errors} ->
-        errors
-    end
-  end
-
-  defp keep_errors(checks) do
-    checks
-    |> Enum.filter(fn {fails?, _msg} -> fails? end)
-    |> Enum.map(fn {_fails?, msg} -> msg end)
-  end
-
-  defp parse_allocation(resources) do
-    with {:ok, cpu} <- parse_decimal(resources["cpu_cores"]),
-         {:ok, memory} <-
-           parse_bounded_integer(
-             resources["memory_mb"],
-             65_536,
-             "Memory must be at most 65536 MB"
-           ),
-         {:ok, storage} <-
-           parse_bounded_integer(
-             resources["storage_gb"],
-             10_240,
-             "Storage must be at most 10240 GB"
-           ) do
-      {:ok, %{cpu_cores: cpu, memory_mb: memory, storage_gb: storage}}
-    end
-  end
-
-  defp parse_decimal(raw) do
-    case Decimal.parse(raw) do
-      {value, ""} ->
-        # Ash's own cast rejects non-finite decimals — the preview must
-        # not be looser than the authoritative say (NaN would crash
-        # every compare; Infinity would walk straight past the floors).
-        # Negatives and over-DBL_MAX magnitudes crash :math.pow /
-        # Decimal.to_float in the curve, and a negative IS under the
-        # floor / over the ceiling, so the parse owns those rejections.
-        cond do
-          Decimal.nan?(value) or Decimal.inf?(value) ->
-            {:error, ["CPU cores must be a number"]}
-
-          Decimal.compare(value, 0) == :lt ->
-            {:error, ["CPU cores must be greater than 0"]}
-
-          Decimal.compare(value, Decimal.new(64)) == :gt ->
-            {:error, ["CPU cores must be at most 64"]}
-
-          true ->
-            {:ok, value}
-        end
-
-      _other ->
-        {:error, ["CPU cores must be a number"]}
-    end
-  end
-
-  defp parse_integer(raw) do
-    case Integer.parse(raw) do
-      {value, ""} ->
-        # Negative memory/storage would crash the curve's fractional
-        # exponent (:math.pow on a negative base); the floor-specific
-        # messages fire at continue for zero.
-        if value < 0 do
-          {:error, ["Memory and storage cannot be negative"]}
-        else
-          {:ok, value}
-        end
-
-      _other ->
-        {:error, ["Memory and storage must be whole numbers"]}
-    end
-  end
-
-  # The integer ceilings: a >308-digit integer crashes the float
-  # division in the curve (the preview prices on every keystroke), and
-  # the ceiling is the resource constraint anyway — the parse owns it.
-  defp parse_bounded_integer(raw, ceiling, message) do
-    case parse_integer(raw) do
-      {:ok, value} when value > ceiling -> {:error, [message]}
-      parsed -> parsed
-    end
+  # The typed allocation for the recommendation checks and pricing — a
+  # total function since #221: every string the state can hold is a
+  # rung, and rungs parse by construction. The form cast on save stays
+  # the authoritative say.
+  defp allocation(resources) do
+    %{
+      cpu_cores: Decimal.new(resources["cpu_cores"]),
+      memory_mb: String.to_integer(resources["memory_mb"]),
+      storage_gb: String.to_integer(resources["storage_gb"])
+    }
   end
 
   # The allocation as form params — strings, cast by the form the same
@@ -1098,20 +983,16 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   # resources step) read as the recommendation: the derive applies the
   # version defaults. #195 made step 3 assign an allocation on every
   # way in, so no render reaches this — the clause stays as the
-  # defensive say for a nil that would otherwise crash the parse.
+  # defensive say for a nil that would otherwise crash allocation/1.
   # coveralls-ignore-next-line — defensive: both step-3 entries assign resources first
   defp recommendation?(_version, nil), do: true
 
   defp recommendation?(version, resources) do
-    case parse_allocation(resources) do
-      {:ok, allocation} ->
-        Decimal.eq?(allocation.cpu_cores, version.default_cpu_cores) and
-          allocation.memory_mb == version.default_memory_mb and
-          allocation.storage_gb == version.default_storage_gb
+    current = allocation(resources)
 
-      {:error, _errors} ->
-        false
-    end
+    Decimal.eq?(current.cpu_cores, version.default_cpu_cores) and
+      current.memory_mb == version.default_memory_mb and
+      current.storage_gb == version.default_storage_gb
   end
 
   defp allocation_text(resources) do

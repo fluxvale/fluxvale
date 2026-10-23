@@ -62,15 +62,17 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   // recommendation (0.5/512/10), the live estimate repricing to the
   // v5 B′ curve's $3.91/mo before continuing (#206 — the label also
   // states billed-hourly). The allocation is selected (#195 —
-  // sliders + quick picks, no text field); `fill` sets a range
-  // input's value directly (Playwright's supported path for range,
-  // including its actionability checks).
+  // sliders + quick picks, no text field) and rungs-only (#221): the
+  // range input addresses the ladder by index, so `fill("2")` sets
+  // cpu to its third rung (1 core); `fill` sets a range input's
+  // value directly (Playwright's supported path for range, including
+  // its actionability checks).
   await page.locator("[data-testid^='deploy-']").first().click();
   await waitForLiveViewJoin(page);
   await page.getByTestId("version-option").first().check();
   await page.getByTestId("continue-version").click();
   await page.getByTestId("continue-env").click();
-  await page.getByTestId("resource-cpu").fill("1");
+  await page.getByTestId("resource-cpu").fill("2");
   await expect(page.getByTestId("resources-price")).toContainText("$3.91/mo · billed hourly");
   await page.getByTestId("continue-resources").click();
   await expect(page.getByTestId("price-summary")).toContainText("$3.91/mo · billed hourly");
