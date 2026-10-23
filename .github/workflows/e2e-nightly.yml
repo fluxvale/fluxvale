@@ -105,3 +105,18 @@ jobs:
         with:
           name: nightly-playwright-report
           path: apps/e2e/playwright-report
+
+      # Failure evidence, same rationale as the e2e legs: the raw
+      # deploy/sweep errors live in the platform pod's log, nowhere
+      # else — a red nightly must explain itself from artifacts alone
+      - name: Upload platform log (failure evidence)
+        if: failure()
+        run: |
+          mise x -- kubectl -n fluxvale-dev logs deployment/fluxvale-platform --tail=5000 \
+            > nightly-platform-log.txt
+      - name: Upload platform log artifact
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-platform-log
+          path: nightly-platform-log.txt
