@@ -655,10 +655,13 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     end
 
     test "a default above the ladder's top rung clamps down to it", %{conn: conn} do
-      # Past the ladder's end the minimum is still satisfiable: the
-      # top rung is the closest at-or-above rung there is. A 10-core
-      # default is legal at the API (the Instance constraints, the
-      # authoritative say at save); this step just never offers it.
+      # Past the ladder's end there is no at-or-above rung: the floor
+      # lands on the top rung (4 CPU), which IS under the app's stated
+      # 10-core minimum — the heads-up honestly mounts and gates, and
+      # the user cannot improve it (4 is the most the wizard offers; a
+      # 10-core allocation is legal at the API — the Instance
+      # constraints, the authoritative say at save — this step just
+      # never offers it).
       version =
         InstanceFixtures.app_version!(
           default_cpu_cores: Decimal.new("10"),
@@ -678,6 +681,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
       assert has_element?(view, "#resource-cpu-cores[value='4']")
       assert render(view) =~ ~s(aria-valuetext="4 cores")
+      assert has_element?(view, "#below-recommendation-warning")
     end
 
     test "an admin allocation the ladders can't express is not offered as a quick pick",

@@ -466,7 +466,7 @@ defmodule FluxValeWeb.CoreComponents do
           :for={{rung, i} <- Enum.with_index(@values)}
           data-value={rung}
           data-active={if(i == @index, do: "true")}
-          style={"left: #{tick_left(i, @top)}%"}
+          style={"left: #{tick_left(i, @top)}"}
           class="absolute top-0 flex -translate-x-1/2 flex-col items-center gap-1"
         >
           <span class={[
@@ -488,10 +488,14 @@ defmodule FluxValeWeb.CoreComponents do
   defp readout(value, nil), do: to_string(value)
   defp readout(value, unit), do: "#{value} #{unit}"
 
-  # A tick sits exactly under its thumb position: rung i rests at
-  # i/top of the input's width. A single-rung ladder has no travel.
-  defp tick_left(_i, 0), do: 0
-  defp tick_left(i, top), do: Float.round(i * 100 / top, 2)
+  # A tick sits exactly under its thumb's CENTER: a native range input
+  # parks the thumb at [T/2, W − T/2] (T = the thumb's 1rem width), not
+  # [0, W] — so rung i sits at that band's fraction, not i/top of the
+  # full width (which would drift up to half a thumb at the edges). A
+  # single-rung ladder has no travel; the thumb parks at T/2.
+  defp tick_left(_i, 0), do: "0.5rem"
+
+  defp tick_left(i, top), do: "calc(0.5rem + (100% - 1rem) * #{Float.round(i / top, 4)})"
 
   @doc """
   Renders a page header with title, optional subtitle, and actions.

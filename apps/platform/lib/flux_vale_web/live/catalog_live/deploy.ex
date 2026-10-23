@@ -854,9 +854,11 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   # They equal a seeded size's allocation by contract, so they name a
   # rung; when they don't (an admin size the ladder can't express,
   # ADR-0027), the floor still has to be SATISFIABLE: the initial
-  # allocation clamps up to the next rung at or above the default (the
-  # top rung past the ladder's end) — never under the app's stated
-  # minimum, so the step never opens already below the recommendation.
+  # allocation clamps up to the next rung at or above the default, so
+  # within the ladder the step never opens under the app's stated
+  # minimum. A default PAST the top rung floors to the top rung —
+  # which is below the stated minimum, and the heads-up honestly says
+  # so: rungs-only simply never offers more (a test pins both).
   defp initial_resources(version) do
     defaults = %{
       "cpu_cores" => decimal_string(version.default_cpu_cores),
@@ -900,13 +902,14 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
   # The sliders' wire format (#221): indices into the dimension's
   # rungs, translated here — only a well-formed index of the
-  # dimension's own ladder becomes state, and everything else (a
-  # crafted event: out of range, negative, fractional, non-numeric, a
-  # non-string) is silence, exactly like an unknown preset slug. A
-  # non-map payload is a malformed event like any other unmatched
-  # shape (save without "instance" — main's posture). Absent keys
-  # carry no opinion (a browser sends every input; LiveViewTest sends
-  # the ones under test), so the caller merges over the current state.
+  # dimension's own ladder becomes state, and every other index VALUE
+  # (a crafted event: out of range, negative, fractional, non-numeric,
+  # a non-string) is silence, exactly like an unknown preset slug. A
+  # non-map `resources` payload is a malformed event like any other
+  # unmatched shape (save without "instance" — main's posture). Absent
+  # keys carry no opinion (a browser sends every input; LiveViewTest
+  # sends the ones under test), so the caller merges over the current
+  # state.
   defp resource_strings(params) do
     resource_dimensions()
     |> Map.new(fn dimension ->

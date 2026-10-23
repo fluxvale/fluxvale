@@ -78,9 +78,8 @@ light, dark, below-recommendation, and a slider custom — live in
 [design/screenshots/resource-picker/](design/screenshots/resource-picker/).
 The wave-2 record's two resources-step frames
 (`docs/design/screenshots/wave2/deploy-step3-light.png`,
-`deploy-step3-warning-light.png`) are re-captured to the picker in the
-same commit, so the surface record shows what ships rather than the
-retired typed inputs.
+`deploy-step3-warning-light.png`) are re-captured with the picker
+(rungs-only #221 state), so the surface record shows what ships.
 
 ## Storybook
 
