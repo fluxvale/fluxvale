@@ -60,9 +60,11 @@ tag="e2e-$(date +%s)"
 # build-push-action does that wiring internally for the release job, a
 # manual buildx call does not. Own scope: the release build caches
 # under the default scope — sharing it, the two would evict each other.
+# ignore-error: a cache-service failure degrades to a cold build, it
+# must not red the suite.
 cache_flags=""
 if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
-  cache_flags="--cache-from type=gha,scope=e2e-dev --cache-to type=gha,scope=e2e-dev,mode=max"
+  cache_flags="--cache-from type=gha,scope=e2e-dev --cache-to type=gha,scope=e2e-dev,mode=max,ignore-error=true"
 fi
 echo "==> building dev image ($base_image)"
 # word-splitting is deliberate: an empty cache_flags means no flags
