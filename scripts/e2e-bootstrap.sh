@@ -101,29 +101,6 @@ kubectl -n "$NAMESPACE" set image deployment/fluxvale-platform \
   "seed=$REGISTRY_CLUSTER/fluxvale/platform-dev:$tag"
 kubectl apply -f deploy/local/k8s/15-ingressroute.yaml
 
-# #222: the backups spec assumes its bucket exists — configure an
-# instance, run a backup, expect objects land. MinIO is the in-cluster
-# stand-in for the owner's BYO S3 bucket (R2), so the bucket has to be
-# there before any test runs, not created lazily mid-spec.
-echo "==> MinIO (e2e S3 proxy) + bucket"
-# Two applies, on purpose. The first lands the server; the Job it also
-# creates is thrown away by the delete below, because the restart that
-# follows takes the server down under it.
-# Why a restart at all: envFrom does not roll pods, so an edited fake
-# password would leave the old key live in the server while the Job
-# presents the new one ("Access Key Id ... does not exist").
-# Why the Job is deleted first: its spec is immutable, and a finished pod
-# keeps its status — otherwise the wait would pass on an earlier run.
-# Data is a PVC and `mb --ignore-existing` is idempotent, so this loses
-# nothing and leaves exactly one successful bucket-creation pod.
-kubectl -n "$NAMESPACE" delete job minio-bucket --ignore-not-found
-kubectl apply -f deploy/local/k8s/12-minio.yaml
-kubectl -n "$NAMESPACE" rollout restart deployment/minio
-kubectl -n "$NAMESPACE" rollout status deployment/minio --timeout=180s
-kubectl -n "$NAMESPACE" delete job minio-bucket --ignore-not-found
-kubectl apply -f deploy/local/k8s/12-minio.yaml
-kubectl -n "$NAMESPACE" wait --for=condition=complete job/minio-bucket --timeout=180s
-
 # #203 (ADR-0036) + #210 part 3: compress the idle-sweep knobs for the
 # e2e suite — a real 1h idle isn't waitable in a test budget. The
 # sweep CADENCE is now env-tunable (runtime.exs reads
@@ -153,6 +130,34 @@ until curl -skf "$APP_URL/health" >/dev/null; do
   test "$SECONDS" -lt "$deadline" || { echo "app never became healthy" >&2; exit 1; }
   sleep 5
 done
+
+# #222: the backups spec assumes its bucket exists — configure an
+# instance, run a backup, expect objects land. MinIO is the in-cluster
+# stand-in for the owner's BYO S3 bucket (R2), so the bucket has to be
+# there before any test runs, not created lazily mid-spec. AFTER the
+# platform's own waits, deliberately: nothing in the platform's boot
+# needs MinIO, and MinIO needs nothing from the platform (the bucket
+# Job talks to the server directly) — while two cold Chainguard pulls
+# before the rollout wait eat into its 600s budget (a rerun died that
+# way: CNPG first boot + the extra pulls crossed the line).
+echo "==> MinIO (e2e S3 proxy) + bucket"
+# Two applies, on purpose. The first lands the server; the Job it also
+# creates is thrown away by the delete below, because the restart that
+# follows takes the server down under it.
+# Why a restart at all: envFrom does not roll pods, so an edited fake
+# password would leave the old key live in the server while the Job
+# presents the new one ("Access Key Id ... does not exist").
+# Why the Job is deleted first: its spec is immutable, and a finished pod
+# keeps its status — otherwise the wait would pass on an earlier run.
+# Data is a PVC and `mb --ignore-existing` is idempotent, so this loses
+# nothing and leaves exactly one successful bucket-creation pod.
+kubectl -n "$NAMESPACE" delete job minio-bucket --ignore-not-found
+kubectl apply -f deploy/local/k8s/12-minio.yaml
+kubectl -n "$NAMESPACE" rollout restart deployment/minio
+kubectl -n "$NAMESPACE" rollout status deployment/minio --timeout=180s
+kubectl -n "$NAMESPACE" delete job minio-bucket --ignore-not-found
+kubectl apply -f deploy/local/k8s/12-minio.yaml
+kubectl -n "$NAMESPACE" wait --for=condition=complete job/minio-bucket --timeout=180s
 
 # ---- seeds (idempotent) + the suite's TestInbox PAT, in one exec into
 # the live container (e2e_in_pod.exs boots the app with the endpoint
