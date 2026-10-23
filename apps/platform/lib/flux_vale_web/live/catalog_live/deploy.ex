@@ -886,10 +886,15 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
     |> Kernel.||(List.last(dimension.values))
   end
 
-  # A snapped Decimal as a form value: normalized (so 0.50 and 0.5 are
-  # one number) and expanded (predicate-form normalizing lowercases the
-  # exponent, so `normalize(10)` is 1E+1 — never a valid value string).
-  defp decimal_string(value), do: Decimal.to_string(value, :normal)
+  # A Decimal as a form value: normalized first (so 0.50, 1.0 and 1
+  # are one number — the ladder strings are in shortest form, and both
+  # the quick-pick membership check and the sliders' index lookup are
+  # string comparisons), then expanded (`:normal` undoes the exponent
+  # form normalize lowers to — normalize(10) prints "10", never "1E+1").
+  defp decimal_string(value) do
+    normalized = Decimal.normalize(value)
+    Decimal.to_string(normalized, :normal)
+  end
 
   # Partial params merge over the current state — or the
   # recommendation when no allocation state exists yet (a crafted

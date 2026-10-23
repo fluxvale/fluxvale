@@ -716,6 +716,34 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       render_click(view, "pick-size", %{"slug" => off_ladder.slug})
 
       assert has_element?(view, "#resource-memory-mb[value='1']")
+
+      # A size numerically ON the ladder but written with trailing
+      # zeros (1.0 cores, not 1) is still one number with the rung —
+      # decimal_string/1 normalizes before the string membership
+      # check, and the pick's state lands on the rung's exact string.
+      trailing =
+        Size.create!(
+          %{
+            slug: "trailing-#{System.unique_integer([:positive])}",
+            cpu_cores: Decimal.new("1.0"),
+            memory_mb: 2048,
+            storage_gb: 20,
+            monthly_cents: 621,
+            stopped_monthly_cents: 68
+          },
+          authorize?: false
+        )
+
+      {:ok, fresh, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+      to_step_2(fresh, version)
+      to_step_3(fresh)
+
+      assert has_element?(fresh, "[data-testid='preset-#{trailing.slug}']")
+
+      render_click(fresh, "pick-size", %{"slug" => trailing.slug})
+
+      assert has_element?(fresh, "#resource-cpu-cores[value='2']")
+      assert render(fresh) =~ ~s(aria-valuetext="1 cores")
     end
 
     test "the seeded sizes render as quick picks, the recommendation called out",
