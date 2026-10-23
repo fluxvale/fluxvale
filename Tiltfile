@@ -129,3 +129,7 @@ k8s_custom_deploy(
 k8s_resource('fluxvale-cnpg', resource_deps=['cnpg'])
 k8s_resource('ingressroute', resource_deps=['traefik'])
 k8s_resource('fluxvale-platform', resource_deps=['fluxvale-cnpg'])
+# #222: the bucket Job waits for the MinIO server's pods to be ready —
+# without this, `tilt up` (which has none of the bootstrap script's
+# rollout waits) races the Job against the server's first boot.
+k8s_resource('minio-bucket', resource_deps=['minio'])
