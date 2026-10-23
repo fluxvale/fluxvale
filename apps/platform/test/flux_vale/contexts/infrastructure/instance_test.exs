@@ -11,6 +11,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Ingress
+  alias FluxVale.Clients.K8s.Resources.Middleware
   alias FluxVale.Clients.K8s.Resources.Namespace
   alias FluxVale.Clients.K8s.Resources.NetworkPolicy
   alias FluxVale.Clients.K8s.Resources.PersistentVolumeClaim
@@ -38,6 +39,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
     stub(Deployment, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
     stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
     stub(Ingress, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+    stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
     stub(Deployment, :scale, fn _kc, _ns, _n, _r -> {:ok, %{}} end)
 
     stub(Ingress, :delete, fn _kc, _ns, _n -> :ok end)
@@ -847,6 +849,53 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       assert {:ok, deleting} = InstanceK8s.update_status(lost, :deleting, nil)
       assert deleting.status == :deleting
     end
+
+    # #203 (ADR-0036): the idle loop's own leg — sleeping folds like
+    # stopped (storage-only billing by construction), wake re-enters
+    # the start lane, and the idle clock resets on :running entry.
+    test "running → sleeping folds the running anchor, keeps storage; wake re-enters starting" do
+      instance = created!()
+
+      running =
+        instance
+        |> status!(:deploying)
+        |> status!(:starting)
+        |> status!(:running)
+
+      sleeping = status!(running, :sleeping)
+
+      assert sleeping.status == :sleeping
+      assert sleeping.running_since == nil
+      assert sleeping.unbilled_running_usec >= 0
+      assert sleeping.storage_metering_since == running.storage_metering_since
+
+      waking = status!(sleeping, :starting)
+      awake = status!(waking, :running)
+
+      # Storage spans the sleep; the fresh interval opens on the carry.
+      assert awake.storage_metering_since == running.storage_metering_since
+      assert awake.running_since
+      # The idle clock starts warm — a just-woken instance gets its
+      # full idle window (the sweep can't re-sleep on a stale marker).
+      assert awake.last_used_at
+    end
+
+    test ":sleeping enters from :running only — never mid-build, never from :stopped" do
+      instance = created!()
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               InstanceK8s.update_status(instance, :sleeping, nil)
+
+      stopped =
+        instance
+        |> status!(:deploying)
+        |> status!(:starting)
+        |> status!(:running)
+        |> status!(:stopped)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               InstanceK8s.update_status(stopped, :sleeping, nil)
+    end
   end
 
   describe "deploy/1" do
@@ -985,6 +1034,86 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       {:ok, errored} = Instance.stop(instance, actor: owner_of(instance))
       assert errored.status == :error
       assert errored.status_message =~ "Stop failed: cluster unreachable"
+    end
+  end
+
+  # #203 (ADR-0036): sleep is the platform's arm, touch is the beacon's
+  # write, always-on is the owner's opt-out.
+  describe "sleep/1, touch/1, set_always_on/1" do
+    test "sleep scales to zero, flips the edge, lands :sleeping (system-only)" do
+      stub_k8s()
+      stub(Deployment, :scale, fn _kc, _ns, _n, _r -> {:ok, %{}} end)
+      stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Ingress, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      created = created!()
+
+      running =
+        created
+        |> deployed!(:deploying, "fluxvale-app-#{created.id}")
+        |> status!(:starting)
+        |> status!(:running)
+
+      # System-only: the owner cannot fire it (the policy forbids).
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Instance.sleep(running, actor: owner_of(running))
+
+      assert {:ok, sleeping} = Instance.sleep(running, authorize?: false)
+      assert sleeping.status == :sleeping
+    end
+
+    test "sleep guards its state — only :running sleeps" do
+      instance = created!()
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               Instance.sleep(instance, authorize?: false)
+
+      assert Enum.any?(errors, &(&1.message =~ "cannot sleep instance in pending"))
+    end
+
+    test "touch writes the idle clock (system-only); start wakes a sleeping instance" do
+      stub_k8s()
+
+      created = created!()
+
+      running =
+        created
+        |> deployed!(:deploying, "fluxvale-app-#{created.id}")
+        |> status!(:starting)
+        |> status!(:running)
+        |> status!(:sleeping)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Instance.touch(running, actor: owner_of(running))
+
+      assert {:ok, touched} = Instance.touch(running, authorize?: false)
+      assert touched.last_used_at
+
+      expect(Deployment, :scale, fn _kc, _ns, "app", 1 -> {:ok, %{}} end)
+
+      assert {:ok, waking} = Instance.start(running, actor: owner_of(running))
+      assert waking.status == :starting
+    end
+
+    test "set_always_on is the member's toggle; a non-member is forbidden" do
+      instance = created!()
+      owner = owner_of(instance)
+
+      assert {:ok, on} =
+               Instance.set_always_on(instance, %{always_on: true}, actor: owner)
+
+      assert on.always_on
+
+      assert {:ok, off} =
+               Instance.set_always_on(on, %{always_on: false}, actor: owner)
+
+      refute off.always_on
+
+      stranger =
+        User.create!("stranger-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Instance.set_always_on(off, %{always_on: true}, actor: stranger)
     end
   end
 

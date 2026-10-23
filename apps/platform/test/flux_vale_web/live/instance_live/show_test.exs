@@ -18,6 +18,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Ingress
+  alias FluxVale.Clients.K8s.Resources.Middleware
   alias FluxVale.Clients.K8s.Resources.Namespace
   alias FluxVale.Clients.K8s.Resources.NetworkPolicy
   alias FluxVale.Clients.K8s.Resources.PersistentVolumeClaim
@@ -58,6 +59,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     stub(Deployment, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
     stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
     stub(Ingress, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+    stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
   end
 
   test "renders the status surface with URL and details", %{
@@ -628,6 +630,101 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
     assert has_element?(view, "[data-testid=status-badge]", "Running")
     assert has_element?(view, "[data-testid='status-message']", "up and running")
+  end
+
+  describe "the sleeping surface (#203, ADR-0036)" do
+    defp sleeping_instance!(version, user) do
+      instance = create_instance!(version, user)
+
+      instance
+      |> InstanceFixtures.pin!(
+        namespace: "fluxvale-app-#{instance.id}",
+        deployed_at: DateTime.utc_now()
+      )
+      |> InstanceFixtures.walk_to!(:sleeping)
+    end
+
+    test "sleeping renders its own badge, copy, wake button, storage-only price", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      sleeping = sleeping_instance!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{sleeping.id}")
+
+      assert has_element?(view, "[data-testid=status-badge]", "Sleeping")
+      assert has_element?(view, "[data-testid=status-message]", ~r/wakes automatically/)
+      assert has_element?(view, "[data-testid=wake-button]", "Wake up")
+      refute has_element?(view, "[data-testid=start-button]")
+      refute has_element?(view, "[data-testid=stop-button]")
+
+      # Storage-only while asleep — the sleeping bill is the stopped
+      # bill (ADR-0028 §2), shown in the instance's own vocabulary.
+      loaded = Ash.load!(sleeping, app_version: :recommended_size)
+      size = loaded.app_version.recommended_size
+      assert has_element?(view, "[data-testid=instance-price]", ~r/asleep/)
+
+      assert has_element?(
+               view,
+               "[data-testid=instance-price]",
+               FluxVale.Pricing.format_usd(size.stopped_monthly_cents)
+             )
+
+      refute_k8s_terms(render(view))
+    end
+
+    test "the Wake button rides start and lands :starting", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      stub_deploy_k8s()
+      sleeping = sleeping_instance!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{sleeping.id}")
+
+      view
+      |> element("[data-testid=wake-button]")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid=status-badge]", "Starting")
+    end
+
+    test "enabling always-on on a sleeping instance wakes it", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      stub_deploy_k8s()
+      sleeping = sleeping_instance!(version, user)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{sleeping.id}")
+
+      view
+      |> element("[data-testid=always-on-toggle]")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid=availability-mode]", "Always on")
+      assert has_element?(view, "[data-testid=status-badge]", "Starting")
+    end
+
+    test "the availability card toggles always-on", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(view, "[data-testid=availability-card]")
+      assert has_element?(view, "[data-testid=availability-mode]", "Sleeps when idle")
+
+      view
+      |> element("[data-testid=always-on-toggle]")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid=availability-mode]", "Always on")
+      assert render(view) =~ "Keep always on" || render(view) =~ "Let it sleep"
+    end
   end
 
   describe "file access panel (#190, ADR-0035)" do

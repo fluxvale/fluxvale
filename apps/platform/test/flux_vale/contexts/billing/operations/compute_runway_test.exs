@@ -57,6 +57,17 @@ defmodule FluxVale.Billing.Operations.ComputeRunwayTest do
       assert runway.burn_micro_cents_per_hour == hourly(@stopped_cents)
     end
 
+    # #203: a sleeping instance burns the storage-only rate — the
+    # runway projection and settlement agree on the asleep stream.
+    test "a sleeping instance burns the storage-only rate", %{version: version} do
+      {user, wallet} = wallet!(10)
+      instance!(user, :sleeping, version)
+
+      assert {:ok, runway} = Billing.compute_runway(wallet)
+
+      assert runway.burn_micro_cents_per_hour == hourly(@stopped_cents)
+    end
+
     test "rates sum across instances; other statuses burn nothing", %{version: version} do
       {user, wallet} = wallet!(500)
       instance!(user, :running, version)

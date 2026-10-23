@@ -20,6 +20,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceSpansTest do
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Ingress
+  alias FluxVale.Clients.K8s.Resources.Middleware
   alias FluxVale.Clients.K8s.Resources.Namespace
   alias FluxVale.Clients.K8s.Resources.NetworkPolicy
   alias FluxVale.Clients.K8s.Resources.PersistentVolumeClaim
@@ -181,7 +182,8 @@ defmodule FluxVale.Infrastructure.Operations.InstanceSpansTest do
           Secret,
           Deployment,
           Service,
-          Ingress
+          Ingress,
+          Middleware
         ] do
       stub(module, :create, fn _kc, _ns, _name, _spec -> {:ok, %{}} end)
     end

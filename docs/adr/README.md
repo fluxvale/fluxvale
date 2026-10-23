@@ -44,6 +44,7 @@ already ruled out.
 | [ADR-0033](00033-auto-seed-on-deploy.md) | Bring-up data seeds on deploy; missing invariants fail loudly | Accepted |
 | [ADR-0034](00034-first-run-contract.md) | First-run contract: catalog-declared first-open posture (guaranteed env + locked-out keys + guidance) | Accepted |
 | [ADR-0035](00035-per-instance-file-access.md) | Per-instance file access: rclone WebDAV sidecar + per-instance generated credential (presigned R2 phase 2) | Accepted (amended — see Amendment 1) |
+| [ADR-0036](00036-scale-to-zero-wake-on-use.md) | Scale-to-zero with wake-on-use: idle instances sleep after 1h, wake on the next request; always-on premium (billing tier open) | Accepted |
 
 ## Conventions
 

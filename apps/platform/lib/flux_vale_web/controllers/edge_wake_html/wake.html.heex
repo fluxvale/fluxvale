@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="refresh" content={@refresh_seconds} />
+    <title>Waking up…</title>
+    <%!-- Inline styles, deliberately: this page serves from inside
+    instance-host dispatch (EdgeHost), where a stylesheet link would
+    route back into the wake flow instead of a static file. Six rules,
+    brand tokens inlined — nothing external, nothing to fetch. --%>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0; min-height: 100dvh; display: flex; align-items: center;
+        justify-content: center; padding: 1.5rem;
+        background: #fafaf9; color: #1c1917;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      main { max-width: 24rem; width: 100%; text-align: center; }
+      .ring {
+        width: 3rem; height: 3rem; margin: 0 auto 1rem; border-radius: 9999px;
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(217, 119, 6, 0.12);
+      }
+      .ring svg { width: 1.5rem; height: 1.5rem; color: #d97706; animation: spin 1s linear infinite; }
+      h1 { font-size: 1.125rem; font-weight: 600; letter-spacing: -0.025em; margin: 0 0 0.5rem; }
+      p { font-size: 0.875rem; line-height: 1.5; color: #78716c; margin: 0; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .ring svg { animation: none; } }
+      @media (prefers-color-scheme: dark) {
+        body { background: #0c0a09; color: #fafaf9; }
+        p { color: #a8a29e; }
+      }
+    </style>
+  </head>
+  <body>
+    <main data-testid="waking-page">
+      <div class="ring">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          aria-hidden="true"
+        >
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 3a9 9 0 1 0 9 9" />
+        </svg>
+      </div>
+      <h1>Waking {@name} up…</h1>
+      <p>
+        It sleeps when nobody visits — this usually takes a few seconds. This page refreshes
+        itself.
+      </p>
+    </main>
+  </body>
+</html>

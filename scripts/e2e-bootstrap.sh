@@ -84,6 +84,13 @@ kubectl -n "$NAMESPACE" set image deployment/fluxvale-platform \
   "seed=$REGISTRY_CLUSTER/fluxvale/platform-dev:$tag"
 kubectl apply -f deploy/local/k8s/15-ingressroute.yaml
 
+# #203 (ADR-0036): shorten the idle-sleep threshold for the e2e suite —
+# a real 1h idle isn't waitable in a test budget (the sweep's own */5
+# cadence stays; the sleep lands within threshold + one cadence). Dev
+# stacks (tilt up) never set this — they keep the settled 1h default.
+kubectl -n "$NAMESPACE" set env deployment/fluxvale-platform \
+  IDLE_SLEEP_AFTER_SECONDS=180
+
 # The init container crash-loops until CNPG hands out the DB secret —
 # by design (never half-migrated); the rollout just waits through it.
 echo "==> waiting for the platform rollout (init migrations gate boot)"

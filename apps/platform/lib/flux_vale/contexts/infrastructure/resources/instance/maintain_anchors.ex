@@ -8,14 +8,20 @@ defmodule FluxVale.Infrastructure.Instance.MaintainAnchors do
     seeded the first time the instance runs, then left alone so storage
     billing spans stop/start (the PVC persists and keeps accruing; a PVC
     on an instance that never went ready accrues nothing — v1 semantics,
-    kept per #121). The unbilled carry is untouched: whatever a previous
-    stop closed stays pending for the next settle.
-  - Leaving `:running` (→ stopped | error | deleting): the interval's
-    unbilled time — from the later of `running_since` and the storage
-    cursor (the last committed settle) to now — folds into
+    kept per #121). `last_used_at` = now too (#203): a fresh start/wake
+    is an activity signal, so the idle clock always starts warm — a
+    just-woken instance can't be re-swept on a stale marker. The
+    unbilled carry is untouched: whatever a previous stop closed stays
+    pending for the next settle.
+  - Leaving `:running` (→ stopped | sleeping | error | deleting): the
+    interval's unbilled time — from the later of `running_since` and the
+    storage cursor (the last committed settle) to now — folds into
     `unbilled_running_usec` (accumulating any already-pending time), and
     `running_since` clears. Duration, not timestamps: stop/start churn
-    inside one settle tick can never drop or lose an interval.
+    inside one settle tick can never drop or lose an interval. `:sleeping`
+    (#203) rides this branch like `:stopped`: the storage anchor stays,
+    so settlement keeps accruing storage-only — the sleeping bill is the
+    stopped bill (ADR-0028 §2), by construction.
   - Entering `:lost` (#196): every anchor parks — `running_since` nil,
     `unbilled_running_usec` 0, `storage_metering_since` nil,
     `lost_detected_at` now. The namespace (and its PVC) is gone, so
@@ -64,10 +70,15 @@ defmodule FluxVale.Infrastructure.Instance.MaintainAnchors do
 
   # Start a fresh running interval; seed the storage anchor on the
   # instance's first-ever deploy. The unbilled carry from an earlier
-  # stop stays — settle consumes it.
+  # stop stays — settle consumes it. last_used_at (#203) resets the
+  # idle clock: the wake request (or the owner's Start) is activity.
   defp enter_running(changeset) do
     now = DateTime.utc_now()
-    changeset = Changeset.change_attribute(changeset, :running_since, now)
+
+    changeset =
+      changeset
+      |> Changeset.change_attribute(:running_since, now)
+      |> Changeset.change_attribute(:last_used_at, now)
 
     if is_nil(changeset.data.storage_metering_since),
       do: Changeset.change_attribute(changeset, :storage_metering_since, now),

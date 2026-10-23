@@ -21,6 +21,7 @@ defmodule FluxValeWeb.InstanceStatusTest do
       assert InstanceStatus.label(:deploying) == "Provisioning"
       assert InstanceStatus.label(:starting) == "Starting"
       assert InstanceStatus.label(:running) == "Running"
+      assert InstanceStatus.label(:sleeping) == "Sleeping"
       assert InstanceStatus.label(:stopped) == "Stopped"
       assert InstanceStatus.label(:error) == "Failed"
       assert InstanceStatus.label(:deleting) == "Deleting"
@@ -33,7 +34,8 @@ defmodule FluxValeWeb.InstanceStatusTest do
       assert InstanceStatus.in_progress?(:deploying)
       assert InstanceStatus.in_progress?(:starting)
 
-      for status <- [:pending, :running, :stopped, :error, :deleting, :lost] do
+      # #203: sleeping is settled, not mid-provision — no spinner.
+      for status <- [:pending, :running, :sleeping, :stopped, :error, :deleting, :lost] do
         refute InstanceStatus.in_progress?(status)
       end
     end

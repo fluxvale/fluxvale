@@ -60,7 +60,8 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
           optional(:domain) => String.t(),
           optional(:tls_secret_name) => String.t(),
           optional(:cert_resolver) => String.t(),
-          optional(:path_prefix) => String.t()
+          optional(:path_prefix) => String.t(),
+          optional(:middlewares) => [String.t()]
         }
 
   @default_cert_resolver nil
@@ -201,13 +202,20 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
     domain = Map.get(spec, :domain, "localhost")
     entry_point = if tls_enabled, do: "websecure", else: "web"
 
-    route = %{
-      "kind" => "Rule",
-      "match" => build_host_match(spec, domain),
-      "services" => [
-        %{"name" => spec.service_name, "port" => spec.service_port}
-      ]
-    }
+    # #203: optional per-route Traefik Middlewares (the activity beacon
+    # on serving routes, the wake marker on wake-mode ones) — attached
+    # in spec order, same namespace as the route by Traefik's CRD rule.
+    route =
+      attach_middlewares(
+        %{
+          "kind" => "Rule",
+          "match" => build_host_match(spec, domain),
+          "services" => [
+            %{"name" => spec.service_name, "port" => spec.service_port}
+          ]
+        },
+        Map.get(spec, :middlewares)
+      )
 
     base_spec = %{"entryPoints" => [entry_point], "routes" => [route]}
 
@@ -252,6 +260,15 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
     value
     |> String.replace("\\", "\\\\")
     |> String.replace("`", "\\`")
+  end
+
+  # Middleware references are name-only (same-namespace by CRD shape);
+  # names come from our own builders, never user input — no injection
+  # surface to validate beyond shape.
+  defp attach_middlewares(route, nil), do: route
+
+  defp attach_middlewares(route, names) when is_list(names) do
+    Map.put(route, "middlewares", Enum.map(names, &%{"name" => &1}))
   end
 
   # :host present (standalone custom-domain route) → match the full host;

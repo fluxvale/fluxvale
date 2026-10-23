@@ -14,7 +14,10 @@ defmodule FluxVale.Infrastructure do
     extensions: [AshAdmin.Domain]
 
   alias FluxVale.Infrastructure.Operations.ReadFileAccessCredential
+  alias FluxVale.Infrastructure.Operations.RestoreServingEdge
+  alias FluxVale.Infrastructure.Operations.SweepIdleInstances
   alias FluxVale.Infrastructure.Operations.SweepStrandedInstances
+  alias FluxVale.Infrastructure.Operations.WakeInstance
 
   admin do
     show?(true)
@@ -26,6 +29,15 @@ defmodule FluxVale.Infrastructure do
   end
 
   defdelegate sweep_stranded_instances(), to: SweepStrandedInstances, as: :call
+
+  # #203 (ADR-0036): the idle sweep — sleeps visitor-less :running
+  # instances (the sweep worker's entry).
+  defdelegate sweep_idle_instances(), to: SweepIdleInstances, as: :call
+
+  # #203: the anonymous edge's wake and restore — the wake endpoint's
+  # entries (the funded gate and the route flip live on the ops).
+  defdelegate wake_instance(instance), to: WakeInstance, as: :call
+  defdelegate restore_serving_edge(instance), to: RestoreServingEdge, as: :call
 
   # #190's reveal path — the instance page reads the WebDAV credential
   # from the cluster on demand; the Secret is its only home (ADR-0035).

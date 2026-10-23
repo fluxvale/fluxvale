@@ -50,6 +50,29 @@ case System.get_env("INSTANCES_BASE_DOMAIN") do
   domain -> config :flux_vale, :instances_base_domain, domain
 end
 
+# #203: the idle-sleep threshold (ADR-0036's settled 1h default lives in
+# config.exs). The E2E stack shortens it via the bootstrap — a real
+# 1-hour wait would blow the suite's budget; the same override is the
+# knob for any environment that wants a different promise. Test is
+# excluded: a stray value in the suite's shell must not shorten every
+# unit test's clock (the INSTANCES_SLUG_PREFIX stance).
+if config_env() != :test do
+  case System.get_env("IDLE_SLEEP_AFTER_SECONDS") do
+    seconds when seconds in [nil, ""] ->
+      :ok
+
+    seconds ->
+      case Integer.parse(seconds) do
+        {parsed, ""} when parsed > 0 ->
+          config :flux_vale, :idle_sleep_after_seconds, parsed
+
+        _invalid ->
+          raise ArgumentError,
+                "IDLE_SLEEP_AFTER_SECONDS=#{inspect(seconds)} is not a positive integer"
+      end
+  end
+end
+
 # Env-scoped slug prefix (#155): the deployed envs share the
 # *.fluxvale.app wildcard and slug uniqueness is per cluster only, so a
 # non-prod env prefixes its labels (staging: stg) and can never take a

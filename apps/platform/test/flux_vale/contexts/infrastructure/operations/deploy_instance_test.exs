@@ -7,6 +7,7 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Ingress
+  alias FluxVale.Clients.K8s.Resources.Middleware
   alias FluxVale.Clients.K8s.Resources.Namespace
   alias FluxVale.Clients.K8s.Resources.NetworkPolicy
   alias FluxVale.Clients.K8s.Resources.PersistentVolumeClaim
@@ -68,6 +69,11 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
 
   defp stub_kubeconfig do
     stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+    # #203: every deploy applies the activity-beacon and (dormant)
+    # wake-marker Middlewares plus the wake ExternalName Service via
+    # EdgeRoutes — default stubs, expect-ed where a test cares.
+    stub(Middleware, :create, fn _kc, _ns, _name, _spec -> {:ok, %{}} end)
+    stub(Service, :create, fn _kc, _ns, "wake", _spec -> {:ok, %{}} end)
   end
 
   describe "call/1" do

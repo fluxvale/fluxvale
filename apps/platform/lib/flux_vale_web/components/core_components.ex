@@ -957,6 +957,9 @@ defmodule FluxValeWeb.CoreComponents do
         :deploying -> {"border-line-warning bg-warning-muted text-warning", "pulse"}
         :starting -> {"border-line-warning bg-warning-muted text-warning", "pulse"}
         :running -> {"border-line-success bg-success-muted text-success", "static"}
+        # #203: asleep, not stopped — brand amber, a resting state the
+        # next visitor reverses (distinct from stopped's neutral gray).
+        :sleeping -> {"border-line bg-primary-muted text-primary", "none"}
         :stopped -> {"border-line bg-panel-raised text-ink-muted", "none"}
         :error -> {"border-line-danger bg-danger-muted text-danger", "static"}
         :deleting -> {"border-line-danger bg-danger-muted text-danger", "pulse"}

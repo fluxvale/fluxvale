@@ -8,3 +8,11 @@ service:
 ingressClass:
   enabled: true
   isDefaultClass: true
+providers:
+  kubernetesCRD:
+    # #203 (ADR-0036): sleeping instances' edge routes target a `wake`
+    # ExternalName Service (namespace-local, pointing at the platform)
+    # — Traefik refuses ExternalName targets unless this is on. The
+    # fleet repo's prod copy needs the same line (the ADR's rollout
+    # note: wake-on-use is dark in prod until it lands).
+    allowExternalNameServices: true
