@@ -196,9 +196,10 @@ jobs:
   # the suite is serial by design (one app under test), so legs split
   # the FILES, each leg on its own stack. Lifecycle holds the
   # instance-deploying specs (cold Forgejo/Kavita pulls dominate);
-  # pages takes the rest. The slow/timer leg (scale-to-zero, #210
-  # part 3) joins the matrix as a third value when it lands — legs
-  # stay independent, never sharing state.
+  # timers the platform-timer-bound specs (today: scale-to-zero at the
+  # real threshold + cadence, ~18m — #210 part 3 compresses the E2E
+  # timers and drops this leg to minutes); pages the rest. Legs stay
+  # independent, never sharing state.
   e2e:
     name: E2E
     needs: check-changes
@@ -206,7 +207,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
-      # A red leg must not cancel the other — its report is triage
+      # A red leg must not cancel the others — its report is triage
       # data (same stance as the smoke legs)
       fail-fast: false
       matrix:
@@ -215,6 +216,8 @@ jobs:
             specs: tests/health.spec.ts tests/landing.spec.ts tests/public-pages.spec.ts tests/root-session.spec.ts tests/sign-in.spec.ts
           - name: lifecycle
             specs: tests/forgejo-lifecycle.spec.ts tests/file-access.spec.ts
+          - name: timers
+            specs: tests/scale-to-zero.spec.ts
     env:
       # mise x must USE the four installed binaries without
       # auto-installing the config's other pins (erlang = source
