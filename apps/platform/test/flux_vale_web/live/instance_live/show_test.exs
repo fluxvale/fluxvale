@@ -751,6 +751,31 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       refute has_element?(view, "[data-testid='dav-password']")
     end
 
+    # #227: a browser GET on the collection 405s — the hint teaches the
+    # client move (and names the recommended pair) instead of leaving
+    # every new user to repeat the live dogfood mistake.
+    test "recommends WebDAV clients — browsers can't browse the endpoint", %{
+      conn: conn,
+      user: user
+    } do
+      version = InstanceFixtures.app_version!(file_access: true, default_storage_gb: 10)
+      instance = create_instance!(version, user)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(
+               view,
+               "[data-testid='dav-client-hint']",
+               "browsers can't browse this endpoint"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='dav-client-hint']",
+               "Cyberduck (macOS/Windows) · rclone to mount or script"
+             )
+    end
+
     # #194: the human copy path. Before the fix the password rendered as
     # wrapped body text with no copy affordance — a triple-click selected
     # the neighbouring "Password" label and a trailing newline, so a
