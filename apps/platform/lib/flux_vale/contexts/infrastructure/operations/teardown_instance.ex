@@ -66,10 +66,11 @@ defmodule FluxVale.Infrastructure.Operations.TeardownInstance do
         {:ok, instance}
 
       {:error, error} ->
-        # coveralls-ignore-start - defensive: instances have no FK
-        # dependents, so Ash.destroy on a valid row can't fail in tests.
-        # A dependent row blocks the delete — surface it so Oban retries /
-        # on_error makes it visible rather than silently orphaning the row.
+        # coveralls-ignore-start - defensive: the only FK dependent
+        # (backup_settings, #222) cascades on delete, so Ash.destroy on a
+        # valid row can't fail in tests. Any other dependent row blocks
+        # the delete — surface it so Oban retries / on_error makes it
+        # visible rather than silently orphaning the row.
         Logger.warning("Instance #{instance.id} row delete failed: #{inspect(error)}")
 
         # coveralls-ignore-stop
@@ -84,7 +85,8 @@ defmodule FluxVale.Infrastructure.Operations.TeardownInstance do
 
   # Reverse creation order; every delete tolerates :not_found (the
   # file-access trio deletes for every instance — pre-#190 namespaces
-  # never had them, and :not_found is success here).
+  # never had them, and :not_found is success here). Same for the
+  # backup-config Secret (#222): pre-#222 namespaces never had one.
   defp teardown_resources(kubeconfig, instance) do
     namespace = instance.namespace
 
@@ -93,6 +95,7 @@ defmodule FluxVale.Infrastructure.Operations.TeardownInstance do
          {:ok, _ingress} <- safe_delete(Ingress, kubeconfig, namespace, "app-ingress"),
          {:ok, _service} <- safe_delete(Service, kubeconfig, namespace, "app"),
          {:ok, _deployment} <- safe_delete(Deployment, kubeconfig, namespace, "app"),
+         {:ok, _backup_secret} <- safe_delete(Secret, kubeconfig, namespace, "backup-config"),
          {:ok, _file_secret} <- safe_delete(Secret, kubeconfig, namespace, "file-access"),
          {:ok, _secret} <- safe_delete(Secret, kubeconfig, namespace, "app-env"),
          {:ok, _pvc} <- safe_delete(PersistentVolumeClaim, kubeconfig, namespace, "app-data"),

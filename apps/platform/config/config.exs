@@ -100,6 +100,18 @@ config :flux_vale,
     path_prefix: "/dav",
     username: "fluxvale"
   ],
+  # Instance backups (#222, ADR-0037): a restic Job in the instance
+  # namespace writes snapshots to the user's own S3-compatible bucket.
+  # The image pin is a deliberate supply-chain bump; the requests are
+  # platform overhead on top of the purchased allocation, so the
+  # namespace ResourceQuota widens by exactly this (limits ride the
+  # builders' 2x-requests convention) and DeployInstance re-applies the
+  # same margin — one source of truth for the Job spec and the quota.
+  backups: [
+    image: "restic/restic:0.19.1",
+    cpu_cores: "0.1",
+    memory_mb: 128
+  ],
   # Scale-to-zero (#203, ADR-0036). idle threshold = the settled owner
   # number (1h); probe user-agents never count as traffic (settled) —
   # the beacon filters them before the idle clock. E2E shortens the

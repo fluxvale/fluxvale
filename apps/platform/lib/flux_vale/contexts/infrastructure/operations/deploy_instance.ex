@@ -35,10 +35,11 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   alias FluxVale.Clients.K8s.Resources.RoleBinding
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Clients.K8s.Resources.Service
+  alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.InstanceK8s
-
+  require Ash.Query
   require OpenTelemetry.Tracer
 
   @env_secret "app-env"
@@ -207,11 +208,51 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
 
     total_memory = if(file_access?(instance), do: memory + @sidecar_memory_mb, else: memory)
 
+    # #222 (ADR-0037 §3): the backup Job runs in this namespace too, so
+    # an enabled setting widens the quota by its requests — same
+    # platform-overhead arithmetic as the sidecar above. Read here (not
+    # passed in) so a re-apply never lags the row; the row is
+    # authoritative and ConfigureBackups writes it after the k8s apply.
+    final = maybe_backup_margin(instance, {total_cpu, total_memory})
+    {final_cpu, final_memory} = final
+
     %{
-      cpu: total_cpu,
-      memory: total_memory,
+      cpu: final_cpu,
+      memory: final_memory,
       storage: instance.storage_gb
     }
+  end
+
+  # #222 (ADR-0037 §3): the margin is needed only while the Job can run.
+  defp maybe_backup_margin(instance, {cpu, memory}) do
+    if backups_enabled?(instance) do
+      config = Application.fetch_env!(:flux_vale, :backups)
+      start = base_cpu(cpu)
+      cpu_request = Decimal.add(start, Decimal.new(config[:cpu_cores]))
+
+      {cpu_request, memory + config[:memory_mb]}
+    else
+      {cpu, memory}
+    end
+  end
+
+  # The quota spec's CPU is a float on the plain path (the shape the
+  # tests pin) and a Decimal once a margin applies — normalize before
+  # adding, since Decimal.add/2 rejects floats.
+  defp base_cpu(cpu) do
+    case cpu do
+      %Decimal{} = value -> value
+      value when is_float(value) -> Decimal.from_float(value)
+    end
+  end
+
+  # authorize?: false — deploy runs in the trigger context (no actor);
+  # the row is system-written by ConfigureBackups, which carried the
+  # member's policy check.
+  defp backups_enabled?(instance) do
+    BackupSetting
+    |> Ash.Query.filter(instance_id == ^instance.id and enabled == true)
+    |> Ash.exists?(authorize?: false)
   end
 
   # Config-driven like its RBAC siblings: prod's Traefik may not live in
