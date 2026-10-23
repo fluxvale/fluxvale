@@ -26,8 +26,12 @@ import {hooks as colocatedHooks} from "phoenix-colocated/flux_vale"
 import topbar from "../vendor/topbar"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
+// No longpoll fallback (#215 — phx.new scaffold default, not a decision):
+// on a slow edge its poll cycle resurrects the socket mid-sign-out and
+// LiveView's isUnloaded guard reloads /, aborting the pending /sign-in
+// navigation. WebSocket-only; revisit with an upstream fix for the
+// resurrect-after-disconnect race.
 const liveSocket = new LiveSocket("/live", Socket, {
-  longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
   hooks: {...colocatedHooks},
 })
