@@ -265,7 +265,15 @@ jobs:
       - name: Expose GitHub runtime for the gha cache
         uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487
 
+      # Matrix-sourced env on BOTH steps that read it: the bootstrap
+      # (E2E_IDLE_SLEEP_AFTER_SECONDS — the override must be on the
+      # stack the spec then runs against, not just the spec's own
+      # process) and the suite step (E2E_PROBE_WINDOW_MS). Empty on
+      # the other legs — the bootstrap's :-180 default and the spec's
+      # built-in default then apply.
       - name: Bootstrap the local stack
+        env:
+          E2E_IDLE_SLEEP_AFTER_SECONDS: ${{ matrix.leg.idle_sleep_seconds }}
         run: mise x -- scripts/e2e-bootstrap.sh
 
       # #210: npm ci + playwright install re-downloaded everything
@@ -290,14 +298,13 @@ jobs:
           mise x -- npx playwright install --with-deps chromium
 
       # Env-indirected, not ${{ }}-inline: specs are repo-controlled,
-      # but the env seam keeps the run: block free of template injection.
-      # The timers leg's per-leg knobs ride along (empty elsewhere —
-      # the bootstrap's ${E2E_IDLE_SLEEP_AFTER_SECONDS:-180} and the
-      # spec's default probe window then apply)
+      # but the env seam keeps the run: block free of template
+      # injection. E2E_PROBE_WINDOW_MS is the spec-side half of the
+      # timers leg's knobs (the threshold half rides the bootstrap
+      # step above)
       - name: Run the suite
         env:
           LEG_SPECS: ${{ matrix.leg.specs }}
-          E2E_IDLE_SLEEP_AFTER_SECONDS: ${{ matrix.leg.idle_sleep_seconds }}
           E2E_PROBE_WINDOW_MS: ${{ matrix.leg.probe_window_ms }}
         run: |
           set -a; . apps/e2e/.e2e-env; set +a
