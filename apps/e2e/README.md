@@ -59,7 +59,9 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
   production stays read-only.
 
 CI: the `e2e` job (`.github/workflows/ci.yml`) bootstraps the same
-script on an ephemeral k3d and runs the full suite; the deploy-gated
-smoke job runs the staging and production runtimes post-deploy; the
-HTML report (and its failure screenshots/traces) uploads as a build
-artifact.
+script on an ephemeral k3d — sharded by file (#210): a `lifecycle`
+leg (instance-deploying specs) and a `pages` leg (the rest), one
+report artifact per leg. A new spec file joins a leg's list in the
+workflow matrix — it won't run in PR CI otherwise. The deploy-gated
+smoke job runs the staging and production runtimes post-deploy (full
+suite, unsharded).

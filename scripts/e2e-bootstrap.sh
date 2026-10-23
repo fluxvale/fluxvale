@@ -52,8 +52,20 @@ kubectl config use-context k3d-fluxvale
 # pull from (never docker.io). Fresh tag per run so a re-run always
 # rolls a genuinely new image (IfNotPresent would cache a same-tag push).
 tag="e2e-$(date +%s)"
+# #210: cache the layers in the GHA cache on CI (the release job's
+# pattern). Same build/tag/push either way — cache flags only, so CI
+# and local can't drift. Own scope: the release build's default scope
+# and this one would otherwise evict each other. The flags need the
+# buildx container driver (setup-buildx-action in the e2e job);
+# locally the flags are absent and the default builder builds on.
+cache_flags=""
+if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+  cache_flags="--cache-from type=gha,scope=e2e-dev --cache-to type=gha,scope=e2e-dev,mode=max"
+fi
 echo "==> building dev image ($base_image)"
-docker build -f apps/platform/Dockerfile.dev --build-arg "BASE_IMAGE=$base_image" \
+# shellcheck disable=SC2086 -- word-splitting is the mechanism: empty means no flags
+docker buildx build -f apps/platform/Dockerfile.dev --build-arg "BASE_IMAGE=$base_image" \
+  $cache_flags --load \
   -t "$REGISTRY_HOST/fluxvale/platform-dev:$tag" apps/platform
 docker push "$REGISTRY_HOST/fluxvale/platform-dev:$tag"
 
