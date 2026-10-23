@@ -291,11 +291,48 @@ jobs:
             ~/.cache/ms-playwright
           key: ${{ runner.os }}-e2e-npm-pw-${{ hashFiles('apps/e2e/package-lock.json') }}
 
+      # #210 slice C: the chronic deps stall. `playwright install
+      # --with-deps` downloads ~26 MB of system debs (fonts-liberation,
+      # fonts-unifont, fonts-wqy-zenhei, libgbm1 — none preinstalled on
+      # the runner) whose mirror throughput swings from MB/s to
+      # ~69 kB/s: 3 of 4 recent runs stalled 6-7m. Cache the debs
+      # themselves, keyed on the lockfile (it pins @playwright/test,
+      # which pins the dep manifest); a bump repopulates once. Exact
+      # key only. Warming SEEDS apt's own archive dir — version
+      # resolution stays apt's (a stale deb is ignored and re-fetched,
+      # never force-installed: a dpkg -i warm loop would silently
+      # downgrade and break strictly-pinned dependents).
+      - name: Restore Playwright apt cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.pw-apt
+          key: ${{ runner.os }}-pw-apt-${{ hashFiles('apps/e2e/package-lock.json') }}
+
       - name: Install suite deps + browser
         run: |
           cd apps/e2e
           mise x -- npm ci
+          # Seed apt's download dir from the cache (sudo — the dir is
+          # root's). Filename-versioned debs never collide; apt then
+          # installs its candidates straight from the local dir —
+          # zero deb downloads — and quietly re-fetches anything whose
+          # candidate moved (runner-image drift degrades the hit rate,
+          # never correctness).
+          if compgen -G "$HOME"/.pw-apt/*.deb >/dev/null; then
+            staged=$(ls "$HOME"/.pw-apt/*.deb | wc -l)
+            sudo cp "$HOME"/.pw-apt/*.deb /var/cache/apt/archives/ 2>/dev/null || true
+            echo "pw apt cache: seeded $staged debs (apt resolves versions; the index fetch still runs)"
+          else
+            echo "pw apt cache: cold — playwright's apt pass downloads the set once"
+          fi
           mise x -- npx playwright install --with-deps chromium
+          # Persist apt's fetched debs for the next run. First write
+          # wins per key (legs race on cold; identical content), and
+          # the entries rotate with the lockfile.
+          mkdir -p "$HOME/.pw-apt"
+          sudo cp -n /var/cache/apt/archives/*.deb "$HOME/.pw-apt/" 2>/dev/null || true
+          sudo chown -R "$(id -u):$(id -g)" "$HOME/.pw-apt"
+          echo "pw apt cache: $(ls "$HOME"/.pw-apt/*.deb | wc -l) debs staged for save"
 
       # Env-indirected, not ${{ }}-inline: specs are repo-controlled,
       # but the env seam keeps the run: block free of template
