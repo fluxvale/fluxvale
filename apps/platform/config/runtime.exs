@@ -99,7 +99,7 @@ if config_env() != :test do
 
           plugins =
             Enum.map(plugins, fn
-              {Oban.Plugins.Cron, opts} = plugin ->
+              {Oban.Plugins.Cron, opts} ->
                 crontab = Keyword.get(opts, :crontab, [])
 
                 crontab =
