@@ -192,16 +192,34 @@ jobs:
 
   # The M3 E2E suite (#75, ADR-0024 local runtime / ADR-0020 Am. 4):
   # the same scripts/e2e-bootstrap.sh a local re-run uses, driven on an
-  # ephemeral runner k3d — one path, no drift. Runtime is dominated by
-  # the Forgejo image pull and the minute-granularity reconcile cron
-  # (~15 min); a red here means the demo broke, not that the stack
-  # rebuilt slowly.
+  # ephemeral runner k3d — one path, no drift. Sharded by file (#210):
+  # the suite is serial by design (one app under test), so legs split
+  # the FILES, each leg on its own stack. Lifecycle holds the
+  # instance-deploying specs (cold Forgejo/Kavita pulls dominate);
+  # timers the platform-timer-bound specs (today: scale-to-zero at the
+  # real threshold + cadence, ~18m — #210 part 3 compresses the E2E
+  # timers and drops this leg to minutes); pages the rest. Legs stay
+  # independent, never sharing state.
   e2e:
-    name: E2E
+    # Matrix check names default to every matrix value — pin the leg
+    # name so checks read "E2E (pages)" and not the whole spec list
+    name: E2E (${{ matrix.leg.name }})
     needs: check-changes
     if: needs.check-changes.outputs.e2e == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    strategy:
+      # A red leg must not cancel the others — its report is triage
+      # data (same stance as the smoke legs)
+      fail-fast: false
+      matrix:
+        leg:
+          - name: pages
+            specs: tests/health.spec.ts tests/landing.spec.ts tests/public-pages.spec.ts tests/root-session.spec.ts tests/sign-in.spec.ts
+          - name: lifecycle
+            specs: tests/forgejo-lifecycle.spec.ts tests/file-access.spec.ts
+          - name: timers
+            specs: tests/scale-to-zero.spec.ts
     env:
       # mise x must USE the four installed binaries without
       # auto-installing the config's other pins (erlang = source
@@ -224,8 +242,37 @@ jobs:
           install: false
       - run: mise install k3d kubectl helm node rclone
 
+      # v4.4.1 — pinned to commit (repo rule above). The bootstrap's
+      # manual buildx build needs a buildkit builder for the gha layer
+      # cache (#210). build-push-action wires a builder internally for
+      # the release job; a run:-step buildx call does not get one
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+
+      # v4.0.0 — pinned to commit (repo rule above). Exposes
+      # ACTIONS_RUNTIME_TOKEN/URL to run: steps — the runner injects
+      # them only into uses: steps, and without them buildx SILENTLY
+      # drops the type=gha cache config (no error, no cache)
+      - name: Expose GitHub runtime for the gha cache
+        uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487
+
       - name: Bootstrap the local stack
         run: mise x -- scripts/e2e-bootstrap.sh
+
+      # #210: npm ci + playwright install re-downloaded everything
+      # every run — and stalled 12m once (runner/network variance).
+      # The lockfile pins @playwright/test — and so the browser build
+      # — exactly; its hash covers both. Exact key only: a bump
+      # re-downloads once instead of restoring a stale browser set.
+      # The --with-deps apt libraries still install per run — seconds,
+      # not the stall class.
+      - name: Restore npm + Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.npm
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-e2e-npm-pw-${{ hashFiles('apps/e2e/package-lock.json') }}
 
       - name: Install suite deps + browser
         run: |
@@ -233,18 +280,23 @@ jobs:
           mise x -- npm ci
           mise x -- npx playwright install --with-deps chromium
 
+      # Env-indirected, not ${{ }}-inline: specs are repo-controlled,
+      # but the env seam keeps the run: block free of template injection
       - name: Run the suite
+        env:
+          LEG_SPECS: ${{ matrix.leg.specs }}
         run: |
           set -a; . apps/e2e/.e2e-env; set +a
           cd apps/e2e
-          mise x -- npx playwright test
+          mise x -- npx playwright test $LEG_SPECS
 
-      # Screenshots/traces land as artifacts (ADR-0024)
+      # Screenshots/traces land as artifacts (ADR-0024); one report
+      # per leg — a shared name would collide across matrix legs
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.leg.name }}
           path: apps/e2e/playwright-report
 
   # Deploy pipeline jobs 1–2 (docs/deployment.md, #98) — main pushes with

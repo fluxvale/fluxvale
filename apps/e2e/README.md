@@ -1,6 +1,6 @@
 # FluxVale e2e
 
-Playwright suite (ADR-0024). Four runtimes share it — local, review
+Playwright suite ([ADR-0024](../../docs/adr/00024-e2e-review-environments.md)). Four runtimes share it — local, review
 environments, staging, and prod (read-only subset) — selected entirely
 via `BASE_URL`. The suite never starts a server; point it at one.
 
@@ -38,7 +38,7 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
 | Variable | Purpose |
 |---|---|
 | `BASE_URL` | Target stack (default: `https://app.fluxvale.lvh.me`) |
-| `E2E_TESTINBOX_TOKEN` | Admin PAT for the TestInbox JSON API (ADR-0024 Am. 1); the sign-in and lifecycle tests skip without it |
+| `E2E_TESTINBOX_TOKEN` | Admin PAT for the TestInbox JSON API ([ADR-0024](../../docs/adr/00024-e2e-review-environments.md) Am. 1); the sign-in and lifecycle tests skip without it |
 | `E2E_RUNTIME` | Narrows what runs; the BASE_URL host sets the ceiling — any non-local, non-staging host is production-class (read-only) no matter what this says. Gates: lifecycle runs on local + staging (#116); sign-in never runs against production |
 | `E2E_RUN_ID` | Run-scoped uniqueness (email + instance names); defaults to a timestamp |
 
@@ -46,8 +46,14 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
 
 - `health.spec.ts`, `public-pages.spec.ts` — read-only, run anywhere
   (the production subset).
+- `landing.spec.ts` — the marketing landing renders (hero, CTAs).
+- `root-session.spec.ts` — `/` is session-aware (#207): marketing
+  landing signed out, dashboard + user menu signed in.
 - `sign-in.spec.ts` — the human login flow via TestInbox; staging and
   local.
+- `file-access.spec.ts` — #190: deploy Kavita → rclone put through
+  /dav → the file lands in the instance volume. Local + staging;
+  needs rclone on PATH.
 - `forgejo-lifecycle.spec.ts` — Forgejo's full lifecycle through the
   real UI: sign-in via TestInbox → catalog → deploy → running →
   instance URL (with the #181 first-open check: `/user/sign_up`
@@ -57,9 +63,18 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
   granularity — the test carries a 15-minute budget; a red runner is
   usually a broken flow, not a slow one. Local + staging (#116);
   production stays read-only.
+- `scale-to-zero.spec.ts` — #203 ([ADR-0036](../../docs/adr/00036-scale-to-zero-wake-on-use.md)): deploy → idle → sleeps
+  (storage-only billing) → request → wakes → serves, and probe
+  traffic must not wake a sleeper. Serial, local-only: the
+  bootstrap's shortened idle threshold makes it waitable; the sweep
+  cadence stays real (~8 min worst per idle cycle).
 
 CI: the `e2e` job (`.github/workflows/ci.yml`) bootstraps the same
-script on an ephemeral k3d and runs the full suite; the deploy-gated
-smoke job runs the staging and production runtimes post-deploy; the
-HTML report (and its failure screenshots/traces) uploads as a build
-artifact.
+script on an ephemeral k3d — sharded by file (#210): a `lifecycle`
+leg (instance-deploying specs), a `timers` leg (platform-timer-bound
+specs — scale-to-zero today, at real cadence until #210 part 3
+compresses it), and a `pages` leg (the rest), one report artifact per
+leg. A new spec file joins a leg's list in the workflow matrix — it
+won't run in PR CI otherwise. The deploy-gated smoke job runs the
+suite post-deploy unsharded — staging full, production the read-only
+subset ([ADR-0024](../../docs/adr/00024-e2e-review-environments.md)).
