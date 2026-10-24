@@ -8,6 +8,7 @@ defmodule FluxValeWeb.CatalogLive.Index do
   use FluxValeWeb, :live_view
 
   alias FluxVale.Catalog.Category
+  alias FluxVale.Observability.WakeStats
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
@@ -18,7 +19,7 @@ defmodule FluxValeWeb.CatalogLive.Index do
       |> Ash.Query.load(:apps)
       |> Ash.read!()
 
-    {:ok, assign(socket, :categories, categories)}
+    {:ok, assign(socket, categories: categories, wake_estimates: WakeStats.median_total_by_app())}
   end
 
   @impl Phoenix.LiveView
@@ -65,6 +66,15 @@ defmodule FluxValeWeb.CatalogLive.Index do
                 />
               </div>
               <p :if={app.tagline} class="mt-2.5 text-sm text-ink-muted">{app.tagline}</p>
+              <%= if estimate = @wake_estimates[app.slug] do %>
+                <p
+                  class="mt-3 text-xs font-medium text-success"
+                  data-testid={"wake-estimate-#{app.slug}"}
+                >
+                  <.icon name="hero-bolt" class="size-3.5 inline-block align-text-bottom" />
+                  Wakes in {format_estimate(estimate)}
+                </p>
+              <% end %>
             </.link>
           </div>
         </section>
@@ -74,4 +84,17 @@ defmodule FluxValeWeb.CatalogLive.Index do
   end
 
   defp sort_by_name(apps), do: Enum.sort_by(apps, & &1.name)
+
+  # The badge's copy: an honest ~estimate (median of N wakes, the same
+  # series the SLO dashboard charts — WakeStats), rounded to the
+  # second; over a minute, minutes-and-seconds reads truer than "74s".
+  defp format_estimate(seconds) do
+    rounded = round(seconds)
+
+    if rounded < 60 do
+      "~#{rounded}s"
+    else
+      "~#{div(rounded, 60)}m #{rem(rounded, 60)}s"
+    end
+  end
 end

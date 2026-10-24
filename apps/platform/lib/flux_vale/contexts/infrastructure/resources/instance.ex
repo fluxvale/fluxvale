@@ -72,6 +72,7 @@ defmodule FluxVale.Infrastructure.Instance do
   alias FluxVale.Infrastructure.Instance.SetOrganizationFromActor
   alias FluxVale.Infrastructure.Instance.StatusTransition
   alias FluxVale.Infrastructure.Instance.ValidateEnvVars
+  alias FluxVale.Infrastructure.Instance.WakeMarkers
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.SleepInstance
   alias FluxVale.Infrastructure.Operations.StartInstance
@@ -353,6 +354,20 @@ defmodule FluxVale.Infrastructure.Instance do
       public?(false)
     end
 
+    # #232: the wake-latency clocks — requested stamped by `start` from
+    # `:sleeping` (the request instant; nothing else records it),
+    # promoted stamped by the status write landing `:starting` (post
+    # scale-ack), both cleared on `:running` (after boot/total emit) and
+    # on any transition a wake can't complete through. WakeMarkers
+    # owns them; internal like the anchors.
+    attribute :wake_requested_at, :utc_datetime_usec do
+      public?(false)
+    end
+
+    attribute :wake_promoted_at, :utc_datetime_usec do
+      public?(false)
+    end
+
     # #203 (ADR-0036): the owner's opt-out of scale-to-zero — the idle
     # sweep skips always-on rows. A paid premium per the owner decision;
     # the billing tier (flat surcharge vs 24/7 running-rate) is the open
@@ -510,6 +525,7 @@ defmodule FluxVale.Infrastructure.Instance do
       require_atomic?(false)
 
       change(MaintainAnchors)
+      change(WakeMarkers)
 
       validate(StatusTransition)
     end
@@ -537,6 +553,10 @@ defmodule FluxVale.Infrastructure.Instance do
           |> Ash.Changeset.force_change_attribute(:failure_reason, nil)
           |> Ash.Changeset.force_change_attribute(:deployed_at, DateTime.utc_now())
           |> Ash.Changeset.force_change_attribute(:lost_detected_at, nil)
+          # #232: a fresh epoch has no wake clocks (a redeployed
+          # instance last woke as a different boot entirely).
+          |> Ash.Changeset.force_change_attribute(:wake_requested_at, nil)
+          |> Ash.Changeset.force_change_attribute(:wake_promoted_at, nil)
         else
           Ash.Changeset.add_error(
             changeset,
@@ -584,7 +604,15 @@ defmodule FluxVale.Infrastructure.Instance do
         instance = changeset.data
 
         if instance.status in [:stopped, :sleeping] do
-          Ash.Changeset.after_action(changeset, fn _changeset, instance ->
+          changeset
+          # #232: waking from :sleeping is the SLI's subject — stamp the
+          # request instant (a plain start from :stopped stays
+          # markerless: the owner's cold start isn't what we promise).
+          |> Ash.Changeset.force_change_attribute(
+            :wake_requested_at,
+            if(instance.status == :sleeping, do: DateTime.utc_now())
+          )
+          |> Ash.Changeset.after_action(fn _changeset, instance ->
             StartInstance.call(instance)
           end)
         else

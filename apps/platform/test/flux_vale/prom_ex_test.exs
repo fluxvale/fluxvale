@@ -11,7 +11,7 @@ defmodule FluxVale.PromExTest do
 
   @plugins FluxVale.PromEx.plugins()
 
-  test "plugins cover Phoenix, Ecto, Oban, and the BEAM" do
+  test "plugins cover Phoenix, Ecto, Oban, the BEAM, and wake latency" do
     assert {PromEx.Plugins.Phoenix, opts} = Enum.at(@plugins, 0)
     assert opts[:endpoint] == FluxValeWeb.Endpoint
     assert opts[:router] == FluxValeWeb.Router
@@ -23,6 +23,8 @@ defmodule FluxVale.PromExTest do
     assert opts[:oban_supervisors] == [Oban]
 
     assert {PromEx.Plugins.Beam, _opts} = Enum.at(@plugins, 3)
+
+    assert {FluxVale.PromEx.Plugins.Wake, _opts} = Enum.at(@plugins, 4)
   end
 
   test "GET /metrics answers 503 while the PromEx tree is down", %{conn: conn} do
