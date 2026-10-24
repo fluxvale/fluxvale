@@ -386,6 +386,19 @@ defmodule FluxVale.Clients.K8s.Resources.BackupJobTest do
       }
     end
 
+    # A pod owned by the given Job uid, terminated with `message` — the
+    # ownership shape k8s really produces (controller ownerReference).
+    defp owned_pod(job_uid, message) do
+      references = [
+        %{"apiVersion" => "batch/v1", "kind" => "Job", "uid" => job_uid}
+      ]
+
+      # bind-then-call: credo rejects both the nested form and a
+      # function-headed pipeline here.
+      pod = pod_with_message(message)
+      Map.put(pod, "metadata", %{"ownerReferences" => references})
+    end
+
     test "a Job with no verdict is :running — and costs no pod read" do
       stub_job(%{"status" => %{}})
       reject(Kubereq, :list, 3)
@@ -403,6 +416,43 @@ defmodule FluxVale.Clients.K8s.Resources.BackupJobTest do
       assert outcome.message == message
       assert outcome.exit_code == 0
       assert outcome.reason == "Completed"
+    end
+
+    # Review finding (pod-level attribution): the pod list is scoped to
+    # pods OWNED by this Job — a prior run's pod that outlives its
+    # deleted Job carries the same name label and must not speak for
+    # this run.
+    test "a foreign pod's termination never speaks for this Job" do
+      owned_message = ~s({"snapshot_id":"owned","bytes_processed":10,"bytes_added":5})
+      foreign_message = ~s({"snapshot_id":"foreign","bytes_processed":99,"bytes_added":9})
+
+      stub_job(%{
+        "metadata" => %{"uid" => "job-uid-1"},
+        "status" => %{"succeeded" => 1}
+      })
+
+      # The foreign pod is FIRST in the list — without the owner filter
+      # its message would win.
+      stub_pods([
+        owned_pod("job-uid-2", foreign_message),
+        owned_pod("job-uid-1", owned_message)
+      ])
+
+      assert {:ok, outcome} = BackupJob.status(%{}, "ns")
+      assert outcome.message == owned_message
+    end
+
+    test "a Job whose owned pods are all gone reports no message" do
+      stub_job(%{
+        "metadata" => %{"uid" => "job-uid-1"},
+        "status" => %{"succeeded" => 1}
+      })
+
+      stub_pods([owned_pod("job-uid-other", ~s({"snapshot_id":"foreign"}))])
+
+      assert {:ok, outcome} = BackupJob.status(%{}, "ns")
+      assert outcome.outcome == :succeeded
+      assert outcome.message == nil
     end
 
     test "a failed pod is :failed with its exit code and message" do
