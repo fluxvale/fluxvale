@@ -295,11 +295,14 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
         spellcheck="false"
       />
       <%!-- Blank keeps the stored key: the operation's own rule, said in
-      the label so an edit never looks like a silent credential wipe. --%>
+      the label so an edit never looks like a silent credential wipe. The
+      placeholder mirrors the access-key field's, so both keep-fields read
+      the same (vision convergence nit). --%>
       <.input
         field={@form[:secret_access_key]}
         type="password"
         label="Secret access key (leave blank to keep the current one)"
+        placeholder={secret_key_placeholder(@stored_access_key)}
         autocomplete="new-password"
       />
       <.input
@@ -885,6 +888,11 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
 
   defp access_key_placeholder(key),
     do: "Unchanged — ends in #{String.slice(mask_secret(key), -4, 4)}"
+
+  # The stored secret never renders, so the placeholder can only say
+  # THAT one exists — no fragment of it, ever.
+  defp secret_key_placeholder(nil), do: "••••••••"
+  defp secret_key_placeholder(_stored), do: "Unchanged"
 
   # --- failure copy ----------------------------------------------------------
 
