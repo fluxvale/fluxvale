@@ -74,12 +74,14 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
   means "keep the stored key" (a blank form field). On a **first** save
   there is no stored row to merge, so `endpoint`, `bucket` and
   `access_key_id` are required — the changeset answers `{:error,
-  changeset}` when one is missing.
+  changeset}` when one is missing. Every key is therefore optional at the
+  type level: which ones are required is a question only the stored row
+  can answer.
   """
   @type params :: %{
-          required(:endpoint) => String.t(),
-          required(:bucket) => String.t(),
-          required(:access_key_id) => String.t(),
+          optional(:endpoint) => String.t(),
+          optional(:bucket) => String.t(),
+          optional(:access_key_id) => String.t(),
           optional(:prefix) => String.t() | nil,
           optional(:secret_access_key) => String.t(),
           optional(:retention_keep) => integer(),
