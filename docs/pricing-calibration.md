@@ -67,10 +67,10 @@ billed hourly (#206).
 | ultra | 6 | 12 GB | 200 GB | 22.16 | 383 |
 | max | 8 | 16 GB | 400 GB | 28.95 | 644 |
 
-The top two rows are **#233's extension** (owner sign-off there): no
-doc-decided table exists — the cents are the same v5 curve at the new
-allocations, pinned as literals in `pricing_data_test.exs`
-(`@ladder_extension`). The storage top is **400 GB, not the issue's
+The top two rows are **#233's extension** (a proposal — the owner's
+sign-off on #233 is pending, not yet given): no doc-decided table
+exists — the cents are the same v5 curve at the new allocations, pinned
+as literals in `pricing_data_test.exs` (`@ladder_extension`). The storage top is **400 GB, not the issue's
 rough 500**: 500 exceeds the one box's ~460 usable GB and would be
 unprovisionable on the current fleet — it reopens when box #2 orders
 (the pool rule; would price $30.12/mo, stopped $7.61).

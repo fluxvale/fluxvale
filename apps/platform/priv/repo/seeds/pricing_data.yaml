@@ -9,8 +9,8 @@
 #
 # The #233 top-rung extension (ultra, max) has no doc-decided table:
 # its cents are the same v5 curve at the new allocations, pinned as
-# literals in pricing_data_test.exs (@ladder_extension) — the rung
-# table the owner signs off on #233.
+# literals in pricing_data_test.exs (@ladder_extension) — a PROPOSAL:
+# the owner's #233 sign-off is pending, not yet given.
 #
 # Adding or repricing a size is purely additive: append/edit an entry and
 # re-run seeds — FluxVale.Seeds.seed_pricing!/0 converges existing rows

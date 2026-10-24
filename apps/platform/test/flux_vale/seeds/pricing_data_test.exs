@@ -48,9 +48,9 @@ defmodule FluxVale.Seeds.PricingDataTest do
 
   # The #233 top-rung extension: no doc-decided table exists for these
   # two — the cents are the same v5 curve at the new allocations,
-  # pinned as literals because they are pricing-bearing (this is the
-  # rung table the owner signs off on #233), so a YAML or curve drift
-  # must fail here exactly like a doc-row drift does.
+  # pinned as literals because they are pricing-bearing (a proposal:
+  # the owner's #233 sign-off is pending, not yet given), so a YAML or
+  # curve drift must fail here exactly like a doc-row drift does.
   @ladder_extension %{
     ultra: {2216, 383},
     max: {2895, 644}
