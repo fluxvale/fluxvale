@@ -100,9 +100,10 @@ dedicated-box shape — one instance fills 87% of the ~460 usable GB
 (what's left hosts ≤12 micros or 6 smalls), and while active uses 8 of
 12 cores and 16 of ~24 active-GB (67% each — inside the active-ratio
 budget with room for small neighbors). A `max`-hosting box prices
-underwater alone ($28.95 + leftovers ≈ $63 vs $118.64 full) — the same
-structural caveat `pro` already carries (big sizes are customs/owner
-instances; the big-size revisit trigger stands). `small`-basis
+underwater alone ($28.95 + a 12-micro leftover ≈ $63/mo, less with
+smalls, vs $118.64 full) — the same structural caveat `pro` already
+carries (big sizes are customs/owner instances; the big-size revisit
+trigger stands). `small`-basis
 break-evens don't move: the extension adds shapes, not small-density.
 
 ## What the check deliberately excludes

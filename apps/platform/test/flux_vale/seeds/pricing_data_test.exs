@@ -56,7 +56,7 @@ defmodule FluxVale.Seeds.PricingDataTest do
     max: {2895, 644}
   }
 
-  describe "the decided B′ table (#206, docs/pricing-recalibration-2026-10.md)" do
+  describe "the decided B′ table + the #233 top-rung extension" do
     test "every shipped size carries the doc's B′ cents (or the #233 extension's), running and stopped" do
       pinned = Map.merge(@doc_b_prime, @ladder_extension)
 
