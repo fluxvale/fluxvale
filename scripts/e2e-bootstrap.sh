@@ -37,6 +37,37 @@ for tool in docker k3d kubectl helm curl; do
   command -v "$tool" >/dev/null || { echo "missing tool: $tool" >&2; exit 1; }
 done
 
+# ---- #226 (k3d openapi EOF subclass): the young k3d apiserver sometimes
+# drops kubectl's OpenAPI validation fetch (`failed to download openapi …
+# EOF`) — runner-side, pre-test, twice observed. `kubectl apply` is
+# idempotent, so a bounded retry is safe HERE ONLY: bootstrap phase,
+# never the suite (a test must not silently rerun). Cap 3 attempts,
+# 10s apart; the last attempt's full error stands on exhaustion (a real
+# manifest failure fails loudly, ~20s slower). The "bootstrap-retry"
+# marker keeps the flake rate measurable from logs; the ::warning::
+# annotation renders on CI only.
+bootstrap_retry_log() {
+  echo "bootstrap-retry: $*" >&2
+  if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+    echo "::warning::bootstrap-retry: $*" >&2
+  fi
+}
+apply_with_retry() {
+  attempt=1
+  while true; do
+    if kubectl apply "$@"; then
+      return 0
+    fi
+    if [ "$attempt" -ge 3 ]; then
+      echo "bootstrap-retry: kubectl apply failed on $attempt attempts — giving up (last error above)" >&2
+      return 1
+    fi
+    bootstrap_retry_log "kubectl apply attempt $attempt/3 failed — retrying in 10s (failure above)"
+    attempt=$((attempt + 1))
+    sleep 10
+  done
+}
+
 # ---- cluster + registry (same config Tilt uses)
 if ! k3d cluster list --no-headers 2>/dev/null | grep -q '^fluxvale '; then
   echo "==> creating k3d cluster + local registry"
@@ -77,7 +108,7 @@ docker push "$REGISTRY_HOST/fluxvale/platform-dev:$tag"
 # ---- apply, in the Tiltfile's dependency order: namespace/RBAC, the
 # two charts (CRDs land with them), then the CRs + app + route.
 echo "==> applying namespace + RBAC"
-kubectl apply -f deploy/local/k8s/00-namespace.yaml -f deploy/local/k8s/01-platform-rbac.yaml
+apply_with_retry -f deploy/local/k8s/00-namespace.yaml -f deploy/local/k8s/01-platform-rbac.yaml
 
 echo "==> charts: cnpg $cnpg_version, traefik $traefik_version"
 helm upgrade --install cnpg cloudnative-pg --version "$cnpg_version" \
@@ -87,8 +118,8 @@ helm upgrade --install traefik traefik --version "$traefik_version" \
   -f deploy/local/traefik-values.yaml --wait >/dev/null
 
 echo "==> CNPG Cluster CR + platform + IngressRoute"
-kubectl apply -f deploy/local/k8s/05-cnpg-cluster.yaml
-kubectl apply -f deploy/local/k8s/10-platform.yaml
+apply_with_retry -f deploy/local/k8s/05-cnpg-cluster.yaml
+apply_with_retry -f deploy/local/k8s/10-platform.yaml
 # Both the app container AND the migrate initContainer carry the image
 # (env is anchored, image isn't) — set both, or init pulls the
 # registry-less manifest ref from docker.io. (Between apply and set the
@@ -99,7 +130,7 @@ kubectl -n "$NAMESPACE" set image deployment/fluxvale-platform \
   "platform=$REGISTRY_CLUSTER/fluxvale/platform-dev:$tag" \
   "migrate=$REGISTRY_CLUSTER/fluxvale/platform-dev:$tag" \
   "seed=$REGISTRY_CLUSTER/fluxvale/platform-dev:$tag"
-kubectl apply -f deploy/local/k8s/15-ingressroute.yaml
+apply_with_retry -f deploy/local/k8s/15-ingressroute.yaml
 
 # #203 (ADR-0036) + #210 part 3: compress the idle-sweep knobs for the
 # e2e suite — a real 1h idle isn't waitable in a test budget. The
@@ -152,11 +183,11 @@ echo "==> MinIO (e2e S3 proxy) + bucket"
 # Data is a PVC and `mb --ignore-existing` is idempotent, so this loses
 # nothing and leaves exactly one successful bucket-creation pod.
 kubectl -n "$NAMESPACE" delete job minio-bucket --ignore-not-found
-kubectl apply -f deploy/local/k8s/12-minio.yaml
+apply_with_retry -f deploy/local/k8s/12-minio.yaml
 kubectl -n "$NAMESPACE" rollout restart deployment/minio
 kubectl -n "$NAMESPACE" rollout status deployment/minio --timeout=180s
 kubectl -n "$NAMESPACE" delete job minio-bucket --ignore-not-found
-kubectl apply -f deploy/local/k8s/12-minio.yaml
+apply_with_retry -f deploy/local/k8s/12-minio.yaml
 kubectl -n "$NAMESPACE" wait --for=condition=complete job/minio-bucket --timeout=180s
 
 # ---- seeds (idempotent) + the suite's TestInbox PAT, in one exec into

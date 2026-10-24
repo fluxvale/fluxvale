@@ -12,9 +12,15 @@
 lockfile = true
 
 [tools]
-# BEAM: fixed pins — the compiler/runtime pair must not drift
-erlang = "28.5"
-elixir = "1.20.4-otp-28"
+# BEAM: fixed pins — the compiler/runtime pair must not drift.
+# 29.1 line since #226: OTP ≤28's musl JIT sizes its alternate signal
+# stack with SIGSTKSZ (static 8192 on musl), so beam.smp aborts at
+# startup (exit 134, sys_signal_stack.c) on runner/dev hosts whose
+# kernel reports AT_MINSIGSTKSZ > 8192 (AVX-512/AMX CPUs) —
+# erlang/otp#11248/#11349; fixed via sysconf(_SC_MINSIGSTKSZ) first
+# shipped in OTP 29.1. glibc CI (setup-beam) was never affected.
+erlang = "29.1"
+elixir = "1.20.4-otp-29"
 
 # apps/e2e Playwright + apps/smoke Bruno suites (ADR-0024)
 node = "26.8.1"

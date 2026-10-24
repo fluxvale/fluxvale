@@ -26,11 +26,14 @@ allow_k8s_contexts('k3d-fluxvale')
 default_registry('127.0.0.1:5000', host_from_cluster='fluxvale-registry:5000')
 
 # ---- toolchain: mise.toml is the single source of truth -------------------
-# hexpm image tags append rebuild suffixes (e.g. erlang-28.5.0.6), so the
+# hexpm image tags append rebuild suffixes (e.g. erlang-29.1.2), so the
 # full tag is pinned HERE — with an assertion that it still matches
 # mise.toml's BEAM pins. A mise bump that outgrows the image fails `tilt up`
 # immediately with this message instead of building with a stale toolchain.
-BASE_IMAGE = 'hexpm/elixir:1.20.4-erlang-28.5.0.6-alpine-3.24.1'
+# 29.1.2 floor (#226): OTP ≤28 musl builds abort at beam startup on
+# AVX-512/AMX hosts (sigaltstack ENOMEM, erlang/otp#11248) — the fix
+# (sysconf-sized stack, erlang/otp#11376) shipped in 29.1.
+BASE_IMAGE = 'hexpm/elixir:1.20.4-erlang-29.1.2-alpine-3.24.3'
 
 mise_lines = str(read_file('mise.toml')).split('\n')
 
@@ -40,8 +43,8 @@ def mise_pin(key):
             return str(line).split('"')[1]
     fail('mise.toml: no %s pin found' % key)
 
-mise_elixir = mise_pin('elixir').split('-')[0]  # 1.20.4 (strips -otp-28)
-mise_otp = mise_pin('erlang')                  # 28.5
+mise_elixir = mise_pin('elixir').split('-')[0]  # 1.20.4 (strips -otp-29)
+mise_otp = mise_pin('erlang')                  # 29.1
 
 if not BASE_IMAGE.find('%s-erlang' % mise_elixir) >= 0:
     fail('BASE_IMAGE %r does not match mise.toml elixir %r — bump BASE_IMAGE alongside mise' % (BASE_IMAGE, mise_elixir))

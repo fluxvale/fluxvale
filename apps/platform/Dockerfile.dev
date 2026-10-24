@@ -3,7 +3,7 @@
 #
 # The full base-image tag arrives as a build-arg from the Tiltfile, which
 # also asserts it matches mise.toml's BEAM pins (single source of truth —
-# hexpm appends rebuild suffixes like `erlang-28.5.0.6`, so the tag can't
+# hexpm appends rebuild suffixes like `erlang-29.1.2`, so the tag can't
 # be composed from mise.toml alone; the assertion catches drift instead).
 # Base is precompiled — no OTP source compile.
 ARG BASE_IMAGE

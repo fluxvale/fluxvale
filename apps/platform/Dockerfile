@@ -3,10 +3,13 @@
 # `mix phx.server`) is exactly what staging verifies.
 #
 # Base matches the Tiltfile's BASE_IMAGE pin: hexpm appends rebuild
-# suffixes (e.g. erlang-28.5.0.6), so the full tag can't be composed
+# suffixes (e.g. erlang-29.1.2), so the full tag can't be composed
 # from mise.toml alone — CI asserts the tag still matches mise.toml's
 # BEAM pins (single source of truth, the Tiltfile rule).
-ARG BASE_IMAGE=hexpm/elixir:1.20.4-erlang-28.5.0.6-alpine-3.24.1
+# 29.1.2 floor (#226): OTP ≤28 musl builds abort at beam startup on
+# AVX-512/AMX hosts (sigaltstack ENOMEM, erlang/otp#11248) — the fix
+# (sysconf-sized stack, erlang/otp#11376) shipped in 29.1.
+ARG BASE_IMAGE=hexpm/elixir:1.20.4-erlang-29.1.2-alpine-3.24.3
 FROM ${BASE_IMAGE} AS builder
 
 # git: mix fetches heroicons/daisyui as git deps. make/gcc/musl-dev:
@@ -49,7 +52,9 @@ COPY .prebuilt/tailwind/ /app/_build/
 # cache manifest prod.exs configures.
 RUN mix compile && mix assets.deploy && mix release
 
-FROM alpine:3.24.1
+# Runtime alpine matches the builder image's (3.24.3): the release's
+# NIFs and the musl the release tree expects must stay in lockstep.
+FROM alpine:3.24.3
 
 # BEAM runtime: openssl (crypto NIF), ncurses-libs, libstdc++, zlib.
 # ca-certificates: outbound HTTPS (Postmark, Grafana OTLP). tzdata:

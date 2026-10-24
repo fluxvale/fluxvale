@@ -85,6 +85,14 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+    env:
+      # (#230/#226) mdex_native compiles here on glibc: point
+      # rustler_precompiled at the staged -gnu tarball (.github/actions/
+      # prebuilt) instead of its httpc fetch, which dies on the CDN's
+      # oversized headers toward runner IPs — surfaced by any cold deps
+      # cache (the OTP 29 bump's). Musl rows the action stages are inert
+      # here (docker-only consumers).
+      RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH: ${{ github.workspace }}/apps/platform/.prebuilt-glibc
     defaults:
       run:
         working-directory: apps/platform
@@ -140,6 +148,13 @@ jobs:
           key: ${{ runner.os }}-dialyzer-${{ steps.setup-beam.outputs.elixir-version }}-${{ steps.setup-beam.outputs.otp-version }}-${{ hashFiles('apps/platform/mix.lock') }}
           restore-keys: |
             ${{ runner.os }}-dialyzer-${{ steps.setup-beam.outputs.elixir-version }}-${{ steps.setup-beam.outputs.otp-version }}-
+
+      # Stages the glibc mdex_native NIF the env var above points at
+      # (see the platform job's env comment). mdex-gnu: this job is the
+      # only consumer — the docker-image jobs leave the input off.
+      - uses: ./.github/actions/prebuilt
+        with:
+          mdex-gnu: "true"
 
       - run: mix deps.get
 

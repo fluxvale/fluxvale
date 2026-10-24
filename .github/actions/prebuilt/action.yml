@@ -12,12 +12,24 @@
 # Artifacts (add a row + a cache step when a new one flakes):
 #   tailwind     pin: config.exs        → /app/_build/<file>          sha256: release sums
 #   mdex_native  pin: mix.lock          → RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH/<file>
+#     - musl triple → .prebuilt/mdex_native/  (docker builds: e2e dev image, release)
+#     - gnu triple  → .prebuilt-glibc/         (Platform CI's setup-beam build only,
+#       via the mdex-gnu input — its cold deps cache surfaced the same httpc death)
 name: "Pre-seed pre-built artifacts"
 description: >-
   Parse version pins (config.exs / mix.lock), restore each artifact
   from its exact-key actions/cache entry, curl it on cold (curl has
   no header limit), verify where sums are published — into
   apps/platform/.prebuilt/, ready for the docker COPY.
+inputs:
+  mdex-gnu:
+    description: >-
+      Also stage the glibc mdex_native NIF into .prebuilt-glibc/ —
+      Platform CI's setup-beam build consumes it via
+      RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH. Off for the docker-image
+      consumers (musl-only): a cold gnu curl must not be able to red
+      an e2e/release build that never loads it.
+    default: "false"
 runs:
   using: composite
   steps:
@@ -58,12 +70,25 @@ runs:
         path: apps/platform/.prebuilt/mdex_native
         key: ${{ runner.os }}-${{ runner.arch }}-mdex_native-${{ steps.pins.outputs.mdex }}-nif-2.15-musl
 
+    # The glibc twin of the row above, for Platform CI (setup-beam runner):
+    # its deps compile fetches the -gnu NIF through the same broken-toward-
+    # runner-IPs httpc path. Opt-in via the mdex-gnu input (docker-image
+    # consumers leave it off). Staged OUTSIDE .prebuilt/ so no docker image
+    # layer ships a binary it can't load (alpine is musl-only).
+    - name: Restore mdex_native cache (glibc)
+      if: ${{ inputs.mdex-gnu == 'true' }}
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: apps/platform/.prebuilt-glibc
+        key: ${{ runner.os }}-${{ runner.arch }}-mdex_native-${{ steps.pins.outputs.mdex }}-nif-2.15-gnu
+
     - name: Stage + verify the artifacts
       shell: bash
       env:
         TW_VERSION: ${{ steps.pins.outputs.tailwind }}
         MDEX_VERSION: ${{ steps.pins.outputs.mdex }}
         RUNNER_ARCH: ${{ runner.arch }}
+        MDEX_GNU: ${{ inputs.mdex-gnu }}
       run: |
         arch="$(printf '%s' "$RUNNER_ARCH" | tr '[:upper:]' '[:lower:]')"
         stage() { # dir name file url
@@ -118,3 +143,26 @@ runs:
         stage mdex_native "$mdex_name" \
           "https://github.com/leandrocp/mdex_native/releases/download/v$MDEX_VERSION/$mdex_name"
         echo "prebuilt mdex_native: staged $mdex_name (integrity checked in-image by rustler_precompiled)"
+
+        # glibc twin (.prebuilt-glibc/, Platform CI's env points there): same
+        # integrity posture — rustler_precompiled checks the tarball against
+        # the dep's bundled checksum on extract, no published sums exist.
+        # Opt-in (mdex-gnu input): docker-image consumers don't load it, so
+        # they must not depend on its download succeeding either.
+        if [ "$MDEX_GNU" = "true" ]; then
+          case "$arch" in
+            x64)   gnu_triple="x86_64-unknown-linux-gnu" ;;
+            arm64) gnu_triple="aarch64-unknown-linux-gnu" ;;
+            *) echo "::error::no mdex_native gnu triple for arch $arch" >&2; exit 1 ;;
+          esac
+          mdex_gnu_name="libmdex_native_nif-v$MDEX_VERSION-nif-2.15-$gnu_triple.so.tar.gz"
+          if [ -f "apps/platform/.prebuilt-glibc/$mdex_gnu_name" ]; then
+            echo "prebuilt mdex_native (gnu): cache hit — $mdex_gnu_name"
+          else
+            echo "prebuilt mdex_native (gnu): cache cold — curl fetching $mdex_gnu_name"
+            mkdir -p "apps/platform/.prebuilt-glibc"
+            curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 \
+              -o "apps/platform/.prebuilt-glibc/$mdex_gnu_name" \
+              "https://github.com/leandrocp/mdex_native/releases/download/v$MDEX_VERSION/$mdex_gnu_name"
+          fi
+        fi
