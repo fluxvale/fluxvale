@@ -83,17 +83,15 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
     end
   end
 
-  # The summary's switch: `enabled` is one attribute and no cluster state,
-  # so the save rides the same operation (it merges over the stored row).
+  # The summary's switch: `enabled` is one attribute and no cluster
+  # state — a PLAIN row update (the documented contract), never the
+  # full ConfigureBackups pass: pausing must not be blockable by a K8s
+  # failure, a missing Secret, or a nil namespace (CodeRabbit).
   def handle_event("toggle-enabled", _params, socket) do
     setting = socket.assigns.setting
     enabled = not setting.enabled
 
-    case Infrastructure.configure_backups(
-           socket.assigns.instance,
-           %{enabled: enabled},
-           actor: socket.assigns.current_user
-         ) do
+    case BackupSetting.update(setting, %{enabled: enabled}, actor: socket.assigns.current_user) do
       {:ok, _setting} ->
         {:noreply,
          socket
@@ -140,7 +138,12 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   end
 
   def handle_event("restore", _params, socket) do
-    case Infrastructure.restore_instance_backup(socket.assigns.instance) do
+    # The actor rides the call (CodeRabbit Major): the operation's
+    # ownership check is the fence between a stale page and someone
+    # else's instance — the actorless path is the sweep's alone.
+    case Infrastructure.restore_instance_backup(socket.assigns.instance,
+           actor: socket.assigns.current_user
+         ) do
       {:ok, _run} ->
         {:noreply,
          socket

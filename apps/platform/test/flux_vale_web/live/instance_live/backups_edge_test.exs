@@ -9,6 +9,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsEdgeTest do
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.ResourceQuota
   alias FluxVale.Clients.K8s.Resources.Secret
+  alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Operations.InstanceK8s
@@ -185,6 +186,59 @@ defmodule FluxValeWeb.InstanceLive.BackupsEdgeTest do
       stub(K8s, :kubeconfig, fn nil -> {:error, Error.connection_error("api down")} end)
 
       {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      click(view, "open-settings")
+
+      view
+      |> element("#backup-settings-form")
+      |> render_submit(%{
+        "backup" => %{
+          "endpoint" => "https://account.r2.cloudflarestorage.com",
+          "bucket" => "fluxvale-kavita",
+          "prefix" => "",
+          "access_key_id" => "",
+          "secret_access_key" => "",
+          "retention_keep" => "7"
+        }
+      })
+
+      assert has_element?(view, "[data-testid=backups-error]", "Something went wrong on our side")
+    end
+
+    # CodeRabbit: the toggle is a PLAIN row update — no cluster state.
+    # Pausing must work with Kubernetes completely unreachable (the
+    # inverse pin: k8s down, toggle fine).
+    test "the enabled toggle works with K8s unreachable", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = instance!(version, user)
+      setting!(instance)
+
+      # Any k8s call fails loudly — the toggle must never reach one.
+      reject(K8s, :kubeconfig, 1)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      render_click(element(view, "[data-testid=backups-enabled-toggle]"))
+
+      assert has_element?(view, "[data-testid=backups-notice]", "Backups paused")
+    end
+
+    # ...and the toggle's own error arm: a row deleted under the open
+    # page lands the retry copy (the stale struct's update is NotFound).
+    test "the toggle over a vanished row shows the retry copy", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = instance!(version, user)
+      setting = setting!(instance)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      Infrastructure.remove_backup_settings(setting, authorize?: false)
 
       render_click(element(view, "[data-testid=backups-enabled-toggle]"))
 
