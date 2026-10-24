@@ -187,3 +187,22 @@ scheduled | manual | restore), so the panel shows one timeline.
   Instance's `storage_mount_path` snapshot is the backup set.
 - Product docs note: BYO bucket means the user pays their provider
   for storage; FluxVale charges nothing extra for the feature.
+
+## Amendment 1 (2026-10-24): two mechanism corrections from implementation
+
+The execution slice landed against the pinned `restic/restic:0.19.1`
+and proved two §3 details wrong as written:
+
+1. **The hostname env var is `RESTIC_HOST`, not `RESTIC_HOSTNAME`.**
+   restic (0.19.1 source, `doc/075_scripting.rst`) documents no
+   `RESTIC_HOSTNAME`; an unpinned host would have silently used the
+   random pod name — exactly the fragmentation §3 warns about. The
+   Job pins `RESTIC_HOST` to the instance slug; §3's intent stands,
+   its variable name was wrong.
+2. **The termination message is a Pod field, not `Job.status`.**
+   `JobStatus` carries no `containerStatuses`; the aggregate verdict
+   lives on the Job (`status.succeeded`/`failed` + conditions) and
+   the one-line outcome JSON lands on the Job's **pod**
+   (`status.containerStatuses[].state.terminated.message`). The
+   platform reads the Job's verdict, then the pod's message only
+   once the verdict has settled. Same side channel, correct object.
