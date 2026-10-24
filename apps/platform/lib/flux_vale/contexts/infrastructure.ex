@@ -17,6 +17,8 @@ defmodule FluxVale.Infrastructure do
   alias FluxVale.Infrastructure.Operations.ConfigureBackups
   alias FluxVale.Infrastructure.Operations.ReadFileAccessCredential
   alias FluxVale.Infrastructure.Operations.RestoreServingEdge
+  alias FluxVale.Infrastructure.Operations.RunInstanceBackup
+  alias FluxVale.Infrastructure.Operations.SweepBackups
   alias FluxVale.Infrastructure.Operations.SweepIdleInstances
   alias FluxVale.Infrastructure.Operations.SweepStrandedInstances
   alias FluxVale.Infrastructure.Operations.WakeInstance
@@ -29,6 +31,7 @@ defmodule FluxVale.Infrastructure do
     resource(FluxVale.Infrastructure.Cluster)
     resource(FluxVale.Infrastructure.Instance)
     resource(FluxVale.Infrastructure.BackupSetting)
+    resource(FluxVale.Infrastructure.BackupRun)
   end
 
   defdelegate sweep_stranded_instances(), to: SweepStrandedInstances, as: :call
@@ -62,4 +65,15 @@ defmodule FluxVale.Infrastructure do
   defdelegate remove_backup_settings(setting, opts \\ []),
     to: BackupSetting,
     as: :destroy
+
+  # #222 (ADR-0037 §3): one backup run — the manual "Back up now" and the
+  # sweep's due pass share this one operation; only the kind differs.
+  defdelegate run_instance_backup(instance, kind),
+    to: RunInstanceBackup,
+    as: :call
+
+  # #222 (ADR-0037 §3): the backup sweep's due + watch passes, every five
+  # minutes (`Workers.BackupSweep`). `now` is a parameter — the worker
+  # reads the clock, tests pass fixed instants.
+  defdelegate sweep_backups(now), to: SweepBackups, as: :call
 end

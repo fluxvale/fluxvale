@@ -113,7 +113,19 @@ config :flux_vale,
   backups: [
     image: "restic/restic:0.19.1",
     cpu_cores: "0.1",
-    memory_mb: 128
+    memory_mb: 128,
+    # v1's daily window (ADR-0037 §3): 03:00 UTC plus a per-instance
+    # minute jitter derived from the id — the user controls enabled and
+    # retention, not the clock.
+    schedule_hour: 3,
+    # The Job's activeDeadlineSeconds — the k8s-side bound that turns a
+    # hung run into a Job failure the watch pass finalizes.
+    timeout_seconds: 2 * 60 * 60,
+    # The watch pass's own bound, above the Job's deadline on purpose: the
+    # Job's failure reports through the normal outcome path first, and
+    # only a run whose Job vanished entirely reaches this horizon (or its
+    # slot would never free).
+    stale_after_seconds: 3 * 60 * 60
   ],
   # Scale-to-zero (#203, ADR-0036). idle threshold = the settled owner
   # number (1h); probe user-agents never count as traffic (settled) —
@@ -208,7 +220,7 @@ config :ash_oban, :pro?, false
 # plain Oban.
 config :flux_vale, Oban,
   repo: FluxVale.Repo,
-  queues: [deployments: 10, reconciler: 1, settler: 1, janitor: 1, billing: 1],
+  queues: [deployments: 10, reconciler: 1, settler: 1, janitor: 1, billing: 1, backups: 1],
   plugins: [
     {Oban.Plugins.Cron,
      crontab: [
@@ -226,7 +238,12 @@ config :flux_vale, Oban,
        # E2E compresses the cadence via runtime.exs
        # (IDLE_SWEEP_CRONEXPR) — #210 part 3; deployed envs keep this
        # default.
-       {"*/5 * * * *", FluxVale.Workers.IdleInstanceSweep}
+       {"*/5 * * * *", FluxVale.Workers.IdleInstanceSweep},
+       # #222's backup sweep, every 5 minutes at :06/:11/… — the due and
+       # watch passes are a fifth of the cadence's slack, and the offset
+       # keeps it off the idle sweep's slots and the reconciler's tick
+       # (#113's stance: nothing at the top of the hour).
+       {"6-59/5 * * * *", FluxVale.Workers.BackupSweep}
      ]},
     # Retention for finished jobs (completed/cancelled/discarded) — v1
     # never pruned oban_jobs; adopted on review (#39). 7d keeps a

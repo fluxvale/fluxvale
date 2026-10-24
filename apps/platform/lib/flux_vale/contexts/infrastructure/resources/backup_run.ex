@@ -1,0 +1,178 @@
+defmodule FluxVale.Infrastructure.BackupRun do
+  @moduledoc """
+  One backup attempt for an Instance (#222, ADR-0037 §3) — the history
+  row the backups panel reads and the sweep's watch pass finalizes.
+
+  A run is created by `Operations.RunInstanceBackup` in `:pending`, moved
+  to `:running` once its k8s Job is applied, and closed by
+  `Operations.SweepBackups` from the Job's termination message:
+  `:succeeded` carries restic's snapshot id and byte counts, `:failed`
+  carries a sanitized `error_summary` (≤500, never a credential).
+
+  **A failed run never touches `Instance.status`** — backup health and app
+  health are separate axes (ADR-0037's consequences). The panel shows the
+  failure; the app keeps running.
+
+  Rows are system-written: members read them (org-scoped through the
+  instance), and every write is `authorize?: false` from the operations —
+  the same posture as the instance lifecycle's trigger actions.
+  """
+
+  use Ash.Resource,
+    otp_app: :flux_vale,
+    domain: FluxVale.Infrastructure,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
+
+  postgres do
+    table("backup_runs")
+    repo(FluxVale.Repo)
+
+    # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
+    migration_defaults(id: "nil")
+
+    # The run is the instance's history: teardown's hard delete takes it
+    # along (no FK failure, no orphan).
+    references do
+      reference(:instance, on_delete: :delete)
+    end
+
+    # The watch pass reads active runs every sweep and the panel reads one
+    # instance's history newest-first.
+    custom_indexes do
+      index([:status])
+      index([:instance_id, :started_at])
+    end
+  end
+
+  policies do
+    policy action_type(:read) do
+      description("Members read their org's instance backup runs")
+      authorize_if(relates_to_actor_via([:instance, :organization, :members]))
+    end
+
+    policy action_type([:create, :update]) do
+      description("System-only: the run operation and the sweep (authorize?: false)")
+      forbid_if(always())
+    end
+  end
+
+  attributes do
+    uuid_v7_primary_key(:id)
+
+    attribute :kind, FluxVale.Infrastructure.Types.BackupRunKind do
+      allow_nil?(false)
+      public?(true)
+    end
+
+    attribute :status, FluxVale.Infrastructure.Types.BackupRunStatus do
+      allow_nil?(false)
+      default(:pending)
+      public?(true)
+    end
+
+    # restic's snapshot id (64 hex chars) — nil until a run succeeds.
+    attribute :snapshot_id, :string do
+      public?(true)
+    end
+
+    # From restic's `summary` event: total bytes read, bytes added to the
+    # repo. nil until a run succeeds.
+    attribute :bytes_processed, :integer do
+      public?(true)
+      constraints(min: 0)
+    end
+
+    attribute :bytes_added, :integer do
+      public?(true)
+      constraints(min: 0)
+    end
+
+    # The user-facing reason, sanitized by the sweep — restic's exit code
+    # plus its last stderr line, truncated. Never env values.
+    attribute :error_summary, :string do
+      public?(true)
+      constraints(max_length: 500)
+    end
+
+    # Set at create (the run's clock starts then, not at the Job's first
+    # pod); nil while it runs.
+    attribute :started_at, :utc_datetime do
+      allow_nil?(false)
+      public?(true)
+    end
+
+    attribute :finished_at, :utc_datetime do
+      public?(true)
+    end
+
+    create_timestamp(:created_at)
+    update_timestamp(:updated_at)
+  end
+
+  relationships do
+    belongs_to :instance, FluxVale.Infrastructure.Instance do
+      allow_nil?(false)
+      public?(true)
+    end
+  end
+
+  actions do
+    defaults([:read])
+
+    create :create do
+      primary?(true)
+      accept([:instance_id, :kind, :status, :started_at])
+    end
+
+    update :update do
+      description("The sweep's finalize (and the operation's :running flip).")
+      require_atomic?(false)
+
+      accept([
+        :status,
+        :snapshot_id,
+        :bytes_processed,
+        :bytes_added,
+        :error_summary,
+        :finished_at
+      ])
+    end
+
+    read :recent_for_instance do
+      description("One instance's run history, newest first.")
+      argument(:instance_id, :uuid, allow_nil?: false)
+
+      argument(:limit, :integer,
+        allow_nil?: false,
+        default: 20,
+        constraints: [min: 1, max: 100]
+      )
+
+      filter(expr(instance_id == ^arg(:instance_id)))
+      prepare(build(sort: [started_at: :desc, id: :desc]))
+
+      prepare(fn query, _context ->
+        limit = Ash.Query.get_argument(query, :limit)
+        Ash.Query.limit(query, limit)
+      end)
+    end
+
+    # The watch pass's input: everything the platform still owns an
+    # outcome for. System read (authorize?: false) — no member needs a
+    # fleet-wide list.
+    read :active do
+      description("Runs awaiting an outcome — the sweep's watch pass input.")
+      filter(expr(status in [:pending, :running]))
+    end
+  end
+
+  code_interface do
+    domain(FluxVale.Infrastructure)
+
+    define(:create)
+    define(:update)
+    define(:recent_for_instance, args: [:instance_id, :limit])
+    define(:active)
+  end
+end

@@ -65,12 +65,13 @@ defmodule FluxVale.RuntimeConfigTest do
         crontab = Keyword.get(cron_opts, :crontab, [])
 
         assert {"* * * * *", FluxVale.Workers.IdleInstanceSweep} in crontab
-        # The other three entries keep their config.exs homes — the
-        # override reslots one line, it doesn't fork the crontab.
+        # The other entries keep their config.exs homes — the override
+        # reslots one line, it doesn't fork the crontab.
         assert {"0 3 * * *", FluxVale.Janitor.PruneExpiredTokens} in crontab
         assert {"7 * * * *", FluxVale.Workers.ZeroBalanceSweep} in crontab
         assert {"13 * * * *", FluxVale.Workers.StrandedInstanceSweep} in crontab
-        assert length(crontab) == 4
+        assert {"6-59/5 * * * *", FluxVale.Workers.BackupSweep} in crontab
+        assert length(crontab) == 5
       end)
     end
 
