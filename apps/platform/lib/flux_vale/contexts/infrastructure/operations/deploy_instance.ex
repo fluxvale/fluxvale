@@ -16,7 +16,10 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   explicitly, v1's lesson):
 
   - the **RoleBinding precedes every namespaced operand**: the workload
-    verbs it grants are what allow the platform SA to create the rest
+    verbs it grants are what allow the platform SA to create the rest —
+    and it is also *young* when the first operand applies: the
+    authorizer ingests bindings asynchronously, a race tolerated in
+    `apply_resources` (not by ordering, #238)
   - the **Secret precedes the Deployment**: the container references it
     via `envFrom.secretRef`, and a missing Secret at scheduling time is a
     transient `CreateContainerConfigError` the reconciler could misread
@@ -35,6 +38,7 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   alias FluxVale.Clients.K8s.Resources.RoleBinding
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Clients.K8s.Resources.Service
+  alias FluxVale.Clients.K8s.SelfAccessReview
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
@@ -45,6 +49,13 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   @env_secret "app-env"
   @file_secret "file-access"
   @dav_service "dav"
+
+  # The propagation-wait probe (#238): the ResourceQuota is the first
+  # operand that needs the workload RoleBinding, and its verbs come
+  # only from that binding — once this canary is allowed, the binding
+  # is visible to the authorizer, and so is every later operand's grant.
+  @rbac_probe_resource "resourcequotas"
+  @rbac_probe_verb "create"
 
   # Sidecar requests (ADR-0035): platform overhead on top of the
   # purchased allocation — the ResourceQuota widens by exactly this
@@ -119,6 +130,44 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   end
 
   defp apply_resources(kubeconfig, namespace, instance) do
+    case apply_operands(kubeconfig, namespace, instance) do
+      # #238: a 403 from these operands is usually not a bad grant but
+      # a young one — see retry_after_rbac_propagation/3.
+      {:error, %Error{reason: :forbidden}} ->
+        retry_after_rbac_propagation(kubeconfig, namespace, instance)
+
+      result ->
+        result
+    end
+  end
+
+  # On a forbidden operand: wait out workload-RBAC propagation, then
+  # re-run the whole sequence once. The workload RoleBinding is the
+  # operand verbs' only source (#69's split), and the API server
+  # authorizes against an informer-cached view of bindings — one
+  # created in this same deploy may not be visible yet when the first
+  # operand applies, which then 403s (nightly run 40049475058, on
+  # #238, caught the race with surviving artifacts). The re-run is
+  # safe — every operand is a server-side apply, so re-applying is a
+  # no-op where it already succeeded.
+  #
+  # Trade-off: a genuinely bad grant (never propagation) also pays the
+  # bounded wait (~5s) plus one redundant SSA round before landing the
+  # same verbatim 403 — the API server's message in status_message is
+  # the diagnostic we keep either way, so the wait deliberately does
+  # not gate the retry.
+  defp retry_after_rbac_propagation(kubeconfig, namespace, instance) do
+    SelfAccessReview.wait_until_allowed(
+      kubeconfig,
+      namespace,
+      @rbac_probe_resource,
+      @rbac_probe_verb
+    )
+
+    apply_operands(kubeconfig, namespace, instance)
+  end
+
+  defp apply_operands(kubeconfig, namespace, instance) do
     env = deploy_env(instance)
 
     # #196: the env label scopes namespace ownership — the orphan sweep

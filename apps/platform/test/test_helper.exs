@@ -26,6 +26,8 @@ Mimic.copy(FluxVale.Clients.K8s.Resources.RestoreJob)
 # The restore operation's status funnel: tests force the :restoring write
 # to fail (the row-settling arm) without a hand-edited state machine.
 Mimic.copy(FluxVale.Infrastructure.Operations.InstanceK8s)
+# #238: the deploy's RBAC-propagation wait probes SelfSubjectAccessReview
+Mimic.copy(FluxVale.Clients.K8s.SelfAccessReview)
 
 ExUnit.start(exclude: [k8s: true])
 Ecto.Adapters.SQL.Sandbox.mode(FluxVale.Repo, :manual)
