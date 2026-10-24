@@ -207,13 +207,26 @@ server = the panel's Address, username = `fluxvale`, password = the
 revealed password.
 
 **rclone** — mounting as a drive and scripted sync. The panel's snippet
-is the whole setup (`--obscure` is load-bearing, Amendment 1):
+is the whole setup (`--obscure` is load-bearing, Amendment 1). Create
+your local source directory first, then connect, then verify, then
+copy — each step catches its own class of mistake:
 
 ```
+mkdir -p ~/Books   # your local source — create it before copying
 rclone config create fluxvale-<slug> webdav \
     url https://<slug>.fluxvale.app/dav vendor rclone user fluxvale pass '<password>' --obscure
-rclone copy ~/library fluxvale-<slug>:library --progress
+rclone lsd fluxvale-<slug>:   # verify: lists the instance's root dirs (auth + URL proven)
+rclone copy ~/Books fluxvale-<slug>:library/books --progress
 ```
+
+Keeping it updated: `rclone copy` is incremental and never deletes —
+re-run it after adding files locally and only the new ones upload. A
+strict mirror (local deletions removed remotely) is `rclone sync`; it
+deletes by design, so `--dry-run` it first. After uploading, the app
+must be told about the files: register the folder in the app's
+settings and trigger a scan (e.g. Kavita: Settings → Libraries →
+add the path, then Scan) — the file layer and the app's index are
+separate by design.
 
 Alternates, known to work but not recommended: RaiDrive and WinSCP on
 Windows. Mobile WebDAV apps: none vetted yet — a future note.
