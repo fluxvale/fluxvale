@@ -148,7 +148,15 @@ apply_with_retry -f deploy/local/k8s/15-ingressroute.yaml
 # the settled 1h + */5 defaults.
 kubectl -n "$NAMESPACE" set env deployment/fluxvale-platform \
   "IDLE_SLEEP_AFTER_SECONDS=${E2E_IDLE_SLEEP_AFTER_SECONDS:-180}" \
-  "IDLE_SWEEP_CRONEXPR=${E2E_SWEEP_CRONEXPR:-* * * * *}"
+  "IDLE_SWEEP_CRONEXPR=${E2E_SWEEP_CRONEXPR:-* * * * *}" \
+  "PROMEX_ENABLED=true"
+# PROMEX_ENABLED: the wake test's cold-start ceiling derives from the
+# platform's own #232 wake histograms (flux_vale_wake_total_seconds),
+# read off /metrics — the metrics tree must be up in e2e runs. Tilt
+# dev stacks keep the down default; note a local e2e bootstrap ALSO
+# leaves /metrics open on the cluster network (loopback / *.lvh.me
+# only — acceptable for a dev box, and the reason METRICS_TOKEN stays
+# a deployed-env concern).
 
 # The init container crash-loops until CNPG hands out the DB secret —
 # by design (never half-migrated); the rollout just waits through it.

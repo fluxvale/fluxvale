@@ -366,6 +366,10 @@ jobs:
         env:
           LEG_SPECS: ${{ matrix.leg.specs }}
           E2E_PROBE_WINDOW_MS: ${{ matrix.leg.probe_window_ms }}
+          # The bootstrap guarantees the metrics tree on these legs —
+          # a missing wake SLI is a bootstrap bug, fail it loudly
+          # (local runs keep the lenient fallback instead).
+          E2E_REQUIRE_WAKE_SLI: "1"
         run: |
           set -a; . apps/e2e/.e2e-env; set +a
           cd apps/e2e

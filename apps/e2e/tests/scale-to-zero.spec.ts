@@ -3,6 +3,7 @@ import { waitForLiveViewJoin } from "./helpers/live-view";
 import { runtimeFor } from "./helpers/runtime";
 import { signIn } from "./helpers/sign-in";
 import { TestInbox } from "./helpers/test-inbox";
+import { wakeCeilingMs, wakeSliSnapshot } from "./helpers/wake-metrics";
 
 // #203 (ADR-0036): the scale-to-zero economic model end to end —
 // deploy → idle → sleeps (storage-only) → request → wakes → serves,
@@ -119,6 +120,9 @@ test.describe.serial("forgejo: scale-to-zero", () => {
     // first request after the sleep flip can transiently 502 while
     // Traefik converges on the freshly-applied wake objects — a real
     // visitor's browser refreshes through it; poll, don't fail.
+    // The SLI snapshot precedes t0 so the ceiling below brackets
+    // exactly this wake (the platform's own clock, not a constant).
+    const sliBefore = await wakeSliSnapshot(request, "forgejo");
     const t0 = Date.now();
     const first = await firstWakeResponse(request, instanceUrl!);
     expect(first.status()).toBe(200);
@@ -148,9 +152,28 @@ test.describe.serial("forgejo: scale-to-zero", () => {
     expect(woke, "the woken instance serves Forgejo again").toBe(true);
     const coldStartMs = Date.now() - t0;
     console.log(`scale-to-zero cold start (request → serving): ${coldStartMs}ms`);
-    // Generous CI ceiling; the owner's budget is "a few seconds" and
-    // the measured number rides the run log.
-    expect(coldStartMs).toBeLessThan(60_000);
+
+    // Two conjuncts, two different jobs:
+    //
+    // 1. Consistency — the cold start must track the platform's own
+    //    wake clock (#232's total histogram) for THIS wake. The
+    //    platform's clock includes the minute-cadence reconciler by
+    //    design, so full-cadence wakes sit near the minute mark and a
+    //    fixed ceiling was failing on true statements; this gate
+    //    instead catches user-visible divergence from the instrument
+    //    (edge convergence, restore glitches) — runner variance moves
+    //    both numbers together.
+    // 2. Absolute backstop — the serving loop's own 120s budget, said
+    //    out loud: consistency alone cannot fail on a wake that is
+    //    uniformly slow, so a gross regression (stuck reconciler,
+    //    cold image pull) must still have a number to answer to.
+    const { ceilingMs, samples } = await wakeCeilingMs(request, "forgejo", sliBefore);
+
+    expect(
+      coldStartMs,
+      `cold start vs wake SLI (ceiling ${ceilingMs}ms over ${samples} sample(s))`,
+    ).toBeLessThan(ceilingMs);
+    expect(coldStartMs, "absolute cold-start budget").toBeLessThan(120_000);
 
     await waitForStatus(page, "Running", 3 * 60_000);
   });
