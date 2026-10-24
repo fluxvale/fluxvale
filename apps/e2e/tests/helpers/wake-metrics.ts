@@ -38,9 +38,13 @@ type SliSnapshot = { sum: number; count: number };
 
 /**
  * The wake-total histogram state for `app`, or null when /metrics is
- * unreachable or the series is absent. Take one before the wake
- * starts and pass it to wakeCeilingMs — the delta over the wake is
- * this wake's own sample, by construction (immune to samples from
+ * unreadable. An absent series is the ZERO state, not an error —
+ * Prometheus omits unobserved series from the exposition, so a fresh
+ * run's first wake pairs against {0, 0} (CodeRabbit, verified on the
+ * first timers leg: attempt 1 red on "unreadable before the wake",
+ * the retry paired off attempt 1's own sample). Take one before the
+ * wake starts and pass it to wakeCeilingMs — the delta over the wake
+ * is this wake's own sample, by construction (immune to samples from
  * earlier wakes in the same cluster, including a local k3d reused
  * across runs).
  */
@@ -55,6 +59,9 @@ export async function wakeSliSnapshot(
   const sum = sampleValue(exposition, TOTAL_SUM, app);
   const count = sampleValue(exposition, TOTAL_COUNT, app);
 
+  if (sum === null && count === null) return { sum: 0, count: 0 };
+  // A half-present series (one line present, one missing) is
+  // malformed exposition — no honest reading either way.
   if (sum === null || count === null) return null;
 
   return { sum, count };
@@ -78,14 +85,14 @@ export async function wakeCeilingMs(
   // missing on either side (tree down at one read) or a counter reset
   // (platform pod restarted mid-run) leaves no honest delta.
   if (after === null || before === null || after.count < before.count || after.sum < before.sum) {
-    degrade(
-      requireSli,
+    const why =
       after === null
         ? "/metrics unreadable after the wake"
         : before === null
-          ? "/metrics was unreadable before the wake"
-          : "histogram counters moved backwards (platform restart?)",
-    );
+          ? "/metrics unreadable before the wake (an absent series is the zero state, not this)"
+          : "histogram counters moved backwards (platform restart?)";
+
+    degrade(requireSli, why);
 
     return { ceilingMs: FALLBACK_CEILING_MS, meanTotalMs: null, samples: 0 };
   }
