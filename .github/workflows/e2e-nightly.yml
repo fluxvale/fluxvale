@@ -122,6 +122,10 @@ jobs:
           echo "pw apt cache: $(ls "$HOME"/.pw-apt/*.deb | wc -l) debs staged for save"
 
       - name: Run the suite (full cadence)
+        env:
+          # The bootstrap guarantees the metrics tree here — a missing
+          # wake SLI is a bootstrap bug, fail it loudly.
+          E2E_REQUIRE_WAKE_SLI: "1"
         run: |
           set -a; . apps/e2e/.e2e-env; set +a
           cd apps/e2e
