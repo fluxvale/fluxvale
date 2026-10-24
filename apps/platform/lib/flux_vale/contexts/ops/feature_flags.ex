@@ -62,7 +62,10 @@ defmodule FluxVale.Ops.FeatureFlags do
   @doc """
   Is `key` enabled for `actor`? `key` must be declared in `@known_flags`.
   """
-  @spec enabled?(atom(), for: Ash.Resource.record() | map() | nil) :: boolean()
+  # Ash.Resource.Record.t() — the record type's own name; the shorter
+  # Ash.Resource.record() alias is compiled out on OTP 29+ (ash's own
+  # otp_release guard), so this spelling is the version-portable one.
+  @spec enabled?(atom(), for: Ash.Resource.Record.t() | map() | nil) :: boolean()
   def enabled?(key, for: actor) when is_atom(key) do
     declared!(key)
 
@@ -156,7 +159,7 @@ defmodule FluxVale.Ops.FeatureFlags do
   Pure — no lookup, no policy, no clock. `key` is the declared atom used
   for sticky bucketing.
   """
-  @spec decide(flag_row() | nil, atom(), Ash.Resource.record() | map() | nil) :: boolean()
+  @spec decide(flag_row() | nil, atom(), Ash.Resource.Record.t() | map() | nil) :: boolean()
   def decide(nil, _key, _actor), do: false
 
   def decide(%FeatureFlag{enabled: false}, _key, _actor), do: false
