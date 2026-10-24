@@ -15,11 +15,11 @@ defmodule FluxVale.Seeds.PricingDataTest do
   alias FluxVale.Seeds.PricingData
 
   describe "entries/0 (shipped data)" do
-    test "carries the six sizes, keyed by slug" do
+    test "carries the eight sizes, keyed by slug" do
       sizes = PricingData.entries()
       slugs = Enum.map(sizes, & &1.slug)
 
-      assert slugs == ~w(micro small medium standard plus pro)
+      assert slugs == ~w(micro small medium standard plus pro ultra max)
     end
 
     test "normalizes quoted cpu strings to Decimal and keeps integer cents" do
@@ -46,16 +46,28 @@ defmodule FluxVale.Seeds.PricingDataTest do
     pro: {1606, 228}
   }
 
+  # The #233 top-rung extension: no doc-decided table exists for these
+  # two — the cents are the same v5 curve at the new allocations,
+  # pinned as literals because they are pricing-bearing (this is the
+  # rung table the owner signs off on #233), so a YAML or curve drift
+  # must fail here exactly like a doc-row drift does.
+  @ladder_extension %{
+    ultra: {2216, 383},
+    max: {2895, 644}
+  }
+
   describe "the decided B′ table (#206, docs/pricing-recalibration-2026-10.md)" do
-    test "every shipped size carries the doc's B′ cents, running and stopped" do
+    test "every shipped size carries the doc's B′ cents (or the #233 extension's), running and stopped" do
+      pinned = Map.merge(@doc_b_prime, @ladder_extension)
+
       for size <- PricingData.entries() do
-        # to_existing_atom: the @doc_b_prime keys already exist — a
-        # YAML slug matching no doc row must raise, not mint an atom.
+        # to_existing_atom: the pinned keys above already exist — a
+        # YAML slug matching no pinned row must raise, not mint an atom.
         slug_atom = String.to_existing_atom(size.slug)
-        {monthly, stopped} = Map.fetch!(@doc_b_prime, slug_atom)
+        {monthly, stopped} = Map.fetch!(pinned, slug_atom)
 
         assert {size.monthly_cents, size.stopped_monthly_cents} == {monthly, stopped},
-               "size #{size.slug}: {#{size.monthly_cents}, #{size.stopped_monthly_cents}} ≠ the doc's B′ {#{monthly}, #{stopped}}"
+               "size #{size.slug}: {#{size.monthly_cents}, #{size.stopped_monthly_cents}} ≠ the pinned B′ {#{monthly}, #{stopped}}"
       end
     end
 

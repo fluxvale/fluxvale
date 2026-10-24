@@ -10,7 +10,7 @@ defmodule FluxVale.Seeds.PricingSeedTest do
   alias FluxVale.Seeds
 
   describe "seed_pricing!/0 (shipped data)" do
-    test "seeds the six sizes cleanly" do
+    test "seeds the eight sizes cleanly" do
       assert :ok == Seeds.seed_pricing!()
 
       small = Size.get_by_slug!("small", authorize?: false)
@@ -37,7 +37,7 @@ defmodule FluxVale.Seeds.PricingSeedTest do
       assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_pricing!()
 
-      assert length(Ash.read!(Size, authorize?: false)) == 6
+      assert length(Ash.read!(Size, authorize?: false)) == 8
     end
   end
 

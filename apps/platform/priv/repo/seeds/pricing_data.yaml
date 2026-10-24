@@ -7,6 +7,11 @@
 # to the doc). The SG variant (×1.25) is decided but on standby: no
 # SG rows ship here until the SG box exists.
 #
+# The #233 top-rung extension (ultra, max) has no doc-decided table:
+# its cents are the same v5 curve at the new allocations, pinned as
+# literals in pricing_data_test.exs (@ladder_extension) — the rung
+# table the owner signs off on #233.
+#
 # Adding or repricing a size is purely additive: append/edit an entry and
 # re-run seeds — FluxVale.Seeds.seed_pricing!/0 converges existing rows
 # to match the YAML, idempotently. Cents edits are always safe;
@@ -58,3 +63,15 @@
   storage_gb: 100
   monthly_cents: 1606
   stopped_monthly_cents: 228
+- slug: ultra
+  cpu_cores: "6"
+  memory_mb: 12288
+  storage_gb: 200
+  monthly_cents: 2216
+  stopped_monthly_cents: 383
+- slug: max
+  cpu_cores: "8"
+  memory_mb: 16384
+  storage_gb: 400
+  monthly_cents: 2895
+  stopped_monthly_cents: 644
