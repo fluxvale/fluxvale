@@ -367,6 +367,19 @@ defmodule FluxVale.Clients.K8s.Resources.RestoreJobTest do
       }
     end
 
+    # A pod owned by the given Job uid — the controller ownerReference
+    # shape k8s produces.
+    defp owned_pod(job_uid, message) do
+      references = [
+        %{"apiVersion" => "batch/v1", "kind" => "Job", "uid" => job_uid}
+      ]
+
+      # bind-then-call: credo rejects both the nested form and a
+      # function-headed pipeline here.
+      pod = pod_with_message(message)
+      Map.put(pod, "metadata", %{"ownerReferences" => references})
+    end
+
     test "a Job with no verdict is :running — and costs no pod read" do
       stub_job(%{"status" => %{}})
       reject(Kubereq, :list, 3)
@@ -387,6 +400,27 @@ defmodule FluxVale.Clients.K8s.Resources.RestoreJobTest do
       # No label on this Job: the ownership check's nil case (a
       # pre-label object, one-release compatibility).
       assert outcome.run_id == nil
+    end
+
+    # The pod-level ownership filter (the backup builder's identical
+    # review fix): a leftover pod must never speak for this Job's run.
+    test "a foreign pod's termination never speaks for this Job" do
+      owned_message = ~s({"snapshot_id":"owned","bytes_restored":10})
+      foreign_message = ~s({"snapshot_id":"foreign","bytes_restored":99})
+
+      stub_job(%{
+        "metadata" => %{"uid" => "job-uid-1"},
+        "status" => %{"succeeded" => 1}
+      })
+
+      # The foreign pod is FIRST — without the owner filter it wins.
+      stub_pods([
+        owned_pod("job-uid-2", foreign_message),
+        owned_pod("job-uid-1", owned_message)
+      ])
+
+      assert {:ok, outcome} = RestoreJob.status(%{}, "ns")
+      assert outcome.message == owned_message
     end
 
     # The ownership link: the sweep only attributes a verdict to the row

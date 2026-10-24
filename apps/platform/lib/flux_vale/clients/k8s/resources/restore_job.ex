@@ -189,9 +189,13 @@ defmodule FluxVale.Clients.K8s.Resources.RestoreJob do
     with {:ok, job} <- get(kubeconfig, namespace) do
       job
       |> verdict()
-      |> settle(kubeconfig, namespace, run_id(job))
+      |> settle(kubeconfig, namespace, run_id(job), uid(job))
     end
   end
+
+  @doc "The Job's own uid — the ownership key for its pods."
+  @spec uid(map()) :: String.t() | nil
+  def uid(job), do: get_in(job, ["metadata", "uid"])
 
   # The Job object carries no container statuses — that is the Pod's
   # (our own pod, matched by the label the Job's template sets).
@@ -396,15 +400,34 @@ defmodule FluxVale.Clients.K8s.Resources.RestoreJob do
   end
 
   # Only a settled Job pays for the second read.
-  defp settle(:running, _kubeconfig, _namespace, _run_id) do
+  defp settle(:running, _kubeconfig, _namespace, _run_id, _uid) do
     {:ok, %{outcome: :running, message: nil, exit_code: nil, reason: nil, run_id: nil}}
   end
 
-  defp settle(verdict, kubeconfig, namespace, run_id) do
+  # The pod read is ownership-scoped (the backup builder's identical
+  # review fix): a leftover pod must never speak for this Job's run.
+  defp settle(verdict, kubeconfig, namespace, run_id, uid) do
     case pods(kubeconfig, namespace) do
-      {:ok, pod_list} -> {:ok, outcome(verdict, terminated_state(pod_list), run_id)}
-      {:error, _error} = error -> error
+      {:ok, pod_list} ->
+        {:ok, outcome(verdict, terminated_state(owned_pods(pod_list, uid)), run_id)}
+
+      {:error, _error} = error ->
+        error
     end
+  end
+
+  # nil uid (a hand-built fixture): keep the name-label semantics.
+  defp owned_pods(pod_list, nil), do: pod_list
+
+  defp owned_pods(pod_list, uid) do
+    Enum.filter(pod_list, &owned_by?(&1, uid))
+  end
+
+  defp owned_by?(pod, uid) do
+    pod
+    |> get_in(["metadata", "ownerReferences"])
+    |> List.wrap()
+    |> Enum.any?(fn ref -> ref["uid"] == uid and ref["kind"] == "Job" end)
   end
 
   defp outcome(:succeeded, terminated, run_id) do
