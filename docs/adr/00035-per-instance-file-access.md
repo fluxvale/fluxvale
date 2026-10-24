@@ -242,3 +242,36 @@ in the app's settings and trigger a scan (e.g. Kavita: Settings →
 Libraries → add the path, then Scan) — the file layer and the app's
 index are separate by design.
 
+## Amendment 3 — the panel snippet becomes per-platform quick-starts (2026-10-24)
+
+Second dogfood pass (#253): Am. 2's quick-start was copy-paste-safe
+but assumed the reader's platform — no install step, no Windows path
+syntax, one shell dialect. The instance panel's snippet area is now
+**three tabs — Windows · macOS · Linux** — each a complete five-step
+sequence with the instance's real values inline (the password still
+stands in as `YOUR_PASSWORD` until the reveal):
+
+1. **Install (only if needed)** — `winget install Rclone.Rclone`
+   (PowerShell; scoop/choco noted) · `brew install rclone` ·
+   `curl https://rclone.org/install.sh | sudo bash` (distro packages
+   noted).
+2. **Create the local source** — `mkdir -p ~/Books`, or
+   `mkdir $env:USERPROFILE\Books` on Windows.
+3. **Connect** — the `rclone config create` command; `--obscure`
+   remains load-bearing (Am. 1). Windows renders it on one line:
+   PowerShell has no backslash continuation, and its backtick
+   continuation is a trailing-space paste trap.
+4. **Verify** — `rclone lsd fluxvale-<slug>:` (auth + URL proven
+   before any transfer).
+5. **Copy** — `rclone copy … fluxvale-<slug>:library/books --progress`
+   with the platform's source path.
+
+The **active tab defaults to the visitor's OS**, detected client-side
+(`navigator.userAgentData?.platform` / `navigator.platform`, pushed to
+the server once on mount and mapped there). Unknown strings — Android,
+iOS — keep the Linux default; an explicit tab click locks the choice
+so detection can never override it (assist, never trap). The active
+platform is server state, so the password reveal's re-render cannot
+snap a visitor back to the default tab mid-sequence, and the copy
+button carries exactly the active platform's commands. Am. 2's
+update-semantics and app-scan notes render under every tab.

@@ -172,14 +172,24 @@ test("file access: deploy Kavita → rclone put through /dav → file lands in t
   // the text the panel actually carries (read straight off the copy
   // button) so a drift in the rendered snippet can't pass by virtue of
   // this test retyping the flags correctly.
+  // #253: the copy value is the active platform's five-command
+  // sequence (install → mkdir → config create → lsd → copy). The
+  // config command is the run of lines from "rclone config create" —
+  // multi-line on POSIX (backslash continuation), one line on Windows
+  // — up to the next top-level rclone command.
   const snippet = await page
     .getByTestId("copy-dav-snippet")
     .getAttribute("data-copy-value");
   expect(snippet).toBeTruthy();
 
-  const configEnd = snippet!.indexOf("\nrclone copy");
-  expect(configEnd).toBeGreaterThan(0);
-  const snippetConfigCommand = snippet!.slice(0, configEnd);
+  const lines = snippet!.split("\n");
+  const configStart = lines.findIndex((l) => l.startsWith("rclone config create"));
+  expect(configStart).toBeGreaterThanOrEqual(0);
+  const configEnd = lines.findIndex(
+    (l, i) => i > configStart && /^rclone \w/.test(l),
+  );
+  expect(configEnd).toBeGreaterThan(configStart);
+  const snippetConfigCommand = lines.slice(configStart, configEnd).join("\n");
   const snippetRemote = snippetConfigCommand.match(
     /rclone config create (\S+)/,
   )?.[1];
