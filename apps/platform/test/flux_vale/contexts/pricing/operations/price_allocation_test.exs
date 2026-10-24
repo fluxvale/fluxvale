@@ -189,7 +189,7 @@ defmodule FluxVale.Pricing.Operations.PriceAllocationTest do
     end)
   end
 
-  # The seeded allocation behind a slug (PricingData carries the six
+  # The seeded allocation behind a slug (PricingData carries the eight
   # sizes) — table-driven tests iterate the doc's per-size tables.
   defp allocation_for(slug) do
     size = Enum.find(PricingData.entries(), &(&1.slug == Atom.to_string(slug)))
