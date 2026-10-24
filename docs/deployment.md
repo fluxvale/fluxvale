@@ -99,7 +99,7 @@ prints it to stdout — never to the pod log. It runs through
 `eval` (no supervision tree, so the AccessRule cache is read
 straight-through); the AccessRule gate itself still applies.
 
-### Scheduled monitoring (two layers)
+### Scheduled monitoring (three layers)
 
 1. **Availability — Grafana Synthetics** (day one, Cloud free tier):
    `/health` + DNS checks on prod and staging, 2–3 probe regions,
@@ -120,6 +120,28 @@ straight-through); the AccessRule gate itself still applies.
    fires on staleness. Scheduled failures ride that page — no revert
    PR, there's no deploy to blame (a scheduled failure with nothing
    deployed is an environment problem, not a code one).
+3. **Version currency — same cron** (#242): each env's `/health`
+   version must equal the newest platform-carrying sha on main, or
+   trail it by under 2h (the pipeline is 15–35 min end to end; the
+   grace covers cron jitter and a slow build). Availability checks
+   pass on old pods forever — this is the layer that notices a deploy
+   that never shipped (stuck rollout, skipped deploy jobs, a sha
+   stranded by a history rewrite). Reds ride the smoke's page (no
+   heartbeat) and annotation; the drill knob is the workflow's
+   `grace_hours` dispatch input — 0 reds while any platform commit
+   awaits deploy, so drill during a merge→deploy window.
+
+### Fleet env contract (required envs)
+
+The boot-guard envs a fleet overlay must carry are declared in
+[`apps/platform/required-envs.txt`](../apps/platform/required-envs.txt)
+— one name per line, each one a raises-without in
+`config/runtime.exs`. The fleet repo's CI fetches the file from main
+and asserts its overlays carry every name, so the next
+`PLATFORM_ENV`-class omission (#196/#213) fails a check instead of
+crash-looping in prod;
+`apps/platform/test/flux_vale/required_envs_test.exs` pins the list
+from both directions so it can't rot.
 
 ## Bring-up: Cluster row + instance slugs
 
