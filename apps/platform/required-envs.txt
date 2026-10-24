@@ -1,0 +1,24 @@
+# Runtime-required envs — the boot-guard contract the fleet overlays
+# must satisfy (fluxvale#242). Every name here is one the prod-mode
+# release refuses to boot without, in the fleet's discrete-DB_* shape
+# (a set DATABASE_URL would satisfy the DB raises, but fleets can't
+# template a URL from Secret refs — the contract mandates the vars):
+# a fleet overlay missing one crash-loops the rollout while PR CI
+# stays green (the Oct-23 PLATFORM_ENV incident, fluxvale#196/#213
+# class).
+#
+# Consumers: the fleet repo's CI env-parity assert fetches this file
+# from main and requires every name in each env overlay's built
+# platform Deployment. Keepers: test/flux_vale/required_envs_test.exs
+# — every name here must raise when dropped, and a prod read with ONLY
+# these names set must succeed, so the list can drift in neither
+# direction without a red test.
+#
+# One name per line; '#' comment lines and blanks are ignored by
+# consumers. DB_HOST composes the DATABASE_URL the raise asks for;
+# DB_USER raises when DB_HOST is set without it.
+PLATFORM_ENV
+DB_HOST
+DB_USER
+SECRET_KEY_BASE
+TOKEN_SIGNING_SECRET

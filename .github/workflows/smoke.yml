@@ -1,6 +1,9 @@
 # Scheduled smoke — the correctness layer (ADR-0011 Am. 1, #99):
 # Bruno against both envs every 30 min, the same collection that gates
-# deploys. On FULL success the run remote-writes
+# deploys, plus the version-currency check (#242): each env's /health
+# version current within a grace window of the newest platform-carrying
+# sha on main — a deploy that never shipped pages, not just a broken
+# one. On FULL success the run remote-writes
 # `fluxvale_smoke_heartbeat_count` to the hosted Prom; any failure
 # writes NOTHING — series absence IS the page (the dead-man's switch,
 # tofu/deadman.tf in the fleet repo). Availability at minutes-cadence
@@ -15,8 +18,17 @@ on:
     # schedules register lazily — expect the first runs hours late.
     - cron: "7,37 * * * *"
   # Manual trigger: the drill path for the red path (issue #99's exit
-  # test) and re-running the correctness layer after an incident.
+  # test), re-running the correctness layer after an incident, and the
+  # version-currency drill. NB grace_hours=0 reds only while an
+  # undeployed platform commit exists (or an env is stale) — in steady
+  # state every env serves the newest sha and a 0-grace dispatch is
+  # green. Drill during a merge→deploy window (~15–35 min after a
+  # platform merge) or against a known-stale env.
   workflow_dispatch:
+    inputs:
+      grace_hours:
+        description: "Version-currency grace window in hours — 0 reds while any platform commit awaits deploy"
+        default: "2"
 
 permissions:
   contents: read
@@ -32,6 +44,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # Full main history: the version-currency step dates the
+          # deployed sha and the newest platform-carrying commit
+          # against each other — a shallow clone sees neither.
+          fetch-depth: 0
 
       # Same pin + install shape as the e2e job: binaries only.
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
@@ -39,6 +55,15 @@ jobs:
           version: 2026.9.14
           install: false
       - run: mise install node
+
+      # Same shape as the e2e job's npm half (#210): ~/.npm keyed on
+      # the lockfile. Bruno's deps are small; the cache kills the
+      # cold-registry tail, not minutes.
+      - name: Restore npm cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-smoke-npm-${{ hashFiles('apps/smoke/package-lock.json') }}
 
       - name: Install collection
         working-directory: apps/smoke
@@ -74,11 +99,30 @@ jobs:
           SMOKE_PAT: ${{ secrets.SMOKE_PAT_PRODUCTION }}
         run: mise x -- npx bru run --env Production --env-var pat="$SMOKE_PAT"
 
+      # Version currency (#242): availability passes on old pods
+      # forever — this is the check that notices a deploy that never
+      # shipped. Each env's /health version vs the newest
+      # platform-carrying sha on main, within a grace window that
+      # covers the 15–35 min pipeline plus cron jitter. Runs after the
+      # Bruno legs on purpose: a Bruno failure already reds the run,
+      # and both failures produce one annotation, not two pages.
+      - name: Version currency — both envs
+        id: version_currency
+        working-directory: apps/smoke
+        continue-on-error: true
+        env:
+          # 2h: 3× the worst legit merge→deployed window. The drill
+          # knob is the workflow_dispatch input — dispatch with
+          # grace_hours=0 during a merge→deploy window to prove the
+          # red path.
+          CURRENCY_GRACE_HOURS: ${{ inputs.grace_hours || '2' }}
+        run: mise x -- node scripts/version-currency.mjs staging=https://staging.fluxvale.com production=https://fluxvale.com
+
       # Full success → heartbeat. A failed write reds the run: a cron
       # that cannot write is a dead pipeline, and the dead-man must not
       # be the only thing that notices.
       - name: Write heartbeat
-        if: ${{ steps.bruno_staging.outcome == 'success' && steps.bruno_production.outcome == 'success' }}
+        if: ${{ steps.bruno_staging.outcome == 'success' && steps.bruno_production.outcome == 'success' && steps.version_currency.outcome == 'success' }}
         working-directory: apps/smoke
         env:
           # Explicit, not secret: the endpoint is fleet config (the same
@@ -95,7 +139,7 @@ jobs:
       # link, then fail the run. The page itself rides the dead-man:
       # no heartbeat written.
       - name: Red path — annotation
-        if: ${{ steps.bruno_staging.outcome == 'failure' || steps.bruno_production.outcome == 'failure' }}
+        if: ${{ steps.bruno_staging.outcome == 'failure' || steps.bruno_production.outcome == 'failure' || steps.version_currency.outcome == 'failure' }}
         env:
           GRAFANA_URL: ${{ secrets.GRAFANA_URL }}
           GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.GRAFANA_SERVICE_ACCOUNT_TOKEN }}
@@ -103,6 +147,7 @@ jobs:
           failed=""
           [ "${{ steps.bruno_staging.outcome }}" = failure ] && failed="$failed staging"
           [ "${{ steps.bruno_production.outcome }}" = failure ] && failed="$failed production"
+          [ "${{ steps.version_currency.outcome }}" = failure ] && failed="$failed version-currency"
           echo "scheduled smoke failed on:$failed"
 
           curl -fsS --retry 3 --retry-all-errors --retry-delay 2 --max-time 15 -X POST "$GRAFANA_URL/api/annotations" \
