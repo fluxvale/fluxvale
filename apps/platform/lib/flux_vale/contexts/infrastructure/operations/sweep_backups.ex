@@ -514,10 +514,20 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
 
   # Backup failures stop at the row (ADR-0037's consequences: backup health
   # and app health are separate axes — the app keeps running).
+  # The instance write is STATUS-GUARDED (CodeRabbit): the run's loaded
+  # instance is a stale snapshot. A crash between create_run and the
+  # :restoring flip leaves a :running app under a :pending row — the
+  # stale horizon must not flip that healthy app to :error. And a
+  # :restoring row whose namespace vanished mid-run goes :lost via the
+  # stranded sweep (#196) — :error must not overwrite the re-deploy
+  # door. Only a row that still reads :restoring lands the failure.
   defp fail_instance(%BackupRun{kind: :restore} = run, _failed) do
     case run.instance do
       %Instance{} = instance ->
-        land_failed_restore(instance)
+        case current_status(instance) do
+          {:ok, :restoring} -> land_failed_restore(instance)
+          _not_restoring -> {:ok, nil}
+        end
 
       # coveralls-ignore-start - unreachable: the FK cascade deletes the
       # run with its instance, and watch/2 already refuses a run whose
@@ -529,6 +539,22 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
   end
 
   defp fail_instance(_run, _failed), do: {:ok, nil}
+
+  # The row's loaded instance can be minutes old (the watch pass reads
+  # it once at load); re-read the status row before writing state.
+  defp current_status(instance) do
+    case Instance.get_by_id(instance.id, authorize?: false) do
+      {:ok, fresh} ->
+        {:ok, fresh.status}
+
+      # coveralls-ignore-start - defensive: the FK cascade deletes runs
+      # with their instance; a row whose instance vanished between the
+      # load and this read has nothing to write anyway.
+      {:error, _gone} ->
+        {:error, :gone}
+        # coveralls-ignore-stop
+    end
+  end
 
   # A restore that failed AFTER its Job ran may have written a partial
   # volume: :error is the honest state, and :restore_failed is the owner's

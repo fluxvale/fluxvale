@@ -4,9 +4,12 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
 
   Burn rate = the sum of the org's live rates, priced through the ONE
   resolver (`Pricing.settlement_rates/2` — the same one `settle_usage`
-  bills by, #153): `:running` instances accrue the running rate,
-  deployed-and-`:stopped` instances the storage-only rate (ADR-0028
-  §2), everything else accrues nothing yet. Unpriced rows (no size AND
+  bills by, #153): `:running` instances accrue the running rate;
+  deployed-and-`:stopped`, `:sleeping`, and `:restoring` instances
+  accrue the storage-only stopped rate (ADR-0028 §2 — sleep is
+  storage-only by construction, #203; a restore holds the app down the
+  same way, #222); everything else accrues nothing yet. Unpriced rows
+  (no size AND
   no formula snapshot — pre-#121 drift or a hand-built half-snapshot)
   burn nothing, matching settle's forgiveness; a sizeless custom
   allocation burns at the live formula rate (#186); a

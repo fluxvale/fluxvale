@@ -293,6 +293,48 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackupTest do
       assert reload(failed).status == :restoring
     end
 
+    # CodeRabbit: a retry that fails BEFORE its Job applies must land
+    # :error/:restore_failed again — the first attempt may have left a
+    # partial volume, and restarting the app (the first-restore revert
+    # semantics) would serve it.
+    test "a failed retry stays down over the possibly-partial volume" do
+      owner = user()
+      version = base!()
+      instance = instance!(version, owner, :running)
+      setting!(instance)
+      succeeded_backup!(instance)
+      run!(instance, %{kind: :restore, status: :failed, restored_from: :running})
+
+      failed =
+        InstanceFixtures.pin!(instance, status: :error, failure_reason: :restore_failed)
+
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+      stub(BackupJob, :delete, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
+      stub(BackupJob, :get, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
+      stub(RestoreJob, :delete, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
+      stub(RestoreJob, :get, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
+
+      stub(Deployment, :get, fn _kc, _ns, _name ->
+        {:ok, %{"status" => %{"replicas" => 0, "readyReplicas" => 0}}}
+      end)
+
+      # The leftover-job wait never sees the object leave — the run
+      # fails before the Job applies.
+      stub(RestoreJob, :create, fn _kc, _ns, _spec ->
+        {:error, Error.connection_error("api hiccup")}
+      end)
+
+      # The app must NOT be restarted: the only legal scale is the
+      # idempotent scale-DOWN on the way in — a scale-to-1 raises.
+      stub(Deployment, :scale, fn _kc, _ns, _name, 0 -> {:ok, %{}} end)
+
+      assert {:error, %Error{}} = Infrastructure.restore_instance_backup(failed)
+
+      still_failed = reload(failed)
+      assert still_failed.status == :error
+      assert still_failed.failure_reason == :restore_failed
+    end
+
     test "a retry inherits :stopped when the failed run recorded none" do
       owner = user()
       version = base!()

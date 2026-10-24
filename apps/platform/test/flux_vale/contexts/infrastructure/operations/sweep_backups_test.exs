@@ -896,4 +896,70 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackupsTest do
       assert summary.recovered_ids == []
     end
   end
+
+  # --- the failure write's status guard (CodeRabbit) -----------------------
+
+  describe "watch — a restore run failing over a non-:restoring instance" do
+    test "a crashed-before-the-flip run never faults a healthy :running app" do
+      # The crash-between-create_run-and-enter_restoring shape: the row
+      # is :pending under a :running instance, and only the stale
+      # horizon ever concludes it.
+      owner = user()
+      instance = deployed_instance!(base!(), owner)
+      setting!(instance)
+
+      stale_started = DateTime.add(@now, -6 * 3600, :second)
+      run!(instance, %{kind: :restore, status: :pending, started_at: stale_started})
+
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+      stub(BackupJob, :status, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
+      stub(BackupJob, :delete, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
+      stub(BackupJob, :create, fn _kc, _ns, _spec -> {:ok, %{}} end)
+
+      stub(FluxVale.Clients.K8s.Resources.RestoreJob, :status, fn _kc, _ns ->
+        {:error, %Error{reason: :not_found}}
+      end)
+
+      stub(Namespace, :exists?, fn _kc, _ns -> {:ok, true} end)
+
+      assert {:ok, summary} = Infrastructure.sweep_backups(@now)
+      assert summary.failed_ids != []
+
+      # The ROW failed; the instance was never :restoring and stays
+      # untouched — no :error, no restore_failed.
+      healthy = Repo.reload!(instance)
+      assert healthy.status != :error
+      assert healthy.failure_reason == nil
+      assert healthy.failure_reason == nil
+    end
+
+    test "a stranded :lost row is not overwritten with :error" do
+      # Namespace vanished mid-restore: the stranded sweep flipped the
+      # row :lost; the run's own failure must settle the row without
+      # closing the owner's re-deploy door.
+      owner = user()
+      instance = deployed_instance!(base!(), owner)
+      setting!(instance)
+
+      lost = InstanceFixtures.pin!(instance, status: :lost)
+
+      run!(instance, %{kind: :restore, status: :running, restored_from: :running})
+
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+      stub(BackupJob, :status, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
+      stub(BackupJob, :delete, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
+      stub(BackupJob, :create, fn _kc, _ns, _spec -> {:ok, %{}} end)
+
+      stub(FluxVale.Clients.K8s.Resources.RestoreJob, :status, fn _kc, _ns ->
+        {:error, %Error{reason: :not_found}}
+      end)
+
+      stub(Namespace, :exists?, fn _kc, _ns -> {:ok, false} end)
+
+      assert {:ok, _summary} = Infrastructure.sweep_backups(@now)
+
+      still_lost = Repo.reload!(lost)
+      assert still_lost.status == :lost
+    end
+  end
 end

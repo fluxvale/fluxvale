@@ -199,8 +199,16 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
   end
 
   defp restore(instance) do
+    # The FOUND status (before the :restoring flip) rides the whole
+    # flow: a RETRY (found :error + :restore_failed) entered with the
+    # app already down over a possibly-partial volume, and its failure
+    # path must land :error again, never restart the app (CodeRabbit:
+    # a failed retry restarting on a partial volume contradicts the
+    # module's own rule).
+    found = instance.status
+
     case guards(instance) do
-      {:ok, snapshot_id} -> start(instance, snapshot_id)
+      {:ok, snapshot_id} -> start(instance, snapshot_id, found)
       {:error, _reason} = error -> error
     end
   end
@@ -281,12 +289,12 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
   defp deployed(%{namespace: nil}), do: {:error, :not_deployed}
   defp deployed(%{namespace: _namespace}), do: :ok
 
-  defp start(instance, snapshot_id) do
+  defp start(instance, snapshot_id, found) do
     prior = pre_restore_status(instance)
 
     with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance) do
       case create_run(instance, prior) do
-        {:ok, run} -> run_restore(run, instance, kubeconfig, snapshot_id, prior)
+        {:ok, run} -> run_restore(run, instance, kubeconfig, snapshot_id, prior, found)
         {:error, _reason} = error -> error
       end
     end
@@ -364,16 +372,19 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
   # scale-down, the leftover-Job deletes, the create — settles it and
   # returns the instance to where it was found. Nothing has touched the
   # volume yet, so the instance never lands :error.
-  defp run_restore(run, instance, kubeconfig, snapshot_id, prior) do
+  defp run_restore(run, instance, kubeconfig, snapshot_id, prior, found) do
     case enter_restoring(instance) do
-      {:ok, restoring} -> hold_and_apply(run, restoring, kubeconfig, snapshot_id, prior)
+      {:ok, restoring} ->
+        hold_and_apply(run, restoring, kubeconfig, snapshot_id, prior, found)
+
       # The flip failed, so the instance never left its prior status:
       # only the row needs settling.
-      {:error, _error} = error -> abandon(run, instance, prior, error)
+      {:error, _error} = error ->
+        abandon(run, instance, prior, found, error)
     end
   end
 
-  defp hold_and_apply(run, restoring, kubeconfig, snapshot_id, prior) do
+  defp hold_and_apply(run, restoring, kubeconfig, snapshot_id, prior, found) do
     outcome =
       with :ok <- stop_app(prior, restoring, kubeconfig),
            :ok <- delete_leftover_jobs(kubeconfig, restoring.namespace) do
@@ -382,7 +393,7 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
 
     case outcome do
       {:ok, _job} -> mark_running(run)
-      {:error, _error} = error -> abandon(run, restoring, prior, error)
+      {:error, _error} = error -> abandon(run, restoring, prior, found, error)
     end
   end
 
@@ -531,17 +542,44 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
 
   # The row already exists, so a failed start must not leave it :pending
   # for the stale horizon: the owner sees the failure now, and the run
-  # slot frees for the retry. The instance goes back to where it was
-  # found — nothing has happened to the volume, and the restore's failure
-  # is not the app's.
-  defp abandon(run, instance, prior, {:error, error}) do
-    summary =
-      "restore could not start: #{InstanceK8s.format_error(error)}; the app is unchanged"
+  # slot frees for the retry. The FOUND status decides the instance's
+  # fate: a FIRST restore found the app up and nothing has touched the
+  # volume yet — the instance goes back to where it was found and the
+  # failure is the run's story, not the app's. A RETRY found :error +
+  # :restore_failed — the app is down over a possibly-partial volume
+  # from the first attempt, and restarting it would serve that volume;
+  # the row lands :error/:restore_failed again, down it stays.
+  defp abandon(run, instance, prior, found, {:error, error}) do
+    case found do
+      :error ->
+        summary =
+          "restore could not start again: #{InstanceK8s.format_error(error)}; " <>
+            "your data may still be partly restored"
 
-    settle_failed(run, summary)
-    revert(instance, prior)
+        settle_failed(run, summary)
+        land_failed_restore(instance)
+
+      _first_restore ->
+        summary =
+          "restore could not start: #{InstanceK8s.format_error(error)}; the app is unchanged"
+
+        settle_failed(run, summary)
+        revert(instance, prior)
+    end
 
     {:error, error}
+  end
+
+  # The retry's honest end state: still :error, still :restore_failed —
+  # the copy the failure surface shows already tells the owner to try
+  # again.
+  defp land_failed_restore(instance) do
+    InstanceK8s.update_status(
+      instance,
+      :error,
+      "Restore failed; the volume may be in a partially restored state",
+      :restore_failed
+    )
   end
 
   # The summary is truncated BEFORE the write (the attribute caps at 500 —
