@@ -1,0 +1,120 @@
+# Pre-seed pre-built third-party build artifacts (#230 + mdex_native
+# fallout): every CI docker build compiles/runs code that would
+# otherwise FETCH from GitHub Releases at build time through Erlang
+# httpc, whose 10KB header limit dies on the CDN's oversized response
+# headers toward runner IPs — killed the e2e legs (tailwind, #230)
+# and then main's deploy-image (mdex_native NIF, same class). This
+# action stages each artifact into apps/platform/.prebuilt/<name>/
+# (the shared docker build context); the Dockerfiles COPY them to the
+# exact paths the packages compute, so the fetches never run. Local
+# docker builds: the dirs hold only .gitkeep — default fetch path.
+#
+# Artifacts (add a row + a cache step when a new one flakes):
+#   tailwind     pin: config.exs        → /app/_build/<file>          sha256: release sums
+#   mdex_native  pin: mix.lock          → RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH/<file>
+name: "Pre-seed pre-built artifacts"
+description: >-
+  Parse version pins (config.exs / mix.lock), restore each artifact
+  from its exact-key actions/cache entry, curl it on cold (curl has
+  no header limit), verify where sums are published — into
+  apps/platform/.prebuilt/, ready for the docker COPY.
+runs:
+  using: composite
+  steps:
+    - name: Read the version pins
+      id: pins
+      shell: bash
+      run: |
+        # Single source of truth for each pin — a missing pattern
+        # means the source changed shape; update this parse, don't
+        # fork the pin.
+        t="$(sed -n '/^config :tailwind,/,/^\]/p' apps/platform/config/config.exs \
+          | sed -n 's/^  version: "\(.*\)",$/\1/p' | head -1)"
+        echo "tailwind version pin: $t"
+        test -n "$t" || { echo "::error::no tailwind version parsed out of config.exs" >&2; exit 1; }
+        # tailwind 0.5.1 also supports PER-PROFILE versions; the
+        # pre-seed covers the global pin only, so a profile pin
+        # must fail HERE (loud) — not silently fall back to the
+        # flaky in-image fetch.
+        if sed -n '/^config :tailwind,/,/^\]/p' apps/platform/config/config.exs \
+          | grep -qE '^    version:'; then
+          echo "::error::per-profile tailwind version found — extend the pre-seed (see #230)" >&2; exit 1
+        fi
+        m="$(sed -n 's/^  "mdex_native": {:hex, :mdex_native, "\([^"]*\)".*/\1/p' apps/platform/mix.lock)"
+        echo "mdex_native version pin: $m"
+        test -n "$m" || { echo "::error::no mdex_native version parsed out of mix.lock" >&2; exit 1; }
+        echo "tailwind=$t" >>"$GITHUB_OUTPUT"
+        echo "mdex=$m" >>"$GITHUB_OUTPUT"
+
+    - name: Restore tailwind cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: apps/platform/.prebuilt/tailwind
+        key: ${{ runner.os }}-${{ runner.arch }}-tailwind-musl-${{ steps.pins.outputs.tailwind }}
+
+    - name: Restore mdex_native cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: apps/platform/.prebuilt/mdex_native
+        key: ${{ runner.os }}-${{ runner.arch }}-mdex_native-${{ steps.pins.outputs.mdex }}-nif-2.15-musl
+
+    - name: Stage + verify the artifacts
+      shell: bash
+      env:
+        TW_VERSION: ${{ steps.pins.outputs.tailwind }}
+        MDEX_VERSION: ${{ steps.pins.outputs.mdex }}
+        RUNNER_ARCH: ${{ runner.arch }}
+      run: |
+        arch="$(printf '%s' "$RUNNER_ARCH" | tr '[:upper:]' '[:lower:]')"
+        stage() { # dir name file url
+          if [ -f "apps/platform/.prebuilt/$1/$2" ]; then
+            size="$(stat -c%s "apps/platform/.prebuilt/$1/$2")"
+            echo "prebuilt $1: cache hit — $2 ($size bytes)"
+          else
+            echo "prebuilt $1: cache cold — curl fetching $2"
+            mkdir -p "apps/platform/.prebuilt/$1"
+            curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 \
+              -o "apps/platform/.prebuilt/$1/$2" "$3"
+            chmod 644 "apps/platform/.prebuilt/$1/$2"
+          fi
+        }
+
+        # tailwind: target linux-<arch>-musl (alpine base, v4 ships
+        # musl builds), filename tailwind-<target>-<version> — what
+        # tailwind-elixir computes under _build/.
+        tw_target="linux-$arch-musl"
+        tw_name="tailwind-$tw_target-$TW_VERSION"
+        stage tailwind "$tw_name" \
+          "https://github.com/tailwindlabs/tailwindcss/releases/download/v$TW_VERSION/tailwindcss-$tw_target"
+        # tailwindcss ships executable + mode-preserving COPY into the
+        # image; curl'd file must carry +x for --if-missing's bin check.
+        chmod 755 "apps/platform/.prebuilt/tailwind/$tw_name"
+        # The musl build is dynamically linked (cannot run on the
+        # glibc runner), so verify against the release's published
+        # sha256sums.txt — also the cache-roundtrip integrity check.
+        expected="$(curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 \
+          "https://github.com/tailwindlabs/tailwindcss/releases/download/v$TW_VERSION/sha256sums.txt" \
+          | awk -v t="./tailwindcss-$tw_target" '$2 == t {print $1}')"
+        actual="$(sha256sum "apps/platform/.prebuilt/tailwind/$tw_name" | cut -d" " -f1)"
+        test -n "$expected" || { echo "::error::no checksum entry for tailwindcss-$tw_target" >&2; exit 1; }
+        [ "$expected" = "$actual" ] || {
+          echo "::error::tailwind sha256 mismatch: expected $expected, got $actual" >&2; exit 1; }
+        echo "prebuilt tailwind: sha256 verified ($actual)"
+
+        # mdex_native: the tarball rustler_precompiled computes —
+        # libmdex_native_nif-v<version>-nif-<nif>-<triple>.so.tar.gz.
+        # nif-2.15 is the dep's whole release matrix for the locked
+        # version (verify on bump — a mismatch means the in-image
+        # fetch runs again, visible in the docker build log). Triple
+        # is musl (alpine base). No published sums: integrity is
+        # checked in-image by rustler_precompiled's check_file_integrity
+        # against the dep's bundled checksum on extract.
+        case "$arch" in
+          x64)   triple="x86_64-unknown-linux-musl" ;;
+          arm64) triple="aarch64-unknown-linux-musl" ;;
+          *) echo "::error::no mdex_native triple for arch $arch" >&2; exit 1 ;;
+        esac
+        mdex_name="libmdex_native_nif-v$MDEX_VERSION-nif-2.15-$triple.so.tar.gz"
+        stage mdex_native "$mdex_name" \
+          "https://github.com/leandrocp/mdex_native/releases/download/v$MDEX_VERSION/$mdex_name"
+        echo "prebuilt mdex_native: staged $mdex_name (integrity checked in-image by rustler_precompiled)"

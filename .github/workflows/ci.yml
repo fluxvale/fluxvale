@@ -265,12 +265,13 @@ jobs:
       - name: Expose GitHub runtime for the gha cache
         uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487
 
-      # (#230) Pre-seed the tailwind binary so the dev-image build's
-      # `mix assets.setup` never fetches in-image (Erlang httpc's 10KB
-      # header limit dies on the release CDN's oversized response
-      # headers — pre-test, on every leg). The shared action is the
-      # one implementation; see .github/actions/tailwind-preseed.
-      - uses: ./.github/actions/tailwind-preseed
+      # (#230) Pre-seed the pre-built artifacts (tailwind binary +
+      # mdex_native NIF) so the dev-image build's `mix deps.compile`
+      # and `mix assets.setup` never fetch in-image (Erlang httpc's
+      # 10KB header limit dies on the release CDN's oversized response
+      # headers). The shared action is the one implementation; see
+      # .github/actions/prebuilt.
+      - uses: ./.github/actions/prebuilt
 
       # Matrix-sourced env on BOTH steps that read it: the bootstrap
       # (E2E_IDLE_SLEEP_AFTER_SECONDS — the override must be on the
@@ -448,11 +449,11 @@ jobs:
       # (#230) The release build's `mix assets.deploy` auto-fetches
       # tailwind when the binary is missing (mix tailwind installs on
       # demand) — same httpc header limit, same CDN, and this job runs
-      # on every main push. Pre-seed the same staged binary the e2e
-      # legs use; Dockerfile COPYs it into /app/_build where
-      # install_and_run's existence check finds it. Local release
-      # builds: .tw-cache holds only .gitkeep, default fetch unchanged.
-      - uses: ./.github/actions/tailwind-preseed
+      # on every main push. Pre-seed the same staged artifacts the e2e
+      # legs use; Dockerfile COPYs them where deps.compile and
+      # install_and_run's existence checks look. Local release builds:
+      # .prebuilt/ holds only .gitkeep, default fetch paths unchanged.
+      - uses: ./.github/actions/prebuilt
 
       # v7.4.0 — pinned to commit (repo rule above). GHA cache: the
       # release build is dominated by deps.compile + app compile; layers
