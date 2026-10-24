@@ -11,8 +11,12 @@ defmodule FluxVale.Release.EnsureClusterConcurrencyTest do
   different name, land a second row that breaks `ResolveCluster`.
 
   Uses `Sandbox.checkout(_, sandbox: false)` connections — the row must
-  be committed for the second run to see it. The test cleans up its own
-  committed row before finishing.
+  be committed for the second run to see it. Those commits are real
+  writes to the shared test DB, so this module sweeps every
+  `concurrency-*` row before and after itself: a run that dies between
+  commit and cleanup would otherwise strand a row that breaks the
+  exactly-one-cluster invariant for every later suite on this DB
+  (read committed sees it from inside any sandbox — #241).
   """
 
   use FluxVale.DataCase, async: false
@@ -25,6 +29,15 @@ defmodule FluxVale.Release.EnsureClusterConcurrencyTest do
   # variant the unique index would reject without the lock.
   @cluster_name "concurrency-bringup-01"
 
+  # #241: self-heal any stranded committed row (this module is the only
+  # writer of `concurrency-*` rows) before the tests read the table, and
+  # again after — including when a test body fails mid-run.
+  setup do
+    sweep_committed!()
+    on_exit(fn -> sweep_committed!() end)
+    :ok
+  end
+
   test "two concurrent runs leave exactly one row, no raise" do
     original = System.get_env("CLUSTER_NAME")
     System.put_env("CLUSTER_NAME", @cluster_name)
@@ -34,12 +47,6 @@ defmodule FluxVale.Release.EnsureClusterConcurrencyTest do
         nil -> System.delete_env("CLUSTER_NAME")
         value -> System.put_env("CLUSTER_NAME", value)
       end
-    end)
-
-    # Defensive: the committed row this test writes must never survive a
-    # failure mid-test (other suites use the sandbox; this one doesn't).
-    on_exit(fn ->
-      delete_committed!(fn -> Cluster.get_by_name(@cluster_name, authorize?: false) end)
     end)
 
     parent = self()
@@ -89,16 +96,6 @@ defmodule FluxVale.Release.EnsureClusterConcurrencyTest do
         nil -> System.delete_env("CLUSTER_NAME")
         value -> System.put_env("CLUSTER_NAME", value)
       end
-    end)
-
-    on_exit(fn ->
-      delete_committed!(fn -> Cluster.get_by_name("concurrency-holder-01", authorize?: false) end)
-    end)
-
-    # A failing run (e.g. without the lock) can leave the runner's row
-    # behind; clean both names so the shared DB is never stranded.
-    on_exit(fn ->
-      delete_committed!(fn -> Cluster.get_by_name("concurrency-other-01", authorize?: false) end)
     end)
 
     parent = self()
@@ -202,13 +199,14 @@ defmodule FluxVale.Release.EnsureClusterConcurrencyTest do
     end
   end
 
-  # Removes the committed row — the sandbox never owned it.
-  defp delete_committed!(lookup) do
+  # #241: removes every committed `concurrency-*` row — this module
+  # owns the prefix, so a stray from this or a previous run can never
+  # outlive it. Raw SQL matches the file's advisory-lock posture; the
+  # sandbox never owned these rows.
+  defp sweep_committed! do
     committed(fn ->
-      case lookup.() do
-        {:ok, cluster} -> Repo.delete!(cluster)
-        {:error, _not_found} -> :ok
-      end
+      Repo.query!("DELETE FROM clusters WHERE name LIKE 'concurrency-%'")
+      :ok
     end)
   end
 end

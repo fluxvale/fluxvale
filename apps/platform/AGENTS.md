@@ -69,6 +69,14 @@ This is a web application written using the Phoenix web framework.
   with which. Never `Repo.insert` raw structs. Factories, if ever
   added, are plain functions in `test/support/fixtures.ex` wrapping
   actions — never bypassing them.
+- **Concurrent local suites need their own DB** (#241): a sandbox
+  transaction still sees rows *committed* outside it, so two `mix
+  test` runs sharing `flux_vale_test` break each other's
+  exactly-one-cluster invariant mid-run ("multiple clusters" flakes).
+  Run lanes with `MIX_TEST_PARTITION=<lane> mix test` — the config
+  appends it to the DB name. Serialized runs don't help (committed
+  rows ignore `--max-cases`); the concurrency tests sweep their
+  committed rows before/after themselves so strands self-heal.
 - Decisions accepted-with-rationale get a comment naming the trigger
   that revisits them (see the Postgres TLS stance in
   `config/runtime.exs`).
