@@ -131,8 +131,8 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
 
   defp apply_resources(kubeconfig, namespace, instance) do
     case apply_operands(kubeconfig, namespace, instance) do
-      # #238: a 403 here is usually not a bad grant but a young one —
-      # see retry_after_rbac_propagation/3.
+      # #238: a 403 from these operands is usually not a bad grant but
+      # a young one — see retry_after_rbac_propagation/3.
       {:error, %Error{reason: :forbidden}} ->
         retry_after_rbac_propagation(kubeconfig, namespace, instance)
 
@@ -141,18 +141,21 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
     end
   end
 
-  # The workload RoleBinding is the operand verbs' only source (#69's
-  # split), and the API server authorizes against an informer-cached
-  # view of bindings — one created in this same deploy may not be
-  # visible yet when the first operand applies, which then 403s
-  # ("cannot patch resource \"resourcequotas\"" — nightly run
-  # 40049475058: two specs lost this race while a deploy interleaved
-  # between them, RoleBinding a beat older, sailed through). Wait until
-  # the authorizer itself can see the grant, then re-run the sequence
-  # once — every operand is a server-side apply, so re-applying is a
-  # no-op where it already succeeded. A timed-out wait still retries: a
-  # genuinely missing grant then lands as the API server's verbatim 403
-  # in status_message, which is the diagnostic that cracked #238.
+  # On a forbidden operand: wait out workload-RBAC propagation, then
+  # re-run the whole sequence once. The workload RoleBinding is the
+  # operand verbs' only source (#69's split), and the API server
+  # authorizes against an informer-cached view of bindings — one
+  # created in this same deploy may not be visible yet when the first
+  # operand applies, which then 403s (nightly run 40049475058, on
+  # #238, caught the race with surviving artifacts). The re-run is
+  # safe — every operand is a server-side apply, so re-applying is a
+  # no-op where it already succeeded.
+  #
+  # Trade-off: a genuinely bad grant (never propagation) also pays the
+  # bounded wait (~5s) plus one redundant SSA round before landing the
+  # same verbatim 403 — the API server's message in status_message is
+  # the diagnostic we keep either way, so the wait deliberately does
+  # not gate the retry.
   defp retry_after_rbac_propagation(kubeconfig, namespace, instance) do
     SelfAccessReview.wait_until_allowed(
       kubeconfig,

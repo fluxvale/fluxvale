@@ -7,9 +7,13 @@ defmodule FluxVale.Clients.K8s.SelfAccessReview do
   That shared view is the point (#238): a RoleBinding created moments
   ago authorizes nothing until the API server's RBAC cache ingests it,
   so polling this review waits for the cache itself, not for a guess at
-  its latency. `wait_until_allowed/5` polls until the verb is visible or
-  the deadline passes (propagation on a loaded single-node cluster is
-  normally tens of ms, occasionally seconds).
+  its latency. True per-apiserver (single-node k3d included — the only
+  control plane today); an HA pair could still split one poll from the
+  next apply across members, and the caller's bounded retry then lands
+  the same error it would have without the wait. `wait_until_allowed/5`
+  polls until the verb is visible or the deadline passes (propagation
+  on a loaded single-node cluster is normally tens of ms, occasionally
+  seconds).
   """
 
   alias FluxVale.Clients.K8s.Error
@@ -71,8 +75,10 @@ defmodule FluxVale.Clients.K8s.SelfAccessReview do
     _raise -> false
   end
 
-  # can_i? builds and creates the SelfSubjectAccessReview itself; the
-  # attach only pins the API surface the review resource lives on.
+  # can_i? builds the review manifest itself (apiVersion/kind included)
+  # and do_create re-derives the request's surface from it, so the
+  # attach carries only the kubeconfig — the api_version/kind here
+  # mirror the review's surface for the reader, they route nothing.
   defp create_req(kubeconfig) do
     Kubereq.attach(Req.new(),
       kubeconfig: kubeconfig,
