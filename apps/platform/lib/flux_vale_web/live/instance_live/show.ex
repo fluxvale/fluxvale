@@ -14,6 +14,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
   alias FluxVale.Checks.ActorIsPlatformAdmin
   alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.Instance
+  alias FluxValeWeb.InstanceLive.DavSnippet
   alias FluxValeWeb.InstanceStatus
 
   @impl Phoenix.LiveView
@@ -34,6 +35,11 @@ defmodule FluxValeWeb.InstanceLive.Show do
             instance: instance,
             admin?: ActorIsPlatformAdmin.platform_admin?(user),
             dav_password: nil,
+            # #253: the quick-start's active platform. Linux is the
+            # no-JS fallback; the .DavOsDefault hook refines it to the
+            # visitor's OS on mount (detection assists, never traps).
+            dav_platform: :linux,
+            dav_platform_locked: false,
             tick_scheduled?: false
           )
 
@@ -179,7 +185,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
             data-attribute. Selecting a wrapped 43-char password by hand
             (triple-click) catches the neighbouring label and the trailing
             newline, which is how a correct credential produced a 401. --%>
-            <div class="grid gap-4 text-sm">
+            <div class="grid min-w-0 gap-4 text-sm">
               <.dav_field
                 label="Address"
                 value={dav_url(@instance)}
@@ -187,7 +193,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
                 copy_label="Copy address"
               />
 
-              <div class="grid gap-4 sm:grid-cols-2">
+              <div class="grid min-w-0 gap-4 sm:grid-cols-2">
                 <.dav_field
                   label="Username"
                   value={dav_username()}
@@ -195,10 +201,10 @@ defmodule FluxValeWeb.InstanceLive.Show do
                   copy_label="Copy username"
                 />
 
-                <div class="grid gap-1.5">
+                <div class="grid min-w-0 gap-1.5">
                   <span class="text-ink-subtle">Password</span>
                   <%= if @dav_password do %>
-                    <div class="flex items-start gap-2">
+                    <div class="flex min-w-0 items-start gap-2">
                       <code
                         class="min-w-0 flex-1 overflow-x-auto rounded-md border border-line bg-panel-raised px-2 py-1 font-mono text-xs whitespace-nowrap text-ink"
                         data-testid="dav-password"
@@ -230,26 +236,21 @@ defmodule FluxValeWeb.InstanceLive.Show do
               this endpoint (larger library files are a coming phase):
             </p>
 
-            <div class="space-y-2">
-              <div class="flex items-center justify-between gap-2">
-                <span class="text-xs font-medium text-ink-muted">rclone setup</span>
-                <.copy_button
-                  id="copy-dav-snippet"
-                  value={rclone_snippet(@instance, @dav_password)}
-                  testid="copy-dav-snippet"
-                  label="Copy snippet"
-                />
-              </div>
-              <%!-- #194: `--obscure` is load-bearing. rclone guesses whether a
-              `pass` value is already obscured; the platform's 43-char
-              base64url password is misread as obscured ~99% of the time, so
-              the literal form uploaded garbage and 401'd. --obscure forces
-              the plaintext reading. --%>
-              <pre
-                class="overflow-x-auto rounded-lg bg-panel-raised p-3 text-xs leading-relaxed text-ink-muted"
-                phx-no-curly-interpolation
-              ><code data-testid="dav-rclone-snippet"><%= rclone_snippet(@instance, @dav_password) %></code></pre>
-            </div>
+            <%!-- #253 (ADR-0035 Am. 3): the quick-start is per-platform —
+            three tabs, five hand-held steps each, the instance's real
+            values inline. The active tab is server state, so the
+            password reveal's re-render can't snap the visitor back to
+            the default platform mid-sequence. --%>
+            <DavSnippet.dav_snippet
+              id="dav"
+              platform={@dav_platform}
+              url={dav_url(@instance)}
+              username={dav_username()}
+              password={@dav_password}
+              remote={"fluxvale-#{@instance.slug}"}
+              on_select="set-dav-platform"
+              on_detect="detect-dav-platform"
+            />
 
             <p :if={@instance.status == :stopped} class="text-xs text-ink-subtle">
               The endpoint is down while the instance is stopped — start it to
@@ -505,6 +506,32 @@ defmodule FluxValeWeb.InstanceLive.Show do
     end
   end
 
+  # #253 (ADR-0035 Am. 3): platform-tab switching. The active platform
+  # is server state, and the click locks it — the OS-detected default
+  # can then never override a choice (detection assists, never traps).
+  # An unrecognized value is a stale view's click; keep the current tab.
+  def handle_event("set-dav-platform", %{"platform" => platform}, socket) do
+    case DavSnippet.platform_key(platform) do
+      nil -> {:noreply, socket}
+      key -> {:noreply, assign(socket, dav_platform: key, dav_platform_locked: true)}
+    end
+  end
+
+  # #253: the OS-detected default — the .DavOsDefault hook pushes the
+  # browser's platform string once on mount; guess_platform/1 maps it
+  # server-side. nil (unknown, mobile) keeps the Linux default; a
+  # locked choice means the visitor's tab click beat the round trip.
+  def handle_event("detect-dav-platform", %{"platform" => platform}, socket) do
+    if socket.assigns.dav_platform_locked do
+      {:noreply, socket}
+    else
+      case DavSnippet.guess_platform(platform) do
+        nil -> {:noreply, socket}
+        key -> {:noreply, assign(socket, :dav_platform, key)}
+      end
+    end
+  end
+
   def handle_event("delete", _params, socket) do
     instance = socket.assigns.instance
 
@@ -610,14 +637,18 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
   # One labeled credential value: a read-only, no-wrap code block plus
   # its copy button (#194). The value is never wrapped — a wrapped
-  # 43-char password is what made hand-selection lossy.
+  # 43-char password is what made hand-selection lossy. min-w-0 down
+  # the grid/flex chain: without it the no-wrap code's intrinsic width
+  # is every ancestor's min-content floor, and the row overflows the
+  # panel at mobile widths (#253's vision check caught the address row
+  # painting 100px past the viewport).
   defp dav_field(assigns) do
     assigns = assign(assigns, :copy_id, "copy-#{assigns.testid}")
 
     ~H"""
-    <div class="grid gap-1.5">
+    <div class="grid min-w-0 gap-1.5">
       <span class="text-ink-subtle">{@label}</span>
-      <div class="flex items-start gap-2">
+      <div class="flex min-w-0 items-start gap-2">
         <code
           class="min-w-0 flex-1 overflow-x-auto rounded-md border border-line bg-panel-raised px-2 py-1 font-mono text-xs whitespace-nowrap text-ink"
           data-testid={@testid}
@@ -628,22 +659,6 @@ defmodule FluxValeWeb.InstanceLive.Show do
       </div>
     </div>
     """
-  end
-
-  # The full rclone remote + copy command, password inlined when the
-  # owner has revealed it (#194). `--obscure` is mandatory: see the
-  # panel comment — without it rclone misreads the generated password.
-  defp rclone_snippet(instance, password) do
-    secret = password || "YOUR_PASSWORD"
-    remote = "fluxvale-#{instance.slug}"
-
-    snippet = """
-    rclone config create #{remote} webdav \\
-        url #{dav_url(instance)} vendor rclone user #{dav_username()} pass '#{secret}' --obscure
-    rclone copy ~/library #{remote}:library --progress
-    """
-
-    String.trim_trailing(snippet)
   end
 
   # The panel's gate mirrors the deploy op's: the sidecar lands only for

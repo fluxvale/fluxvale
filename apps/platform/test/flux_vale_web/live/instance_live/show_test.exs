@@ -902,6 +902,153 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
              )
     end
 
+    # #253 (ADR-0035 Am. 3): three platform tabs, each a complete
+    # five-step sequence with the instance's real values inline — the
+    # visitor follows the visible one verbatim, whatever their OS.
+    test "every platform tab renders its full sequence with the instance's real URL and username",
+         %{conn: conn, user: user} do
+      version = InstanceFixtures.app_version!(file_access: true, default_storage_gb: 10)
+      instance = create_instance!(version, user)
+      url = "https://#{instance.slug}.fluxvale.lvh.me/dav"
+      remote = "fluxvale-#{instance.slug}"
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      windows =
+        view
+        |> element("[data-testid='dav-panel-windows']")
+        |> render()
+
+      assert windows =~ "winget install Rclone.Rclone"
+      assert windows =~ "mkdir $env:USERPROFILE\\Books"
+      assert windows =~ "rclone copy $env:USERPROFILE\\Books #{remote}:library/books --progress"
+
+      macos =
+        view
+        |> element("[data-testid='dav-panel-macos']")
+        |> render()
+
+      assert macos =~ "brew install rclone"
+      assert macos =~ "mkdir -p ~/Books"
+      assert macos =~ "rclone copy ~/Books #{remote}:library/books --progress"
+
+      linux =
+        view
+        |> element("[data-testid='dav-panel-linux']")
+        |> render()
+
+      assert linux =~ "curl https://rclone.org/install.sh | sudo bash"
+      assert linux =~ "mkdir -p ~/Books"
+      assert linux =~ "rclone copy ~/Books #{remote}:library/books --progress"
+
+      # The real URL and username ride every platform's connect
+      # command, --obscure with them (Am. 1: it is load-bearing).
+      for panel <- [windows, macos, linux] do
+        assert panel =~ "url #{url} vendor rclone user fluxvale pass"
+        assert panel =~ "YOUR_PASSWORD"
+        assert panel =~ "--obscure"
+        assert panel =~ "rclone lsd #{remote}:"
+      end
+    end
+
+    # The active platform is server state: a click switches the visible
+    # panel and the copy button's payload together — one platform's
+    # sequence, so a Windows visitor can't paste a bash line by accident.
+    test "tab clicks switch the visible sequence and the copy value", %{
+      conn: conn,
+      user: user
+    } do
+      version = InstanceFixtures.app_version!(file_access: true, default_storage_gb: 10)
+      instance = create_instance!(version, user)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      # Linux is the no-JS default: visible, the others wait hidden.
+      refute has_element?(view, "[data-testid='dav-panel-linux'][hidden]")
+      assert has_element?(view, "[data-testid='dav-panel-windows'][hidden]")
+      assert has_element?(view, "[data-testid='dav-panel-macos'][hidden]")
+
+      render_click(element(view, "[data-testid='dav-tab-windows']"))
+
+      refute has_element?(view, "[data-testid='dav-panel-windows'][hidden]")
+      assert has_element?(view, "[data-testid='dav-panel-linux'][hidden]")
+      assert has_element?(view, "[data-testid='dav-tab-windows'][aria-selected='true']")
+
+      copy =
+        view
+        |> element("[data-testid='copy-dav-snippet']")
+        |> render()
+
+      assert copy =~ "winget install Rclone.Rclone"
+      refute copy =~ "brew install rclone"
+      refute copy =~ "curl https://rclone.org/install.sh"
+    end
+
+    # #253: the OS-detected default. The .DavOsDefault hook pushes the
+    # browser's platform string once on mount and the server maps it
+    # (guess_platform/1 — unit-tested against representative agents);
+    # render_hook stands in for the client's push.
+    test "the visitor's OS becomes the default tab", %{conn: conn, user: user} do
+      version = InstanceFixtures.app_version!(file_access: true, default_storage_gb: 10)
+      instance = create_instance!(version, user)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      # The hook must ride the panel as the colocated registry's
+      # QUALIFIED name — the compiler rewrites a literal `.Name` only,
+      # so a dynamic phx-hook expression would ship unrewritten and the
+      # detection would never fire in a real browser (hostile-pass
+      # finding; this pins the rewrite happened).
+      assert has_element?(
+               view,
+               ~s(#dav-snippet[phx-hook='FluxValeWeb.InstanceLive.DavSnippet.DavOsDefault'])
+             )
+
+      render_hook(view, "detect-dav-platform", %{"platform" => "Win32"})
+
+      refute has_element?(view, "[data-testid='dav-panel-windows'][hidden]")
+      assert has_element?(view, "[data-testid='dav-panel-linux'][hidden]")
+    end
+
+    test "an unrecognized platform string keeps the Linux default", %{conn: conn, user: user} do
+      version = InstanceFixtures.app_version!(file_access: true, default_storage_gb: 10)
+      instance = create_instance!(version, user)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      render_hook(view, "detect-dav-platform", %{"platform" => "Android"})
+
+      refute has_element?(view, "[data-testid='dav-panel-linux'][hidden]")
+    end
+
+    # Detection assists, never traps: an explicit tab click locks the
+    # choice, so a late-arriving detection push can't yank it away.
+    test "detection never overrides an explicit tab choice", %{conn: conn, user: user} do
+      version = InstanceFixtures.app_version!(file_access: true, default_storage_gb: 10)
+      instance = create_instance!(version, user)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      render_click(element(view, "[data-testid='dav-tab-macos']"))
+      render_hook(view, "detect-dav-platform", %{"platform" => "Win32"})
+
+      refute has_element?(view, "[data-testid='dav-panel-macos'][hidden]")
+      assert has_element?(view, "[data-testid='dav-panel-windows'][hidden]")
+    end
+
+    # A stale view's click can carry anything in phx-value — an
+    # unrecognized platform keeps the current tab instead of crashing.
+    test "a stale tab value keeps the current tab", %{conn: conn, user: user} do
+      version = InstanceFixtures.app_version!(file_access: true, default_storage_gb: 10)
+      instance = create_instance!(version, user)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      render_click(element(view, "[data-testid='dav-tab-windows']"), %{"platform" => "dos"})
+
+      refute has_element?(view, "[data-testid='dav-panel-linux'][hidden]")
+    end
+
     test "no panel for an instance without file access", %{conn: conn, user: user} do
       version = InstanceFixtures.app_version!()
       instance = create_instance!(version, user)
