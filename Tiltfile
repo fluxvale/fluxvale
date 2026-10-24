@@ -8,7 +8,9 @@
 # k3s-bundled), namespace convention, init-container migrations, env-var
 # shape. Deliberately differs (ADR-0020): dev image runs `mix phx.server`
 # (prod runs the OTP release — that delta is what staging verifies),
-# self-signed TLS, no Cloudflare edge, no backups.
+# self-signed TLS, no Cloudflare edge, MinIO as the BYO-S3 proxy
+# (#222 — an in-cluster stand-in for the owner's R2 bucket, not the
+# real thing).
 #
 # At M4 the fleet repo is born with the staging/prod base manifests. The
 # LOCAL manifests deliberately stay here — duplication accepted so
@@ -69,6 +71,9 @@ k8s_yaml(
         'deploy/local/k8s/00-namespace.yaml',
         'deploy/local/k8s/01-platform-rbac.yaml',
         'deploy/local/k8s/10-platform.yaml',
+        # #222: the e2e S3 target (plain core objects — Secret, PVC,
+        # Deployment, Services, Job — so static parsing is fine here).
+        'deploy/local/k8s/12-minio.yaml',
     ]
 )
 
@@ -124,3 +129,7 @@ k8s_custom_deploy(
 k8s_resource('fluxvale-cnpg', resource_deps=['cnpg'])
 k8s_resource('ingressroute', resource_deps=['traefik'])
 k8s_resource('fluxvale-platform', resource_deps=['fluxvale-cnpg'])
+# #222: the bucket Job waits for the MinIO server's pods to be ready —
+# without this, `tilt up` (which has none of the bootstrap script's
+# rollout waits) races the Job against the server's first boot.
+k8s_resource('minio-bucket', resource_deps=['minio'])

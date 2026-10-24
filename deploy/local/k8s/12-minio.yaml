@@ -1,0 +1,203 @@
+# MinIO — the S3-compatible target the e2e suite backs instances up to
+# (#222): the in-cluster stand-in for an owner's BYO bucket (R2 first).
+#
+# Local/e2e only. Nothing here ever reaches a prod path, and no real
+# credentials appear in this file — the Secret's values are plainly-fake
+# local-dev dummies, the same stance as the app's SECRET_KEY_BASE
+# (ADR-0020 parity ledger) and the `local/` overlay dummies (ADR-0021
+# "Local dev"). R2 keys are the owner's, arrive via the fleet's secret
+# sync, and never land here.
+#
+# Image pins are digests, not tags: MinIO deleted the minio/minio and
+# minio/mc Docker Hub repos (Sept 2026) and the Quay copies are disabled,
+# so no RELEASE.* tag is pullable any more. Chainguard publishes both
+# binaries without version tags — a digest is the only exact, immutable
+# pin left. The digests below carry MinIO RELEASE.2026-09-22T19-25-18Z;
+# re-pin deliberately (both images together), never float :latest.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-root
+  namespace: fluxvale-dev
+  labels:
+    app: minio
+# stringData keys are read back by scripts/e2e-bootstrap.sh into the
+# suite's env file, so the literals exist exactly once — here.
+stringData:
+  # Not "fluxvale": Tilt redacts any Secret value that appears in its own
+  # output, and a user of `fluxvale` would blank out every resource name
+  # in the UI. `e2e-minio` collides with nothing.
+  MINIO_ROOT_USER: e2e-minio
+  MINIO_ROOT_PASSWORD: local-dev-fake-not-a-secret-minio
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  namespace: fluxvale-dev
+  labels:
+    app: minio
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: fluxvale-dev
+  labels:
+    app: minio
+spec:
+  replicas: 1
+  strategy:
+    # A single RWO volume: never two pods at once during a re-apply.
+    type: Recreate
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      securityContext:
+        # Chainguard images run as 65532 (nonroot by construction); the
+        # fsGroup makes the local-path volume writable for that uid.
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+        - name: minio
+          image: cgr.dev/chainguard/minio@sha256:d88920d6a50bd0b088223b688be3b76c63e6205dbe494437f67ba1240ea12880
+          args: ["server", "/data", "--console-address", ":9001"]
+          envFrom:
+            # MINIO_ROOT_USER / MINIO_ROOT_PASSWORD
+            - secretRef:
+                name: minio-root
+                optional: false
+          ports:
+            - name: api
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          startupProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            periodSeconds: 5
+            failureThreshold: 24 # ~120s first-boot budget (formatting the disk)
+          readinessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: minio-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: fluxvale-dev
+  labels:
+    app: minio
+spec:
+  selector:
+    app: minio
+  ports:
+    - port: 9000
+      targetPort: 9000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-console
+  namespace: fluxvale-dev
+  labels:
+    app: minio
+spec:
+  selector:
+    app: minio
+  ports:
+    - port: 9001
+      targetPort: 9001
+---
+# One-shot: create the suite's bucket. `mc alias set` needs a shell (the
+# Chainguard client ships none) and a config dir, so the credentials ride
+# MC_HOST_local instead — a URL k8s composes from the Secret. Fake
+# password is alnum by design: a character needing URL-escaping would
+# break the composition.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-bucket
+  namespace: fluxvale-dev
+  labels:
+    app: minio
+spec:
+  # The bootstrap applies this only after the minio rollout completes, so
+  # attempts aren't racing a boot; a few retries absorb a transient blip
+  # without wedging the stack.
+  backoffLimit: 3
+  # Never: a failed attempt stays Failed with its own logs, and the Job
+  # retries as a fresh pod — `restartPolicy: OnFailure` would recycle the
+  # same pod and hide the first failure's evidence.
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: mc
+          image: cgr.dev/chainguard/minio-client@sha256:72f9978d415ea8294d78051fb3aee2fd258d449237633f77f100b5367bb5225d
+          command: ["/usr/bin/mc", "mb", "--ignore-existing", "local/fluxvale-e2e"]
+          envFrom:
+            - secretRef:
+                name: minio-root
+                optional: false
+          env:
+            # K8s expands $(VAR) from the envFrom'd Secret here, so the
+            # credentials never need a shell (the Chainguard client ships
+            # none) and never get duplicated into the bootstrap script.
+            - name: MC_HOST_local
+              value: "http://$(MINIO_ROOT_USER):$(MINIO_ROOT_PASSWORD)@minio.fluxvale-dev.svc.cluster.local:9000"
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+      volumes:
+        - name: tmp
+          emptyDir: {}
