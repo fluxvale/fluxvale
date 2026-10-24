@@ -353,9 +353,9 @@ defmodule FluxValeWeb.InstanceLive.BackupsEdgeTest do
 
       render_click(element(view, "[data-testid=backups-edit]"))
 
-      # A crafted payload without `prefix` or `enabled`: operation_params
-      # skips the absent keys, the merge keeps the stored values, and the
-      # save still succeeds.
+      # A crafted payload without `prefix`: operation_params skips the
+      # absent key, the merge keeps the stored value, and the save still
+      # succeeds. `enabled` is not a form field at all (V4).
       view
       |> element("#backup-settings-form")
       |> render_submit(%{

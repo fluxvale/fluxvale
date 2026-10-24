@@ -21,8 +21,10 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   signal.
 
   Nothing secret renders by default: the access key id is masked to its
-  last four characters, and the repo password appears only behind an
-  explicit reveal that reads the live Secret (ADR-0037 §4).
+  last four characters — and the edit form never pre-fills it either, so
+  opening the form isn't a credential render — and the repo password
+  appears only behind an explicit reveal that reads the live Secret
+  (ADR-0037 §4).
   """
 
   use FluxValeWeb, :live_component
@@ -39,7 +41,14 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   @backup_statuses [:running, :sleeping, :stopped]
   @restorable_statuses [:running, :sleeping, :stopped]
 
-  @form_fields ~w(endpoint bucket prefix access_key_id secret_access_key retention_keep enabled)
+  # The form's fields. `enabled` is deliberately absent: pausing is the
+  # summary's own switch, so the panel offers two off-verbs, not three.
+  @form_fields ~w(endpoint bucket prefix access_key_id secret_access_key retention_keep)
+
+  # Blank keeps the stored value: the secret key by the operation's own
+  # rule, the access key id by omission (a present empty string would
+  # overwrite the stored identifier).
+  @blank_keeps_stored ~w(access_key_id secret_access_key)
 
   @impl Phoenix.LiveComponent
   def update(assigns, socket) do
@@ -234,13 +243,21 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
         <%!-- A first save (unconfigured) has no summary to sit under, so
         the form follows the callout. The configured edit renders it in
         `configured/1`, right under the action row. --%>
-        <.settings_form :if={@editing? and is_nil(@setting)} form={@form} myself={@myself} />
+        <.settings_form
+          :if={@editing? and is_nil(@setting)}
+          form={@form}
+          stored_access_key={nil}
+          myself={@myself}
+        />
       </.card>
     </div>
     """
   end
 
   attr(:form, :any, required: true)
+  # The stored key id, used only to name its last four characters in the
+  # empty field's placeholder — never as a value.
+  attr(:stored_access_key, :any, default: nil)
   attr(:myself, :any, required: true)
 
   defp settings_form(assigns) do
@@ -263,13 +280,17 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
       <.input field={@form[:bucket]} label="Bucket" placeholder="my-app-backups" autocomplete="off" />
       <.input
         field={@form[:prefix]}
-        label="Prefix (optional)"
+        label="Folder (optional)"
         placeholder="fluxvale/app"
         autocomplete="off"
       />
+      <%!-- Never pre-filled: the stored key would render on a mere
+      "Edit settings" navigation, which is the same leak the summary
+      masks. Blank keeps it (ADR-0037 §4). --%>
       <.input
         field={@form[:access_key_id]}
-        label="Access key id"
+        label="Access key id (leave blank to keep the current one)"
+        placeholder={access_key_placeholder(@stored_access_key)}
         autocomplete="off"
         spellcheck="false"
       />
@@ -289,7 +310,6 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
         max="30"
         step="1"
       />
-      <.input field={@form[:enabled]} type="checkbox" label="Keep backing this app up" />
 
       <div class="flex flex-wrap gap-2">
         <.button type="submit" size="sm" data-testid="backups-save">Save settings</.button>
@@ -397,13 +417,18 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
     <.callout
       :if={@failed_run}
       tone="warning"
-      title="The last backup didn't finish"
+      title={failure_text(@failed_run)}
       data-testid="backups-failing"
     >
-      <p class="text-sm text-ink-muted">{@failed_run.error_summary || "No reason was reported."}</p>
-      <p class="text-xs text-ink-subtle">
+      <p class="text-sm text-ink-muted">
         Your app is unaffected, and earlier snapshots are still in your bucket.
       </p>
+      <%!-- The stored summary is the exact record — kept verbatim, just
+      demoted below the plain-words line so jargon never leads. --%>
+      <details :if={raw_failure?(@failed_run)} class="text-xs text-ink-subtle">
+        <summary class="cursor-pointer">Technical details</summary>
+        <p class="mt-1 break-words">{@failed_run.error_summary}</p>
+      </details>
     </.callout>
 
     <div class="grid gap-4 text-sm sm:grid-cols-2">
@@ -427,8 +452,8 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
           Daily · keep the last {@setting.retention_keep} snapshots
         </span>
         <p class="text-xs text-ink-subtle">
-          Snapshots are taken while the app runs. An app with a database may
-          rarely need the snapshot before last.
+          Snapshots are taken while the app runs. If a backup is interrupted,
+          the one before it is still complete.
         </p>
       </div>
     </div>
@@ -438,8 +463,13 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
         <p class="text-sm text-ink">
           {if(@setting.enabled, do: "Backing up daily", else: "Backups paused")}
         </p>
-        <p class="text-xs text-ink-subtle">
-          Last backup: {last_success_label(@last_success, @now)}
+        <%!-- The success it reports is named as one: the last attempt may
+        have failed, and this line must never read as that attempt. --%>
+        <p class="text-xs text-ink-subtle" data-testid="last-success">
+          Last successful backup: {last_success_label(@last_success, @now)}
+        </p>
+        <p :if={@failed_run} class="text-xs text-ink-subtle" data-testid="last-attempt">
+          Last attempt failed {time_ago(@failed_run.finished_at || @failed_run.started_at, @now)}
         </p>
       </div>
       <.button
@@ -500,17 +530,24 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
 
     <%!-- The edit form sits under the actions that opened it: an edit
     that rendered below the run history would land off-screen. --%>
-    <.settings_form :if={@editing?} form={@form} myself={@myself} />
+    <.settings_form
+      :if={@editing?}
+      form={@form}
+      stored_access_key={@setting.access_key_id}
+      myself={@myself}
+    />
 
     <%!-- Two-step, in-panel: the owner reads the consequence before the
     destructive button exists (the page's delete rides data-confirm; a
     confirm dialog can't carry this much plain copy). --%>
     <.confirm_block
       :if={@confirm == :restore}
-      tone="danger"
-      title="Restore the last backup?"
-      body="This replaces the app's current data with the last backup. This cannot be undone."
-      action="Yes, restore the last backup"
+      title="Restore a backup?"
+      body={
+        "This replaces the app's current data with the backup from " <>
+          "#{restore_target(@last_success, @now)}. This cannot be undone."
+      }
+      action="Yes, restore this backup"
       event="restore"
       action_testid="restore-confirm"
       cancel_testid="restore-cancel"
@@ -519,9 +556,9 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
 
     <.confirm_block
       :if={@confirm == :remove}
-      tone="warning"
       title="Stop backing this app up?"
       body="This app stops backing up and the schedule is removed. Snapshots already in your bucket stay there."
+      note="Keep your backup password — you'll still need it to restore these snapshots into a new app."
       action="Yes, stop backing up"
       event="remove-settings"
       action_testid="stop-backups-confirm"
@@ -542,7 +579,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
             />
             <.button
               size="sm"
-              variant="ghost"
+              variant="secondary"
               phx-click="hide-repo-password"
               phx-target={@myself}
               data-testid="hide-repo-password"
@@ -553,6 +590,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
         <% else %>
           <.button
             size="sm"
+            variant="secondary"
             phx-click="reveal-repo-password"
             phx-target={@myself}
             data-testid="reveal-repo-password"
@@ -590,29 +628,27 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
     """
   end
 
-  attr(:tone, :string, required: true)
   attr(:title, :string, required: true)
   attr(:body, :string, required: true)
+  attr(:note, :string, default: nil)
   attr(:action, :string, required: true)
   attr(:event, :string, required: true)
   attr(:action_testid, :string, required: true)
   attr(:cancel_testid, :string, required: true)
   attr(:myself, :any, required: true)
 
+  # One destructive treatment for every confirm: the danger border and
+  # heading say "consequence", where the status `.callout`s stay muted —
+  # a stop must never read like a notice.
   defp confirm_block(assigns) do
-    assigns =
-      assign(assigns,
-        tone_class:
-          if(assigns.tone == "danger",
-            do: "border-line-danger bg-danger-muted",
-            else: "border-line-warning bg-warning-muted"
-          )
-      )
-
     ~H"""
-    <div class={["space-y-3 rounded-xl border px-4 py-3", @tone_class]}>
-      <p class="text-sm font-medium text-ink">{@title}</p>
-      <p class="text-sm text-ink-muted">{@body}</p>
+    <div
+      class="space-y-3 rounded-xl border-2 border-line-danger bg-danger-muted px-4 py-3"
+      data-testid="destructive-confirm"
+    >
+      <p class="text-sm font-semibold text-danger">{@title}</p>
+      <p class="text-sm text-ink">{@body}</p>
+      <p :if={@note} class="text-xs text-ink-muted">{@note}</p>
       <div class="flex flex-wrap gap-2">
         <.button
           size="sm"
@@ -704,8 +740,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
       "prefix" => "",
       "access_key_id" => "",
       "secret_access_key" => "",
-      "retention_keep" => "7",
-      "enabled" => "true"
+      "retention_keep" => "7"
     }
   end
 
@@ -714,11 +749,12 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
       "endpoint" => setting.endpoint,
       "bucket" => setting.bucket,
       "prefix" => setting.prefix || "",
-      "access_key_id" => setting.access_key_id,
+      # Never pre-filled: an empty field means "keep the stored key", and
+      # a prefilled one would render the credential on a plain navigation.
+      "access_key_id" => "",
       # Never pre-filled: an empty field means "keep the stored key".
       "secret_access_key" => "",
-      "retention_keep" => Integer.to_string(setting.retention_keep),
-      "enabled" => to_string(setting.enabled)
+      "retention_keep" => Integer.to_string(setting.retention_keep)
     }
   end
 
@@ -731,7 +767,12 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   defp operation_params(params) do
     taken = Map.take(params, @form_fields)
 
-    Map.new(taken, fn {name, value} -> {String.to_existing_atom(name), to_param(name, value)} end)
+    # A blank "keep" field is omitted, not sent: the merge keeps a stored
+    # value for any key it doesn't receive, while a present `""` would
+    # overwrite the stored identifier.
+    kept = Map.reject(taken, fn {name, value} -> name in @blank_keeps_stored and value == "" end)
+
+    Map.new(kept, fn {name, value} -> {String.to_existing_atom(name), to_param(name, value)} end)
   end
 
   # A blank prefix is "no prefix" (the merge's deliberate nil), and a
@@ -826,8 +867,54 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   defp last_success_label(nil, _now), do: "never"
 
   defp last_success_label(%BackupRun{} = run, now) do
-    "#{time_ago(run.finished_at || run.started_at, now)} · #{format_bytes(run.bytes_added)}"
+    "#{time_ago(run.finished_at || run.started_at, now)} · #{format_bytes(run.bytes_added || 0)}"
   end
+
+  # The restore's target, named: the confirm must say which snapshot the
+  # app is about to become, not "the last backup" on trust.
+  defp restore_target(%BackupRun{} = run, now) do
+    "#{time_ago(run.finished_at || run.started_at, now)} (#{format_bytes(run.bytes_added || 0)})"
+  end
+
+  # coveralls-ignore-start - unreachable: the restore button is disabled
+  # without a succeeded run (`blocked_restore?/1`), so no confirm opens
+  defp restore_target(nil, _now), do: "the most recent backup"
+  # coveralls-ignore-stop
+
+  defp access_key_placeholder(nil), do: "AKIAIOSF…"
+
+  defp access_key_placeholder(key),
+    do: "Unchanged — ends in #{String.slice(mask_secret(key), -4, 4)}"
+
+  # --- failure copy ----------------------------------------------------------
+
+  # restic's messages are for us, not the owner. Known shapes get plain
+  # words and nothing else; anything else gets the honest generic line
+  # and keeps the raw summary as an expandable record.
+  defp failure_text(%BackupRun{status: :failed} = run), do: translated(run)
+  defp failure_text(%BackupRun{}), do: nil
+
+  defp translated(%BackupRun{kind: :restore}), do: "The restore didn't finish."
+
+  defp translated(%BackupRun{error_summary: summary}) when is_binary(summary) do
+    if locked_failure?(summary) do
+      "A backup was skipped because the previous one was still running."
+    else
+      "The last backup didn't finish."
+    end
+  end
+
+  defp translated(%BackupRun{}), do: "The last backup didn't finish."
+
+  # The stored summary is shown verbatim when it says more than the
+  # headline already does — a known shape is fully translated, so its
+  # jargon stays out of sight.
+  defp raw_failure?(%BackupRun{error_summary: summary}) when is_binary(summary),
+    do: not locked_failure?(summary)
+
+  defp raw_failure?(%BackupRun{}), do: false
+
+  defp locked_failure?(summary), do: String.contains?(summary, "repository is already locked")
 
   defp prefix_hint(%BackupSetting{prefix: nil}), do: nil
   defp prefix_hint(%BackupSetting{prefix: prefix}), do: "Folder: #{prefix}"
@@ -919,7 +1006,10 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   end
 
   @doc """
-  One run in the panel's history: kind, status, snapshot, size, time.
+  One run in the panel's history: kind, status, size, time, and — for a
+  failure — the plain-words reason in body color. The snapshot hash stays
+  on the run but never renders: it's restic's identifier, not the
+  owner's.
   """
   attr(:run, :any, required: true)
   attr(:now, :any, default: nil)
@@ -934,9 +1024,9 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
         tone: status_tone(run.status),
         status_label: status_label(run.status),
         kind_label: kind_label(run.kind),
-        snapshot: short_snapshot(run),
         size: run_size(run),
-        occurred: time_ago(run.finished_at || run.started_at, now)
+        occurred: time_ago(run.finished_at || run.started_at, now),
+        failure: failure_text(run)
       )
 
     ~H"""
@@ -948,11 +1038,10 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
     >
       <.badge tone={@tone}>{@status_label}</.badge>
       <span class="text-ink">{@kind_label}</span>
-      <span :if={@snapshot} class="font-mono text-ink-subtle">{@snapshot}</span>
       <span :if={@size} class="text-ink-subtle">{@size}</span>
       <span class="ml-auto text-ink-subtle">{@occurred}</span>
-      <p :if={@run.error_summary} class="w-full break-words text-danger">
-        {@run.error_summary}
+      <p :if={@failure} class="w-full break-words text-ink-muted">
+        {@failure}
       </p>
     </div>
     """
@@ -971,9 +1060,6 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   defp kind_label(:scheduled), do: "Scheduled backup"
   defp kind_label(:manual), do: "Manual backup"
   defp kind_label(:restore), do: "Restore"
-
-  defp short_snapshot(%BackupRun{snapshot_id: nil}), do: nil
-  defp short_snapshot(%BackupRun{snapshot_id: id}), do: String.slice(id, 0, 8)
 
   defp run_size(%BackupRun{kind: :restore, bytes_restored: bytes}),
     do: size_label(bytes, "restored")

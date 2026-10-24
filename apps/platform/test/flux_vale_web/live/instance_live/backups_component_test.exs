@@ -98,7 +98,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       run
       |> Ash.Changeset.for_update(
         :update,
-        Map.put(outcome, :finished_at, DateTime.utc_now()),
+        Map.put_new(outcome, :finished_at, DateTime.utc_now()),
         authorize?: false
       )
       |> Ash.update!()
@@ -109,9 +109,41 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
     stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
     stub(BackupJob, :delete, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
     stub(BackupJob, :create, fn _kc, _ns, _spec -> {:ok, %{}} end)
+    stub(BackupJob, :get, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
     stub(Deployment, :scale, fn _kc, _ns, _n, _replicas -> {:ok, %{}} end)
+
+    # The hardened restore op's termination wait polls the Deployment
+    # until zero replicas — answer already-terminated so it converges
+    # on the first poll.
+    stub(Deployment, :get, fn _kc, _ns, _name ->
+      {:ok, %{"status" => %{"replicas" => 0, "readyReplicas" => 0}}}
+    end)
+
     stub(RestoreJob, :delete, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
     stub(RestoreJob, :create, fn _kc, _ns, _spec -> {:ok, %{}} end)
+    stub(RestoreJob, :get, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
+  end
+
+  # A settings save's cluster side: the existing Secret is the repo's
+  # identity, and every save re-applies the quota margin.
+  defp stub_settings_save do
+    stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+
+    stub(Secret, :get_data, fn _kc, _ns, "backup-config" ->
+      {:ok,
+       %{
+         "RESTIC_REPOSITORY" => "s3:#{@s3_endpoint}/#{@bucket}",
+         "RESTIC_PASSWORD" => @repo_password,
+         "AWS_ACCESS_KEY_ID" => @access_key,
+         "AWS_SECRET_ACCESS_KEY" => @secret_key
+       }}
+    end)
+
+    stub(Secret, :create, fn _kc, _ns, "backup-config", _data -> {:ok, %{}} end)
+
+    stub(FluxVale.Clients.K8s.Resources.ResourceQuota, :create, fn _kc, _ns, _n, _spec ->
+      {:ok, %{}}
+    end)
   end
 
   describe "unconfigured" do
@@ -151,7 +183,14 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(view, "input[name='backup[access_key_id]']")
       assert has_element?(view, "input[type=password][name='backup[secret_access_key]']")
       assert has_element?(view, "input[name='backup[retention_keep]'][value='7']")
-      assert has_element?(view, "input[type=checkbox][name='backup[enabled]']")
+
+      # Two off-verbs only (V4): pausing is the panel's own switch, so the
+      # form carries no second, overlapping enable/disable control.
+      refute has_element?(view, "input[type=checkbox][name='backup[enabled]']")
+
+      # One label for the key prefix everywhere (V6).
+      assert has_element?(view, "label[for='backup_prefix']", "Folder (optional)")
+      refute has_element?(view, "label[for='backup_prefix']", "Prefix")
 
       # The blank secret means "keep the current one" — said in the label.
       assert has_element?(
@@ -192,8 +231,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
             "bucket" => "AB",
             "access_key_id" => @access_key,
             "secret_access_key" => @secret_key,
-            "retention_keep" => "99",
-            "enabled" => "true"
+            "retention_keep" => "99"
           }
         })
 
@@ -245,6 +283,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
       assert has_element?(view, "[data-testid=backups-health]", "Not run yet")
       assert has_element?(view, "[data-testid=backups-no-runs]")
+      assert has_element?(view, "[data-testid=last-success]", "Last successful backup: never")
       assert has_element?(view, "[data-testid=restore-latest][disabled]")
 
       run!(instance, %{
@@ -256,9 +295,38 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       render(view)
       assert has_element?(view, "[data-testid=backups-health]", "Healthy")
       assert has_element?(view, "[data-testid=backup-run][data-run-status=succeeded]")
-      assert has_element?(view, "[data-testid=backup-run]", "6b757e02")
       assert has_element?(view, "[data-testid=backup-run]", "2.0 MB added")
+
+      # The strip names the success it reports, and no failure line exists
+      # while the last attempt succeeded (V2).
+      assert has_element?(
+               view,
+               "[data-testid=last-success]",
+               "Last successful backup: just now · 2.0 MB"
+             )
+
+      refute has_element?(view, "[data-testid=last-attempt]")
+      refute has_element?(view, "[data-testid=backups-failing]")
+
+      # The snapshot hash is restic's identifier, not the owner's (V11).
+      refute render(view) =~ "6b757e02"
       refute has_element?(view, "[data-testid=restore-latest][disabled]")
+    end
+
+    test "a failed attempt is named as the attempt, not the last backup", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = instance!(version, user)
+      setting!(instance)
+
+      run!(instance, %{
+        status: :succeeded,
+        snapshot_id: "6b757e02e6a7c1d8",
+        bytes_added: 2_097_152,
+        finished_at: DateTime.add(DateTime.utc_now(), -7200, :second)
+      })
 
       run!(instance, %{
         started_at: DateTime.utc_now(),
@@ -266,10 +334,109 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
         error_summary: "exit code 1: repository is already locked"
       })
 
-      render(view)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
       assert has_element?(view, "[data-testid=backups-health]", "Needs attention")
-      assert has_element?(view, "[data-testid=backups-failing]", "repository is already locked")
-      assert has_element?(view, "[data-testid=backup-run][data-run-status=failed]")
+
+      # The success keeps its own line, so "2 h ago" can't read as the
+      # failed attempt's timestamp.
+      assert has_element?(
+               view,
+               "[data-testid=last-success]",
+               "Last successful backup: 2 h ago · 2.0 MB"
+             )
+
+      assert has_element?(view, "[data-testid=last-attempt]", "Last attempt failed just now")
+    end
+
+    test "the failure banner leads with plain words (V5)", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = instance!(version, user)
+      setting!(instance)
+
+      run!(instance, %{
+        started_at: DateTime.utc_now(),
+        status: :failed,
+        error_summary: "exit code 1: repository is already locked"
+      })
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      # The known shape translates fully: no restic jargon in the copy.
+      assert has_element?(
+               view,
+               "[data-testid=backups-failing]",
+               "A backup was skipped because the previous one was still running."
+             )
+
+      refute render(view) =~ "repository is already locked"
+      refute has_element?(view, "[data-testid=backups-failing] details")
+
+      # Nor in the run row, which carries the same plain copy in body
+      # color rather than red monospace (V11).
+      assert has_element?(
+               view,
+               "[data-testid=backup-run][data-run-status=failed]",
+               "A backup was skipped because the previous one was still running."
+             )
+
+      # Red belongs to the "Failed" badge alone; the row's reason renders
+      # in body color, not as an error block.
+      assert has_element?(view, "[data-testid=backup-run] p.text-ink-muted")
+      refute has_element?(view, "[data-testid=backup-run] p.text-danger")
+    end
+
+    test "an unknown failure gets the honest line plus its raw record (V5)", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = instance!(version, user)
+      setting!(instance)
+
+      run!(instance, %{
+        started_at: DateTime.utc_now(),
+        status: :failed,
+        error_summary: "exit code 1: unable to open config file"
+      })
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(view, "[data-testid=backups-failing]", "The last backup didn't finish.")
+
+      # The exact stored summary is kept, demoted under a disclosure.
+      assert has_element?(
+               view,
+               "[data-testid=backups-failing] details",
+               "exit code 1: unable to open config file"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid=backups-failing] details summary",
+               "Technical details"
+             )
+    end
+
+    test "a failure with no reported reason still says what happened (V5)", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = instance!(version, user)
+      setting!(instance)
+      run!(instance, %{started_at: DateTime.utc_now(), status: :failed})
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(view, "[data-testid=backups-failing]", "The last backup didn't finish.")
+
+      # Nothing to disclose: no stored summary, so no empty details block.
+      refute has_element?(view, "[data-testid=backups-failing] details")
+      assert has_element?(view, "[data-testid=backup-run][data-run-status=failed]", "Failed")
     end
 
     test "an active run disables the trigger and shows its row", %{
@@ -331,27 +498,110 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       refute has_element?(view, "[data-testid=restore-latest]")
     end
 
+    test "the edit form never pre-fills the access key id", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = instance!(version, user)
+      setting!(instance)
+
+      {:ok, view, html} = live(conn, ~p"/instances/#{instance.id}")
+
+      render_click(element(view, "[data-testid=backups-edit]"))
+
+      # Opening the form is a navigation, not a credential render: the
+      # field ships empty and names the stored tail in its placeholder.
+      assert has_element?(view, "input[name='backup[access_key_id]'][value='']")
+
+      assert has_element?(
+               view,
+               "input[name='backup[access_key_id]'][placeholder='Unchanged — ends in MPLE']"
+             )
+
+      refute render(view) =~ @access_key
+
+      # Nor does the blank secret key field leak the stored credential.
+      refute html =~ @secret_key
+    end
+
+    test "a blank access key id keeps the stored one on save", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = instance!(version, user)
+      setting!(instance)
+      stub_settings_save()
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      render_click(element(view, "[data-testid=backups-edit]"))
+
+      view
+      |> element("#backup-settings-form")
+      |> render_submit(%{
+        "backup" => %{
+          "endpoint" => @s3_endpoint,
+          "bucket" => @bucket,
+          "prefix" => "",
+          "access_key_id" => "",
+          "secret_access_key" => "",
+          "retention_keep" => "9"
+        }
+      })
+
+      assert has_element?(view, "[data-testid=backups-notice]", "Backup settings saved")
+
+      # The identifier survived an empty field — it is not sent at all.
+      {:ok, stored} = BackupSetting.get_by_instance(instance.id, actor: user)
+      assert stored.access_key_id == @access_key
+      assert stored.retention_keep == 9
+      assert has_element?(view, "[data-testid=backup-access-key]", "••••MPLE")
+    end
+
+    test "a settings save never resumes a paused app (V4)", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = instance!(version, user)
+      setting!(instance, enabled: false)
+      stub_settings_save()
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(view, "[data-testid=backups-enabled-toggle]", "Resume backups")
+
+      render_click(element(view, "[data-testid=backups-edit]"))
+
+      # The form carries no enable/disable control, so saving it can't
+      # resurrect a paused schedule — pausing is the panel's switch alone.
+      view
+      |> element("#backup-settings-form")
+      |> render_submit(%{
+        "backup" => %{
+          "endpoint" => @s3_endpoint,
+          "bucket" => @bucket,
+          "prefix" => "",
+          "access_key_id" => "",
+          "secret_access_key" => "",
+          "retention_keep" => "9"
+        }
+      })
+
+      assert has_element?(view, "[data-testid=backups-notice]", "Backup settings saved")
+
+      {:ok, stored} = BackupSetting.get_by_instance(instance.id, actor: user)
+      refute stored.enabled
+      assert has_element?(view, "[data-testid=backups-enabled-toggle]", "Resume backups")
+    end
+
     test "the enabled switch rides a settings save", %{conn: conn, user: user, version: version} do
       instance = instance!(version, user)
       setting!(instance)
 
-      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
-
-      stub(Secret, :get_data, fn _kc, _ns, "backup-config" ->
-        {:ok,
-         %{
-           "RESTIC_REPOSITORY" => "s3:#{@s3_endpoint}/#{@bucket}",
-           "RESTIC_PASSWORD" => @repo_password,
-           "AWS_ACCESS_KEY_ID" => @access_key,
-           "AWS_SECRET_ACCESS_KEY" => @secret_key
-         }}
-      end)
-
-      stub(Secret, :create, fn _kc, _ns, "backup-config", _data -> {:ok, %{}} end)
-
-      stub(FluxVale.Clients.K8s.Resources.ResourceQuota, :create, fn _kc, _ns, _n, _spec ->
-        {:ok, %{}}
-      end)
+      stub_settings_save()
 
       {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
 
@@ -372,23 +622,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       instance = instance!(version, user)
       setting!(instance)
 
-      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
-
-      stub(Secret, :get_data, fn _kc, _ns, "backup-config" ->
-        {:ok,
-         %{
-           "RESTIC_REPOSITORY" => "s3:#{@s3_endpoint}/#{@bucket}",
-           "RESTIC_PASSWORD" => @repo_password,
-           "AWS_ACCESS_KEY_ID" => @access_key,
-           "AWS_SECRET_ACCESS_KEY" => @secret_key
-         }}
-      end)
-
-      stub(Secret, :create, fn _kc, _ns, "backup-config", _data -> {:ok, %{}} end)
-
-      stub(FluxVale.Clients.K8s.Resources.ResourceQuota, :create, fn _kc, _ns, _n, _spec ->
-        {:ok, %{}}
-      end)
+      stub_settings_save()
 
       {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
 
@@ -403,8 +637,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
           "prefix" => "fluxvale/kavita",
           "access_key_id" => @access_key,
           "secret_access_key" => "",
-          "retention_keep" => "21",
-          "enabled" => "true"
+          "retention_keep" => "21"
         }
       })
 
@@ -546,7 +779,14 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
     } do
       instance = instance!(version, user)
       setting!(instance)
-      run!(instance, %{status: :succeeded, snapshot_id: "6b757e02e6a7c1d8", bytes_added: 1024})
+
+      run!(instance, %{
+        status: :succeeded,
+        snapshot_id: "6b757e02e6a7c1d8",
+        bytes_added: 1024,
+        finished_at: DateTime.add(DateTime.utc_now(), -7200, :second)
+      })
+
       stub_backup_k8s()
 
       {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
@@ -556,14 +796,16 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
 
       render_click(element(view, "[data-testid=restore-latest]"))
 
+      assert has_element?(view, "[data-testid=restore-confirm]", "Yes, restore this backup")
+
+      # The confirm names WHICH backup (V3): the newest succeeded run's
+      # age and size, not "the last backup" on trust.
       assert has_element?(
                view,
-               "[data-testid=restore-confirm]",
-               "Yes, restore the last backup"
+               "[data-testid=destructive-confirm]",
+               "This replaces the app's current data with the backup from 2 h ago (1.0 KB). " <>
+                 "This cannot be undone."
              )
-
-      assert render(view) =~
-               "This replaces the app&#39;s current data with the last backup. This cannot be undone."
 
       # Cancel backs out without touching anything.
       render_click(element(view, "[data-testid=restore-cancel]"))
@@ -578,7 +820,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(view, "[data-testid=backup-run][data-run-kind=restore]")
     end
 
-    test "a restore failure flips the instance and states the fallback", %{
+    test "a pre-Job restore failure leaves the app unchanged and the run honest", %{
       conn: conn,
       user: user,
       version: version
@@ -588,8 +830,16 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       run!(instance, %{status: :succeeded, snapshot_id: "6b757e02e6a7c1d8", bytes_added: 1024})
 
       stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+      stub(BackupJob, :delete, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
+      stub(BackupJob, :get, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
       stub(Deployment, :scale, fn _kc, _ns, _n, _replicas -> {:ok, %{}} end)
+
+      stub(Deployment, :get, fn _kc, _ns, _name ->
+        {:ok, %{"status" => %{"replicas" => 0, "readyReplicas" => 0}}}
+      end)
+
       stub(RestoreJob, :delete, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
+      stub(RestoreJob, :get, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
 
       stub(RestoreJob, :create, fn _kc, _ns, _spec ->
         {:error, Error.connection_error("api hiccup")}
@@ -600,17 +850,16 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       render_click(element(view, "[data-testid=restore-latest]"))
       render_click(element(view, "[data-testid=restore-confirm]"))
 
-      # The operation errors, the panel re-reads, and the page's own
-      # failure copy carries the next step (the run row says why).
-      assert has_element?(view, "[data-testid=status-badge]", "Failed")
-
-      assert has_element?(
-               view,
-               "[data-testid=status-message]",
-               "Try restoring again, or pick an earlier backup"
-             )
-
+      # The hardened contract (ADR-0037 §5 + review fix): a failure
+      # BEFORE the restore Job ever ran leaves the volume untouched —
+      # the app is reverted to its prior state (never :error), and the
+      # failure is the RUN's story, not the instance's.
       assert has_element?(view, "[data-testid=backup-run][data-run-status=failed]")
+
+      assert render(view) =~ "could not start"
+
+      # The instance is back on its way up, not Failed.
+      assert has_element?(view, "[data-testid=status-badge]", "Starting")
     end
   end
 
@@ -627,6 +876,15 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
 
       assert has_element?(view, "[data-testid=stop-backups-confirm]", "Yes, stop backing up")
       assert render(view) =~ "Snapshots already in your bucket stay there"
+
+      # The password gotcha (V9): stopping keeps the snapshots, so the
+      # password is still what opens them elsewhere.
+      assert has_element?(
+               view,
+               "[data-testid=destructive-confirm]",
+               "Keep your backup password — you'll still need it to restore these " <>
+                 "snapshots into a new app."
+             )
 
       render_click(element(view, "[data-testid=stop-backups-confirm]"))
 
@@ -736,7 +994,8 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       InstanceK8s.update_status(instance, :running, "All replicas ready")
       render(view)
 
-      assert has_element?(view, "[data-testid=backup-run]", "6b757e02")
+      assert has_element?(view, "[data-testid=backup-run][data-run-status=succeeded]")
+      assert has_element?(view, "[data-testid=backup-run]", "2.0 KB added")
       assert has_element?(view, "[data-testid=backups-health]", "Healthy")
     end
   end

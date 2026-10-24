@@ -46,7 +46,7 @@ defmodule FluxValeWeb.Storybook.Components.BackupRunRow do
           },
           %Variation{
             id: :long_error_summary,
-            description: "The 500-char error_summary bound — the row wraps it",
+            description: "The 500-char error_summary bound — the row wraps its translated copy",
             attributes:
               attributes(%{
                 failed_run()
@@ -56,6 +56,11 @@ defmodule FluxValeWeb.Storybook.Components.BackupRunRow do
                       6
                     )
               })
+          },
+          %Variation{
+            id: :written_but_failed,
+            description: "The blob stayed intact — bytes added, then a failed verify",
+            attributes: attributes(%{run(:scheduled, :failed) | bytes_added: 1_204_224})
           },
           %Variation{
             id: :fresh,
