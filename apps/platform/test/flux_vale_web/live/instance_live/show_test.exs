@@ -26,6 +26,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
   alias FluxVale.Clients.K8s.Resources.RoleBinding
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Clients.K8s.Resources.Service
+  alias FluxVale.Clients.K8s.SelfAccessReview
 
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Identity.User
@@ -480,6 +481,11 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
     stub(Namespace, :create, fn _kc, _ns, _spec -> {:ok, %{}} end)
     stub(RoleBinding, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+    # #238: the forbidden path now waits out RBAC propagation first —
+    # stubbed to skip the poll loop; the quota stub below stays
+    # forbidden, so the retry lands the verbatim message.
+    stub(SelfAccessReview, :wait_until_allowed, fn _kc, _ns, _res, _verb -> :ok end)
 
     stub(ResourceQuota, :create, fn _kc, ns, _n, _spec ->
       {:error,

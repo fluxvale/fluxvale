@@ -15,6 +15,7 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
   alias FluxVale.Clients.K8s.Resources.RoleBinding
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Clients.K8s.Resources.Service
+  alias FluxVale.Clients.K8s.SelfAccessReview
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.DeployInstance
@@ -471,6 +472,83 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
 
       assert {:ok, updated} = DeployInstance.call(instance)
       assert updated.status == :starting
+    end
+
+    test "a forbidden from fresh-binding propagation is retried once and recovers (#238)" do
+      stub_kubeconfig()
+      instance = deploying!()
+      ns = "fluxvale-app-#{instance.id}"
+
+      stub(Namespace, :create, fn _kc, _ns, _spec -> {:ok, %{}} end)
+      stub(RoleBinding, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(PersistentVolumeClaim, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Secret, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Deployment, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Ingress, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      # First quota apply rides the authorizer's pre-binding cache view
+      # (the 403 the nightly artifact quotes verbatim); the retry —
+      # after the propagation wait — succeeds.
+      quota_attempts = :counters.new(1, [])
+
+      forbidden =
+        K8s.Error.from_response(
+          {:ok,
+           %{
+             status: 403,
+             body: %{
+               "message" =>
+                 "resourcequotas \"app-quota\" is forbidden: cannot patch resource \"resourcequotas\""
+             }
+           }}
+        )
+
+      expect(ResourceQuota, :create, 2, fn _kc, ^ns, "app-quota", _spec ->
+        :counters.add(quota_attempts, 1, 1)
+
+        if :counters.get(quota_attempts, 1) == 1,
+          do: {:error, forbidden},
+          else: {:ok, %{}}
+      end)
+
+      expect(SelfAccessReview, :wait_until_allowed, fn _kc, ^ns, "resourcequotas", "create" ->
+        :ok
+      end)
+
+      assert {:ok, updated} = DeployInstance.call(instance)
+      assert updated.status == :starting
+    end
+
+    test "a forbidden that persists after the propagation wait lands :error verbatim (#238)" do
+      stub_kubeconfig()
+      instance = deploying!()
+
+      stub(Namespace, :create, fn _kc, _ns, _spec -> {:ok, %{}} end)
+      stub(RoleBinding, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(PersistentVolumeClaim, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Secret, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Deployment, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Ingress, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      expect(ResourceQuota, :create, 2, fn _kc, _ns, "app-quota", _spec ->
+        {:error,
+         K8s.Error.from_response(
+           {:ok, %{status: 403, body: %{"message" => "quota grant genuinely absent"}}}
+         )}
+      end)
+
+      expect(SelfAccessReview, :wait_until_allowed, fn _kc, _ns, "resourcequotas", "create" ->
+        {:error, K8s.Error.timeout("RBAC propagation wait timed out")}
+      end)
+
+      assert {:ok, updated} = DeployInstance.call(instance)
+      assert updated.status == :error
+      assert updated.status_message =~ "Deploy failed: quota grant genuinely absent"
+      assert updated.failure_reason == :deploy_failed
     end
 
     test "a non-:deploying instance is a no-op (superseded retry)" do
