@@ -60,11 +60,14 @@ plus a small SQLite metadata db; **Kavita** is static media plus a
 small SQLite library db. Both are single-user instances with low
 write rates, and the default window (§3) is off-peak for the fleet
 (NetCup, EU). A torn SQLite catch is possible but rare at these write
-rates — and non-fatal: retention keeps N snapshots, so a bad one
-doesn't destroy history; restore falls back to the previous
-snapshot. The instance page's backup panel says so in plain words
-(snapshots are taken while the app runs; database-backed apps may
-rarely need the previous snapshot).
+rates — and non-fatal: retention keeps N snapshots (floor 2), so a
+bad one doesn't destroy history; the in-product restore targets the
+**latest** snapshot, and falling back to an older one is a deliberate
+manual step (retry with an older snapshot id — support/operator
+territory in v1), not an automatic one. The instance page's backup
+panel says so in plain words (snapshots are taken while the app runs;
+database-backed apps may rarely need a manual restore from an earlier
+snapshot).
 
 Rejected for v1: pre-backup hooks. `forgejo dump` duplicates the
 volume into a zip inside the volume (double storage, double backup);
@@ -85,8 +88,16 @@ worker (queue `:backups`, every 5 min, offset off the top per the
 - **Due pass**: instances with backups enabled whose daily window has
   passed and have no run since it opened, and no active run → create
   a `BackupRun` row, apply the k8s Job. Manual "Back up now" creates
-  the same row + Job immediately — one code path.
-- **Watch pass**: active runs → read the Job's status → finalize.
+  the same row + Job immediately — one code path. The one-active-run
+  invariant is **atomic at the row**, not a check-then-create: a
+  partial unique index over active runs makes the second concurrent
+  start (sweep racing a manual click) fail its insert, so two Jobs
+  can never share an instance.
+- **Watch pass**: active runs → read the Job's status → finalize. A
+  stalled run cannot hold the slot forever: the Job carries its own
+  `activeDeadlineSeconds` (a hang becomes a Job failure the watch
+  pass finalizes), and above that the sweep keeps a stale horizon
+  for a run whose Job vanished entirely.
 
 v1 schedule shape: **daily at 03:00 UTC plus per-instance minute
 jitter** (id-derived, spreads fleet load). The user controls enabled
@@ -132,19 +143,25 @@ NetworkPolicy change.
 
 - **DB** (`BackupSetting` row): endpoint, bucket, prefix, retention,
   enabled, and the **access key id** — an identifier, not a
-  credential (it authenticizes nothing without the secret); it gives
+  credential (it authenticates nothing without the secret); it gives
   the settings UI honest masked confirmation ("…K4F2").
 - **Namespace Secret `backup-config` only**: the **secret access
-  key** and the **restic repo password** — generated once at enable
-  (32-byte CSPRNG URL-safe, the `RCLONE_PASS` recipe), get-or-created
-  across saves so a retry never rotates it. Rotation invalidates
-  every existing backup, so it never happens silently. The platform
-  DB stores neither, ever — same three reasons as ADR-0035's "the
-  namespace Secret, not BWS", plus the issue's own fence: the user's
-  keys serve nothing but their own backups.
+  key** — the user's own, stored verbatim — and the **restic repo
+  password** — the one value the platform generates (once, at first
+  save: 32-byte CSPRNG URL-safe, the `RCLONE_PASS` recipe),
+  get-or-created across saves so a retry never rotates it. Repo
+  password rotation invalidates every existing backup, so it never
+  happens silently (credential rotation more broadly is
+  re-enter-keys-and-keep-the-repo: the user rotates their S3 keys at
+  their provider and saves; the repo password survives). The platform
+  DB stores neither, ever — same three reasons as
+  [ADR-0035](00035-per-instance-file-access.md)'s "the namespace
+  Secret, not BWS", plus the issue's own fence: the user's keys serve
+  nothing but their own backups.
 
 The repo password gets a reveal + copy affordance (no-wrap,
-exact-string copy — ADR-0035 Am. 1's lessons) with loud copy: **it
+exact-string copy — [ADR-0035](00035-per-instance-file-access.md)
+Am. 1's lessons) with loud copy: **it
 is required to restore into a new instance after this one is
 deleted**, because the Secret dies with the namespace. Not derived
 from the S3 secret key — key rotation would silently brick old
@@ -157,17 +174,26 @@ other half; restore-to-new needs a user-supplied repo password at
 restore time (the §4 copy is the seed of that flow) and is the
 natural next slice, not this one.
 
-Flow: guard (settings + ≥1 successful run) → status `:restoring`
-→ scale the Deployment to 0 if running (`StopInstance` mechanics;
-sleeping/stopped rows are already at 0, and the wake endpoint's
-other-status arm 503s instead of waking — restore owns the instance
-exclusively; `StartInstance`'s status guard no-ops; the reconciler's
-trigger only selects `[:deploying, :starting, :running]`) → restore
-Job (`restic restore latest --target <mount>`) → on success scale
-back to 1 → `:starting` → the reconciler lands `:running` (or return
-to the pre-restore state without waking) → on failure `:error` with
-a new `:restore_failed` reason. Restore overwrites current data; the
-UI confirms in plain words.
+Flow: guard (settings + ≥1 successful run + **no active run of
+either kind** — one backup/restore claim per instance at a time; a
+restore never starts over a Job reading the same PVC or holding the
+repo lock) → status `:restoring` → scale the Deployment to 0 if
+running (`StopInstance` mechanics; sleeping/stopped rows are already
+at 0, and the wake endpoint's other-status arm 503s instead of
+waking — restore owns the instance exclusively; `StartInstance`'s
+status guard no-ops; the reconciler's trigger only selects
+`[:deploying, :starting, :running]`) → restore Job (`restic restore
+<latest>:<mount> --target <mount> --delete --verify` — the
+`<snapshot>:<subfolder>` form restores **in place**; a bare
+`--target <mount>` re-creates the snapshot's paths *under* the
+mount) → on success scale back to 1 → `:starting` → the reconciler
+lands `:running` (or return to the pre-restore state without waking)
+→ on failure `:error` with a new `:restore_failed` reason, **the
+app stays scaled down** (a partially restored volume must not be
+served), and the retry is legal from exactly that state — a
+successful retry returns the instance to its pre-first-restore
+state. Restore overwrites current data; the UI confirms in plain
+words.
 
 `BackupRun` carries the history for both directions (`kind`
 scheduled | manual | restore), so the panel shows one timeline.
@@ -206,3 +232,16 @@ and proved two §3 details wrong as written:
    (`status.containerStatuses[].state.terminated.message`). The
    platform reads the Job's verdict, then the pod's message only
    once the verdict has settled. Same side channel, correct object.
+
+## Amendment 2 (2026-10-24): review-pass corrections (pre-merge)
+
+The first review pass (bot + agent, on the PR) tightened four
+claims, none changing decisions: §2's fallback is a **manual**
+older-snapshot restore, not automatic (the in-product restore
+targets latest); §3 states the atomic one-active-run invariant
+(partial unique index) and the stall bounds; §4's credential
+wording — the user's S3 secret key is stored **verbatim**, only the
+repo password is generated — and §5's restore command carries the
+in-place `<snapshot>:<subfolder>` form plus the failed-restore
+contract (app stays down, retry legal from `:error` +
+`:restore_failed`).
