@@ -12,6 +12,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
   use FluxValeWeb, :live_view
 
   alias FluxVale.Checks.ActorIsPlatformAdmin
+  alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.Instance
   alias FluxValeWeb.InstanceStatus
 
@@ -139,6 +140,16 @@ defmodule FluxValeWeb.InstanceLive.Show do
             {@instance.app_version.first_run.guidance}
           </p>
         </.callout>
+
+        <%!-- #222 (ADR-0037): the backups panel is a LiveComponent — it
+        owns form/confirm/reveal state the page has no use for, and this
+        page is shared hot ground. --%>
+        <.live_component
+          module={FluxValeWeb.InstanceLive.BackupsComponent}
+          id="backups"
+          instance={@instance}
+          current_user={@current_user}
+        />
 
         <%= if @instance.file_access do %>
           <%!-- #190 (ADR-0035): the WebDAV sidecar's address book — URL
@@ -552,6 +563,15 @@ defmodule FluxValeWeb.InstanceLive.Show do
      |> push_navigate(to: ~p"/instances")}
   end
 
+  # #222: a backup run's writes ride this same topic (ADR-0037's
+  # consequences — a run never touches Instance.status), so the panel is
+  # told to re-read rather than the page re-reading the instance. The
+  # notification's data is a run, not an instance: never feed it to
+  # fetch/2.
+  def handle_info(%Ash.Notifier.Notification{resource: BackupRun}, socket) do
+    {:noreply, refresh_backups_panel(socket)}
+  end
+
   # Re-read on every broadcast instead of trusting notification.data:
   # a notification can trail fresher writes (the deploy action's own
   # :deploying publish lands after the trigger's :starting under inline
@@ -570,6 +590,18 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
   defp instance_url(instance) do
     "https://#{instance.slug}.#{Application.fetch_env!(:flux_vale, :instances_base_domain)}/"
+  end
+
+  # The panel's own refresh: pass the assigns it already reads. The run
+  # notification carries no instance, so the page keeps its row and pokes
+  # the component instead.
+  defp refresh_backups_panel(socket) do
+    send_update(FluxValeWeb.InstanceLive.BackupsComponent,
+      id: "backups",
+      instance: socket.assigns.instance
+    )
+
+    socket
   end
 
   # The WebDAV endpoint (#190): same hostname, config-owned path prefix

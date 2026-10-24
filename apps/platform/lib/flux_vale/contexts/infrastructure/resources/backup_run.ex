@@ -30,7 +30,8 @@ defmodule FluxVale.Infrastructure.BackupRun do
     otp_app: :flux_vale,
     domain: FluxVale.Infrastructure,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    notifiers: [Ash.Notifier.PubSub]
 
   postgres do
     table("backup_runs")
@@ -72,6 +73,20 @@ defmodule FluxVale.Infrastructure.BackupRun do
       description("System-only: the run operation and the sweep (authorize?: false)")
       forbid_if(always())
     end
+  end
+
+  pub_sub do
+    module(Phoenix.PubSub)
+    name(FluxVale.PubSub)
+
+    # #222: a run's writes land on the INSTANCE's topic
+    # (`instances:<instance_id>`) — the one the instance page already
+    # subscribes to. A backup's outcome never touches `Instance.status`
+    # (ADR-0037's consequences: app health and backup health are separate
+    # axes), so without this the panel would show a run as running until
+    # the next page load.
+    publish(:create, ["instances", :instance_id])
+    publish(:update, ["instances", :instance_id])
   end
 
   attributes do

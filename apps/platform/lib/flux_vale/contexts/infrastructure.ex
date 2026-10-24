@@ -15,6 +15,7 @@ defmodule FluxVale.Infrastructure do
 
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Operations.ConfigureBackups
+  alias FluxVale.Infrastructure.Operations.ReadBackupCredential
   alias FluxVale.Infrastructure.Operations.ReadFileAccessCredential
   alias FluxVale.Infrastructure.Operations.RestoreInstanceBackup
   alias FluxVale.Infrastructure.Operations.RestoreServingEdge
@@ -66,6 +67,12 @@ defmodule FluxVale.Infrastructure do
   defdelegate remove_backup_settings(setting, opts \\ []),
     to: BackupSetting,
     as: :destroy
+
+  # #222 (ADR-0037 §4): the panel's repo-password reveal — a live read of
+  # the namespace's `backup-config` Secret, the credential's only home.
+  defdelegate read_backup_credential(instance),
+    to: ReadBackupCredential,
+    as: :call
 
   # #222 (ADR-0037 §3): one backup run — the manual "Back up now" and the
   # sweep's due pass share this one operation; only the kind differs.
