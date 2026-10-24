@@ -37,6 +37,14 @@ COPY priv priv
 COPY assets assets
 COPY config config
 
+# Tailwind pre-seed (#230): CI stages the exact binary
+# `mix tailwind.install --if-missing` looks for — tailwind-<target>-
+# <version> under _build/, the path tailwind-elixir computes — into
+# .tw-cache/ in the build context (actions/cache + curl; the in-image
+# fetch dies on httpc's 10KB header limit, #230). Locally and in the
+# nightly the dir holds only .gitkeep: default fetch path unchanged.
+COPY .tw-cache/ /app/_build/
+
 # esbuild/tailwind binaries + initial asset build (Hex-managed, no Node)
 RUN mix assets.setup && mix assets.build
 

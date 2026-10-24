@@ -265,6 +265,77 @@ jobs:
       - name: Expose GitHub runtime for the gha cache
         uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487
 
+      # (#230) The dev-image build's `mix assets.setup` fetches the
+      # tailwind binary via Erlang httpc, whose 10KB header limit dies
+      # on the release CDN's oversized response headers — pre-test, on
+      # every leg. Pre-seed instead: restore the exact binary the
+      # install task looks for into the docker context
+      # (apps/platform/.tw-cache), which Dockerfile.dev COPYs to the
+      # path tailwind-elixir computes (_build/tailwind-<target>-
+      # <version>); `--if-missing` finds it, version-checks it, and
+      # fetches nothing. Cold cache: curl fills it (curl has no header
+      # limit). Exact key only — a pin bump downloads once fresh,
+      # never restores a stale binary. Nightly keeps the default fetch
+      # path: it is this phase's canary, and these steps live here
+      # only.
+      - name: Read the tailwind pin from config.exs
+        id: tailwind
+        run: |
+          # Single source of truth is config.exs — a missing pattern
+          # means the config block changed shape; update this parse,
+          # don't fork the pin.
+          v="$(sed -n '/^config :tailwind,/,/^\]/p' apps/platform/config/config.exs \
+            | sed -n 's/^  version: "\(.*\)",$/\1/p' | head -1)"
+          echo "tailwind version pin: $v"
+          test -n "$v" || { echo "::error::no tailwind version parsed out of config.exs" >&2; exit 1; }
+          echo "version=$v" >>"$GITHUB_OUTPUT"
+
+      - name: Restore tailwind binary cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/platform/.tw-cache
+          key: ${{ runner.os }}-${{ runner.arch }}-tailwind-musl-${{ steps.tailwind.outputs.version }}
+
+      - name: Stage the tailwind binary (cold cache only)
+        env:
+          TW_VERSION: ${{ steps.tailwind.outputs.version }}
+          RUNNER_ARCH: ${{ runner.arch }}
+        run: |
+          # Mirrors what tailwind-elixir computes inside the image:
+          # target linux-<arch>-musl (alpine base, tailwind v4 ships
+          # musl builds), filename tailwind-<target>-<version>. A drift
+          # here lands the binary under a wrong name and the fetch runs
+          # anyway — visible as a download in the docker build log.
+          arch="$(printf '%s' "$RUNNER_ARCH" | tr '[:upper:]' '[:lower:]')"
+          target="linux-$arch-musl"
+          name="tailwind-$target-$TW_VERSION"
+          if [ -f "apps/platform/.tw-cache/$name" ]; then
+            size="$(stat -c%s "apps/platform/.tw-cache/$name")"
+            echo "tailwind preseed: cache hit — $name ($size bytes) staged for the dev image"
+          else
+            echo "tailwind preseed: cache cold — curl fetching $name"
+            mkdir -p apps/platform/.tw-cache
+            curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 \
+              -o "apps/platform/.tw-cache/$name" \
+              "https://github.com/tailwindlabs/tailwindcss/releases/download/v$TW_VERSION/tailwindcss-$target"
+            chmod 755 "apps/platform/.tw-cache/$name"
+          fi
+          # Verify against the release's published sha256sums.txt on
+          # every run (cold AND warm): the musl build is dynamically
+          # linked, so it cannot be executed on the glibc runner —
+          # the hash is the pre-docker-build gate, and doubles as a
+          # cache-roundtrip integrity check on warm hits.
+          expected="$(curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 \
+            "https://github.com/tailwindlabs/tailwindcss/releases/download/v$TW_VERSION/sha256sums.txt" \
+            | awk -v t="./tailwindcss-$target" '$2 == t {print $1}')"
+          actual="$(sha256sum "apps/platform/.tw-cache/$name" | cut -d" " -f1)"
+          test -n "$expected" || { echo "::error::no checksum entry for tailwindcss-$target in v$TW_VERSION sha256sums.txt" >&2; exit 1; }
+          [ "$expected" = "$actual" ] || {
+            echo "::error::sha256 mismatch for $name: expected $expected, got $actual — delete the actions/cache entry (key bump) if this persists" >&2
+            exit 1
+          }
+          echo "tailwind preseed: sha256 verified ($actual)"
+
       # Matrix-sourced env on BOTH steps that read it: the bootstrap
       # (E2E_IDLE_SLEEP_AFTER_SECONDS — the override must be on the
       # stack the spec then runs against, not just the spec's own
