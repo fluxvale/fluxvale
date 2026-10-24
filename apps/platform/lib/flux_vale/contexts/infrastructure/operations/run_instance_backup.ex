@@ -15,17 +15,23 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackup do
   - the instance has a settings row and it is `enabled` — a disabled
     instance never runs, manual or not (the owner's switch means what it
     says)
-  - no run is `:pending`/`:running` — restic's repo locks make concurrent
-    Jobs against one PVC counterproductive, and the ADR's single-writer
-    stance is enforced here, not hoped for
   - the instance has a namespace — a never-deployed instance has no PVC
     to read
 
-  Order of the writes matters: the row lands **before** the Job, so a
-  crash between the two leaves a `:pending` row the watch pass's stale
-  horizon cleans up, never an unwatched Job. The Job is deleted
-  tolerantly first — Jobs are immutable, so the previous run's object
-  must go before the new one applies.
+  The one-active-run invariant is NOT a guard: the partial unique index
+  over `pending`/`running` rows is the enforcement (atomic under
+  concurrency — a sweep racing a manual click loses its insert), and
+  the index's rejection is translated to `:run_in_flight`, which the
+  sweep treats as benign and the UI as "a run is already going".
+
+  Order of the writes matters, twice over: the previous run's Job is
+  deleted **before** the new row exists (a `:pending` row must never be
+  able to read the previous run's Job and absorb its outcome), and the
+  row lands **before** the new Job applies, so a crash between the two
+  leaves a `:pending` row the watch pass's stale horizon cleans up,
+  never an unwatched Job. The Job carries the run's id as a label —
+  the sweep's ownership check — so even a leftover Job can never be
+  attributed to the wrong row.
   """
 
   alias FluxVale.Clients.K8s.Error
@@ -35,6 +41,7 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackup do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
 
+  require Logger
   require OpenTelemetry.Tracer
 
   # The whole orchestration is one `instance.backup` span (ADR-0012
@@ -111,8 +118,12 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackup do
   defp deployed(%{namespace: nil}), do: {:error, :not_deployed}
   defp deployed(%{namespace: _namespace}), do: :ok
 
+  # Delete-before-insert (review finding): the leftover Job must be GONE
+  # before the new row exists, or a concurrent watch pass can read the
+  # previous run's Job and finalize the brand-new row with its verdict.
   defp start(instance, setting, kind) do
     with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance),
+         :ok <- delete_leftover_job(kubeconfig, instance.namespace),
          {:ok, run} <- create_run(instance, kind) do
       apply_job(run, kubeconfig, instance, setting)
     end
@@ -152,12 +163,7 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackup do
   defp translate_taken_slot(other), do: other
 
   defp apply_job(run, kubeconfig, instance, setting) do
-    outcome =
-      with :ok <- delete_leftover_job(kubeconfig, instance.namespace) do
-        BackupJob.create(kubeconfig, instance.namespace, job_spec(instance, setting))
-      end
-
-    case outcome do
+    case BackupJob.create(kubeconfig, instance.namespace, job_spec(run, instance, setting)) do
       {:ok, _job} -> mark_running(run)
       {:error, _error} = error -> fail_now(run, error)
     end
@@ -165,22 +171,44 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackup do
 
   # The row already exists, so a failed apply must not leave it `:pending`
   # for the stale horizon to find two hours later: the owner gets the
-  # failure straight away, and the run slot is free for the retry.
+  # failure straight away, and the run slot is free for the retry. The
+  # summary is truncated BEFORE the write (the attribute caps at 500 —
+  # an over-long admission/quota message must fail the run, not the
+  # write), and a failed finalize write is logged, never raised: a
+  # MatchError here would escape the operation and crash the caller
+  # (review finding).
   defp fail_now(run, {:error, error}) do
-    {:ok, _failed} =
+    summary =
+      truncate("backup job could not be applied: #{InstanceK8s.format_error(error)}")
+
+    finalize =
       run
       |> Ash.Changeset.for_update(
         :update,
-        %{
-          status: :failed,
-          error_summary: "backup job could not be applied: #{InstanceK8s.format_error(error)}",
-          finished_at: DateTime.utc_now()
-        },
+        %{status: :failed, error_summary: summary, finished_at: DateTime.utc_now()},
         authorize?: false
       )
       |> Ash.update()
 
+    case finalize do
+      {:ok, _failed} ->
+        :ok
+
+      # coveralls-ignore-start - defensive: the row was readable a
+      # moment ago; only a concurrent finalize or a DB outage lands
+      # here, and ExUnit can stage neither deterministically.
+      {:error, _write_error} = write_error ->
+        Logger.warning("Backup run #{run.id} could not settle :failed: #{inspect(write_error)}")
+        # coveralls-ignore-stop
+    end
+
     {:error, error}
+  end
+
+  # The sweep's own truncate stance: a long reason never fails the write
+  # itself.
+  defp truncate(text) do
+    String.slice(text, 0, 500)
   end
 
   # Jobs are immutable, so the previous run's object must go first.
@@ -192,11 +220,12 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackup do
     end
   end
 
-  defp job_spec(instance, setting) do
+  defp job_spec(run, instance, setting) do
     %{
       slug: instance.slug,
       mount_path: instance.storage_mount_path,
-      keep_last: setting.retention_keep
+      keep_last: setting.retention_keep,
+      run_id: run.id
     }
   end
 

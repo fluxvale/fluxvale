@@ -14,6 +14,7 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackupsTest do
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.SweepBackups
+  alias FluxVale.Repo
   alias FluxVale.TestSupport.InstanceFixtures
 
   require Ash.Query
@@ -319,6 +320,7 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackupsTest do
 
       stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
       stub(BackupJob, :status, fn _kc, _ns -> {:ok, %{outcome: :running}} end)
+      stub(BackupJob, :delete, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
       reject(BackupJob, :create, 3)
 
       assert {:ok, summary} = Infrastructure.sweep_backups(@now)
@@ -370,13 +372,131 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackupsTest do
       assert {:ok, summary} = Infrastructure.sweep_backups(@now)
       assert summary.succeeded_ids == [run.id]
 
-      finished = fetch_run!(run.id)
-      assert finished.status == :succeeded
-      assert finished.snapshot_id == "6b757e02e6a7"
-      assert finished.bytes_processed == 2048
-      assert finished.bytes_added == 1024
-      assert finished.finished_at != nil
-      assert finished.error_summary == nil
+      finalized = Repo.reload!(run)
+      assert finalized.status == :succeeded
+      assert finalized.snapshot_id == "6b757e02e6a7"
+      assert finalized.bytes_processed == 2048
+      assert finalized.bytes_added == 1024
+    end
+
+    # Review finding (attribution): the fixed-name Job outlives its run.
+    # A verdict is only this row's if the Job's run-id label names it —
+    # a mismatched label means the row keeps waiting (the next run's
+    # watch settles it, or the stale horizon does); it must NOT absorb
+    # another run's outcome.
+    test "a succeeded Job labeled for ANOTHER run is not this row's verdict" do
+      owner = user()
+      instance = deployed_instance!(base!(), owner)
+      setting!(instance)
+
+      run = run!(instance, %{status: :running, started_at: DateTime.add(@now, -60, :second)})
+
+      message =
+        ~s({"snapshot_id":"6b757e02e6a7","bytes_processed":2048,"bytes_added":1024})
+
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+
+      stub(BackupJob, :status, fn _kc, _ns ->
+        {:ok,
+         %{
+           outcome: :succeeded,
+           message: message,
+           exit_code: 0,
+           reason: "Completed",
+           run_id: "someone-elses-run"
+         }}
+      end)
+
+      assert {:ok, summary} = Infrastructure.sweep_backups(@now)
+      assert summary.succeeded_ids == []
+      assert Repo.reload!(run).status == :running
+    end
+
+    # The same ownership gate on the failure arm: another run's failed
+    # Job is not this row's verdict either.
+    test "a failed Job labeled for ANOTHER run is not this row's verdict" do
+      owner = user()
+      instance = deployed_instance!(base!(), owner)
+      setting!(instance)
+
+      run = run!(instance, %{status: :running, started_at: DateTime.add(@now, -60, :second)})
+
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+
+      stub(BackupJob, :status, fn _kc, _ns ->
+        {:ok,
+         %{
+           outcome: :failed,
+           message: ~s({"error":"restic exited 1"}),
+           exit_code: 1,
+           reason: "Error",
+           run_id: "someone-elses-run"
+         }}
+      end)
+
+      assert {:ok, summary} = Infrastructure.sweep_backups(@now)
+      assert summary.failed_ids == []
+      assert Repo.reload!(run).status == :running
+    end
+
+    # count_field's lenient arm: a good snapshot id with wrong-typed byte
+    # counts still succeeds (bytes default 0 — restic omits zero fields;
+    # a bad count must not fail a good backup).
+    test "a valid id with wrong-typed byte counts succeeds with zeroed bytes" do
+      owner = user()
+      instance = deployed_instance!(base!(), owner)
+      setting!(instance)
+
+      run = run!(instance, %{status: :running, started_at: DateTime.add(@now, -60, :second)})
+
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+
+      stub(BackupJob, :status, fn _kc, _ns ->
+        {:ok,
+         %{
+           outcome: :succeeded,
+           message:
+             ~s({"snapshot_id":"6b757e02e6a7","bytes_processed":"lots","bytes_added":null}),
+           exit_code: 0,
+           reason: "Completed"
+         }}
+      end)
+
+      assert {:ok, summary} = Infrastructure.sweep_backups(@now)
+      assert summary.succeeded_ids == [run.id]
+
+      finalized = Repo.reload!(run)
+      assert finalized.snapshot_id == "6b757e02e6a7"
+      assert finalized.bytes_processed == 0
+      assert finalized.bytes_added == 0
+    end
+
+    # Review finding (poison pill): a decodable but wrong-shaped message
+    # (hostile keys, a non-string id) must fail the run honestly —
+    # writing it would fail the typed update and re-fail every
+    # subsequent 5-minute pass on the same row.
+    test "a wrong-shaped success message fails the run, not the pass" do
+      owner = user()
+      instance = deployed_instance!(base!(), owner)
+      setting!(instance)
+
+      run = run!(instance, %{status: :running, started_at: DateTime.add(@now, -60, :second)})
+
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+
+      stub(BackupJob, :status, fn _kc, _ns ->
+        {:ok,
+         %{
+           outcome: :succeeded,
+           message: ~s({"snapshot_id":{"evil":true},"bytes_processed":-1,"bytes_added":{}}),
+           exit_code: 0,
+           reason: "Completed"
+         }}
+      end)
+
+      assert {:ok, summary} = Infrastructure.sweep_backups(@now)
+      assert summary.failed_ids == [run.id]
+      assert Repo.reload!(run).status == :failed
     end
 
     test "a Complete Job with no usable message is a failure, not a success" do

@@ -50,6 +50,18 @@ defmodule FluxVale.Clients.K8s.Resources.BackupJobTest do
                "backup-run"
     end
 
+    # The ownership link (review finding): the fixed-name Job outlives
+    # its run, so the sweep must be able to tell whose verdict it is
+    # reading. The run-id label rides the Job and the pod template.
+    test "the run-id label rides the Job and its pod template" do
+      manifest = BackupJob.build_manifest("ns", spec(%{run_id: "run-42"}))
+
+      assert manifest["metadata"]["labels"]["fluxvale.io/backup-run"] == "run-42"
+
+      assert manifest["spec"]["template"]["metadata"]["labels"]["fluxvale.io/backup-run"] ==
+               "run-42"
+    end
+
     test "one pod, one attempt: backoffLimit 0 and restartPolicy Never" do
       spec_map = BackupJob.build_manifest("ns", spec())["spec"]
 
@@ -161,6 +173,15 @@ defmodule FluxVale.Clients.K8s.Resources.BackupJobTest do
       assert script =~ ~s(restic backup --json --host "$RESTIC_HOST" "$mount")
       assert script =~ ~s(keep_last="14")
       assert script =~ ~s(restic forget --keep-last "$keep_last" --host "$RESTIC_HOST" --prune)
+    end
+
+    # Review finding: an empty summary (restic printed nothing) must
+    # never reach --argjson — jq -r on empty input yields "" (exit 0)
+    # and --argjson "" is a parse error masking a possibly-good backup.
+    test "an empty summary substitutes {} before the byte extraction" do
+      script = BackupJob.script(spec())
+
+      assert script =~ ~s([ -n "$summary" ] || summary='{}')
     end
 
     test "a non-zero backup or forget exit fails the run" do
@@ -298,6 +319,31 @@ defmodule FluxVale.Clients.K8s.Resources.BackupJobTest do
       end)
 
       assert {:ok, [%{"metadata" => %{"name" => "backup-run-x"}}]} = BackupJob.pods(%{}, "ns")
+    end
+
+    # Review finding (the composition bug CI could not see): the list
+    # request must be POD-typed. A Job-typed req lists Jobs, whose
+    # objects carry no containerStatuses — the outcome read would be
+    # nil forever and every successful backup would record as failed.
+    # Every other test stubs Kubereq.list and never sees the kind.
+    test "the list request is Pod-typed, never Job-typed" do
+      test_pid = self()
+
+      # The bug this pins: pods/2 reused the Job-typed req, so the list
+      # hit batch/v1 Jobs (whose objects carry no containerStatuses).
+      # Kubereq is Mimic-copied, so the contract is pinned at attach —
+      # the exact regression shape.
+      expect(Kubereq, :attach, fn req, opts ->
+        send(test_pid, {:attach_opts, Keyword.take(opts, [:kind, :api_version])})
+        req
+      end)
+
+      expect(Kubereq, :list, fn _req, "ns", _opts ->
+        {:ok, %{status: 200, body: %{"items" => []}}}
+      end)
+
+      assert {:ok, []} = BackupJob.pods(%{}, "ns")
+      assert_received {:attach_opts, [api_version: "v1", kind: "Pod"]}
     end
 
     test "a malformed list body is a validation error" do

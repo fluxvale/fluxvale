@@ -99,11 +99,13 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackupTest do
       expect(BackupJob, :create, fn _kc, ns, spec ->
         assert ns == instance.namespace
 
-        assert spec == %{
-                 slug: instance.slug,
-                 mount_path: instance.storage_mount_path,
-                 keep_last: setting.retention_keep
-               }
+        assert spec.slug == instance.slug
+        assert spec.mount_path == instance.storage_mount_path
+        assert spec.keep_last == setting.retention_keep
+
+        # The ownership label's value — the sweep refuses a verdict from
+        # a Job that does not name its run.
+        assert is_binary(spec.run_id) and byte_size(spec.run_id) > 0
 
         {:ok, %{}}
       end)
@@ -177,10 +179,11 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackupTest do
       run!(instance, :pending)
 
       # The one-active-run refusal is the partial unique index's
-      # rejection (translated), so the op reaches its kubeconfig leg
-      # before the insert refuses — stub the resolver the siblings
+      # rejection (translated): the op reaches its kubeconfig + leftover
+      # -Job legs before the insert refuses — stub both the siblings
       # stub; the Job create stays rejected.
       stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+      stub(BackupJob, :delete, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
       reject(BackupJob, :create, 3)
 
       assert {:error, :run_in_flight} = Infrastructure.run_instance_backup(instance, :manual)
@@ -195,6 +198,7 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackupTest do
       run!(instance, :running)
 
       stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+      stub(BackupJob, :delete, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
       reject(BackupJob, :create, 3)
 
       assert {:error, :run_in_flight} = Infrastructure.run_instance_backup(instance, :manual)
@@ -284,7 +288,7 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackupTest do
       assert run.finished_at != nil
     end
 
-    test "a failed leftover-Job delete fails before the apply" do
+    test "a failed leftover-Job delete fails before the apply — no row, no Job" do
       version = base!()
       owner = user()
       instance = instance!(version, owner)
@@ -301,8 +305,11 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackupTest do
       assert {:error, %Error{reason: :connection_error}} =
                Infrastructure.run_instance_backup(instance, :manual)
 
-      assert [run] = runs(instance)
-      assert run.status == :failed
+      # Stronger than the pre-hardening contract: the delete now runs
+      # BEFORE the row exists (delete-before-insert — a fresh :pending
+      # row must never be able to read the previous run's Job), so a
+      # failed delete leaves nothing behind at all.
+      assert runs(instance) == []
     end
   end
 end

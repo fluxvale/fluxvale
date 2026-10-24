@@ -175,8 +175,10 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
   # --- WATCH -----------------------------------------------------------
 
   defp active_runs do
+    # The resource's own :active read — the sweep never keeps a second
+    # copy of the invariant's filter (review finding).
     BackupRun
-    |> Ash.Query.filter(status in [:pending, :running])
+    |> Ash.Query.for_read(:active)
     |> Ash.Query.load(:instance)
     |> Ash.read!(authorize?: false)
   end
@@ -209,22 +211,39 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
   defp read_job(run, instance, now) do
     with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance) do
       case BackupJob.status(kubeconfig, instance.namespace) do
-        {:ok, %{outcome: :succeeded} = outcome} ->
-          finish_succeeded(run, outcome, now)
-
-        {:ok, %{outcome: :failed} = outcome} ->
-          finish_failed(run, failure_text(outcome), now)
-
-        {:ok, %{outcome: :running}} ->
-          stale(run, now)
-
-        {:error, %Error{reason: :not_found}} ->
-          gone_or_stale(run, instance, kubeconfig, now)
-
-        {:error, _error} = error ->
-          error
+        {:ok, %{outcome: :succeeded} = outcome} -> settle_succeeded(run, outcome, now)
+        {:ok, %{outcome: :failed} = outcome} -> settle_failed(run, outcome, now)
+        {:ok, %{outcome: :running}} -> stale(run, now)
+        {:error, %Error{reason: :not_found}} -> gone_or_stale(run, instance, kubeconfig, now)
+        {:error, _error} = error -> error
       end
     end
+  end
+
+  # The ownership gate before any verdict write (see owned?/2); the
+  # settle helpers keep read_job's case flat (credo's nesting rule).
+  defp settle_succeeded(run, outcome, now) do
+    if owned?(run, outcome), do: finish_succeeded(run, outcome, now), else: stale(run, now)
+  end
+
+  defp settle_failed(run, outcome, now) do
+    if owned?(run, outcome),
+      do: finish_failed(run, failure_text(outcome), now),
+      else: stale(run, now)
+  end
+
+  # The fixed-name Job outlives its run (immutable objects, deleted only
+  # at the next start): a verdict is only this row's if the Job's
+  # run-id label names it. A mismatch is not an error — the row simply
+  # keeps waiting (the next run's watch will settle it, or the stale
+  # horizon does). A nil label is a pre-label Job: none exist outside a
+  # single deploy, proceed (one-release backward compatibility).
+  # Map.get, not dot access: the outcome map is our own builder's
+  # shape in production, but a stub or an older build may omit the
+  # key — dot access would raise and fail the whole pass.
+  defp owned?(run, outcome) do
+    run_id = Map.get(outcome, :run_id)
+    is_nil(run_id) or run_id == run.id
   end
 
   # A missing Job is either "the namespace went with it" (the instance is
@@ -263,13 +282,24 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
   defp finish_succeeded(run, outcome, now) do
     case decode(outcome.message) do
       {:ok, parsed} ->
-        finalize(run, %{
-          status: :succeeded,
-          snapshot_id: parsed["snapshot_id"],
-          bytes_processed: parsed["bytes_processed"],
-          bytes_added: parsed["bytes_added"],
-          finished_at: now
-        })
+        case usable_outcome(parsed) do
+          {:ok, snapshot_id, bytes_processed, bytes_added} ->
+            finalize(run, %{
+              status: :succeeded,
+              snapshot_id: snapshot_id,
+              bytes_processed: bytes_processed,
+              bytes_added: bytes_added,
+              finished_at: now
+            })
+
+          # A parseable-but-wrong-shaped outcome (hostile keys, negative
+          # counts, a non-string id) is NOT a success — writing it would
+          # fail the typed update and poison every 5-minute pass on the
+          # same row (review finding). Fail the run with the honest
+          # reason instead.
+          :error ->
+            finish_failed(run, "backup reported an unusable outcome", now)
+        end
 
       # The Job said Complete but the termination log is missing or
       # unparseable: the backup's outcome is unknown, and an unknown
@@ -290,6 +320,33 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
   end
 
   defp decode(_message), do: :error
+
+  # The typed shape the row can actually store: a string id and
+  # non-negative integers. Everything else (hostile keys, floats,
+  # negatives, giant numbers) is rejected BEFORE the write — a failed
+  # cast inside finalize would leave the row :running and fail every
+  # subsequent pass on it (the poison-pill shape).
+  defp usable_outcome(parsed) do
+    with {:ok, snapshot_id} <- string_field(parsed, "snapshot_id"),
+         {:ok, bytes_processed} <- count_field(parsed, "bytes_processed"),
+         {:ok, bytes_added} <- count_field(parsed, "bytes_added") do
+      {:ok, snapshot_id, bytes_processed, bytes_added}
+    end
+  end
+
+  defp string_field(parsed, key) do
+    case Map.get(parsed, key) do
+      value when is_binary(value) -> {:ok, value}
+      _other -> :error
+    end
+  end
+
+  defp count_field(parsed, key) do
+    case Map.get(parsed, key) do
+      value when is_integer(value) and value >= 0 -> {:ok, value}
+      _other -> {:ok, 0}
+    end
+  end
 
   defp failure_text(%{message: message} = outcome) when is_binary(message) do
     case decode(message) do

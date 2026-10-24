@@ -66,6 +66,11 @@ defmodule FluxVale.Clients.K8s.Resources.BackupJob do
   @pvc_name "app-data"
   @volume "storage"
 
+  # The ownership link: a row's id on the fixed-name Job that serves it
+  # (the sweep refuses to attribute an outcome to a row the Job's label
+  # does not name).
+  @run_label "fluxvale.io/backup-run"
+
   # restic's own exit code for "repository does not exist" (>= 0.17);
   # the script's init branch keys on it.
   @repo_missing_exit 10
@@ -74,7 +79,8 @@ defmodule FluxVale.Clients.K8s.Resources.BackupJob do
   @type spec :: %{
           required(:slug) => String.t(),
           required(:mount_path) => String.t(),
-          required(:keep_last) => integer()
+          required(:keep_last) => integer(),
+          required(:run_id) => String.t()
         }
 
   @typedoc """
@@ -85,13 +91,17 @@ defmodule FluxVale.Clients.K8s.Resources.BackupJob do
   - `:failed` — the Job failed, or its pod failed to start
 
   `message` is the termination message (our one-line JSON), `nil` when
-  the container never reported one.
+  the container never reported one. `run_id` is the Job's
+  `fluxvale.io/backup-run` label — the sweep's ownership check: the
+  fixed-name Job outlives its run (immutable objects), so the watch
+  pass must not attribute one run's outcome to another run's row.
   """
   @type outcome :: %{
           outcome: :running | :succeeded | :failed,
           message: String.t() | nil,
           exit_code: integer() | nil,
-          reason: String.t() | nil
+          reason: String.t() | nil,
+          run_id: String.t() | nil
         }
 
   @doc "The Job's fixed name — one live backup Job per instance."
@@ -177,16 +187,26 @@ defmodule FluxVale.Clients.K8s.Resources.BackupJob do
     with {:ok, job} <- get(kubeconfig, namespace) do
       job
       |> verdict()
-      |> settle(kubeconfig, namespace)
+      |> settle(kubeconfig, namespace, run_id(job))
     end
   end
 
   # The Job object carries no container statuses — that is the Pod's
   # (our own pod, matched by the label the Job's template sets).
+  # The Job's pods — a POD-typed request (core v1), never the Job-typed
+  # one above: a list against batch/v1 Jobs returns Job objects, which
+  # carry no containerStatuses, and the outcome read would always be
+  # nil — every successful backup recorded as failed. Found in review;
+  # the composition test pins the kind.
   @doc "Lists the Job's pods."
   @spec pods(Kubereq.Kubeconfig.t(), String.t()) :: {:ok, [map()]} | {:error, Error.t()}
   def pods(kubeconfig, namespace) do
-    req = create_req(kubeconfig)
+    req =
+      Kubereq.attach(Req.new(),
+        kubeconfig: kubeconfig,
+        api_version: "v1",
+        kind: "Pod"
+      )
 
     case Kubereq.list(req, namespace, label_selectors: [{"app.kubernetes.io/name", @name}]) do
       {:ok, %{status: 200, body: %{"items" => items}}} when is_list(items) ->
@@ -223,14 +243,14 @@ defmodule FluxVale.Clients.K8s.Resources.BackupJob do
       "metadata" => %{
         "name" => @name,
         "namespace" => namespace,
-        "labels" => labels()
+        "labels" => labels(spec)
       },
       "spec" => %{
         # One pod, one attempt (see moduledoc).
         "backoffLimit" => 0,
         "activeDeadlineSeconds" => config[:timeout_seconds],
         "template" => %{
-          "metadata" => %{"labels" => labels()},
+          "metadata" => %{"labels" => labels(spec)},
           "spec" => %{
             "restartPolicy" => "Never",
             "containers" => [container(spec, image(config), cpu_request, cpu_limit, memory)],
@@ -248,10 +268,14 @@ defmodule FluxVale.Clients.K8s.Resources.BackupJob do
 
   defp image(config), do: config[:image]
 
-  defp labels do
+  # The run-id label rides both the Job and its pod template (the pod
+  # list selects on the name label; the run label is the sweep's
+  # ownership check — see the outcome type).
+  defp labels(spec) do
     %{
       "app.kubernetes.io/managed-by" => "fluxvale",
-      "app.kubernetes.io/name" => @name
+      "app.kubernetes.io/name" => @name,
+      @run_label => Map.get(spec, :run_id)
     }
   end
 
@@ -345,8 +369,14 @@ defmodule FluxVale.Clients.K8s.Resources.BackupJob do
   # restic 0.19's summary event carries snapshot_id, total_bytes_processed
   # and data_added_packed; the lookup is the fallback for a build that
   # omits the id. --path scopes it to this run's backup set (--latest
-  # groups per host+path), newest first.
+  # groups per host+path), newest first. An EMPTY summary (restic
+  # printed nothing, or the last line was not the event) must not reach
+  # the --argjson below: jq -r on empty input yields "" (exit 0), and
+  # --argjson "" is a parse error that would mask a possibly-good backup
+  # as a container error 2 — substitute {} so the byte fields default
+  # to 0 and the snapshot lookup does its job.
   summary=$(tail -n 1 "$out")
+  [ -n "$summary" ] || summary='{}'
   snapshot_id=$(printf '%s' "$summary" | jq -r '.snapshot_id // empty')
 
   if [ -z "$snapshot_id" ]; then
@@ -403,6 +433,12 @@ defmodule FluxVale.Clients.K8s.Resources.BackupJob do
     end
   end
 
+  # The run-id label — the ownership link between a row and the
+  # fixed-name Job that serves it.
+  @doc "The `fluxvale.io/backup-run` label off a Job object, nil if absent."
+  @spec run_id(map()) :: String.t() | nil
+  def run_id(job), do: get_in(job, ["metadata", "labels", @run_label])
+
   defp succeeded?(job) do
     get_in(job, ["status", "succeeded"]) not in [nil, 0] or condition?(job, "Complete")
   end
@@ -414,32 +450,34 @@ defmodule FluxVale.Clients.K8s.Resources.BackupJob do
   # Only a settled Job pays for the second read: the pod's terminated
   # container carries the termination log; a still-running Job's outcome
   # is the next sweep's business.
-  defp settle(:running, _kubeconfig, _namespace) do
-    {:ok, %{outcome: :running, message: nil, exit_code: nil, reason: nil}}
+  defp settle(:running, _kubeconfig, _namespace, _run_id) do
+    {:ok, %{outcome: :running, message: nil, exit_code: nil, reason: nil, run_id: nil}}
   end
 
-  defp settle(verdict, kubeconfig, namespace) do
+  defp settle(verdict, kubeconfig, namespace, run_id) do
     case pods(kubeconfig, namespace) do
-      {:ok, pod_list} -> {:ok, outcome(verdict, terminated_state(pod_list))}
+      {:ok, pod_list} -> {:ok, outcome(verdict, terminated_state(pod_list), run_id)}
       {:error, _error} = error -> error
     end
   end
 
-  defp outcome(:succeeded, terminated) do
+  defp outcome(:succeeded, terminated, run_id) do
     %{
       outcome: :succeeded,
       message: message(terminated),
       exit_code: exit_code(terminated),
-      reason: reason(terminated, "Completed")
+      reason: reason(terminated, "Completed"),
+      run_id: run_id
     }
   end
 
-  defp outcome(:failed, terminated) do
+  defp outcome(:failed, terminated, run_id) do
     %{
       outcome: :failed,
       message: message(terminated),
       exit_code: exit_code(terminated),
-      reason: reason(terminated, "BackoffLimitExceeded")
+      reason: reason(terminated, "BackoffLimitExceeded"),
+      run_id: run_id
     }
   end
 
