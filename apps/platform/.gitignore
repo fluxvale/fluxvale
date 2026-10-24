@@ -48,3 +48,4 @@ npm-debug.log
 # context. Local builds: dirs stay empty, fetch paths unchanged.
 /.prebuilt/*/*
 !/.prebuilt/*/.gitkeep
+/.prebuilt-glibc/*
