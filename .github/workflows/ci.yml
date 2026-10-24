@@ -275,9 +275,11 @@ jobs:
       # <version>); `--if-missing` finds it, version-checks it, and
       # fetches nothing. Cold cache: curl fills it (curl has no header
       # limit). Exact key only — a pin bump downloads once fresh,
-      # never restores a stale binary. Nightly keeps the default fetch
-      # path: it is this phase's canary, and these steps live here
-      # only.
+      # never restores a stale binary. Scope: the PR e2e legs only —
+      # the nightly and the deploy-image release build keep the
+      # default fetch path (#230: local dev + nightly unchanged; the
+      # nightly/release-build exposure is flagged in the PR body as
+      # follow-up scope for the owner).
       - name: Read the tailwind pin from config.exs
         id: tailwind
         run: |
@@ -288,6 +290,14 @@ jobs:
             | sed -n 's/^  version: "\(.*\)",$/\1/p' | head -1)"
           echo "tailwind version pin: $v"
           test -n "$v" || { echo "::error::no tailwind version parsed out of config.exs" >&2; exit 1; }
+          # tailwind 0.5.1 also supports PER-PROFILE versions; the
+          # pre-seed covers the global pin only, so a profile pin
+          # must fail HERE (loud) — not silently fall back to the
+          # flaky in-image fetch.
+          if sed -n '/^config :tailwind,/,/^\]/p' apps/platform/config/config.exs \
+            | grep -qE '^    version:'; then
+            echo "::error::per-profile tailwind version found — extend the pre-seed (see #230)" >&2; exit 1
+          fi
           echo "version=$v" >>"$GITHUB_OUTPUT"
 
       - name: Restore tailwind binary cache
@@ -296,7 +306,7 @@ jobs:
           path: apps/platform/.tw-cache
           key: ${{ runner.os }}-${{ runner.arch }}-tailwind-musl-${{ steps.tailwind.outputs.version }}
 
-      - name: Stage the tailwind binary (cold cache only)
+      - name: Stage + verify the tailwind binary
         env:
           TW_VERSION: ${{ steps.tailwind.outputs.version }}
           RUNNER_ARCH: ${{ runner.arch }}
