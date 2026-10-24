@@ -38,8 +38,10 @@ defmodule FluxVale.PromEx.Plugins.Wake do
   @impl PromEx.Plugin
   def event_metrics(opts) do
     # Deliberately not the PromEx default prefix ([otp_app, :prom_ex,
-    # :wake]): the issue's contract names these flux_vale_wake_* —
-    # dashboard and alert queries cite the stable name.
+    # :wake]): the stable flux_vale_wake_* name is what the fleet
+    # dashboard, the SLO alert, and WakeStats' parser all cite —
+    # deliberate evolution of the issue's fluxvale_wake_* sketch to
+    # the otp_app's own spelling.
     metric_prefix = Keyword.get(opts, :metric_prefix, [:flux_vale, :wake])
 
     [

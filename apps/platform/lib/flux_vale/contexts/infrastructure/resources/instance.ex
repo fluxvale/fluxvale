@@ -608,9 +608,15 @@ defmodule FluxVale.Infrastructure.Instance do
           # #232: waking from :sleeping is the SLI's subject — stamp the
           # request instant (a plain start from :stopped stays
           # markerless: the owner's cold start isn't what we promise).
+          # Guarded against a promoted marker already on the row: two
+          # concurrent starts both read :sleeping, and an unguarded
+          # second stamp would land requested AFTER promoted —
+          # inverting the clocks and silently under-measuring :total.
           |> Ash.Changeset.force_change_attribute(
             :wake_requested_at,
-            if(instance.status == :sleeping, do: DateTime.utc_now())
+            if(instance.status == :sleeping and is_nil(instance.wake_promoted_at),
+              do: DateTime.utc_now()
+            )
           )
           |> Ash.Changeset.after_action(fn _changeset, instance ->
             StartInstance.call(instance)

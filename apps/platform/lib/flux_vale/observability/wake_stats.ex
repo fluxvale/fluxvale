@@ -95,9 +95,12 @@ defmodule FluxVale.Observability.WakeStats do
     |> Map.new(fn {app, bounds} -> {app, Map.new(bounds)} end)
   end
 
-  # Anything that isn't exactly our bucket shape (label order varies,
-  # other metrics' lines, malformed tails) falls to the catch-all —
-  # a derived badge must never crash the catalog.
+  # Anything that isn't exactly our bucket shape falls to the catch-all —
+  # a derived badge must never crash the catalog. The else arms below
+  # are coveralls-ignored: a real scrape (the only input path) either
+  # matches our family exactly or takes the second clause, so the
+  # with-else is reachable only on malformed text the exporter can't
+  # produce.
   defp bucket_line(@total_bucket_prefix <> _labels = line) do
     with [label_section, value] <- String.split(line, "} "),
          %{"app" => app, "le" => le} <- parse_labels(label_section),
@@ -105,6 +108,7 @@ defmodule FluxVale.Observability.WakeStats do
          bound <- parse_bound(le) do
       [{app, bound, count}]
     else
+      # coveralls-ignore-next-line - see above
       _not_ours -> []
     end
   end
@@ -147,6 +151,9 @@ defmodule FluxVale.Observability.WakeStats do
       |> Enum.sort()
 
     if bounds == [] do
+      # coveralls-ignore-next-line - defensive: the exporter always
+      # emits the full finite bucket set alongside +Inf, so an app
+      # with samples but no finite bounds can't come out of a scrape.
       nil
     else
       walk_buckets(bounds, 0.0, 0.0, target)

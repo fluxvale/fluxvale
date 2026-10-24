@@ -5,20 +5,25 @@ defmodule FluxVale.Infrastructure.Instance.WakeMarkers do
   wake clocks here.
 
   - The `start` action stamps `wake_requested_at` when waking from
-    `:sleeping` — the request instant nothing else records (the edge
-    marker knows it; until #232 the row didn't).
+  `:sleeping` — the request instant nothing else records (the edge
+  marker knows it; until #232 the row didn't).
   - Entering `:starting` with a request stamped: `wake_promoted_at` =
     now — stamped in the same status write that lands `:starting`
     (immediately after the Deployment scale ack) — and
-    `[:flux_vale, :wake, :promotion]` fires post-commit: requested →
-    promoted, the PLATFORM's part of the wake.
+    `[:flux_vale, :wake, :promotion]` fires in the write's
+    after_action: requested → promoted, the PLATFORM's part of the
+    wake. (Post-write, still inside the write's transaction — a
+    commit that fails after the emit can leave one orphan sample;
+    accepted, the histogram absorbs a rare phantom.)
   - Entering `:running` with both stamped: both clear, and
     `[:flux_vale, :wake, :boot]` (promoted → running) plus
     `[:flux_vale, :wake, :total]` (requested → running) fire. Boot
     deliberately includes reconcile-cadence latency — the visitor
     sees `:running` only after the minute cron flips it, so the SLI
     measures the platform's whole wake path, poll granularity
-    included; improvement pressure lands on cadence too.
+    included; improvement pressure lands on cadence too. A half-done
+    marker pair (the double-start race's residue) clears without
+    emitting — a corrupted pair must not fabricate a sample.
   - Entering `:error`/`:lost`/`:sleeping` clears both: a wake that
     dies mid-flight never emits a completion, and a stale marker
     can't mis-clock the next cycle (the next wake stamps fresh).
@@ -33,13 +38,18 @@ defmodule FluxVale.Infrastructure.Instance.WakeMarkers do
   budget), and per-app is the honest lens — a Kavita wake and a
   Forgejo wake differ by an order of magnitude, so an averaged total
   would be a meaningless number. Emission is one synchronous local
-  `:telemetry.execute/3` — a no-op with no handler attached, atomics
-  with Peep — and can never block or fail the status write it rides.
+  `:telemetry.execute/3` — a no-op with no handler attached, ETS
+  writes when the metrics tree is up (TelemetryMetricsPrometheus
+  Core, the app's storage adapter) — and the slug read it needs is
+  guarded so the metric can never fail the status write that carries
+  it.
   """
 
   use Ash.Resource.Change
 
   alias Ash.Changeset
+
+  require Logger
 
   @wake_events [:flux_vale, :wake]
 
@@ -90,53 +100,83 @@ defmodule FluxVale.Infrastructure.Instance.WakeMarkers do
 
   # The wake completes where the reconciler confirms readiness. Durations
   # read the pre-write markers (changeset.data — the change clears
-  # them); emission happens post-commit so a failed write never
-  # counts a wake that didn't land.
+  # them). A half-done pair (the double-start race can leave requested
+  # without promoted) clears silently: a corrupted pair must not
+  # fabricate a sample, and a stale marker must not outlive the row's
+  # wake.
   defp enter_running(changeset) do
     requested = changeset.data.wake_requested_at
     promoted = changeset.data.wake_promoted_at
 
-    if is_nil(requested) or is_nil(promoted) do
-      changeset
-    else
-      now = DateTime.utc_now()
+    cond do
+      is_nil(requested) and is_nil(promoted) ->
+        changeset
 
-      changeset
-      |> Changeset.force_change_attribute(:wake_requested_at, nil)
-      |> Changeset.force_change_attribute(:wake_promoted_at, nil)
-      |> Changeset.after_action(fn _changeset, record ->
-        emit(:boot, record, duration(promoted, now))
-        emit(:total, record, duration(requested, now))
-        {:ok, record}
-      end)
+      is_nil(requested) or is_nil(promoted) ->
+        clear_markers_on(changeset)
+
+      true ->
+        now = DateTime.utc_now()
+
+        changeset
+        |> clear_markers_on()
+        |> Changeset.after_action(fn _changeset, record ->
+          emit(:boot, record, duration(promoted, now))
+          emit(:total, record, duration(requested, now))
+          {:ok, record}
+        end)
     end
   end
 
   # Anything a wake can't complete through clears its clocks — the
   # no-op guard keeps markerless writes (the overwhelmingly common
-  # shape) from dirtying every transition.
+  # shape) from dirtying every transition; either marker alone still
+  # clears (the race's residue can be a promoted-only stamp).
   defp clear_markers(changeset) do
-    if is_nil(changeset.data.wake_requested_at) do
+    if is_nil(changeset.data.wake_requested_at) and is_nil(changeset.data.wake_promoted_at) do
       changeset
     else
-      changeset
-      |> Changeset.force_change_attribute(:wake_requested_at, nil)
-      |> Changeset.force_change_attribute(:wake_promoted_at, nil)
+      clear_markers_on(changeset)
     end
   end
 
-  defp emit(event, instance, seconds) do
-    app_slug = app_slug!(instance)
+  defp clear_markers_on(changeset) do
+    changeset
+    |> Changeset.force_change_attribute(:wake_requested_at, nil)
+    |> Changeset.force_change_attribute(:wake_promoted_at, nil)
+  end
 
-    :telemetry.execute(@wake_events ++ [event], %{duration: seconds}, %{app: app_slug})
+  defp emit(event, instance, seconds) do
+    case app_slug(instance) do
+      # coveralls-ignore-start - app_slug/1 answers nil only from its
+      # own defensive rescue; see there.
+      nil ->
+        :ok
+
+      # coveralls-ignore-stop
+      app_slug ->
+        :telemetry.execute(@wake_events ++ [event], %{duration: seconds}, %{app: app_slug})
+    end
   end
 
   # The `app` label's value — the catalog slug, resolved fresh per
   # emission (wakes are minutes-apart events; two joined reads each
   # is nothing next to denormalizing a mutable name onto every row).
-  defp app_slug!(instance) do
+  # Guarded: the metric must never fail the status write carrying it
+  # — an unreadable slug skips the sample with a log instead.
+  defp app_slug(instance) do
     loaded = Ash.load!(instance, [app_version: :app], authorize?: false)
     loaded.app_version.app.slug
+  rescue
+    # coveralls-ignore-start - defensive: the relationships are
+    # FK-protected (a dangling app_version can't exist), so this arm
+    # guards only freak failures (connection drop between the read and
+    # its pattern match) — unreachable through any real write path.
+    error ->
+      Logger.warning("wake metric skipped: app slug unreadable (#{inspect(error)})")
+
+      nil
+      # coveralls-ignore-stop
   end
 
   # Float seconds for the histograms. Clamped at zero: an NTP step

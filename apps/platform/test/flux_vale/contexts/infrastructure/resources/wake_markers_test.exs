@@ -159,9 +159,55 @@ defmodule FluxVale.Infrastructure.Instance.WakeMarkersTest do
     assert is_nil(reslept.wake_promoted_at)
   end
 
+  # The double-start race's shape: both starts read :sleeping, the
+  # first lands :starting (promoted stamped), the second's request
+  # stamp would land AFTER promoted — inverting the clocks. The start
+  # action's guard refuses to stamp over a promoted marker, so :total
+  # keeps measuring from the request the visitor actually experienced.
+  test "a second start racing the first does not re-stamp the request clock", %{test: test} do
+    stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+
+    stub(Deployment, :scale, fn _kc, _ns, _n, _r ->
+      {:error, Error.connection_error("#{test}: first start failed")}
+    end)
+
+    instance = instance!("double-start", :sleeping)
+
+    # Corrupted-carryover shape: a promoted marker with no request —
+    # pin! rides the same-status no-op write StatusTransition allows.
+    stale_promoted = InstanceFixtures.pin!(instance, wake_promoted_at: DateTime.utc_now())
+
+    {:ok, waking} = Instance.start(stale_promoted, authorize?: false)
+
+    assert is_nil(waking.wake_requested_at)
+    assert is_nil(waking.wake_promoted_at)
+  end
+
+  # The race's other residue: a request marker with no promoted one
+  # reaching :running — it must clear (a stale marker can't outlive
+  # the row's wake) without fabricating a boot/total sample.
+  test "a half-done marker pair clears at :running without emitting" do
+    stub_k8s()
+    stub_ready()
+    starting = instance!("half-done", :starting)
+    half_done = stamp_request_only!(starting)
+
+    {:ok, running} = ReconcileInstance.call(half_done)
+
+    assert running.status == :running
+    assert is_nil(running.wake_requested_at)
+    assert is_nil(running.wake_promoted_at)
+
+    refute_receive {:telemetry_event, _event, _measurements, _metadata}
+  end
+
   # pin! rides the no-op same-status write StatusTransition allows.
   defp stamp_stale_clocks!(instance) do
     now = DateTime.utc_now()
     InstanceFixtures.pin!(instance, wake_requested_at: now, wake_promoted_at: now)
+  end
+
+  defp stamp_request_only!(instance) do
+    InstanceFixtures.pin!(instance, wake_requested_at: DateTime.utc_now())
   end
 end
