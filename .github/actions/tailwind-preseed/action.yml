@@ -1,0 +1,87 @@
+# Pre-seed the tailwind binary (#230, #231 follow-up): the ONE
+# implementation, consumed by every CI job that docker-builds an image
+# running mix against tailwind — the e2e dev-image legs, the nightly,
+# and deploy-image's release build. In-image fetches go through Erlang
+# httpc, whose 10KB header limit dies on the release CDN's oversized
+# response headers; this stages the exact binary the tailwind hex
+# package computes (tailwind-<target>-<version> under _build/) into
+# apps/platform/.tw-cache — the shared docker build context — so
+# Dockerfile / Dockerfile.dev COPY it to /app/_build/ and the fetch
+# never runs. Local docker builds: the dir holds only .gitkeep, the
+# default fetch path is unchanged.
+name: "Pre-seed the tailwind binary"
+description: >-
+  Parse the tailwind version pin from config.exs, restore the musl
+  binary from actions/cache (exact key), curl it on cold (curl has no
+  header limit), sha256-verify against the release sums on every run —
+  into apps/platform/.tw-cache, ready for the docker COPY.
+runs:
+  using: composite
+  steps:
+    - name: Read the tailwind pin from config.exs
+      id: tailwind
+      shell: bash
+      run: |
+        # Single source of truth is config.exs — a missing pattern
+        # means the config block changed shape; update this parse,
+        # don't fork the pin.
+        v="$(sed -n '/^config :tailwind,/,/^\]/p' apps/platform/config/config.exs \
+          | sed -n 's/^  version: "\(.*\)",$/\1/p' | head -1)"
+        echo "tailwind version pin: $v"
+        test -n "$v" || { echo "::error::no tailwind version parsed out of config.exs" >&2; exit 1; }
+        # tailwind 0.5.1 also supports PER-PROFILE versions; the
+        # pre-seed covers the global pin only, so a profile pin
+        # must fail HERE (loud) — not silently fall back to the
+        # flaky in-image fetch.
+        if sed -n '/^config :tailwind,/,/^\]/p' apps/platform/config/config.exs \
+          | grep -qE '^    version:'; then
+          echo "::error::per-profile tailwind version found — extend the pre-seed (see #230)" >&2; exit 1
+        fi
+        echo "version=$v" >>"$GITHUB_OUTPUT"
+
+    - name: Restore tailwind binary cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: apps/platform/.tw-cache
+        key: ${{ runner.os }}-${{ runner.arch }}-tailwind-musl-${{ steps.tailwind.outputs.version }}
+
+    - name: Stage + verify the tailwind binary
+      shell: bash
+      env:
+        TW_VERSION: ${{ steps.tailwind.outputs.version }}
+        RUNNER_ARCH: ${{ runner.arch }}
+      run: |
+        # Mirrors what tailwind-elixir computes inside the image:
+        # target linux-<arch>-musl (alpine base, tailwind v4 ships
+        # musl builds), filename tailwind-<target>-<version>. A drift
+        # here lands the binary under a wrong name and the fetch runs
+        # anyway — visible as a download in the docker build log.
+        arch="$(printf '%s' "$RUNNER_ARCH" | tr '[:upper:]' '[:lower:]')"
+        target="linux-$arch-musl"
+        name="tailwind-$target-$TW_VERSION"
+        if [ -f "apps/platform/.tw-cache/$name" ]; then
+          size="$(stat -c%s "apps/platform/.tw-cache/$name")"
+          echo "tailwind preseed: cache hit — $name ($size bytes) staged for the docker build"
+        else
+          echo "tailwind preseed: cache cold — curl fetching $name"
+          mkdir -p apps/platform/.tw-cache
+          curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 \
+            -o "apps/platform/.tw-cache/$name" \
+            "https://github.com/tailwindlabs/tailwindcss/releases/download/v$TW_VERSION/tailwindcss-$target"
+          chmod 755 "apps/platform/.tw-cache/$name"
+        fi
+        # Verify against the release's published sha256sums.txt on
+        # every run (cold AND warm): the musl build is dynamically
+        # linked, so it cannot be executed on the glibc runner —
+        # the hash is the pre-docker-build gate, and doubles as a
+        # cache-roundtrip integrity check on warm hits.
+        expected="$(curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 \
+          "https://github.com/tailwindlabs/tailwindcss/releases/download/v$TW_VERSION/sha256sums.txt" \
+          | awk -v t="./tailwindcss-$target" '$2 == t {print $1}')"
+        actual="$(sha256sum "apps/platform/.tw-cache/$name" | cut -d" " -f1)"
+        test -n "$expected" || { echo "::error::no checksum entry for tailwindcss-$target in v$TW_VERSION sha256sums.txt" >&2; exit 1; }
+        [ "$expected" = "$actual" ] || {
+          echo "::error::sha256 mismatch for $name: expected $expected, got $actual — delete the actions/cache entry (key bump) if this persists" >&2
+          exit 1
+        }
+        echo "tailwind preseed: sha256 verified ($actual)"
