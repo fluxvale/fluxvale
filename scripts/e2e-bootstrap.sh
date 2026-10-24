@@ -62,7 +62,7 @@ apply_with_retry() {
       echo "bootstrap-retry: kubectl apply failed on $attempt attempts — giving up (last error above)" >&2
       return 1
     fi
-    bootstrap_retry_log "kubectl apply EOF-class failure (attempt $attempt/3) — retrying in 10s"
+    bootstrap_retry_log "kubectl apply attempt $attempt/3 failed — retrying in 10s (failure above)"
     attempt=$((attempt + 1))
     sleep 10
   done

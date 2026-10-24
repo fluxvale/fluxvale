@@ -44,7 +44,7 @@ def mise_pin(key):
     fail('mise.toml: no %s pin found' % key)
 
 mise_elixir = mise_pin('elixir').split('-')[0]  # 1.20.4 (strips -otp-29)
-mise_otp = mise_pin('erlang')                  # 28.5
+mise_otp = mise_pin('erlang')                  # 29.1
 
 if not BASE_IMAGE.find('%s-erlang' % mise_elixir) >= 0:
     fail('BASE_IMAGE %r does not match mise.toml elixir %r — bump BASE_IMAGE alongside mise' % (BASE_IMAGE, mise_elixir))
