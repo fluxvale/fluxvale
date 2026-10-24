@@ -15,6 +15,15 @@ defmodule FluxVale.Infrastructure.BackupSetting do
   changes one attribute and no cluster state — the Secret and the quota
   margin deliberately persist so re-enabling reuses the same restic
   repo (a rotated repo password would orphan every existing snapshot).
+  `destroy` is the "stop backing up entirely" row delete, and holds the
+  same persistence stance: the namespace Secret stays, so nothing
+  re-provisions a repo behind the user's back.
+
+  A row without its namespace Secret (only reachable through admin
+  tooling — the platform is the Secret's only writer) fails its first
+  run loudly: the Job's `secretRef` blocks the pod. A proper
+  `Operations.ConfigureBackups` save heals it. The sweep never invents
+  credentials.
   """
 
   use Ash.Resource,
@@ -52,18 +61,26 @@ defmodule FluxVale.Infrastructure.BackupSetting do
       description("Members change their org's instance backup settings")
       authorize_if(relates_to_actor_via([:instance, :organization, :members]))
     end
+
+    policy action_type(:destroy) do
+      description("Members remove their org's instance backup settings")
+      authorize_if(relates_to_actor_via([:instance, :organization, :members]))
+    end
   end
 
   attributes do
     uuid_v7_primary_key(:id)
 
-    # The S3-compatible endpoint (R2 first) — scheme + host, optional
-    # path for gateway-style deployments. Composed into
-    # RESTIC_REPOSITORY by ConfigureBackups; a trailing slash is legal
-    # input and trimmed there.
+    # The S3-compatible endpoint (R2 first) — scheme + host[:port] and
+    # nothing else. The fence is deliberate: credentials must never ride
+    # the endpoint (a `user:password@` userinfo would persist a secret in
+    # this row), and restic parses the first path segment of a repository
+    # URL as the BUCKET — a path here would silently select the wrong
+    # repo (or double the bucket). `max_length` is a DNS host's bound.
     attribute :endpoint, :string do
       allow_nil?(false)
       public?(true)
+      constraints(max_length: 253)
     end
 
     attribute :bucket, :string do
@@ -136,6 +153,16 @@ defmodule FluxVale.Infrastructure.BackupSetting do
       accept([:endpoint, :bucket, :prefix, :access_key_id, :retention_keep, :enabled])
     end
 
+    # The UI's "stop backing up entirely": a plain row delete with no
+    # cluster state. The namespace Secret persists (same rationale as
+    # disable — the credential is the repo's identity, and nothing
+    # invents a new one behind the user's back). Teardown's cascade
+    # reaches the same row when the Instance goes.
+    destroy :destroy do
+      description("Removes the instance's backup settings row — no cluster state.")
+      primary?(true)
+    end
+
     read :get_by_instance do
       description("The instance's settings row (at most one — `unique_instance`).")
       get?(true)
@@ -149,6 +176,7 @@ defmodule FluxVale.Infrastructure.BackupSetting do
 
     define(:create)
     define(:update)
+    define(:destroy)
     define(:get_by_instance, args: [:instance_id])
   end
 
@@ -157,11 +185,19 @@ defmodule FluxVale.Infrastructure.BackupSetting do
   end
 
   validations do
-    # Scheme + host, optional path: `https://account.r2.cloudflarestorage.com`
-    # passes, `ftp://host` and a bare host do not. No whitespace or
-    # query/fragment — none of them are addressable in a restic repo URL.
-    validate(match(:endpoint, ~r"\Ahttps?://[^/\s?#]+(?:/[^\s?#]*)*\z"),
-      message: "must be an http:// or https:// URL with a host"
+    # Scheme + host[:port] ONLY — `https://account.r2.cloudflarestorage.com`,
+    # `http://minio:9000`, and a bracketed IPv6 literal pass; `ftp://host`,
+    # a bare host, a userinfo (`user:password@`), a non-empty path, or a
+    # query/fragment do not. The path exclusion is load-bearing (restic
+    # reads the first path segment as the bucket) and so is the userinfo
+    # exclusion (the credential would persist in this row). A trailing
+    # slash is legal input; ConfigureBackups trims it.
+    validate(
+      match(
+        :endpoint,
+        ~r"\Ahttps?://(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?)(?::\d{1,5})?/?\z"
+      ),
+      message: "must be an http:// or https:// URL with a host and no path"
     )
 
     # S3 bucket naming: 3–63 chars, lowercase alphanumerics, dots and

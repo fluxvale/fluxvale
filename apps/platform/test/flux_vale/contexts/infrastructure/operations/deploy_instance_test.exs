@@ -100,7 +100,9 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
       end)
 
       expect(ResourceQuota, :create, fn _kc, ^ns, "app-quota", spec ->
-        assert spec == %{cpu: 0.5, memory: 512, storage: 10}
+        # Decimal end to end (#222 F9): no float on the plain path — a
+        # float round-trip can land below the pod's exact request.
+        assert spec == %{cpu: Decimal.new("0.5"), memory: 512, storage: 10}
         {:ok, %{}}
       end)
 
@@ -350,8 +352,8 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
       stub(Deployment, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
 
       expect(ResourceQuota, :create, fn _kc, _ns, "app-quota", spec ->
-        # unbumped: no sidecar overhead without a volume
-        assert spec == %{cpu: 0.5, memory: 512, storage: 0}
+        # unbumped: no sidecar overhead without a volume (Decimal, #222 F9)
+        assert spec == %{cpu: Decimal.new("0.5"), memory: 512, storage: 0}
         {:ok, %{}}
       end)
 

@@ -2,14 +2,16 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceBackupQuotaTest do
   @moduledoc false
 
   # #222 (ADR-0037 §3): DeployInstance re-applies the quota with the
-  # backup Job's margin when the instance has an enabled BackupSetting.
-  # Split from deploy_instance_test.exs so the row-precondition setup
-  # stays local (that file is already long).
+  # backup Job's margin whenever a BackupSetting ROW exists — enabled or
+  # not ("configured = the margin persists"). Split from
+  # deploy_instance_test.exs so the row-precondition setup stays local
+  # (that file is already long).
 
   use FluxVale.DataCase, async: true
   use Mimic
 
   alias FluxVale.Clients.K8s
+  alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Ingress
   alias FluxVale.Clients.K8s.Resources.Middleware
@@ -21,6 +23,7 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceBackupQuotaTest do
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Identity.User
+  alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.DeployInstance
@@ -93,7 +96,11 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceBackupQuotaTest do
       ns = instance.namespace
 
       expect(ResourceQuota, :create, fn _kc, ^ns, "app-quota", spec ->
-        assert spec == %{cpu: 0.5, memory: 256, storage: 0}
+        # Decimal end to end (F9): no float on the plain path either — a
+        # float round-trip can land strictly below the pod's exact
+        # request, which admission rejects.
+        assert spec == %{cpu: Decimal.new("0.5"), memory: 256, storage: 0}
+        assert Decimal.to_string(spec.cpu) == "0.5"
         {:ok, %{}}
       end)
 
@@ -101,7 +108,7 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceBackupQuotaTest do
       assert updated.status == :starting
     end
 
-    test "an enabled setting widens the quota by the Job's requests" do
+    test "a configured setting widens the quota by the Job's requests" do
       stub_kubeconfig()
       stub_rest()
       instance = deploying!(user())
@@ -119,15 +126,18 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceBackupQuotaTest do
       assert updated.status == :starting
     end
 
-    test "a disabled setting keeps the bare allocation (the Job won't run)" do
+    test "a DISABLED setting still widens — configured is what counts" do
       stub_kubeconfig()
       stub_rest()
       instance = deploying!(user())
       setting!(instance, false)
       ns = instance.namespace
 
+      # #222 F8: the margin's lifetime is the row's, not the switch's.
+      # Disabling is a plain row update, so a narrow quota here would
+      # survive disable → redeploy → re-enable and pend every Job.
       expect(ResourceQuota, :create, fn _kc, ^ns, "app-quota", spec ->
-        assert spec == %{cpu: 0.5, memory: 256, storage: 0}
+        assert spec == %{cpu: Decimal.new("0.6"), memory: 384, storage: 0}
         {:ok, %{}}
       end)
 
@@ -149,8 +159,7 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceBackupQuotaTest do
 
       expect(ResourceQuota, :create, fn _kc, ^ns, "app-quota", spec ->
         # 0.5 / 256 + 0.05 / 64 sidecar + 0.1 / 128 backup, in Decimal —
-        # the sidecar branch hands a Decimal in, so the addition must not
-        # round (0.65 exactly).
+        # the addition must not round (0.65 exactly).
         assert spec == %{cpu: Decimal.new("0.65"), memory: 448, storage: 10}
         assert Decimal.to_string(spec.cpu) == "0.65"
         {:ok, %{}}
@@ -159,5 +168,70 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceBackupQuotaTest do
       assert {:ok, updated} = DeployInstance.call(instance)
       assert updated.status == :starting
     end
+
+    test "disable → redeploy → re-enable never leaves a narrow quota" do
+      stub_kubeconfig()
+      stub_rest()
+      stub(Secret, :get_data, fn _kc, _ns, _n -> {:error, %Error{reason: :not_found}} end)
+      stub(Secret, :create, fn _kc, _ns, _n, _d -> {:ok, %{}} end)
+
+      owner = user()
+      instance = deploying!(owner)
+      ns = instance.namespace
+      save_params = params()
+
+      # Every save re-applies the margin — the widened quota here is the
+      # same one a re-enable needs to start backing up.
+      expect(ResourceQuota, :create, fn _kc, ^ns, "app-quota", spec ->
+        assert spec == %{cpu: Decimal.new("0.6"), memory: 384, storage: 0}
+        {:ok, %{}}
+      end)
+
+      assert {:ok, setting} =
+               Infrastructure.configure_backups(instance, save_params, actor: owner)
+
+      # Disabling is a plain row update: no quota write, no narrowing.
+      assert {:ok, disabled} =
+               setting
+               |> Ash.Changeset.for_update(:update, %{enabled: false}, actor: owner)
+               |> Ash.update()
+
+      refute disabled.enabled
+
+      # A redeploy while disabled must still widen (F8): the row exists,
+      # so the margin persists.
+      expect(ResourceQuota, :create, fn _kc, ^ns, "app-quota", spec ->
+        assert spec == %{cpu: Decimal.new("0.6"), memory: 384, storage: 0}
+        {:ok, %{}}
+      end)
+
+      assert {:ok, updated} = DeployInstance.call(instance)
+      assert updated.status == :starting
+
+      # Re-enabling lands on the same row and leaves the quota wide.
+      expect(ResourceQuota, :create, fn _kc, ^ns, "app-quota", spec ->
+        assert spec == %{cpu: Decimal.new("0.6"), memory: 384, storage: 0}
+        {:ok, %{}}
+      end)
+
+      assert {:ok, reenabled} =
+               Infrastructure.configure_backups(
+                 instance,
+                 Map.put(save_params, :enabled, true),
+                 actor: owner
+               )
+
+      assert reenabled.enabled
+      assert reenabled.id == disabled.id
+    end
+  end
+
+  defp params do
+    %{
+      endpoint: "https://account.r2.cloudflarestorage.com",
+      bucket: "fluxvale-kavita",
+      access_key_id: "AKIAIOSFODNN7EXAMPLE",
+      secret_access_key: "s3cr3t-value-never-stored"
+    }
   end
 end

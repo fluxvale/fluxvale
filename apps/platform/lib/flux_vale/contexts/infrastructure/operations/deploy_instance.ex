@@ -127,11 +127,11 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
     # can never treat each other's namespaces as orphans.
     namespace_labels = %{"fluxvale.io/platform-env" => platform_env()}
 
-    with {:ok, _namespace} <- Namespace.create(kubeconfig, namespace, %{labels: namespace_labels}),
+    with {:ok, spec} <- quota_spec(instance),
+         {:ok, _namespace} <- Namespace.create(kubeconfig, namespace, %{labels: namespace_labels}),
          {:ok, _binding} <-
            RoleBinding.create(kubeconfig, namespace, "fluxvale-platform", role_binding_spec()),
-         {:ok, _quota} <-
-           ResourceQuota.create(kubeconfig, namespace, "app-quota", quota_spec(instance)),
+         {:ok, _quota} <- ResourceQuota.create(kubeconfig, namespace, "app-quota", spec),
          {:ok, _policy} <-
            NetworkPolicy.create(
              kubeconfig,
@@ -193,66 +193,73 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   end
 
   defp quota_spec(instance) do
-    cpu = Decimal.to_float(instance.cpu_cores)
     memory = instance.memory_mb
 
     # The sidecar is platform overhead, not purchased allocation: the
     # quota widens by exactly its requests so the app pod's share stays
-    # what the user chose (ADR-0035). The addition stays in Decimal —
-    # float math rounds down on legal allocations (0.35 + 0.05) and a
-    # quota below the pod's exact request sum is rejected at admission.
+    # what the user chose (ADR-0035). CPU stays Decimal end to end —
+    # float math rounds (0.35 + 0.05) and a quota below the pod's exact
+    # request sum is rejected at admission.
     total_cpu =
       if file_access?(instance),
         do: Decimal.add(instance.cpu_cores, @sidecar_cpu),
-        else: cpu
+        else: instance.cpu_cores
 
     total_memory = if(file_access?(instance), do: memory + @sidecar_memory_mb, else: memory)
 
-    # #222 (ADR-0037 §3): the backup Job runs in this namespace too, so
-    # an enabled setting widens the quota by its requests — same
+    # #222 (ADR-0037 §3): the backup Job runs in this namespace too, so a
+    # configured setting widens the quota by its requests — same
     # platform-overhead arithmetic as the sidecar above. Read here (not
     # passed in) so a re-apply never lags the row; the row is
     # authoritative and ConfigureBackups writes it after the k8s apply.
-    final = maybe_backup_margin(instance, {total_cpu, total_memory})
-    {final_cpu, final_memory} = final
+    with {:ok, quota} <- maybe_backup_margin(instance, {total_cpu, total_memory}) do
+      {final_cpu, final_memory} = quota
 
-    %{
-      cpu: final_cpu,
-      memory: final_memory,
-      storage: instance.storage_gb
-    }
+      {:ok,
+       %{
+         cpu: final_cpu,
+         memory: final_memory,
+         storage: instance.storage_gb
+       }}
+    end
   end
 
-  # #222 (ADR-0037 §3): the margin is needed only while the Job can run.
+  # #222 (ADR-0037 §3): the margin persists while the settings row
+  # exists — configured, enabled or not. Disabling is a plain row update,
+  # so gating the margin on `enabled` would let disable → redeploy →
+  # re-enable leave a narrow quota behind and pend every backup Job.
   defp maybe_backup_margin(instance, {cpu, memory}) do
-    if backups_enabled?(instance) do
-      config = Application.fetch_env!(:flux_vale, :backups)
-      start = base_cpu(cpu)
-      cpu_request = Decimal.add(start, Decimal.new(config[:cpu_cores]))
+    case backups_configured?(instance) do
+      {:ok, true} ->
+        config = Application.fetch_env!(:flux_vale, :backups)
+        cpu_request = Decimal.add(cpu, Decimal.new(config[:cpu_cores]))
 
-      {cpu_request, memory + config[:memory_mb]}
-    else
-      {cpu, memory}
+        {:ok, {cpu_request, memory + config[:memory_mb]}}
+
+      {:ok, false} ->
+        {:ok, {cpu, memory}}
+
+      # coveralls-ignore-start - defensive: a DB failure here (outage,
+      # dropped connection) is the one ExUnit can't stage; DBConnection
+      # reconnects by design. The non-bang call returns it instead of
+      # raising through the Oban job, which is the point.
+      {:error, error} ->
+        {:error, error}
+        # coveralls-ignore-stop
     end
   end
 
-  # The quota spec's CPU is a float on the plain path (the shape the
-  # tests pin) and a Decimal once a margin applies — normalize before
-  # adding, since Decimal.add/2 rejects floats.
-  defp base_cpu(cpu) do
-    case cpu do
-      %Decimal{} = value -> value
-      value when is_float(value) -> Decimal.from_float(value)
-    end
-  end
-
+  # Non-bang on purpose: a DB blip returns an error the deploy's `with`
+  # chain threads to `deploy_failed`, like every other step — a bang would
+  # raise straight through the Oban job.
+  #
   # authorize?: false — deploy runs in the trigger context (no actor);
   # the row is system-written by ConfigureBackups, which carried the
   # member's policy check.
-  defp backups_enabled?(instance) do
+  defp backups_configured?(instance) do
     BackupSetting
-    |> Ash.Query.filter(instance_id == ^instance.id and enabled == true)
-    |> Ash.exists?(authorize?: false)
+    |> Ash.Query.filter(instance_id == ^instance.id)
+    |> Ash.exists(authorize?: false)
   end
 
   # Config-driven like its RBAC siblings: prod's Traefik may not live in

@@ -13,6 +13,7 @@ defmodule FluxVale.Infrastructure do
     otp_app: :flux_vale,
     extensions: [AshAdmin.Domain]
 
+  alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Operations.ConfigureBackups
   alias FluxVale.Infrastructure.Operations.ReadFileAccessCredential
   alias FluxVale.Infrastructure.Operations.RestoreServingEdge
@@ -53,4 +54,12 @@ defmodule FluxVale.Infrastructure do
   defdelegate configure_backups(instance, params, opts \\ []),
     to: ConfigureBackups,
     as: :call
+
+  # The UI's "stop backing up entirely": a plain row delete (the
+  # resource's `:destroy`, member-policied like `:update`) — no cluster
+  # state, and the namespace Secret persists so re-configuring reuses
+  # the same restic repo.
+  defdelegate remove_backup_settings(setting, opts \\ []),
+    to: BackupSetting,
+    as: :destroy
 end

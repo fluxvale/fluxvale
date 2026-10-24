@@ -76,17 +76,21 @@ defmodule FluxVale.Infrastructure.BackupSettingTest do
   end
 
   describe "create/1 — endpoint validation" do
-    test "accepts http and https endpoints, with or without a path" do
+    test "accepts http and https endpoints, with or without a port" do
       version = base!()
       nano = instance!(version)
 
       assert {:ok, http} = create(nano, %{endpoint: "http://minio:9000"})
       assert http.endpoint == "http://minio:9000"
 
-      assert {:ok, path} =
-               create(instance!(version), %{endpoint: "https://gateway.example.com/s3"})
+      assert {:ok, https} =
+               create(instance!(version), %{endpoint: "https://s3.example.com:443"})
 
-      assert path.endpoint == "https://gateway.example.com/s3"
+      assert https.endpoint == "https://s3.example.com:443"
+
+      # A trailing slash is legal input; ConfigureBackups drops it.
+      assert {:ok, slash} = create(instance!(version), %{endpoint: "https://s3.example.com/"})
+      assert slash.endpoint == "https://s3.example.com/"
     end
 
     test "rejects a non-http scheme" do
@@ -110,6 +114,64 @@ defmodule FluxVale.Infrastructure.BackupSettingTest do
 
       messages = error_messages(instance!(version), %{endpoint: "https://"})
       assert Enum.any?(messages, &(&1 =~ "must be an http:// or https:// URL"))
+    end
+
+    test "rejects credentials riding the endpoint" do
+      version = base!()
+
+      # The row is not a credential's home (ADR-0037 §4): a userinfo
+      # would persist the password in the DB and in every restic log line.
+      for endpoint <- [
+            "https://user:password@account.r2.cloudflarestorage.com",
+            "https://access-key@account.r2.cloudflarestorage.com"
+          ] do
+        messages = error_messages(instance!(version), %{endpoint: endpoint})
+
+        assert Enum.any?(messages, &(&1 =~ "must be an http:// or https:// URL")),
+               "expected #{inspect(endpoint)} to be rejected"
+      end
+    end
+
+    test "rejects a path-bearing endpoint" do
+      version = base!()
+
+      # restic reads the first path segment as the bucket — a gateway
+      # path silently selects the wrong repo, and an endpoint carrying
+      # the bucket doubles it. The bucket is its own attribute.
+      for endpoint <- [
+            "https://gateway.example.com/s3",
+            "https://gateway.example.com/s3/",
+            "https://account.r2.cloudflarestorage.com/fluxvale-kavita"
+          ] do
+        messages = error_messages(instance!(version), %{endpoint: endpoint})
+
+        assert Enum.any?(messages, &(&1 =~ "must be an http:// or https:// URL")),
+               "expected #{inspect(endpoint)} to be rejected"
+      end
+    end
+
+    test "rejects a query or fragment" do
+      version = base!()
+
+      for endpoint <- ["https://s3.example.com?x=1", "https://s3.example.com#frag"] do
+        messages = error_messages(instance!(version), %{endpoint: endpoint})
+
+        assert Enum.any?(messages, &(&1 =~ "must be an http:// or https:// URL")),
+               "expected #{inspect(endpoint)} to be rejected"
+      end
+    end
+
+    test "rejects an endpoint past a DNS host's length bound" do
+      version = base!()
+
+      # max_length covers scheme + host + port; anything longer is not a
+      # hostname (and a restic repo URL is not a place for prose).
+      long = "https://" <> String.duplicate("a", 250) <> ".example.com"
+
+      messages = error_messages(instance!(version), %{endpoint: long})
+
+      assert Enum.any?(messages, &(&1 =~ "length must be less than or equal to")),
+             "expected a max_length rejection, got #{inspect(messages)}"
     end
   end
 
@@ -221,6 +283,45 @@ defmodule FluxVale.Infrastructure.BackupSettingTest do
                :retention_keep,
                :updated_at
              ]
+    end
+  end
+
+  describe "destroy/1 — stop backing up entirely" do
+    test "a member deletes the row; the instance survives" do
+      version = base!()
+      owner = user()
+
+      instance =
+        Instance.create!(
+          %{
+            name: "Destroyed #{System.unique_integer()}",
+            app_version_id: version.id,
+            env_vars: %{}
+          },
+          actor: owner
+        )
+
+      {:ok, setting} = create(instance)
+
+      assert :ok = BackupSetting.destroy(setting, actor: owner)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               BackupSetting.get_by_instance(instance.id, authorize?: false)
+
+      assert {:ok, _instance} = Instance.get_by_id(instance.id, authorize?: false)
+    end
+
+    test "an outsider cannot destroy it" do
+      version = base!()
+      instance = instance!(version)
+      {:ok, setting} = create(instance)
+
+      stranger = user()
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               BackupSetting.destroy(setting, actor: stranger)
+
+      assert {:ok, _still_there} = BackupSetting.get_by_instance(instance.id, authorize?: false)
     end
   end
 end

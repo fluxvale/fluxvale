@@ -107,6 +107,9 @@ config :flux_vale,
   # namespace ResourceQuota widens by exactly this (limits ride the
   # builders' 2x-requests convention) and DeployInstance re-applies the
   # same margin — one source of truth for the Job spec and the quota.
+  # `cpu_cores` must stay a STRING: the quota math does `Decimal.new/1`,
+  # which rejects floats (that is the point — no float rounding in a
+  # quota that has to cover the pod's exact request).
   backups: [
     image: "restic/restic:0.19.1",
     cpu_cores: "0.1",
