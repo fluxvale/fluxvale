@@ -33,12 +33,17 @@ COPY assets assets
 COPY rel rel
 COPY storybook storybook
 
-# Tailwind pre-seed (#230): the deploy-image job stages the same
-# binary the e2e legs use into .tw-cache/ (shared build context);
-# `mix assets.deploy`'s tailwind auto-install finds it at the path
-# tailwind-elixir computes and fetches nothing. Local release builds:
-# the dir holds only .gitkeep — default fetch path unchanged.
-COPY .tw-cache/ /app/_build/
+# Pre-built artifacts (#230 class), staged by .github/actions/prebuilt:
+# the mdex_native tarball goes where rustler_precompiled looks (env
+# override of its cache dir) so `mix compile` never fetches the NIF
+# from GitHub Releases (httpc header limit — this exact fetch reded
+# deploy-image on #235's merge); the tailwind binary goes to the path
+# tailwind-elixir computes so `mix assets.deploy`'s auto-install
+# fetches nothing. Local release builds: the dirs hold only .gitkeep,
+# default fetch paths unchanged.
+COPY .prebuilt/mdex_native/ /app/.prebuilt/
+ENV RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH=/app/.prebuilt
+COPY .prebuilt/tailwind/ /app/_build/
 
 # Assets: Hex-managed tailwind/esbuild — no Node. phx.digest writes the
 # cache manifest prod.exs configures.

@@ -42,9 +42,9 @@ npm-debug.log
 # ExCoveralls crash-export artifacts
 *.coverdata
 
-# Tailwind binary pre-seed staging (#230): CI restores (actions/cache)
-# or curls the exact file the tailwind hex package expects; .gitkeep
-# keeps the dir in the docker context so Dockerfile.dev's COPY always
-# has it. Local builds: dir stays empty, fetch path unchanged.
-/.tw-cache/*
-!/.tw-cache/.gitkeep
+# Pre-built artifact staging (#230): CI restores (actions/cache) or
+# curls the exact files the tailwind hex package and rustler_precompiled
+# expect; the per-subdir .gitkeeps keep the COPY sources in the docker
+# context. Local builds: dirs stay empty, fetch paths unchanged.
+/.prebuilt/*/*
+!/.prebuilt/*/.gitkeep

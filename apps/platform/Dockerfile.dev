@@ -28,6 +28,15 @@ ENV MIX_ENV=dev
 COPY mix.exs mix.lock ./
 RUN mix deps.get
 
+# Pre-built NIF cache (#230 class): with the mdex_native tarball staged
+# where rustler_precompiled looks (the env var is its cache-dir
+# override), deps.compile never fetches it from GitHub Releases —
+# httpc's 10KB header limit dies on the CDN's oversized headers
+# (deploy-image, #235's merge). Staged by .github/actions/prebuilt;
+# locally the dir holds only .gitkeep and the default fetch runs.
+COPY .prebuilt/mdex_native/ /app/.prebuilt/
+ENV RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH=/app/.prebuilt
+
 # Compile deps without the app (app source syncs in via live_update)
 RUN mix deps.compile
 
@@ -40,11 +49,11 @@ COPY config config
 # Tailwind pre-seed (#230): every CI docker build (e2e legs, nightly,
 # deploy-image) stages the exact binary `mix tailwind.install
 # --if-missing` / `mix tailwind` looks for — tailwind-<target>-
-# <version> under _build/, the path tailwind-elixir computes — into
-# .tw-cache/ in the build context (actions/cache + curl; the in-image
-# fetch dies on httpc's 10KB header limit, #230). Local builds: the
-# dir holds only .gitkeep, default fetch path unchanged.
-COPY .tw-cache/ /app/_build/
+# <version> under _build/, the path tailwind-elixir computes — via
+# .github/actions/prebuilt (actions/cache + curl; the in-image fetch
+# dies on httpc's 10KB header limit, #230). Local builds: the dir
+# holds only .gitkeep, default fetch path unchanged.
+COPY .prebuilt/tailwind/ /app/_build/
 
 # esbuild/tailwind binaries + initial asset build (Hex-managed, no Node)
 RUN mix assets.setup && mix assets.build

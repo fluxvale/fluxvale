@@ -77,8 +77,8 @@ jobs:
       # dies at bootstrap delivers none of its fidelity-guard purpose.
       # Pre-seed, per the #230 follow-up call (previously kept on the
       # default fetch path; shared implementation with the e2e legs
-      # and deploy-image: .github/actions/tailwind-preseed).
-      - uses: ./.github/actions/tailwind-preseed
+      # and deploy-image: .github/actions/prebuilt).
+      - uses: ./.github/actions/prebuilt
 
       - name: Bootstrap the local stack
         run: mise x -- scripts/e2e-bootstrap.sh
