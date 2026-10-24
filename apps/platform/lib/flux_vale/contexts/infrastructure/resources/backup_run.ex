@@ -13,6 +13,14 @@ defmodule FluxVale.Infrastructure.BackupRun do
   health are separate axes (ADR-0037's consequences). The panel shows the
   failure; the app keeps running.
 
+  **Restores share the row** (#222, ADR-0037 §5): `kind: :restore` is the
+  same shape, created by `Operations.RestoreInstanceBackup` and finalized
+  by the same sweep. Two restore-specific fields ride along —
+  `restored_from` (the pre-restore status the instance goes back to) and
+  `bytes_restored` — and a failed restore *does* flip the instance to
+  `:error` with `:restore_failed`, because unlike a backup it owns the
+  instance while it runs.
+
   Rows are system-written: members read them (org-scoped through the
   instance), and every write is `authorize?: false` from the operations —
   the same posture as the instance lifecycle's trigger actions.
@@ -97,11 +105,27 @@ defmodule FluxVale.Infrastructure.BackupRun do
       constraints(min: 0)
     end
 
+    # From the restore script's summary event (#222, ADR-0037 §5): bytes
+    # written back. nil on backup runs.
+    attribute :bytes_restored, :integer do
+      public?(true)
+      constraints(min: 0)
+    end
+
     # The user-facing reason, sanitized by the sweep — restic's exit code
     # plus its last stderr line, truncated. Never env values.
     attribute :error_summary, :string do
       public?(true)
       constraints(max_length: 500)
+    end
+
+    # #222 (ADR-0037 §5): a :restore run's pre-restore status — where the
+    # instance goes back to when the restore succeeds. Stored, not
+    # recomputed: the sweep finalizes minutes later, by which time the
+    # Deployment is scaled to 0 and `:stopped` and `:sleeping` are
+    # indistinguishable from the cluster's side. nil on backup runs.
+    attribute :restored_from, FluxVale.Infrastructure.Types.InstanceStatus do
+      public?(true)
     end
 
     # Set at create (the run's clock starts then, not at the Job's first
@@ -131,7 +155,7 @@ defmodule FluxVale.Infrastructure.BackupRun do
 
     create :create do
       primary?(true)
-      accept([:instance_id, :kind, :status, :started_at])
+      accept([:instance_id, :kind, :status, :started_at, :restored_from])
     end
 
     update :update do
@@ -143,6 +167,7 @@ defmodule FluxVale.Infrastructure.BackupRun do
         :snapshot_id,
         :bytes_processed,
         :bytes_added,
+        :bytes_restored,
         :error_summary,
         :finished_at
       ])

@@ -4,9 +4,12 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
 
   Burn rate = the sum of the org's live rates, priced through the ONE
   resolver (`Pricing.settlement_rates/2` — the same one `settle_usage`
-  bills by, #153): `:running` instances accrue the running rate,
-  deployed-and-`:stopped` instances the storage-only rate (ADR-0028
-  §2), everything else accrues nothing yet. Unpriced rows (no size AND
+  bills by, #153): `:running` instances accrue the running rate;
+  deployed-and-`:stopped`, `:sleeping`, and `:restoring` instances
+  accrue the storage-only stopped rate (ADR-0028 §2 — sleep is
+  storage-only by construction, #203; a restore holds the app down the
+  same way, #222); everything else accrues nothing yet. Unpriced rows
+  (no size AND
   no formula snapshot — pre-#121 drift or a hand-built half-snapshot)
   burn nothing, matching settle's forgiveness; a sizeless custom
   allocation burns at the live formula rate (#186); a
@@ -89,9 +92,17 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
 
   defp monthly_rate(%Instance{status: :running}, rates), do: rates.running
   defp monthly_rate(%Instance{status: :stopped}, rates), do: rates.stopped
+
   # #203: a sleeping instance burns the storage-only rate — the same
   # stopped-rate accrual settlement runs on its anchors.
   defp monthly_rate(%Instance{status: :sleeping}, rates), do: rates.stopped
+
+  # #222: a restoring instance is scaled to 0 with its volume still
+  # mounted — settlement bills it at the stopped rate for the whole
+  # restore (PerformSettle's running stream is closed by the leave-:running
+  # transition), so the projection must price the same stream or the
+  # wallet bleeds while the runway says infinity.
+  defp monthly_rate(%Instance{status: :restoring}, rates), do: rates.stopped
 
   # pending/deploying/starting haven't started accruing; :error holds no
   # running meter (its anchors stopped at the transition); :deleting is

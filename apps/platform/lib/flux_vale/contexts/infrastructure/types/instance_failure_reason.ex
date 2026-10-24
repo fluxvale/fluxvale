@@ -18,6 +18,7 @@ defmodule FluxVale.Infrastructure.Types.InstanceFailureReason do
       :rollout_failed,
       :start_failed,
       :stop_failed,
+      :restore_failed,
       :teardown_failed
     ]
 end

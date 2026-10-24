@@ -20,6 +20,7 @@ defmodule FluxValeWeb.EdgeWakeControllerTest do
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
+  alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.TestSupport.InstanceFixtures
 
   # Plug wants lowercase header keys; EdgeRoutes names the canonical
@@ -80,6 +81,15 @@ defmodule FluxValeWeb.EdgeWakeControllerTest do
     stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
     stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
     stub(Ingress, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+  end
+
+  # #222: an instance mid-restore, built through the real funnel.
+  defp restoring_instance! do
+    instance = instance!(:running)
+
+    {:ok, _restoring} = InstanceK8s.update_status(instance, :restoring, nil)
+
+    Instance.get_by_id!(instance.id, authorize?: false)
   end
 
   defp browser(conn) do
@@ -262,6 +272,86 @@ defmodule FluxValeWeb.EdgeWakeControllerTest do
       |> get("/_fluxvale_edge/edge-wake-path")
 
     assert response(conn, 503) =~ "serving requests"
+  end
+
+  # Review finding: the other-status arm's page claims it keeps checking,
+  # but served no refresh — content="" and a dead end. It polls now.
+  test "the other-status 503 carries a working refresh", %{conn: conn} do
+    stub_k8s()
+    instance = instance!(:running)
+    {:ok, stopped} = Instance.stop(instance, authorize?: false)
+
+    conn =
+      conn
+      |> browser()
+      |> put_req_header(@header, stopped.id)
+      |> get("/_fluxvale_edge/edge-wake-path")
+
+    body = response(conn, 503)
+    assert body =~ ~s(http-equiv="refresh")
+    assert body =~ ~s(content="30")
+    assert body =~ "keeps checking"
+  end
+
+  # #222 (ADR-0037 §5): a restore owns the instance exclusively. A visitor
+  # arriving mid-restore must meet the retryable 503 — never a wake, which
+  # would put the app back on a volume restic is still writing.
+  test "a :restoring instance answers 503 and is never woken", %{conn: conn} do
+    stub_k8s()
+    restoring = restoring_instance!()
+
+    # No wake may happen: any kubeconfig/scale call would be the bug.
+    reject(K8s, :kubeconfig, 1)
+    reject(Deployment, :scale, 4)
+
+    conn =
+      conn
+      |> browser()
+      |> put_req_header(@header, restoring.id)
+      |> get("/_fluxvale_edge/edge-wake-path")
+
+    # The copy names the restore in plain words — no internals.
+    assert response(conn, 503) =~ "backup restored"
+    assert response(conn, 503) =~ "will be back when that finishes"
+    refute response(conn, 503) =~ "restic"
+    refute response(conn, 503) =~ "namespace"
+
+    # Still the restore's, not a started app.
+    assert Instance.get_by_id!(restoring.id, authorize?: false).status == :restoring
+  end
+
+  # The 503 bodies are pages that claim they keep checking — an empty
+  # meta refresh would make that a lie.
+  test "the :restoring 503 carries a refresh, not a broken one", %{conn: conn} do
+    stub_k8s()
+    restoring = restoring_instance!()
+
+    conn =
+      conn
+      |> browser()
+      |> put_req_header(@header, restoring.id)
+      |> get("/_fluxvale_edge/edge-wake-path")
+
+    body = response(conn, 503)
+    assert body =~ ~s(http-equiv="refresh")
+    assert body =~ ~s(content="30")
+    assert body =~ "keeps checking"
+  end
+
+  test "a POST to a :restoring instance gets the retry signal, not a wake", %{conn: _conn} do
+    stub_k8s()
+    restoring = restoring_instance!()
+
+    reject(K8s, :kubeconfig, 1)
+    reject(Deployment, :scale, 4)
+
+    conn =
+      %{build_conn() | host: "#{restoring.slug}.fluxvale.lvh.me"}
+      |> put_req_header(@header, restoring.id)
+      |> post("/_fluxvale_edge/path", %{})
+
+    assert response(conn, 503) =~ "resend"
+    assert Instance.get_by_id!(restoring.id, authorize?: false).status == :restoring
   end
 
   test "a failed serving-route restore serves the retry hint, not a crash", %{conn: conn} do

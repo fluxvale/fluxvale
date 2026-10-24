@@ -16,6 +16,7 @@ defmodule FluxVale.Infrastructure do
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Operations.ConfigureBackups
   alias FluxVale.Infrastructure.Operations.ReadFileAccessCredential
+  alias FluxVale.Infrastructure.Operations.RestoreInstanceBackup
   alias FluxVale.Infrastructure.Operations.RestoreServingEdge
   alias FluxVale.Infrastructure.Operations.RunInstanceBackup
   alias FluxVale.Infrastructure.Operations.SweepBackups
@@ -76,4 +77,12 @@ defmodule FluxVale.Infrastructure do
   # minutes (`Workers.BackupSweep`). `now` is a parameter — the worker
   # reads the clock, tests pass fixed instants.
   defdelegate sweep_backups(now), to: SweepBackups, as: :call
+
+  # #222 (ADR-0037 §5): restores the instance's newest successful snapshot
+  # back over its own volume — the sweep's watch pass finalizes it. `opts`
+  # carry the caller's `actor:` (ownership is enforced before any cluster
+  # write); the sweep's recovery arm calls it actorless.
+  defdelegate restore_instance_backup(instance, opts \\ []),
+    to: RestoreInstanceBackup,
+    as: :call
 end

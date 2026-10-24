@@ -1,18 +1,54 @@
 defmodule FluxVale.Infrastructure.Operations.SweepBackups do
   @moduledoc """
   The backup sweep (#222, ADR-0037 §3) — one Oban pass every five
-  minutes, two passes per call:
+  minutes, three passes per call:
 
   - **DUE**: instances with enabled settings whose daily window has
     opened and that have not started a run since it did →
     `RunInstanceBackup.call(instance, :scheduled)`.
   - **WATCH**: runs still `:pending`/`:running` → read the Job and
     finalize.
+  - **RECOVER**: `:restoring` instances left behind by a crash between a
+    restore's finalize and its release (below).
 
   `now` is a parameter, never `DateTime.utc_now/0` inside the arithmetic:
   the worker passes the clock, tests pass fixed instants, and the due
   window is a pure function of (instance, setting, now). No sleeping, no
   time-freezing.
+
+  ## Restores ride the same watch pass (#222, ADR-0037 §5)
+
+  A `kind: :restore` run is a row like any other, so the watch pass picks
+  it up — but finalizing it does more than write the row. The restore
+  Job's job is the instance, so success releases the instance: back to
+  `:starting` (and the Deployment scaled to 1) when the app was running
+  before, back to `:stopped`/`:sleeping` untouched when it was not. The
+  pre-restore status comes from the run's own `restored_from` — the sweep
+  cannot recompute it, because by finalize time the Deployment has been at
+  0 for minutes and `:stopped` and `:sleeping` look identical from the
+  cluster's side.
+
+  A restore's watch reads `RestoreJob`, not `BackupJob` (different fixed
+  name); the due pass is backup-only, and a restore run never satisfies a
+  day's backup window — restoring a snapshot is not backing one up.
+
+  ## The crash-recovery arm (`:restoring` with no active run)
+
+  The watch pass finalizes the row and *then* releases the instance —
+  scale up, status write. A crash in that window leaves the row
+  `:succeeded` and the instance `:restoring`, at 0 replicas, and no pass
+  would ever revisit it: `active_runs` reads only `:pending`/`:running`,
+  and every owner action's guard refuses `:restoring`. So the sweep's
+  third pass looks for exactly that shape — a `:restoring` instance with
+  no active run whose latest `:restore` run is terminal — and finishes
+  the release the crashed pass never got to: `:succeeded` releases via
+  the run's `restored_from` (the same code the watch pass calls),
+  `:failed` lands the `:error`/`:restore_failed` the watch pass's
+  `fail_instance` would have.
+
+  The arm is why `:restoring` is not a trap: the status is the
+  user-visible claim, and this pass is what makes the claim
+  self-healing.
 
   ## The window
 
@@ -39,7 +75,9 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
 
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.BackupJob
+  alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Namespace
+  alias FluxVale.Clients.K8s.Resources.RestoreJob
   alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Instance
@@ -53,13 +91,14 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
   # a manual run started, or the owner disabled backing up mid-pass.
   @benign_guards [:run_in_flight, :backups_disabled, :no_settings]
 
-  @enforce_keys [:started_ids, :succeeded_ids, :failed_ids]
-  defstruct [:started_ids, :succeeded_ids, :failed_ids]
+  @enforce_keys [:started_ids, :succeeded_ids, :failed_ids, :recovered_ids]
+  defstruct [:started_ids, :succeeded_ids, :failed_ids, :recovered_ids]
 
   @type t :: %__MODULE__{
           started_ids: [Ash.UUID.t()],
           succeeded_ids: [Ash.UUID.t()],
-          failed_ids: [Ash.UUID.t()]
+          failed_ids: [Ash.UUID.t()],
+          recovered_ids: [Ash.UUID.t()]
         }
 
   @doc """
@@ -72,10 +111,13 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
     # Watch first, then start: a run this pass creates has a Job applied
     # microseconds ago, so reading it now is wasted work — and a pass that
     # started runs before reading outstanding ones would watch its own
-    # fresh rows against a Job that has not scheduled yet.
+    # fresh rows against a Job that has not scheduled yet. The recovery
+    # arm runs last: a run the watch pass just finalized has had its
+    # release attempted, so only a genuinely stranded instance is left.
     results =
       Enum.map(active_runs(), &safe_watch(&1, now)) ++
-        Enum.map(due_instances(), &safe_due(&1, now))
+        Enum.map(due_instances(), &safe_due(&1, now)) ++
+        Enum.map(restoring_orphans(), &safe_recover(&1, now))
 
     failure_count = Enum.count(results, &match?({:error, _reason}, &1))
 
@@ -168,7 +210,10 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
 
   defp ran_since?(instance, opened) do
     BackupRun
-    |> Ash.Query.filter(instance_id == ^instance.id and started_at >= ^opened)
+    |> Ash.Query.filter(
+      instance_id == ^instance.id and started_at >= ^opened and
+        kind in [:scheduled, :manual]
+    )
     |> Ash.exists?(authorize?: false)
   end
 
@@ -208,42 +253,60 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
     end
   end
 
+  # The Job module is the only thing the two directions do not share: the
+  # restore Job has its own fixed name in the same namespace.
   defp read_job(run, instance, now) do
     with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance) do
-      case BackupJob.status(kubeconfig, instance.namespace) do
-        {:ok, %{outcome: :succeeded} = outcome} -> settle_succeeded(run, outcome, now)
-        {:ok, %{outcome: :failed} = outcome} -> settle_failed(run, outcome, now)
-        {:ok, %{outcome: :running}} -> stale(run, now)
-        {:error, %Error{reason: :not_found}} -> gone_or_stale(run, instance, kubeconfig, now)
-        {:error, _error} = error -> error
-      end
+      status = job_status(run, kubeconfig, instance)
+      settle_outcome(status, run, instance, kubeconfig, now)
     end
   end
 
-  # The ownership gate before any verdict write (see owned?/2); the
-  # settle helpers keep read_job's case flat (credo's nesting rule).
-  defp settle_succeeded(run, outcome, now) do
-    if owned?(run, outcome), do: finish_succeeded(run, outcome, now), else: stale(run, now)
+  defp settle_outcome({:ok, %{outcome: :succeeded} = outcome}, run, instance, _kc, now) do
+    owned(run, outcome, now, fn run_ -> finish_succeeded(run_, instance, outcome, now) end)
   end
 
-  defp settle_failed(run, outcome, now) do
-    if owned?(run, outcome),
-      do: finish_failed(run, failure_text(outcome), now),
-      else: stale(run, now)
+  defp settle_outcome({:ok, %{outcome: :failed} = outcome}, run, _instance, _kc, now) do
+    owned(run, outcome, now, fn run_ -> finish_failed(run_, failure_text(outcome), now) end)
   end
+
+  defp settle_outcome({:ok, %{outcome: :running}}, run, _instance, _kc, now) do
+    stale(run, now)
+  end
+
+  defp settle_outcome({:error, %Error{reason: :not_found}}, run, instance, kubeconfig, now) do
+    gone_or_stale(run, instance, kubeconfig, now)
+  end
+
+  defp settle_outcome({:error, _error} = error, _run, _instance, _kc, _now), do: error
 
   # The fixed-name Job outlives its run (immutable objects, deleted only
   # at the next start): a verdict is only this row's if the Job's
   # run-id label names it. A mismatch is not an error — the row simply
-  # keeps waiting (the next run's watch will settle it, or the stale
-  # horizon does). A nil label is a pre-label Job: none exist outside a
-  # single deploy, proceed (one-release backward compatibility).
-  # Map.get, not dot access: the outcome map is our own builder's
-  # shape in production, but a stub or an older build may omit the
-  # key — dot access would raise and fail the whole pass.
-  defp owned?(run, outcome) do
-    run_id = Map.get(outcome, :run_id)
-    is_nil(run_id) or run_id == run.id
+  # keeps waiting (the stale horizon settles it, or the next run's watch
+  # does). A nil label is a pre-label Job: none exist outside a single
+  # deploy, proceed (one-release backward compatibility). Same stance for
+  # both directions — a restore run reading a backup Job's verdict (or
+  # another restore's) is the identical attribution bug.
+  defp owned(run, outcome, now, settle) do
+    # Map.get, not dot access: the outcome map is our own builder's
+    # shape in production, but a stub or an older build may omit the
+    # key — dot access would raise and fail the whole pass.
+    case Map.get(outcome, :run_id) do
+      nil -> settle.(run)
+      run_id when run_id == run.id -> settle.(run)
+      _other_run -> stale(run, now)
+    end
+  end
+
+  # The Job module is the only thing the two directions do not share: the
+  # restore Job has its own fixed name in the same namespace.
+  defp job_status(%BackupRun{kind: :restore}, kubeconfig, instance) do
+    RestoreJob.status(kubeconfig, instance.namespace)
+  end
+
+  defp job_status(%BackupRun{}, kubeconfig, instance) do
+    BackupJob.status(kubeconfig, instance.namespace)
   end
 
   # A missing Job is either "the namespace went with it" (the instance is
@@ -279,7 +342,45 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
     DateTime.diff(now, run.started_at, :second) > stale_after_seconds()
   end
 
-  defp finish_succeeded(run, outcome, now) do
+  defp finish_succeeded(%BackupRun{kind: :restore} = run, instance, outcome, now) do
+    case decode(outcome.message) do
+      {:ok, parsed} ->
+        with {:ok, snapshot_id, bytes_restored} <- usable_restore_outcome(parsed),
+             {:ok, finished} <-
+               finalize_row(run, %{
+                 status: :succeeded,
+                 snapshot_id: snapshot_id,
+                 bytes_restored: bytes_restored,
+                 finished_at: now
+               }),
+             {:ok, _released} <- release_instance(run, instance, now) do
+          tagged(finished.status, finished.id)
+        else
+          # A parseable-but-wrong-shaped outcome is NOT a success: a
+          # kubelet-truncated message can decode as `{"bytes_restored":5}`
+          # and would otherwise land :succeeded with a nil snapshot_id —
+          # a run the panel calls good and `restorable_snapshot` can never
+          # find again. Fail it with the honest reason.
+          :error ->
+            unusable_restore(run, now)
+
+          # coveralls-ignore-start - defensive: the finalize and release
+          # writes fail only on a DB outage (DBConnection reconnects — the
+          # repo's cluster-level stance), and ExUnit cannot stage one.
+          {:error, _write_error} = error ->
+            error
+            # coveralls-ignore-stop
+        end
+
+      # The Job said Complete but the termination log is missing or
+      # unparseable: an unknown restore outcome is not a success — the
+      # volume's state is exactly what the platform cannot vouch for.
+      :error ->
+        unusable_restore(run, now)
+    end
+  end
+
+  defp finish_succeeded(run, _instance, outcome, now) do
     case decode(outcome.message) do
       {:ok, parsed} ->
         case usable_outcome(parsed) do
@@ -348,6 +449,32 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
     end
   end
 
+  # A restore success REQUIRES the snapshot id it claims to have written
+  # back — the row's whole point, and `restorable_snapshot` filters rows
+  # without one, so a nil id is a run the panel calls good but no restore
+  # can ever find. Bytes stay lenient: restic omits `bytes_restored` at
+  # zero, and a wrong-typed count is worth 0, not a failed restore.
+  defp usable_restore_outcome(parsed) do
+    case Map.get(parsed, "snapshot_id") do
+      snapshot_id when is_binary(snapshot_id) and snapshot_id != "" ->
+        {:ok, snapshot_id, restore_bytes(parsed)}
+
+      _missing_or_wrong_typed ->
+        :error
+    end
+  end
+
+  defp restore_bytes(parsed) do
+    case Map.get(parsed, "bytes_restored") do
+      bytes when is_integer(bytes) and bytes >= 0 -> bytes
+      _absent_or_wrong_typed -> 0
+    end
+  end
+
+  defp unusable_restore(run, now) do
+    finish_failed(run, "restore finished but reported no usable outcome", now)
+  end
+
   defp failure_text(%{message: message} = outcome) when is_binary(message) do
     case decode(message) do
       {:ok, %{"error" => error}} when is_binary(error) -> error
@@ -374,19 +501,157 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
   end
 
   defp finish_failed(run, summary, now) do
-    finalize(run, %{
-      status: :failed,
-      error_summary: truncate(summary),
-      finished_at: now
-    })
+    with {:ok, failed} <-
+           finalize_row(run, %{
+             status: :failed,
+             error_summary: truncate(summary),
+             finished_at: now
+           }),
+         {:ok, _released} <- fail_instance(run, failed) do
+      tagged(failed.status, failed.id)
+    end
   end
 
+  # Backup failures stop at the row (ADR-0037's consequences: backup health
+  # and app health are separate axes — the app keeps running).
+  # The instance write is STATUS-GUARDED (CodeRabbit): the run's loaded
+  # instance is a stale snapshot. A crash between create_run and the
+  # :restoring flip leaves a :running app under a :pending row — the
+  # stale horizon must not flip that healthy app to :error. And a
+  # :restoring row whose namespace vanished mid-run goes :lost via the
+  # stranded sweep (#196) — :error must not overwrite the re-deploy
+  # door. Only a row that still reads :restoring lands the failure.
+  defp fail_instance(%BackupRun{kind: :restore} = run, _failed) do
+    case run.instance do
+      %Instance{} = instance ->
+        case current_status(instance) do
+          {:ok, :restoring} -> land_failed_restore(instance)
+          _not_restoring -> {:ok, nil}
+        end
+
+      # coveralls-ignore-start - unreachable: the FK cascade deletes the
+      # run with its instance, and watch/2 already refuses a run whose
+      # instance is missing.
+      _gone ->
+        {:ok, nil}
+        # coveralls-ignore-stop
+    end
+  end
+
+  defp fail_instance(_run, _failed), do: {:ok, nil}
+
+  # The row's loaded instance can be minutes old (the watch pass reads
+  # it once at load); re-read the status row before writing state.
+  defp current_status(instance) do
+    case Instance.get_by_id(instance.id, authorize?: false) do
+      {:ok, fresh} ->
+        {:ok, fresh.status}
+
+      # coveralls-ignore-start - defensive: the FK cascade deletes runs
+      # with their instance; a row whose instance vanished between the
+      # load and this read has nothing to write anyway.
+      {:error, _gone} ->
+        {:error, :gone}
+        # coveralls-ignore-stop
+    end
+  end
+
+  # A restore that failed AFTER its Job ran may have written a partial
+  # volume: :error is the honest state, and :restore_failed is the owner's
+  # retry door (ADR-0037 §5). Shared with the recovery arm so a crashed
+  # finalize lands exactly what the watch pass would have.
+  defp land_failed_restore(instance) do
+    instance
+    |> InstanceK8s.update_status(
+      :error,
+      "Restore failed; the volume may be in a partially restored state",
+      :restore_failed
+    )
+    |> release_outcome()
+  end
+
+  # Success releases the instance: the app was running → scale back to 1
+  # and land :starting (the reconciler re-confirms readiness — it stays the
+  # only writer of :running); the app was stopped/asleep → back to that
+  # state, never woken.
+  defp release_instance(run, instance, _now) do
+    case run.restored_from do
+      :running -> restart_app(instance)
+      prior -> restore_prior(instance, prior)
+    end
+  end
+
+  defp restart_app(instance) do
+    with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance),
+         {:ok, _deployment} <- Deployment.scale(kubeconfig, instance.namespace, "app", 1) do
+      instance
+      |> InstanceK8s.update_status(:starting, "Starting; awaiting readiness")
+      |> release_outcome()
+    else
+      # The volume is restored but the app could not come back: :error is
+      # the honest state (a :sleeping/:stopped row here would claim the app
+      # is deliberately down and hide the failure).
+      {:error, error} -> restore_failed(instance, error)
+    end
+  end
+
+  # :stopped and :sleeping are already at 0 replicas — nothing to scale,
+  # and a restore never wakes an app the owner (or the idle sweep) parked.
+  defp restore_prior(instance, prior) when prior in [:stopped, :sleeping] do
+    # updated_at must reflect the restore's end, but the status is the
+    # same value → a message-only write through the funnel.
+    instance
+    |> InstanceK8s.update_status(prior, restore_message(prior))
+    |> release_outcome()
+  end
+
+  # coveralls-ignore-start - defensive: restored_from is written from the
+  # @restorable_statuses guard's set, so only those three can appear. A
+  # hand-edited row falls back to the honest failure rather than guessing.
+  defp restore_prior(instance, _prior) do
+    restore_failed(instance, :unknown_prior_status)
+  end
+
+  # coveralls-ignore-stop
+
+  defp restore_message(:stopped), do: "Restore finished; your app stays stopped"
+  defp restore_message(:sleeping), do: "Restore finished; your app stays asleep"
+
+  defp restore_failed(instance, error) do
+    instance
+    |> InstanceK8s.update_status(
+      :error,
+      "Restore finished but the app could not be restarted: " <>
+        InstanceK8s.format_error(error),
+      :restore_failed
+    )
+    |> release_outcome()
+  end
+
+  # Every release arm's shape is {:ok, instance} | {:error, error}; the
+  # sweep's finalize only needs to know whether the unit succeeded.
+  defp release_outcome({:ok, _instance}), do: {:ok, nil}
+
+  # The release writes :error from any state and the status funnel only
+  # fails on a DB outage, which ExUnit cannot stage (DBConnection
+  # reconnects — the repo's cluster-level stance).
+  # coveralls-ignore-next-line
+  defp release_outcome({:error, _error} = error), do: error
+
   defp finalize(run, attrs) do
+    case finalize_row(run, attrs) do
+      {:ok, finished} -> tagged(finished.status, finished.id)
+      # coveralls-ignore-next-line
+      {:error, _error} = error -> error
+    end
+  end
+
+  defp finalize_row(run, attrs) do
     case run
          |> Ash.Changeset.for_update(:update, attrs, authorize?: false)
          |> Ash.update() do
       {:ok, finished} ->
-        tagged(finished.status, finished.id)
+        {:ok, finished}
 
       # Defensive: the finalize write fails only on a concurrent terminal
       # write (the same run finalized twice — a sweep overlapping itself)
@@ -408,6 +673,81 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
   # long restic line never fails the write itself.
   defp truncate(summary) when is_binary(summary), do: String.slice(summary, 0, 500)
 
+  # --- RECOVER ---------------------------------------------------------
+
+  # The crash-recovery arm (see moduledoc): a :restoring instance with no
+  # active run. The watch pass finalizes the row, then releases the
+  # instance — a crash between the two leaves the status behind with no
+  # run for any pass to revisit. Both of the release's halves are the
+  # watch pass's own functions, so a recovered instance is indistinguishable
+  # from one the watch pass released.
+  defp restoring_orphans do
+    Instance
+    |> Ash.Query.filter(status == :restoring)
+    |> Ash.read!(authorize?: false)
+    |> Enum.reject(&active_run?/1)
+  end
+
+  # Still the watch pass's row: it will release the instance itself, in
+  # this pass or the next. One active run per instance is the index's
+  # invariant, so this is a plain existence check.
+  defp active_run?(instance) do
+    BackupRun
+    |> Ash.Query.filter(instance_id == ^instance.id and status in [:pending, :running])
+    |> Ash.exists?(authorize?: false)
+  end
+
+  defp safe_recover(instance, now) do
+    recover(instance, now)
+  rescue
+    exception ->
+      Logger.error(
+        "Backup restore recovery failed for #{instance.id}: #{Exception.message(exception)}"
+      )
+
+      {:error, exception}
+  end
+
+  # The latest restore run decides what the crashed pass would have done.
+  # A row that is not terminal yet is the watch pass's (active_run?/1 just
+  # filtered those out, so this is defence against a racing finalize): the
+  # next pass re-decides.
+  defp recover(instance, now) do
+    case latest_restore(instance) do
+      %BackupRun{status: :succeeded} = run ->
+        run
+        |> release_instance(instance, now)
+        |> recovered(instance)
+
+      %BackupRun{status: :failed} ->
+        instance
+        |> land_failed_restore()
+        |> recovered(instance)
+
+      _none_or_active ->
+        {:ok, nil}
+    end
+  end
+
+  defp latest_restore(instance) do
+    BackupRun
+    |> Ash.Query.filter(instance_id == ^instance.id and kind == :restore)
+    |> Ash.Query.sort(started_at: :desc, id: :desc)
+    |> Ash.Query.limit(1)
+    |> Ash.Query.load(:instance)
+    |> Ash.read!(authorize?: false)
+    |> List.first()
+  end
+
+  defp recovered({:ok, _released}, instance), do: {:ok, {:recovered, instance.id}}
+
+  # coveralls-ignore-start - defensive: the release arms normalize to
+  # :ok (a failed rescale lands :error through restore_failed, which is
+  # itself a write, not an error return). Only a DB outage surfaces
+  # here, and ExUnit cannot stage one.
+  defp recovered({:error, _error} = error, _instance), do: error
+  # coveralls-ignore-stop
+
   # --- shared ----------------------------------------------------------
 
   defp summarize(results) do
@@ -416,7 +756,8 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
     %__MODULE__{
       started_ids: collect(entries, :started),
       succeeded_ids: collect(entries, :succeeded),
-      failed_ids: collect(entries, :failed)
+      failed_ids: collect(entries, :failed),
+      recovered_ids: collect(entries, :recovered)
     }
   end
 

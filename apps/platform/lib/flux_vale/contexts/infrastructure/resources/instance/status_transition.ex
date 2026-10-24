@@ -7,9 +7,14 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
   - pending → deploying, error
   - deploying → starting, error
   - starting → running, error, lost
-  - running → stopped, sleeping, error, lost
-  - sleeping → starting, error, lost (wake re-enters the start lane; #203)
-  - stopped → starting, error, lost
+  - running → stopped, sleeping, restoring, error, lost
+  - sleeping → starting, restoring, error, lost (wake re-enters the start
+    lane; #203 — restore returns the row to `:sleeping` without waking it,
+    ADR-0037 §5)
+  - stopped → starting, restoring, error, lost
+  - restoring → starting, stopped, sleeping, error, lost (#222, ADR-0037
+    §5: back to the pre-restore state, or into the start lane when the
+    app was running — the reconciler lands `:running`)
   - error → deploying, starting, lost
   - lost → deploying (the re-deploy path; teardown rides `:deleting`
     from anywhere)
@@ -24,6 +29,16 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
   `:sleeping` (#203, ADR-0036) enters only from `:running` (the idle
   sweep never races a half-built instance) and leaves the same way
   `:stopped` does — wake is `start`, stranded is `:lost`.
+
+  `:restoring` (#222, ADR-0037 §5) is the restore's exclusive hold on the
+  instance: it enters only from a state that already has a volume to
+  write over (`:running`, `:stopped`, `:sleeping`) — or from `:error`
+  when the error IS a failed restore (`:restore_failed`; the retry is
+  the owner's way out, the operation's guard is the scope) — and
+  leaves for the state the restore found it in — plus `:starting`
+  when it found the app running, so the reconciler re-confirms
+  readiness instead of the restore inventing `:running` (the
+  reconciler-only-writer rule holds).
   """
 
   use Ash.Resource.Validation
@@ -35,10 +50,18 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
     pending: [:deploying, :error],
     deploying: [:starting, :error],
     starting: [:running, :error, :lost],
-    running: [:stopped, :sleeping, :error, :lost],
-    sleeping: [:starting, :error, :lost],
-    stopped: [:starting, :error, :lost],
-    error: [:deploying, :starting, :lost],
+    running: [:stopped, :sleeping, :restoring, :error, :lost],
+    sleeping: [:starting, :restoring, :error, :lost],
+    stopped: [:starting, :restoring, :error, :lost],
+    # #222 (ADR-0037 §5): restore releases into the state it found — the
+    # pre-restore one, or :starting so the reconciler re-confirms
+    # readiness (it stays the only writer of :running).
+    restoring: [:starting, :stopped, :sleeping, :error, :lost],
+    # :restoring here is the failed-restore RETRY (ADR-0037 §5): the
+    # operation's guard admits only :error rows whose failure_reason is
+    # :restore_failed — the table cannot see the reason, so the op's
+    # guard is the scope and this edge is the door.
+    error: [:deploying, :starting, :restoring, :lost],
     # Entered from any state (async teardown); its only exit on retry
     # exhaustion is :error (mark_teardown_error). A successful teardown
     # hard-deletes the row instead of transitioning.

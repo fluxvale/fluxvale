@@ -29,6 +29,7 @@ defmodule FluxValeWeb.InstanceStatus do
     starting: "Starting",
     running: "Running",
     sleeping: "Sleeping",
+    restoring: "Restoring",
     stopped: "Stopped",
     error: "Failed",
     deleting: "Deleting",
@@ -42,6 +43,8 @@ defmodule FluxValeWeb.InstanceStatus do
     running: "Your app is up and running.",
     sleeping:
       "Your app is asleep after a stretch without visitors — it wakes automatically the next time someone opens it (a few seconds), and costs only storage while it rests.",
+    restoring:
+      "We're putting one of your backups back in place. Your app stays off until it's done, then comes back the way you left it — this can take a while for a large app.",
     stopped: "Your app is stopped. Your data is kept safe — start it again anytime.",
     deleting: "Cleaning up your app and its data.",
     lost:
@@ -59,6 +62,11 @@ defmodule FluxValeWeb.InstanceStatus do
     missing: "Your app went missing on our side. Try setting it up again.",
     start_failed: "We couldn't start your app. Try again in a minute.",
     stop_failed: "We couldn't stop your app. Try again in a minute.",
+    # The volume may be half-written: say so plainly, and point at the
+    # previous backup rather than at a blind retry (ADR-0037 §2's
+    # retention is exactly this fallback).
+    restore_failed:
+      "Your app couldn't be restored, and its files may be only partly back. Try restoring again, or pick an earlier backup — the ones before it are untouched.",
     teardown_failed:
       "We couldn't finish deleting your app. Try the delete again — it's safe to retry."
   }

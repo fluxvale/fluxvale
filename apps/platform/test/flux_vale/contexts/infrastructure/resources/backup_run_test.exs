@@ -58,21 +58,45 @@ defmodule FluxVale.Infrastructure.BackupRunTest do
       assert run.finished_at == nil
     end
 
-    test "accepts both kinds" do
+    test "accepts all three kinds — :restore rides the same rows (#222 §5)" do
       version = base!()
       owner = user()
+      mine = instance!(version, owner)
+      other = instance!(version, owner)
 
-      assert {:ok, scheduled} = create(instance!(version, owner), %{kind: :scheduled})
+      assert {:ok, scheduled} = create(mine, %{kind: :scheduled})
       assert scheduled.kind == :scheduled
 
-      assert {:ok, manual} = create(instance!(version, owner), %{kind: :manual})
+      assert {:ok, manual} = create(other, %{kind: :manual})
       assert manual.kind == :manual
+
+      # One ACTIVE run per instance (the partial unique index): the
+      # restore rides a third instance's fresh slot.
+      third = instance!(version, owner)
+      assert {:ok, restore} = create(third, %{kind: :restore, restored_from: :running})
+      assert restore.kind == :restore
+      assert restore.restored_from == :running
     end
 
-    test "rejects an unknown kind — :restore lands with its own slice" do
+    test "a :restore run carries restored_from; a backup run leaves it nil" do
+      version = base!()
+      owner = user()
+      one = instance!(version, owner)
+      two = instance!(version, owner)
+
+      assert {:ok, backup} = create(one, %{kind: :manual})
+      assert backup.restored_from == nil
+
+      assert {:ok, restore} = create(two, %{kind: :restore, restored_from: :stopped})
+
+      assert restore.restored_from == :stopped
+      assert restore.bytes_restored == nil
+    end
+
+    test "rejects an unknown kind" do
       instance = instance!(base!(), user())
 
-      assert {:error, %Ash.Error.Invalid{}} = create(instance, %{kind: :restore})
+      assert {:error, %Ash.Error.Invalid{}} = create(instance, %{kind: :mirror})
     end
 
     test "error_summary is a finalize field: not creatable, capped at 500 on update" do
@@ -235,6 +259,21 @@ defmodule FluxVale.Infrastructure.BackupRunTest do
 
       assert {:ok, [read]} = BackupRun.recent_for_instance(instance.id, 10, actor: owner)
       assert read.id == run.id
+    end
+
+    # #222 (ADR-0037 §5): a restore is a row like any other — the panel's
+    # one timeline means the same read shape covers it. The backup is a
+    # settled row (one ACTIVE run per instance — the restore owns the slot).
+    test "an org member reads restore runs alongside backups" do
+      version = base!()
+      owner = user()
+      instance = instance!(version, owner)
+
+      {:ok, _backup} = create(instance, %{kind: :manual, status: :succeeded})
+      {:ok, restore} = create(instance, %{kind: :restore, restored_from: :running})
+
+      assert {:ok, runs} = BackupRun.recent_for_instance(instance.id, 10, actor: owner)
+      assert Enum.any?(runs, &(&1.id == restore.id and &1.kind == :restore))
     end
 
     test "an outsider reads an empty history — a list read filters, it never 404s" do

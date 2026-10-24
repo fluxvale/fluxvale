@@ -22,6 +22,7 @@ defmodule FluxValeWeb.InstanceStatusTest do
       assert InstanceStatus.label(:starting) == "Starting"
       assert InstanceStatus.label(:running) == "Running"
       assert InstanceStatus.label(:sleeping) == "Sleeping"
+      assert InstanceStatus.label(:restoring) == "Restoring"
       assert InstanceStatus.label(:stopped) == "Stopped"
       assert InstanceStatus.label(:error) == "Failed"
       assert InstanceStatus.label(:deleting) == "Deleting"
@@ -35,7 +36,18 @@ defmodule FluxValeWeb.InstanceStatusTest do
       assert InstanceStatus.in_progress?(:starting)
 
       # #203: sleeping is settled, not mid-provision — no spinner.
-      for status <- [:pending, :running, :sleeping, :stopped, :error, :deleting, :lost] do
+      # #222: a restore is likewise not a provision — its completion
+      # arrives on the instance's PubSub broadcast, not a status tick.
+      for status <- [
+            :pending,
+            :running,
+            :sleeping,
+            :restoring,
+            :stopped,
+            :error,
+            :deleting,
+            :lost
+          ] do
         refute InstanceStatus.in_progress?(status)
       end
     end
@@ -104,6 +116,7 @@ defmodule FluxValeWeb.InstanceStatusTest do
         :rollout_failed,
         :start_failed,
         :stop_failed,
+        :restore_failed,
         :teardown_failed
       ]
 
@@ -119,6 +132,52 @@ defmodule FluxValeWeb.InstanceStatusTest do
         refute message =~ "raw operator detail"
         refute_k8s_terms(message)
       end
+    end
+
+    # #222 (ADR-0037 §5): the restoring state renders like any other
+    # settled arc state — plain words, and the retention fallback the user
+    # actually needs when a restore goes wrong.
+    test ":restoring reads as its own progress state", %{version: version} do
+      user = User.create!("vocab-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+      instance = InstanceFixtures.instance!(version, user)
+      running = InstanceFixtures.walk_to!(instance, :running)
+
+      {:ok, restoring} = InstanceK8s.update_status(running, :restoring, "restic restore")
+      message = InstanceStatus.message(restoring)
+
+      assert message =~ "backup"
+      assert message =~ "stays off"
+      refute_k8s_terms(message)
+      # The raw status_message never rides along.
+      refute message =~ "restic"
+    end
+
+    test "a failed restore points at the earlier backups, not a blind retry", %{
+      version: version
+    } do
+      user = User.create!("vocab-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+      instance = InstanceFixtures.instance!(version, user)
+
+      restoring =
+        instance
+        |> InstanceFixtures.walk_to!(:running)
+        |> then(fn row -> InstanceK8s.update_status(row, :restoring, nil) end)
+        |> elem(1)
+
+      {:ok, failed} =
+        InstanceK8s.update_status(
+          restoring,
+          :error,
+          "Restore failed: restic restore exited 12",
+          :restore_failed
+        )
+
+      message = InstanceStatus.message(failed)
+
+      assert message =~ "partly back"
+      assert message =~ "earlier backup"
+      refute message =~ "restic"
+      refute_k8s_terms(message)
     end
 
     test "an :error row without a classification (pre-#179 rows) reads the generic snag copy",

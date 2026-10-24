@@ -22,6 +22,10 @@ Mimic.copy(FluxVale.Clients.K8s.Resources.ResourceQuota)
 Mimic.copy(FluxVale.Clients.K8s.Resources.NetworkPolicy)
 Mimic.copy(FluxVale.Clients.K8s.Resources.RoleBinding)
 Mimic.copy(FluxVale.Clients.K8s.Resources.BackupJob)
+Mimic.copy(FluxVale.Clients.K8s.Resources.RestoreJob)
+# The restore operation's status funnel: tests force the :restoring write
+# to fail (the row-settling arm) without a hand-edited state machine.
+Mimic.copy(FluxVale.Infrastructure.Operations.InstanceK8s)
 
 ExUnit.start(exclude: [k8s: true])
 Ecto.Adapters.SQL.Sandbox.mode(FluxVale.Repo, :manual)
