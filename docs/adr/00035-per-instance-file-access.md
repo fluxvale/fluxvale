@@ -217,3 +217,28 @@ rclone copy ~/library fluxvale-<slug>:library --progress
 
 Alternates, known to work but not recommended: RaiDrive and WinSCP on
 Windows. Mobile WebDAV apps: none vetted yet — a future note.
+
+## Amendment 2 — copy-paste-safe quick-start (2026-10-24)
+
+Live dogfooding caught the original rclone example failing verbatim:
+its source path was a placeholder, so `rclone copy` died on
+"directory not found" before ever touching the network. Any user
+would hit the same. The quick-start, as amended:
+
+```
+mkdir -p ~/Books   # your local source — create it before copying
+rclone config create fluxvale-<slug> webdav \
+    url https://<slug>.fluxvale.app/dav vendor rclone user fluxvale pass '<password>' --obscure
+rclone lsd fluxvale-<slug>:   # verify: lists the instance's root dirs (auth + URL proven)
+rclone copy ~/Books fluxvale-<slug>:library/books --progress
+```
+
+Keeping it updated: `rclone copy` is incremental and never deletes —
+re-run it after adding or changing files locally; new or changed files
+upload. A strict mirror (local deletions removed remotely) is
+`rclone sync`; it deletes by design, so `--dry-run` it first. After
+uploading, the app must be told about the files: register the folder
+in the app's settings and trigger a scan (e.g. Kavita: Settings →
+Libraries → add the path, then Scan) — the file layer and the app's
+index are separate by design.
+
