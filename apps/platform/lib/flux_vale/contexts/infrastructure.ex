@@ -13,6 +13,8 @@ defmodule FluxVale.Infrastructure do
     otp_app: :flux_vale,
     extensions: [AshAdmin.Domain]
 
+  alias FluxVale.Infrastructure.BackupSetting
+  alias FluxVale.Infrastructure.Operations.ConfigureBackups
   alias FluxVale.Infrastructure.Operations.ReadFileAccessCredential
   alias FluxVale.Infrastructure.Operations.RestoreServingEdge
   alias FluxVale.Infrastructure.Operations.SweepIdleInstances
@@ -26,6 +28,7 @@ defmodule FluxVale.Infrastructure do
   resources do
     resource(FluxVale.Infrastructure.Cluster)
     resource(FluxVale.Infrastructure.Instance)
+    resource(FluxVale.Infrastructure.BackupSetting)
   end
 
   defdelegate sweep_stranded_instances(), to: SweepStrandedInstances, as: :call
@@ -44,4 +47,19 @@ defmodule FluxVale.Infrastructure do
   defdelegate read_file_access_credential(instance),
     to: ReadFileAccessCredential,
     as: :call
+
+  # #222 (ADR-0037): saving the backup destination — composes the repo
+  # URL, get-or-creates the namespace's `backup-config` Secret, widens
+  # the quota, then upserts the setting row.
+  defdelegate configure_backups(instance, params, opts \\ []),
+    to: ConfigureBackups,
+    as: :call
+
+  # The UI's "stop backing up entirely": a plain row delete (the
+  # resource's `:destroy`, member-policied like `:update`) — no cluster
+  # state, and the namespace Secret persists so re-configuring reuses
+  # the same restic repo.
+  defdelegate remove_backup_settings(setting, opts \\ []),
+    to: BackupSetting,
+    as: :destroy
 end

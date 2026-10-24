@@ -87,6 +87,30 @@ defmodule FluxVale.Infrastructure.Operations.TeardownInstanceTest do
       assert {:ok, _deleted} = TeardownInstance.call(instance)
     end
 
+    test "the backup-config Secret is deleted (#222)" do
+      stub_kubeconfig()
+      instance = deleting!()
+
+      stub_deletes()
+
+      expect(Secret, :delete, fn _kc, _ns, "backup-config" -> :ok end)
+
+      assert {:ok, _deleted} = TeardownInstance.call(instance)
+    end
+
+    test "a missing backup-config Secret is not_found-tolerant (pre-#222 namespaces)" do
+      stub_kubeconfig()
+      instance = deleting!()
+
+      stub_deletes()
+
+      expect(Secret, :delete, fn _kc, _ns, "backup-config" ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      assert {:ok, _deleted} = TeardownInstance.call(instance)
+    end
+
     test "a namespace-delete failure surfaces for Oban to retry" do
       stub_kubeconfig()
       instance = deleting!()
