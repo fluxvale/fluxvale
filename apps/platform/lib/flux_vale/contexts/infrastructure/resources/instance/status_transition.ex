@@ -32,10 +32,13 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
 
   `:restoring` (#222, ADR-0037 §5) is the restore's exclusive hold on the
   instance: it enters only from a state that already has a volume to
-  write over (`:running`, `:stopped`, `:sleeping`) and leaves for the
-  state the restore found it in — plus `:starting` when it found the app
-  running, so the reconciler re-confirms readiness instead of the restore
-  inventing `:running` (the reconciler-only-writer rule holds).
+  write over (`:running`, `:stopped`, `:sleeping`) — or from `:error`
+  when the error IS a failed restore (`:restore_failed`; the retry is
+  the owner's way out, the operation's guard is the scope) — and
+  leaves for the state the restore found it in — plus `:starting`
+  when it found the app running, so the reconciler re-confirms
+  readiness instead of the restore inventing `:running` (the
+  reconciler-only-writer rule holds).
   """
 
   use Ash.Resource.Validation
@@ -54,7 +57,11 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
     # pre-restore one, or :starting so the reconciler re-confirms
     # readiness (it stays the only writer of :running).
     restoring: [:starting, :stopped, :sleeping, :error, :lost],
-    error: [:deploying, :starting, :lost],
+    # :restoring here is the failed-restore RETRY (ADR-0037 §5): the
+    # operation's guard admits only :error rows whose failure_reason is
+    # :restore_failed — the table cannot see the reason, so the op's
+    # guard is the scope and this edge is the door.
+    error: [:deploying, :starting, :restoring, :lost],
     # Entered from any state (async teardown); its only exit on retry
     # exhaustion is :error (mark_teardown_error). A successful teardown
     # hard-deletes the row instead of transitioning.

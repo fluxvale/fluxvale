@@ -181,6 +181,10 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackupTest do
       succeeded_backup!(instance)
       run!(instance, %{kind: :restore, status: :running, restored_from: :running})
 
+      # The refusal is the partial unique index's rejection (translated),
+      # so the op reaches its kubeconfig leg — stub it; the Job create
+      # stays rejected.
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
       reject(RestoreJob, :create, 3)
 
       assert {:error, :run_in_flight} = Infrastructure.restore_instance_backup(instance)
@@ -194,6 +198,7 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackupTest do
       succeeded_backup!(instance)
       run!(instance, %{kind: :scheduled, status: :running})
 
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
       reject(RestoreJob, :create, 3)
 
       assert {:error, :run_in_flight} = Infrastructure.restore_instance_backup(instance)
@@ -224,6 +229,71 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackupTest do
         |> InstanceFixtures.walk_to!(:deploying)
 
       assert {:error, :not_restorable} = Infrastructure.restore_instance_backup(deploying)
+    end
+
+    test "a failed restore is retryable: :error + :restore_failed restores again" do
+      owner = user()
+      version = base!()
+      instance = instance!(version, owner, :running)
+      setting!(instance)
+      succeeded_backup!(instance)
+      ns = instance.namespace
+
+      # The first restore failed mid-flight: its run recorded where the
+      # app ran (:running), and the failure landed the row :error.
+      run!(instance, %{kind: :restore, status: :failed, restored_from: :running})
+
+      failed =
+        InstanceFixtures.pin!(instance, status: :error, failure_reason: :restore_failed)
+
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+      # prior is INHERITED (:running), so the retry scales (already at
+      # 0 — idempotent) on its way to the Job.
+      expect(Deployment, :scale, fn _kc, ^ns, "app", 0 -> {:ok, %{}} end)
+      expect(RestoreJob, :delete, fn _kc, ^ns -> {:error, %Error{reason: :not_found}} end)
+      expect(RestoreJob, :create, fn _kc, ^ns, _spec -> {:ok, %{}} end)
+
+      assert {:ok, run} = Infrastructure.restore_instance_backup(failed)
+
+      # The retry's row records the pre-FIRST-restore state, not :error
+      # — a success returns the app there (ADR-0037 §5).
+      assert run.restored_from == :running
+      assert reload(failed).status == :restoring
+    end
+
+    test "a retry with no failed run to inherit falls back to :stopped" do
+      owner = user()
+      version = base!()
+      instance = instance!(version, owner, :running)
+      setting!(instance)
+      succeeded_backup!(instance)
+
+      # A hand-shaped :error/:restore_failed row with no prior restore
+      # run — the defensive fallback must never wake the app.
+      failed =
+        InstanceFixtures.pin!(instance, status: :error, failure_reason: :restore_failed)
+
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+      expect(RestoreJob, :delete, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
+      expect(RestoreJob, :create, fn _kc, _ns, _spec -> {:ok, %{}} end)
+
+      assert {:ok, run} = Infrastructure.restore_instance_backup(failed)
+      assert run.restored_from == :stopped
+    end
+
+    test "an :error from another failure is not restorable" do
+      owner = user()
+      version = base!()
+      instance = instance!(version, owner, :running)
+      setting!(instance)
+      succeeded_backup!(instance)
+
+      errored =
+        InstanceFixtures.pin!(instance, status: :error, failure_reason: :start_failed)
+
+      reject(RestoreJob, :create, 3)
+
+      assert {:error, :not_restorable} = Infrastructure.restore_instance_backup(errored)
     end
 
     test "a never-deployed instance: :not_deployed" do

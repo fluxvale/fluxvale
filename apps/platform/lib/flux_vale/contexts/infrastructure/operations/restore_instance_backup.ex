@@ -103,11 +103,15 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
 
   # System reads (authorize?: false): the operation reached here through
   # the UI's authorized instance read — the lifecycle ops' posture.
+  # One-active-run is NOT a guard here (same stance as
+  # RunInstanceBackup's): the partial unique index is the enforcement,
+  # and `translate_taken_slot/1` renders its rejection as
+  # `:run_in_flight` — this covers restore-over-backup and
+  # restore-over-restore alike.
   defp guards(instance) do
     with :ok <- restorable(instance),
          :ok <- enabled_setting(instance),
          {:ok, snapshot_id} <- restorable_snapshot(instance),
-         :ok <- no_run_in_flight(instance),
          :ok <- deployed(instance) do
       {:ok, snapshot_id}
     end
@@ -115,7 +119,14 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
 
   # The status check comes first: it is the cheapest way to refuse a
   # restore on a row that is mid-deploy or gone, before any table read.
+  # The second clause is the failed-restore retry (ADR-0037 §5): a row
+  # that landed `:error` + `:restore_failed` is restorable again — the
+  # app is already scaled down (a partial volume must not be served),
+  # and the retry is the owner's way out. No other `:error` is.
   defp restorable(%{status: status}) when status in @restorable_statuses, do: :ok
+
+  defp restorable(%{status: :error, failure_reason: :restore_failed}), do: :ok
+
   defp restorable(_instance), do: {:error, :not_restorable}
 
   defp enabled_setting(instance) do
@@ -163,29 +174,42 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
   # Both kinds: a restore in flight blocks a new backup AND a new restore
   # (ADR-0037 §1's single-writer stance — one Job per instance, whoever
   # started it).
-  defp no_run_in_flight(instance) do
-    active =
-      BackupRun
-      |> Ash.Query.filter(instance_id == ^instance.id and status in [:pending, :running])
-      |> Ash.exists?(authorize?: false)
-
-    if active, do: {:error, :run_in_flight}, else: :ok
-  end
-
   defp deployed(%{namespace: nil}), do: {:error, :not_deployed}
   defp deployed(%{namespace: _namespace}), do: :ok
 
   defp start(instance, snapshot_id) do
-    prior = instance.status
+    prior = pre_restore_status(instance)
 
     with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance),
-         {:ok, run} <- create_run(instance),
+         {:ok, run} <- create_run(instance, prior),
          {:ok, restoring} <- enter_restoring(instance) do
       apply_job(run, restoring, kubeconfig, snapshot_id, prior)
     end
   end
 
-  defp create_run(instance) do
+  # A first restore's target state is the row's own status; a RETRY
+  # (from :error + :restore_failed) must return the instance to its
+  # pre-FIRST-restore state, which the failed run recorded — the :error
+  # row itself says nothing about where the app used to run.
+  # Defensive fallback :stopped — never wakes an app on a guess.
+  defp pre_restore_status(%{status: :error, failure_reason: :restore_failed} = instance) do
+    prior_run =
+      BackupRun
+      |> Ash.Query.filter(
+        instance_id == ^instance.id and kind == :restore and
+          status == :failed
+      )
+      |> Ash.Query.sort(started_at: :desc)
+      |> Ash.Query.limit(1)
+      |> Ash.read!(authorize?: false)
+      |> List.first()
+
+    Map.get(prior_run || %{}, :restored_from, :stopped)
+  end
+
+  defp pre_restore_status(%{status: status}), do: status
+
+  defp create_run(instance, prior) do
     BackupRun
     |> Ash.Changeset.for_create(
       :create,
@@ -194,12 +218,37 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
         kind: :restore,
         status: :pending,
         started_at: DateTime.utc_now(),
-        restored_from: instance.status
+        # The inherited prior (not instance.status): a retry's row must
+        # record where the app ran before the FIRST restore, so the
+        # success path returns it there (ADR-0037 §5).
+        restored_from: prior
       },
       authorize?: false
     )
     |> Ash.create()
+    |> translate_taken_slot()
   end
+
+  # The partial unique index (one active run per instance) is the
+  # invariant's teeth — the advisory guard can lose a race to a sweep,
+  # the insert cannot. Same translation as RunInstanceBackup's (each
+  # operation owns its helpers — the repo's boundary rule).
+  defp translate_taken_slot(
+         {:error,
+          %Ash.Error.Invalid{
+            errors: [
+              %Ash.Error.Changes.InvalidAttribute{
+                private_vars: [
+                  {:constraint, "backup_runs_one_active_per_instance_index"} | _other_vars
+                ]
+              }
+            ]
+          }}
+       ) do
+    {:error, :run_in_flight}
+  end
+
+  defp translate_taken_slot(other), do: other
 
   # The status write funnels through InstanceK8s.update_status — the
   # repo's rule for deliberate operations (StopInstance's :stopped is the

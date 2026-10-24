@@ -244,11 +244,34 @@
       "unique": false,
       "using": null,
       "where": null
+    },
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "instance_id"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "instance_id"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": "backup_runs_one_active_per_instance_index",
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": true,
+      "using": null,
+      "where": "status IN ('pending', 'running')"
     }
   ],
   "custom_statements": [],
   "has_create_action": true,
-  "hash": "E3031C93157E0AD4B233DC2A99B680BA6A11774EB587694CDED88630F8D716D2",
+  "hash": "6B108A3C8AE2DCE481885B55AB8A32FCEE47764AB14E677C7B9A5339C302DB05",
   "identities": [],
   "multitenancy": {
     "attribute": null,

@@ -1,4 +1,4 @@
-defmodule FluxVale.Repo.Migrations.AddRestoreFields do
+defmodule FluxVale.Repo.Migrations.RegenerateRestoreFields do
   @moduledoc """
   Updates resources based on their most recent snapshots.
 
