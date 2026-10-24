@@ -70,6 +70,8 @@ annotations.
 | Control | Deploy success rate | instances reaching `running` within N min | domain counter (Instance state machine) |
 | Control | Time-to-running | p95 deploy duration | same counter |
 | Ops | Metering settlement | `settle_usage` success ratio | Oban metrics |
+| Control | **Wake latency** (#232) | `flux_vale_wake_promotion_wait_seconds` p95 < 5s — **the platform's SLO** (wake request → scaled; the only cross-app aggregate) | PromEx wake plugin → Alloy |
+| Data | **Per-app wake time** (#232) | `flux_vale_wake_app_boot_seconds` / `_total_seconds`, per `app` label — reported per-app, never averaged into a promise (boot belongs to the app; Kavita ≈ 6s vs Forgejo ≈ 60s) | same; catalog card derives "~Xs" from the same series |
 | Ops | Backup freshness | age of last successful CNPG backup | existing alert |
 | Ops | Pipeline health | smoke pass rate (deploy-attached + scheduled) | heartbeat metric |
 
@@ -82,6 +84,7 @@ flow gets a row, a metric, and a test — one decision, three surfaces:
 | Sign in | I can get in | auth completion | Playwright login via TestInbox (Bruno proves the API surface with a seeded PAT) |
 | Deploy | install just works | deploy success, time-to-running | Playwright lifecycle (staging + review envs) |
 | Daily use | it's up, it's fast | instance availability, ingress success | Synthetics edge probe (per-instance synthetics = post-beta idea) |
+| Wake (#232) | a sleeping app opens in seconds | promotion p95 < 5s (ours); boot/total per-app (the app's) | wake histograms + the fleet's wake dashboard |
 | Trust the bill | metering is honest | metering settlement | Bruno billing reads + domain dashboard |
 | Trust the data | my library survives us | backup freshness | the restore drill |
 
@@ -101,6 +104,7 @@ status-page triggers).
 | cert-manager cert expiry < 14d | v1 scar |
 | Node memory pressure | customer instances evicting |
 | Customer instance crash-loop count (cluster-wide) | product incident before a customer emails |
+| Wake SLO burn — promotion p95 &gt; 5s sustained with real wake traffic (#232; the fleet repo owns the rule) | the scale-to-zero promise quietly rotting — the one SLO the platform owns outright |
 | Smoke or synthetic red (deploy-attached, Bruno correctness, or probe failure from any region) | the oracle spoke |
 | Scheduled-run freshness (Bruno heartbeat stale) | dead-man's switch — a silently-stopped cron emits no failure signal |
 

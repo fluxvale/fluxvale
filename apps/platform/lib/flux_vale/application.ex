@@ -34,6 +34,9 @@ defmodule FluxVale.Application do
           # Edge activity debounce (#203, ADR-0036) — the beacon's
           # in-memory last-flush markers; DB state survives restarts.
           FluxVale.Edge.Activity,
+          # Wake-time estimates for the catalog badge (#232) — reads the
+          # live scrape, cached; {} while the metrics tree is down.
+          FluxVale.Observability.WakeStats,
           # Start a worker by calling: FluxVale.Worker.start_link(arg)
           # {FluxVale.Worker, arg},
           # Start to serve requests, typically the last entry

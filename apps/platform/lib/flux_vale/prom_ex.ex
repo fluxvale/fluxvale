@@ -23,7 +23,10 @@ defmodule FluxVale.PromEx do
       {Phoenix, endpoint: FluxValeWeb.Endpoint, router: FluxValeWeb.Router},
       {Ecto, repos: [FluxVale.Repo]},
       {PromEx.Plugins.Oban, oban_supervisors: [Oban]},
-      {Beam, []}
+      {Beam, []},
+      # #232: wake-latency histograms — the scale-to-zero SLI
+      # (FluxVale.PromEx.Plugins.Wake owns the bucket/label contract).
+      {FluxVale.PromEx.Plugins.Wake, []}
     ]
   end
 end
