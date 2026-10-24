@@ -10,6 +10,7 @@ defmodule FluxVale.Clients.K8s.Resources.RestoreJobTest do
 
   @spec_slug "quiet-otter"
   @snapshot "6b757e02e6a7"
+  @run_id "0199c3f4-0000-7000-8000-000000000222"
 
   setup do
     stub(Kubereq, :attach, fn req, _opts -> req end)
@@ -18,7 +19,7 @@ defmodule FluxVale.Clients.K8s.Resources.RestoreJobTest do
 
   defp spec(overrides \\ %{}) do
     Map.merge(
-      %{slug: @spec_slug, mount_path: "/kavita/config", snapshot_id: @snapshot},
+      %{slug: @spec_slug, mount_path: "/kavita/config", snapshot_id: @snapshot, run_id: @run_id},
       overrides
     )
   end
@@ -69,6 +70,18 @@ defmodule FluxVale.Clients.K8s.Resources.RestoreJobTest do
                "backup-restore"
 
       assert manifest["metadata"]["labels"]["app.kubernetes.io/managed-by"] == "fluxvale"
+    end
+
+    # The ownership link (the backup Job's shape): the fixed-name Job
+    # outlives its run, so the sweep must be able to tell whose verdict it
+    # is reading. The run-id label rides the Job and the pod template.
+    test "the run-id label rides the Job and its pod template" do
+      manifest = RestoreJob.build_manifest("ns", spec(%{run_id: "run-42"}))
+
+      assert manifest["metadata"]["labels"]["fluxvale.io/backup-run"] == "run-42"
+
+      assert manifest["spec"]["template"]["metadata"]["labels"]["fluxvale.io/backup-run"] ==
+               "run-42"
     end
   end
 
@@ -294,6 +307,26 @@ defmodule FluxVale.Clients.K8s.Resources.RestoreJobTest do
                RestoreJob.pods(%{}, "ns")
     end
 
+    # The composition bug, pinned at the attach (the only place a Mimic
+    # test can see it): a Job-typed req lists Jobs, whose objects carry no
+    # containerStatuses — the outcome read would be nil forever and every
+    # successful restore would record as failed.
+    test "the list request is Pod-typed, never Job-typed" do
+      test_pid = self()
+
+      expect(Kubereq, :attach, fn req, opts ->
+        send(test_pid, {:attach_opts, Keyword.take(opts, [:kind, :api_version])})
+        req
+      end)
+
+      expect(Kubereq, :list, fn _req, "ns", _opts ->
+        {:ok, %{status: 200, body: %{"items" => []}}}
+      end)
+
+      assert {:ok, []} = RestoreJob.pods(%{}, "ns")
+      assert_received {:attach_opts, [api_version: "v1", kind: "Pod"]}
+    end
+
     test "a malformed list body is a validation error" do
       expect(Kubereq, :list, fn _req, _ns, _opts ->
         {:ok, %{status: 200, body: %{"items" => "nope"}}}
@@ -351,6 +384,32 @@ defmodule FluxVale.Clients.K8s.Resources.RestoreJobTest do
       assert outcome.message == message
       assert outcome.exit_code == 0
       assert outcome.reason == "Completed"
+      # No label on this Job: the ownership check's nil case (a
+      # pre-label object, one-release compatibility).
+      assert outcome.run_id == nil
+    end
+
+    # The ownership link: the sweep only attributes a verdict to the row
+    # the Job's label names.
+    test "the outcome carries the run-id label off the Job" do
+      stub_job(%{
+        "metadata" => %{"labels" => %{"fluxvale.io/backup-run" => "run-42"}},
+        "status" => %{"succeeded" => 1}
+      })
+
+      stub_pods([pod_with_message(~s({"snapshot_id":"abc"}))])
+
+      assert {:ok, outcome} = RestoreJob.status(%{}, "ns")
+      assert outcome.run_id == "run-42"
+    end
+
+    test "a running Job carries no run id — the verdict is not settled yet" do
+      stub_job(%{
+        "metadata" => %{"labels" => %{"fluxvale.io/backup-run" => "run-42"}},
+        "status" => %{}
+      })
+
+      assert {:ok, %{outcome: :running, run_id: nil}} = RestoreJob.status(%{}, "ns")
     end
 
     test "a failed pod is :failed with its exit code and message" do
@@ -443,6 +502,19 @@ defmodule FluxVale.Clients.K8s.Resources.RestoreJobTest do
     test "non-zero counters are" do
       assert RestoreJob.verdict(%{"status" => %{"succeeded" => 1}}) == :succeeded
       assert RestoreJob.verdict(%{"status" => %{"failed" => 1}}) == :failed
+    end
+  end
+
+  describe "run_id/1" do
+    test "reads the ownership label off a Job object" do
+      assert RestoreJob.run_id(%{
+               "metadata" => %{"labels" => %{"fluxvale.io/backup-run" => "run-42"}}
+             }) == "run-42"
+    end
+
+    test "nil for a Job without the label" do
+      assert RestoreJob.run_id(%{"metadata" => %{"labels" => %{}}}) == nil
+      assert RestoreJob.run_id(%{}) == nil
     end
   end
 

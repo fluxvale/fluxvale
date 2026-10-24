@@ -79,8 +79,10 @@ defmodule FluxVale.Infrastructure do
   defdelegate sweep_backups(now), to: SweepBackups, as: :call
 
   # #222 (ADR-0037 §5): restores the instance's newest successful snapshot
-  # back over its own volume — the sweep's watch pass finalizes it.
-  defdelegate restore_instance_backup(instance),
+  # back over its own volume — the sweep's watch pass finalizes it. `opts`
+  # carry the caller's `actor:` (ownership is enforced before any cluster
+  # write); the sweep's recovery arm calls it actorless.
+  defdelegate restore_instance_backup(instance, opts \\ []),
     to: RestoreInstanceBackup,
     as: :call
 end

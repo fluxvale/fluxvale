@@ -12,7 +12,8 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstances do
     the same machinery a user retry drives. `:not_found`-tolerant
     deletes make a race with a straggler job harmless.
   - **Namespace gone, row alive** (#196) — accruing rows (`:running`/
-    `:stopped`/`:error` with `storage_metering_since` set) whose
+    `:stopped`/`:sleeping`/`:restoring`/`:error` with
+    `storage_metering_since` set) whose
     namespace 404s flip to `:lost`: metering parks atomically with the
     flip (MaintainAnchors), the row surfaces with re-deploy/teardown
     affordances, and the owner decides — the platform no longer
@@ -85,7 +86,10 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstances do
   # construction; on :error the anchor check filters never-ran rows.
   # :sleeping (#203) joins them — it accrues on the same anchor and is
   # below the reconciler's trigger, so this sweep is its loss detector.
-  @stranded_statuses [:running, :stopped, :sleeping, :error]
+  # :restoring (#222) joins too: the reconciler never reads it, so a
+  # namespace an outside actor deletes mid-restore would otherwise stay
+  # :restoring forever with its storage accruing.
+  @stranded_statuses [:running, :stopped, :sleeping, :error, :restoring]
 
   @lost_message "Namespace gone from cluster; marked lost (#196)"
 

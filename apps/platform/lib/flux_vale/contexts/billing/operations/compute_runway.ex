@@ -89,9 +89,17 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
 
   defp monthly_rate(%Instance{status: :running}, rates), do: rates.running
   defp monthly_rate(%Instance{status: :stopped}, rates), do: rates.stopped
+
   # #203: a sleeping instance burns the storage-only rate — the same
   # stopped-rate accrual settlement runs on its anchors.
   defp monthly_rate(%Instance{status: :sleeping}, rates), do: rates.stopped
+
+  # #222: a restoring instance is scaled to 0 with its volume still
+  # mounted — settlement bills it at the stopped rate for the whole
+  # restore (PerformSettle's running stream is closed by the leave-:running
+  # transition), so the projection must price the same stream or the
+  # wallet bleeds while the runway says infinity.
+  defp monthly_rate(%Instance{status: :restoring}, rates), do: rates.stopped
 
   # pending/deploying/starting haven't started accruing; :error holds no
   # running meter (its anchors stopped at the transition); :deleting is

@@ -26,7 +26,8 @@ defmodule FluxVale.Clients.K8s.Resources.RestoreJob do
       %{
         slug: "quiet-otter",       # Required: RESTIC_HOST pin
         mount_path: "/data",       # Required: the Instance's storage_mount_path
-        snapshot_id: "6b757e02"    # Required: the snapshot to write back
+        snapshot_id: "6b757e02",   # Required: the snapshot to write back
+        run_id: "0199c3…"          # Required: the BackupRun row this Job serves
       }
 
   ## Restoring in place
@@ -86,11 +87,17 @@ defmodule FluxVale.Clients.K8s.Resources.RestoreJob do
   @pvc_name "app-data"
   @volume "storage"
 
+  # The ownership link: a row's id on the fixed-name Job that serves it
+  # (the sweep refuses to attribute an outcome to a row the Job's label
+  # does not name).
+  @run_label "fluxvale.io/backup-run"
+
   @typedoc "Restore Job specification"
   @type spec :: %{
           required(:slug) => String.t(),
           required(:mount_path) => String.t(),
-          required(:snapshot_id) => String.t()
+          required(:snapshot_id) => String.t(),
+          required(:run_id) => String.t()
         }
 
   @typedoc "The Job's verdict plus its termination message (see `BackupJob.outcome/0`)."
@@ -98,7 +105,8 @@ defmodule FluxVale.Clients.K8s.Resources.RestoreJob do
           outcome: :running | :succeeded | :failed,
           message: String.t() | nil,
           exit_code: integer() | nil,
-          reason: String.t() | nil
+          reason: String.t() | nil,
+          run_id: String.t() | nil
         }
 
   @doc "The Job's fixed name — one live restore Job per instance."
@@ -181,14 +189,26 @@ defmodule FluxVale.Clients.K8s.Resources.RestoreJob do
     with {:ok, job} <- get(kubeconfig, namespace) do
       job
       |> verdict()
-      |> settle(kubeconfig, namespace)
+      |> settle(kubeconfig, namespace, run_id(job))
     end
   end
 
+  # The Job object carries no container statuses — that is the Pod's
+  # (our own pod, matched by the label the Job's template sets).
+  # The Job's pods — a POD-typed request (core v1), never the Job-typed
+  # one above: a list against batch/v1 Jobs returns Job objects, which
+  # carry no containerStatuses, and the outcome read would always be
+  # nil — every successful restore recorded as failed. The composition
+  # test pins the kind.
   @doc "Lists the Job's pods."
   @spec pods(Kubereq.Kubeconfig.t(), String.t()) :: {:ok, [map()]} | {:error, Error.t()}
   def pods(kubeconfig, namespace) do
-    req = create_req(kubeconfig)
+    req =
+      Kubereq.attach(Req.new(),
+        kubeconfig: kubeconfig,
+        api_version: "v1",
+        kind: "Pod"
+      )
 
     case Kubereq.list(req, namespace, label_selectors: [{"app.kubernetes.io/name", @name}]) do
       {:ok, %{status: 200, body: %{"items" => items}}} when is_list(items) ->
@@ -223,7 +243,7 @@ defmodule FluxVale.Clients.K8s.Resources.RestoreJob do
       "metadata" => %{
         "name" => @name,
         "namespace" => namespace,
-        "labels" => labels()
+        "labels" => labels(spec)
       },
       "spec" => %{
         # One pod, one attempt — the platform owns retry, and a kube-level
@@ -231,7 +251,7 @@ defmodule FluxVale.Clients.K8s.Resources.RestoreJob do
         "backoffLimit" => 0,
         "activeDeadlineSeconds" => config[:restore_timeout_seconds],
         "template" => %{
-          "metadata" => %{"labels" => labels()},
+          "metadata" => %{"labels" => labels(spec)},
           "spec" => %{
             "restartPolicy" => "Never",
             "containers" => [container(spec, image(config), cpu_request, cpu_limit, memory)],
@@ -249,10 +269,14 @@ defmodule FluxVale.Clients.K8s.Resources.RestoreJob do
 
   defp image(config), do: config[:image]
 
-  defp labels do
+  # The run-id label rides both the Job and its pod template (the pod
+  # list selects on the name label; the run label is the sweep's
+  # ownership check — see the outcome type).
+  defp labels(spec) do
     %{
       "app.kubernetes.io/managed-by" => "fluxvale",
-      "app.kubernetes.io/name" => @name
+      "app.kubernetes.io/name" => @name,
+      @run_label => Map.get(spec, :run_id)
     }
   end
 
@@ -372,38 +396,46 @@ defmodule FluxVale.Clients.K8s.Resources.RestoreJob do
   end
 
   # Only a settled Job pays for the second read.
-  defp settle(:running, _kubeconfig, _namespace) do
-    {:ok, %{outcome: :running, message: nil, exit_code: nil, reason: nil}}
+  defp settle(:running, _kubeconfig, _namespace, _run_id) do
+    {:ok, %{outcome: :running, message: nil, exit_code: nil, reason: nil, run_id: nil}}
   end
 
-  defp settle(verdict, kubeconfig, namespace) do
+  defp settle(verdict, kubeconfig, namespace, run_id) do
     case pods(kubeconfig, namespace) do
-      {:ok, pod_list} -> {:ok, outcome(verdict, terminated_state(pod_list))}
+      {:ok, pod_list} -> {:ok, outcome(verdict, terminated_state(pod_list), run_id)}
       {:error, _error} = error -> error
     end
   end
 
-  defp outcome(:succeeded, terminated) do
+  defp outcome(:succeeded, terminated, run_id) do
     %{
       outcome: :succeeded,
       message: message(terminated),
       exit_code: exit_code(terminated),
-      reason: reason(terminated, "Completed")
+      reason: reason(terminated, "Completed"),
+      run_id: run_id
     }
   end
 
-  defp outcome(:failed, terminated) do
+  defp outcome(:failed, terminated, run_id) do
     %{
       outcome: :failed,
       message: message(terminated),
       exit_code: exit_code(terminated),
-      reason: reason(terminated, "BackoffLimitExceeded")
+      reason: reason(terminated, "BackoffLimitExceeded"),
+      run_id: run_id
     }
   end
 
   defp message(terminated), do: terminated && terminated["message"]
   defp exit_code(terminated), do: terminated && terminated["exitCode"]
   defp reason(terminated, fallback), do: (terminated && terminated["reason"]) || fallback
+
+  # The run-id label — the ownership link between a row and the
+  # fixed-name Job that serves it.
+  @doc "The `fluxvale.io/backup-run` label off a Job object, nil if absent."
+  @spec run_id(map()) :: String.t() | nil
+  def run_id(job), do: get_in(job, ["metadata", "labels", @run_label])
 
   defp terminated_state(pod_list) do
     pod_list

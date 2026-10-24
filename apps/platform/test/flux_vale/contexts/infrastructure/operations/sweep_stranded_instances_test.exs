@@ -149,6 +149,23 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstancesTest do
       assert is_nil(sleeping_lost.storage_metering_since)
     end
 
+    # #222: a restore holds the instance below the reconciler's trigger —
+    # a namespace deleted mid-restore has no other loss detector, and the
+    # row would stay :restoring with its storage accruing forever.
+    test "a :restoring row on a dead namespace is marked :lost too" do
+      restoring = deployed_instance!(:restoring)
+
+      stub(Namespace, :exists?, fn _kc, _ns -> {:ok, false} end)
+
+      assert {:ok, summary} = SweepStrandedInstances.call()
+
+      assert summary.lost_ids == [restoring.id]
+
+      assert {:ok, restoring_lost} = Instance.get_by_id(restoring.id, authorize?: false)
+      assert restoring_lost.status == :lost
+      assert is_nil(restoring_lost.storage_metering_since)
+    end
+
     test ":running and ran-then-errored rows on a dead namespace are marked :lost too" do
       running = deployed_instance!(:running)
       errored = deployed_instance!(:error)

@@ -25,33 +25,65 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
      `StopInstance` mechanics, written here rather than reused: that
      operation lands `:stopped`, and the restore must keep its own
      intermediate state). `:stopped`/`:sleeping` rows are already at 0.
-  4. **Apply the restore Job** — delete-tolerantly-then-create (Jobs are
-     immutable).
+     **Then wait for the pods to be gone**: `scale` returns when the API
+     accepts the count, and restic's `--delete` must never run against a
+     live writer.
+  4. **Apply the restore Job** — both leftover Jobs (the backup run's and
+     a previous restore's) deleted tolerantly, each awaited gone, then
+     create.
   5. **The sweep finalizes** — `Operations.SweepBackups`'s watch pass reads
      the Job's verdict: success scales back to 1 and lands `:starting` when
      the app was running (`:stopped`/`:sleeping` go back untouched, no
      wake); failure lands `:error` with `:restore_failed`.
 
+  ## Ownership (#222 review)
+
+  `opts` carry the caller's `actor:` — the instance is re-read through
+  the authorized `get_by_id`, so an outsider is `Forbidden` before any
+  cluster write (the ConfigureBackups shape). A caller with **no** actor
+  is the system (the sweep's recovery arm, seed/bootstrap paths): its
+  reads and writes run `authorize?: false`, the lifecycle posture — the
+  actor, when present, is always the one that authorizes.
+
+  ## Failure before the Job: the app was never touched
+
+  A failure after the run row exists but *before* the restore Job applies
+  writes nothing to the volume, so it is the run's failure, not the
+  instance's: the row settles `:failed` with an honest summary, the
+  instance returns to the status it was found in, and it does **not**
+  land `:error`/`:restore_failed`. The retry therefore re-enters through
+  the normal restorable guard — no special retry arm, and no false
+  "partly restored" copy about a volume restic never opened.
+
+  The revert is state-aware: an instance still in its prior status (the
+  `:restoring` flip itself failed) needs no revert at all; one the
+  operation already holds goes back to `:starting`-plus-scale-1 when it
+  was running, or to `:stopped`/`:sleeping` untouched when it was parked.
+
   ## Why `:restoring` (a status) and not just the run row
 
   The active-run guard alone would cover the sweep's own re-entry, but the
   status is the *user-visible* claim — the instance page says "Restoring",
-  the edge's other-status arm answers 503 instead of waking, and
+  the edge's restoring arm answers 503 instead of waking, and
   `StartInstance`'s status guard no-ops. It is also what the reconciler
   leaves alone: its trigger selects only `[:deploying, :starting,
   :running]`, so a restore's half-written volume is never mirrored into
   `:running` or demoted mid-restore.
 
-  ## The scale-down failure
-
-  If the scale-to-zero fails, nothing has been written: the run row is
-  settled `:failed` immediately (no stale slot) and the instance lands
-  `:error` with `:restore_failed` — the same honest shape as a failed Job,
-  and the app is still the app it was. Scaling back *up* is never attempted
-  for a restore that never started.
+  The status is also why the sweep carries a crash-recovery arm
+  (`SweepBackups`'s third pass): a crash between the sweep's finalize and
+  its release would otherwise strand `:restoring` with no active run for
+  any pass to revisit.
   """
 
+  # The `get_by_id` failure shapes are structural, not semantic: a
+  # missing row and a filtered-out row both arrive as this class.
+  alias Ash.Error.Forbidden
+  alias Ash.Error.Forbidden.Policy
+  alias Ash.Error.Invalid
+  alias Ash.Error.Query.NotFound
   alias FluxVale.Clients.K8s.Error
+  alias FluxVale.Clients.K8s.Resources.BackupJob
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.RestoreJob
   alias FluxVale.Infrastructure.BackupRun
@@ -60,6 +92,7 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
   alias FluxVale.Infrastructure.Operations.InstanceK8s
 
   require Ash.Query
+  require Logger
   require OpenTelemetry.Tracer
 
   # The statuses a restore can start from: each already has a volume at
@@ -67,19 +100,33 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
   # own edges, these are the only legal entry points.
   @restorable_statuses [:running, :stopped, :sleeping]
 
+  @forbidden_message "This instance belongs to another organization"
+
+  # How often the scale-down wait re-reads the Deployment. Clamped to the
+  # pass's own budget (see poll_interval/2) so a short wait never sleeps
+  # past its deadline — and a test can pin a small budget without the
+  # suite paying the production interval.
+  @scale_down_poll_ms 5_000
+  @job_delete_poll_ms 500
+
   @doc """
   Restores the instance's most recent successful snapshot.
 
   `{:ok, run}` once the Job applied (`:pending`/`:running` — the sweep
   owns the outcome); `{:error, reason}` otherwise. Reasons name the guard
   that closed (`:no_settings`, `:backups_disabled`, `:nothing_to_restore`,
-  `:run_in_flight`, `:not_deployed`, `:not_restorable`) or carry the K8s
-  error.
+  `:run_in_flight`, `:not_deployed`, `:not_restorable`), the ownership
+  refusal (`Forbidden`), or carry the K8s error.
   """
-  @spec call(Instance.t()) :: {:ok, BackupRun.t()} | {:error, term()}
-  def call(%Instance{} = instance) do
+  @spec call(Instance.t(), keyword()) :: {:ok, BackupRun.t()} | {:error, term()}
+  def call(%Instance{} = instance, opts \\ []) do
+    opts = actor_authorized(opts)
+
     OpenTelemetry.Tracer.with_span "instance.restore", span_attrs(instance) do
-      restore(instance)
+      case authorize_instance(instance, opts) do
+        {:ok, authorized} -> restore(authorized)
+        {:error, _reason} = error -> error
+      end
     end
   end
 
@@ -94,6 +141,63 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
     }
   end
 
+  # An actor always authorizes (the ConfigureBackups shape): a caller
+  # can't pair a stranger's actor with `authorize?: false` and a hoisted
+  # instance struct to slip past the ownership read. A caller with NO
+  # actor is the system — reads and writes run the lifecycle posture's
+  # `authorize?: false`.
+  defp actor_authorized(opts) do
+    cond do
+      opts[:actor] -> Keyword.delete(opts, :authorize?)
+      Keyword.has_key?(opts, :authorize?) -> opts
+      true -> Keyword.put(opts, :authorize?, false)
+    end
+  end
+
+  # Ownership first, and a write answers Forbidden where a read would
+  # merely filter: a stranger's restore must not read as "not found" —
+  # and must never reach the cluster. The unauthorized re-read only tells
+  # "not yours" apart from "gone" on the failure path.
+  defp authorize_instance(instance, opts) do
+    case Instance.get_by_id(instance.id, opts) do
+      {:ok, authorized} ->
+        {:ok, authorized}
+
+      {:error, %Invalid{errors: errors} = error} ->
+        if Enum.any?(errors, &match?(%NotFound{}, &1)) do
+          not_owned_or_missing(instance, opts)
+        else
+          {:error, error}
+        end
+
+      # coveralls-ignore-start - defensive: the only other read failure is
+      # a DB outage, which ExUnit cannot simulate (DBConnection reconnects)
+      {:error, _error} = error ->
+        error
+        # coveralls-ignore-stop
+    end
+  end
+
+  defp not_owned_or_missing(instance, opts) do
+    case Instance.get_by_id(instance.id, Keyword.put(opts, :authorize?, false)) do
+      {:ok, _existing} ->
+        {:error, Forbidden.exception(errors: [forbidden_error()])}
+
+      # coveralls-ignore-start - defensive: a row deleted between the two
+      # reads is a race ExUnit can't stage deterministically; the plain
+      # NotFound is the honest answer when it happens.
+      {:error, _error} = error ->
+        error
+        # coveralls-ignore-stop
+    end
+  end
+
+  # The policy error is the one Ash would produce on the write, carrying a
+  # plain-words reason instead of a bare "forbidden".
+  defp forbidden_error do
+    Policy.exception(custom_message: @forbidden_message)
+  end
+
   defp restore(instance) do
     case guards(instance) do
       {:ok, snapshot_id} -> start(instance, snapshot_id)
@@ -102,7 +206,7 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
   end
 
   # System reads (authorize?: false): the operation reached here through
-  # the UI's authorized instance read — the lifecycle ops' posture.
+  # the ownership read above (or the system's explicit bypass).
   # One-active-run is NOT a guard here (same stance as
   # RunInstanceBackup's): the partial unique index is the enforcement,
   # and `translate_taken_slot/1` renders its rejection as
@@ -180,10 +284,11 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
   defp start(instance, snapshot_id) do
     prior = pre_restore_status(instance)
 
-    with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance),
-         {:ok, run} <- create_run(instance, prior),
-         {:ok, restoring} <- enter_restoring(instance) do
-      apply_job(run, restoring, kubeconfig, snapshot_id, prior)
+    with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance) do
+      case create_run(instance, prior) do
+        {:ok, run} -> run_restore(run, instance, kubeconfig, snapshot_id, prior)
+        {:error, _reason} = error -> error
+      end
     end
   end
 
@@ -191,7 +296,6 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
   # (from :error + :restore_failed) must return the instance to its
   # pre-FIRST-restore state, which the failed run recorded — the :error
   # row itself says nothing about where the app used to run.
-  # Defensive fallback :stopped — never wakes an app on a guess.
   defp pre_restore_status(%{status: :error, failure_reason: :restore_failed} = instance) do
     prior_run =
       BackupRun
@@ -199,12 +303,18 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
         instance_id == ^instance.id and kind == :restore and
           status == :failed
       )
-      |> Ash.Query.sort(started_at: :desc)
+      |> Ash.Query.sort(started_at: :desc, id: :desc)
       |> Ash.Query.limit(1)
       |> Ash.read!(authorize?: false)
       |> List.first()
 
-    Map.get(prior_run || %{}, :restored_from, :stopped)
+    # `restored_from` is nullable, so Map.get's default would never fire
+    # on the key being present-and-nil — a successful retry would then
+    # fail :unknown_prior_status in the sweep. Never wake on a guess.
+    case prior_run do
+      nil -> :stopped
+      run -> run.restored_from || :stopped
+    end
   end
 
   defp pre_restore_status(%{status: status}), do: status
@@ -250,24 +360,38 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
 
   defp translate_taken_slot(other), do: other
 
-  # The status write funnels through InstanceK8s.update_status — the
-  # repo's rule for deliberate operations (StopInstance's :stopped is the
-  # precedent).
-  defp enter_restoring(instance) do
-    InstanceK8s.update_status(instance, :restoring, "Restoring a backup…")
+  # The row exists from here on: every failure — the :restoring flip, the
+  # scale-down, the leftover-Job deletes, the create — settles it and
+  # returns the instance to where it was found. Nothing has touched the
+  # volume yet, so the instance never lands :error.
+  defp run_restore(run, instance, kubeconfig, snapshot_id, prior) do
+    case enter_restoring(instance) do
+      {:ok, restoring} -> hold_and_apply(run, restoring, kubeconfig, snapshot_id, prior)
+      # The flip failed, so the instance never left its prior status:
+      # only the row needs settling.
+      {:error, _error} = error -> abandon(run, instance, prior, error)
+    end
   end
 
-  defp apply_job(run, instance, kubeconfig, snapshot_id, prior) do
+  defp hold_and_apply(run, restoring, kubeconfig, snapshot_id, prior) do
     outcome =
-      with :ok <- stop_app(prior, instance, kubeconfig),
-           :ok <- delete_leftover_job(kubeconfig, instance.namespace) do
-        RestoreJob.create(kubeconfig, instance.namespace, job_spec(instance, snapshot_id))
+      with :ok <- stop_app(prior, restoring, kubeconfig),
+           :ok <- delete_leftover_jobs(kubeconfig, restoring.namespace) do
+        RestoreJob.create(kubeconfig, restoring.namespace, job_spec(run, restoring, snapshot_id))
       end
 
     case outcome do
       {:ok, _job} -> mark_running(run)
-      {:error, _error} = error -> fail_now(run, instance, error)
+      {:error, _error} = error -> abandon(run, restoring, prior, error)
     end
+  end
+
+  # The status write funnels through InstanceK8s.update_status — the
+  # repo's rule for deliberate operations (StopInstance's :stopped is the
+  # precedent). failure_reason is explicit nil: a restore's hold is not a
+  # failure, and the four-arity form is the funnel's one seam.
+  defp enter_restoring(instance) do
+    InstanceK8s.update_status(instance, :restoring, "Restoring a backup…", nil)
   end
 
   # A restore owns the instance: the app must not be writing the volume
@@ -276,62 +400,257 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
   # :stopped/:sleeping are already at 0: scaling them would be a pointless
   # write.
   defp stop_app(:running, instance, kubeconfig) do
-    case Deployment.scale(kubeconfig, instance.namespace, "app", 0) do
-      {:ok, _deployment} -> :ok
-      {:error, _error} = error -> error
+    with {:ok, _deployment} <- Deployment.scale(kubeconfig, instance.namespace, "app", 0) do
+      await_termination(kubeconfig, instance.namespace)
     end
   end
 
   defp stop_app(_prior, _instance, _kubeconfig), do: :ok
 
-  defp delete_leftover_job(kubeconfig, namespace) do
-    case RestoreJob.delete(kubeconfig, namespace) do
-      :ok -> :ok
+  # `scale` returns when the API accepts the desired count — the pods are
+  # still running (and, with a `terminationGracePeriodSeconds`, still
+  # writing) for a while after. restic's `--delete` against a live writer
+  # is exactly the corruption this restore exists to avoid, so the Job is
+  # not applied until the Deployment reports zero replicas.
+  defp await_termination(kubeconfig, namespace) do
+    timeout_ms = scale_down_timeout_ms()
+
+    poll_terminated(
+      kubeconfig,
+      namespace,
+      deadline(timeout_ms),
+      poll_interval(@scale_down_poll_ms, timeout_ms)
+    )
+  end
+
+  # Polling an external resource, not a process — Process.sleep is the tool
+  # (the Deployment.wait_for_ready precedent).
+  defp poll_terminated(kubeconfig, namespace, deadline, interval) do
+    case Deployment.get(kubeconfig, namespace, "app") do
+      {:ok, deployment} ->
+        cond do
+          terminated?(deployment) ->
+            :ok
+
+          System.monotonic_time(:millisecond) >= deadline ->
+            {:error,
+             Error.timeout(
+               "could not stop the app: pods are still running after " <>
+                 "#{scale_down_timeout_ms()}s"
+             )}
+
+          true ->
+            Process.sleep(interval)
+            poll_terminated(kubeconfig, namespace, deadline, interval)
+        end
+
+      # No Deployment: nothing is serving the volume (a namespace whose app
+      # never landed, or one an operator removed) — as stopped as it gets.
+      {:error, %Error{reason: :not_found}} ->
+        :ok
+
+      {:error, _error} = error ->
+        error
+    end
+  end
+
+  # Both counters nil-or-0: the controller has rolled every pod down. A
+  # Deployment object that was never scaled shows no `status.replicas` at
+  # all — nil reads as zero, the same stance as Deployment.status/3.
+  defp terminated?(deployment) do
+    status = deployment["status"] || %{}
+
+    zero?(status["replicas"]) and zero?(status["readyReplicas"])
+  end
+
+  defp zero?(nil), do: true
+  defp zero?(0), do: true
+  defp zero?(_count), do: false
+
+  # The one-active-run index guarantees no legitimate backup Job is in
+  # flight, so BOTH fixed-name Jobs are leftovers: a zombie backup run's
+  # restic lock would otherwise fail every restore (exit 11). Each delete
+  # is tolerant, and each waits for the object to actually go — an SSA
+  # onto a still-terminating Job 4xxs.
+  defp delete_leftover_jobs(kubeconfig, namespace) do
+    with :ok <- delete_and_await(BackupJob, kubeconfig, namespace) do
+      delete_and_await(RestoreJob, kubeconfig, namespace)
+    end
+  end
+
+  defp delete_and_await(job_module, kubeconfig, namespace) do
+    case job_module.delete(kubeconfig, namespace) do
+      :ok -> await_job_gone(job_module, kubeconfig, namespace)
       {:error, %Error{reason: :not_found}} -> :ok
       {:error, _error} = error -> error
     end
   end
 
-  defp job_spec(instance, snapshot_id) do
+  defp await_job_gone(job_module, kubeconfig, namespace) do
+    timeout_ms = job_delete_timeout_ms()
+
+    poll_job_gone(
+      job_module,
+      kubeconfig,
+      namespace,
+      deadline(timeout_ms),
+      poll_interval(@job_delete_poll_ms, timeout_ms)
+    )
+  end
+
+  defp poll_job_gone(job_module, kubeconfig, namespace, deadline, interval) do
+    case job_module.get(kubeconfig, namespace) do
+      {:error, %Error{reason: :not_found}} ->
+        :ok
+
+      {:ok, _still_there} ->
+        if System.monotonic_time(:millisecond) >= deadline do
+          {:error,
+           Error.timeout(
+             "leftover #{job_module.name()} job did not go away after " <>
+               "#{div(job_delete_timeout_ms(), 1_000)}s"
+           )}
+        else
+          Process.sleep(interval)
+          poll_job_gone(job_module, kubeconfig, namespace, deadline, interval)
+        end
+
+      {:error, _error} = error ->
+        error
+    end
+  end
+
+  defp job_spec(run, instance, snapshot_id) do
     %{
       slug: instance.slug,
       mount_path: instance.storage_mount_path,
-      snapshot_id: snapshot_id
+      snapshot_id: snapshot_id,
+      run_id: run.id
     }
   end
 
-  # The row already exists, so a failed apply must not leave it :pending
+  # The row already exists, so a failed start must not leave it :pending
   # for the stale horizon: the owner sees the failure now, and the run
-  # slot frees for the retry. The instance lands :error too — unlike a
-  # backup, a restore has taken the instance out of service (or was about
-  # to), so there is no "the app keeps running" to fall back to.
-  defp fail_now(run, instance, {:error, error}) do
-    {:ok, _failed} =
+  # slot frees for the retry. The instance goes back to where it was
+  # found — nothing has happened to the volume, and the restore's failure
+  # is not the app's.
+  defp abandon(run, instance, prior, {:error, error}) do
+    summary =
+      "restore could not start: #{InstanceK8s.format_error(error)}; the app is unchanged"
+
+    settle_failed(run, summary)
+    revert(instance, prior)
+
+    {:error, error}
+  end
+
+  # The summary is truncated BEFORE the write (the attribute caps at 500 —
+  # an over-long admission/API message must fail the run, not the write),
+  # and a failed settle is logged, never raised: a MatchError here would
+  # escape the operation and crash the caller with the original failure
+  # already in hand.
+  defp settle_failed(run, summary) do
+    finalize =
       run
       |> Ash.Changeset.for_update(
         :update,
-        %{
-          status: :failed,
-          error_summary: "restore job could not be applied: #{InstanceK8s.format_error(error)}",
-          finished_at: DateTime.utc_now()
-        },
+        %{status: :failed, error_summary: truncate(summary), finished_at: DateTime.utc_now()},
         authorize?: false
       )
       |> Ash.update()
 
-    InstanceK8s.update_status(
-      instance,
+    case finalize do
+      {:ok, _failed} ->
+        :ok
+
+      # coveralls-ignore-start - defensive: the row was readable a moment
+      # ago; only a concurrent finalize or a DB outage lands here, and
+      # ExUnit can stage neither deterministically.
+      {:error, _write_error} = write_error ->
+        Logger.warning("Restore run #{run.id} could not settle :failed: #{inspect(write_error)}")
+        # coveralls-ignore-stop
+    end
+  end
+
+  # The instance never left its prior status (the :restoring write itself
+  # failed): already where it belongs, and touching it would invent a
+  # transition the state machine refuses (`:running` cannot go to
+  # `:starting`).
+  defp revert(%Instance{status: :restoring} = instance, :running), do: restart_app(instance)
+
+  defp revert(%Instance{status: :restoring} = instance, prior)
+       when prior in [:stopped, :sleeping] do
+    instance
+    |> InstanceK8s.update_status(prior, revert_message(prior))
+    |> revert_outcome()
+  end
+
+  defp revert(instance, _prior), do: instance
+
+  # The scale-down was not attempted (or did not land), so the desired
+  # count is still 1: re-asserting it is a no-op write, and :starting is
+  # the honest status — the reconciler re-confirms readiness and stays
+  # the only writer of :running.
+  defp restart_app(instance) do
+    with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance),
+         {:ok, _deployment} <- Deployment.scale(kubeconfig, instance.namespace, "app", 1) do
+      instance
+      |> InstanceK8s.update_status(:starting, "Starting; awaiting readiness")
+      |> revert_outcome()
+    else
+      # A running app the platform could not put back into service: :error
+      # is the honest state (a :starting row would claim a rollout that
+      # never began, and the reconciler would mirror 0 replicas into it).
+      {:error, error} -> restore_failed(instance, error)
+    end
+  end
+
+  defp revert_message(:stopped), do: "Restore could not start; your app stays stopped"
+  defp revert_message(:sleeping), do: "Restore could not start; your app stays asleep"
+
+  defp restore_failed(instance, error) do
+    instance
+    |> InstanceK8s.update_status(
       :error,
-      "Restore failed: #{InstanceK8s.format_error(error)}",
+      "Restore could not start and the app could not be returned to service: " <>
+        InstanceK8s.format_error(error),
       :restore_failed
     )
-
-    {:error, error}
+    |> revert_outcome()
   end
+
+  # Every revert arm's shape is {:ok, instance} | {:error, error}; the
+  # caller only reports the original failure.
+  defp revert_outcome({:ok, _instance}), do: :ok
+
+  # The revert writes :error from any state and the status funnel only
+  # fails on a DB outage, which ExUnit cannot stage (DBConnection
+  # reconnects — the repo's cluster-level stance).
+  # coveralls-ignore-next-line
+  defp revert_outcome({:error, _error} = error), do: error
 
   defp mark_running(run) do
     run
     |> Ash.Changeset.for_update(:update, %{status: :running}, authorize?: false)
     |> Ash.update()
+  end
+
+  # The row's own 500-char limit is the contract; truncate so a long
+  # admission/API message never fails the write itself.
+  defp truncate(summary) when is_binary(summary), do: String.slice(summary, 0, 500)
+
+  defp deadline(timeout_ms), do: System.monotonic_time(:millisecond) + timeout_ms
+
+  # Never sleep past the budget: a short wait (a test's, or a 2s
+  # configured one) polls at its own scale instead of the production
+  # interval.
+  defp poll_interval(interval_ms, timeout_ms), do: min(interval_ms, timeout_ms)
+
+  defp scale_down_timeout_ms do
+    Application.fetch_env!(:flux_vale, :backups)[:scale_down_timeout_seconds] * 1_000
+  end
+
+  defp job_delete_timeout_ms do
+    Application.fetch_env!(:flux_vale, :backups)[:job_delete_timeout_seconds] * 1_000
   end
 end

@@ -127,6 +127,18 @@ config :flux_vale,
     # changed. One shared key would either kill large restores or loosen
     # the hang bound on the backup path.
     restore_timeout_seconds: 4 * 60 * 60,
+    # How long a restore waits for the app's pods to actually terminate
+    # after scaling to 0 (ADR-0037 §5): `scale` returns when the API
+    # accepts the count, and restic's `--delete` must not run against a
+    # live writer. A Deployment's rollout finishes in seconds; two
+    # minutes is the honest ceiling before the restore declares "could
+    # not stop the app" and backs out.
+    scale_down_timeout_seconds: 120,
+    # How long the restore waits for a deleted leftover Job OBJECT to be
+    # gone before applying the new one: a delete that returns 202 is
+    # still terminating, and an SSA onto it 4xxs. The API garbage-collects
+    # a Job in seconds once its pods are gone.
+    job_delete_timeout_seconds: 15,
     # The watch pass's own bound, above the Job's deadline on purpose: the
     # Job's failure reports through the normal outcome path first, and
     # only a run whose Job vanished entirely reaches this horizon (or its

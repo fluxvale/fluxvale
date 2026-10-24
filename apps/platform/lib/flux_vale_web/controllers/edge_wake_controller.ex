@@ -23,7 +23,10 @@ defmodule FluxValeWeb.EdgeWakeController do
   - `:starting` → the waking page (already waking; no re-trigger).
   - `:running` → restore the serving routes, then 302 — the flip
     converges here no matter which path missed it (self-healing).
-  - anything else → 503, plainly.
+  - `:restoring` → 503 naming the restore in plain words: a restore owns
+    the instance (it is scaled to 0 and its volume is being rewritten), so
+    a wake would serve a half-written app. The page refreshes.
+  - anything else → 503, plainly — and the page refreshes.
   - probes (Edge.probe_request?/1) → 503, never a wake: probes must
     not count as traffic, and an asleep app IS down to a monitor.
 
@@ -40,6 +43,9 @@ defmodule FluxValeWeb.EdgeWakeController do
   alias FluxValeWeb.Plugs.EdgeHost
 
   @refresh_seconds 2
+  # The status page polls slower than the wake page: those states resolve
+  # in tens of seconds (a restore, a stop, a failed start), not two.
+  @status_refresh_seconds 30
 
   def wake(conn, _params) do
     # Plug normalizes incoming headers to lowercase; the canonical
@@ -130,8 +136,26 @@ defmodule FluxValeWeb.EdgeWakeController do
     end
   end
 
+  defp answer(conn, {:ok, %{status: :restoring}}) do
+    # A restore owns the instance: it is scaled to 0 on purpose and the
+    # volume is being rewritten, so a wake would put the app back on a
+    # half-written volume. The page refreshes so a visitor mid-restore
+    # lands on the app when it returns.
+    respond(
+      conn,
+      :service_unavailable,
+      "This app is having a backup restored — it will be back when that finishes.",
+      refresh_seconds: @status_refresh_seconds
+    )
+  end
+
   defp answer(conn, {:ok, _other_status}) do
-    respond(conn, :service_unavailable, "this app isn't serving requests right now")
+    # Refresh, not a dead end: the other statuses (:stopped, :error,
+    # :deploying) still resolve on their own, and the page's copy claims
+    # it keeps checking — an empty refresh would make that a lie.
+    respond(conn, :service_unavailable, "this app isn't serving requests right now",
+      refresh_seconds: @status_refresh_seconds
+    )
   end
 
   defp answer(conn, {:error, _not_found}) do

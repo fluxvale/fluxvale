@@ -274,6 +274,25 @@ defmodule FluxValeWeb.EdgeWakeControllerTest do
     assert response(conn, 503) =~ "serving requests"
   end
 
+  # Review finding: the other-status arm's page claims it keeps checking,
+  # but served no refresh — content="" and a dead end. It polls now.
+  test "the other-status 503 carries a working refresh", %{conn: conn} do
+    stub_k8s()
+    instance = instance!(:running)
+    {:ok, stopped} = Instance.stop(instance, authorize?: false)
+
+    conn =
+      conn
+      |> browser()
+      |> put_req_header(@header, stopped.id)
+      |> get("/_fluxvale_edge/edge-wake-path")
+
+    body = response(conn, 503)
+    assert body =~ ~s(http-equiv="refresh")
+    assert body =~ ~s(content="30")
+    assert body =~ "keeps checking"
+  end
+
   # #222 (ADR-0037 §5): a restore owns the instance exclusively. A visitor
   # arriving mid-restore must meet the retryable 503 — never a wake, which
   # would put the app back on a volume restic is still writing.
@@ -291,10 +310,32 @@ defmodule FluxValeWeb.EdgeWakeControllerTest do
       |> put_req_header(@header, restoring.id)
       |> get("/_fluxvale_edge/edge-wake-path")
 
-    assert response(conn, 503) =~ "serving requests"
+    # The copy names the restore in plain words — no internals.
+    assert response(conn, 503) =~ "backup restored"
+    assert response(conn, 503) =~ "will be back when that finishes"
+    refute response(conn, 503) =~ "restic"
+    refute response(conn, 503) =~ "namespace"
 
     # Still the restore's, not a started app.
     assert Instance.get_by_id!(restoring.id, authorize?: false).status == :restoring
+  end
+
+  # The 503 bodies are pages that claim they keep checking — an empty
+  # meta refresh would make that a lie.
+  test "the :restoring 503 carries a refresh, not a broken one", %{conn: conn} do
+    stub_k8s()
+    restoring = restoring_instance!()
+
+    conn =
+      conn
+      |> browser()
+      |> put_req_header(@header, restoring.id)
+      |> get("/_fluxvale_edge/edge-wake-path")
+
+    body = response(conn, 503)
+    assert body =~ ~s(http-equiv="refresh")
+    assert body =~ ~s(content="30")
+    assert body =~ "keeps checking"
   end
 
   test "a POST to a :restoring instance gets the retry signal, not a wake", %{conn: _conn} do

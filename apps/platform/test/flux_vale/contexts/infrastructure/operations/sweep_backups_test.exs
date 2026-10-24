@@ -843,4 +843,57 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackupsTest do
       assert SweepBackups.stale?(fresh, later)
     end
   end
+
+  # --- RECOVER -----------------------------------------------------------
+
+  describe "recover — a :restoring instance with no active run" do
+    # A deployed, running row walked into :restoring through the funnel.
+    defp restoring_instance!(version, owner) do
+      instance =
+        Instance.create!(
+          %{
+            name: "Recovering #{System.unique_integer()}",
+            app_version_id: version.id,
+            env_vars: %{}
+          },
+          actor: owner
+        )
+
+      instance
+      |> InstanceFixtures.pin!(namespace: "fluxvale-app-#{instance.id}")
+      |> InstanceFixtures.walk_to!(:restoring)
+    end
+
+    test "a crashing recovery unit is logged and fails the pass" do
+      owner = user()
+      restoring = restoring_instance!(base!(), owner)
+
+      run!(restoring, %{kind: :restore, status: :succeeded, restored_from: :running})
+
+      # The release's scale-up raises: the unit is contained (the other
+      # units still process) and the pass reports the failure.
+      stub(K8s, :kubeconfig, fn nil -> raise "kubeconfig exploded" end)
+
+      assert {:error, "backup sweep failed for 1 unit(s)"} =
+               Infrastructure.sweep_backups(@now)
+
+      assert [run] = runs(restoring)
+      assert fetch_run!(run.id).status == :succeeded
+    end
+
+    test "a run still in flight is the watch pass's, not recovery's" do
+      owner = user()
+      restoring = restoring_instance!(base!(), owner)
+      run!(restoring, %{kind: :restore, status: :running, restored_from: :running})
+
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+
+      stub(FluxVale.Clients.K8s.Resources.RestoreJob, :status, fn _kc, _ns ->
+        {:ok, %{outcome: :running}}
+      end)
+
+      assert {:ok, summary} = Infrastructure.sweep_backups(@now)
+      assert summary.recovered_ids == []
+    end
+  end
 end

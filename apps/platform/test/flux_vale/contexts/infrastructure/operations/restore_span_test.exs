@@ -19,6 +19,7 @@ defmodule FluxVale.Infrastructure.Operations.RestoreSpanTest do
 
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
+  alias FluxVale.Clients.K8s.Resources.BackupJob
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.RestoreJob
   alias FluxVale.Identity.User
@@ -98,6 +99,12 @@ defmodule FluxVale.Infrastructure.Operations.RestoreSpanTest do
   defp stub_restore_cluster do
     stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
     stub(Deployment, :scale, fn _kc, _ns, _n, _r -> {:ok, %{}} end)
+
+    stub(Deployment, :get, fn _kc, _ns, "app" ->
+      {:ok, %{"metadata" => %{"name" => "app"}, "status" => %{"replicas" => 0}}}
+    end)
+
+    stub(BackupJob, :delete, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
     stub(RestoreJob, :delete, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
     stub(RestoreJob, :create, fn _kc, _ns, _spec -> {:ok, %{}} end)
   end

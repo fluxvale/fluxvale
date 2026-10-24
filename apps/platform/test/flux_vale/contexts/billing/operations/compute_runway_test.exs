@@ -68,6 +68,19 @@ defmodule FluxVale.Billing.Operations.ComputeRunwayTest do
       assert runway.burn_micro_cents_per_hour == hourly(@stopped_cents)
     end
 
+    # #222: a restoring instance is scaled to 0 with its volume mounted —
+    # settlement bills the stopped rate for the whole restore, so the
+    # projection must price the same stream (a 0 fell through before this,
+    # and the wallet bled while the runway claimed infinity).
+    test "a restoring instance burns the storage-only rate", %{version: version} do
+      {user, wallet} = wallet!(10)
+      instance!(user, :restoring, version)
+
+      assert {:ok, runway} = Billing.compute_runway(wallet)
+
+      assert runway.burn_micro_cents_per_hour == hourly(@stopped_cents)
+    end
+
     test "rates sum across instances; other statuses burn nothing", %{version: version} do
       {user, wallet} = wallet!(500)
       instance!(user, :running, version)
