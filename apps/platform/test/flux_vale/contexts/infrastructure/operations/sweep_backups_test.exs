@@ -839,7 +839,7 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackupsTest do
       fresh = run!(instance, %{status: :running, started_at: @now})
       refute SweepBackups.stale?(fresh, @now)
 
-      later = DateTime.add(@now, 4 * 3600, :second)
+      later = DateTime.add(@now, 6 * 3600, :second)
       assert SweepBackups.stale?(fresh, later)
     end
   end

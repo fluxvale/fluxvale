@@ -121,11 +121,18 @@ config :flux_vale,
     # The Job's activeDeadlineSeconds — the k8s-side bound that turns a
     # hung run into a Job failure the watch pass finalizes.
     timeout_seconds: 2 * 60 * 60,
+    # The restore Job's own deadline (ADR-0037 §5). Deliberately longer
+    # than the backup's: a restore downloads every chunk of the snapshot
+    # and then reads it back (--verify), where a backup uploads only what
+    # changed. One shared key would either kill large restores or loosen
+    # the hang bound on the backup path.
+    restore_timeout_seconds: 4 * 60 * 60,
     # The watch pass's own bound, above the Job's deadline on purpose: the
     # Job's failure reports through the normal outcome path first, and
     # only a run whose Job vanished entirely reaches this horizon (or its
-    # slot would never free).
-    stale_after_seconds: 3 * 60 * 60
+    # slot would never free). Above the LONGEST deadline (restore's) for
+    # the same reason.
+    stale_after_seconds: 5 * 60 * 60
   ],
   # Scale-to-zero (#203, ADR-0036). idle threshold = the settled owner
   # number (1h); probe user-agents never count as traffic (settled) —
