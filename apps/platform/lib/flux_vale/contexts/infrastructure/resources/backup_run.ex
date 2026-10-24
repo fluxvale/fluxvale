@@ -38,10 +38,19 @@ defmodule FluxVale.Infrastructure.BackupRun do
     end
 
     # The watch pass reads active runs every sweep and the panel reads one
-    # instance's history newest-first.
+    # instance's history newest-first. The PARTIAL unique index is the
+    # one-active-run invariant's teeth (ADR-0037 §3): the guard check is
+    # advisory, the index is atomic — a sweep racing a manual click makes
+    # the loser's insert fail, so two Jobs can never share an instance.
     custom_indexes do
       index([:status])
       index([:instance_id, :started_at])
+
+      index([:instance_id],
+        name: "backup_runs_one_active_per_instance_index",
+        unique: true,
+        where: "status IN ('pending', 'running')"
+      )
     end
   end
 

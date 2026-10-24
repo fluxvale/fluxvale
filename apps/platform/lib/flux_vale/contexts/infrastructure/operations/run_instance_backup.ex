@@ -35,7 +35,6 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackup do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
 
-  require Ash.Query
   require OpenTelemetry.Tracer
 
   # The whole orchestration is one `instance.backup` span (ADR-0012
@@ -76,9 +75,12 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackup do
   # System reads (authorize?: false): the sweep runs actorless, and the UI's
   # manual trigger reached this operation through the authorized
   # `Instance.get_by_id` — the same ownership posture as the lifecycle ops.
+  # One-active-run is NOT a guard here: the partial unique index on
+  # backup_runs is the enforcement (atomic under concurrency — ADR-0037
+  # §3), and `translate_taken_slot/1` renders its rejection as
+  # `:run_in_flight`.
   defp guards(instance) do
     with {:ok, setting} <- enabled_setting(instance),
-         :ok <- no_run_in_flight(instance),
          :ok <- deployed(instance) do
       {:ok, setting}
     end
@@ -106,15 +108,6 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackup do
     end
   end
 
-  defp no_run_in_flight(instance) do
-    active =
-      BackupRun
-      |> Ash.Query.filter(instance_id == ^instance.id and status in [:pending, :running])
-      |> Ash.exists?(authorize?: false)
-
-    if active, do: {:error, :run_in_flight}, else: :ok
-  end
-
   defp deployed(%{namespace: nil}), do: {:error, :not_deployed}
   defp deployed(%{namespace: _namespace}), do: :ok
 
@@ -133,7 +126,30 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackup do
       authorize?: false
     )
     |> Ash.create()
+    |> translate_taken_slot()
   end
+
+  # The partial unique index is the one-active-run invariant's teeth
+  # (ADR-0037 §3): the `no_run_in_flight` guard is advisory (a sweep can
+  # race a manual click between its check and this insert), the index is
+  # atomic — the loser lands here and reads as the same benign
+  # `:run_in_flight` the guard returns, never as a crash.
+  defp translate_taken_slot(
+         {:error,
+          %Ash.Error.Invalid{
+            errors: [
+              %Ash.Error.Changes.InvalidAttribute{
+                private_vars: [
+                  {:constraint, "backup_runs_one_active_per_instance_index"} | _other_vars
+                ]
+              }
+            ]
+          }}
+       ) do
+    {:error, :run_in_flight}
+  end
+
+  defp translate_taken_slot(other), do: other
 
   defp apply_job(run, kubeconfig, instance, setting) do
     outcome =

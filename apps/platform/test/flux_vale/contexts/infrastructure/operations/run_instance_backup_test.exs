@@ -176,6 +176,11 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackupTest do
       setting!(instance)
       run!(instance, :pending)
 
+      # The one-active-run refusal is the partial unique index's
+      # rejection (translated), so the op reaches its kubeconfig leg
+      # before the insert refuses — stub the resolver the siblings
+      # stub; the Job create stays rejected.
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
       reject(BackupJob, :create, 3)
 
       assert {:error, :run_in_flight} = Infrastructure.run_instance_backup(instance, :manual)
@@ -189,6 +194,7 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackupTest do
       setting!(instance)
       run!(instance, :running)
 
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
       reject(BackupJob, :create, 3)
 
       assert {:error, :run_in_flight} = Infrastructure.run_instance_backup(instance, :manual)

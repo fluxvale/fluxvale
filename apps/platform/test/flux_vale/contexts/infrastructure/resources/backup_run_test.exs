@@ -163,11 +163,19 @@ defmodule FluxVale.Infrastructure.BackupRunTest do
       instance = instance!(version, owner)
       other = instance!(version, owner)
 
+      # Settled rows (the index holds one ACTIVE run per instance — the
+      # history read is what this test exercises, not concurrency).
       now = DateTime.utc_now(:second)
-      {:ok, oldest} = create(instance, %{started_at: DateTime.add(now, -3600, :second)})
-      {:ok, newest} = create(instance, %{started_at: now})
-      {:ok, middle} = create(instance, %{started_at: DateTime.add(now, -600, :second)})
-      {:ok, _theirs} = create(other, %{started_at: now})
+
+      {:ok, oldest} =
+        create(instance, %{started_at: DateTime.add(now, -3600, :second), status: :succeeded})
+
+      {:ok, newest} = create(instance, %{started_at: now, status: :succeeded})
+
+      {:ok, middle} =
+        create(instance, %{started_at: DateTime.add(now, -600, :second), status: :succeeded})
+
+      {:ok, _theirs} = create(other, %{started_at: now, status: :succeeded})
 
       assert [first, second, third] =
                BackupRun.recent_for_instance!(instance.id, 10, authorize?: false)
@@ -195,12 +203,17 @@ defmodule FluxVale.Infrastructure.BackupRunTest do
 
   describe "read :active" do
     test "returns pending and running runs only" do
-      instance = instance!(base!(), user())
+      # One ACTIVE row per instance (the partial unique index): the
+      # pending and the running run each own their instance.
+      version = base!()
+      owner = user()
+      one = instance!(version, owner)
+      two = instance!(version, owner)
 
-      {:ok, pending} = create(instance, %{status: :pending})
-      {:ok, running} = create(instance, %{status: :running})
-      {:ok, _succeeded} = create(instance, %{status: :succeeded})
-      {:ok, _failed} = create(instance, %{status: :failed})
+      {:ok, pending} = create(one, %{status: :pending})
+      {:ok, running} = create(two, %{status: :running})
+      {:ok, _succeeded} = create(one, %{status: :succeeded})
+      {:ok, _failed} = create(two, %{status: :failed})
 
       active = BackupRun.active!(authorize?: false)
 
