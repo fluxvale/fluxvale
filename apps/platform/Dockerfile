@@ -33,6 +33,13 @@ COPY assets assets
 COPY rel rel
 COPY storybook storybook
 
+# Tailwind pre-seed (#230): the deploy-image job stages the same
+# binary the e2e legs use into .tw-cache/ (shared build context);
+# `mix assets.deploy`'s tailwind auto-install finds it at the path
+# tailwind-elixir computes and fetches nothing. Local release builds:
+# the dir holds only .gitkeep — default fetch path unchanged.
+COPY .tw-cache/ /app/_build/
+
 # Assets: Hex-managed tailwind/esbuild — no Node. phx.digest writes the
 # cache manifest prod.exs configures.
 RUN mix compile && mix assets.deploy && mix release
