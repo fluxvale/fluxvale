@@ -153,6 +153,16 @@ defmodule FluxValeWeb.InstanceLive.Show do
           >
             <h2 class="text-sm font-medium text-ink-muted">File access (WebDAV)</h2>
 
+            <%!-- #227: browsers GET, collections answer PROPFIND — a
+            plain visit 405s. Name the client move before every new
+            user repeats the owner's live dogfood mistake. --%>
+            <p class="text-xs text-ink-subtle" data-testid="dav-client-hint">
+              Open with a WebDAV client — browsers can't browse this
+              endpoint (the "method not allowed" page is expected).
+              Recommended: Cyberduck (macOS/Windows) · rclone to mount
+              or script.
+            </p>
+
             <%!-- #194: every credential value is a no-wrap code block with a
             copy button that carries the exact rendered string in a
             data-attribute. Selecting a wrapped 43-char password by hand

@@ -193,3 +193,27 @@ path a human actually takes rather than consuming the Secret directly.
 The file-access E2E now asserts each copy button's carried value, drives
 a real clipboard write, and runs the snippet's own config line against
 the live endpoint.
+
+## Connecting (client quick-starts, #227)
+
+The endpoint is WebDAV, not a website: browsers send GET, collections
+answer PROPFIND — so opening the address in a browser returns 405
+"Method not allowed" even with valid credentials. Correct behavior; use
+a client. The instance page's panel says the same in one line.
+
+**Cyberduck** (macOS/Windows, free) — the recommended client for
+browsing and drag-drop. Open Connection → pick **WebDAV (HTTPS)** →
+server = the panel's Address, username = `fluxvale`, password = the
+revealed password.
+
+**rclone** — mounting as a drive and scripted sync. The panel's snippet
+is the whole setup (`--obscure` is load-bearing, Amendment 1):
+
+```
+rclone config create fluxvale-<slug> webdav \
+    url https://<slug>.fluxvale.app/dav vendor rclone user fluxvale pass '<password>' --obscure
+rclone copy ~/library fluxvale-<slug>:library --progress
+```
+
+Alternates, known to work but not recommended: RaiDrive and WinSCP on
+Windows. Mobile WebDAV apps: none vetted yet — a future note.
