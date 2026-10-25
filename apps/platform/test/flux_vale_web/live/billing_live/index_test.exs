@@ -74,6 +74,16 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
     assert render(element(view, "#add-credits")) =~ "/billing/topup"
   end
 
+  test "the balance card's notice links the refund policy (#140)", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/billing")
+
+    assert has_element?(
+             view,
+             "a[data-testid='topup-refund-policy'][href='/policies/refund']",
+             "refund policy"
+           )
+  end
+
   test "load more appends the older page and retires at the end", %{conn: conn, wallet: wallet} do
     # 30 rows; the i-th grant posts i cents — amounts double as order
     # markers. Page 1 carries the newest 25 (amounts 30..6).

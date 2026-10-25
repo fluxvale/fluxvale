@@ -260,7 +260,19 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       view = to_amount(conn)
 
       notice = render(element(view, "[data-testid='topup-notice']"))
-      assert notice =~ "Credits can be used for any app, never expire, and are non-refundable."
+      # No trailing period — the sentence now ends in the linked policy
+      # tail (asserted on its own below).
+      assert notice =~ "Credits can be used for any app, never expire, and are non-refundable"
+    end
+
+    test "the notice links the refund policy — before any payment", %{conn: conn} do
+      view = to_amount(conn)
+
+      assert has_element?(
+               view,
+               "a[data-testid='topup-refund-policy'][href='/policies/refund']",
+               "refund policy"
+             )
     end
 
     test "a fractional or empty amount keeps the step", %{conn: conn} do
@@ -316,6 +328,20 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       on_exit(fn -> Application.put_env(:flux_vale, :hitpay, original) end)
 
       Map.put(context, :conn, conn)
+    end
+
+    test "the payment step links the refund policy where the payment decision is made", %{
+      conn: conn
+    } do
+      view = to_payment(conn)
+
+      # #140: the buyer can read the full policy BEFORE the pay click —
+      # the notice sentence links the published page.
+      assert has_element?(
+               view,
+               "a[data-testid='topup-refund-policy'][href='/policies/refund']",
+               "refund policy"
+             )
     end
 
     test "pay creates the top-up and redirects to the hosted checkout", %{

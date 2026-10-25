@@ -1,36 +1,41 @@
-# Refund Policy (DRAFT)
+# Refund Policy
 
-**Status: DRAFT — advisor review and publication ride the M6 checkout
-work** ([ADR-0029](adr/00029-payments-adapter-selfmor.md); drafts landed
-with the ledger, #120). Nothing here binds until published.
+**Status: PUBLISHED at `/policies/refund`** (in-app page, #140). The
+customer-facing text of record is that page's template
+(`apps/platform/lib/flux_vale_web/controllers/policy_html/refund.html.heex`)
+— advisor wording tweaks land there, one cohesive edit. This doc is the
+decision record.
 
-## What is refundable
+## The stance (decided 2026-10-13, owner; PikaPods-shaped)
 
-- **Remaining (unconsumed) credits are refundable** — prepaid credits
-  bought and not yet spent go back to the payment method on request.
-- **Consumed hosting is non-refundable** — a flat-rate month already
-  accrued against ([ADR-0028](adr/00028-flat-rate-pricing.md)) paid for real
-  capacity held; it does not unwind.
-- **Welcome credits are not refundable** — they were never purchased.
+- **Credits are non-refundable.** No self-serve refund flow, no refund
+  API integration in v1. The never-expiring balance IS the fairness
+  argument: bought credit keeps full value indefinitely, and nothing is
+  ever charged recurrently.
+- **Chargebacks are handled structurally**, per
+  [ADR-0029](adr/00029-payments-adapter-selfmor.md)'s accepted
+  mitigation — small prepaid amounts, no recurring billing, access
+  gating (an exhausted balance suspends instances rather than accruing
+  debt; #124's zero-balance lifecycle). The policy states this plainly.
+- **Goodwill credit is the only override path**: a manual exception a
+  platform admin posts through the ledger's existing grant seam
+  (`LedgerEntry :grant_goodwill` → `GrantCredits`, reason
+  `:adjustment`) — offered as account credit, never money back, each
+  case decided by a human. The policy names the exception without
+  promising a refund channel.
 
-## How refunds work (the ledger contract)
+This supersedes the M5 draft's "remaining credits are refundable"
+stance (drafted with the ledger, #120, before the owner decided).
 
-Refunds move money back through the payment provider; the ledger only
-records the compensating entries — rows are never mutated or deleted. A
-refund that draws on specific purchase entries reverses them
-(`reverses_id`, one reversal per entry, database-enforced); a refund of
-a balance sweep posts a `:refund` debit for the amount paid back. Either
-way the books stay reconcilable: every credit that left the wallet has a
-compensating row naming why.
+## Advisor review (pending)
 
-## Open for advisor input (M6)
+The published wording is headed for the owner's advisor review — the
+EU/UK distance-selling angle (14-day withdrawal expectations for
+digital content) is the known nuance. Wording changes are a cheap
+follow-up edit to the page template; the stance itself is settled.
+The prepaid-credit VAT classification stays a separate open item
+([open-questions.md](open-questions.md) #4, ADR-0029 Am. 3) — it
+shifts *when* VAT attaches, not the refund stance.
 
-1. **Refund window** — a time limit on remaining-credit refunds (v1 had
-   none; the zero-balance lifecycle, #124, interacts with this).
-2. **Provider rails** — HitPay refund mechanics, partial-refund support,
-   and who eats the processing fee.
-3. **Prepaid-credit classification** — voucher-rule treatment shifts
-   *when* VAT attaches (purchase vs redemption), not whether (OQ #4).
-4. **Abuse posture** — chargeback mitigation is structural (small prepaid
-   amounts, no recurring billing, access gating) but the written stance
-   needs advisor review.
+[data-deletion.md](data-deletion.md) remains a draft until its
+publication rides a lane of its own.

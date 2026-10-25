@@ -1,0 +1,52 @@
+<Layouts.public flash={@flash} current_user={@current_user}>
+  <div class="mx-auto max-w-2xl space-y-8">
+    <.header>
+      Refund policy
+      <:subtitle>Prepaid credits, no expiries, no surprises.</:subtitle>
+    </.header>
+
+    <%!-- #140: the decided stance (2026-10-13) — non-refundable credits,
+        stated where the payment is made. The never-expiring balance is
+        the fairness half. This template is the policy's one home: advisor
+        wording tweaks land here (see docs/refund-policy.md). --%>
+    <.card class="space-y-4" data-testid="refund-policy">
+      <h2 class="text-base font-medium text-ink" data-testid="refund-policy-stance">
+        Credits are non-refundable
+      </h2>
+      <p class="text-sm text-ink-muted">
+        Purchased credits can't be returned for money. There is no self-serve
+        refund flow, and we don't issue refunds to payment methods.
+      </p>
+      <p class="text-sm text-ink-muted">
+        The fairness half of that stance: your balance never expires.
+        Credit you buy today is worth the same next year — we never expire,
+        decay, or claw back a paid balance, and nothing is ever charged
+        recurrently. A top-up happens only when you complete one yourself.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Chargebacks</h2>
+      <p class="text-sm text-ink-muted">
+        We keep the exposure structurally small: modest prepaid amounts,
+        no recurring billing, and an exhausted balance suspends your
+        instances instead of accruing debt. Nothing about this model can
+        silently take your money.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Exceptions, at our discretion</h2>
+      <p class="text-sm text-ink-muted">
+        We can credit a wallet manually as goodwill — our mistake, a double
+        charge, a genuine problem on our side. That's an exception we grant,
+        not a refund channel to claim: it lands as account credit, never as
+        money back to a payment method, and a human decides each case.
+      </p>
+      <p class="text-sm text-ink-muted">
+        If a payment looks wrong, let us know before opening a chargeback —
+        a goodwill credit is faster for both of us.
+      </p>
+    </.card>
+  </div>
+</Layouts.public>

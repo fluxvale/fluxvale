@@ -104,8 +104,14 @@ defmodule FluxValeWeb.BillingLive.Index do
               Add credits
             </.button>
           </div>
-          <p class="text-xs text-ink-subtle">
-            Credits can be used for any app, never expire, and are non-refundable.
+          <p class="text-xs text-ink-subtle" data-testid="topup-notice">
+            Credits can be used for any app, never expire, and are non-refundable — <.link
+              navigate={~p"/policies/refund"}
+              data-testid="topup-refund-policy"
+              class="underline underline-offset-2 hover:text-ink"
+            >
+              refund policy
+            </.link>.
           </p>
         </.card>
 

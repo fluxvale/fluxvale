@@ -11,8 +11,11 @@ defmodule FluxVale.Billing.LedgerEntryTest do
   alias Ash.Resource.Info
   alias FluxVale.Billing
   alias FluxVale.Billing.LedgerEntry
+  alias FluxVale.Identity.User
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
+
+  require Ash.Query
 
   setup do
     {_org, wallet} = BillingFixtures.funded_wallet!()
@@ -239,10 +242,104 @@ defmodule FluxVale.Billing.LedgerEntryTest do
     end
   end
 
+  # The refund policy's only override path (#140): an admin-gated Ash
+  # action — the form AshAdmin renders — posting through the same
+  # GrantCredits seam the welcome grant rides, never around it.
+  describe "grant_goodwill (#140 — the goodwill credit)" do
+    setup do
+      # Zero-funded wallet: the outer setup's fixture funding would
+      # muddy the balance math — the grant's delta is the assertion.
+      {_org, wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
+
+      %{wallet: wallet, admin: admin()}
+    end
+
+    test "a platform admin posts a goodwill credit through the grant seam", %{
+      wallet: wallet,
+      admin: admin
+    } do
+      assert {:ok, entry} = LedgerEntry.grant_goodwill(wallet.id, 500, actor: admin)
+
+      # The posting is the ledger's normal shape — an :adjustment credit,
+      # same as any operator adjustment through the domain seam.
+      assert entry.type == :credit
+      assert entry.amount == 500
+      assert entry.reason == :adjustment
+      assert entry.wallet_id == wallet.id
+
+      assert {:ok, 500} = Billing.balance(wallet, authorize?: false)
+    end
+
+    test "non-admins and anonymous calls stay outside the override path", %{
+      wallet: wallet,
+      admin: _admin
+    } do
+      stranger = AccountsFixtures.user!()
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               LedgerEntry.grant_goodwill(wallet.id, 500, actor: stranger)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               LedgerEntry.grant_goodwill(wallet.id, 500, authorize?: true)
+    end
+
+    test "non-positive amounts are rejected at the argument constraint", %{
+      wallet: wallet,
+      admin: admin
+    } do
+      assert {:error, %Invalid{}} =
+               LedgerEntry.grant_goodwill(wallet.id, 0, actor: admin)
+    end
+
+    test "an unknown wallet surfaces the posting error, nothing posts", %{
+      admin: admin
+    } do
+      bogus = Ash.UUID.generate()
+
+      assert {:error, %Invalid{}} = LedgerEntry.grant_goodwill(bogus, 100, actor: admin)
+
+      assert {:ok, entries} =
+               LedgerEntry
+               |> Ash.Query.filter(wallet_id == ^bogus)
+               |> Ash.read(authorize?: false)
+
+      assert entries == []
+    end
+
+    test "platform admins read any org's ledger (support surface)", %{
+      wallet: wallet,
+      admin: admin
+    } do
+      # The admin isn't a member of this org — the member read policy
+      # alone would refuse; the admin clause is what lets the ledger
+      # show up in AshAdmin.
+      {:ok, _entry} = Billing.grant_credits(wallet, 300)
+
+      assert {:ok, entries} =
+               LedgerEntry
+               |> Ash.Query.filter(wallet_id == ^wallet.id)
+               |> Ash.read(actor: admin)
+
+      assert length(entries) == 1
+    end
+  end
+
   defp wallet_page(wallet) do
     LedgerEntry
     |> Ash.Query.for_read(:list_for_wallet, %{wallet_id: wallet.id}, authorize?: false)
     |> Ash.Query.sort(created_at: :desc, id: :desc)
     |> Ash.read!(page: [limit: 25])
+  end
+
+  # Bootstrap posture (mirrors the Ops policy tests): the precondition
+  # runs authorize?: false; the policies themselves are under test.
+  defp admin do
+    case User.get_by_email("admin@fluxvale.com", authorize?: false) do
+      {:ok, existing} ->
+        existing
+
+      {:error, _not_found} ->
+        User.create!("admin@fluxvale.com", %{platform_role: :admin}, authorize?: false)
+    end
   end
 end

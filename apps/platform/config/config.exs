@@ -44,13 +44,15 @@ config :flux_vale,
   # crashes on zero admin-enabled domains (upstream nil action_type bug),
   # so the router keeps the placeholder while this is empty. Ops opted in
   # with #25, Catalog with #70, Infrastructure with #72, Pricing with
-  # #125; Identity stays admin-unexposed; Accounts joins when a support
-  # flow needs it.
+  # #125, Billing with #140 (the goodwill-credit surface: wallet +
+  # ledger only, Topup excluded); Identity stays admin-unexposed;
+  # Accounts joins when a support flow needs it.
   ash_admin_domains: [
     FluxVale.Ops,
     FluxVale.Catalog,
     FluxVale.Infrastructure,
-    FluxVale.Pricing
+    FluxVale.Pricing,
+    FluxVale.Billing
   ],
   generators: [timestamp_type: :utc_datetime],
   # AccessRules snapshot TTL (#26, settled): 60s — the cross-node

@@ -8,17 +8,31 @@ defmodule FluxVale.Billing do
   `Wallet.carryover` (micro-cents). Refunds are compensating entries
   (`reverse_entry/2`), never row mutations (ADR-0029). Postings run
   `authorize?: false` — the operations are the system seam; actors read
-  their org's wallet and ledger through the policies.
+  their org's wallet and ledger through the policies, and the one
+  actor-facing posting is the admin goodwill credit (`LedgerEntry
+  :grant_goodwill`, #140).
   """
 
-  use Ash.Domain, otp_app: :flux_vale
+  use Ash.Domain,
+    otp_app: :flux_vale,
+    extensions: [AshAdmin.Domain]
+
+  # AshAdmin exposure (#140, ADR-0027 §3 — opt-in, admin policies ride
+  # ActorIsPlatformAdmin like every exposed domain): the goodwill
+  # surface only. Wallet (read-only, to find the wallet) and LedgerEntry
+  # (reads + the grant_goodwill create); Topup stays out — buyer
+  # PII, no role in a goodwill grant.
+  admin do
+    show?(true)
+    show_resources([FluxVale.Billing.Wallet, FluxVale.Billing.LedgerEntry])
+  end
 
   alias FluxVale.Billing.Operations
 
   resources do
-    resource FluxVale.Billing.LedgerEntry
-    resource FluxVale.Billing.Topup
-    resource FluxVale.Billing.Wallet
+    resource(FluxVale.Billing.LedgerEntry)
+    resource(FluxVale.Billing.Topup)
+    resource(FluxVale.Billing.Wallet)
   end
 
   # Operations are verb-named modules under operations/ (see
