@@ -80,7 +80,7 @@ defmodule FluxVale.Infrastructure.Operations.SweepIdleInstancesTest do
     assert still_running.status == :running
   end
 
-  test "always_on rows never sleep — the premium opt-out" do
+  test "always_on rows never sleep — the scale-to-zero opt-out" do
     stale = DateTime.add(DateTime.utc_now(), -2 * 3600, :second)
     created = instance!(%{})
     running = with_marker!(created, stale)

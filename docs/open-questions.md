@@ -82,6 +82,9 @@ the decision.
     continuously (what the shipped behavior bills by construction;
     zero new billing surface — no surcharge rate, no accrual arm).
     [ADR-0036](adr/00036-scale-to-zero-wake-on-use.md) Am. 1.
+    Am. 2 (2026-10-26, #261): no premium tier at all — the
+    "(premium)" label is retired; enabling confirms the full-rate
+    cost with the instance's own settlement figures first.
 
 ## Platform
 

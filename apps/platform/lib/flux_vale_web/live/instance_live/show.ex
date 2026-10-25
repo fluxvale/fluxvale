@@ -34,6 +34,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
           assign(socket,
             instance: instance,
             admin?: ActorIsPlatformAdmin.platform_admin?(user),
+            always_on_confirm: always_on_confirm(instance),
             dav_password: nil,
             # #253: the quick-start's active platform. Linux is the
             # no-JS fallback; the .DavOsDefault hook refines it to the
@@ -96,9 +97,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
           <% end %>
         </.card>
 
-        <%!-- #203 (ADR-0036): the idle posture — auto-sleep is the
-        default economics, always-on the premium opt-out. Billing tier
-        rides the open sub-decision on #203; the flag is behavior. --%>
+        <%!-- #203 (ADR-0036 Am. 2, #261): the idle posture — auto-sleep
+        is the default economics; always-on is no premium tier, it just
+        bills the running rate around the clock. --%>
         <.card class="space-y-3" data-testid="availability-card">
           <div class="flex items-center justify-between gap-3">
             <h2 class="text-sm font-medium text-ink-muted">Availability</h2>
@@ -125,14 +126,19 @@ defmodule FluxValeWeb.InstanceLive.Show do
             <% end %>
           </p>
 
+          <%!-- #261: enabling is the charge-raising direction — confirm
+          first (the destroy-flow data-confirm precedent), with the
+          row's own settlement figures; disabling only saves money, so
+          it rides bare. --%>
           <.button
             size="sm"
             variant="ghost"
             phx-click="toggle-always-on"
             phx-value-always_on={to_string(not @instance.always_on)}
+            data-confirm={if(not @instance.always_on, do: @always_on_confirm)}
             data-testid="always-on-toggle"
           >
-            {if(@instance.always_on, do: "Let it sleep when idle", else: "Keep always on (premium)")}
+            {if(@instance.always_on, do: "Let it sleep when idle", else: "Keep always on")}
           </.button>
         </.card>
 
@@ -456,9 +462,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
     handle_lifecycle(socket, &Instance.start/2)
   end
 
-  # #203 (ADR-0036): the always-on opt-out — a paid premium; the
-  # billing tier is the open sub-decision on #203, the toggle is
-  # behavior today (the idle sweep skips always-on rows).
+  # #203 (ADR-0036 Am. 2, #261): the always-on opt-out — no premium
+  # tier; the toggle is behavior (the idle sweep skips always-on rows,
+  # and the page confirms the full-rate cost before enabling).
   def handle_event("toggle-always-on", %{"always_on" => always_on} = _params, socket) do
     instance = socket.assigns.instance
     # phx-value strings in, booleans out — the attribute is boolean.
@@ -475,7 +481,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
           if always_on and updated.status == :sleeping do
             wake_on_enable(socket, updated)
           else
-            assign(socket, :instance, reload(updated, socket))
+            assign_instance(socket, reload(updated, socket))
           end
 
         {:noreply, socket}
@@ -537,7 +543,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
     case Instance.delete(instance.id, actor: socket.assigns.current_user) do
       {:ok, updated} ->
-        {:noreply, assign(socket, :instance, reload(updated, socket))}
+        {:noreply, assign_instance(socket, reload(updated, socket))}
 
       # coveralls-ignore-start - defensive: the action's error arms are
       # DB-level failures (the action handles every status shape)
@@ -553,7 +559,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
   defp wake_on_enable(socket, sleeping) do
     case Instance.start(sleeping, actor: socket.assigns.current_user) do
       {:ok, waking} ->
-        assign(socket, :instance, reload(waking, socket))
+        assign_instance(socket, reload(waking, socket))
 
       # coveralls-ignore-start - the action-level error arm is the
       # stale-view race (the row moved between render and event); the
@@ -608,10 +614,13 @@ defmodule FluxValeWeb.InstanceLive.Show do
   # :destroy clause handles the exit.
   def handle_info(%Ash.Notifier.Notification{data: %{id: id}}, socket) do
     case fetch(socket, id) do
-      nil -> {:noreply, socket}
+      nil ->
+        {:noreply, socket}
+
       # A broadcast landing in-progress may be the first (mounted on
       # :pending) — the tick needs starting.
-      instance -> {:noreply, maybe_schedule_status_tick(assign(socket, :instance, instance))}
+      instance ->
+        {:noreply, maybe_schedule_status_tick(assign_instance(socket, instance))}
     end
   end
 
@@ -720,7 +729,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
     # test can stage without a backdoor
     case fetch(socket, id) do
       nil -> socket
-      instance -> maybe_schedule_status_tick(assign(socket, :instance, instance))
+      instance -> maybe_schedule_status_tick(assign_instance(socket, instance))
     end
 
     # coveralls-ignore-stop
@@ -733,6 +742,36 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
       {:error, _error} ->
         {:noreply, put_flash(socket, :error, "That action isn't possible from this state.")}
+    end
+  end
+
+  # Every instance (re)assign re-derives the enable-confirm copy with
+  # it (#261): the figures ride the row's own settlement rates, so a
+  # broadcast refresh can't leave the confirm stale behind the row.
+  defp assign_instance(socket, instance) do
+    assign(socket, instance: instance, always_on_confirm: always_on_confirm(instance))
+  end
+
+  # #261 (ADR-0036 Am. 2): enabling always-on is the charge-raising
+  # direction — the confirm states the consequence in the row's own
+  # settlement figures (#153's one resolver, so the shown numbers are
+  # the charged ones), monthly-equivalent · billed hourly per #206 like
+  # every price surface, plus the wake-on-enable behavior. An unpriced
+  # row (pre-#121 drift — no size, no formula snapshot) falls back to
+  # figure-free copy: the gate must render even where the figures
+  # don't.
+  defp always_on_confirm(instance) do
+    case FluxVale.Pricing.settlement_rates(instance, DateTime.utc_now()) do
+      {:ok, %{running: running, stopped: stopped}} ->
+        "Keep this instance always on? It never sleeps, so it bills the full rate " <>
+          "around the clock (#{FluxVale.Pricing.format_usd(running)}/mo) instead of the " <>
+          "storage-only rate while it would otherwise sleep (#{FluxVale.Pricing.format_usd(stopped)}/mo) — " <>
+          "monthly-equivalent, billed hourly. A sleeping instance wakes immediately."
+
+      _unpriced ->
+        "Keep this instance always on? It never sleeps, so it bills the full rate " <>
+          "around the clock instead of the storage-only rate while it would otherwise " <>
+          "sleep. A sleeping instance wakes immediately."
     end
   end
 

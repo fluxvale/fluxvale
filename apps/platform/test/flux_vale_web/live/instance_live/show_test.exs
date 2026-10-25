@@ -723,13 +723,79 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
       assert has_element?(view, "[data-testid=availability-card]")
       assert has_element?(view, "[data-testid=availability-mode]", "Sleeps when idle")
+      assert has_element?(view, "[data-testid=always-on-toggle]", "Keep always on")
+      # #261: no premium framing anywhere on the surface.
+      refute render(view) =~ "premium"
 
       view
       |> element("[data-testid=always-on-toggle]")
       |> render_click()
 
       assert has_element?(view, "[data-testid=availability-mode]", "Always on")
-      assert render(view) =~ "Keep always on" || render(view) =~ "Let it sleep"
+      assert has_element?(view, "[data-testid=always-on-toggle]", "Let it sleep when idle")
+    end
+
+    # #261 (ADR-0036 Am. 2): enabling is the charge-raising direction —
+    # the data-confirm gate states the full-rate consequence in the
+    # row's own settlement figures and the wake-on-enable behavior;
+    # disabling only saves money, so it carries no gate. (LiveView
+    # tests click past data-confirm — the client owns the dialog; the
+    # e2e backups spec exercises the real accept.)
+    test "enabling always-on carries the cost confirmation; disabling carries none", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      # The fixture settles at 100¢ running / 10¢ storage-only — both
+      # figures ride the confirm, monthly-equivalent · billed hourly
+      # (#206), with the immediate wake stated.
+      enable = element(view, "[data-testid=always-on-toggle]")
+      confirm = render(enable)
+
+      assert confirm =~ "data-confirm="
+      assert confirm =~ "$1.00/mo"
+      assert confirm =~ "$0.10/mo"
+      assert confirm =~ "billed hourly"
+      assert confirm =~ "wakes immediately"
+
+      render_click(enable)
+
+      assert has_element?(view, "[data-testid=availability-mode]", "Always on")
+
+      disable = render(element(view, "[data-testid=always-on-toggle]"))
+
+      refute disable =~ "data-confirm="
+    end
+
+    # The one shape actions can't produce (pre-#121 drift): no size, no
+    # formula snapshot — settlement forgives the row, so the confirm
+    # must render figure-free rather than crash or stay silent.
+    test "an unpriced instance's confirm falls back to figure-free copy", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+
+      unpriced =
+        InstanceFixtures.pin!(
+          instance,
+          size_id: nil,
+          grandfathered_until: nil,
+          grandfathered_monthly_cents: nil,
+          grandfathered_stopped_monthly_cents: nil
+        )
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{unpriced.id}")
+
+      button = render(element(view, "[data-testid=always-on-toggle]"))
+
+      assert button =~ "data-confirm="
+      assert button =~ "bills the full rate around the clock"
+      refute button =~ "$"
     end
   end
 
