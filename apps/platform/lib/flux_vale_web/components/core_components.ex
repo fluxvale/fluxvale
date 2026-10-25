@@ -1068,11 +1068,24 @@ defmodule FluxValeWeb.CoreComponents do
   link navigation — the links are plain hrefs, so every navigation is
   a full page load and no live patch can strand the panel open.
 
+  `app_links` folds the app chrome's header links (Catalog/Instances)
+  into the dropdown below sm (#255): the header row — logo + three
+  links + theme trio + this menu — overflows a 375px viewport by
+  ~133px with the dropdown closed, so below sm the header links hide
+  (`hidden sm:block`, app chrome's own `<li>`s) and reappear here
+  (`sm:hidden` rows) — nothing is unreachable at any width.
+
   ## Examples
 
       <.user_menu email={@current_user.email} />
   """
   attr(:email, :string, required: true)
+
+  attr(:app_links, :boolean,
+    default: false,
+    doc: "surface Catalog/Instances below sm (app chrome, #255)"
+  )
+
   attr(:class, :any, default: nil)
   attr(:rest, :global)
 
@@ -1101,6 +1114,22 @@ defmodule FluxValeWeb.CoreComponents do
       >
         <p class="truncate px-3 py-2 text-xs text-ink-subtle" title={@email}>{@email}</p>
         <div class="my-1 border-t border-line" aria-hidden="true"></div>
+        <%!-- #255: mobile-only surface rows — the header links these
+        replace are hidden below sm, so no width shows both copies. --%>
+        <.link
+          :if={@app_links}
+          href={~p"/apps"}
+          class="block rounded-lg px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink sm:hidden"
+        >
+          Catalog
+        </.link>
+        <.link
+          :if={@app_links}
+          href={~p"/instances"}
+          class="block rounded-lg px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink sm:hidden"
+        >
+          Instances
+        </.link>
         <%!-- href, not navigate: full page loads close the dropdown on
         every surface — a live patch would strand it open (#205). --%>
         <.link

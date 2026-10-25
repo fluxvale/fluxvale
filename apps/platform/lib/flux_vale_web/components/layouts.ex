@@ -86,13 +86,13 @@ defmodule FluxValeWeb.Layouts do
         </div>
         <nav aria-label="Primary">
           <ul class="flex items-center gap-1">
-            <li :if={@apps}>
+            <li :if={@apps} class="hidden sm:block">
               <.nav_link navigate={~p"/apps"}>Catalog</.nav_link>
             </li>
-            <li :if={@apps}>
+            <li :if={@apps} class="hidden sm:block">
               <.nav_link navigate={~p"/instances"}>Instances</.nav_link>
             </li>
-            <li :if={@apps}>
+            <li :if={@apps} class="hidden sm:block">
               <.nav_link navigate={~p"/billing"}>Billing</.nav_link>
             </li>
             <li :if={not @apps}>
@@ -102,9 +102,12 @@ defmodule FluxValeWeb.Layouts do
             <%!-- #205: the signed-in chrome is the user menu — the same
             component on app and public chrome; it retires both the
             plain email + sign-out text and the signed-in "Sign in"
-            bug (the button now renders only for anonymous visitors). --%>
+            bug (the button now renders only for anonymous visitors).
+            app_links folds the header's surface links into the menu
+            below sm (#255): the row (logo + links + theme + menu)
+            overflows 375px by 133px otherwise, dropdown closed. --%>
             <li :if={@current_user} class="ml-2">
-              <.user_menu email={@current_user.email} />
+              <.user_menu email={@current_user.email} app_links={@apps} />
             </li>
             <li :if={is_nil(@current_user)} class="ml-1">
               <.button navigate={~p"/sign-in"} size="sm">

@@ -81,4 +81,54 @@ defmodule FluxValeWeb.PageControllerTest do
     assert html =~ ~s(Your dashboard)
     refute html =~ ~r/class="[^"]*bg-primary[^"]*"[^>]*>\s*Sign in/
   end
+
+  # #255: at 375px the header row (logo + surface links + theme trio +
+  # menu) overflowed the viewport by ~133px, dropdown closed. Below sm
+  # the app chrome hides its three header links (`hidden sm:block`) and
+  # the user menu re-serves Catalog/Instances (`sm:hidden` rows) — a
+  # fold, not a removal: no width renders both copies, no width loses
+  # them.
+  test "GET / folds the chrome's surface links into the user menu below sm (#255)", %{
+    conn: conn
+  } do
+    {_user, session_conn} = SessionHelpers.user_with_session(conn)
+
+    conn = get(session_conn, ~p"/")
+    html = html_response(conn, 200)
+
+    # Header copies hide below sm…
+    assert html =~ ~s(class="hidden sm:block")
+    assert html =~ ~s(href="/apps")
+    assert html =~ ~s(href="/instances")
+    assert html =~ ~s(href="/billing")
+
+    # …and the panel carries the mobile-only rows alongside Billing.
+    panel =
+      html
+      |> String.split(~s(data-testid="user-menu-panel"))
+      |> List.last()
+
+    assert panel =~ ~s(href="/apps")
+    assert panel =~ ~s(href="/instances")
+    assert panel =~ ~s(href="/billing")
+    assert panel =~ "sm:hidden"
+  end
+
+  # The landing chrome never had the surface links, so its menu stays
+  # fold-free — `app_links` is the app chrome's flag alone.
+  test "GET /about for a signed-in visitor keeps the menu fold-free (#255)", %{conn: conn} do
+    {_user, session_conn} = SessionHelpers.user_with_session(conn)
+
+    conn = get(session_conn, ~p"/about")
+    html = html_response(conn, 200)
+
+    panel =
+      html
+      |> String.split(~s(data-testid="user-menu-panel"))
+      |> List.last()
+
+    refute panel =~ ~s(href="/apps")
+    refute panel =~ ~s(href="/instances")
+    assert panel =~ ~s(href="/billing")
+  end
 end
