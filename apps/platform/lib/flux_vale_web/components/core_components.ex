@@ -403,7 +403,7 @@ defmodule FluxValeWeb.CoreComponents do
         name="resources[cpu_cores]"
         label="CPU cores"
         value="0.5"
-        values={["0.25", "0.5", "1", "2", "4"]}
+        values={["0.25", "0.5", "1", "2", "4", "6", "8"]}
         unit="cores"
       />
   """

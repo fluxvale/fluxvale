@@ -64,6 +64,16 @@ billed hourly (#206).
 | standard | 1 | 2 GB | 20 GB | 6.21 | 68 |
 | plus | 2 | 4 GB | 50 GB | 9.96 | 135 |
 | pro | 4 | 8 GB | 100 GB | 16.06 | 228 |
+| ultra | 6 | 12 GB | 200 GB | 22.16 | 383 |
+| max | 8 | 16 GB | 400 GB | 28.95 | 644 |
+
+The top two rows are **#233's extension** (a proposal — the owner's
+sign-off on #233 is pending, not yet given): no doc-decided table
+exists — the cents are the same v5 curve at the new allocations, pinned
+as literals in `pricing_data_test.exs` (`@ladder_extension`). The storage top is **400 GB, not the issue's
+rough 500**: 500 exceeds the one box's ~460 usable GB and would be
+unprovisionable on the current fleet — it reopens when box #2 orders
+(the pool rule; would price $30.12/mo, stopped $7.61).
 
 The doc's own verification point: the anchor's 0.25 core / 0.25 GB /
 0 GB calculator default prices $1.80 at v4 → **$2.16** at v5 (pinned
@@ -84,6 +94,17 @@ catalog sells.
 This check's original legacy-box math (8–10 GB RAM headroom, break-even
 9 smalls) is superseded — see the recalibration doc's restated finding
 for the derivation and the fill-mix sensitivity.
+
+**#233 top rungs vs the box**: `max` (8c / 16 GB / 400 GB) is a
+dedicated-box shape — one instance fills 87% of the ~460 usable GB
+(what's left hosts ≤12 micros or 6 smalls), and while active uses 8 of
+12 cores and 16 of ~24 active-GB (67% each — inside the active-ratio
+budget with room for small neighbors). A `max`-hosting box prices
+underwater alone ($28.95 + a 12-micro leftover ≈ $63/mo, less with
+smalls, vs $118.64 full) — the same structural caveat `pro` already
+carries (big sizes are customs/owner instances; the big-size revisit
+trigger stands). `small`-basis
+break-evens don't move: the extension adds shapes, not small-density.
 
 ## What the check deliberately excludes
 

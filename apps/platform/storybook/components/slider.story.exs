@@ -20,41 +20,42 @@ defmodule FluxValeWeb.Storybook.Components.Slider do
     [
       %VariationGroup{
         id: :allocation,
-        description: "The deploy wizard's three dimensions (#221 — the seeded ladder's rungs)",
+        description:
+          "The deploy wizard's three dimensions (#221 — the seeded ladder's rungs, topped out on #233)",
         variations: [
           %Variation{
             id: :cpu,
-            description: "CPU — 0.25→4 cores, stopped mid-ladder at 1",
+            description: "CPU — 0.25→8 cores, stopped mid-ladder at 1",
             attributes: %{
               id: "cpu",
               name: "resources[cpu_cores]",
               label: "CPU cores",
               value: "1",
-              values: ["0.25", "0.5", "1", "2", "4"],
+              values: ["0.25", "0.5", "1", "2", "4", "6", "8"],
               unit: "cores"
             }
           },
           %Variation{
             id: :memory,
-            description: "Memory — 512→8192 MB, stopped at 2048",
+            description: "Memory — 512→16384 MB, stopped at 2048",
             attributes: %{
               id: "memory",
               name: "resources[memory_mb]",
               label: "Memory",
               value: "2048",
-              values: ["512", "1024", "2048", "4096", "8192"],
+              values: ["512", "1024", "2048", "4096", "8192", "12288", "16384"],
               unit: "MB"
             }
           },
           %Variation{
             id: :storage,
-            description: "Storage — 5→100 GB, stopped at the bottom rung",
+            description: "Storage — 5→400 GB, stopped at the bottom rung",
             attributes: %{
               id: "storage",
               name: "resources[storage_gb]",
               label: "Storage",
               value: "5",
-              values: ["5", "10", "20", "50", "100"],
+              values: ["5", "10", "20", "50", "100", "200", "400"],
               unit: "GB"
             }
           },
