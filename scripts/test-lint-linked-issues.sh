@@ -103,6 +103,14 @@ expect_stdin_exit 0 "'refs #7' with slice language" 'Refs #7 (slice 2 of 4 — t
 expect_stdin_exit 0 "'slices' as a plural noun, no N of M" \
   'Closes #7. Two slices of the old code were merged; nothing else.'
 
+# 4a. Every slice count is checked, not just the first (review finding, and
+#     the one shape where checking only the first silently passed a real
+#     violation).
+expect_stdin_exit 1 "complete slice first, incomplete slice later in the same body" \
+  'Closes #7 (slice 3 of 3). Follow-up: slice 1 of 4 remains.'
+expect_stdin_exit 1 "incomplete slice first, complete slice later" \
+  'Closes #7 (slice 1 of 4). Then slice 4 of 4.'
+
 # 4b. Margins that are behaviours, asserted rather than assumed.
 expect_stdin_exit 0 "'slice 1 of 1' — the only slice, so nothing follows" 'Closes #7 (slice 1 of 1)'
 expect_stdin_exit 1 "'slice 0 of 3' — nobody starts at zero, still incomplete" 'Closes #7 (slice 0 of 3)'
@@ -119,6 +127,17 @@ expect_stdin_exit 0 "incident quoted in an inline code span" \
   'The old bodies read `Closes #61 (slice 1 of 7)` and got closed early.'
 expect_stdin_exit 0 "incident quoted in an HTML comment" \
   $'Closes #9\n\n<!--\nCloses #61 (slice 1 of 7 — calibration sample)\n-->'
+# A closing fence must match its opener's character and length, or it is
+# content: the old toggling approach closed a ``` block on a ~~~ line and
+# then read the still-fenced quote as prose.
+expect_stdin_exit 0 "tilde fence containing a backtick-fence line stays fenced" \
+  $'Quoted:\n\n~~~\nCloses #61 (slice 1 of 7)\n```\n~~~'
+expect_stdin_exit 0 "backtick fence containing a tilde-fence line stays fenced" \
+  $'Quoted:\n\n```\nCloses #61 (slice 1 of 7)\n~~~\n```'
+expect_stdin_exit 0 "shorter closing fence does not close a longer block" \
+  $'````\nCloses #61 (slice 1 of 7)\n```\n````'
+expect_stdin_exit 0 "incident quoted in a two-backtick span" \
+  'Quoted: ``Closes #61 (slice 1 of 7)`` here.'
 expect_stdin_exit 0 "incident quoted in a MULTI-LINE inline span (GFM allows it)" \
   $'Docs quote `Closes #61 (slice 1 of\n7)` verbatim.'
 expect_stdin_exit 0 "incident quoted in an UNCLOSED HTML comment" \

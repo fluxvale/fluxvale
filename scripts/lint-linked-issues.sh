@@ -96,15 +96,26 @@ unless body.valid_encoding?
   exit 2
 end
 
-# Drop fenced blocks line-wise: an unterminated fence hides the rest of the
-# body rather than leaking half a code sample into the match.
-in_fence = false
+# Drop fenced blocks line-wise. A closing fence must match its opener's
+# character and be at least as long (CommonMark): a ``` block containing a
+# ~~~ line keeps going, because that ~~~ is content, not a fence. An
+# unterminated fence hides the rest of the body rather than leaking half a
+# code sample into the match.
+fence = nil
 prose = body.each_line.reject do |line|
-  if line.match?(/\A[[:space:]]*(?:```|~~~)/)
-    in_fence = !in_fence
-    true
+  run = line[/\A[[:space:]]*(`{3,}|~{3,})/, 1]
+  if run
+    if fence.nil?
+      fence = run
+      true
+    elsif run[0] == fence[0] && run.length >= fence.length
+      fence = nil
+      true
+    else
+      true   # a fence-ish line of the wrong character/length is content
+    end
   else
-    in_fence
+    !fence.nil?
   end
 end.join
 
@@ -119,13 +130,19 @@ prose = prose.gsub(/<!--.*?(?:-->|\z)/m, "")
 # by an equal-length run, newlines allowed).
 prose = prose.gsub(/(`+)(?:(?!\1).)+?\1/m, "")
 
-# `.match`, not `prose[RE]`: String#[] with a Regexp hands back the matched
-# text, so `slice[1]` would be a character of it, not the capture.
+# `.match`/`.scan`, not `prose[RE]`: String#[] with a Regexp hands back the
+# matched text, so `slice[1]` would be a character of it, not the capture.
+#
+# EVERY slice count is checked, not just the first: a body can say
+# `Closes #7 (slice 3 of 3)` and later mention `slice 1 of 4` of the same
+# issue, and the first match being complete must not exonerate the body.
+# Any incomplete count fires, and the diagnostic names the one that fired.
 closing = prose.match(CLOSING)
-slice = prose.match(SLICE)
-incomplete = slice && slice[1].to_i < slice[2].to_i
+slice = prose.to_enum(:scan, SLICE).map { Regexp.last_match }
+              .find { |m| m[1].to_i < m[2].to_i }
 
-unless closing && incomplete
+# `slice` is the incomplete count if any was found (see the scan above).
+unless closing && slice
   puts "Linked issues consistent (no closing keyword on an incomplete slice)"
   exit 0
 end
