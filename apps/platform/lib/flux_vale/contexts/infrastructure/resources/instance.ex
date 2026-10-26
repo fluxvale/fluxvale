@@ -61,6 +61,7 @@ defmodule FluxVale.Infrastructure.Instance do
     authorizers: [Ash.Policy.Authorizer],
     notifiers: [Ash.Notifier.PubSub]
 
+  alias FluxVale.Infrastructure.Instance.AdoptCurrentRow
   alias FluxVale.Infrastructure.Instance.DeriveFromAppVersion
   alias FluxVale.Infrastructure.Instance.GenerateSlug
   alias FluxVale.Infrastructure.Instance.MaintainAnchors
@@ -94,12 +95,6 @@ defmodule FluxVale.Infrastructure.Instance do
         queue(:deployments)
         scheduler_cron(false)
         on_error(:mark_deploy_error)
-        # PR #267 review finding 4: re-read the row under FOR UPDATE
-        # inside the work transaction — the deploy's k8s applies and a
-        # concurrent set_exposure's are serialized by the row lock,
-        # and the changeset runs against the row's current exposure
-        # (with the optimistic lock as the clean-failure backstop).
-        lock_for_update?(true)
         worker_module_name(__MODULE__.Deploy.Worker)
         scheduler_module_name(__MODULE__.Deploy.Scheduler)
       end
@@ -403,20 +398,17 @@ defmodule FluxVale.Infrastructure.Instance do
       public?(true)
     end
 
-    # #265 (PR #267 review finding 4): optimistic-lock token
-    # serializing the two exposure-touching writers — `set_exposure`
-    # and `perform_deploy` both carry `optimistic_lock(:version)`, so
-    # whichever loads the row second fails with StaleRecord instead of
-    # applying a stale posture: a deploy holding a pre-toggle :public
-    # record can never re-mint the public edge after :private lands
-    # (its write matches zero rows and the trigger's k8s never runs;
-    # the Oban retry re-reads and converges). The :deploy trigger also
-    # reads `lock_for_update?` (AshOban's built-in): the row is
-    # re-read under FOR UPDATE inside the work transaction, so the
-    # deploy's after_action k8s and a concurrent set_exposure's are
-    # mutually excluded by the row lock rather than racing. Every
-    # other action ignores it — the lock is scoped to exactly the
-    # racing pair.
+    # #265 (PR #267 review rounds 1-2): the toggle side of the
+    # deploy/exposure serialization. `set_exposure` carries
+    # `optimistic_lock(:version)` so the slower of two racing toggles
+    # fails cleanly (StaleRecord → the panel's flash owns the retry).
+    # The deploy side does not race the row at all: `perform_deploy`
+    # re-reads it FOR UPDATE inside its own transaction (AdoptCurrentRow)
+    # and converges on the row's current posture — an optimistic lock
+    # there would CANCEL the job (AshOban's StaleRecord mapping) and
+    # strand the row in :deploying. Both actions hold the row lock
+    # across their synchronous cluster applies, so Postgres serializes
+    # the two k8s windows instead of letting them interleave.
     attribute :version, :integer do
       allow_nil?(false)
       default(1)
@@ -743,9 +735,10 @@ defmodule FluxVale.Infrastructure.Instance do
       require_atomic?(false)
       accept([:exposure])
 
-      # PR #267 review finding 4: the version check — a deploy that
-      # moved the row under this toggle refuses it cleanly (the flash
-      # owns the retry) instead of applying a stale posture.
+      # PR #267 review rounds 1-2: racing toggles refuse the slower
+      # one cleanly (the flash owns the retry). A racing DEPLOY does
+      # not refuse this — it serializes on the row lock instead (see
+      # AdoptCurrentRow), so the version only ever names toggles.
       change(optimistic_lock(:version))
 
       change(fn changeset, _context ->
@@ -816,12 +809,9 @@ defmodule FluxVale.Infrastructure.Instance do
       require_atomic?(false)
       accept([])
 
-      # PR #267 review finding 4: the stale-deploy guard — a row whose
-      # version moved (an exposure toggle landed after this job loaded
-      # it) fails the write, so the trigger's k8s apply never runs
-      # against the stale posture. The Oban retry re-reads and
-      # converges on the row's current exposure.
-      change(optimistic_lock(:version))
+      # PR #267 review round 2: converge on the row's current truth —
+      # never the StaleRecord cancel (see AdoptCurrentRow).
+      change(AdoptCurrentRow)
 
       change(PerformDeploy)
     end

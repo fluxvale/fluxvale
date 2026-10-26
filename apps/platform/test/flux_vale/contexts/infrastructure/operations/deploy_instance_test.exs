@@ -182,6 +182,15 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
       stub(Secret, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
       stub(Deployment, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
 
+      # PR #267 review round 2 (P3): private rows get NO public URL in
+      # their env — a dead ROOT_URL would seed the app with dead links
+      # of its own. The env lands on the first deploy that finds the
+      # row public.
+      expect(Secret, :create, fn _kc, ^ns, "app-env", data ->
+        refute Map.has_key?(data, "FORGEJO__server__ROOT_URL")
+        {:ok, %{}}
+      end)
+
       expect(Service, :create, fn _kc, ^ns, "app", _spec -> {:ok, %{}} end)
 
       expect(NetworkPolicy, :create, fn _kc, ^ns, "default-deny-ingress", spec ->

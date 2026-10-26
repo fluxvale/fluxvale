@@ -79,8 +79,6 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
       # Fresh private posture: no route exists to delete.
       {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
     end)
-
-    reject(Middleware, :create, 4)
   end
 
   defp stub_kubeconfig do
@@ -335,12 +333,17 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
       assert fresh.exposure == :private
     end
 
-    test "a stale deploy can never resurrect the public posture after private lands" do
+    # Round 2's semantics (P2-1): a stale deploy CONVERGES — it re-reads
+    # the row inside its own transaction and deploys the row's current
+    # posture. The old optimistic-lock answer would CANCEL the job
+    # (AshOban's StaleRecord mapping) and strand the row :deploying.
+    test "a stale deploy converges on the row's current posture after private lands — never resurrects, never cancels" do
       stub_kubeconfig()
       owner = owner()
       instance = deploying_instance!(owner, :public)
 
-      # The toggle the deploy raced against: private commits first.
+      # The toggle the deploy raced against: private commits first (its
+      # own cluster apply is private's — a tolerated 404 here).
       expect(Ingress, :delete, fn _kc, _ns, "app-ingress" ->
         {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
       end)
@@ -355,33 +358,12 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
 
       assert private.exposure == :private
 
-      # The stale deploy (loaded pre-toggle): its write matches zero
-      # rows, so the trigger's k8s never runs — no public route, no
-      # edge-admitting policy, the row stays private and :deploying.
-      # (Flunk-stubs, not rejects: the retry arm below re-arms the
-      # policy apply with an expect, and Mimic's reject is sticky.)
-      stub(Ingress, :create, fn _kc, _ns, _n, _spec ->
-        flunk("a stale deploy mints no route")
-      end)
-
-      stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec ->
-        flunk("a stale deploy re-adopts no policy")
-      end)
-
-      stale =
-        instance
-        |> Ash.Changeset.for_update(:perform_deploy, %{}, authorize?: false)
-        |> Ash.update()
-
-      assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Changes.StaleRecord{}]}} = stale
-
-      fresh = Instance.get_by_id!(instance.id, authorize?: false)
-      assert fresh.exposure == :private
-      assert fresh.status == :deploying
-
-      # The Oban retry's shape: a fresh read deploys the row's CURRENT
-      # posture — private end to end.
+      # The stale deploy (still holding the pre-toggle :public record):
+      # it adopts the row's current truth and deploys PRIVATE end to
+      # end — the workload lands, the edge stays private, no cancel.
       stub_deploy_operands()
+
+      reject(Middleware, :create, 4)
 
       expect(NetworkPolicy, :create, fn _kc, _ns, "default-deny-ingress", spec ->
         assert spec == %{ingress_from_namespaces: []}
@@ -389,12 +371,79 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
       end)
 
       assert {:ok, deployed} =
-               fresh
+               instance
                |> Ash.Changeset.for_update(:perform_deploy, %{}, authorize?: false)
                |> Ash.update()
 
       assert deployed.status == :starting
       assert deployed.exposure == :private
+
+      fresh = Instance.get_by_id!(instance.id, authorize?: false)
+      assert fresh.exposure == :private
+      assert fresh.status == :starting
+    end
+
+    # The other race direction: the deploy commits its posture, and a
+    # toggle loaded BEFORE it applies AFTER it — ordering converges the
+    # row (the toggle's cluster apply runs against the settled deploy;
+    # the row lock serialized the two windows), no refusal needed.
+    test "a pre-deploy-loaded toggle applies after the deploy — ordering, not refusal" do
+      stub_kubeconfig()
+      owner = owner()
+      instance = deploying_instance!(owner, :public)
+
+      stub_deploy_operands()
+
+      # The public deploy's serving edge — beacon + app route.
+      stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Ingress, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      expect(NetworkPolicy, :create, fn _kc, _ns, "default-deny-ingress", spec ->
+        assert spec == %{ingress_from_namespaces: ["traefik"]}
+        {:ok, %{}}
+      end)
+
+      # The deploy commits the public posture (the stale record's own).
+      assert {:ok, deployed} =
+               instance
+               |> Ash.Changeset.for_update(:perform_deploy, %{}, authorize?: false)
+               |> Ash.update()
+
+      assert deployed.status == :starting
+      assert deployed.exposure == :public
+
+      # The toggle, loaded BEFORE the deploy ran, applies after it —
+      # the row's final posture is the toggle's, applied to a settled
+      # world.
+      expect(Ingress, :delete, fn _kc, _ns, "app-ingress" -> :ok end)
+
+      expect(NetworkPolicy, :create, fn _kc, _ns, "default-deny-ingress", spec ->
+        assert spec == %{ingress_from_namespaces: []}
+        {:ok, %{}}
+      end)
+
+      assert {:ok, private} =
+               Instance.set_exposure(instance, %{exposure: :private}, actor: owner)
+
+      assert private.exposure == :private
+    end
+
+    # The one cancel that survives (P2-1): a row the teardown already
+    # hard-deleted — AshOban's own no-longer-applies, nothing to deploy.
+    test "a deploy whose row vanished cancels — teardown owns the row" do
+      stub_kubeconfig()
+      owner = owner()
+      instance = deploying_instance!(owner, :public)
+
+      Ash.destroy!(instance, authorize?: false)
+
+      ghost =
+        instance
+        |> Ash.Changeset.for_update(:perform_deploy, %{}, authorize?: false)
+        |> Ash.update()
+
+      assert {:error, %Ash.Error.Invalid{errors: [%AshOban.Errors.TriggerNoLongerApplies{}]}} =
+               ghost
     end
   end
 

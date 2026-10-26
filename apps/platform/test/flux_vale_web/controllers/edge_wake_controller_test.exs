@@ -407,4 +407,95 @@ defmodule FluxValeWeb.EdgeWakeControllerTest do
 
     assert response(ghost_conn, 404)
   end
+
+  describe "the private gate (PR #267 review round 2)" do
+    # The endpoint is public and host-agnostic (the EdgeHost plug's own
+    # moduledoc names the forged-marker path): without the gate, anyone
+    # holding a private instance's UUID could start it — burning the
+    # owner's balance — and be 302'd at a host that never serves.
+    defp private!(status) do
+      instance = instance!(status)
+      InstanceFixtures.pin!(instance, exposure: :private)
+    end
+
+    test "a forged marker naming a private sleeping instance reads the unknown-id 404 and stays asleep",
+         %{
+           conn: conn
+         } do
+      stub_k8s()
+      private = private!(:sleeping)
+
+      # No wake is attempted — the scale arm is the wake's footprint.
+      reject(Deployment, :scale, 4)
+
+      conn =
+        conn
+        |> browser()
+        |> put_req_header(@header, private.id)
+        |> get("/_fluxvale_edge/edge-wake-path")
+
+      assert response(conn, 404) == "not found"
+
+      assert Instance.get_by_id!(private.id, authorize?: false).status == :sleeping
+    end
+
+    test "the private 404 is byte-identical to the unknown-id 404 — no posture leak", %{
+      conn: conn
+    } do
+      stub_k8s()
+      private = private!(:sleeping)
+
+      ghost = "00000000-0000-7000-8000-000000000000"
+
+      private_conn =
+        build_conn()
+        |> put_req_header(@header, private.id)
+        |> get("/_fluxvale_edge/edge-wake-path")
+
+      ghost_conn =
+        build_conn()
+        |> put_req_header(@header, ghost)
+        |> get("/_fluxvale_edge/edge-wake-path")
+
+      assert response(private_conn, 404) == response(ghost_conn, 404)
+      assert private_conn.resp_body == ghost_conn.resp_body
+    end
+
+    test "the non-GET arm gates too — a POST naming a private row 404s, nothing starts", %{
+      conn: conn
+    } do
+      stub_k8s()
+      private = private!(:sleeping)
+
+      reject(Deployment, :scale, 4)
+
+      conn =
+        conn
+        |> put_req_header(@header, private.id)
+        |> post("/_fluxvale_edge/edge-wake-path")
+
+      assert response(conn, 404) == "not found"
+
+      assert Instance.get_by_id!(private.id, authorize?: false).status == :sleeping
+    end
+
+    test "a private :running instance 404s — no restore apply, no redirect at a dead host", %{
+      conn: conn
+    } do
+      stub_k8s()
+      private = private!(:running)
+
+      # The restore path must not even be reached (RestoreServingEdge
+      # would no-op; the gate makes the attempt unreachable).
+      reject(Ingress, :create, 4)
+
+      conn =
+        conn
+        |> browser()
+        |> put_req_header(@header, private.id)
+        |> get("/_fluxvale_edge/edge-wake-path")
+
+      assert response(conn, 404) == "not found"
+    end
+  end
 end

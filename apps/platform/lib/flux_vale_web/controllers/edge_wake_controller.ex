@@ -29,6 +29,12 @@ defmodule FluxValeWeb.EdgeWakeController do
   - anything else → 503, plainly — and the page refreshes.
   - probes (Edge.probe_request?/1) → 503, never a wake: probes must
     not count as traffic, and an asleep app IS down to a monitor.
+  - **private rows → 404, always** (PR #267 review round 2): the
+    endpoint is public and host-agnostic, so a forged marker naming a
+    private instance must not start it (burning the owner's balance)
+    or 302 at a host that never serves — the same "not found" as an
+    unknown id, no posture or existence leak; the panel remains the
+    only starter.
 
   Non-HTML clients (API callers, rclone) never get the page — 503 +
   Retry-After is the retryable honest answer; the wake still triggers.
@@ -77,6 +83,12 @@ defmodule FluxValeWeb.EdgeWakeController do
 
   defp wake_then_retry(conn, instance_id) do
     case Instance.get_by_id(instance_id, authorize?: false) do
+      # The private gate's non-GET arm: no wake, no retry signal that
+      # would name a live instance — the same 404 the GET path serves
+      # (see the private clause of answer/2).
+      {:ok, %Instance{exposure: :private}} ->
+        send_resp(conn, :not_found, "not found")
+
       {:ok, %{status: :sleeping} = instance} ->
         # The wake's funded gate decides the copy: an unfunded sleep
         # never wakes, and "resend" would be a lie.
@@ -99,6 +111,14 @@ defmodule FluxValeWeb.EdgeWakeController do
 
   defp unfunded_signal(conn) do
     respond(conn, :service_unavailable, "asleep — the owner's balance needs a top-up to wake it")
+  end
+
+  # PR #267 review round 2 (P2-2): the private gate, before any status
+  # logic — a forged marker must not learn the row exists, start it, or
+  # be redirected at a host that never serves. Identical bytes to the
+  # unknown-id answer on purpose.
+  defp answer(conn, {:ok, %Instance{exposure: :private}}) do
+    send_resp(conn, :not_found, "not found")
   end
 
   defp answer(conn, {:ok, %{status: :sleeping} = instance}) do

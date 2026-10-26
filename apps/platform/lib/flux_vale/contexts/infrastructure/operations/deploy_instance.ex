@@ -220,13 +220,19 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
 
   # The merged env (catalog defaults under user values) plus the
   # instance's public URL when the AppVersion asks for it
-  # (`instance_url_env` — Forgejo's ROOT_URL; the URL isn't catalog data).
+  # (`instance_url_env` — Forgejo's ROOT_URL; the URL isn't catalog
+  # data). Private rows get NO URL (PR #267 review round 2): the
+  # address never serves, and an app seeded with a dead ROOT_URL
+  # mints dead links of its own. The env lands on the first deploy
+  # that finds the row public (toggling later doesn't rewrite a
+  # running app's env Secret — the next deploy does).
   defp deploy_env(instance) do
     with {:ok, instance} <- Ash.load(instance, :app_version, authorize?: false),
-         env_name when not is_nil(env_name) <- instance.app_version.instance_url_env do
+         env_name when not is_nil(env_name) <- instance.app_version.instance_url_env,
+         :public <- instance.exposure do
       Map.put(instance.env_vars, env_name, instance_url(instance))
     else
-      _no_url_env -> instance.env_vars
+      _no_public_url -> instance.env_vars
     end
   end
 
