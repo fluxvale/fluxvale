@@ -117,13 +117,16 @@ defmodule FluxVale.Infrastructure.Operations.StaleSleepExposureTest do
       assert slept.exposure == :public
     end
 
-    test "a row torn down mid-flight cancels the sleep instead of erroring the sweep" do
+    test "a row torn down mid-flight cancels the sleep (the sweep unit still errors to Oban)" do
       stub_kubeconfig()
       instance = running!()
 
       # The teardown's hard delete lands inside the read-to-sleep gap.
       # The adopt step cancels with AshOban's TriggerNoLongerApplies —
-      # the one correct cancel (the AdoptCurrentRow stance).
+      # the one correct cancel (the AdoptCurrentRow stance). The cancel
+      # is surfaced as an error return, so the SWEEP unit records a
+      # failed unit and the whole pass returns {:error} for Oban's retry;
+      # what is cancelled is this sleep, not the retry.
       :ok = Ash.destroy(instance, authorize?: false)
 
       assert {:error, _reason} = Instance.sleep(instance, authorize?: false)
