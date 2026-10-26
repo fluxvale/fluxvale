@@ -450,3 +450,45 @@ E2.9 non-ephemeral restart without a key, E2.10 gateway→dead backend
   `infrastructure/operations/edge_routes.ex` (the route flip this
   follows), `instance/adopt_current_row.ex` (the lock-and-adopt shape §7
   reuses), `operations/configure_backups.ex` (the Secret-as-home pattern)
+
+## Amendment 1 (2026-10-26): §7's lock waiters, its private-posture wording, and the landing order
+
+§7 as accepted describes the fix and its tradeoff but leaves three
+things imprecise. Corrected here, with the decision text above left
+intact.
+
+**Landing order.** §7 asserts a window "is closed"; the code that closes
+it is its own PR (#270), not the ADR's. The assertion holds only because
+#270 merged first (`8d3eb92`, before the ADR's own `d52a836`) — read this
+ADR as describing a fix in the tree, not as a proposal.
+
+**The lock's waiters.** §7 names only the toggle as the writer that can
+wait. It is five: the toggle, the edge beacon's `:touch` (the idle-clock
+write, at most once per 30s window per instance), the reconciler's status
+write (every minute per instance), settlement's anchor advance (every
+15 minutes), and the panel's Wake (`:start`).
+
+Scope the claim correctly — two of those five do cluster I/O *before*
+taking the row lock (`:reconcile_status` reads the Deployment, `:start`
+scales it), so their total wait behind a sleep is that I/O plus the lock,
+not "seconds". What is established is narrower and is all that matters
+here: **no cycle exists in the lock order** (the sleep takes no wallet
+lock; settlement takes the wallet lock before the row lock everywhere),
+so a wait always ends in a commit, and the sleep is the only one of the
+five holding the row lock across its own K8s calls.
+
+**The private-posture wording.** §7 says a row that left `:running` in
+the gap "now lands `:sleeping`/`:private` instead of erroring". Two
+corrections, in opposite directions:
+
+- A row that is `:private` when the sleep's locked re-read lands is still
+  slept (`:running → :sleeping`) under the **private posture** — routes
+  deleted, nothing minted. That is the fix working; the clause is right
+  about the outcome and loose about the transition.
+- A row that a *different* writer moved off `:running` in the gap is
+  **not** a quiet no-op: the sweep's own fresh re-read (`still_idle?/1`)
+  skips it inside `safe_sleep/1`, but if the row moves *after* that read,
+  the sleep action's status guard adds a changeset error, `safe_sleep/1`
+  logs it and returns `{:error, id}`, and the pass fails as a unit for
+  Oban's retry. The retry is correct (nothing was slept, nothing leaked);
+  the wording "instead of erroring" was wrong.

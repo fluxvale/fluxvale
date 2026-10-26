@@ -47,7 +47,7 @@ already ruled out.
 | [ADR-0036](00036-scale-to-zero-wake-on-use.md) | Scale-to-zero with wake-on-use: idle instances sleep after 1h, wake on the next request; always-on bills the 24/7 running rate | Accepted (amended — see Amendments 1–2) |
 | [ADR-0037](00037-instance-backups-s3.md) | Instance backups: restic to BYO S3-compatible storage (R2 first); crash-consistent PVC snapshots; Oban sweep + k8s Jobs; namespace-Secret credentials; same-instance restore | Accepted (amended — see Amendment 1) |
 | [ADR-0038](00038-instance-exposure-modes.md) | Instance exposure modes: public (default) \| private (no public route, edge ingress denied; provider-agnostic seam for the upcoming access layer); exposure is free | Accepted (amended — see Amendment 1) |
-| [ADR-0039](00039-private-access-layer-tailscale.md) | Private access layer: per-org userspace Tailscale gateway (B1), `AccessProvider` boundary, gateway-existence billing, gateway wake intercept, the stale-sleep self-heal | Accepted (price pending — owner's) |
+| [ADR-0039](00039-private-access-layer-tailscale.md) | Private access layer: per-org userspace Tailscale gateway (B1), `AccessProvider` boundary, gateway-existence billing, gateway wake intercept, the stale-sleep self-heal | Accepted (amended — see Amendment 1) (price pending — owner's) |
 
 ## Conventions
 
