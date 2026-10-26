@@ -9,6 +9,8 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
   use FluxVale.DataCase, async: true
   use Mimic
 
+  require Ash.Query
+
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Deployment
@@ -384,6 +386,71 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
     end
   end
 
+  describe "two concurrent attaches (P3-3)" do
+    # Both racers share ONE gateway (the resource is unique per org), so a
+    # gateway-scoped delete cannot tell the winner's row from the loser's.
+    # Only "did this attempt create it" can. The loser must leave the
+    # winner's committed pairing untouched.
+    test "a loser of the unique index deletes NOTHING of the winner's", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      # The winner's committed pairing — the row a gateway-scoped delete
+      # would find and (wrongly) destroy.
+      {:ok, winner} =
+        AccessRoute.create(
+          %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+          authorize?: false
+        )
+
+      # The loser ran `existing_route` BEFORE the winner committed (so it
+      # saw :none), then lost `unique_instance`. Both halves of that
+      # interleave are injected: the guard's read returns not-found (the
+      # pre-commit view), and the create returns the index violation.
+      # Reordering them sequentially is impossible — the guard would
+      # short-circuit into the no-op success that is the common case.
+      reject(AccessRoute, :destroy, 2)
+
+      # `stub` (not `expect`): the guard's read is consulted once here, and
+      # the assertion below reads the same function again.
+      stub(AccessRoute, :get_by_instance, fn _id, _opts ->
+        {:error, Ash.Error.Query.NotFound.exception(resource: AccessRoute)}
+      end)
+
+      expect(AccessRoute, :create, fn _attrs, _opts -> {:error, unique_violation()} end)
+
+      assert {:error, _} = Tailscale.attach_instance(gateway, instance)
+
+      # Still there, untouched: the loser never created it. Read through
+      # Ash directly (the stub above owns the provider-facing function).
+      assert [kept] =
+               AccessRoute
+               |> Ash.Query.filter(instance_id == ^instance.id)
+               |> Ash.read!(authorize?: false)
+
+      assert kept.id == winner.id
+      assert kept.route_key == "8443"
+    end
+
+    test "a winner's committed route survives a later loser", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      # The winner's pairing is committed first.
+      {:ok, winner} = Tailscale.attach_instance(gateway, instance)
+
+      # A retry now converges on it rather than racing — the guard is
+      # what makes the common case a no-op, and it returns the SAME row.
+      {:ok, again} = Tailscale.attach_instance(gateway, instance)
+
+      assert again.id == winner.id
+
+      assert {:ok, kept} = AccessRoute.get_by_instance(instance.id, authorize?: false)
+      assert kept.id == winner.id
+      assert kept.route_key == winner.route_key
+    end
+  end
+
   describe "attach failures clean up after themselves" do
     # The policy write is the last step: if it fails, the route row that
     # already landed must not survive — a leftover row would hold a port
@@ -749,6 +816,14 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
 
   defp access_namespace do
     Application.fetch_env!(:flux_vale, :access_gateway)[:namespace] || "fluxvale-access"
+  end
+
+  defp unique_violation do
+    %Ash.Error.Changes.InvalidAttribute{
+      field: :instance_id,
+      message: "has already been taken",
+      private_vars: [constraint: "access_routes_unique_instance_index"]
+    }
   end
 
   defp edge_namespace, do: Application.fetch_env!(:flux_vale, :instance_ingress_namespace)

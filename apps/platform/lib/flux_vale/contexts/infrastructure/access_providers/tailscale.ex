@@ -123,20 +123,28 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
          :none <- existing_route(gateway, instance),
          {:ok, taken} <- taken_ports(gateway),
          {:ok, port} <- Ports.allocate(taken),
-         {:ok, route} <- create_route(gateway, instance, port),
-         :ok <- apply_routes(kubeconfig, gateway),
-         :ok <- admit_gateway(kubeconfig, gateway, instance) do
-      {:ok, route}
+         {:ok, route} <- create_route(gateway, instance, port) do
+      finish_attach(kubeconfig, gateway, instance, route)
     else
       {:ok, %AccessRoute{} = existing} ->
         {:ok, existing}
 
-      # A route row that landed but whose cluster work failed is drift
-      # the caller's retry re-converges (the attach is idempotent by
-      # instance identity); surfacing the error is what keeps the panel
-      # honest.
       {:error, _reason} = error ->
         cleanup_failed_attach(gateway, instance, error)
+    end
+  end
+
+  # The cluster limbs, split out so the route this attempt created is in
+  # hand when they fail — cleanup must delete THAT row and no other.
+  defp finish_attach(kubeconfig, gateway, instance, route) do
+    with :ok <- apply_routes(kubeconfig, gateway),
+         :ok <- admit_gateway(kubeconfig, gateway, instance) do
+      {:ok, route}
+    else
+      # A route row that landed but whose cluster work failed is drift the
+      # caller's retry re-converges (the attach is idempotent by instance
+      # identity); surfacing the error is what keeps the panel honest.
+      {:error, _reason} = error -> cleanup_failed_attach(gateway, instance, error, route)
     end
   end
 
@@ -372,16 +380,25 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
     )
   end
 
-  # The attach failed after the row may have landed: remove it so a
-  # retry starts clean. A leftover row would hold a port and — worse —
-  # read as the owner's consent for a wake the owner never got service
-  # for. The policy and serve config are re-derived from the rows, so
-  # removing the row is enough for both; the original error is preserved.
-  defp cleanup_failed_attach(gateway, instance, error) do
-    # Both cleanups are best-effort: the original error is what the
-    # caller surfaces and retries on. `delete_route/1` is scoped to this
-    # gateway AND checks the row is still the one we created, so a
-    # concurrent attach that won the race keeps its pairing.
+  # The attach failed after the row may have landed: remove it so a retry
+  # starts clean. A leftover row would hold a port and — worse — read as
+  # the owner's consent for a wake the owner never got service for. The
+  # policy and serve config are re-derived from the rows, so removing the
+  # row is enough for both; the original error is preserved.
+  #
+  # Two distinct failures reach here and they must NOT be treated alike:
+  #
+  # - a cluster limb failed AFTER this attempt's row committed (four
+  #   args) — that row is ours, and it must go;
+  # - `create_route/3` itself failed (three args) — nothing of ours
+  #   landed, and the row the lookup finds belongs to a concurrent
+  #   attach that WON the unique index. Deleting it would tear down the
+  #   winner's committed pairing (both racers share one gateway — the
+  #   resource is unique per org — so a gateway-scoped match cannot tell
+  #   them apart; only "did this attempt create it" can).
+  defp cleanup_failed_attach(gateway, instance, error, _route) do
+    # Best-effort: the original error is what the caller surfaces and
+    # retries on.
     delete_route(gateway, instance)
 
     # coveralls-ignore-start - unreachable here: the attach that reached
@@ -404,6 +421,11 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
       route -> AccessRoute.destroy(route, authorize?: false)
     end
   end
+
+  # The route row was never ours (see the four-arg clause above): the
+  # instance already has a pairing, and it belongs to whoever committed
+  # first. Leave it alone — a retry converges on it via `existing_route`.
+  defp cleanup_failed_attach(_gateway, _instance, error), do: error
 
   # Cleanup's delete: only the pairing THIS attach created. A concurrent
   # attach that won the unique index must keep its route, so a bare

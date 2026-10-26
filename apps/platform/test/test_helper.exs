@@ -32,6 +32,9 @@ Mimic.copy(FluxVale.Clients.K8s.SelfAccessReview)
 # provider (and keep the cluster out of the DB suite); provider tests stub
 # the K8s resource modules beneath it.
 Mimic.copy(FluxVale.Infrastructure.AccessProviders.Tailscale)
+# The attach race (P3-3): a test must be able to make `create_route` lose
+# the unique index while another attempt's row is committed.
+Mimic.copy(FluxVale.Infrastructure.AccessRoute)
 Mimic.copy(FluxVale.Infrastructure.AccessProvider)
 
 ExUnit.start(exclude: [k8s: true])
