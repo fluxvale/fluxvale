@@ -11,6 +11,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformSettleTest do
 
   alias FluxVale.Billing
   alias FluxVale.Billing.LedgerEntry
+  alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
@@ -21,7 +22,10 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformSettleTest do
   @monthly_cents 200
 
   setup do
-    stub(Tailscale, :provision_gateway, fn _gateway, _key -> {:ok, :provisioned} end)
+    stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+      {:ok, %{credential_secret_ref: "credential-stub"}}
+    end)
+
     stub(Tailscale, :scale_gateway, fn _gateway, _replicas -> :ok end)
     stub(Tailscale, :teardown_gateway, fn _gateway -> :ok end)
     :ok
@@ -90,24 +94,39 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformSettleTest do
     end
 
     # The must-fix's other half: an un-reachable gateway must not bill.
-    test "a suspended gateway accrues nothing" do
+    test "a suspended gateway accrues nothing — Suspend parked its anchor" do
       {org, _owner, _wallet} = wallet!(10_000)
-      gateway = AccessFixtures.gateway!(org, state: :suspended)
+      gateway = AccessFixtures.gateway!(org, monthly_cents: @monthly_cents)
+
       pin_metering_since!(gateway, ago(@month_seconds))
 
-      assert {:ok, settled} = settle(gateway)
+      # Through the real arm (not a forced state write): Suspend scales
+      # down and parks the cursor, which is the invariant the settle's
+      # non-active branch relies on.
+      {:ok, suspended} = AccessGateway.suspend(gateway, authorize?: false)
+      assert suspended.metering_since == nil
+
+      assert {:ok, settled} = settle(suspended)
 
       assert ledger_total(settled.organization_id) == 0
     end
 
-    test "a needs_attention gateway accrues nothing" do
+    test "leaving :active closes the window so recovery cannot bill the gap" do
+      # The #268 must-fix's other half: a :needs_attention row used to
+      # keep its anchor, so the first settle after recovery billed the
+      # whole unobserved gap in arrears.
       {org, _owner, _wallet} = wallet!(10_000)
       gateway = AccessFixtures.gateway!(org, state: :needs_attention)
       pin_metering_since!(gateway, ago(@month_seconds))
 
       assert {:ok, settled} = settle(gateway)
 
-      assert ledger_total(settled.organization_id) == 0
+      # This tick bills the interval that was served, then parks.
+      assert settled.metering_since == nil
+
+      # A second tick bills nothing (the window is closed).
+      assert {:ok, _again} = settle(settled)
+      assert ledger_total(settled.organization_id) == -@monthly_cents
     end
 
     test "the ledger row carries the gateway's subject attribution" do

@@ -43,12 +43,27 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
 
   require Ash.Query
 
-  # The gateway's Kubernetes objects, all in the access namespace.
-  @deployment "gateway"
-  @state_claim "state"
-  @credential_secret "credential"
-  @serve_secret "serve-config"
+  # The gateway's Kubernetes objects, all in the access namespace and
+  # all keyed by the gateway's id — one org's gateway must never address
+  # (or overwrite) another's. `credential_secret_ref` on the row names
+  # the Secret this derives.
   @serve_file "serve.json"
+
+  # Per-gateway object names. The id is a uuid v7; its first 8 hex chars
+  # are unique enough for a namespace-local name and keep DNS-label
+  # length. Never derived from an org or app name (§1's opacity rule).
+  defp object_name(prefix, gateway), do: "#{prefix}-#{short_id(gateway)}"
+
+  defp short_id(%AccessGateway{id: id}) do
+    id
+    |> to_string()
+    |> String.slice(0, 8)
+  end
+
+  defp deployment_name(gateway), do: object_name("gateway", gateway)
+  defp state_claim_name(gateway), do: object_name("state", gateway)
+  defp credential_secret_name(gateway), do: object_name("credential", gateway)
+  defp serve_secret_name(gateway), do: object_name("serve-config", gateway)
 
   defp image, do: Application.fetch_env!(:flux_vale, :access_gateway)[:image]
 
@@ -58,14 +73,33 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
 
   @impl FluxVale.Infrastructure.AccessProvider
   def provision_gateway(%AccessGateway{} = gateway, auth_key) do
-    with {:ok, kubeconfig} <- kubeconfig(),
-         namespace = access_namespace(),
-         :ok <- write_credential(kubeconfig, namespace, auth_key),
-         {:ok, _serve} <- write_serve_config(kubeconfig, namespace, gateway),
-         {:ok, _pvc} <- ensure_state(kubeconfig, namespace),
-         {:ok, _deploy} <-
-           Deployment.apply_manifest(kubeconfig, deployment_manifest(gateway, namespace)) do
-      {:ok, :provisioned}
+    with {:ok, kubeconfig} <- kubeconfig() do
+      namespace = access_namespace()
+
+      result =
+        with :ok <- write_credential(kubeconfig, namespace, gateway, auth_key),
+             {:ok, _serve} <- write_serve_config(kubeconfig, namespace, gateway),
+             {:ok, _pvc} <- ensure_state(kubeconfig, namespace, gateway),
+             {:ok, _deploy} <-
+               Deployment.apply_manifest(kubeconfig, deployment_manifest(gateway, namespace)) do
+          {:ok, :provisioned}
+        end
+
+      case result do
+        {:ok, :provisioned} ->
+          # The row records the Secret's name (never the key) — the
+          # moduledoc's contract, and what a reader needs to locate the
+          # credential without knowing this module's naming rule.
+          {:ok, %{credential_secret_ref: credential_secret_name(gateway)}}
+
+        {:error, _reason} = error ->
+          # The create's transaction rolls the row back on failure, so a
+          # credential Secret left behind would be a live tailnet key with
+          # no row to govern it and nothing that would ever sweep it.
+          # Best-effort: the original error is what the caller sees.
+          safe_delete_secret(kubeconfig, namespace, credential_secret_name(gateway))
+          error
+      end
     end
   end
 
@@ -77,18 +111,26 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   def attach_instance(%AccessGateway{} = gateway, %Instance{} = instance) do
     with :ok <- require_private(instance),
          {:ok, kubeconfig} <- kubeconfig(),
+         # Idempotent by instance identity: a retry (or a double-click)
+         # converges on the existing pairing instead of allocating a
+         # second port and unwinding the working one in cleanup.
+         :none <- existing_route(gateway, instance),
          {:ok, taken} <- taken_ports(gateway),
          {:ok, port} <- Ports.allocate(taken),
          {:ok, route} <- create_route(gateway, instance, port),
          :ok <- apply_routes(kubeconfig, gateway),
-         :ok <- admit_gateway(kubeconfig, instance) do
+         :ok <- admit_gateway(kubeconfig, gateway, instance) do
       {:ok, route}
     else
+      {:ok, %AccessRoute{} = existing} ->
+        {:ok, existing}
+
       # A route row that landed but whose cluster work failed is drift
       # the caller's retry re-converges (the attach is idempotent by
       # instance identity); surfacing the error is what keeps the panel
       # honest.
-      {:error, _reason} = error -> cleanup_failed_attach(gateway, instance, error)
+      {:error, _reason} = error ->
+        cleanup_failed_attach(gateway, instance, error)
     end
   end
 
@@ -99,12 +141,32 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   @impl FluxVale.Infrastructure.AccessProvider
   def detach_instance(%AccessGateway{} = gateway, %Instance{} = instance) do
     with {:ok, kubeconfig} <- kubeconfig() do
-      _removed = delete_route(instance)
-      # Policy first-then-serve order does not matter here: both are
-      # idempotent removals and the policy's removal alone already
-      # closes reachability (the pod cannot reach the namespace).
-      _policy = disadmit_gateway(kubeconfig, instance)
-      apply_routes(kubeconfig, gateway)
+      # Policy first, then the row, then the serve config. The order
+      # matters on failure: the policy write is the reachability gate and
+      # its error must surface while the route row still exists to retry
+      # against (deleting the row first would strand an instance admitted
+      # to the access namespace forever — the row is the only record of
+      # the pairing).
+      with :ok <- disadmit_gateway(kubeconfig, instance),
+           :ok <- delete_route(instance) do
+        apply_routes(kubeconfig, gateway)
+      end
+    end
+  end
+
+  # The pairing for this instance, if one already exists (the attach
+  # idempotence check). Scoped to the gateway: a route on another org's
+  # gateway is not this gateway's to adopt.
+  defp existing_route(gateway, instance) do
+    # System seam: the provider runs actorless (a retry has no caller), so
+    # the policy-gated read must be bypassed here — the caller's own
+    # authorization is the operation's job (AttachInstance).
+    case AccessRoute.get_by_instance(instance.id, authorize?: false) do
+      {:ok, %AccessRoute{gateway_id: gateway_id} = route} when gateway_id == gateway.id ->
+        {:ok, route}
+
+      _none_or_other ->
+        :none
     end
   end
 
@@ -140,12 +202,24 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # ------------------------------------------------------------------
 
   @impl FluxVale.Infrastructure.AccessProvider
-  def update_credential(%AccessGateway{}, auth_key) do
+  def update_credential(%AccessGateway{state: state} = gateway, auth_key)
+      when state in [:suspended, :destroying] do
+    # Parked (or being torn down): write the key and stop. A restart is a
+    # get→apply that asserts the fetched replica count, so it would
+    # resurrect a pod the ladder scaled to 0 — and the observer refuses to
+    # override a suspension, so that pod would serve for free. The new key
+    # lands on the next resume, which scales the pod up itself.
+    with {:ok, kubeconfig} <- kubeconfig() do
+      write_credential(kubeconfig, access_namespace(), gateway, auth_key)
+    end
+  end
+
+  def update_credential(%AccessGateway{} = gateway, auth_key) do
     with {:ok, kubeconfig} <- kubeconfig(),
-         :ok <- write_credential(kubeconfig, access_namespace(), auth_key) do
+         :ok <- write_credential(kubeconfig, access_namespace(), gateway, auth_key) do
       # Restart, not recreate: the pod rejoins under the new key with the
       # persisted state, and the Secret update alone would not re-read.
-      case Deployment.restart(kubeconfig, access_namespace(), @deployment) do
+      case Deployment.restart(kubeconfig, access_namespace(), deployment_name(gateway)) do
         {:ok, _deployment} -> :ok
         {:error, _reason} = error -> error
       end
@@ -153,9 +227,9 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   end
 
   @impl FluxVale.Infrastructure.AccessProvider
-  def read_credential(%AccessGateway{}) do
+  def read_credential(%AccessGateway{} = gateway) do
     with {:ok, kubeconfig} <- kubeconfig() do
-      case Secret.get_data(kubeconfig, access_namespace(), @credential_secret) do
+      case Secret.get_data(kubeconfig, access_namespace(), credential_secret_name(gateway)) do
         {:ok, %{"TS_AUTHKEY" => key}} when is_binary(key) and key != "" -> {:ok, key}
         {:ok, _malformed} -> {:error, :credential_malformed}
         {:error, _reason} = error -> error
@@ -168,9 +242,9 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # ------------------------------------------------------------------
 
   @impl FluxVale.Infrastructure.AccessProvider
-  def scale_gateway(%AccessGateway{}, replicas) when replicas in [0, 1] do
+  def scale_gateway(%AccessGateway{} = gateway, replicas) when replicas in [0, 1] do
     with {:ok, kubeconfig} <- kubeconfig() do
-      case Deployment.scale(kubeconfig, access_namespace(), @deployment, replicas) do
+      case Deployment.scale(kubeconfig, access_namespace(), deployment_name(gateway), replicas) do
         {:ok, _deployment} -> :ok
         {:error, _reason} = error -> error
       end
@@ -192,10 +266,10 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
       attached = AccessGateway.attached_instances(gateway)
       Enum.each(attached, &detach_instance(gateway, &1))
 
-      with :ok <- safe_delete_deployment(kubeconfig, namespace),
-           :ok <- safe_delete_secret(kubeconfig, namespace, @serve_secret),
-           :ok <- safe_delete_secret(kubeconfig, namespace, @credential_secret) do
-        safe_delete_pvc(kubeconfig, namespace, @state_claim)
+      with :ok <- safe_delete_deployment(kubeconfig, namespace, gateway),
+           :ok <- safe_delete_secret(kubeconfig, namespace, serve_secret_name(gateway)),
+           :ok <- safe_delete_secret(kubeconfig, namespace, credential_secret_name(gateway)) do
+        safe_delete_pvc(kubeconfig, namespace, state_claim_name(gateway))
       end
     end
   end
@@ -206,8 +280,10 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
 
   # `TS_AUTHKEY` only. The row stores the ref; nothing reads the value
   # back out (no reveal path exists, deliberately — ADR-0039 §4).
-  defp write_credential(kubeconfig, namespace, auth_key) do
-    case Secret.create(kubeconfig, namespace, @credential_secret, %{"TS_AUTHKEY" => auth_key}) do
+  defp write_credential(kubeconfig, namespace, gateway, auth_key) do
+    name = credential_secret_name(gateway)
+
+    case Secret.create(kubeconfig, namespace, name, %{"TS_AUTHKEY" => auth_key}) do
       {:ok, _secret} -> :ok
       {:error, _reason} = error -> error
     end
@@ -225,14 +301,24 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
     entries =
       gateway
       |> routes_for()
-      |> Enum.map(fn route ->
-        instance = Ash.get!(Instance, route.instance_id, authorize?: false)
-        {route.route_key, ServeConfig.target_for(gateway.id, instance)}
+      |> Enum.flat_map(fn route ->
+        case Ash.get(Instance, route.instance_id, authorize?: false) do
+          {:ok, instance} ->
+            [{route.route_key, ServeConfig.target_for(gateway.id, instance)}]
+
+          # Vanished between the read and this build. The FK cascades the
+          # route with its instance, so this is only reachable if a read
+          # races a teardown inside one call — defensive, and skipping is
+          # the right answer: the next detach converges the leftover.
+          # coveralls-ignore-next-line race only: the FK cascades the route first
+          {:error, _not_found} ->
+            []
+        end
       end)
 
     config = ServeConfig.build(gateway.hostname, entries)
 
-    case Secret.create(kubeconfig, namespace, @serve_secret, %{
+    case Secret.create(kubeconfig, namespace, serve_secret_name(gateway), %{
            @serve_file => ServeConfig.encode(config)
          }) do
       {:ok, secret} -> {:ok, secret}
@@ -323,10 +409,16 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # Attaching admits the ACCESS NAMESPACE, never the edge (ADR-0038 §5's
   # constraint): the private policy's external list gains exactly one
   # namespace. The edge entry stays absent in every private state.
-  defp admit_gateway(_kubeconfig, %{namespace: nil}), do: :ok
+  defp admit_gateway(_kubeconfig, _gateway, %{namespace: nil}), do: :ok
 
-  defp admit_gateway(kubeconfig, instance) do
-    apply_policy(kubeconfig, instance, [access_namespace()])
+  defp admit_gateway(kubeconfig, gateway, instance) do
+    # The pod selector is load-bearing: without it the policy admits
+    # EVERY pod in the access namespace, so org B's gateway would reach
+    # org A's app through the shared namespace (the same multi-tenancy
+    # break the per-gateway object names close).
+    apply_policy(kubeconfig, instance, [access_namespace()],
+      ingress_from_pods: selector_labels(gateway)
+    )
   end
 
   # Detach returns the namespace to the private floor (same-namespace
@@ -341,17 +433,18 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
 
   defp disadmit_gateway(_kubeconfig, _instance), do: :ok
 
-  defp apply_policy(kubeconfig, instance, external_namespaces) do
-    case NetworkPolicy.create(
-           kubeconfig,
-           instance.namespace,
-           policy_name(),
-           %{ingress_from_namespaces: external_namespaces}
-         ) do
+  defp apply_policy(kubeconfig, instance, external_namespaces, opts \\ []) do
+    spec =
+      maybe_put_pods(%{ingress_from_namespaces: external_namespaces}, opts[:ingress_from_pods])
+
+    case NetworkPolicy.create(kubeconfig, instance.namespace, policy_name(), spec) do
       {:ok, _policy} -> :ok
       {:error, _reason} = error -> error
     end
   end
+
+  defp maybe_put_pods(spec, nil), do: spec
+  defp maybe_put_pods(spec, labels), do: Map.put(spec, :ingress_from_pods, labels)
 
   # The same object name EdgeRoutes / InstanceK8s / SetExposure use.
   defp policy_name, do: "default-deny-ingress"
@@ -366,27 +459,37 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # replica ready; `:provisioning` = not yet created (or scaled);
   # `:needs_attention` = created but not ready (bad key, crashloop).
   defp observe(kubeconfig, gateway) do
-    case Deployment.status(kubeconfig, access_namespace(), @deployment) do
-      {:ok, %{ready: ready, replicas: desired}} when desired > 0 and ready >= desired ->
-        {:ok, %{state: :active, message: "Connected to your tailnet"}}
+    case Deployment.status(kubeconfig, access_namespace(), deployment_name(gateway)) do
+      # `ready?/1`, not `ready >= replicas`: after a pod-template change
+      # (the re-paste restart, a re-provision) readyReplicas still counts
+      # the OLD pod until the controller rolls the new generation, so the
+      # bare comparison would report "Connected" and keep billing for a
+      # gateway that is mid-restart.
+      {:ok, status} when is_map(status) ->
+        classify(status, gateway)
 
-      {:ok, %{replicas: 0}} ->
-        # Scaled to zero — the ladder's suspension. The row's own state
-        # is the authority there; report it unchanged.
-        {:ok, %{state: gateway.state, message: "Access is paused"}}
-
-      {:ok, _not_ready} ->
-        {:ok,
-         %{
-           state: :needs_attention,
-           message: "Not connected — check the access key and reconnect"
-         }}
-
+      # Not created yet (the provision job has not landed): provisioning,
+      # not a bad key — the panel's "Setting up access".
       {:error, %Error{reason: :not_found}} ->
         {:ok, %{state: :provisioning, message: "Setting up access"}}
 
       {:error, _reason} = error ->
         error
+    end
+  end
+
+  defp classify(%{replicas: 0}, gateway) do
+    # Scaled to zero — the ladder's suspension. The row's own state is
+    # the authority there; report it unchanged.
+    {:ok, %{state: gateway.state, message: "Access is paused"}}
+  end
+
+  defp classify(status, _gateway) do
+    if Deployment.ready?(status) do
+      {:ok, %{state: :active, message: "Connected to your tailnet"}}
+    else
+      {:ok,
+       %{state: :needs_attention, message: "Not connected — check the access key and reconnect"}}
     end
   end
 
@@ -399,20 +502,24 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
       "apiVersion" => "apps/v1",
       "kind" => "Deployment",
       "metadata" => %{
-        "name" => @deployment,
+        "name" => deployment_name(gateway),
         "namespace" => namespace,
         "labels" => labels(gateway)
       },
       "spec" => %{
         "replicas" => 1,
-        "selector" => %{"matchLabels" => %{"app.kubernetes.io/name" => "access-gateway"}},
+        # Per-gateway selector: a shared one would let each gateway's
+        # Deployment adopt every other gateway's pods (they would fight
+        # over the same ReplicaSets), and the NetworkPolicy's pod
+        # admission below keys on the same label.
+        "selector" => %{"matchLabels" => selector_labels(gateway)},
         "template" => %{
-          "metadata" => %{"labels" => %{"app.kubernetes.io/name" => "access-gateway"}},
+          "metadata" => %{"labels" => selector_labels(gateway)},
           "spec" => %{
             # No securityContext, no capabilities, no hostNetwork — the
             # zero-privilege posture (§1) is an ABSENCE here, deliberately.
             "containers" => [container(gateway, namespace)],
-            "volumes" => volumes()
+            "volumes" => volumes(gateway)
           }
         }
       }
@@ -435,7 +542,10 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
         %{
           "name" => "TS_AUTHKEY",
           "value_from" => %{
-            "secretKeyRef" => %{"name" => @credential_secret, "key" => "TS_AUTHKEY"}
+            "secretKeyRef" => %{
+              "name" => credential_secret_name(gateway),
+              "key" => "TS_AUTHKEY"
+            }
           }
         }
       ],
@@ -463,22 +573,33 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
     }
   end
 
-  defp volumes do
+  defp volumes(gateway) do
     [
-      %{"name" => "state", "persistentVolumeClaim" => %{"claimName" => @state_claim}},
-      %{"name" => "serve", "secret" => %{"secretName" => @serve_secret}}
+      %{
+        "name" => "state",
+        "persistentVolumeClaim" => %{"claimName" => state_claim_name(gateway)}
+      },
+      %{"name" => "serve", "secret" => %{"secretName" => serve_secret_name(gateway)}}
     ]
   end
 
   # tailscaled's persisted identity (node key + prefs) — kilobytes, but
   # it MUST survive a restart or the node rejoins as a stranger (§4).
-  defp ensure_state(kubeconfig, namespace) do
-    PersistentVolumeClaim.create(kubeconfig, namespace, @state_claim, %{size: "64Mi"})
+  defp ensure_state(kubeconfig, namespace, gateway) do
+    PersistentVolumeClaim.create(kubeconfig, namespace, state_claim_name(gateway), %{
+      size: "64Mi"
+    })
   end
 
   defp labels(gateway) do
+    selector = selector_labels(gateway)
+    Map.put(selector, "app.kubernetes.io/managed-by", "fluxvale")
+  end
+
+  # The pod labels a gateway's Deployment selects AND the labels the
+  # NetworkPolicy admits from. Must be identical in both places.
+  defp selector_labels(gateway) do
     %{
-      "app.kubernetes.io/managed-by" => "fluxvale",
       "app.kubernetes.io/name" => "access-gateway",
       "fluxvale.io/gateway" => gateway.id
     }
@@ -488,8 +609,11 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # Teardown helpers
   # ==================================================================
 
-  defp safe_delete_deployment(kubeconfig, namespace),
-    do: safe_delete(fn -> Deployment.delete(kubeconfig, namespace, @deployment) end)
+  defp safe_delete_deployment(kubeconfig, namespace, gateway),
+    do:
+      safe_delete(fn ->
+        Deployment.delete(kubeconfig, namespace, deployment_name(gateway))
+      end)
 
   defp safe_delete_secret(kubeconfig, namespace, name),
     do: safe_delete(fn -> Secret.delete(kubeconfig, namespace, name) end)

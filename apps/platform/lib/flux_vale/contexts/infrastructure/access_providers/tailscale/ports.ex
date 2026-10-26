@@ -25,7 +25,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.Ports do
 
   @doc """
   The lowest port in the pool not in `taken`. `{:error, :pool_exhausted}`
-  past the ceiling — 100 attached instances on one gateway is far past
+  past the ceiling — 101 attached instances on one gateway is far past
   the B1 shape, and silently spilling into arbitrary ports would be
   worse than a clear refusal.
   """

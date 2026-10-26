@@ -21,7 +21,10 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
     # The instance create resolves the single cluster row (ResolveCluster).
     InstanceFixtures.local_cluster!()
 
-    stub(Tailscale, :provision_gateway, fn _gateway, _key -> {:ok, :provisioned} end)
+    stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+      {:ok, %{credential_secret_ref: "credential-stub"}}
+    end)
+
     stub(Tailscale, :scale_gateway, fn _gateway, _replicas -> :ok end)
     stub(Tailscale, :teardown_gateway, fn _gateway -> :ok end)
     stub(Tailscale, :update_credential, fn _gateway, _key -> :ok end)
@@ -199,7 +202,9 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
 
       stub(Tailscale, :read_credential, fn _gateway -> {:ok, "tskey-stored"} end)
 
-      expect(Tailscale, :provision_gateway, fn _gateway, "tskey-stored" -> {:ok, :provisioned} end)
+      expect(Tailscale, :provision_gateway, fn _gateway, "tskey-stored" ->
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
 
       assert {:ok, _gateway} =
                AccessGateway.perform_provision(gateway, %{}, authorize?: false)
@@ -289,6 +294,21 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
 
       assert marked.state == :needs_attention
       assert marked.status_message =~ "retry removing"
+    end
+  end
+
+  describe "the :observe trigger's body" do
+    test "reads the cluster and writes what it observed", %{org: org} do
+      gateway = provisioned_row!(org)
+
+      stub(Tailscale, :gateway_status, fn _gateway ->
+        {:ok, %{state: :active, message: "Connected"}}
+      end)
+
+      assert {:ok, observed} = AccessGateway.perform_observe(gateway, %{}, authorize?: false)
+
+      assert observed.state == :active
+      assert observed.provisioned_at
     end
   end
 

@@ -183,7 +183,13 @@ config :flux_vale,
   access_gateway: [
     namespace: "fluxvale-access",
     image: "tailscale/tailscale:stable",
-    monthly_cents: 200
+    monthly_cents: 200,
+    # The wake intercept (#268's next slice) is not shipped yet: with this
+    # false a sleeping instance's serve entry points at its own Service
+    # (serve answers 502 — honest "not running"), rather than at the
+    # platform's /internal/access endpoint, which would be a hard 404
+    # until the controller lands. Flip to true with that PR.
+    wake_intercept_enabled: false
   ],
   # One active payment provider (ADR-0029); per-provider webhook routes
   # and config blocks make the gateway a one-module swap. HitPay is the

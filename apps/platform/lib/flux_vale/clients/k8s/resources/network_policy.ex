@@ -23,9 +23,18 @@ defmodule FluxVale.Clients.K8s.Resources.NetworkPolicy do
 
   require Logger
 
-  @typedoc "Simplified network policy specification"
+  @typedoc """
+  Simplified network policy specification.
+
+  `ingress_from_namespaces` admits *every* pod in each listed namespace.
+  `ingress_from_pods` narrows that to pods matching the given labels in
+  each namespace — required when several tenants' pods share one
+  namespace (the access gateway: org A's gateway must not reach org B's
+  app), and omitted by the single-tenant callers (edge, instance).
+  """
   @type spec :: %{
-          required(:ingress_from_namespaces) => [String.t()]
+          required(:ingress_from_namespaces) => [String.t()],
+          optional(:ingress_from_pods) => %{optional(String.t()) => String.t()}
         }
 
   @doc "Creates (server-side-applies) a NetworkPolicy from a simplified spec."
@@ -98,9 +107,15 @@ defmodule FluxVale.Clients.K8s.Resources.NetworkPolicy do
   """
   @spec build_manifest(String.t(), String.t(), spec()) :: map()
   def build_manifest(namespace, name, spec) do
+    pod_selector = pod_selector(spec)
+
     external_sources =
       Enum.map(spec.ingress_from_namespaces, fn ns ->
-        %{"namespaceSelector" => %{"matchLabels" => %{"kubernetes.io/metadata.name" => ns}}}
+        source = %{
+          "namespaceSelector" => %{"matchLabels" => %{"kubernetes.io/metadata.name" => ns}}
+        }
+
+        maybe_add_pod_selector(source, pod_selector)
       end)
 
     %{
@@ -124,6 +139,17 @@ defmodule FluxVale.Clients.K8s.Resources.NetworkPolicy do
       }
     }
   end
+
+  # Only a spec that names pods narrows the namespace admission; the
+  # single-tenant callers keep the whole-namespace shape they had.
+  defp pod_selector(%{ingress_from_pods: labels}) when is_map(labels) and labels != %{} do
+    %{"matchLabels" => labels}
+  end
+
+  defp pod_selector(_spec), do: nil
+
+  defp maybe_add_pod_selector(source, nil), do: source
+  defp maybe_add_pod_selector(source, selector), do: Map.put(source, "podSelector", selector)
 
   defp create_req(kubeconfig) do
     Kubereq.attach(Req.new(),

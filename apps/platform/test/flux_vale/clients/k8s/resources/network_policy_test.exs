@@ -99,4 +99,37 @@ defmodule FluxVale.Clients.K8s.Resources.NetworkPolicyTest do
                NetworkPolicy.delete(%{}, "ns", "default-deny-ingress")
     end
   end
+
+  describe "build_manifest/3 with a pod selector" do
+    # The access gateway's multi-tenancy requirement: several orgs' pods
+    # share one namespace, so admitting the namespace wholesale would let
+    # one org's gateway reach another's app.
+    test "narrows namespace admission to the named pods" do
+      manifest =
+        NetworkPolicy.build_manifest("fluxvale-app-1", "default-deny-ingress", %{
+          ingress_from_namespaces: ["fluxvale-access"],
+          ingress_from_pods: %{"fluxvale.io/gateway" => "gw-a"}
+        })
+
+      [rule | _rest] = manifest["spec"]["ingress"]
+      [source] = Enum.drop(rule["from"], 1)
+
+      assert source["namespaceSelector"]["matchLabels"]["kubernetes.io/metadata.name"] ==
+               "fluxvale-access"
+
+      assert source["podSelector"]["matchLabels"] == %{"fluxvale.io/gateway" => "gw-a"}
+    end
+
+    test "omits the pod selector when the spec names no pods" do
+      manifest =
+        NetworkPolicy.build_manifest("fluxvale-app-1", "default-deny-ingress", %{
+          ingress_from_namespaces: ["fluxvale-access"]
+        })
+
+      [rule | _rest] = manifest["spec"]["ingress"]
+      [source] = Enum.drop(rule["from"], 1)
+
+      refute Map.has_key?(source, "podSelector")
+    end
+  end
 end

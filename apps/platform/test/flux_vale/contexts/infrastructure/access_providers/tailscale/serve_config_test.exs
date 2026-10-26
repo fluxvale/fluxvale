@@ -15,6 +15,18 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfigTest do
 
   @hostname "fv-1a2b3c4d"
 
+  defp enable_wake_intercept do
+    previous = Application.get_env(:flux_vale, :access_gateway)
+
+    Application.put_env(
+      :flux_vale,
+      :access_gateway,
+      Keyword.put(previous, :wake_intercept_enabled, true)
+    )
+
+    on_exit(fn -> Application.put_env(:flux_vale, :access_gateway, previous) end)
+  end
+
   describe "build/2" do
     test "one app at root on its own port" do
       config =
@@ -89,11 +101,25 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfigTest do
       gateway_id = "0192f000-0000-7000-8000-000000000001"
       instance = %{id: "0192f000-0000-7000-8000-000000000002", status: :sleeping, namespace: "ns"}
 
+      # The wake intercept ships in a later slice, so the target is gated:
+      # with it off, serve's honest 502 beats a hard 404 at an endpoint
+      # that does not exist yet.
+      enable_wake_intercept()
+
       target = ServeConfig.target_for(gateway_id, instance)
 
       # The wake endpoint, addressed by the pairing — ADR-0039 §6.
       assert target =~ "/internal/access/#{gateway_id}/#{instance.id}"
       assert target =~ "svc.cluster.local"
+    end
+
+    test "with the intercept disabled a sleeping instance targets the app itself" do
+      instance = %{id: "i", status: :sleeping, namespace: "fluxvale-app-abc"}
+
+      refute Application.get_env(:flux_vale, :access_gateway)[:wake_intercept_enabled]
+
+      assert ServeConfig.target_for("g", instance) ==
+               "http://app.fluxvale-app-abc.svc.cluster.local:80"
     end
 
     test "a running instance targets the app's own Service" do

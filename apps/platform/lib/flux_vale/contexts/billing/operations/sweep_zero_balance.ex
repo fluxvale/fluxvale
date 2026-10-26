@@ -38,6 +38,7 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
   alias FluxVale.Mailer
 
   require Ash.Query
+  require Logger
 
   @destroy_after_days 30
   @warning_hours 24
@@ -92,7 +93,14 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
 
     case outcome do
       {:ok, summary} ->
-        {:ok, summary}
+        # The gateway arm runs AFTER the wallet pass commits. A failed
+        # Ash action calls Repo.rollback on the ENCLOSING transaction, so
+        # suspending inside it would let one cluster hiccup discard the
+        # whole pass (stops, markers, warnings). Out here, a failure is
+        # what it should be: this gateway stays up, the log says why, and
+        # the next sweep retries. Same reasoning for the stop arm's K8s
+        # call, which is the one other out-of-DB side effect.
+        {:ok, %{summary | suspended_gateway_ids: suspend_gateways(wallet)}}
 
       # defensive: rollback only fires from the arms that name it —
       # not simulatable under the sandbox
@@ -113,9 +121,6 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
     {warning_markers, runway_sent?} = runway_step(wallet, runway)
     {destroy_markers, destroyed, destroy_warning} = destroy_step(wallet, now)
     stopped = stop_step(wallet)
-    # Gateways go last for the same reason the stop does: it is the only
-    # other out-of-DB side effect, and the mails must decide first.
-    suspended = gateway_step(wallet)
 
     markers =
       warning_markers
@@ -128,7 +133,7 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
        destroy_warning: destroy_warning,
        stopped_ids: stopped,
        destroyed_ids: destroyed,
-       suspended_gateway_ids: suspended
+       suspended_gateway_ids: []
      }, markers}
   end
 
@@ -187,14 +192,46 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
   # cheap to keep parked (no pod, kilobytes of state), and destroying it
   # would drop the owner's tailnet node identity — a re-join on every
   # top-up, which is a far worse experience than a pause.
-  defp gateway_step(wallet) do
-    if wallet.balance <= 0 do
-      for gateway <- org_gateways(wallet.organization_id),
-          {:ok, suspended} <- [AccessGateway.suspend(gateway, authorize?: false)] do
-        suspended.id
-      end
+  defp suspend_gateways(wallet) do
+    # Re-read the balance: the pass's own writes (a top-up landing
+    # mid-flight) must not be missed, and the arm is deliberately outside
+    # the transaction that owned the earlier read.
+    if zero_or_below?(wallet) do
+      wallet.organization_id
+      |> org_gateways()
+      |> Enum.flat_map(&suspend_gateway/1)
     else
       []
+    end
+  end
+
+  # A failure must be visible: silently dropping it leaves an unfunded
+  # gateway running with nothing in the log to explain the spend. The
+  # id list is what was actually suspended, so an already-`:suspended`
+  # row does not claim credit for a pass that changed nothing.
+  defp suspend_gateway(%AccessGateway{state: :suspended}), do: []
+
+  defp suspend_gateway(gateway) do
+    case AccessGateway.suspend(gateway, authorize?: false) do
+      {:ok, suspended} -> [suspended.id]
+      {:error, reason} -> log_suspend_failure(gateway, reason)
+    end
+  end
+
+  defp log_suspend_failure(gateway, reason) do
+    Logger.error("Access gateway #{gateway.id} suspend failed: #{inspect(reason)}")
+    []
+  end
+
+  defp zero_or_below?(wallet) do
+    case Ash.load(wallet, :balance, authorize?: false, reuse_values?: false) do
+      {:ok, loaded} ->
+        (loaded.balance || 0) <= 0
+
+      # coveralls-ignore-start - defensive: DB read failure
+      {:error, _reason} ->
+        false
+        # coveralls-ignore-stop
     end
   end
 

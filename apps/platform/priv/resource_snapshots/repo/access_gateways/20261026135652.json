@@ -166,7 +166,7 @@
           "strategy": null
         },
         "name": "access_gateways_organization_id_fkey",
-        "on_delete": "delete",
+        "on_delete": "restrict",
         "on_update": null,
         "primary_key?": true,
         "schema": "public",

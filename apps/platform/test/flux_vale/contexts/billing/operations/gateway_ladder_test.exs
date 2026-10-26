@@ -23,7 +23,11 @@ defmodule FluxVale.Billing.Operations.GatewayLadderTest do
 
   setup do
     InstanceFixtures.local_cluster!()
-    stub(Tailscale, :provision_gateway, fn _gateway, _key -> {:ok, :provisioned} end)
+
+    stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+      {:ok, %{credential_secret_ref: "credential-stub"}}
+    end)
+
     stub(Tailscale, :scale_gateway, fn _gateway, _replicas -> :ok end)
     stub(Tailscale, :teardown_gateway, fn _gateway -> :ok end)
     :ok
@@ -101,6 +105,24 @@ defmodule FluxVale.Billing.Operations.GatewayLadderTest do
       assert fresh.metering_since == nil
     end
 
+    test "a suspend failure is logged, not swallowed" do
+      {org, _owner, wallet} = drained_wallet!()
+      _gateway = AccessFixtures.gateway!(org, monthly_cents: @gateway_cents)
+
+      expect(Tailscale, :scale_gateway, fn _gateway, _replicas -> {:error, :cluster_down} end)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:ok, summary} = Billing.sweep_zero_balance(wallet)
+          # Nothing claims to have been suspended: the id list is what
+          # this pass actually changed.
+          assert summary.suspended_gateway_ids == []
+        end)
+
+      # ...but the operator can see why an unfunded gateway is still up.
+      assert log =~ "suspend failed"
+    end
+
     test "a funded wallet leaves the gateway active" do
       {org, _owner, wallet} = wallet!(10_000)
       gateway = AccessFixtures.gateway!(org, monthly_cents: @gateway_cents)
@@ -122,9 +144,10 @@ defmodule FluxVale.Billing.Operations.GatewayLadderTest do
       reject(Tailscale, :scale_gateway, 2)
 
       assert {:ok, summary} = Billing.sweep_zero_balance(wallet)
-      # The row is fed through the arm and reported (idempotent), but
-      # nothing scaled a second time.
-      assert summary.suspended_gateway_ids != []
+      # Nothing scaled a second time, and the summary says so: the id
+      # list is what this pass actually suspended, not what it walked
+      # past (an already-parked gateway is not a suspension).
+      assert summary.suspended_gateway_ids == []
     end
 
     test "the destroy arm tears gateways down before their instances" do

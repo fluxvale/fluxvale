@@ -20,10 +20,11 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformSettle do
   - **anchor advance in the same transaction**, so a crash mid-settle
     re-bills nothing.
 
-  Accrual arms: `:active` only. `:suspended` and `:needs_attention`
-  accrue nothing (the trigger's `where` already filters those, and this
-  module re-checks — a settling row must never bill a gateway that is
-  not giving the owner reachability).
+  Accrual arms: `:active` only. The trigger's `where` includes
+  `:needs_attention` deliberately (a row that just lost its key still
+  has time to bill up to the moment it did), so this module's own
+  re-check is what stops the accrual — a settling row must never bill a
+  gateway that is not giving the owner reachability.
 
   A **nil** `metering_since` arms the cursor without posting: the first
   tick after create (or after a resume) opens the window, it does not
@@ -52,6 +53,27 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformSettle do
     Ash.Changeset.after_action(changeset, fn _changeset, record ->
       settle(record)
     end)
+  end
+
+  # Leaving :active: bill the interval actually served, then close the
+  # window. Parking without billing would drop served time; leaving it
+  # open would bill the whole unobserved gap in arrears on recovery.
+  defp park_anchor(%AccessGateway{metering_since: nil} = fresh), do: {:ok, fresh}
+
+  defp park_anchor(%AccessGateway{} = fresh) do
+    with {:ok, wallet} <- ensure_wallet(fresh),
+         :ok <- settle_interval(fresh, wallet) do
+      advance(fresh, nil)
+    end
+  end
+
+  defp ensure_wallet(%AccessGateway{organization_id: org_id}) do
+    Billing.ensure_wallet(%Organization{id: org_id})
+  end
+
+  defp settle_interval(%AccessGateway{} = fresh, %Wallet{} = wallet) do
+    micros = prorate(fresh.monthly_cents, usecs_between(fresh.metering_since, DateTime.utc_now()))
+    post_debit(wallet, fresh, micros)
   end
 
   @impl Ash.Resource.Change
@@ -122,9 +144,11 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformSettle do
 
   defp settle_fresh(%AccessGateway{state: state} = fresh, _wallet)
        when state != :active do
-    # Not giving the owner reachability → not billing. The trigger's
-    # where filters these; a direct drive must agree.
-    {:ok, fresh}
+    # Not giving the owner reachability → not billing, and the window
+    # closes here: an anchor left open would bill the entire gap on the
+    # first settle after a recovery (Suspend parks it for the same
+    # reason; the two arms must agree).
+    park_anchor(fresh)
   end
 
   defp settle_fresh(%AccessGateway{metering_since: nil} = fresh, _wallet) do
@@ -153,7 +177,8 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformSettle do
   defp usecs_between(from, to), do: max(DateTime.diff(to, from, :microsecond), 0)
 
   # Integer micro-cents, floored — the same rounding as the instance
-  # settle's prorate (the sub-µ¢ residue pools in the wallet carryover).
+  # settle's prorate. The floored sub-µ¢ fraction is discarded (too small
+  # for the ledger's unit); only the wallet's sub-CENT carryover pools.
   defp prorate(cents, usecs) do
     cents
     |> Decimal.new()

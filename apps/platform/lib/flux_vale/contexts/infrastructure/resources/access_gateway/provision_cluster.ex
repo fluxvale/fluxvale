@@ -1,14 +1,17 @@
 defmodule FluxVale.Infrastructure.AccessGateway.ProvisionCluster do
   @moduledoc """
   Materializes a gateway's cluster objects (ADR-0039 §1/§4) — the
-  `create` action's synchronous leg, and the `:provision` trigger's
-  body for the re-paste/redeploy recovery.
+  `create` action's synchronous leg, and the `:provision` trigger's body
+  for re-converging drifted objects.
 
-  Order matters and is the contract: the row is written first (the
-  `create` action's own write, before this `after_action` runs), so a
-  cluster failure leaves a row the panel can show and the retry can
-  heal. A pod with no row would be an ungovernable object no sweep
-  could find.
+  Failure posture on `create`: the row's write is in the same
+  transaction as this `after_action`, so a returned error rolls the whole
+  create back — a failed create leaves **no row**. That is deliberate:
+  the panel never shows a half-made gateway, and the create's own error
+  is the owner's answer (retry). There is nothing for a background retry
+  to pick up, which is why the trigger is not auto-enqueued. The provider
+  removes the credential Secret it wrote, so the rollback cannot strand a
+  live tailnet key with no row to govern it.
 
   The provider does the work; this module owns only the transition.
   Landing `:provisioning` is honest — the Deployment exists but has not
@@ -58,8 +61,27 @@ defmodule FluxVale.Infrastructure.AccessGateway.ProvisionCluster do
 
   defp run(%AccessGateway{} = gateway, auth_key) do
     case AccessProvider.impl_for(gateway).provision_gateway(gateway, auth_key) do
-      {:ok, _provisioned} -> :ok
+      {:ok, %{credential_secret_ref: ref}} -> record_ref(gateway, ref)
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # The ref is metadata, not a credential: writing it after the cluster
+  # work is what makes `credential_secret_ref` mean anything.
+  defp record_ref(%AccessGateway{} = gateway, ref) do
+    changeset =
+      Ash.Changeset.for_update(gateway, :update_state, %{credential_secret_ref: ref},
+        authorize?: false
+      )
+
+    case Ash.update(changeset) do
+      {:ok, _gateway} ->
+        :ok
+
+      # coveralls-ignore-start - defensive: DB write failure on a metadata update
+      {:error, reason} ->
+        {:error, reason}
+        # coveralls-ignore-stop
     end
   end
 

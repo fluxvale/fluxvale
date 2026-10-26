@@ -55,20 +55,32 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
     migration_defaults(id: "nil")
 
-    # The org goes, the gateway goes with it (an abandoned org's gateway
-    # must not outlive its wallet). The SETTLE TRIGGER is the reason this
-    # is a cascade and not a restrict: teardown already deletes every
-    # instance, and an org destroy has no owner to keep paying.
+    # Restrict, not cascade. A DB-level cascade would be a silent lie: it
+    # drops the row while the Deployment, its two Secrets and the PVC keep
+    # running in the access namespace, still joined to the customer's
+    # tailnet under their auth key — with no row left for any sweep to
+    # find. Refusing the org delete forces the caller through the
+    # teardown path (opt-out, or the ladder's destroy arm), which removes
+    # the cluster objects and needs the row to exist while it does.
+    #
+    # Accepted for v1: org deletion is not a supported flow yet (no action
+    # does it); when it lands it must tear gateways down first, exactly as
+    # it must for instances.
     references do
-      reference(:organization, on_delete: :delete)
+      reference(:organization, on_delete: :restrict)
     end
   end
 
   oban do
     triggers do
-      # The provision job's first leg: create the cluster objects. One
-      # shot, like :deploy — the owner's retry (or re-paste) is the
-      # recovery, and the panel shows the status either way.
+      # Re-converge the cluster objects — NOT the create path. `create`
+      # is synchronous (it holds the auth key, which must never reach
+      # Postgres) and rolls back on failure, so there is no row to retry:
+      # a failed create is the owner's retry. This trigger is invoked
+      # explicitly (`AshOban.run_trigger/2`) when the objects drifted
+      # after a successful create — a deleted Deployment, a cluster
+      # outage — and it re-reads the key from the Secret. Idempotent by
+      # SSA on per-gateway names.
       trigger :provision do
         action(:perform_provision)
         queue(:deployments)
@@ -76,6 +88,18 @@ defmodule FluxVale.Infrastructure.AccessGateway do
         on_error(:mark_provision_error)
         worker_module_name(__MODULE__.Provision.Worker)
         scheduler_module_name(__MODULE__.Provision.Scheduler)
+      end
+
+      # ADR-0039 §2's observed-state rule: the only promoter to :active.
+      # Every minute, like the instance reconciler — a gateway that is
+      # not observed can neither bill nor show "Connected".
+      trigger :observe do
+        action(:perform_observe)
+        queue(:reconciler)
+        scheduler_cron("* * * * *")
+        where(expr(state in [:provisioning, :active, :needs_attention]))
+        worker_module_name(__MODULE__.Observe.Worker)
+        scheduler_module_name(__MODULE__.Observe.Scheduler)
       end
 
       # ADR-0039 §5: existence accrual on the instance cadence.
@@ -169,6 +193,10 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     # state writer lands here, so the badge moves without polling.
     publish(:update_state, ["access_gateways", :organization_id])
     publish(:create, ["access_gateways", :organization_id])
+    # The teardown's hard delete is the one state change that never
+    # passes through :update_state — a subscribed panel needs the event
+    # to leave the page (the Instance notifier's stance).
+    publish(:destroy_after_teardown, ["access_gateways", :organization_id])
   end
 
   attributes do
@@ -265,6 +293,15 @@ defmodule FluxVale.Infrastructure.AccessGateway do
 
       accept([:organization_id, :monthly_cents])
 
+      # The org is the ACTOR's (the Instance create's contract): the
+      # attribute stays acceptable for the actorless system path
+      # (`authorize?: false`), but with an actor present this change
+      # forces the actor's own org, so a member of a funded org can no
+      # longer create a gateway owned by a different org (which that org
+      # would then pay for), and `ActorOrgWalletFunded` and the row can
+      # never disagree about whose wallet is in play.
+      change({FluxVale.Infrastructure.Instance.SetOrganizationFromActor, []})
+
       change(GenerateHostname)
 
       # The provider's credential arrives as an argument, not a column:
@@ -316,7 +353,35 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       description("System-only: observed gateway state + the panel's message.")
 
       require_atomic?(false)
-      accept([:state, :status_message, :needs_attention_since, :metering_since])
+
+      accept([
+        :state,
+        :status_message,
+        :needs_attention_since,
+        :metering_since,
+        :provisioned_at,
+        :credential_secret_ref
+      ])
+    end
+
+    # The observer's body — the trigger below drives it every minute.
+    # Without this action the only promoter to :active was unreachable
+    # from production code, so every row stayed :provisioning (no badge,
+    # no accrual, no NeedsLogin recovery).
+    update :perform_observe do
+      description("""
+      Reads the gateway's cluster state and writes the observation
+      (ADR-0039 §2). The :observe trigger's body.
+      """)
+
+      require_atomic?(false)
+      accept([])
+
+      change(fn changeset, _context ->
+        Ash.Changeset.after_action(changeset, fn _changeset, gateway ->
+          FluxVale.Infrastructure.observe_access_gateway(gateway)
+        end)
+      end)
     end
 
     update :suspend do
@@ -466,6 +531,7 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     define(:delete, args: [:id])
     define(:perform_provision)
     define(:perform_settle)
+    define(:perform_observe)
     define(:perform_teardown)
     define(:mark_provision_error)
     define(:mark_teardown_error)

@@ -80,15 +80,18 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
 
       secrets = for {:secret_create, _ns, name, data} <- calls, do: {name, data}
 
-      assert {"credential", %{"TS_AUTHKEY" => "tskey"}} in secrets
+      assert {name("credential", gateway), %{"TS_AUTHKEY" => "tskey"}} in secrets
 
-      assert Enum.any?(secrets, fn {name, data} ->
-               name == "serve-config" and is_binary(data["serve.json"])
+      assert Enum.any?(secrets, fn {secret_name, data} ->
+               secret_name == name("serve-config", gateway) and is_binary(data["serve.json"])
              end)
 
       assert Enum.any?(calls, fn
-               {:pvc_create, _ns, "state", %{size: "64Mi"}} -> true
-               _other_call -> false
+               {:pvc_create, _ns, claim, %{size: "64Mi"}} ->
+                 claim == name("state", gateway)
+
+               _other_call ->
+                 false
              end)
 
       manifest =
@@ -112,18 +115,31 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       assert by_name["TS_SERVE_CONFIG"]["value"] == "/serve/serve.json"
       assert by_name["TS_ENABLE_HEALTH_CHECK"]["value"] == "true"
       # The key rides a secretKeyRef, never a literal value.
-      assert by_name["TS_AUTHKEY"]["value_from"]["secretKeyRef"]["name"] == "credential"
+      assert by_name["TS_AUTHKEY"]["value_from"]["secretKeyRef"]["name"] ==
+               name("credential", gateway)
+
       refute Map.has_key?(by_name["TS_AUTHKEY"], "value")
     end
 
-    test "a cluster failure surfaces as an error (the retry's subject)", %{org: org} do
+    test "a cluster failure surfaces an error AND removes the key it wrote", %{org: org} do
       gateway = gateway_row!(org)
       # Drain the create leg's own captures so only the failing re-apply
       # below is under observation.
       drain()
 
-      expect(Secret, :create, fn _kc, _ns, _name, _data ->
+      # The credential write succeeds, a later step fails. The key must
+      # not survive: the create's transaction rolls the row back, so a
+      # leftover Secret would be a live tailnet key with no row to
+      # govern it and nothing that would sweep it.
+      expect(Secret, :create, fn _kc, _ns, _name, _data -> {:ok, %{}} end)
+
+      expect(Deployment, :apply_manifest, fn _kc, _manifest ->
         {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
+      end)
+
+      expect(Secret, :delete, fn _kc, _ns, secret_name ->
+        assert secret_name == name("credential", gateway)
+        :ok
       end)
 
       assert {:error, %Error{}} = Tailscale.provision_gateway(gateway, "tskey")
@@ -187,6 +203,95 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       instance = AccessFixtures.private_instance!(org, owner)
 
       assert {:error, :gateway_not_active} = Infrastructure.attach_instance(gateway, instance)
+    end
+  end
+
+  describe "attach idempotence (the retry must not unwind a good pairing)" do
+    test "attaching the same instance twice returns the existing route", %{
+      org: org,
+      owner: owner
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      {:ok, first} = Tailscale.attach_instance(gateway, instance)
+      {:ok, second} = Tailscale.attach_instance(gateway, instance)
+
+      # Same pairing, same port — not a second route that the unique
+      # index would reject and cleanup would then delete.
+      assert second.id == first.id
+      assert second.route_key == first.route_key
+      assert {:ok, still} = AccessRoute.get_by_instance(instance.id, authorize?: false)
+      assert still.id == first.id
+    end
+
+    test "a route on ANOTHER gateway is not adopted", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+      {:ok, original} = Tailscale.attach_instance(gateway, instance)
+
+      # A second gateway for a different org must not treat the first
+      # org's route as its own pairing.
+      {other_org, other_owner} = BillingFixtures.grant_free_org!()
+      {:ok, wallet} = FluxVale.Billing.ensure_wallet(other_org)
+      {:ok, _grant} = FluxVale.Billing.grant_credits(wallet, 10_000, reason: :adjustment)
+      other_gateway = AccessFixtures.gateway!(other_org)
+      other_instance = AccessFixtures.private_instance!(other_org, other_owner)
+
+      {:ok, route} = Tailscale.attach_instance(other_gateway, other_instance)
+
+      assert route.instance_id == other_instance.id
+      assert {:ok, kept} = AccessRoute.get_by_instance(instance.id, authorize?: false)
+      assert kept.id == original.id
+    end
+  end
+
+  describe "a suspended gateway's re-paste" do
+    test "writes the key but does NOT restart the parked pod", %{org: org} do
+      gateway = AccessFixtures.gateway!(org, state: :suspended)
+
+      # A restart is a get→apply asserting the fetched replica count, so
+      # it would resurrect a pod the ladder scaled to 0 — and the
+      # observer refuses to override a suspension, so it would serve free.
+      reject(Deployment, :restart, 3)
+
+      assert :ok = Tailscale.update_credential(gateway, "tskey-new")
+
+      assert_received {:secret_create, _ns, credential, %{"TS_AUTHKEY" => "tskey-new"}}
+      assert credential == name("credential", gateway)
+    end
+  end
+
+  describe "an instance destroyed under an attach" do
+    test "its route goes with it (the FK), so attach retries cleanly", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+      {:ok, route} = Tailscale.attach_instance(gateway, instance)
+
+      FluxVale.Repo.query!("DELETE FROM instances WHERE id = $1", [
+        Ecto.UUID.dump!(instance.id)
+      ])
+
+      # The pairing has no meaning without the instance.
+      assert {:error, _not_found} = AccessRoute.get_by_instance(instance.id, authorize?: false)
+      assert is_binary(route.id)
+    end
+  end
+
+  describe "credential write failures" do
+    test "a Secret write failure surfaces from provision", %{org: org} do
+      gateway = gateway_row!(org)
+
+      expect(Secret, :create, fn _kc, _ns, _name, _data ->
+        {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
+      end)
+
+      # The cleanup deletes the key it never wrote — 404 is success.
+      expect(Secret, :delete, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      assert {:error, %Error{}} = Tailscale.provision_gateway(gateway, "tskey")
     end
   end
 
@@ -255,8 +360,18 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
     test "a ready deployment is :active", %{org: org} do
       gateway = AccessFixtures.gateway!(org)
 
-      expect(Deployment, :status, fn _kc, _ns, "gateway" ->
-        {:ok, %{ready: 1, replicas: 1}}
+      expect(Deployment, :status, fn _kc, _ns, deployment ->
+        assert deployment == name("gateway", gateway)
+
+        {:ok,
+         %{
+           ready: 1,
+           replicas: 1,
+           actual_replicas: 1,
+           updated: 1,
+           generation: 1,
+           observed_generation: 1
+         }}
       end)
 
       assert {:ok, %{state: :active}} = Tailscale.gateway_status(gateway)
@@ -265,7 +380,19 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
     test "a created-but-not-ready deployment is :needs_attention", %{org: org} do
       gateway = AccessFixtures.gateway!(org)
 
-      expect(Deployment, :status, fn _kc, _ns, "gateway" -> {:ok, %{ready: 0, replicas: 1}} end)
+      expect(Deployment, :status, fn _kc, _ns, deployment ->
+        assert deployment == name("gateway", gateway)
+
+        {:ok,
+         %{
+           ready: 0,
+           replicas: 1,
+           actual_replicas: 1,
+           updated: 1,
+           generation: 1,
+           observed_generation: 1
+         }}
+      end)
 
       assert {:ok, %{state: :needs_attention}} = Tailscale.gateway_status(gateway)
     end
@@ -273,7 +400,8 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
     test "a missing deployment is :provisioning", %{org: org} do
       gateway = AccessFixtures.gateway!(org)
 
-      expect(Deployment, :status, fn _kc, _ns, "gateway" ->
+      expect(Deployment, :status, fn _kc, _ns, deployment ->
+        assert deployment == name("gateway", gateway)
         {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
       end)
 
@@ -305,10 +433,15 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
     test "writes the Secret and restarts the pod", %{org: org} do
       gateway = gateway_row!(org)
 
-      expect(Deployment, :restart, fn _kc, _ns, "gateway" -> {:ok, %{}} end)
+      expect(Deployment, :restart, fn _kc, _ns, deployment ->
+        assert deployment == name("gateway", gateway)
+        {:ok, %{}}
+      end)
 
       assert :ok = Tailscale.update_credential(gateway, "tskey-new")
-      assert_received {:secret_create, _ns, "credential", %{"TS_AUTHKEY" => "tskey-new"}}
+
+      assert_received {:secret_create, _ns, credential, %{"TS_AUTHKEY" => "tskey-new"}}
+      assert credential == name("credential", gateway)
     end
 
     test "a restart failure surfaces", %{org: org} do
@@ -326,10 +459,18 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
     test "scales to zero and to one", %{org: org} do
       gateway = gateway_row!(org)
 
-      expect(Deployment, :scale, fn _kc, _ns, "gateway", 0 -> {:ok, %{}} end)
+      expect(Deployment, :scale, fn _kc, _ns, deployment, 0 ->
+        assert deployment == name("gateway", gateway)
+        {:ok, %{}}
+      end)
+
       assert :ok = Tailscale.scale_gateway(gateway, 0)
 
-      expect(Deployment, :scale, fn _kc, _ns, "gateway", 1 -> {:ok, %{}} end)
+      expect(Deployment, :scale, fn _kc, _ns, deployment, 1 ->
+        assert deployment == name("gateway", gateway)
+        {:ok, %{}}
+      end)
+
       assert :ok = Tailscale.scale_gateway(gateway, 1)
     end
 
@@ -350,9 +491,25 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       instance = AccessFixtures.private_instance!(org, owner)
       {:ok, _route} = Tailscale.attach_instance(gateway, instance)
 
-      expect(Deployment, :delete, fn _kc, _ns, "gateway" -> :ok end)
-      expect(Secret, :delete, 2, fn _kc, _ns, _name -> :ok end)
-      expect(PersistentVolumeClaim, :delete, fn _kc, _ns, "state" -> :ok end)
+      expect(Deployment, :delete, fn _kc, _ns, deployment ->
+        assert deployment == name("gateway", gateway)
+        :ok
+      end)
+
+      expect(Secret, :delete, 2, fn _kc, _ns, secret_name ->
+        # Both the credential and the serve config, both per-gateway.
+        assert secret_name in [
+                 name("credential", gateway),
+                 name("serve-config", gateway)
+               ]
+
+        :ok
+      end)
+
+      expect(PersistentVolumeClaim, :delete, fn _kc, _ns, claim ->
+        assert claim == name("state", gateway)
+        :ok
+      end)
 
       assert :ok = Tailscale.teardown_gateway(gateway)
 
@@ -400,8 +557,10 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
 
       # The credential + policy writes succeed; the serve-config write
       # (the routing table) fails.
+      serve_name = name("serve-config", gateway)
+
       stub(Secret, :create, fn _kc, _ns, name, _data ->
-        if name == "serve-config" do
+        if name == serve_name do
           {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
         else
           {:ok, %{}}
@@ -457,7 +616,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
     test "a scaled-to-zero pod reports the row's own state", %{org: org} do
       gateway = AccessFixtures.gateway!(org, state: :suspended)
 
-      expect(Deployment, :status, fn _kc, _ns, "gateway" -> {:ok, %{ready: 0, replicas: 0}} end)
+      expect(Deployment, :status, fn _kc, _ns, deployment -> {:ok, %{ready: 0, replicas: 0}} end)
 
       assert {:ok, %{state: :suspended}} = Tailscale.gateway_status(gateway)
     end
@@ -478,7 +637,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
     test "returns the key from the Secret — internal only", %{org: org} do
       gateway = AccessFixtures.gateway!(org)
 
-      expect(Secret, :get_data, fn _kc, _ns, "credential" ->
+      expect(Secret, :get_data, fn _kc, _ns, credential ->
         {:ok, %{"TS_AUTHKEY" => "tskey"}}
       end)
 
@@ -518,6 +677,10 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
     Application.fetch_env!(:flux_vale, :access_gateway)[:namespace] || "fluxvale-access"
   end
 
+  # The per-gateway object names (ADR-0039 §1's multi-tenancy fix): the
+  # provider keys every object by the gateway's id prefix.
+  defp name(prefix, gateway), do: "#{prefix}-#{String.slice(to_string(gateway.id), 0, 8)}"
+
   # The most recent serve config the provider wrote (the Secret's
   # payload), for the routing assertions.
   defp latest_serve_config do
@@ -526,8 +689,11 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
     calls
     |> Enum.reverse()
     |> Enum.find_value(fn
-      {:secret_create, _ns, "serve-config", %{"serve.json" => json}} -> json
-      _other_call -> nil
+      {:secret_create, _ns, secret_name, %{"serve.json" => json}} ->
+        if String.starts_with?(secret_name, "serve-config"), do: json
+
+      _other_call ->
+        nil
     end)
   end
 

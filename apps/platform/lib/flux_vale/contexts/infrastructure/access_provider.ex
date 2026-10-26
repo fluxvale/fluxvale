@@ -27,8 +27,15 @@ defmodule FluxVale.Infrastructure.AccessProvider do
   Creates (or converges) the gateway's cluster objects: the credential
   Secret, the persisted-state PVC, the serve-config Secret and the
   Deployment. Idempotent (SSA) — re-running is the recovery path.
+
+  Returns `%{credential_secret_ref: String.t()}` — the Secret's NAME
+  (never the key), which the row records so a reader can locate the
+  credential without knowing the provider's naming rule. A failure rolls
+  the create back, so the provider also removes the Secret it wrote
+  (a live tailnet key must never outlive the row that governs it).
   """
-  @callback provision_gateway(AccessGateway.t(), String.t()) :: {:ok, term()} | {:error, term()}
+  @callback provision_gateway(AccessGateway.t(), String.t()) ::
+              {:ok, %{credential_secret_ref: String.t()}} | {:error, term()}
 
   @doc """
   Allocates a provider route for the instance and applies it: the serve

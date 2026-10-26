@@ -41,8 +41,10 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGateway do
     end
   end
 
-  # The suspension owns the row (see moduledoc).
-  defp apply_status(%AccessGateway{state: :suspended} = gateway, _observed, _status) do
+  # The suspension owns the row (see moduledoc), and so does an in-flight
+  # teardown: an observation must never write over either.
+  defp apply_status(%AccessGateway{state: state} = gateway, _observed, _status)
+       when state in [:suspended, :destroying] do
     {:ok, gateway}
   end
 
@@ -54,7 +56,8 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGateway do
         state: :active,
         status_message: "Connected to your tailnet",
         needs_attention_since: nil,
-        metering_since: gateway.metering_since || DateTime.utc_now()
+        metering_since: gateway.metering_since || DateTime.utc_now(),
+        provisioned_at: gateway.provisioned_at || DateTime.utc_now()
       })
     end
   end
@@ -75,19 +78,11 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGateway do
     {:ok, gateway}
   end
 
+  # `update_state` accepts `metering_since` (it is the observed-state
+  # funnel, and settlement's cursor rides it), so the write is one UPDATE.
   defp write(%AccessGateway{} = gateway, attrs) do
     gateway
     |> Ash.Changeset.for_update(:update_state, attrs, authorize?: false)
-    # `metering_since` is not on update_state's accept list (it is
-    # settlement's cursor); amending the same write keeps observation
-    # atomic instead of a second UPDATE that could interleave.
-    |> maybe_force_anchor(attrs)
     |> Ash.update()
   end
-
-  defp maybe_force_anchor(changeset, %{metering_since: anchor} = attrs) when not is_nil(anchor) do
-    Ash.Changeset.force_change_attribute(changeset, :metering_since, attrs.metering_since)
-  end
-
-  defp maybe_force_anchor(changeset, _attrs), do: changeset
 end

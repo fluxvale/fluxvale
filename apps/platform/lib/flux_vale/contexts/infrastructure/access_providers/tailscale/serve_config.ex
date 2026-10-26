@@ -99,13 +99,27 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfig do
   straight at the app. `:stopped`/`:error`/`:deploying` target the app
   too — serve answers 502, which is honest (nothing to wake: the owner
   stopped it, or the deploy is still landing).
+
+  The wake target is gated on `:access_gateway, :wake_intercept_enabled`
+  because the controller it addresses ships in a later slice: routing a
+  sleeping app at an endpoint that answers 404 would be worse than
+  serve's honest 502, so until the intercept lands every target is the
+  app's own Service.
   """
   @spec target_for(Ash.UUID.t(), map()) :: String.t()
   def target_for(gateway_id, %{status: :sleeping} = instance) do
-    asleep_target(gateway_id, instance.id)
+    if wake_intercept_enabled?() do
+      asleep_target(gateway_id, instance.id)
+    else
+      awake_target(instance.namespace)
+    end
   end
 
   def target_for(_gateway_id, instance), do: awake_target(instance.namespace)
+
+  defp wake_intercept_enabled? do
+    Application.get_env(:flux_vale, :access_gateway, [])[:wake_intercept_enabled] == true
+  end
 
   defp platform_namespace do
     Application.fetch_env!(:flux_vale, :instance_rbac)[:service_account_namespace]

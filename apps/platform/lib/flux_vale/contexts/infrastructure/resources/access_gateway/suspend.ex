@@ -30,7 +30,13 @@ defmodule FluxVale.Infrastructure.AccessGateway.Suspend do
       # Idempotent: the ladder re-enters this arm every hour while the
       # balance stays ≤ 0 (the sweep's abandoned-org stance). Nothing to
       # do, nothing to write.
-      if gateway.state == :suspended do
+      #
+      # `:destroying` is excluded too: the same ladder pass can destroy a
+      # gateway (flipping the row and enqueueing teardown) and then reach
+      # this arm. Suspending a row a teardown owns would regress its
+      # state, defeat the delete action's duplicate guard, and let
+      # mark_teardown_error resurrect it as :needs_attention.
+      if gateway.state in [:suspended, :destroying] do
         changeset
       else
         suspend(gateway, changeset)

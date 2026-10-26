@@ -109,8 +109,8 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
 
   The escape hatch for pods that are not customer apps — today the access
   gateway (ADR-0039 §1), whose shape the app builder cannot express: its
-  probes ride a sidecar's health port, its auth key is a `secretKeyRef`
-  rather than `envFrom`, and it mounts two volumes. Keeping the manifest
+  probes are its own health port (9002, not the app's port), its auth key
+  is a `secretKeyRef` rather than `envFrom`, and it mounts two volumes. Keeping the manifest
   in the provider that owns the pod (and Kubereq in this module) beats
   teaching an app-shaped builder a second dialect.
   """

@@ -17,7 +17,10 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGatewayTest do
   alias FluxVale.TestSupport.BillingFixtures
 
   setup do
-    stub(Tailscale, :provision_gateway, fn _gateway, _key -> {:ok, :provisioned} end)
+    stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+      {:ok, %{credential_secret_ref: "credential-stub"}}
+    end)
+
     stub(Tailscale, :scale_gateway, fn _gateway, _replicas -> :ok end)
 
     {org, _owner} = BillingFixtures.grant_free_org!()
