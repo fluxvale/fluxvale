@@ -95,7 +95,10 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       # not observed can neither bill nor show "Connected".
       trigger :observe do
         action(:perform_observe)
-        queue(:reconciler)
+        # Its own queue: see the `gateway_observe` note in config.exs —
+        # the instance reconciler is the only writer of `:running` and
+        # runs at concurrency 1, so it must not queue behind gateway reads.
+        queue(:gateway_observe)
         scheduler_cron("* * * * *")
         where(expr(state in [:provisioning, :active, :needs_attention]))
         worker_module_name(__MODULE__.Observe.Worker)

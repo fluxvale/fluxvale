@@ -76,19 +76,18 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformSettle do
   # may not run until up to 15 minutes later — billing to `now()` would
   # charge that gap, in which the gateway gave the owner no reachability.
   defp settle_interval(%AccessGateway{} = fresh, %Wallet{} = wallet) do
-    interval_end(fresh)
-    |> then(&usecs_between(fresh.metering_since, &1))
-    |> then(&prorate(fresh.monthly_cents, &1))
-    |> then(&post_debit(wallet, fresh, &1))
+    usecs = usecs_between(fresh.metering_since, interval_end(fresh))
+    micros = prorate(fresh.monthly_cents, usecs)
+    post_debit(wallet, fresh, micros)
   end
 
-  # Only a non-active arm has a transition instant worth honouring; an
-  # :active row bills to now (it is still serving).
-  defp interval_end(%AccessGateway{state: :active}), do: DateTime.utc_now()
-
-  defp interval_end(%AccessGateway{needs_attention_since: since})
-       when not is_nil(since),
-       do: since
+  # Reached only from `park_anchor/1` (a row leaving `:active`), so the
+  # transition instant is what bounds the interval. A `:needs_attention`
+  # row carries the instant it stopped serving; a row parked for any other
+  # reason has none, and `now()` is then the honest end (it was serving
+  # until this tick).
+  defp interval_end(%AccessGateway{needs_attention_since: since}) when not is_nil(since),
+    do: since
 
   defp interval_end(%AccessGateway{}), do: DateTime.utc_now()
 

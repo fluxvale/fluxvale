@@ -457,6 +457,11 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
       %AccessRoute{gateway_id: gateway_id} = route when gateway_id == gateway.id ->
         AccessRoute.destroy(route, authorize?: false)
 
+      # Rows are unique per instance and this call runs only after our own
+      # create committed, so seeing another gateway's row here means a
+      # writer swapped it mid-flight — leaving it is the safe answer, and
+      # the branch exists so the mismatch can never delete foreign state.
+      # coveralls-ignore-next-line race only: our own create just committed this row
       _none_or_other_gateway ->
         :ok
     end

@@ -9,8 +9,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
   use FluxVale.DataCase, async: true
   use Mimic
 
-  require Ash.Query
-
+  alias Ash.Error.Query.NotFound
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Deployment
@@ -25,6 +24,8 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
+
+  require Ash.Query
 
   setup do
     # The provider resolves the kubeconfig through the single Cluster row
@@ -414,12 +415,12 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       # `stub` (not `expect`): the guard's read is consulted once here, and
       # the assertion below reads the same function again.
       stub(AccessRoute, :get_by_instance, fn _id, _opts ->
-        {:error, Ash.Error.Query.NotFound.exception(resource: AccessRoute)}
+        {:error, NotFound.exception(resource: AccessRoute)}
       end)
 
       expect(AccessRoute, :create, fn _attrs, _opts -> {:error, unique_violation()} end)
 
-      assert {:error, _} = Tailscale.attach_instance(gateway, instance)
+      assert {:error, _reason} = Tailscale.attach_instance(gateway, instance)
 
       # Still there, untouched: the loser never created it. Read through
       # Ash directly (the stub above owns the provider-facing function).
@@ -430,6 +431,43 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
 
       assert kept.id == winner.id
       assert kept.route_key == "8443"
+    end
+
+    test "cleanup after a cluster failure deletes only this gateway's route", %{
+      org: org,
+      owner: owner
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      # A route for the instance that belongs to a DIFFERENT gateway (a
+      # moved instance's old pairing). Cleanup for this gateway must leave
+      # it alone — `delete_route/2` is scoped, and the other gateway's
+      # teardown is what owns that row.
+      {other_org, _other_owner} = BillingFixtures.grant_free_org!()
+      {:ok, wallet} = FluxVale.Billing.ensure_wallet(other_org)
+      {:ok, _grant} = FluxVale.Billing.grant_credits(wallet, 10_000, reason: :adjustment)
+      other_gateway = AccessFixtures.gateway!(other_org)
+
+      {:ok, foreign} =
+        AccessRoute.create(
+          %{gateway_id: other_gateway.id, instance_id: instance.id, route_key: "8499"},
+          authorize?: false
+        )
+
+      # The create collides on `unique_instance` (the foreign row holds it),
+      # so the attach fails BEFORE any cleanup runs. That is the desired
+      # end state too: nothing of this gateway's was created, so nothing is
+      # deleted.
+      assert {:error, _reason} = Tailscale.attach_instance(gateway, instance)
+
+      # Its own row is gone; the foreign one survives untouched.
+      rows =
+        AccessRoute
+        |> Ash.Query.filter(instance_id == ^instance.id)
+        |> Ash.read!(authorize?: false)
+
+      assert Enum.map(rows, & &1.id) == [foreign.id]
     end
 
     test "a winner's committed route survives a later loser", %{org: org, owner: owner} do

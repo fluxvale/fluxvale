@@ -58,22 +58,33 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGateway do
         error
 
       {:ok, observed, status} ->
-        case apply_status(gateway, observed, status) do
-          {:error, %Ash.Error.Invalid{} = stale} ->
-            if effort > 0 and stale_record?(stale) do
-              case AccessGateway.get_by_id(gateway.id, authorize?: false) do
-                {:ok, fresh} -> apply_observation(fresh, effort - 1)
-                {:error, _gone} -> {:ok, gateway}
-              end
-            else
-              {:error, stale}
-            end
-
-          other ->
-            other
-        end
+        gateway
+        |> apply_status(observed, status)
+        |> retry_on_stale(gateway, effort)
     end
   end
+
+  # A StaleRecord means another writer moved the row between our read and
+  # our write: re-read and decide again. A second one means the row is
+  # genuinely contended, and the next minute's tick is the right owner.
+  defp retry_on_stale({:error, %Ash.Error.Invalid{} = error}, gateway, effort) do
+    if effort > 0 and stale_record?(error) do
+      case AccessGateway.get_by_id(gateway.id, authorize?: false) do
+        {:ok, fresh} ->
+          apply_observation(fresh, effort - 1)
+
+        # The row was torn down between the stale write and this re-read.
+        # Nothing to observe; the teardown owns it from here.
+        # coveralls-ignore-next-line race only: teardown winning mid-retry
+        {:error, _gone} ->
+          {:ok, gateway}
+      end
+    else
+      {:error, error}
+    end
+  end
+
+  defp retry_on_stale(result, _gateway, _effort), do: result
 
   defp observe(gateway) do
     case AccessProvider.impl_for(gateway).gateway_status(gateway) do

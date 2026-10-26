@@ -262,7 +262,22 @@ config :ash_oban, :pro?, false
 # plain Oban.
 config :flux_vale, Oban,
   repo: FluxVale.Repo,
-  queues: [deployments: 10, reconciler: 1, settler: 1, janitor: 1, billing: 1, backups: 1],
+  # `gateway_observe` is separate from `reconciler` on purpose: the
+  # instance reconciler is the ONLY writer of `:running`, and it has
+  # concurrency 1. Sharing that slot with a per-minute Deployment GET per
+  # gateway would let observation traffic delay instance status writes —
+  # a starvation risk, not just a throughput ceiling. 5 concurrent GETs
+  # is plenty (each job is one read plus at most one row write) and stays
+  # small enough that it cannot swamp the API server.
+  queues: [
+    deployments: 10,
+    reconciler: 1,
+    gateway_observe: 5,
+    settler: 1,
+    janitor: 1,
+    billing: 1,
+    backups: 1
+  ],
   plugins: [
     {Oban.Plugins.Cron,
      crontab: [
