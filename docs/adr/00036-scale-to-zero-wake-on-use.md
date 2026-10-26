@@ -154,3 +154,22 @@ Two follow-ups, both decided outside the original review:
   the real 1h + */5 pair daily — the timing claims this ADR makes
   stay proven without gating PRs. Deployed envs set neither and keep
   the settled defaults.
+
+## Amendment 2 (2026-10-26): no premium tier — the "(premium)" label retired
+
+Owner decision on #261 (Oct 26): always-on is not a premium feature
+and never gets a billing tier of its own — Am. 1's Option B already
+settled the economics; this closes the framing. "Keep always on
+(premium)" becomes "Keep always on", and the "paid premium" /
+"premium opt-out" vocabulary is retired repo-wide
+([product.md](../product.md) updated with it). Always-on is simply
+full-rate-around-the-clock economics: what the instance gives up is
+the storage-only rate it would otherwise drop to while asleep.
+
+Enabling is the charge-raising direction, so the instance page now
+asks for confirmation first (the destroy-flow `data-confirm`
+precedent) stating the cost in the instance's own settlement figures
+— the full running rate ($X/mo) around the clock vs the storage-only
+rate ($Y/mo) while it would otherwise sleep, monthly-equivalent ·
+billed hourly — and that a sleeping instance wakes immediately.
+Disabling only saves money and carries no gate.

@@ -368,11 +368,10 @@ defmodule FluxVale.Infrastructure.Instance do
       public?(false)
     end
 
-    # #203 (ADR-0036): the owner's opt-out of scale-to-zero — the idle
-    # sweep skips always-on rows. A paid premium per the owner decision;
-    # the billing tier (flat surcharge vs 24/7 running-rate) is the open
-    # sub-decision on #203 — behaviorally, always-on instances simply
-    # never stop accruing the running rate.
+    # #203 (ADR-0036 Am. 2, #261): the owner's opt-out of scale-to-zero
+    # — the idle sweep skips always-on rows. No premium tier (owner
+    # decision, Oct 26): always-on instances simply never stop accruing
+    # the running rate.
     attribute :always_on, :boolean do
       allow_nil?(false)
       default(false)
@@ -673,10 +672,10 @@ defmodule FluxVale.Infrastructure.Instance do
 
     update :set_always_on do
       description("""
-      The org members' scale-to-zero opt-out toggle (#203, ADR-0036) —
-      same member posture as stop/start; the idle sweep skips
-      always-on rows. Billing tier rides the open sub-decision on #203;
-      the flag is behavior today.
+      The org members' scale-to-zero opt-out toggle (#203, ADR-0036
+      Am. 2) — same member posture as stop/start; the idle sweep skips
+      always-on rows. No premium tier (#261): the flag is behavior,
+      billing the running rate around the clock.
       """)
 
       require_atomic?(false)

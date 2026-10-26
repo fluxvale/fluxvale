@@ -6,7 +6,8 @@ defmodule FluxVale.Infrastructure.Operations.SweepIdleInstances do
 
   Exemptions, by design:
 
-  - `always_on` rows never sleep (the paid premium — ADR-0036).
+  - `always_on` rows never sleep (ADR-0036 Am. 2 — no premium tier;
+    they bill the running rate around the clock).
   - A nil `last_used_at` never sleeps: an unmeasurable idle clock must
     fail open (keep serving), never wrongly put an owner's app down.
     enter_running always sets the marker and the #203 backfill seeded
@@ -64,7 +65,7 @@ defmodule FluxVale.Infrastructure.Operations.SweepIdleInstances do
     end
   end
 
-  # always_on is the premium opt-out; a nil marker is unmeasurable —
+  # always_on opts out of the sweep; a nil marker is unmeasurable —
   # both keep serving (see moduledoc).
   defp sleep_candidate?(%Instance{
          status: :running,

@@ -32,6 +32,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.Pricing.Size
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
@@ -723,13 +724,227 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
       assert has_element?(view, "[data-testid=availability-card]")
       assert has_element?(view, "[data-testid=availability-mode]", "Sleeps when idle")
+      assert has_element?(view, "[data-testid=always-on-toggle]", "Keep always on")
+      # #261: no premium framing anywhere on the surface.
+      refute render(view) =~ "premium"
 
       view
       |> element("[data-testid=always-on-toggle]")
       |> render_click()
 
       assert has_element?(view, "[data-testid=availability-mode]", "Always on")
-      assert render(view) =~ "Keep always on" || render(view) =~ "Let it sleep"
+      assert has_element?(view, "[data-testid=always-on-toggle]", "Let it sleep when idle")
+    end
+
+    # #261 (ADR-0036 Am. 2): enabling is the charge-raising direction —
+    # the data-confirm gate states the full-rate consequence in the
+    # row's own settlement figures and the wake-on-enable behavior;
+    # disabling only saves money, so it carries no gate. (LiveView
+    # tests click past data-confirm — the client owns the dialog; the
+    # e2e backups spec exercises the real accept.)
+    test "enabling always-on carries the cost confirmation; disabling carries none", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      # The fixture settles at 100¢ running / 10¢ storage-only — both
+      # figures ride the confirm, monthly-equivalent · billed hourly
+      # (#206), with the immediate wake stated.
+      enable = element(view, "[data-testid=always-on-toggle]")
+      confirm = render(enable)
+
+      assert confirm =~ "data-confirm="
+      assert confirm =~ "$1.00/mo"
+      assert confirm =~ "$0.10/mo"
+      assert confirm =~ "billed hourly"
+      assert confirm =~ "wakes immediately"
+
+      render_click(enable)
+
+      assert has_element?(view, "[data-testid=availability-mode]", "Always on")
+
+      disable = render(element(view, "[data-testid=always-on-toggle]"))
+
+      refute disable =~ "data-confirm="
+    end
+
+    # The one shape actions can't produce (pre-#121 drift): no size, no
+    # formula snapshot — settlement forgives the row, so the confirm
+    # must render figure-free rather than crash or stay silent.
+    test "an unpriced instance's confirm falls back to figure-free copy", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+
+      unpriced =
+        InstanceFixtures.pin!(
+          instance,
+          size_id: nil,
+          grandfathered_until: nil,
+          grandfathered_monthly_cents: nil,
+          grandfathered_stopped_monthly_cents: nil
+        )
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{unpriced.id}")
+
+      button = render(element(view, "[data-testid=always-on-toggle]"))
+
+      assert button =~ "data-confirm="
+      assert button =~ "bills the full rate around the clock"
+      refute button =~ "$"
+    end
+
+    # The accept-time guard (#261 review, PA-adopted): the dialog's
+    # figure is as-of render; enabling re-prices and refuses on any
+    # difference — the user confirms the number they'll actually pay.
+    # Staged as the review's exact scenario: the page lapsed its
+    # grandfathering grace (the confirm prices off the live Size row),
+    # then the size's price is edited behind the open page.
+    test "a stale shown figure refuses the enable and re-asks with fresh copy", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      lapsed = DateTime.add(DateTime.utc_now(), -1, :second)
+      InstanceFixtures.pin!(instance, grandfathered_until: lapsed)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      # Past grace, the confirm prices off the live size: $1.00/mo.
+      assert render(element(view, "[data-testid=always-on-toggle]")) =~ "$1.00/mo"
+
+      size = Ash.load!(version, :recommended_size, authorize?: false).recommended_size
+      Size.update!(size, %{monthly_cents: 200}, authorize?: false)
+
+      # The click carries the figure the dialog showed — 100¢, stale.
+      html =
+        render_click(view, "toggle-always-on", %{
+          "always_on" => "true",
+          "shown_monthly_cents" => "100"
+        })
+
+      assert html =~ "Pricing changed"
+      assert html =~ "$2.00/mo"
+
+      # Refused: the flag never landed, and the page re-asks with the
+      # fresh figure in both the flash and the refreshed confirm.
+      refute Instance.get_by_id!(instance.id, authorize?: false).always_on
+
+      assert render(element(view, "[data-testid=always-on-toggle]")) =~ "$2.00/mo"
+
+      # The re-asked click — the button now carries the fresh figure —
+      # goes through.
+      render_click(element(view, "[data-testid=always-on-toggle]"))
+
+      assert has_element?(view, "[data-testid=availability-mode]", "Always on")
+      assert Instance.get_by_id!(instance.id, authorize?: false).always_on
+    end
+
+    test "a matching shown figure lets the enable proceed", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      render_click(view, "toggle-always-on", %{
+        "always_on" => "true",
+        "shown_monthly_cents" => "100"
+      })
+
+      assert has_element?(view, "[data-testid=availability-mode]", "Always on")
+      assert Instance.get_by_id!(instance.id, authorize?: false).always_on
+    end
+
+    # No figure was shown (unpriced copy), so there is nothing to
+    # contradict — both the absent key and a stale view's explicit
+    # empty string proceed.
+    test "an unpriced row enables without a figure", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+
+      unpriced =
+        InstanceFixtures.pin!(
+          instance,
+          size_id: nil,
+          grandfathered_until: nil,
+          grandfathered_monthly_cents: nil,
+          grandfathered_stopped_monthly_cents: nil
+        )
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{unpriced.id}")
+
+      render_click(view, "toggle-always-on", %{"always_on" => "true"})
+
+      assert has_element?(view, "[data-testid=availability-mode]", "Always on")
+
+      render_click(view, "toggle-always-on", %{"always_on" => "true", "shown_monthly_cents" => ""})
+
+      assert Instance.get_by_id!(unpriced.id, authorize?: false).always_on
+    end
+
+    # A stale view can carry any string in phx-value; a figure that
+    # can't parse can't be matched against truth — the safe answer is
+    # the refuse-and-re-ask arm, not an enable.
+    test "a garbled figure payload refuses rather than enabling", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      html =
+        render_click(view, "toggle-always-on", %{
+          "always_on" => "true",
+          "shown_monthly_cents" => "hundred"
+        })
+
+      assert html =~ "Pricing changed"
+      refute Instance.get_by_id!(instance.id, authorize?: false).always_on
+    end
+
+    # Priced at render, unpriced by the click (drift surgery on the
+    # row mid-event): the guard can't confirm the shown figure, so it
+    # re-asks — figure-free now, like the row.
+    test "a row that becomes unpriced re-asks figure-free", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      InstanceFixtures.pin!(
+        instance,
+        size_id: nil,
+        grandfathered_until: nil,
+        grandfathered_monthly_cents: nil,
+        grandfathered_stopped_monthly_cents: nil
+      )
+
+      html =
+        render_click(view, "toggle-always-on", %{
+          "always_on" => "true",
+          "shown_monthly_cents" => "100"
+        })
+
+      assert html =~ "Pricing changed since that dialog"
+      refute Instance.get_by_id!(instance.id, authorize?: false).always_on
+
+      button = render(element(view, "[data-testid=always-on-toggle]"))
+
+      refute button =~ "$"
     end
   end
 

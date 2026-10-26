@@ -110,6 +110,9 @@ test("backups: configure → back up now → objects in MinIO → restore → da
   // sweep — an app asleep mid-test would turn the restore's return to
   // Running into a coin toss (and the restore's own sleeping arm is an
   // ExUnit case, not this one's).
+  // #261: enabling always-on asks for confirmation (the cost copy) —
+  // accept the native dialog so the toggle goes through.
+  page.once("dialog", (dialog) => dialog.accept());
   await page.getByTestId("always-on-toggle").click();
   await expect(page.getByTestId("availability-mode")).toHaveText("Always on");
 
