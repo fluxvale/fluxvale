@@ -11,6 +11,18 @@ defmodule FluxVale.Infrastructure.AccessGateway.Resume do
 
   The anchor reopens at `now` — the suspended interval is not billed
   (Suspend parked it), and the resume starts a fresh accrual window.
+
+  **Ordering is load-bearing: the row commits before the scale.** The
+  scale runs in `after_action`, so a failure aborts the action and rolls
+  the row back to `:suspended` — nothing serving, nothing billed, owner
+  can retry. Scaling first would be the opposite hazard: a row write that
+  then failed would leave `:suspended` while the pod ran, and NOTHING
+  retries that — the ladder skips `:suspended` and the observer refuses
+  to override a suspension, so the gateway would serve free forever.
+
+  (Suspend is the mirror and needs the opposite order: it scales first,
+  and a failed row write self-heals because the ladder keeps selecting
+  `:active` at ≤ 0 and re-enters. Resume has no such re-entry.)
   """
 
   use Ash.Resource.Change
@@ -38,19 +50,23 @@ defmodule FluxVale.Infrastructure.AccessGateway.Resume do
   # coveralls-ignore-next-line trivial callback — always false (cluster I/O in the hook)
   def atomic?, do: false
 
+  # Row first, scale second (see the moduledoc). `after_action` returning
+  # an error rolls the row's own write back, so a failed scale leaves the
+  # gateway exactly as it was.
   defp resume(gateway, changeset) do
-    provider = AccessProvider.impl_for(gateway)
+    changeset
+    |> Ash.Changeset.force_change_attribute(:state, :provisioning)
+    |> Ash.Changeset.force_change_attribute(:status_message, "Reconnecting access")
+    |> Ash.Changeset.force_change_attribute(:metering_since, DateTime.utc_now())
+    |> Ash.Changeset.after_action(fn _changeset, resumed ->
+      case AccessProvider.impl_for(resumed).scale_gateway(resumed, 1) do
+        :ok ->
+          {:ok, resumed}
 
-    case provider.scale_gateway(gateway, 1) do
-      :ok ->
-        changeset
-        |> Ash.Changeset.force_change_attribute(:state, :provisioning)
-        |> Ash.Changeset.force_change_attribute(:status_message, "Reconnecting access")
-        |> Ash.Changeset.force_change_attribute(:metering_since, DateTime.utc_now())
-
-      {:error, reason} ->
-        Logger.error("Access gateway #{gateway.id} resume failed: #{inspect(reason)}")
-        Ash.Changeset.add_error(changeset, message: "Couldn't resume access")
-    end
+        {:error, reason} ->
+          Logger.error("Access gateway #{gateway.id} resume failed: #{inspect(reason)}")
+          {:error, Ash.Error.Changes.InvalidAttribute.exception(field: :state, message: "Couldn't resume access")}
+      end
+    end)
   end
 end

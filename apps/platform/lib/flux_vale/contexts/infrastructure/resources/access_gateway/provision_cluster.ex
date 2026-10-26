@@ -38,10 +38,14 @@ defmodule FluxVale.Infrastructure.AccessGateway.ProvisionCluster do
     # round-trip to get it.
     argument_key = Ash.Changeset.get_argument(changeset, :auth_key)
 
+    # `:create` when this action received the key (the create path), the
+    # drift-repair shape otherwise. Only the create path cleans up.
+    path = if is_binary(argument_key) and argument_key != "", do: :create, else: :retry
+
     Ash.Changeset.after_action(changeset, fn _changeset, gateway ->
       case provision(gateway, argument_key) do
         :ok -> {:ok, gateway}
-        {:error, reason} = error -> fail(gateway, reason, error)
+        {:error, reason} = error -> fail(gateway, reason, error, path)
       end
     end)
   end
@@ -102,7 +106,21 @@ defmodule FluxVale.Infrastructure.AccessGateway.ProvisionCluster do
     end
   end
 
-  defp fail(gateway, reason, error) do
+  # A failed CREATE rolls its row back, so whatever landed in the cluster
+  # is ungoverned: no row, no sweep, no teardown will ever find it. Remove
+  # it here. This is the create path only — `perform_provision` (the drift
+  # repair) keeps its Secret, because it re-reads its key from there.
+  defp fail(gateway, reason, error, :create) do
+    Logger.error("Access gateway #{gateway.id} provisioning failed: #{inspect(reason)}")
+
+    # Best-effort: the original error is what the caller surfaces, and a
+    # cleanup failure must not mask it. The key goes first (see the
+    # provider's cleanup_failed_provision/1).
+    _cleaned = AccessProvider.impl_for(gateway).cleanup_failed_provision(gateway)
+    error
+  end
+
+  defp fail(gateway, reason, error, _retry) do
     Logger.error("Access gateway #{gateway.id} provisioning failed: #{inspect(reason)}")
     error
   end

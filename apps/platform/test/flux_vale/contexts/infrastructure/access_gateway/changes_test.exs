@@ -46,6 +46,23 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       assert gateway.monthly_cents == 200
     end
 
+    test "a failed create cleans up its orphaned cluster objects", %{org: org} do
+      # The row rolls back, so anything still in the cluster is ungoverned:
+      # no row, no sweep, no teardown will ever find it. This is the claim
+      # the PR body makes, and it is create-path-only.
+      expect(Tailscale, :provision_gateway, fn _gateway, _key -> {:error, :cluster_down} end)
+
+      expect(Tailscale, :cleanup_failed_provision, fn _gateway -> :ok end)
+
+      assert {:error, _reason} =
+               AccessGateway.create(
+                 %{organization_id: org.id, monthly_cents: 200, auth_key: "tskey"},
+                 authorize?: false
+               )
+
+      assert {:error, _not_found} = AccessGateway.get_for_organization(org.id, authorize?: false)
+    end
+
     test "a provisioning failure fails the action and leaves the row for the retry", %{org: org} do
       expect(Tailscale, :provision_gateway, fn _gateway, _key ->
         {:error, :cluster_down}
@@ -127,14 +144,41 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       assert same.state == :active
     end
 
-    test "a resume scale failure keeps :suspended", %{org: org} do
+    test "a resume scale failure keeps :suspended — never serving-but-unbilled", %{org: org} do
       gateway = AccessFixtures.gateway!(org)
       {:ok, suspended} = AccessGateway.suspend(gateway, authorize?: false)
 
       expect(Tailscale, :scale_gateway, fn _gateway, 1 -> {:error, :cluster_down} end)
 
       assert {:error, _reason} = AccessGateway.resume(suspended, authorize?: false)
-      assert AccessGateway.get_by_id!(gateway.id, authorize?: false).state == :suspended
+
+      # The hazard this ordering exists to prevent: a row write that
+      # landed before a failed scale would leave :suspended while the pod
+      # ran — and NOTHING retries it (the ladder skips :suspended, the
+      # observer refuses to override a suspension). The row must still be
+      # :suspended AND its anchor still parked, so a later successful
+      # resume starts a fresh window rather than billing the gap.
+      fresh = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+      assert fresh.state == :suspended
+      assert fresh.metering_since == nil
+    end
+
+    test "resume writes the row through the action, and a scale failure aborts it", %{org: org} do
+      gateway = AccessFixtures.gateway!(org)
+      {:ok, suspended} = AccessGateway.suspend(gateway, authorize?: false)
+      parent = self()
+
+      # Observe the order: the scale must run from after_action, i.e. the
+      # row's own write is what it hangs off. If the scale ran first, a
+      # row-write failure afterwards would strand a running pod.
+      stub(Tailscale, :scale_gateway, fn gw, replicas ->
+        send(parent, {:scaled, gw.id, replicas})
+        {:error, :cluster_down}
+      end)
+
+      assert {:error, _} = AccessGateway.resume(suspended, authorize?: false)
+      assert_received {:scaled, id, 1}
+      assert id == gateway.id
     end
   end
 

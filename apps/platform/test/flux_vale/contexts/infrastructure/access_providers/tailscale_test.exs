@@ -319,6 +319,41 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
     end
   end
 
+  describe "cleanup_failed_provision/1 (the create rollback)" do
+    test "removes the key, the serve config and the PVC", %{org: org} do
+      gateway = gateway_row!(org)
+
+      expect(Secret, :delete, 2, fn _kc, _ns, secret_name ->
+        assert secret_name in [name("credential", gateway), name("serve-config", gateway)]
+        :ok
+      end)
+
+      expect(PersistentVolumeClaim, :delete, fn _kc, _ns, claim ->
+        assert claim == name("state", gateway)
+        :ok
+      end)
+
+      assert :ok = Tailscale.cleanup_failed_provision(gateway)
+    end
+
+    test "deletes the KEY first — it is the object a stranger could use", %{org: org} do
+      gateway = gateway_row!(org)
+      parent = self()
+
+      stub(Secret, :delete, fn _kc, _ns, secret_name ->
+        send(parent, {:deleted, secret_name})
+        :ok
+      end)
+
+      stub(PersistentVolumeClaim, :delete, fn _kc, _ns, _claim -> :ok end)
+
+      assert :ok = Tailscale.cleanup_failed_provision(gateway)
+
+      assert_received {:deleted, first}
+      assert first == name("credential", gateway)
+    end
+  end
+
   describe "credential write failures" do
     test "a Secret write failure surfaces from provision", %{org: org} do
       gateway = gateway_row!(org)

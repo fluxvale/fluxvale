@@ -96,6 +96,18 @@ defmodule FluxVale.Infrastructure.AccessProvider do
   @callback teardown_gateway(AccessGateway.t()) :: :ok | {:error, term()}
 
   @doc """
+  Removes the objects a FAILED `create` left behind — the rollback half,
+  called only when the row is about to disappear.
+
+  Deliberately separate from `provision_gateway/2`: that one must never
+  clean up after itself, because `:provision`'s drift repair re-reads its
+  key from the very Secret it wrote. A failed create, by contrast, leaves
+  no row at all (the create transaction rolls back), so anything still in
+  the cluster is ungoverned — a live tailnet key and a PVC nobody owns.
+  """
+  @callback cleanup_failed_provision(AccessGateway.t()) :: :ok | {:error, term()}
+
+  @doc """
   The provider implementation for a gateway — the one dispatch point.
   """
   @spec impl_for(AccessGateway.t()) :: module()

@@ -261,6 +261,23 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # ------------------------------------------------------------------
 
   @impl FluxVale.Infrastructure.AccessProvider
+  def cleanup_failed_provision(%AccessGateway{} = gateway) do
+    # The CREATE path's rollback only. `:provision`'s drift repair reads
+    # its key from this Secret, so this is deliberately a separate entry
+    # point — `provision_gateway/2` must never delete it on failure.
+    with {:ok, kubeconfig} <- kubeconfig() do
+      namespace = access_namespace()
+
+      # Delete the key first: it is the only object a stranger could use
+      # if the rest of the cleanup fails and the row is already gone.
+      with :ok <- safe_delete_secret(kubeconfig, namespace, credential_secret_name(gateway)),
+           :ok <- safe_delete_secret(kubeconfig, namespace, serve_secret_name(gateway)) do
+        safe_delete_pvc(kubeconfig, namespace, state_claim_name(gateway))
+      end
+    end
+  end
+
+  @impl FluxVale.Infrastructure.AccessProvider
   def teardown_gateway(%AccessGateway{} = gateway) do
     with {:ok, kubeconfig} <- kubeconfig() do
       namespace = access_namespace()
