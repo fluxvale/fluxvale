@@ -104,5 +104,7 @@ namespace NetworkPolicy by the gateway's namespace only, never the
 edge. The ADR-0005 namespace stays the unit of workload: the gateway
 lives outside it, in the platform's access namespace, and holds no
 privilege over it. The idle sweep's `:sleep` now takes the row lock and
-adopts the current row before it applies edge state (ADR-0039 §7),
-closing ADR-0038 §6's stale-sleep mint window.
+adopts the current row before it applies edge state
+([ADR-0039](00039-private-access-layer-tailscale.md) §7), closing
+[ADR-0038](00038-instance-exposure-modes.md) §6's stale-sleep mint
+window.

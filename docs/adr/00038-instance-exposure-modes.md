@@ -206,5 +206,6 @@ row lock and adopts the current row before it applies any edge state, so
 an idle-sweep sleep that loaded a public row cannot mint a wake-mode
 route after a toggle to private committed. The mechanism, its tradeoff
 (seconds of toggle wait on the row lock) and the test that fails
-without it are in ADR-0039 §7; this amendment records that the gap is
+without it are in [ADR-0039](00039-private-access-layer-tailscale.md)
+§7; this amendment records that the gap is
 no longer open, and §6's "deferred" stands as history only.

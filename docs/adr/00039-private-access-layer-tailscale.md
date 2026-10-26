@@ -270,7 +270,7 @@ the next refresh (the `RestoreServingEdge` stance). Revisit trigger: a
 measured flip above ~10s in staging — then the fallback is a pod
 restart on flip (a few seconds of tailnet reattach, state persisted).
 
-### 7. The stale-sleep window (ADR-0038 §6) is closed here
+### 7. The stale-sleep window ([ADR-0038](00038-instance-exposure-modes.md) §6) is closed here
 
 [ADR-0038](00038-instance-exposure-modes.md) §6 left one window open and
 handed it to this lane: an idle-sweep sleep that loaded a **public**
