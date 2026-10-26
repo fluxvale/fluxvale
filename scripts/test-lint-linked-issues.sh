@@ -103,6 +103,15 @@ expect_stdin_exit 0 "'refs #7' with slice language" 'Refs #7 (slice 2 of 4 — t
 expect_stdin_exit 0 "'slices' as a plural noun, no N of M" \
   'Closes #7. Two slices of the old code were merged; nothing else.'
 
+# 4b. Margins that are behaviours, asserted rather than assumed.
+expect_stdin_exit 0 "'slice 1 of 1' — the only slice, so nothing follows" 'Closes #7 (slice 1 of 1)'
+expect_stdin_exit 1 "'slice 0 of 3' — nobody starts at zero, still incomplete" 'Closes #7 (slice 0 of 3)'
+expect_stdin_exit 0 "'slice 10 of 9' — a typo'd total reads as complete" 'Closes #7 (slice 10 of 9)'
+expect_stdin_exit 0 "'Closes <issue URL>' — not a closing syntax this lint claims" \
+  'Closes https://github.com/fluxvale/fluxvale/issues/61 (slice 1 of 7)'
+expect_stdin_exit 1 "keyword split across a newline, as GitHub parses it" \
+  $'Closes\n#61 (slice 1 of 7)'
+
 # 5. Code is not prose: documenting this rule must not trip it.
 expect_stdin_exit 0 "incident quoted in a fenced block" \
   $'Documents the rule.\n\n```\nCloses #61 (slice 1 of 7 — calibration sample)\n```'
@@ -110,6 +119,10 @@ expect_stdin_exit 0 "incident quoted in an inline code span" \
   'The old bodies read `Closes #61 (slice 1 of 7)` and got closed early.'
 expect_stdin_exit 0 "incident quoted in an HTML comment" \
   $'Closes #9\n\n<!--\nCloses #61 (slice 1 of 7 — calibration sample)\n-->'
+expect_stdin_exit 0 "incident quoted in a MULTI-LINE inline span (GFM allows it)" \
+  $'Docs quote `Closes #61 (slice 1 of\n7)` verbatim.'
+expect_stdin_exit 0 "incident quoted in an UNCLOSED HTML comment" \
+  'Closes #9 done. <!-- old body was: Closes #61 (slice 1 of 7)'
 
 # 6. The fix the message recommends must itself pass, on #269's real body.
 sed 's/^Closes #268/Refs #268/' "$fixtures/pr-269.md" >"$tmp/refs.md"
@@ -117,15 +130,47 @@ expect_exit 0 "derived from #269: 'Closes' rewritten to 'Refs'" "$tmp/refs.md"
 
 # 7. Bad invocation is a usage error, not a pass — a broken path must never
 #    read as "consistent".
+for bad in "$tmp/does-not-exist.md" "$tmp/dir-input"; do
+  mkdir -p "$bad"
+  set +e
+  "$lint" "$bad" >/dev/null 2>&1
+  got=$?
+  set -e
+  if [[ "$got" -eq 2 ]]; then
+    echo "ok    bad path (${bad##*/}): usage error (exit 2), never a silent pass"
+    pass=$((pass + 1))
+  else
+    echo "FAIL  bad path (${bad##*/}): should exit 2, got ${got}"
+    fail=$((fail + 1))
+  fi
+done
+
+# A non-UTF-8 file is bad input too (a wrong file on a local run must not
+# read as a verdict on the PR).
+head -c 256 /dev/urandom >"$tmp/binary.md"
 set +e
-"$lint" "$tmp/does-not-exist.md" >/dev/null 2>&1
+"$lint" "$tmp/binary.md" >/dev/null 2>&1
 got=$?
 set -e
 if [[ "$got" -eq 2 ]]; then
-  echo "ok    missing file is a usage error (exit 2), never a silent pass"
+  echo "ok    binary file is bad input (exit 2), not a lint hit"
   pass=$((pass + 1))
 else
-  echo "FAIL  missing file should exit 2, got ${got}"
+  echo "FAIL  binary file should exit 2, got ${got}"
+  fail=$((fail + 1))
+fi
+
+# The exact invocation CI uses: the body on stdin, NO argument at all.
+set +e
+output="$("$lint" <"$fixtures/pr-269.md" 2>&1)"
+got=$?
+set -e
+if [[ "$got" -eq 1 ]] && grep -qF '#268' <<<"$output"; then
+  echo "ok    CI shape: body on stdin, no argument (exit 1)"
+  pass=$((pass + 1))
+else
+  echo "FAIL  CI shape (no argument): wanted exit 1, got ${got}"
+  echo "$output" | sed 's/^/      /'
   fail=$((fail + 1))
 fi
 

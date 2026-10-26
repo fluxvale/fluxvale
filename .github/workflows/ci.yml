@@ -216,7 +216,10 @@ jobs:
   # incidents being docs PRs was luck, not a property of the class. The
   # job is a bash regex over an event payload, so it costs a runner start
   # and seconds, on every PR. `if: pull_request` because the body only
-  # exists there (push/workflow_dispatch have no PR to check).
+  # exists there (push/workflow_dispatch have no PR to check). Body EDITS
+  # are handled by linked-issues-edited.yml, not by widening this
+  # workflow's triggers — that would re-run the E2E legs on every body
+  # edit, and CodeRabbit edits every body.
   linked-issues:
     name: Linked issues
     if: github.event_name == 'pull_request'

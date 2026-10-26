@@ -32,17 +32,30 @@
 #     incident bodies verbatim, and the CodeRabbit summary block at the
 #     bottom of every body is machine-written.
 #
-# Margins, documented rather than papered over with heuristics: the closing
-# keyword and the slice language are not required to name the same issue
-# (no body in history names two), and the match is body-wide rather than
-# first-line-only (measured: identical result either way).
+# Margins, documented rather than papered over with heuristics:
+#   * The closing keyword and the slice language are not required to name the
+#     same issue — `Closes #98 … / separately, slice 1 of 2 for #100 follows`
+#     fires even though the slice language is about another issue. Only two
+#     issues named in one body has never happened in history; correlating them
+#     is a parser, not a lint.
+#   * The match is body-wide rather than first-line-only (measured: identical
+#     result either way).
+#   * `slice 10 of 9` passes: N > M reads as "complete", so a typo'd total
+#     slips through. Same direction as the N < M choice — it lets a PR past
+#     rather than failing one on arithmetic the lint cannot check.
+#   * `Closes <full issue URL>` passes. GitHub's documented closing syntax is
+#     `KEYWORD #N` and `KEYWORD owner/repo#N` only; if GitHub ever closes on
+#     a URL, this is the hole. Not verified against GitHub, said out loud
+#     rather than assumed.
 #
 # Measured over the 152 merged PR bodies as of 2026-10-27: exactly two hits,
-# #62 and #269, and none of the 87 bodies carrying a closing keyword.
+# #62 and #269 — both real incidents, so 85 of the 87 bodies carrying a
+# closing keyword pass.
 #
 # Interface: `scripts/lint-linked-issues.sh [FILE]` — a path, `-`, or no
 # argument (stdin). CI pipes `${{ github.event.pull_request.body }}` in; a
-# local run points it at a saved body.
+# local run points it at a saved body. Exit 0 passes, 1 fires, 2 is a usage
+# or input error (never a silent pass).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -73,7 +86,15 @@ CLOSING = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b\s*:?\s*(?:[\w.-]+\/[\w.
 # an incomplete slice from a closing one.
 SLICE = /\b(?:slice|part)s?\s+(\d+)[a-z]?\s+of\s+(\d+)/i
 
-body = File.read(ARGV[0])
+body = File.binread(ARGV[0]).force_encoding("UTF-8")
+
+# A body that is not UTF-8 is bad input, not a lint hit: exit 2 so a local
+# run against the wrong file (a binary, a wrong path) cannot read as a
+# verdict on the PR. The CI payload is always UTF-8.
+unless body.valid_encoding?
+  warn "cannot read #{ARGV[0]} as UTF-8 — is that a PR body?"
+  exit 2
+end
 
 # Drop fenced blocks line-wise: an unterminated fence hides the rest of the
 # body rather than leaking half a code sample into the match.
@@ -87,8 +108,16 @@ prose = body.each_line.reject do |line|
   end
 end.join
 
-prose = prose.gsub(/<!--.*?-->/m, "")   # CodeRabbit's summary block lives here
-prose = prose.gsub(/`[^`\n]*`/, "")     # inline code spans
+# HTML comments: markers AND contents. CodeRabbit brackets its summary with
+# them, but the summary text itself sits between the markers and is machine
+# written, so strip the whole span. An UNCLOSED comment strips from the
+# opener to the end of the body — an unclosed comment is not prose either,
+# and the alternative (leaving it matchable) fails a body quoting an old one.
+prose = prose.gsub(/<!--.*?(?:-->|\z)/m, "")
+
+# Inline code spans, including GFM's multi-line ones (a backtick run closed
+# by an equal-length run, newlines allowed).
+prose = prose.gsub(/(`+)(?:(?!\1).)+?\1/m, "")
 
 # `.match`, not `prose[RE]`: String#[] with a Regexp hands back the matched
 # text, so `slice[1]` would be a character of it, not the capture.
@@ -106,8 +135,10 @@ warn "::error title=Closing keyword on a slice PR::" \
      "this body closes ##{issue} and calls itself \"#{slice[0]}\" — reference the issue " \
      "without the closing keyword (`Refs ##{issue}` or `Part of ##{issue}`) so it stays " \
      "open until the last slice lands."
-warn "  closing keyword: #{closing[0]}"
-warn "  slice language:  #{slice[0]}"
+# Squash whitespace: a keyword split across a newline ("Closes⏎#61") is a
+# legitimate match, but its raw text would break the diagnostic across lines.
+warn "  closing keyword: #{closing[0].gsub(/\s+/, ' ')}"
+warn "  slice language:  #{slice[0].gsub(/\s+/, ' ')}"
 warn "  AGENTS.md: \"slice PRs of an umbrella issue reference it without a closing keyword\""
 exit 1
 RUBY
