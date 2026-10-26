@@ -24,8 +24,11 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
 
   alias FluxVale.Billing.Operations.ReadBalance
   alias FluxVale.Billing.Wallet
+  alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Pricing
+
+  require Ash.Query
 
   @seconds_per_month 2_629_746
   @micro_per_cent 10_000
@@ -43,9 +46,12 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
   def call(%Wallet{} = wallet) do
     now = DateTime.utc_now()
 
+    instances = org_instances(wallet.organization_id)
+    gateways = org_gateways(wallet.organization_id)
+
     with {:ok, balance} <- ReadBalance.call(wallet, authorize?: false),
-         instances = org_instances(wallet.organization_id),
-         {:ok, burn} <- burn_micro_per_hour(instances, now) do
+         {:ok, instance_burn} <- burn_micro_per_hour(instances, now) do
+      burn = instance_burn + gateway_micro_per_hour(gateways)
       runway = runway_hours(balance, burn)
 
       {:ok,
@@ -63,6 +69,25 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
       authorize?: false
     )
     |> Ash.read!()
+  end
+
+  # One gateway per org at most (the unique identity), but read the list
+  # so the shape survives the ceiling's removal.
+  defp org_gateways(organization_id) do
+    AccessGateway
+    |> Ash.Query.filter(organization_id == ^organization_id)
+    |> Ash.read!(authorize?: false)
+  end
+
+  # Only `:active` accrues (PerformSettle books nothing for the other
+  # states) — projecting a suspended gateway's rate would keep the
+  # runway permanently short after a suspension the owner cannot undo
+  # by topping up.
+  defp gateway_micro_per_hour(gateways) do
+    Enum.reduce(gateways, 0, fn
+      %AccessGateway{state: :active, monthly_cents: cents}, acc -> acc + hourly_micro(cents)
+      _gateway, acc -> acc
+    end)
   end
 
   defp burn_micro_per_hour(instances, now) do

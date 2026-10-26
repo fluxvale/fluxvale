@@ -481,4 +481,69 @@ defmodule FluxVale.Clients.K8s.Resources.DeploymentTest do
     stub(Kubereq, :get, fn _req, _ns, _name -> {:ok, %{status: 404, body: %{}}} end)
     Deployment.get(%{}, "ns", "x")
   end
+
+  describe "apply_manifest/2" do
+    test "server-side-applies a caller-built manifest verbatim" do
+      manifest = Deployment.build_manifest("ns", "gateway", base_spec())
+      # The success path logs the object it applied (the namespace/name
+      # interpolation is load-bearing for operators reading logs).
+
+      expect(Kubereq, :apply, fn _req, ^manifest, "fluxvale" ->
+        {:ok, %{status: 201, body: %{"kind" => "Deployment"}}}
+      end)
+
+      assert {:ok, %{"kind" => "Deployment"}} = Deployment.apply_manifest(%{}, manifest)
+    end
+
+    test "the success path logs the applied object" do
+      manifest = Deployment.build_manifest("fluxvale-access", "gateway", base_spec())
+
+      expect(Kubereq, :apply, fn _req, _manifest, _fm ->
+        {:ok, %{status: 201, body: %{}}}
+      end)
+
+      # The suite runs at :warning (config/test.exs), so the info line
+      # needs the level opened for this test and restored after.
+      previous = Logger.level()
+      Logger.configure(level: :info)
+      on_exit(fn -> Logger.configure(level: previous) end)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          Deployment.apply_manifest(%{}, manifest)
+        end)
+
+      assert log =~ "fluxvale-access/gateway"
+    end
+
+    test "an update (200) is success too — SSA is idempotent" do
+      manifest = Deployment.build_manifest("ns", "gateway", base_spec())
+
+      expect(Kubereq, :apply, fn _req, _manifest, _fm ->
+        {:ok, %{status: 200, body: %{}}}
+      end)
+
+      assert {:ok, %{}} = Deployment.apply_manifest(%{}, manifest)
+    end
+
+    test "a non-2xx apply is a K8s error" do
+      manifest = Deployment.build_manifest("ns", "gateway", base_spec())
+
+      expect(Kubereq, :apply, fn _req, _manifest, _fm ->
+        {:ok, %{status: 422, body: %{"message" => "invalid"}}}
+      end)
+
+      assert {:error, %FluxVale.Clients.K8s.Error{}} = Deployment.apply_manifest(%{}, manifest)
+    end
+
+    test "a transport failure is a K8s error" do
+      manifest = Deployment.build_manifest("ns", "gateway", base_spec())
+
+      expect(Kubereq, :apply, fn _req, _manifest, _fm ->
+        {:error, %{reason: :econnrefused}}
+      end)
+
+      assert {:error, %FluxVale.Clients.K8s.Error{}} = Deployment.apply_manifest(%{}, manifest)
+    end
+  end
 end

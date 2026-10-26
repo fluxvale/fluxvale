@@ -186,9 +186,12 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
              kubeconfig,
              namespace,
              "default-deny-ingress",
-             # #265: the exposure row picks the spec — private deploys
-             # deny edge ingress from the first pod, not retroactively.
-             InstanceK8s.network_policy_spec(instance.exposure)
+             # #268: the spec comes from the INSTANCE, not the exposure
+             # atom, so a redeploy of an attached instance preserves (and
+             # pod-narrows) its gateway peer instead of silently severing
+             # private access. Private deploys still deny edge ingress
+             # from the first pod (#265), not retroactively.
+             InstanceK8s.network_policy_spec(instance)
            ),
          {:ok, _pvc} <- maybe_create_pvc(kubeconfig, namespace, instance),
          {:ok, _secret} <- maybe_create_secret(kubeconfig, namespace, env),

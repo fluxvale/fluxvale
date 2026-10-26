@@ -97,12 +97,16 @@ defmodule FluxVale.Infrastructure.Operations.SetExposure do
   defp apply_routes(kubeconfig, instance, :serving),
     do: EdgeRoutes.apply_serving(kubeconfig, instance)
 
-  defp apply_policy(kubeconfig, instance, exposure) do
+  # The spec is built from the INSTANCE, not the exposure atom: it is the
+  # one source that preserves an attached gateway's peer (and narrows it
+  # to that gateway's pods). Rewriting from the exposure floor alone would
+  # delete the gateway entry while the route row and billing survived.
+  defp apply_policy(kubeconfig, instance, _target_exposure) do
     case NetworkPolicy.create(
            kubeconfig,
            instance.namespace,
            @policy,
-           InstanceK8s.network_policy_spec(exposure)
+           InstanceK8s.network_policy_spec(instance)
          ) do
       {:ok, _policy} -> :ok
       {:error, _reason} = error -> error

@@ -14,7 +14,10 @@ defmodule FluxVale.Infrastructure do
     extensions: [AshAdmin.Domain]
 
   alias FluxVale.Infrastructure.BackupSetting
+  alias FluxVale.Infrastructure.Operations.AttachInstance
   alias FluxVale.Infrastructure.Operations.ConfigureBackups
+  alias FluxVale.Infrastructure.Operations.DetachInstance
+  alias FluxVale.Infrastructure.Operations.ObserveAccessGateway
   alias FluxVale.Infrastructure.Operations.ReadBackupCredential
   alias FluxVale.Infrastructure.Operations.ReadFileAccessCredential
   alias FluxVale.Infrastructure.Operations.RestoreInstanceBackup
@@ -34,6 +37,8 @@ defmodule FluxVale.Infrastructure do
     resource(FluxVale.Infrastructure.Instance)
     resource(FluxVale.Infrastructure.BackupSetting)
     resource(FluxVale.Infrastructure.BackupRun)
+    resource(FluxVale.Infrastructure.AccessGateway)
+    resource(FluxVale.Infrastructure.AccessRoute)
   end
 
   defdelegate sweep_stranded_instances(), to: SweepStrandedInstances, as: :call
@@ -41,6 +46,25 @@ defmodule FluxVale.Infrastructure do
   # #203 (ADR-0036): the idle sweep — sleeps visitor-less :running
   # instances (the sweep worker's entry).
   defdelegate sweep_idle_instances(), to: SweepIdleInstances, as: :call
+
+  # #268 (ADR-0039): the private-access pair — attach/detach an instance
+  # to the org's gateway, and the observed-state read the panel's badge
+  # (and the billing arm) ride on.
+  defdelegate attach_instance(gateway, instance, opts \\ []),
+    to: AttachInstance,
+    as: :call
+
+  defdelegate detach_instance(gateway, instance, opts \\ []),
+    to: DetachInstance,
+    as: :call
+
+  defdelegate observe_access_gateway(gateway), to: ObserveAccessGateway, as: :call
+
+  # Opt-out (#268): the async teardown entry. The action flips
+  # :destroying and enqueues the trigger; the resource owns both.
+  defdelegate delete_access_gateway(id, opts \\ []),
+    to: FluxVale.Infrastructure.AccessGateway,
+    as: :delete
 
   # #203: the anonymous edge's wake and restore — the wake endpoint's
   # entries (the funded gate and the route flip live on the ops).

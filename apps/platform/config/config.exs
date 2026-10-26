@@ -172,6 +172,27 @@ config :flux_vale,
     service: "fluxvale-platform",
     port: 4000
   ],
+  # Private access (#268, ADR-0039): a per-org userspace tailscaled
+  # gateway serving the org's private instances over the owner's tailnet.
+  # The namespace is the platform's OWN (never an instance namespace —
+  # the gateway must not live inside anything a customer workload owns,
+  # ADR-0005 Am. 5). The image is pinned to an exact version like every
+  # other image in this file: `:stable` is a moving tag, so a pod restart
+  # (including the one on every key re-paste) could silently pull a
+  # different tailscaled. Bump deliberately. The rate is a placeholder
+  # here — the price is the owner's (§5's cost basis), the row snapshots
+  # whatever the panel passes.
+  access_gateway: [
+    namespace: "fluxvale-access",
+    image: "tailscale/tailscale:v1.90.6",
+    monthly_cents: 200,
+    # The wake intercept (#268's next slice) is not shipped yet: with this
+    # false a sleeping instance's serve entry points at its own Service
+    # (serve answers 502 — honest "not running"), rather than at the
+    # platform's /internal/access endpoint, which would be a hard 404
+    # until the controller lands. Flip to true with that PR.
+    wake_intercept_enabled: false
+  ],
   # One active payment provider (ADR-0029); per-provider webhook routes
   # and config blocks make the gateway a one-module swap. HitPay is the
   # first implementation (Am. 2) — test mode first: base_url defaults
@@ -241,7 +262,22 @@ config :ash_oban, :pro?, false
 # plain Oban.
 config :flux_vale, Oban,
   repo: FluxVale.Repo,
-  queues: [deployments: 10, reconciler: 1, settler: 1, janitor: 1, billing: 1, backups: 1],
+  # `gateway_observe` is separate from `reconciler` on purpose: the
+  # instance reconciler is the ONLY writer of `:running`, and it has
+  # concurrency 1. Sharing that slot with a per-minute Deployment GET per
+  # gateway would let observation traffic delay instance status writes —
+  # a starvation risk, not just a throughput ceiling. 5 concurrent GETs
+  # is plenty (each job is one read plus at most one row write) and stays
+  # small enough that it cannot swamp the API server.
+  queues: [
+    deployments: 10,
+    reconciler: 1,
+    gateway_observe: 5,
+    settler: 1,
+    janitor: 1,
+    billing: 1,
+    backups: 1
+  ],
   plugins: [
     {Oban.Plugins.Cron,
      crontab: [

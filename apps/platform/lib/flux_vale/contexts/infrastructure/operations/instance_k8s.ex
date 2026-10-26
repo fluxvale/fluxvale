@@ -10,8 +10,11 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
   """
 
   alias FluxVale.Clients.K8s
+  alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Cluster
   alias FluxVale.Infrastructure.Instance
+
+  require Ash.Query
 
   @doc """
   Resolves the Instance's cluster and its kubeconfig. Cluster read runs
@@ -68,27 +71,95 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
   def format_error(other), do: inspect(other)
 
   @doc """
-  The namespace's ingress policy spec (#265): public admits the edge
-  namespace (Traefik) on top of same-namespace traffic; private
-  admits same-namespace only — no external source, the edge included.
-  Same-namespace is always the NetworkPolicy client's own floor.
+  The namespace's ingress policy spec (#265) — **the one source both
+  writers use**, so the exposure floor and the access layer cannot
+  disagree about the same object.
 
-  Shared by DeployInstance (the deploy-time apply) and SetExposure
-  (the toggle's re-apply) — the two writers of the same object, one
-  spec source so they can't drift.
+  The exposure floor is the only posture the toggle and the deploy own:
+  public admits the edge namespace (Traefik) on top of same-namespace
+  traffic; private admits same-namespace only. Same-namespace is always
+  the NetworkPolicy client's own floor, and it is not part of the spec.
+
+  **Admitted access-gateway peers are preserved, not dropped.** The
+  policy is one object per namespace with two independent dimensions:
+  the edge entry (this module's business) and the gateway peer (the
+  access layer's). A rewrite from the exposure floor alone would delete
+  the gateway peer while the AccessRoute row and the billing survived —
+  the instance silently unreachable, nothing self-healing it. So the
+  spec is built from the instance's *routes*, the durable record of who
+  is attached, which is why this takes the record rather than the
+  exposure atom.
+
+  Called by `DeployInstance` (the deploy-time apply) and `SetExposure`
+  (the toggle's re-apply) — the two writers of the same object.
   """
-  @spec network_policy_spec(:public | :private) :: %{
-          required(:ingress_from_namespaces) => [String.t()]
+  @spec network_policy_spec(map()) :: %{
+          required(:ingress_from_namespaces) => [String.t()],
+          optional(:ingress_from_sources) => [map()]
         }
-  def network_policy_spec(:public) do
-    edge = Application.fetch_env!(:flux_vale, :instance_ingress_namespace)
-    %{ingress_from_namespaces: [edge]}
+  def network_policy_spec(%{exposure: exposure} = instance) do
+    case {exposure_peers(exposure), gateway_peers(instance)} do
+      # No gateway attached: the plain exposure floor (the pre-#268 shape).
+      {peers, []} ->
+        %{ingress_from_namespaces: peers}
+
+      # Attached: the edge entry stays whole-namespace (Traefik pods are
+      # not ours to label), the gateway entry is narrowed to the gateway's
+      # own pods — otherwise org B's gateway would reach org A's app.
+      {peers, gateways} ->
+        %{ingress_from_sources: Enum.map(peers, &%{namespace: &1}) ++ gateways}
+    end
   end
 
-  def network_policy_spec(:private) do
-    # No edge entry: the empty list is the denial (same-namespace
-    # only) — not a removed policy, which would re-admit everything.
-    %{ingress_from_namespaces: []}
+  defp exposure_peers(:public) do
+    [Application.fetch_env!(:flux_vale, :instance_ingress_namespace)]
+  end
+
+  # No edge entry: the empty list is the denial (same-namespace only) —
+  # not a removed policy, which would re-admit everything.
+  defp exposure_peers(:private), do: []
+
+  # Every attached gateway, as a namespace + pod-selector peer. The
+  # labels mirror the provider's Deployment selector; they are the one
+  # cross-module constant this pairing depends on.
+  defp gateway_peers(instance) do
+    instance
+    |> attached_gateway_ids()
+    |> Enum.flat_map(fn gateway_id ->
+      case gateway_access_namespace() do
+        nil ->
+          []
+
+        namespace ->
+          [%{namespace: namespace, match_labels: gateway_pod_labels(gateway_id)}]
+      end
+    end)
+  end
+
+  @doc """
+  The pod labels a gateway's Deployment selects — and therefore the
+  labels its admitted peers must match. Public because the provider
+  builds the Deployment from the same pair; a divergence here is a
+  silent reachability change, so the two must be literally the same
+  source.
+  """
+  @spec gateway_pod_labels(Ash.UUID.t()) :: %{optional(String.t()) => String.t()}
+  def gateway_pod_labels(gateway_id) do
+    %{
+      "app.kubernetes.io/name" => "access-gateway",
+      "fluxvale.io/gateway" => gateway_id
+    }
+  end
+
+  defp gateway_access_namespace do
+    Application.get_env(:flux_vale, :access_gateway, [])[:namespace]
+  end
+
+  defp attached_gateway_ids(%{id: id}) do
+    AccessRoute
+    |> Ash.Query.filter(instance_id == ^id)
+    |> Ash.read!(authorize?: false)
+    |> Enum.map(& &1.gateway_id)
   end
 
   defp truncate(nil, _limit), do: nil

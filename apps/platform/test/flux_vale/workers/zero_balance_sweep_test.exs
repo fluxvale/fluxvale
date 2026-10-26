@@ -76,7 +76,8 @@ defmodule FluxVale.Workers.ZeroBalanceSweepTest do
       runway_warning_sent: false,
       destroy_warning: nil,
       stopped_ids: [],
-      destroyed_ids: []
+      destroyed_ids: [],
+      suspended_gateway_ids: []
     }
 
     stub(Billing, :sweep_zero_balance, fn
