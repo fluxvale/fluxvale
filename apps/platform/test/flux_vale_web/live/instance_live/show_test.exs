@@ -1036,10 +1036,15 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
       {:ok, view, _html} = live(conn, ~p"/instances/#{private.id}")
       refute has_element?(view, "[data-testid=open-instance]")
+      # PR #267 review finding 1: the header URL is a public
+      # affordance too — a private instance renders no address that
+      # cannot answer.
+      refute has_element?(view, "[data-testid=instance-url]")
 
       public = InstanceFixtures.pin!(private, exposure: :public)
       {:ok, public_view, _html} = live(conn, ~p"/instances/#{public.id}")
       assert has_element?(public_view, "[data-testid=open-instance]")
+      assert has_element?(public_view, "[data-testid=instance-url]")
     end
 
     test "the file-access panel hides while private — its endpoint rides the public hostname", %{
@@ -1077,6 +1082,34 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       assert Instance.get_by_id!(instance.id, authorize?: false).exposure == :public
 
       assert has_element?(view, "[data-testid=exposure-mode]", "Public")
+    end
+
+    # PR #267 review finding 2: the action's error arm is stageable —
+    # a cluster failure through the LiveView flashes and keeps the row
+    # public (the action rolls back; the flash owns the retry).
+    test "a cluster failure flashes and keeps the instance public", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      pending = create_instance!(version, user)
+
+      instance =
+        pending
+        |> InstanceFixtures.pin!(namespace: "fluxvale-app-#{pending.id}")
+        |> InstanceFixtures.walk_to!(:running)
+
+      stub(K8s, :kubeconfig, fn nil -> {:error, Error.connection_error("cluster down")} end)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      html = render_click(view, "toggle-exposure", %{"exposure" => "private"})
+
+      # The apostrophe rides HTML-escaped (the stale-stop flash
+      # test's stance).
+      assert html =~ "Couldn&#39;t change the exposure setting"
+      assert has_element?(view, "[data-testid=exposure-mode]", "Public")
+      assert Instance.get_by_id!(instance.id, authorize?: false).exposure == :public
     end
   end
 

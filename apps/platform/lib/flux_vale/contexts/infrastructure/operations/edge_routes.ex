@@ -65,15 +65,7 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   end
 
   def apply_serving(kubeconfig, instance) do
-    namespace = instance.namespace
-    domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
-
-    with {:ok, _beacon} <-
-           Middleware.create(kubeconfig, namespace, @beacon_middleware, beacon_spec(instance)),
-         {:ok, _app} <-
-           Ingress.create(kubeconfig, namespace, @app_ingress, serving_spec(instance, domain)) do
-      maybe_apply_dav(kubeconfig, instance, domain, :serving)
-    end
+    serving_apply(kubeconfig, instance)
   end
 
   @doc """
@@ -93,15 +85,20 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   end
 
   def apply_wake(kubeconfig, instance) do
-    namespace = instance.namespace
-    domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
-
-    with :ok <- ensure_wake_targets(kubeconfig, instance),
-         {:ok, _app} <-
-           Ingress.create(kubeconfig, namespace, @app_ingress, wake_spec(instance, domain)) do
-      maybe_apply_dav(kubeconfig, instance, domain, :wake)
-    end
+    wake_apply(kubeconfig, instance)
   end
+
+  @doc """
+  The public posture's routes in an explicit mode — SetExposure's
+  compensating-restore seam (PR #267 review finding 3): the row is
+  mid-rollback (the record in hand still names the failed direction),
+  so the exposure dispatch of `apply_serving/2`/`apply_wake/2` must
+  not re-route it. Every other caller uses the dispatched entries.
+  """
+  @spec apply_public(Kubereq.Kubeconfig.t(), Instance.t(), :serving | :wake) ::
+          :ok | {:error, term()}
+  def apply_public(kubeconfig, instance, :serving), do: serving_apply(kubeconfig, instance)
+  def apply_public(kubeconfig, instance, :wake), do: wake_apply(kubeconfig, instance)
 
   @doc """
   The private posture (#265): NO route on the public entrypoint — any
@@ -117,6 +114,31 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
 
     with :ok <- safe_delete_route(kubeconfig, namespace, @app_ingress) do
       maybe_delete_dav(kubeconfig, instance)
+    end
+  end
+
+  # The dispatched entries' public bodies — shared with apply_public/3
+  # (the compensating-restore seam above).
+  defp serving_apply(kubeconfig, instance) do
+    namespace = instance.namespace
+    domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
+
+    with {:ok, _beacon} <-
+           Middleware.create(kubeconfig, namespace, @beacon_middleware, beacon_spec(instance)),
+         {:ok, _app} <-
+           Ingress.create(kubeconfig, namespace, @app_ingress, serving_spec(instance, domain)) do
+      maybe_apply_dav(kubeconfig, instance, domain, :serving)
+    end
+  end
+
+  defp wake_apply(kubeconfig, instance) do
+    namespace = instance.namespace
+    domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
+
+    with :ok <- ensure_wake_targets(kubeconfig, instance),
+         {:ok, _app} <-
+           Ingress.create(kubeconfig, namespace, @app_ingress, wake_spec(instance, domain)) do
+      maybe_apply_dav(kubeconfig, instance, domain, :wake)
     end
   end
 

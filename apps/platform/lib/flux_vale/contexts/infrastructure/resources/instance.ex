@@ -94,6 +94,12 @@ defmodule FluxVale.Infrastructure.Instance do
         queue(:deployments)
         scheduler_cron(false)
         on_error(:mark_deploy_error)
+        # PR #267 review finding 4: re-read the row under FOR UPDATE
+        # inside the work transaction — the deploy's k8s applies and a
+        # concurrent set_exposure's are serialized by the row lock,
+        # and the changeset runs against the row's current exposure
+        # (with the optimistic lock as the clean-failure backstop).
+        lock_for_update?(true)
         worker_module_name(__MODULE__.Deploy.Worker)
         scheduler_module_name(__MODULE__.Deploy.Scheduler)
       end
@@ -395,6 +401,26 @@ defmodule FluxVale.Infrastructure.Instance do
       allow_nil?(false)
       default(:public)
       public?(true)
+    end
+
+    # #265 (PR #267 review finding 4): optimistic-lock token
+    # serializing the two exposure-touching writers — `set_exposure`
+    # and `perform_deploy` both carry `optimistic_lock(:version)`, so
+    # whichever loads the row second fails with StaleRecord instead of
+    # applying a stale posture: a deploy holding a pre-toggle :public
+    # record can never re-mint the public edge after :private lands
+    # (its write matches zero rows and the trigger's k8s never runs;
+    # the Oban retry re-reads and converges). The :deploy trigger also
+    # reads `lock_for_update?` (AshOban's built-in): the row is
+    # re-read under FOR UPDATE inside the work transaction, so the
+    # deploy's after_action k8s and a concurrent set_exposure's are
+    # mutually excluded by the row lock rather than racing. Every
+    # other action ignores it — the lock is scoped to exactly the
+    # racing pair.
+    attribute :version, :integer do
+      allow_nil?(false)
+      default(1)
+      public?(false)
     end
 
     # Pricing snapshot (#121/#186): creation-time cents price the
@@ -717,6 +743,11 @@ defmodule FluxVale.Infrastructure.Instance do
       require_atomic?(false)
       accept([:exposure])
 
+      # PR #267 review finding 4: the version check — a deploy that
+      # moved the row under this toggle refuses it cleanly (the flash
+      # owns the retry) instead of applying a stale posture.
+      change(optimistic_lock(:version))
+
       change(fn changeset, _context ->
         instance = changeset.data
 
@@ -784,6 +815,13 @@ defmodule FluxVale.Infrastructure.Instance do
       description("The :deploy trigger's body — see Operations.DeployInstance.")
       require_atomic?(false)
       accept([])
+
+      # PR #267 review finding 4: the stale-deploy guard — a row whose
+      # version moved (an exposure toggle landed after this job loaded
+      # it) fails the write, so the trigger's k8s apply never runs
+      # against the stale posture. The Oban retry re-reads and
+      # converges on the row's current exposure.
+      change(optimistic_lock(:version))
 
       change(PerformDeploy)
     end

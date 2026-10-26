@@ -6,12 +6,13 @@ defmodule FluxVale.Infrastructure.Operations.SetExposure do
   - **→ private**: delete the public routes first, then tighten the
     namespace NetworkPolicy to same-namespace-only ingress. Routes
     first is fail-closed: with no route, no traffic reaches the
-    namespace whatever the policy admits; a later step failing leaves
-    the row claiming `public` (the action errors, nothing half-holds),
-    and a public row's next route-apply restores exactly that.
+    namespace whatever the policy admits. A failed step compensates
+    toward the row's rolled-back (public) posture before returning —
+    see `apply_exposure/2`.
   - **→ public**: mint the routes in the row's current mode — wake
     mode for a sleeping instance (so a visitor can wake it), serving
-    otherwise — then re-admit the edge in the policy.
+    otherwise — then re-admit the edge in the policy. Failure
+    compensates the same way (any minted route is removed again).
 
   In-cluster paths never notice either direction: panel operations,
   sweeps, backups, and health ride the API server and in-namespace
@@ -42,18 +43,53 @@ defmodule FluxVale.Infrastructure.Operations.SetExposure do
     end
   end
 
+  # #267 review finding 3: the action fails AND rolls the row back to
+  # the pre-toggle exposure, but any cluster write that already landed
+  # stays — so each arm compensates toward the posture the row will
+  # keep before returning its failure. A compensating step that ALSO
+  # fails leaves drift the original error already owns: the action's
+  # error return surfaces to the panel, and the owner's retry (or the
+  # next deploy) re-converges — there is no silent success here.
   defp apply_exposure(kubeconfig, %{exposure: :private} = instance) do
-    with :ok <- EdgeRoutes.apply_private(kubeconfig, instance) do
-      apply_policy(kubeconfig, instance, :private)
+    with :ok <- EdgeRoutes.apply_private(kubeconfig, instance),
+         :ok <- apply_policy(kubeconfig, instance, :private) do
+      :ok
+    else
+      {:error, reason} -> restore_public_edge(kubeconfig, instance, reason)
     end
   end
 
   defp apply_exposure(kubeconfig, %{exposure: :public, status: status} = instance) do
     mode = if(status == :sleeping, do: :wake, else: :serving)
 
-    with :ok <- apply_routes(kubeconfig, instance, mode) do
-      apply_policy(kubeconfig, instance, :public)
+    with :ok <- apply_routes(kubeconfig, instance, mode),
+         :ok <- apply_policy(kubeconfig, instance, :public) do
+      :ok
+    else
+      {:error, reason} -> restore_private_edge(kubeconfig, instance, reason)
     end
+  end
+
+  # The row rolls back to :public with its routes deleted — publicly
+  # persisted and unreachable, and nothing self-heals it (the
+  # reconciler never re-applies routes). Re-mint them (mode by status,
+  # the public arm's own rule; apply_public — the record still names
+  # :private mid-rollback, so the dispatch must not re-route it). The
+  # policy needs no restore: its failed apply left the old,
+  # edge-admitting object in place.
+  defp restore_public_edge(kubeconfig, instance, reason) do
+    mode = if(instance.status == :sleeping, do: :wake, else: :serving)
+    _restored = EdgeRoutes.apply_public(kubeconfig, instance, mode)
+    {:error, reason}
+  end
+
+  # The mirror arm: the row rolls back to :private, so any route
+  # minted above must go. No reachability leak either way (the policy
+  # still denies the edge until its own apply succeeds) — this is
+  # drift cleanup, same retry ownership on its failure.
+  defp restore_private_edge(kubeconfig, instance, reason) do
+    _removed = EdgeRoutes.apply_private(kubeconfig, instance)
+    {:error, reason}
   end
 
   defp apply_routes(kubeconfig, instance, :wake), do: EdgeRoutes.apply_wake(kubeconfig, instance)

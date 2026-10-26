@@ -76,7 +76,15 @@ defmodule FluxValeWeb.InstanceLive.Show do
             </div>
           </div>
 
-          <p class="mt-1 font-mono text-sm text-ink-subtle" data-testid="instance-url">
+          <%!-- #265: the header URL is a public affordance too — a
+          private instance has no address that answers, so it renders
+          nothing (the Open-button gate, same reasoning: never show a
+          link that cannot work). --%>
+          <p
+            :if={@instance.exposure == :public}
+            class="mt-1 font-mono text-sm text-ink-subtle"
+            data-testid="instance-url"
+          >
             {instance_url(@instance)}
           </p>
         </div>
@@ -719,9 +727,11 @@ defmodule FluxValeWeb.InstanceLive.Show do
   end
 
   # The toggle's action arms: success re-reads the row (the action
-  # result carries no loaded relationships); the error arm flashes.
-  # An unknown value is a stale view's crafted click — refuse like a
-  # bad platform tab, keep the current exposure.
+  # result carries no loaded relationships); the error arm flashes —
+  # the action fails on cluster errors (a refused route delete, a
+  # stale row under the optimistic lock) and the flash hands retry
+  # ownership to the owner. An unknown value is a stale view's crafted
+  # click — refuse like a bad platform tab, keep the current exposure.
   defp apply_exposure(socket, instance, exposure) when exposure in ["public", "private"] do
     case Instance.set_exposure(instance, %{exposure: String.to_existing_atom(exposure)},
            actor: socket.assigns.current_user
@@ -729,13 +739,8 @@ defmodule FluxValeWeb.InstanceLive.Show do
       {:ok, updated} ->
         {:noreply, assign_instance(socket, reload(updated, socket))}
 
-      # coveralls-ignore-start - defensive: the action's error arm is a
-      # cluster/DB failure (set_exposure's cluster apply) — no
-      # deterministic test can stage one without a backdoor
-      # (apply_always_on's stance, same shape).
       {:error, _error} ->
         {:noreply, put_flash(socket, :error, "Couldn't change the exposure setting.")}
-        # coveralls-ignore-stop
     end
   end
 

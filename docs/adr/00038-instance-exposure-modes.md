@@ -52,7 +52,29 @@ existing; deleting it would re-admit everything); public re-mints the
 routes in the row's current mode (wake mode for a sleeping instance —
 a visitor must be able to wake it) and re-admits the edge. A cluster
 failure fails the action and the write: the row never claims a
-posture the cluster hasn't reached (the kill-switch must be honest).
+posture the cluster hasn't reached (the kill-switch must be honest),
+and each arm **compensates toward the posture the row rolls back to**
+before returning its failure — re-minting the public routes when the
+private deletes landed but the policy step failed (a public row with
+no routes is publicly persisted and unreachable, and nothing
+self-heals it), removing minted routes on the mirror arm. A
+compensation that also fails rides the original error: the panel
+flash and the owner's retry own re-convergence (PR #267 review,
+finding 3).
+
+**Serialization with the deploy path** (PR #267 review, finding 4):
+`set_exposure` and `perform_deploy` — the two exposure-touching
+writers — both carry `optimistic_lock(:version)` on an internal
+integer `version` column, and the `:deploy` trigger reads
+`lock_for_update?` (AshOban's built-in): the deploy re-reads the row
+under `FOR UPDATE` inside its work transaction, and whichever writer
+loads the row second fails with `StaleRecord` instead of applying a
+stale posture. Without this, a deploy job holding a pre-toggle
+`:public` record could mint the public routes and edge-admitting
+policy *after* `set_exposure(:private)` committed — an exposure leak
+on the very feature that promises isolation. A refused deploy is the
+Oban retry's to converge (the fresh read deploys the row's current
+posture); a refused toggle is the panel flash's (the owner retries).
 Never-deployed and `:lost` rows are attribute-only — the next deploy
 applies the row's posture.
 
