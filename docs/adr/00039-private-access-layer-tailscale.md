@@ -450,7 +450,3 @@ E2.9 non-ephemeral restart without a key, E2.10 gateway→dead backend
   `infrastructure/operations/edge_routes.ex` (the route flip this
   follows), `instance/adopt_current_row.ex` (the lock-and-adopt shape §7
   reuses), `operations/configure_backups.ex` (the Secret-as-home pattern)
-
-## Amendment log
-
-- None yet.
