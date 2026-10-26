@@ -28,6 +28,11 @@ Mimic.copy(FluxVale.Clients.K8s.Resources.RestoreJob)
 Mimic.copy(FluxVale.Infrastructure.Operations.InstanceK8s)
 # #238: the deploy's RBAC-propagation wait probes SelfSubjectAccessReview
 Mimic.copy(FluxVale.Clients.K8s.SelfAccessReview)
+# #268 (ADR-0039): the access provider boundary. Operation tests stub the
+# provider (and keep the cluster out of the DB suite); provider tests stub
+# the K8s resource modules beneath it.
+Mimic.copy(FluxVale.Infrastructure.AccessProviders.Tailscale)
+Mimic.copy(FluxVale.Infrastructure.AccessProvider)
 
 ExUnit.start(exclude: [k8s: true])
 Ecto.Adapters.SQL.Sandbox.mode(FluxVale.Repo, :manual)

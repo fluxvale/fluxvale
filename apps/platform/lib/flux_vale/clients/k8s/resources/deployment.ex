@@ -104,6 +104,35 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
     end
   end
 
+  @doc """
+  Server-side-applies a caller-built Deployment manifest verbatim.
+
+  The escape hatch for pods that are not customer apps — today the access
+  gateway (ADR-0039 §1), whose shape the app builder cannot express: its
+  probes ride a sidecar's health port, its auth key is a `secretKeyRef`
+  rather than `envFrom`, and it mounts two volumes. Keeping the manifest
+  in the provider that owns the pod (and Kubereq in this module) beats
+  teaching an app-shaped builder a second dialect.
+  """
+  @spec apply_manifest(Kubereq.Kubeconfig.t(), map()) :: {:ok, map()} | {:error, Error.t()}
+  def apply_manifest(kubeconfig, manifest) do
+    req = create_req(kubeconfig)
+
+    case Kubereq.apply(req, manifest, "fluxvale") do
+      {:ok, %{status: status, body: body}} when status in [200, 201] ->
+        Logger.info("Applied deployment manifest: #{get_in(manifest, ["metadata", "namespace"])}/" <>
+                      "#{get_in(manifest, ["metadata", "name"])}")
+
+        {:ok, body}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, Error.from_response({:ok, %{status: status, body: body}})}
+
+      {:error, error} ->
+        {:error, Error.from_response({:error, error})}
+    end
+  end
+
   @doc "Gets a deployment by namespace and name."
   @spec get(Kubereq.Kubeconfig.t(), String.t(), String.t()) :: {:ok, map()} | {:error, Error.t()}
   def get(kubeconfig, namespace, name) do

@@ -159,6 +159,16 @@ defmodule FluxVale.Billing.LedgerEntry do
       public?(true)
     end
 
+    # What the posting is ABOUT (#268, ADR-0039 §5): instance usage
+    # accrues keyless per wallet, so a reader cannot otherwise tell two
+    # consumption sources apart. Opaque, platform-written
+    # ("access-gateway:<id>" today); every pre-#268 row and every
+    # non-gateway posting stays null — additive, no backfill
+    # (ADR-0013).
+    attribute :subject, :string do
+      public?(true)
+    end
+
     # B2B reverse charge (customer self-accounts) — kept apart from
     # untaxed consumer rows in the summary so OSS consumer nets are
     # never inflated. Mirrors Topup.reverse_charge?'s shape.
@@ -199,7 +209,8 @@ defmodule FluxVale.Billing.LedgerEntry do
         :billing_state,
         :applied_rate,
         :tax_cents,
-        :reverse_charge?
+        :reverse_charge?,
+        :subject
       ])
     end
 

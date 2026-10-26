@@ -172,6 +172,19 @@ config :flux_vale,
     service: "fluxvale-platform",
     port: 4000
   ],
+  # Private access (#268, ADR-0039): a per-org userspace tailscaled
+  # gateway serving the org's private instances over the owner's tailnet.
+  # The namespace is the platform's OWN (never an instance namespace —
+  # the gateway must not live inside anything a customer workload owns,
+  # ADR-0005 Am. 5); the image pin is a deliberate supply-chain bump like
+  # every other image in this file. The rate is a placeholder here — the
+  # price is the owner's (§5's cost basis), the row snapshots whatever
+  # the panel passes.
+  access_gateway: [
+    namespace: "fluxvale-access",
+    image: "tailscale/tailscale:stable",
+    monthly_cents: 200
+  ],
   # One active payment provider (ADR-0029); per-provider webhook routes
   # and config blocks make the gateway a one-module swap. HitPay is the
   # first implementation (Am. 2) — test mode first: base_url defaults

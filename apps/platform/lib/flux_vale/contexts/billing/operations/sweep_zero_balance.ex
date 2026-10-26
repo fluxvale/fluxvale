@@ -12,7 +12,10 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
   - runway < 24h of burn → one warning email per episode
     (`low_balance_warned_at`, cleared when runway recovers)
   - balance ≤ 0 → every `:running` instance stops (the pause pitch —
-    reversible: `start`'s gate reopens the moment balance > 0)
+    reversible: `start`'s gate reopens the moment balance > 0), and
+    every `:active` access gateway **suspends** (ADR-0039 §5's must-fix:
+    an unfunded gateway is a paid-for reachability the org is not
+    paying for — scaled to zero, no accrual, reversible on top-up)
   - balance < 0 → the destroy clock anchors at `negative_since`;
     destroy all the org's instances at +30d (teardown machinery,
     storage freed — the data-deletion statement's commitment), T-7/T-1
@@ -30,20 +33,36 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing.Operations.ComputeRunway
   alias FluxVale.Billing.Wallet
+  alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Mailer
+
+  require Ash.Query
 
   @destroy_after_days 30
   @warning_hours 24
 
-  @enforce_keys [:runway_warning_sent, :destroy_warning, :stopped_ids, :destroyed_ids]
-  defstruct [:runway_warning_sent, :destroy_warning, :stopped_ids, :destroyed_ids]
+  @enforce_keys [
+    :runway_warning_sent,
+    :destroy_warning,
+    :stopped_ids,
+    :destroyed_ids,
+    :suspended_gateway_ids
+  ]
+  defstruct [
+    :runway_warning_sent,
+    :destroy_warning,
+    :stopped_ids,
+    :destroyed_ids,
+    :suspended_gateway_ids
+  ]
 
   @type t :: %__MODULE__{
           runway_warning_sent: boolean(),
           destroy_warning: nil | :t7 | :t1,
           stopped_ids: [Ash.UUID.t()],
-          destroyed_ids: [Ash.UUID.t()]
+          destroyed_ids: [Ash.UUID.t()],
+          suspended_gateway_ids: [Ash.UUID.t()]
         }
 
   @spec call(Wallet.t()) :: {:ok, t()} | {:error, term()}
@@ -94,6 +113,9 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
     {warning_markers, runway_sent?} = runway_step(wallet, runway)
     {destroy_markers, destroyed, destroy_warning} = destroy_step(wallet, now)
     stopped = stop_step(wallet)
+    # Gateways go last for the same reason the stop does: it is the only
+    # other out-of-DB side effect, and the mails must decide first.
+    suspended = gateway_step(wallet)
 
     markers =
       warning_markers
@@ -105,7 +127,8 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
        runway_warning_sent: runway_sent?,
        destroy_warning: destroy_warning,
        stopped_ids: stopped,
-       destroyed_ids: destroyed
+       destroyed_ids: destroyed,
+       suspended_gateway_ids: suspended
      }, markers}
   end
 
@@ -153,6 +176,32 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
     else
       []
     end
+  end
+
+  # The gateway arm (ADR-0039 §5): at ≤ 0 every `:active` gateway
+  # suspends — scaled to zero, accrual parked, reversible on top-up. The
+  # `suspend` action is its own guard (idempotent at `:suspended`), so a
+  # re-entered ladder pass is a no-op, not a second K8s call.
+  #
+  # Suspension is deliberately NOT the destroy ladder: the gateway is
+  # cheap to keep parked (no pod, kilobytes of state), and destroying it
+  # would drop the owner's tailnet node identity — a re-join on every
+  # top-up, which is a far worse experience than a pause.
+  defp gateway_step(wallet) do
+    if wallet.balance <= 0 do
+      for gateway <- org_gateways(wallet.organization_id),
+          {:ok, suspended} <- [AccessGateway.suspend(gateway, authorize?: false)] do
+        suspended.id
+      end
+    else
+      []
+    end
+  end
+
+  defp org_gateways(organization_id) do
+    AccessGateway
+    |> Ash.Query.filter(organization_id == ^organization_id)
+    |> Ash.read!(authorize?: false)
   end
 
   # The destroy clock: anchored when the sweep first sees balance < 0,
@@ -203,9 +252,28 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
   end
 
   defp destroy_all(organization_id) do
+    # Gateways first: their teardown detaches every attached instance
+    # (restoring each namespace to its private floor) before the
+    # instances are torn down. Destroying instances first would leave a
+    # gateway holding routes into namespaces that no longer exist.
+    _gateways = Enum.each(org_gateways(organization_id), &destroy_gateway/1)
+
     for instance <- org_instances(organization_id) do
       {:ok, _deleted} = Instance.delete(instance.id, authorize?: false)
       instance.id
+    end
+  end
+
+  # The delete action flips :destroying and enqueues teardown; the
+  # teardown trigger owns the cluster objects and the hard delete. An
+  # already-destroying gateway is fed through (its own guard).
+  defp destroy_gateway(%AccessGateway{} = gateway) do
+    case AccessGateway.delete(gateway.id, authorize?: false) do
+      {:ok, _deleting} -> :ok
+      # coveralls-ignore-start - defensive: the action's get_by_id is
+      # the only failure shape, and the row was just read
+      {:error, _reason} -> :ok
+      # coveralls-ignore-stop
     end
   end
 
