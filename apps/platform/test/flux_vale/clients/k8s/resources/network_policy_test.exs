@@ -107,8 +107,9 @@ defmodule FluxVale.Clients.K8s.Resources.NetworkPolicyTest do
     test "narrows namespace admission to the named pods" do
       manifest =
         NetworkPolicy.build_manifest("fluxvale-app-1", "default-deny-ingress", %{
-          ingress_from_namespaces: ["fluxvale-access"],
-          ingress_from_pods: %{"fluxvale.io/gateway" => "gw-a"}
+          ingress_from_sources: [
+            %{namespace: "fluxvale-access", match_labels: %{"fluxvale.io/gateway" => "gw-a"}}
+          ]
         })
 
       [rule | _rest] = manifest["spec"]["ingress"]

@@ -40,6 +40,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   alias FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfig
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.Operations.InstanceK8s
 
   require Ash.Query
 
@@ -656,9 +657,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # the instance NetworkPolicy matches on, so the source lives in
   # InstanceK8s (the policy's owner) rather than being duplicated here —
   # a divergence between the two is a silent reachability change.
-  defp selector_labels(gateway) do
-    FluxVale.Infrastructure.Operations.InstanceK8s.gateway_pod_labels(gateway.id)
-  end
+  defp selector_labels(gateway), do: InstanceK8s.gateway_pod_labels(gateway.id)
 
   # ==================================================================
   # Teardown helpers

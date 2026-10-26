@@ -176,7 +176,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
         {:error, :cluster_down}
       end)
 
-      assert {:error, _} = AccessGateway.resume(suspended, authorize?: false)
+      assert {:error, _reason} = AccessGateway.resume(suspended, authorize?: false)
       assert_received {:scaled, id, 1}
       assert id == gateway.id
     end

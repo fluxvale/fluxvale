@@ -27,6 +27,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.Resume do
 
   use Ash.Resource.Change
 
+  alias Ash.Error.Changes.InvalidAttribute
   alias FluxVale.Infrastructure.AccessProvider
 
   require Logger
@@ -50,6 +51,12 @@ defmodule FluxVale.Infrastructure.AccessGateway.Resume do
   # coveralls-ignore-next-line trivial callback — always false (cluster I/O in the hook)
   def atomic?, do: false
 
+  # The scale is cluster I/O in `after_action`, so its failure must abort
+  # the action (which rolls the row's write back) rather than be swallowed.
+  defp resume_error do
+    InvalidAttribute.exception(field: :state, message: "Couldn't resume access")
+  end
+
   # Row first, scale second (see the moduledoc). `after_action` returning
   # an error rolls the row's own write back, so a failed scale leaves the
   # gateway exactly as it was.
@@ -65,7 +72,8 @@ defmodule FluxVale.Infrastructure.AccessGateway.Resume do
 
         {:error, reason} ->
           Logger.error("Access gateway #{gateway.id} resume failed: #{inspect(reason)}")
-          {:error, Ash.Error.Changes.InvalidAttribute.exception(field: :state, message: "Couldn't resume access")}
+
+          {:error, resume_error()}
       end
     end)
   end

@@ -29,6 +29,7 @@ defmodule FluxVale.Infrastructure.Operations.GatewayPolicySurvivalTest do
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
+  alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.DeployInstance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
@@ -90,6 +91,22 @@ defmodule FluxVale.Infrastructure.Operations.GatewayPolicySurvivalTest do
 
       edge_peer = Enum.find(spec.ingress_from_sources, &(&1.namespace == edge))
       refute Map.has_key?(edge_peer, :match_labels)
+    end
+
+    test "an attached instance with no access namespace configured admits no gateway", %{
+      org: org,
+      owner: owner
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      instance = attached_instance!(org, owner, gateway, :private)
+
+      # The namespace is config: with it absent, the deployment has no
+      # gateway pods to admit, so the spec degrades to the plain floor
+      # rather than emitting a peer with a nil namespace (which the API
+      # server would reject, failing every exposure apply).
+      put_access_config(:delete, :namespace)
+
+      assert InstanceK8s.network_policy_spec(instance) == %{ingress_from_namespaces: []}
     end
 
     test "an unattached instance keeps the plain exposure floor", %{org: _org, owner: owner} do
@@ -161,6 +178,23 @@ defmodule FluxVale.Infrastructure.Operations.GatewayPolicySurvivalTest do
 
   # --- helpers -------------------------------------------------------
 
+  defp put_access_config(action, key) do
+    previous = Application.get_env(:flux_vale, :access_gateway)
+
+    put = fn config ->
+      Application.put_env(:flux_vale, :access_gateway, config)
+    end
+
+    updated =
+      case action do
+        :delete -> Keyword.delete(previous, key)
+        _put -> Keyword.put(previous, key, "some-value")
+      end
+
+    put.(updated)
+    on_exit(fn -> put.(previous) end)
+  end
+
   defp access_namespace, do: Application.get_env(:flux_vale, :access_gateway)[:namespace]
 
   # An instance with a real AccessRoute row — the durable record both
@@ -170,7 +204,7 @@ defmodule FluxVale.Infrastructure.Operations.GatewayPolicySurvivalTest do
     instance = unattached_instance!(owner, exposure)
 
     {:ok, _route} =
-      FluxVale.Infrastructure.AccessRoute.create(
+      AccessRoute.create(
         %{gateway_id: gateway.id, instance_id: instance.id, route_key: route_key(instance)},
         authorize?: false
       )

@@ -10,6 +10,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
   """
 
   alias FluxVale.Clients.K8s
+  alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Cluster
   alias FluxVale.Infrastructure.Instance
 
@@ -154,17 +155,11 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
     Application.get_env(:flux_vale, :access_gateway, [])[:namespace]
   end
 
-  defp attached_gateway_ids(instance) do
-    case instance do
-      %{id: nil} ->
-        []
-
-      %{id: id} ->
-        FluxVale.Infrastructure.AccessRoute
-        |> Ash.Query.filter(instance_id == ^id)
-        |> Ash.read!(authorize?: false)
-        |> Enum.map(& &1.gateway_id)
-    end
+  defp attached_gateway_ids(%{id: id}) do
+    AccessRoute
+    |> Ash.Query.filter(instance_id == ^id)
+    |> Ash.read!(authorize?: false)
+    |> Enum.map(& &1.gateway_id)
   end
 
   defp truncate(nil, _limit), do: nil
