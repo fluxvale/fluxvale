@@ -115,32 +115,29 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       assert by_name["TS_SERVE_CONFIG"]["value"] == "/serve/serve.json"
       assert by_name["TS_ENABLE_HEALTH_CHECK"]["value"] == "true"
       # The key rides a secretKeyRef, never a literal value.
-      assert by_name["TS_AUTHKEY"]["value_from"]["secretKeyRef"]["name"] ==
+      assert by_name["TS_AUTHKEY"]["valueFrom"]["secretKeyRef"]["name"] ==
                name("credential", gateway)
 
       refute Map.has_key?(by_name["TS_AUTHKEY"], "value")
     end
 
-    test "a cluster failure surfaces an error AND removes the key it wrote", %{org: org} do
+    test "a cluster failure surfaces an error and LEAVES the key for the retry", %{org: org} do
       gateway = gateway_row!(org)
       # Drain the create leg's own captures so only the failing re-apply
       # below is under observation.
       drain()
 
-      # The credential write succeeds, a later step fails. The key must
-      # not survive: the create's transaction rolls the row back, so a
-      # leftover Secret would be a live tailnet key with no row to
-      # govern it and nothing that would sweep it.
+      # The credential write succeeds, a later step fails. The Secret must
+      # SURVIVE: `:provision`'s drift repair re-reads its key from exactly
+      # this Secret, so deleting it here would turn a transient cluster
+      # error into an unrepairable gateway.
       expect(Secret, :create, fn _kc, _ns, _name, _data -> {:ok, %{}} end)
 
       expect(Deployment, :apply_manifest, fn _kc, _manifest ->
         {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
       end)
 
-      expect(Secret, :delete, fn _kc, _ns, secret_name ->
-        assert secret_name == name("credential", gateway)
-        :ok
-      end)
+      reject(Secret, :delete, 3)
 
       assert {:error, %Error{}} = Tailscale.provision_gateway(gateway, "tskey")
     end
@@ -278,6 +275,39 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
     end
   end
 
+  describe "the pod's rollout strategy" do
+    test "is Recreate — the RWO state PVC carries the node identity", %{org: org} do
+      gateway = gateway_row!(org)
+      calls = drain()
+
+      manifest =
+        Enum.find_value(calls, fn
+          {:deployment_apply, m} -> m
+          _other -> false
+        end)
+
+      # RollingUpdate would start the new pod before the old stops: a
+      # double-mount of the node identity on one node, or a Multi-Attach
+      # timeout across nodes, on every re-paste restart.
+      assert manifest["spec"]["strategy"]["type"] == "Recreate"
+    end
+  end
+
+  describe "a lost Deployment on an active gateway" do
+    test "is drift, not a fresh provision — it stops reporting Connected", %{org: org} do
+      gateway = AccessFixtures.gateway!(org)
+      assert gateway.state == :active
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      # Not :provisioning (the panel would say "Setting up access"
+      # forever and metering would continue against a pod that is gone).
+      assert {:ok, %{state: :needs_attention}} = Tailscale.gateway_status(gateway)
+    end
+  end
+
   describe "credential write failures" do
     test "a Secret write failure surfaces from provision", %{org: org} do
       gateway = gateway_row!(org)
@@ -286,10 +316,8 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
         {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
       end)
 
-      # The cleanup deletes the key it never wrote — 404 is success.
-      expect(Secret, :delete, fn _kc, _ns, _name ->
-        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
-      end)
+      # No cleanup on failure any more (the retry needs the key it wrote).
+      reject(Secret, :delete, 3)
 
       assert {:error, %Error{}} = Tailscale.provision_gateway(gateway, "tskey")
     end
@@ -324,7 +352,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
 
       assert {:error, %Error{}} = Tailscale.attach_instance(gateway, instance)
 
-      assert {:error, _not_found} = AccessRoute.get_by_instance(instance.id)
+      assert {:error, _not_found} = AccessRoute.get_by_instance(instance.id, authorize?: false)
     end
   end
 
@@ -345,7 +373,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
                        %{ingress_from_namespaces: []}}
 
       assert {:error, _not_found} =
-               AccessRoute.get_by_instance(instance.id)
+               AccessRoute.get_by_instance(instance.id, authorize?: false)
     end
 
     test "detaching an unattached instance is a no-op success", %{org: org, owner: owner} do
@@ -397,8 +425,8 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       assert {:ok, %{state: :needs_attention}} = Tailscale.gateway_status(gateway)
     end
 
-    test "a missing deployment is :provisioning", %{org: org} do
-      gateway = AccessFixtures.gateway!(org)
+    test "a missing deployment on a fresh row is :provisioning", %{org: org} do
+      gateway = AccessFixtures.gateway!(org, state: :provisioning)
 
       expect(Deployment, :status, fn _kc, _ns, deployment ->
         assert deployment == name("gateway", gateway)
@@ -514,7 +542,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       assert :ok = Tailscale.teardown_gateway(gateway)
 
       # The instance is back to panel-only private: its route is gone.
-      assert {:error, _not_found} = AccessRoute.get_by_instance(instance.id)
+      assert {:error, _not_found} = AccessRoute.get_by_instance(instance.id, authorize?: false)
     end
 
     test "a missing object is the posture already holding — 404 is success", %{org: org} do
@@ -678,8 +706,18 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
   end
 
   # The per-gateway object names (ADR-0039 §1's multi-tenancy fix): the
-  # provider keys every object by the gateway's id prefix.
-  defp name(prefix, gateway), do: "#{prefix}-#{String.slice(to_string(gateway.id), 0, 8)}"
+  # provider keys every object by the RANDOM TAIL of the gateway id (a
+  # uuid v7's leading hex is a timestamp, shared by everything created in
+  # the same window).
+  defp name(prefix, gateway) do
+    suffix =
+      gateway.id
+      |> to_string()
+      |> String.replace("-", "")
+      |> String.slice(-10, 10)
+
+    "#{prefix}-#{suffix}"
+  end
 
   # The most recent serve config the provider wrote (the Secret's
   # payload), for the routing assertions.

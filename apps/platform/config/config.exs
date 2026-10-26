@@ -176,13 +176,15 @@ config :flux_vale,
   # gateway serving the org's private instances over the owner's tailnet.
   # The namespace is the platform's OWN (never an instance namespace —
   # the gateway must not live inside anything a customer workload owns,
-  # ADR-0005 Am. 5); the image pin is a deliberate supply-chain bump like
-  # every other image in this file. The rate is a placeholder here — the
-  # price is the owner's (§5's cost basis), the row snapshots whatever
-  # the panel passes.
+  # ADR-0005 Am. 5). The image is pinned to an exact version like every
+  # other image in this file: `:stable` is a moving tag, so a pod restart
+  # (including the one on every key re-paste) could silently pull a
+  # different tailscaled. Bump deliberately. The rate is a placeholder
+  # here — the price is the owner's (§5's cost basis), the row snapshots
+  # whatever the panel passes.
   access_gateway: [
     namespace: "fluxvale-access",
-    image: "tailscale/tailscale:stable",
+    image: "tailscale/tailscale:v1.90.6",
     monthly_cents: 200,
     # The wake intercept (#268's next slice) is not shipped yet: with this
     # false a sleeping instance's serve entry points at its own Service

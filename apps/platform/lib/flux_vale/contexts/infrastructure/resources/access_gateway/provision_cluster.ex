@@ -9,9 +9,14 @@ defmodule FluxVale.Infrastructure.AccessGateway.ProvisionCluster do
   create back — a failed create leaves **no row**. That is deliberate:
   the panel never shows a half-made gateway, and the create's own error
   is the owner's answer (retry). There is nothing for a background retry
-  to pick up, which is why the trigger is not auto-enqueued. The provider
-  removes the credential Secret it wrote, so the rollback cannot strand a
-  live tailnet key with no row to govern it.
+  to pick up, which is why the trigger is not auto-enqueued.
+
+  A failed attempt LEAVES the credential Secret it wrote. That looks like
+  a stranded key, but it is the retry's input: `:provision` re-reads the
+  key from exactly that Secret, so deleting it on failure would turn a
+  transient cluster error into a gateway nothing can repair. The org's
+  next opt-in mints a fresh key and a fresh row; the orphan is bounded by
+  the org's own Secret name, and the teardown path removes it.
 
   The provider does the work; this module owns only the transition.
   Landing `:provisioning` is honest — the Deployment exists but has not

@@ -150,6 +150,20 @@ defmodule FluxVale.Billing.Operations.GatewayLadderTest do
       assert summary.suspended_gateway_ids == []
     end
 
+    test "a :destroying gateway is not suspended back into service" do
+      {org, _owner, wallet} = drained_wallet!()
+      gateway = AccessFixtures.gateway!(org, state: :destroying, monthly_cents: @gateway_cents)
+
+      # The destroy arm flips rows to :destroying and commits before this
+      # arm runs; a suspend would regress the state, defeat the delete
+      # guard, and let a teardown error resurrect it as :needs_attention.
+      reject(Tailscale, :scale_gateway, 2)
+
+      assert {:ok, summary} = Billing.sweep_zero_balance(wallet)
+      assert summary.suspended_gateway_ids == []
+      assert AccessGateway.get_by_id!(gateway.id, authorize?: false).state == :destroying
+    end
+
     test "the destroy arm tears gateways down before their instances" do
       # Funded first: the instance create carries the #124 deploy gate,
       # so the drain has to happen after the workload exists.

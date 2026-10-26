@@ -59,10 +59,11 @@ defmodule FluxVale.Repo.Migrations.AddAccessGateways do
             name: "access_routes_gateway_id_fkey",
             type: :uuid,
             prefix: "public",
-            # Restrict: a DB cascade would drop the row while the
-            # gateway's Deployment, Secrets and PVC keep running, joined
-            # to the customer's tailnet. The teardown path owns removal.
-            on_delete: :restrict
+            # Cascade: a pairing has no meaning without its gateway, and
+            # this matches the resource's own reference. (The gateway's
+            # ORGANIZATION fk is the restrict one — the cluster objects
+            # outlive a dropped row and need the teardown path.)
+            on_delete: :delete_all
           ),
           null: false
 

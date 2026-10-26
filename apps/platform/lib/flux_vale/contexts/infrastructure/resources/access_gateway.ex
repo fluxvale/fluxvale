@@ -433,7 +433,14 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       run(fn input, %{actor: actor, authorize?: authorize?} ->
         case get_by_id(input.arguments.id, actor: actor, authorize?: authorize?) do
           {:ok, %{state: :destroying} = gateway} ->
-            # Already mid-teardown — don't enqueue a duplicate job.
+            # Mid-teardown, or a teardown that exhausted its retries
+            # (mark_teardown_error parks the row here so the billing
+            # triggers cannot resurrect it). Re-enqueue: teardown is
+            # idempotent (404-tolerant deletes) and detach-convergent, so
+            # a duplicate attempt against a live job costs one wasted
+            # pass, while NOT re-enqueueing leaves an exhausted removal
+            # with no path forward at all.
+            enqueue_teardown!(gateway)
             {:ok, gateway}
 
           {:ok, gateway} ->
@@ -500,19 +507,28 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     end
 
     update :mark_teardown_error do
-      description("Error handler for :teardown — exhausts retries into :needs_attention.")
+      description("""
+      Error handler for :teardown — exhaustion keeps the row in
+      :destroying with an honest message.
+
+      Not :needs_attention: the :observe and :settle triggers both select
+      that state, so a failed removal would be re-observed as a live
+      gateway and start billing the org that just opted out. :destroying
+      also keeps the teardown's ownership, and the :delete action
+      re-enqueues from it (the owner's retry).
+      """)
+
       require_atomic?(false)
       accept([])
       argument(:error, :map, allow_nil?: true)
 
       change(fn changeset, _context ->
         changeset
-        |> Ash.Changeset.force_change_attribute(:state, :needs_attention)
+        |> Ash.Changeset.force_change_attribute(:state, :destroying)
         |> Ash.Changeset.force_change_attribute(
           :status_message,
           "Removal failed — retry removing access"
         )
-        |> Ash.Changeset.force_change_attribute(:needs_attention_since, DateTime.utc_now())
       end)
     end
   end

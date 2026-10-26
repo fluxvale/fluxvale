@@ -286,13 +286,16 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       assert marked.status_message =~ "try connecting again"
     end
 
-    test ":teardown exhaustion lands :needs_attention and keeps the row", %{org: org} do
+    test ":teardown exhaustion stays :destroying so billing cannot resurrect it", %{org: org} do
       gateway = AccessFixtures.gateway!(org, state: :destroying)
 
       {:ok, marked} =
         AccessGateway.mark_teardown_error(gateway, %{error: %{}}, authorize?: false)
 
-      assert marked.state == :needs_attention
+      # NOT :needs_attention: the :observe and :settle triggers both select
+      # that state, so a failed removal would be re-observed as a live
+      # gateway and start billing the org that just opted out.
+      assert marked.state == :destroying
       assert marked.status_message =~ "retry removing"
     end
   end

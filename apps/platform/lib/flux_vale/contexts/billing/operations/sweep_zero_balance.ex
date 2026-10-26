@@ -209,7 +209,12 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
   # gateway running with nothing in the log to explain the spend. The
   # id list is what was actually suspended, so an already-`:suspended`
   # row does not claim credit for a pass that changed nothing.
-  defp suspend_gateway(%AccessGateway{state: :suspended}), do: []
+  # `:destroying` is skipped too: the destroy arm has already flipped and
+  # committed those rows in this same pass, and a suspend would regress
+  # the state, defeat the delete action's duplicate guard, and let
+  # mark_teardown_error resurrect a tearing-down row.
+  defp suspend_gateway(%AccessGateway{state: state}) when state in [:suspended, :destroying],
+    do: []
 
   defp suspend_gateway(gateway) do
     case AccessGateway.suspend(gateway, authorize?: false) do

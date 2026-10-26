@@ -30,9 +30,11 @@ defmodule FluxVale.Infrastructure.AccessProvider do
 
   Returns `%{credential_secret_ref: String.t()}` — the Secret's NAME
   (never the key), which the row records so a reader can locate the
-  credential without knowing the provider's naming rule. A failure rolls
-  the create back, so the provider also removes the Secret it wrote
-  (a live tailnet key must never outlive the row that governs it).
+  credential without knowing the provider's naming rule.
+
+  A failure leaves the Secret in place deliberately: `:provision`'s drift
+  repair reads its key from there, so a transient failure must stay
+  repairable.
   """
   @callback provision_gateway(AccessGateway.t(), String.t()) ::
               {:ok, %{credential_secret_ref: String.t()}} | {:error, term()}

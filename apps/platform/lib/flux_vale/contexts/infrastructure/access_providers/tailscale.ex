@@ -49,15 +49,21 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # the Secret this derives.
   @serve_file "serve.json"
 
-  # Per-gateway object names. The id is a uuid v7; its first 8 hex chars
-  # are unique enough for a namespace-local name and keep DNS-label
-  # length. Never derived from an org or app name (§1's opacity rule).
+  # Per-gateway object names, never derived from an org or app name
+  # (§1's opacity rule).
+  #
+  # The suffix comes from the RANDOM TAIL of the id: a uuid v7's leading
+  # hex is a millisecond timestamp, identical for every gateway created in
+  # the same ~65s window, so using it would hand two orgs the same object
+  # names — the exact multi-tenancy break this naming exists to prevent.
+  # The last 12 hex are the random part.
   defp object_name(prefix, gateway), do: "#{prefix}-#{short_id(gateway)}"
 
   defp short_id(%AccessGateway{id: id}) do
     id
     |> to_string()
-    |> String.slice(0, 8)
+    |> String.replace("-", "")
+    |> String.slice(-10, 10)
   end
 
   defp deployment_name(gateway), do: object_name("gateway", gateway)
@@ -93,11 +99,10 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
           {:ok, %{credential_secret_ref: credential_secret_name(gateway)}}
 
         {:error, _reason} = error ->
-          # The create's transaction rolls the row back on failure, so a
-          # credential Secret left behind would be a live tailnet key with
-          # no row to govern it and nothing that would ever sweep it.
-          # Best-effort: the original error is what the caller sees.
-          safe_delete_secret(kubeconfig, namespace, credential_secret_name(gateway))
+          # Cleanup is the CREATE path's business (see
+          # `provision_gateway/2`'s doc): the drift-repair retry reads its
+          # key FROM this Secret, so deleting it here would turn a
+          # transient cluster error into an unrepairable gateway.
           error
       end
     end
@@ -356,8 +361,10 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # removing the row is enough for both; the original error is preserved.
   defp cleanup_failed_attach(gateway, instance, error) do
     # Both cleanups are best-effort: the original error is what the
-    # caller surfaces and retries on.
-    delete_route(instance)
+    # caller surfaces and retries on. `delete_route/1` is scoped to this
+    # gateway AND checks the row is still the one we created, so a
+    # concurrent attach that won the race keeps its pairing.
+    delete_route(gateway, instance)
 
     # coveralls-ignore-start - unreachable here: the attach that reached
     # this arm already resolved a kubeconfig moments ago
@@ -371,10 +378,25 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
     error
   end
 
+  # Detach's delete: the instance's pairing (the row is unique per
+  # instance, so no gateway scope is needed there).
   defp delete_route(instance) do
     case route_for(instance) do
       nil -> :ok
       route -> AccessRoute.destroy(route, authorize?: false)
+    end
+  end
+
+  # Cleanup's delete: only the pairing THIS attach created. A concurrent
+  # attach that won the unique index must keep its route, so a bare
+  # delete-by-instance would tear down the winner's work.
+  defp delete_route(gateway, instance) do
+    case route_for(instance) do
+      %AccessRoute{gateway_id: gateway_id} = route when gateway_id == gateway.id ->
+        AccessRoute.destroy(route, authorize?: false)
+
+      _none_or_other_gateway ->
+        :ok
     end
   end
 
@@ -468,10 +490,17 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
       {:ok, status} when is_map(status) ->
         classify(status, gateway)
 
-      # Not created yet (the provision job has not landed): provisioning,
-      # not a bad key — the panel's "Setting up access".
+      # No Deployment. A row still in :provisioning has simply not had its
+      # apply land yet; a row past that (:active/:needs_attention) has
+      # LOST its Deployment, which is drift — reporting :provisioning
+      # there would leave the panel saying "Setting up access" and (for
+      # :active) keep metering a pod that does not exist.
       {:error, %Error{reason: :not_found}} ->
-        {:ok, %{state: :provisioning, message: "Setting up access"}}
+        if gateway.state == :provisioning do
+          {:ok, %{state: :provisioning, message: "Setting up access"}}
+        else
+          {:ok, %{state: :needs_attention, message: "Not connected — the gateway pod is missing"}}
+        end
 
       {:error, _reason} = error ->
         error
@@ -508,6 +537,12 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
       },
       "spec" => %{
         "replicas" => 1,
+        # Recreate, not RollingUpdate: the state PVC is ReadWriteOnce and
+        # holds the tailscaled node identity, so the old pod must be gone
+        # before the new one mounts it (a rolling update can double-mount
+        # on one node, or Multi-Attach-timeout across nodes, during the
+        # re-paste restart).
+        "strategy" => %{"type" => "Recreate"},
         # Per-gateway selector: a shared one would let each gateway's
         # Deployment adopt every other gateway's pods (they would fight
         # over the same ReplicaSets), and the NetworkPolicy's pod
@@ -538,10 +573,10 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
         %{"name" => "TS_SERVE_CONFIG", "value" => "/serve/#{@serve_file}"},
         %{"name" => "TS_ENABLE_HEALTH_CHECK", "value" => "true"},
         %{"name" => "TS_KUBE_SECRET", "value" => ""},
-        %{"name" => "POD_IP", "value_from" => %{"fieldRef" => %{"fieldPath" => "status.podIP"}}},
+        %{"name" => "POD_IP", "valueFrom" => %{"fieldRef" => %{"fieldPath" => "status.podIP"}}},
         %{
           "name" => "TS_AUTHKEY",
-          "value_from" => %{
+          "valueFrom" => %{
             "secretKeyRef" => %{
               "name" => credential_secret_name(gateway),
               "key" => "TS_AUTHKEY"
