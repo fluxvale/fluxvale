@@ -5,6 +5,7 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
   use Mimic
 
   alias FluxVale.Clients.K8s
+  alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Ingress
   alias FluxVale.Clients.K8s.Resources.Middleware
@@ -160,6 +161,51 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
       assert updated.status == :starting
       assert updated.namespace == ns
       assert updated.status_message =~ "awaiting readiness"
+    end
+
+    # #265: a private deploy never reaches the public edge — no route
+    # (nor beacon/wake middleware: nothing can route to either), and
+    # the policy denies edge ingress from the first pod. Everything
+    # else is the ordinary blueprint: the namespace still lands, the
+    # workload still runs, panel/sweep/backup paths still apply.
+    test "a private instance deploys with no public route and an edge-denied policy" do
+      stub_kubeconfig()
+      instance = deploying!()
+      ns = "fluxvale-app-#{instance.id}"
+
+      private = InstanceFixtures.pin!(instance, exposure: :private)
+
+      stub(Namespace, :create, fn _kc, _ns, _spec -> {:ok, %{}} end)
+      stub(RoleBinding, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(ResourceQuota, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(PersistentVolumeClaim, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Secret, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Deployment, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      expect(Service, :create, fn _kc, ^ns, "app", _spec -> {:ok, %{}} end)
+
+      expect(NetworkPolicy, :create, fn _kc, ^ns, "default-deny-ingress", spec ->
+        assert spec == %{ingress_from_namespaces: []}
+        {:ok, %{}}
+      end)
+
+      # No route, no beacon, no wake target: private is the absence of
+      # an edge presence. Reaching for any of them fails the test.
+      reject(Ingress, :create, 4)
+      reject(Middleware, :create, 4)
+
+      stub(Ingress, :delete, fn _kc, _ns, _name ->
+        # Fresh namespace: no route exists — already the posture.
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub(Service, :create, fn
+        _kc, _ns, "app", _spec -> {:ok, %{}}
+        _kc, _ns, "wake", _spec -> flunk("private deploys mint no wake target")
+      end)
+
+      assert {:ok, updated} = DeployInstance.call(private)
+      assert updated.status == :starting
     end
 
     test "storage-less instances skip the PVC; env-less ones skip the Secret" do

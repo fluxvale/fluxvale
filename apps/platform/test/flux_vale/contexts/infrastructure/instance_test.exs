@@ -1117,6 +1117,37 @@ defmodule FluxVale.Infrastructure.InstanceTest do
     end
   end
 
+  describe "set_exposure/2 (#265)" do
+    test "exposure defaults to :public — no behavior change for any row" do
+      instance = created!()
+
+      assert instance.exposure == :public
+    end
+
+    test "set_exposure is the member's toggle; a non-member is forbidden" do
+      instance = created!()
+      owner = owner_of(instance)
+
+      # Never-deployed row: attribute-only (the deploy applies the
+      # posture) — no cluster stubs needed here.
+      assert {:ok, private} =
+               Instance.set_exposure(instance, %{exposure: :private}, actor: owner)
+
+      assert private.exposure == :private
+
+      assert {:ok, public} =
+               Instance.set_exposure(private, %{exposure: :public}, actor: owner)
+
+      assert public.exposure == :public
+
+      stranger =
+        User.create!("stranger-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Instance.set_exposure(public, %{exposure: :private}, actor: stranger)
+    end
+  end
+
   describe "delete/1" do
     test "never-deployed rows hard-delete synchronously" do
       instance = created!()

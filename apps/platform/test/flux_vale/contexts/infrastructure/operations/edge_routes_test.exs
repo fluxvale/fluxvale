@@ -174,6 +174,80 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
     end
   end
 
+  describe "apply_private/2 (#265)" do
+    test "deletes the app and dav routes, minting nothing" do
+      stub_kubeconfig()
+      instance = instance!(%{file_access: true})
+      ns = "fluxvale-app-#{instance.id}"
+
+      expect(Ingress, :delete, 2, fn
+        _kc, ^ns, "app-ingress" -> :ok
+        _kc, ^ns, "app-dav" -> :ok
+      end)
+
+      # The posture owns routes only: no middleware, no service, and
+      # no route may be minted — reaching for create fails the test.
+      reject(Ingress, :create, 4)
+      reject(Middleware, :create, 4)
+      reject(Service, :create, 4)
+
+      assert :ok = EdgeRoutes.apply_private(%{}, instance)
+    end
+
+    test "a missing route is the posture already holding (404 tolerated)" do
+      stub_kubeconfig()
+      instance = instance!(%{})
+      ns = "fluxvale-app-#{instance.id}"
+
+      expect(Ingress, :delete, fn _kc, ^ns, "app-ingress" ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      assert :ok = EdgeRoutes.apply_private(%{}, instance)
+    end
+
+    test "a volume-less file-access instance hunts no dav route" do
+      stub_kubeconfig()
+      instance = instance!(%{file_access: true}, storage_gb: 0)
+      ns = "fluxvale-app-#{instance.id}"
+
+      expect(Ingress, :delete, fn _kc, ^ns, "app-ingress" -> :ok end)
+
+      stub(Ingress, :delete, fn
+        _kc, _ns, "app-dav" -> flunk("no dav route ever existed to delete")
+        _kc, _ns, "app-ingress" -> :ok
+      end)
+
+      assert :ok = EdgeRoutes.apply_private(%{}, instance)
+    end
+
+    test "a delete failure propagates — never a half-private posture" do
+      stub_kubeconfig()
+      instance = instance!(%{})
+      ns = "fluxvale-app-#{instance.id}"
+
+      expect(Ingress, :delete, fn _kc, ^ns, "app-ingress" ->
+        {:error, Error.connection_error("delete refused")}
+      end)
+
+      assert {:error, _error} = EdgeRoutes.apply_private(%{}, instance)
+    end
+
+    test "apply_serving and apply_wake converge on it for private instances" do
+      stub_kubeconfig()
+      instance = instance!(%{})
+      ns = "fluxvale-app-#{instance.id}"
+
+      private = InstanceFixtures.pin!(instance, exposure: :private)
+
+      expect(Ingress, :delete, 2, fn _kc, ^ns, _name -> :ok end)
+      reject(Ingress, :create, 4)
+
+      assert :ok = EdgeRoutes.apply_serving(%{}, private)
+      assert :ok = EdgeRoutes.apply_wake(%{}, private)
+    end
+  end
+
   describe "ensure_wake_targets/2" do
     test "applies the wake Service and marker without touching routes" do
       stub_kubeconfig()

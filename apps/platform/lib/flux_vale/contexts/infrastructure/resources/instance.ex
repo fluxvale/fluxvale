@@ -74,6 +74,7 @@ defmodule FluxVale.Infrastructure.Instance do
   alias FluxVale.Infrastructure.Instance.ValidateEnvVars
   alias FluxVale.Infrastructure.Instance.WakeMarkers
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.Infrastructure.Operations.SetExposure
   alias FluxVale.Infrastructure.Operations.SleepInstance
   alias FluxVale.Infrastructure.Operations.StartInstance
   alias FluxVale.Infrastructure.Operations.StopInstance
@@ -181,6 +182,11 @@ defmodule FluxVale.Infrastructure.Instance do
 
     policy action(:set_always_on) do
       description("Members toggle their org's instance always-on (#203)")
+      authorize_if(relates_to_actor_via([:organization, :members]))
+    end
+
+    policy action(:set_exposure) do
+      description("Members toggle their org's instance exposure (#265)")
       authorize_if(relates_to_actor_via([:organization, :members]))
     end
 
@@ -375,6 +381,19 @@ defmodule FluxVale.Infrastructure.Instance do
     attribute :always_on, :boolean do
       allow_nil?(false)
       default(false)
+      public?(true)
+    end
+
+    # #265: the network-isolation primitive — `:public` serves the
+    # hostname at the edge (today's behavior, the default), `:private`
+    # has no public route and denies namespace ingress from the edge
+    # (in-cluster paths — panel, sweeps, backups, health — never rode
+    # the edge exception). Provider-agnostic by decision: the state
+    # names reachability, not an access provider; a future access
+    # layer attaches to `:private` without schema change.
+    attribute :exposure, FluxVale.Infrastructure.Types.InstanceExposure do
+      allow_nil?(false)
+      default(:public)
       public?(true)
     end
 
@@ -682,6 +701,38 @@ defmodule FluxVale.Infrastructure.Instance do
       accept([:always_on])
     end
 
+    # #265: exposure's cluster application is synchronous and inside
+    # the action — private is the instant kill-switch, so the row may
+    # not claim a posture the cluster hasn't reached: a SetExposure
+    # failure fails the action (and the write), keeping row and cluster
+    # honest about each other.
+    update :set_exposure do
+      description("""
+      The org members' reachability toggle (#265): private = no public
+      route + namespace ingress denied from the edge, applied
+      synchronously; in-cluster management keeps working. Exposure
+      itself bills nothing.
+      """)
+
+      require_atomic?(false)
+      accept([:exposure])
+
+      change(fn changeset, _context ->
+        instance = changeset.data
+
+        if cluster_managed?(instance) do
+          Ash.Changeset.after_action(changeset, fn _changeset, updated ->
+            case SetExposure.call(updated) do
+              :ok -> {:ok, updated}
+              {:error, _reason} = error -> error
+            end
+          end)
+        else
+          changeset
+        end
+      end)
+    end
+
     action :delete, :struct do
       description("""
       Deletes an instance (async teardown). Deployed instances flip to
@@ -837,11 +888,23 @@ defmodule FluxVale.Infrastructure.Instance do
     define(:sleep)
     define(:touch)
     define(:set_always_on)
+    define(:set_exposure)
   end
 
   identities do
     identity(:unique_slug_per_cluster, [:slug, :cluster_id])
   end
+
+  # The set_exposure cluster gate (#265): only a namespace the platform
+  # still owns gets a synchronous cluster apply. Never-deployed rows
+  # (nil namespace) and :lost ones (namespace gone — re-deploy applies
+  # the row's posture on a fresh namespace) are attribute-only writes;
+  # :deleting is teardown's, not the toggle's.
+  defp cluster_managed?(%{namespace: nil}), do: false
+
+  defp cluster_managed?(%{status: status}) when status in [:lost, :deleting], do: false
+
+  defp cluster_managed?(_instance), do: true
 
   # The status write commits before the job insert (separate writes), so
   # a raising insert would strand the row in :deleting with no job — and

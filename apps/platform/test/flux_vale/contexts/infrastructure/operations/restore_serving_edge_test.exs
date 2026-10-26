@@ -54,4 +54,17 @@ defmodule FluxVale.Infrastructure.Operations.RestoreServingEdgeTest do
 
     assert {:error, _error} = RestoreServingEdge.call(instance)
   end
+
+  # #265: the self-healing flip must not mint a route the row says must
+  # not exist — a crafted wake-marker naming a private instance gets
+  # the no-op, not a public route (:ok with zero cluster calls).
+  test "a private instance restores nothing — no route is ever minted for it" do
+    instance = running_instance!()
+    private = InstanceFixtures.pin!(instance, exposure: :private)
+
+    reject(K8s, :kubeconfig, 1)
+    reject(Ingress, :create, 4)
+
+    assert :ok = RestoreServingEdge.call(private)
+  end
 end

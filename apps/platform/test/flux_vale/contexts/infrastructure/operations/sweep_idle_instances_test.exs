@@ -7,6 +7,7 @@ defmodule FluxVale.Infrastructure.Operations.SweepIdleInstancesTest do
   use Mimic
 
   alias FluxVale.Clients.K8s
+  alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Ingress
   alias FluxVale.Clients.K8s.Resources.Middleware
@@ -92,6 +93,30 @@ defmodule FluxVale.Infrastructure.Operations.SweepIdleInstancesTest do
 
     still_running = Instance.get_by_id!(instance.id, authorize?: false)
     assert still_running.status == :running
+  end
+
+  # #265: exposure is orthogonal to the idle clock — a private instance
+  # sleeps like any idle row (default economics), and sleeps with no
+  # route at the edge (SleepInstance's private posture; nothing can
+  # wake it externally — always-on remains the opt-out).
+  test "a private instance with a stale marker still sleeps — no wake route minted" do
+    stale = DateTime.add(DateTime.utc_now(), -2 * 3600, :second)
+    created = instance!(%{})
+    running = with_marker!(created, stale)
+    private = InstanceFixtures.pin!(running, exposure: :private)
+
+    expect(Ingress, :delete, fn _kc, _ns, "app-ingress" ->
+      {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+    end)
+
+    reject(Ingress, :create, 4)
+
+    assert {:ok, summary} = SweepIdleInstances.call()
+    assert private.id in summary.slept_ids
+
+    slept = Instance.get_by_id!(running.id, authorize?: false)
+    assert slept.status == :sleeping
+    assert slept.exposure == :private
   end
 
   test "non-running rows are not candidates" do

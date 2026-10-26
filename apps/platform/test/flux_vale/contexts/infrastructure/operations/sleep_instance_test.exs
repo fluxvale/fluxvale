@@ -112,5 +112,32 @@ defmodule FluxVale.Infrastructure.Operations.SleepInstanceTest do
 
       assert {:ok, ^instance} = SleepInstance.call(instance)
     end
+
+    # #265: a private instance sleeps with NO route at the edge — no
+    # wake flip mints one, so nothing external can wake it. The sleep
+    # itself is ordinary economics (storage-only); always-on remains
+    # the stay-awake opt-out, and the panel's Wake still works.
+    test "a private instance sleeps without minting a wake route (#265)" do
+      stub_kubeconfig()
+      instance = running!()
+      ns = "fluxvale-app-#{instance.id}"
+
+      private = InstanceFixtures.pin!(instance, exposure: :private)
+
+      expect(Deployment, :scale, fn _kc, ^ns, "app", 0 -> {:ok, %{}} end)
+
+      # The private posture deletes (here: nothing to delete — the
+      # 404-tolerated arm), and mints nothing.
+      expect(Ingress, :delete, fn _kc, ^ns, "app-ingress" ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      reject(Ingress, :create, 4)
+      reject(Service, :create, 4)
+      reject(Middleware, :create, 4)
+
+      assert {:ok, sleeping} = SleepInstance.call(private)
+      assert sleeping.status == :sleeping
+    end
   end
 end

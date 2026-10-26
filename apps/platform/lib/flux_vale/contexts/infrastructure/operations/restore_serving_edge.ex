@@ -21,6 +21,13 @@ defmodule FluxVale.Infrastructure.Operations.RestoreServingEdge do
   post-wake request until the flip lands.
   """
   @spec call(Instance.t()) :: :ok | {:error, term()}
+
+  # #265: a private instance never serves publicly — the self-healing
+  # flip must not mint a route the row says must not exist (the wake
+  # endpoint is public; a crafted marker naming a private instance
+  # gets its no-op here, not a route).
+  def call(%Instance{exposure: :private}), do: :ok
+
   def call(instance) do
     with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance) do
       EdgeRoutes.apply_serving(kubeconfig, instance)

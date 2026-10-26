@@ -35,6 +35,21 @@ defmodule FluxVale.Clients.K8s.Resources.NetworkPolicyTest do
                }
              } in sources
     end
+
+    # #265: private is the empty namespace list — same-namespace only,
+    # the edge denied. The policy must keep existing (a deleted policy
+    # would re-admit everything); an ingress rule with no external
+    # source is the denial.
+    test "an empty namespace list denies every external source (#265 private)" do
+      manifest =
+        NetworkPolicy.build_manifest("fluxvale-app-1", "default-deny-ingress", %{
+          ingress_from_namespaces: []
+        })
+
+      assert [%{"from" => sources}] = manifest["spec"]["ingress"]
+      assert sources == [%{"podSelector" => %{}}]
+      refute Enum.any?(sources, &Map.has_key?(&1, "namespaceSelector"))
+    end
   end
 
   describe "create/4" do

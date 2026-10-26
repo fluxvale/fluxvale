@@ -81,3 +81,15 @@ reconciler still the only writer of `:running`). Metering-wise sleeping
 is stopped: leaving `:running` folds the running interval and the
 storage anchor keeps accruing storage-only. Stop stays the owner's
 verb; sleep is the platform's, and traffic reverses it.
+
+## Amendment 4 (2026-10-26)
+
+Per [ADR-0038](00038-instance-exposure-modes.md) (#265): an Instance
+gains **`exposure`** (`public | private`, default `public`) — the
+network-isolation primitive this ADR's rationale promised
+("NetworkPolicies are product features"). Private = no route on the
+public entrypoint + namespace ingress denied from the edge; the
+in-cluster paths this ADR's triggers ride are unaffected. The state is
+provider-agnostic: a future access layer attaches to `private`
+without schema change.
+
