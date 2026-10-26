@@ -82,8 +82,9 @@ because both actions hold the row lock across their synchronous
 cluster applies (each runs its K8s work inside its transaction), the
 two K8s windows are serialized by Postgres in whichever order they
 arrive: toggle-then-deploy deploys the new posture; deploy-then-toggle
-applies the toggle to a settled world. No ordering resurrects a
-private row's public edge.
+applies the toggle to a settled world. No ordering **of those two**
+resurrects a private row's public edge; the sweep's sleep is a third
+writer these locks don't reach (§6).
 
 **The wake endpoint gates private rows**: `EdgeWakeController` answers
 a marker naming a `:private` instance with the same 404 as an unknown
@@ -120,7 +121,7 @@ private row.
 ### 4. Wake coherence is an absence, not machinery
 
 A sleeping private instance stays asleep because nothing at the edge
-can reach its wake route — there is none. Always-on remains the
+can reach its wake route — there is none bar §6. Always-on remains the
 stay-awake opt-out (the idle sweep skips it), and the owner's panel
 Wake (in-cluster `start`) still works. The idle sweep otherwise
 treats private rows like any other: default economics (storage-only
@@ -159,13 +160,27 @@ widen the policy's edge entry, and it needs no new column.
   (ADR-0005's split) and the exposure row is owner-intent, not
   observed state.
 - **The stale-sleep mint window**: an instance that goes private
-  while the idle sweep's sleep is mid-flight can have a wake-mode
-  route minted by the in-flight sleep (`SleepInstance` applied the
-  pre-toggle record) before the row's private posture lands. The
-  policy serialization (§1) bounds the overlap to the sleep's own
-  transaction, and the row lock makes the loser re-apply; the
-  residual un-watched mint self-heal is deferred to the access-layer
-  lane (#268) rather than fixed blind here.
+  while the idle sweep's sleep is mid-flight can end up with a
+  wake-mode route minted after the toggle's delete (`SleepInstance`
+  applied the pre-toggle record). §1 does not bound it: its
+  serialization covers the deploy/toggle pair, and the sleep is
+  neither — it holds no row lock across the flip (the `:sleep` action
+  accepts no attributes, so no `UPDATE` fires before
+  `EdgeRoutes.apply_wake`); the lock only arrives after the mint, in
+  `update_status`'s own write, which carries no exposure or version
+  and cannot re-decide the flip. The toggle therefore does not
+  re-apply as a loser: its optimistic lock contends only with other
+  toggles, so once its applies and write land it returns success over
+  a sleep that may have re-minted behind it. What is left is a
+  private row with a wake-mode route that nothing at rest removes —
+  `RestoreServingEdge` no-ops on private, and only a call into the
+  private dispatch clears it (a re-deploy's `apply_serving`, or a
+  toggle round-trip). The route still puts the hostname on the public
+  entrypoint; its only answer is the wake endpoint's 404 for a
+  private row: an existence leak and a warm edge path, no app
+  reachability, no wake, no spend. The un-watched mint's self-heal is
+  deferred to the access-layer lane (#268); that lane must not read
+  §1 as already covering this.
 
 ## Rejected alternatives
 
