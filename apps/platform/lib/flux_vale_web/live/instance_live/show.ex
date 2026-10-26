@@ -128,14 +128,18 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
           <%!-- #261: enabling is the charge-raising direction — confirm
           first (the destroy-flow data-confirm precedent), with the
-          row's own settlement figures; disabling only saves money, so
-          it rides bare. --%>
+          row's own settlement figures; the figure rides phx-value so
+          the accept-time guard (below) can refuse a stale number.
+          Disabling only saves money, so it rides bare. --%>
           <.button
             size="sm"
             variant="ghost"
             phx-click="toggle-always-on"
             phx-value-always_on={to_string(not @instance.always_on)}
-            data-confirm={if(not @instance.always_on, do: @always_on_confirm)}
+            data-confirm={if(not @instance.always_on, do: @always_on_confirm.text)}
+            phx-value-shown_monthly_cents={
+              @always_on_confirm.monthly_cents && Integer.to_string(@always_on_confirm.monthly_cents)
+            }
             data-testid="always-on-toggle"
           >
             {if(@instance.always_on, do: "Let it sleep when idle", else: "Keep always on")}
@@ -462,36 +466,21 @@ defmodule FluxValeWeb.InstanceLive.Show do
     handle_lifecycle(socket, &Instance.start/2)
   end
 
-  # #203 (ADR-0036 Am. 2, #261): the always-on opt-out — no premium
+  # #203/#261 (ADR-0036 Am. 2): the always-on opt-out — no premium
   # tier; the toggle is behavior (the idle sweep skips always-on rows,
   # and the page confirms the full-rate cost before enabling).
-  def handle_event("toggle-always-on", %{"always_on" => always_on} = _params, socket) do
+  def handle_event("toggle-always-on", %{"always_on" => always_on} = params, socket) do
     instance = socket.assigns.instance
     # phx-value strings in, booleans out — the attribute is boolean.
     always_on = always_on == "true"
 
-    case Instance.set_always_on(instance, %{always_on: always_on},
-           actor: socket.assigns.current_user
-         ) do
-      {:ok, updated} ->
-        # "Never sleeps" said while the instance sleeps is a lie:
-        # enabling always-on wakes a sleeping instance (the visitor's
-        # next open would too — this just doesn't wait for one).
-        socket =
-          if always_on and updated.status == :sleeping do
-            wake_on_enable(socket, updated)
-          else
-            assign_instance(socket, reload(updated, socket))
-          end
-
-        {:noreply, socket}
-
-      # coveralls-ignore-start - defensive: the action's error arm is a
-      # DB-level failure; no deterministic test can stage one without a
-      # backdoor (the delete handler's stance, same shape).
-      {:error, _error} ->
-        {:noreply, put_flash(socket, :error, "Couldn't change the availability setting.")}
-        # coveralls-ignore-stop
+    if always_on and price_moved?(params, instance) do
+      # The number the user accepted no longer matches the fresh rate —
+      # never enable against it. Refuse, refresh, and re-ask (the next
+      # click compares against the refreshed copy).
+      {:noreply, reask_always_on(socket)}
+    else
+      apply_always_on(socket, instance, always_on)
     end
   end
 
@@ -566,6 +555,35 @@ defmodule FluxValeWeb.InstanceLive.Show do
       # K8s path reports through status, not error tuples.
       {:error, _error} ->
         put_flash(socket, :error, "Always-on is set — open the app once to wake it now.")
+        # coveralls-ignore-stop
+    end
+  end
+
+  # The toggle's action arms: the wake-on-enable lie-check rides the
+  # success path; the error arm flashes (the action's own guards are
+  # the real gate — stale-view double clicks).
+  defp apply_always_on(socket, instance, always_on) do
+    case Instance.set_always_on(instance, %{always_on: always_on},
+           actor: socket.assigns.current_user
+         ) do
+      {:ok, updated} ->
+        # "Never sleeps" said while the instance sleeps is a lie:
+        # enabling always-on wakes a sleeping instance (the visitor's
+        # next open would too — this just doesn't wait for one).
+        socket =
+          if always_on and updated.status == :sleeping do
+            wake_on_enable(socket, updated)
+          else
+            assign_instance(socket, reload(updated, socket))
+          end
+
+        {:noreply, socket}
+
+      # coveralls-ignore-start - defensive: the action's error arm is a
+      # DB-level failure; no deterministic test can stage one without a
+      # backdoor (the delete handler's stance, same shape).
+      {:error, _error} ->
+        {:noreply, put_flash(socket, :error, "Couldn't change the availability setting.")}
         # coveralls-ignore-stop
     end
   end
@@ -759,21 +777,97 @@ defmodule FluxValeWeb.InstanceLive.Show do
   # every price surface, plus the wake-on-enable behavior. An unpriced
   # row (pre-#121 drift — no size, no formula snapshot) falls back to
   # figure-free copy: the gate must render even where the figures
-  # don't.
+  # don't. `monthly_cents` is the shown running figure — the accept-time
+  # guard's comparison input (nil = no figure was shown).
   defp always_on_confirm(instance) do
     case FluxVale.Pricing.settlement_rates(instance, DateTime.utc_now()) do
       {:ok, %{running: running, stopped: stopped}} ->
-        "Keep this instance always on? It never sleeps, so it bills the full rate " <>
-          "around the clock (#{FluxVale.Pricing.format_usd(running)}/mo) instead of the " <>
-          "storage-only rate while it would otherwise sleep (#{FluxVale.Pricing.format_usd(stopped)}/mo) — " <>
-          "monthly-equivalent, billed hourly. A sleeping instance wakes immediately."
+        %{
+          monthly_cents: running,
+          text:
+            "Keep this instance always on? It never sleeps, so it bills the full rate " <>
+              "around the clock (#{FluxVale.Pricing.format_usd(running)}/mo) instead of the " <>
+              "storage-only rate while it would otherwise sleep (#{FluxVale.Pricing.format_usd(stopped)}/mo) — " <>
+              "monthly-equivalent, billed hourly. A sleeping instance wakes immediately."
+        }
 
       _unpriced ->
-        "Keep this instance always on? It never sleeps, so it bills the full rate " <>
-          "around the clock instead of the storage-only rate while it would otherwise " <>
-          "sleep. A sleeping instance wakes immediately."
+        %{
+          monthly_cents: nil,
+          text:
+            "Keep this instance always on? It never sleeps, so it bills the full rate " <>
+              "around the clock instead of the storage-only rate while it would otherwise " <>
+              "sleep. A sleeping instance wakes immediately."
+        }
     end
   end
+
+  # The accept-time guard (#261 review, PA-adopted): the dialog's
+  # figures are as-of the last assign — between that render and the
+  # accept, an admin price edit or the grandfathering deadline can move
+  # the real rate. Consent must match the charged number, so enabling
+  # re-prices through the same resolver and refuses on any difference.
+  # The render-time refresh alternative needs a click→event→JS-confirm
+  # round trip the repo doesn't have; checking at accept time needs
+  # only the figure the dialog showed (phx-value) vs fresh truth.
+  defp price_moved?(params, instance) do
+    case shown_figure(params) do
+      nil -> false
+      figure -> fresh_monthly_cents(instance) != figure
+    end
+  end
+
+  # The dialog's figure rides phx-value as a string; a stale view can
+  # carry anything in there. nil = no figure was shown (unpriced copy —
+  # nothing to contradict, proceed); :garbled can't be matched against
+  # truth, so it counts as moved — the refuse-and-re-ask arm is the
+  # safe answer for garbage too.
+  defp shown_figure(%{"shown_monthly_cents" => shown}) when byte_size(shown) > 0 do
+    case Integer.parse(shown) do
+      {cents, ""} -> cents
+      _garbled -> :garbled
+    end
+  end
+
+  defp shown_figure(_no_figure_shown), do: nil
+
+  # Fresh truth at accept time: the same resolver the confirm rendered
+  # from, evaluated now. Any non-integer (unpriced now, unreadable
+  # rates) differs from a shown figure — refuse.
+  defp fresh_monthly_cents(instance) do
+    case FluxVale.Pricing.settlement_rates(instance, DateTime.utc_now()) do
+      {:ok, %{running: running}} -> running
+      _unavailable -> :unpriced_now
+    end
+  end
+
+  # Refuse + refresh + re-ask: re-read the row (its own attrs may be
+  # what moved — e.g. the grandfathering clock), re-derive the confirm
+  # from it, and say the new figure out loud. A read miss keeps the
+  # last state (the :destroy clause owns exits) and still re-asks.
+  defp reask_always_on(socket) do
+    socket =
+      case fetch(socket, socket.assigns.instance.id) do
+        # coveralls-ignore-start - race window: reaching nil needs the
+        # row deleted between the guard's refusal and this re-read
+        # inside the same event; teardown's own :destroy broadcast
+        # would exit the page first, so no deterministic test can stage
+        # it (refresh/2's read-miss stance).
+        nil -> socket
+        # coveralls-ignore-stop
+        instance -> assign_instance(socket, instance)
+      end
+
+    put_flash(socket, :error, price_moved_flash(socket.assigns.always_on_confirm.monthly_cents))
+  end
+
+  defp price_moved_flash(nil),
+    do: "Pricing changed since that dialog — please review and confirm again."
+
+  defp price_moved_flash(cents),
+    do:
+      "Pricing changed — always-on would now bill #{FluxVale.Pricing.format_usd(cents)}/mo " <>
+        "(billed hourly) around the clock. Please confirm again."
 
   # Action results and broadcast records carry no loaded relationships;
   # the page renders app name + version off the version's app, and the
