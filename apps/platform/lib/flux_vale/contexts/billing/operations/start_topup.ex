@@ -17,8 +17,10 @@ defmodule FluxVale.Billing.Operations.StartTopup do
   (`Pricing.resolve_tax_rate/3`), never taken from the caller's
   `tax_rate_bp` — a caller rate or tax figure that contradicts the
   resolution fails the top-up closed (`:tax_rate_mismatch` /
-  `:tax_cents_mismatch`) before anything is persisted or charged, so
-  the wizard's displayed total and the charge cannot fork. The gateway
+  `:tax_cents_mismatch`) before anything is persisted or charged —
+  under reverse charge only the tax figure is checked (the evidence
+  zeroes the rate whatever the caller carried) — so the wizard's
+  displayed total and the charge cannot fork. The gateway
   is charged the GROSS. `reverse_charge?` and `ip_matches_billing?`
   are derived here from the caller's evidence
   (`FluxVale.Billing.Tax`), so the recorded signals cannot fork from

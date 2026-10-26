@@ -266,7 +266,7 @@ defmodule FluxVale.Billing.LedgerEntry do
     # period.
     read :tax_bearing_entries do
       description(
-        "Tax-bearing entries (charge credits and the debits reversing them) in a date range — the tax summary's source."
+        "Tax-bearing entries (charge credits and the entries reversing them, either direction) in a date range — the tax summary's source."
       )
 
       argument(:from, :utc_datetime, allow_nil?: false)

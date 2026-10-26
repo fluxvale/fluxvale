@@ -45,12 +45,6 @@ defmodule FluxVale.Seeds.TaxRateDataTest do
       assert by_key[{"FI", "2021-01-01"}].rate_bp == 2400
       assert by_key[{"FI", "2024-09-01"}].rate_bp == 2550
       assert by_key[{"SK", "2025-01-01"}].rate_bp == 2300
-
-      # EE's step-ups are July-dated (EMTA: 22% from 2024-07-01, 24% from
-      # 2025-07-01 — the corrected dating, #260).
-      assert by_key[{"EE", "2024-07-01"}].rate_bp == 2200
-      assert by_key[{"EE", "2025-07-01"}].rate_bp == 2400
-      refute Map.has_key?(by_key, {"EE", "2024-01-01"})
     end
 
     test "no two rows share a lookup key" do

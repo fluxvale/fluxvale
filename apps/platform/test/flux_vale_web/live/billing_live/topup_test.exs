@@ -390,8 +390,6 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       # the charge's single source).
       view = to_payment(conn)
 
-      # A hostile client can push validate-details from the payment
-      # step — the details swap to FR.
       render_change(view, "validate-details", %{
         "details" => %{
           "name" => "Jane Doe",

@@ -60,7 +60,7 @@ defmodule FluxVale.Billing.Operations.StartTopupTest do
     assert topup.payment_request_id == "pr_1"
     assert topup.amount_cents == 500
     assert topup.billing_country == "DE"
-    # The row's rate is resolved from the table (#260) " + D + " the caller sent none.
+    # The row's rate is resolved from the table (#260) — the caller sent none.
     assert topup.tax_rate_bp == 1900
     assert topup.tax_cents == 95
 
