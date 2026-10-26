@@ -69,7 +69,14 @@ defmodule FluxVale.Billing.Operations.TaxSummaryTest do
     charge!(wallet, 500, country: "US", state: "CA", rate: 1900, tax: 95)
     charge!(wallet, 1000, country: "US", state: "CA", rate: 1900, tax: 190)
 
-    assert [%{net_cents: 1500, tax_cents: 285}] = summary!(from, to)
+    # The discriminating fixture (#260): 80 is not 19% of 500, so an
+    # implementation that re-derives tax from net * rate would answer
+    # 95 for this row (and 380 for the sum) instead of the stored 80
+    # (365). The first two fixtures alone alias at exactly 19% and
+    # cannot tell summing from re-deriving.
+    charge!(wallet, 500, country: "US", state: "CA", rate: 1900, tax: 80)
+
+    assert [%{net_cents: 2000, tax_cents: 365}] = summary!(from, to)
   end
 
   test "keeps reverse-charge rows apart from untaxed consumer rows", %{wallet: wallet} do
@@ -141,6 +148,32 @@ defmodule FluxVale.Billing.Operations.TaxSummaryTest do
     assert {:ok, _refund} = Billing.reverse_entry(charge, reason: :adjustment)
 
     assert [%{net_cents: 0, tax_cents: 0}] = summary!(from, to)
+  end
+
+  # A refund's own reversal is a CREDIT with reverses_id (#260): the
+  # restored net and tax must land in the summary again — the filter
+  # admits reversal credits, not just purchase credits (the credit
+  # half was reason-gated and dropped the restored tax).
+  test "nets refund debits and their reversals symmetrically", %{wallet: wallet} do
+    {from, to} = current_month()
+
+    {:ok, charge} =
+      Billing.credit_wallet(wallet, 1000,
+        idempotency_key: "hitpay_refund_reversed",
+        reason: :purchase,
+        fields: %{
+          billing_country: "US",
+          billing_state: "CA",
+          applied_rate: 2000,
+          tax_cents: 200
+        }
+      )
+
+    assert {:ok, refund} = Billing.reverse_entry(charge)
+    assert [%{net_cents: 0, tax_cents: 0}] = summary!(from, to)
+
+    assert {:ok, _restored} = Billing.reverse_entry(refund)
+    assert [%{net_cents: 1000, tax_cents: 200}] = summary!(from, to)
   end
 
   test "excludes non-tax postings and rows without persisted tax facts", %{wallet: wallet} do

@@ -369,7 +369,7 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       assert [%Topup{status: :pending, payment_request_id: "pr_1", amount_cents: 500}] = topups
     end
 
-    test "pay recomputes the rate from the validated details, never a stale assign", %{
+    test "a hostile details swap from the payment step reprices the charge", %{
       conn: conn,
       org: org
     } do
@@ -385,11 +385,11 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
 
       # DE details carried the wizard to the payment step (rate 19%
       # resolved along the way). A hostile client can still push a
-      # validate-details event there — the details swap to FR.
+      # validate-details event there — the details swap to FR and the
+      # rate assign follows the swapped details (#260: the assign is
+      # the charge's single source).
       view = to_payment(conn)
 
-      # A hostile client can push validate-details from the payment
-      # step — the details swap to FR.
       render_change(view, "validate-details", %{
         "details" => %{
           "name" => "Jane Doe",
@@ -408,8 +408,8 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
 
       _result = render_click(view, "pay")
 
-      # The charge prices FR at pay time — the stale DE assign (19%,
-      # 95¢ on $5) must not leak into the checkout.
+      # The charge prices the swapped FR details — a stale DE assign
+      # (19%, 95¢ on $5) must not leak into the checkout.
       assert_receive {:form, form}
       assert {"amount", "6.45"} in form
 
@@ -426,6 +426,65 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
                  amount_cents: 500
                }
              ] = topups
+    end
+
+    # #260: display and charge read ONE source — the rate assign. A
+    # table change mid-session fails the checkout closed (no charge,
+    # no row), re-displays the current figures, and the retried pay
+    # charges exactly the re-displayed total.
+    test "a mid-session rate change fails closed, re-displays, then charges the displayed total",
+         %{conn: conn, org: org} do
+      TaxRate.create!(
+        %{country: "DE", rate_bp: 1900, effective_from: @effective_from},
+        authorize?: false
+      )
+
+      view = to_payment(conn)
+
+      assert render(element(view, "#topup-pay")) =~ "$5.95"
+
+      # The table moves under the session: 21%, effective now.
+      TaxRate.create!(
+        %{country: "DE", rate_bp: 2100, effective_from: DateTime.utc_now()},
+        authorize?: false
+      )
+
+      canary = self()
+
+      stub(Req, :post, fn _req, _opts ->
+        send(canary, :unexpected_gateway_call)
+
+        {:ok,
+         %Req.Response{status: 200, body: %{"id" => "pr_leak", "url" => "https://x/pr_leak"}}}
+      end)
+
+      html = render_click(view, "pay")
+
+      refute_received :unexpected_gateway_call
+      assert html =~ "The VAT rate changed"
+      assert render(element(view, "[data-testid='topup-taxes']")) =~ "VAT (21%)"
+      assert render(element(view, "#topup-pay")) =~ "$6.05"
+
+      topups =
+        Topup
+        |> Ash.Query.filter(organization_id == ^org.id)
+        |> Ash.read!(authorize?: false)
+
+      assert topups == []
+
+      parent = self()
+
+      expect(Req, :post, fn _req, opts ->
+        send(parent, {:form, opts[:form]})
+        {:ok, %Req.Response{status: 200, body: %{"id" => "pr_1", "url" => "https://x/pr_1"}}}
+      end)
+
+      _result = render_click(view, "pay")
+
+      assert_redirect(view, "https://x/pr_1")
+
+      assert_receive {:form, form}
+      assert {"amount", "6.05"} in form
     end
 
     test "an invalid detail edit never leaks a rate into a charge", %{

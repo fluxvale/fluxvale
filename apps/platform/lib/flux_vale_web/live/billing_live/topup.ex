@@ -10,9 +10,14 @@ defmodule FluxValeWeb.BillingLive.Topup do
   type, VAT number) and the IP country rides the session
   (`FluxValeWeb.Plugs.CaptureIpCountry`); the rate resolves from the
   validated details — reverse charge zeroes it — and recomputes on
-  every details edit and again at pay, so the VAT line, the total, and
-  the charge always price the same details. "Final taxes at checkout"
-  is gone: the wizard prices the charge.
+  every details edit. That resolved assign is the single source the
+  steps display AND the charge spends (#260): no second lookup at pay
+  time, so the VAT line, the total, and the charge can never price
+  different rates. A rate-table change mid-session fails the checkout
+  closed (StartTopup's authoritative guard) and re-displays the current
+  figures for a fresh consent — a charge never carries a total the
+  buyer didn't see. "Final taxes at checkout" is gone: the wizard
+  prices the charge.
 
   Steps 1–3 are LiveView state (a refresh restarts the wizard — the
   buyer hasn't paid anything until the gateway redirect). Step 4 is the
@@ -155,12 +160,11 @@ defmodule FluxValeWeb.BillingLive.Topup do
     # checkout re-validates everything it spends, so a hostile client
     # that skips steps gets silence, never a blank-receipt charge.
     if payable?(assigns) do
-      # The charge carries the rate of the validated details at payment
-      # time — an edit between the amount step and pay must not leave
-      # the checkout on a stale assign.
-      rate_bp = applied_rate(assigns.details)
-
-      open_checkout(socket, Map.put(assigns, :tax_rate_bp, rate_bp))
+      # The displayed rate is the charged rate (#260): the assign the
+      # steps render is the single source the charge spends — StartTopup
+      # re-checks it against the rate table and fails closed if the
+      # table moved under the session.
+      open_checkout(socket, assigns)
     else
       {:noreply, socket}
     end
@@ -193,6 +197,19 @@ defmodule FluxValeWeb.BillingLive.Topup do
       {:ok, _topup, checkout_url} ->
         {:noreply, redirect(socket, external: checkout_url)}
 
+      {:error, :tax_rate_mismatch} ->
+        # The rate table moved under the session — nothing was charged.
+        # Re-resolve so the steps display the current figures and the
+        # buyer consents again; the retried pay charges exactly what
+        # the refreshed display shows.
+        {:noreply,
+         socket
+         |> assign_tax(assigns.details)
+         |> put_flash(
+           :error,
+           "The VAT rate changed — nothing was charged. The total below is updated; review and pay again."
+         )}
+
       {:error, :missing_config} ->
         {:noreply,
          put_flash(
@@ -213,11 +230,13 @@ defmodule FluxValeWeb.BillingLive.Topup do
     end
   end
 
-  # The rate the charge will carry, resolved only from VALIDATED
-  # details: reverse charge zeroes it (the customer self-accounts);
+  # The rate every step displays and the charge spends (#260) — one
+  # resolution the whole session consumes, from VALIDATED details
+  # only: reverse charge zeroes it (the customer self-accounts);
   # otherwise the billing country's table row (state-specific for the
-  # US). `pay` recomputes this at payment time, so the assign below is
-  # display-side only.
+  # US). StartTopup validates the charge against its own table
+  # resolution; a mid-session change answers :tax_rate_mismatch and
+  # the caller re-runs this for the fresh display.
   defp assign_tax(socket, details) do
     if details_valid?(details) do
       assign(socket,

@@ -11,14 +11,20 @@ defmodule FluxVale.Billing.Operations.StartTopup do
   Credits are a single-purpose voucher — VAT added on top (#138,
   ADR-0029 Am. 3 gate 2): the row's `amount_cents` is the NET credit,
   `tax_cents` the VAT on it — always `FluxVale.Billing.Tax.tax_cents/2`
-  from the row's rate (0 when reverse-charge), never inlined twice. A
-  caller-supplied `tax_cents` that contradicts that figure fails the
-  top-up closed (`:tax_cents_mismatch`) — a persisted or charged tax
-  inconsistent with the row's rate would poison the gate-3 return and
-  the completion guard. The gateway is charged the GROSS.
-  `reverse_charge?` and `ip_matches_billing?` are derived here from the
-  caller's evidence (`FluxVale.Billing.Tax`), so the recorded signals
-  cannot fork from the buyer input.
+  from the row's rate (0 when reverse-charge), never inlined twice.
+  The rate table is the sole rate source (#260): the row's rate is
+  resolved here from the billing country
+  (`Pricing.resolve_tax_rate/3`), never taken from the caller's
+  `tax_rate_bp` — a caller rate or tax figure that contradicts the
+  resolution fails the top-up closed (`:tax_rate_mismatch` /
+  `:tax_cents_mismatch`) before anything is persisted or charged —
+  under reverse charge only the tax figure is checked (the evidence
+  zeroes the rate whatever the caller carried) — so the wizard's
+  displayed total and the charge cannot fork. The gateway
+  is charged the GROSS. `reverse_charge?` and `ip_matches_billing?`
+  are derived here from the caller's evidence
+  (`FluxVale.Billing.Tax`), so the recorded signals cannot fork from
+  the buyer input.
 
   Checkout failure marks the row `:failed` (terminal, auditable) and
   returns the error; the buyer retries with a fresh row. System
@@ -30,6 +36,7 @@ defmodule FluxVale.Billing.Operations.StartTopup do
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing.Tax
   alias FluxVale.Billing.Topup
+  alias FluxVale.Pricing
 
   @currency "USD"
 
@@ -81,16 +88,24 @@ defmodule FluxVale.Billing.Operations.StartTopup do
     reverse_charge? = Tax.reverse_charge?(customer_type, params[:vat_number])
 
     # Reverse charge: the applied rate is 0 and tax is 0 — enforced here
-    # so the row can never contradict the proof it records (the wizard
-    # resolves the rate the same way for its display).
-    rate_bp = if reverse_charge?, do: 0, else: params[:tax_rate_bp] || 0
+    # so the row can never contradict the proof it records. Otherwise
+    # the rate table answers (#260): the same resolution the wizard
+    # displayed, so the two agree whenever the table hasn't moved under
+    # the session.
+    rate_bp =
+      if reverse_charge? do
+        0
+      else
+        resolve_rate(params)
+      end
 
     # The resolved rate is authoritative: the tax is always the
-    # helper's figure from the row's rate. A caller figure that
-    # contradicts it fails closed before anything is persisted.
+    # helper's figure from it. A caller figure that contradicts it
+    # fails closed before anything is persisted.
     tax_cents = Tax.tax_cents(params.amount_cents, rate_bp)
 
-    with :ok <- check_tax_cents(params[:tax_cents], tax_cents) do
+    with :ok <- check_tax_rate(params[:tax_rate_bp], rate_bp, reverse_charge?),
+         :ok <- check_tax_cents(params[:tax_cents], tax_cents) do
       Topup.create(
         %{
           organization_id: org.id,
@@ -116,8 +131,34 @@ defmodule FluxVale.Billing.Operations.StartTopup do
     end
   end
 
+  # The rate table answers for the billing country; no country is an
+  # unpriced market — priced at zero, the same stance as a country
+  # with no table row (`ResolveTaxRate`).
+  defp resolve_rate(params) do
+    case params[:billing_country] do
+      nil -> 0
+      country -> Pricing.resolve_tax_rate(country, params[:billing_state], DateTime.utc_now())
+    end
+  end
+
+  # A supplied rate is a cross-check against the table's resolution,
+  # never a source. Reverse charge skips it: the evidence zeroes the
+  # rate whatever the caller carried (the tax check below still guards
+  # the only figure that would persist).
+  defp check_tax_rate(nil, _resolved, _reverse_charge?), do: :ok
+
+  defp check_tax_rate(_supplied, _resolved, true), do: :ok
+
+  defp check_tax_rate(supplied, resolved, false) when is_integer(supplied) do
+    if supplied == resolved do
+      :ok
+    else
+      {:error, :tax_rate_mismatch}
+    end
+  end
+
   # A supplied figure is a cross-check, never a source: only a caller
-  # that computed the same tax from the same rate may proceed.
+  # that computed the same tax from the authoritative rate may proceed.
   defp check_tax_cents(nil, _authoritative), do: :ok
 
   defp check_tax_cents(supplied, authoritative) when is_integer(supplied) do
