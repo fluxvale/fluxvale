@@ -62,6 +62,7 @@ defmodule FluxVale.Infrastructure.Instance do
     notifiers: [Ash.Notifier.PubSub]
 
   alias FluxVale.Infrastructure.Instance.AdoptCurrentRow
+  alias FluxVale.Infrastructure.Instance.AdoptCurrentRowOnSleep
   alias FluxVale.Infrastructure.Instance.DeriveFromAppVersion
   alias FluxVale.Infrastructure.Instance.GenerateSlug
   alias FluxVale.Infrastructure.Instance.MaintainAnchors
@@ -669,13 +670,23 @@ defmodule FluxVale.Infrastructure.Instance do
     update :sleep do
       description("""
       The idle sweep's arm (#203, ADR-0036): scales the Deployment to 0
-      and re-points the edge routes at the wake endpoint. System-only —
-      a member's manual pause is `stop` (sleep is platform-initiated,
+      and re-points the edge routes. For a private row that means the
+      private posture (no route, ADR-0038 §2) — which is why the action
+      re-reads the row FOR UPDATE before it applies anything (ADR-0039
+      §7, closing ADR-0038 §6): the sweep hands it a possibly-stale
+      record, and a wake-mode route minted onto a just-privatized row is
+      exactly the leak this lane must not re-open. System-only — a
+      member's manual pause is `stop` (sleep is platform-initiated,
       traffic-reversible; stopped is owner-initiated, owner-reversible).
       """)
 
       require_atomic?(false)
       accept([])
+
+      # ADR-0039 §7: decide against the CURRENT row, and hold its lock
+      # across the K8s applies so a racing toggle serializes instead of
+      # being missed.
+      change(AdoptCurrentRowOnSleep)
 
       change(fn changeset, _context ->
         instance = changeset.data
