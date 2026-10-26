@@ -46,12 +46,12 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
   def call(%Wallet{} = wallet) do
     now = DateTime.utc_now()
 
+    instances = org_instances(wallet.organization_id)
+    gateways = org_gateways(wallet.organization_id)
+
     with {:ok, balance} <- ReadBalance.call(wallet, authorize?: false),
-         instances = org_instances(wallet.organization_id),
-         gateways = org_gateways(wallet.organization_id),
-         {:ok, instance_burn} <- burn_micro_per_hour(instances, now),
-         gateway_burn = gateway_micro_per_hour(gateways),
-         burn = instance_burn + gateway_burn do
+         {:ok, instance_burn} <- burn_micro_per_hour(instances, now) do
+      burn = instance_burn + gateway_micro_per_hour(gateways)
       runway = runway_hours(balance, burn)
 
       {:ok,

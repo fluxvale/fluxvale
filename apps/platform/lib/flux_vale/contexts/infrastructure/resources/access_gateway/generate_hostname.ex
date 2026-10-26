@@ -18,7 +18,8 @@ defmodule FluxVale.Infrastructure.AccessGateway.GenerateHostname do
 
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
-    Ash.Changeset.force_change_attribute(changeset, :hostname, mint())
+    name = mint()
+    Ash.Changeset.force_change_attribute(changeset, :hostname, name)
   end
 
   @impl Ash.Resource.Change
@@ -26,6 +27,8 @@ defmodule FluxVale.Infrastructure.AccessGateway.GenerateHostname do
   def atomic?, do: true
 
   defp mint do
-    "fv-" <> Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)
+    bytes = :crypto.strong_rand_bytes(4)
+    suffix = Base.encode16(bytes, case: :lower)
+    "fv-" <> suffix
   end
 end

@@ -256,7 +256,8 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
     # (restoring each namespace to its private floor) before the
     # instances are torn down. Destroying instances first would leave a
     # gateway holding routes into namespaces that no longer exist.
-    _gateways = Enum.each(org_gateways(organization_id), &destroy_gateway/1)
+    gateways = org_gateways(organization_id)
+    Enum.each(gateways, &destroy_gateway/1)
 
     for instance <- org_instances(organization_id) do
       {:ok, _deleted} = Instance.delete(instance.id, authorize?: false)
@@ -269,11 +270,14 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
   # already-destroying gateway is fed through (its own guard).
   defp destroy_gateway(%AccessGateway{} = gateway) do
     case AccessGateway.delete(gateway.id, authorize?: false) do
-      {:ok, _deleting} -> :ok
+      {:ok, _deleting} ->
+        :ok
+
       # coveralls-ignore-start - defensive: the action's get_by_id is
       # the only failure shape, and the row was just read
-      {:error, _reason} -> :ok
-      # coveralls-ignore-stop
+      {:error, _reason} ->
+        :ok
+        # coveralls-ignore-stop
     end
   end
 

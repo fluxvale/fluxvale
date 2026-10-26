@@ -17,7 +17,6 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformTeardown do
 
   use Ash.Resource.Change
 
-  alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProvider
 
   require Logger
@@ -25,43 +24,58 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformTeardown do
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
     Ash.Changeset.after_action(changeset, fn _changeset, gateway ->
-      case AccessProvider.impl_for(gateway).teardown_gateway(gateway) do
-        :ok ->
-          case gateway
-               |> Ash.Changeset.for_destroy(:destroy_after_teardown, %{}, authorize?: false)
-               |> Ash.destroy(return_notifications?: true) do
-            {:ok, _destroyed, _notifications} ->
-              {:ok, gateway}
-
-            # coveralls-ignore-start - defensive: DB failure on the delete
-            {:error, reason} ->
-              {:error, reason}
-              # coveralls-ignore-stop
-          end
-
-        {:error, reason} = error ->
-          Logger.error("Access gateway #{gateway.id} teardown failed: #{inspect(reason)}")
-
-          # The row stays :destroying so the retry finds it and the panel
-          # keeps showing "Removing access" until it lands.
-          _ = mark_destroying(gateway)
-          error
-      end
+      teardown(gateway)
     end)
   end
 
   @impl Ash.Resource.Change
+  # coveralls-ignore-next-line trivial callback — always false (cluster I/O in the hook)
   def atomic?, do: false
 
-  # Best-effort message update: a failure here must not mask the
-  # teardown error the caller will retry on.
-  defp mark_destroying(%AccessGateway{} = gateway) do
-    gateway
-    |> Ash.Changeset.for_update(
-      :update_state,
-      %{state: :destroying, status_message: "Removal is retrying"},
-      authorize?: false
-    )
-    |> Ash.update()
+  defp teardown(gateway) do
+    provider = AccessProvider.impl_for(gateway)
+
+    case provider.teardown_gateway(gateway) do
+      :ok -> destroy_row(gateway)
+      {:error, reason} = error -> fail(gateway, reason, error)
+    end
+  end
+
+  defp destroy_row(gateway) do
+    changeset =
+      Ash.Changeset.for_destroy(gateway, :destroy_after_teardown, %{}, authorize?: false)
+
+    # Ash's destroy returns :ok when the action carries no publish
+    # (this system action publishes nothing) and {:ok, notifications}
+    # when it does — accept both rather than couple to the notifier's
+    # presence.
+    result = Ash.destroy(changeset)
+
+    case result do
+      :ok ->
+        {:ok, gateway}
+
+      # Defensive: Ash returns :ok today (this action publishes
+      # nothing); the tuple arm is the notifier-present shape.
+      # coveralls-ignore-next-line
+      {:ok, _notifications} ->
+        {:ok, gateway}
+
+      # coveralls-ignore-start - defensive: DB failure on the delete
+      {:error, reason} ->
+        {:error, reason}
+        # coveralls-ignore-stop
+    end
+  end
+
+  # The row survives for Oban's retry — that is the whole contract here.
+  # The message cannot persist from inside this transaction: a failed
+  # action rolls its writes back, so the update below would vanish with
+  # it. The trigger's exhaustion handler (`mark_teardown_error`) is the
+  # write that lands the visible copy, one retry later; until then the
+  # panel keeps showing the state the delete action set (`:destroying`).
+  defp fail(gateway, reason, error) do
+    Logger.error("Access gateway #{gateway.id} teardown failed: #{inspect(reason)}")
+    error
   end
 end

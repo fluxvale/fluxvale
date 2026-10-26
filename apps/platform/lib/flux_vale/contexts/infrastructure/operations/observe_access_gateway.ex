@@ -85,7 +85,7 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGateway do
     |> Ash.update()
   end
 
-  defp maybe_force_anchor(changeset, %{metering_since: _} = attrs) do
+  defp maybe_force_anchor(changeset, %{metering_since: anchor} = attrs) when not is_nil(anchor) do
     Ash.Changeset.force_change_attribute(changeset, :metering_since, attrs.metering_since)
   end
 

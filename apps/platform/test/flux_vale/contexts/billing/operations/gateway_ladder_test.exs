@@ -13,6 +13,7 @@ defmodule FluxVale.Billing.Operations.GatewayLadderTest do
   alias FluxVale.Billing
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
+  alias FluxVale.Infrastructure.Instance
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -62,12 +63,11 @@ defmodule FluxVale.Billing.Operations.GatewayLadderTest do
 
     test "instance and gateway burn add up" do
       {org, user, wallet} = wallet!(1_000)
-      org = Ash.get!(FluxVale.Accounts.Organization, wallet.organization_id, authorize?: false)
 
       version = InstanceFixtures.app_version!()
 
       instance =
-        FluxVale.Infrastructure.Instance.create!(
+        Instance.create!(
           %{name: "App #{System.unique_integer()}", app_version_id: version.id, env_vars: %{}},
           actor: user
         )

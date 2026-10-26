@@ -59,6 +59,19 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformSettleTest do
       assert settled_wallet(settled.organization_id).carryover > 0
     end
 
+    test "a tick that prorates to zero posts nothing and still advances" do
+      {org, _owner, _wallet} = wallet!(10_000)
+      gateway = AccessFixtures.gateway!(org, monthly_cents: @monthly_cents)
+
+      # A 1-second gap at 200¢/mo floors to 0 µ¢ (the integer prorate).
+      pin_metering_since!(gateway, ago(1))
+
+      assert {:ok, settled} = settle(gateway)
+
+      assert ledger_total(settled.organization_id) == 0
+      assert DateTime.diff(DateTime.utc_now(), settled.metering_since, :second) < 5
+    end
+
     test "a fresh gateway arms the anchor without billing from the epoch" do
       {org, _owner, _wallet} = wallet!(10_000)
       gateway = AccessFixtures.gateway!(org)

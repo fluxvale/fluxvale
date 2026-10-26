@@ -33,27 +33,34 @@ defmodule FluxVale.Infrastructure.AccessGateway.Suspend do
       if gateway.state == :suspended do
         changeset
       else
-        case AccessProvider.impl_for(gateway).scale_gateway(gateway, 0) do
-          :ok ->
-            changeset
-            |> Ash.Changeset.force_change_attribute(:state, :suspended)
-            |> Ash.Changeset.force_change_attribute(
-              :status_message,
-              "Access paused — top up to resume"
-            )
-            # Park the cursor: the suspended interval must not bill on
-            # resume (the instance running-anchor fold, same reasoning).
-            |> Ash.Changeset.force_change_attribute(:metering_since, nil)
-
-          {:error, reason} ->
-            Logger.error("Access gateway #{gateway.id} suspend failed: #{inspect(reason)}")
-            Ash.Changeset.add_error(changeset, message: "Couldn't pause access")
-        end
+        suspend(gateway, changeset)
       end
     end)
   end
 
   # Not idempotent as a whole: it writes a row after cluster I/O.
   @impl Ash.Resource.Change
+  # coveralls-ignore-next-line trivial callback — always false (cluster I/O in the hook)
   def atomic?, do: false
+
+  defp suspend(gateway, changeset) do
+    provider = AccessProvider.impl_for(gateway)
+
+    case provider.scale_gateway(gateway, 0) do
+      :ok ->
+        changeset
+        |> Ash.Changeset.force_change_attribute(:state, :suspended)
+        |> Ash.Changeset.force_change_attribute(
+          :status_message,
+          "Access paused — top up to resume"
+        )
+        # Park the cursor: the suspended interval must not bill on
+        # resume (the instance running-anchor fold, same reasoning).
+        |> Ash.Changeset.force_change_attribute(:metering_since, nil)
+
+      {:error, reason} ->
+        Logger.error("Access gateway #{gateway.id} suspend failed: #{inspect(reason)}")
+        Ash.Changeset.add_error(changeset, message: "Couldn't pause access")
+    end
+  end
 end

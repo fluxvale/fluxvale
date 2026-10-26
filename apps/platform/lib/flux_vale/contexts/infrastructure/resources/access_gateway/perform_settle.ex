@@ -55,6 +55,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformSettle do
   end
 
   @impl Ash.Resource.Change
+  # coveralls-ignore-next-line trivial callback — always false (wallet lock + anchor writes)
   def atomic?, do: false
 
   defp settle(%AccessGateway{} = record) do
@@ -102,10 +103,12 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformSettle do
       |> Ash.read_one(authorize?: false)
 
     case result do
+      # coveralls-ignore-start - race only: the row torn down between the
+      # trigger's read and this one. Sequential tests cannot interleave it.
       {:ok, nil} ->
-        # Torn down between the trigger's read and this one — nothing to
-        # settle; the record ends the job cleanly.
         {:ok, record}
+
+      # coveralls-ignore-stop
 
       {:ok, gateway} ->
         {:ok, gateway}

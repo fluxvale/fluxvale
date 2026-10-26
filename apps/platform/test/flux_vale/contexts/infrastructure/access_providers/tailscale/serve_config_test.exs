@@ -40,9 +40,14 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfigTest do
           {"8444", "http://app.ns-b.svc.cluster.local:80"}
         ])
 
-      assert Map.keys(config["TCP"]) |> Enum.sort() == ["8443", "8444"]
+      tcp_keys = Map.keys(config["TCP"])
+      web_keys = Map.keys(config["Web"])
+      tcp = Enum.sort(tcp_keys)
+      web = Enum.sort(web_keys)
 
-      assert Map.keys(config["Web"]) |> Enum.sort() == [
+      assert tcp == ["8443", "8444"]
+
+      assert web == [
                "#{@hostname}.${TS_CERT_DOMAIN}:8443",
                "#{@hostname}.${TS_CERT_DOMAIN}:8444"
              ]
@@ -71,7 +76,8 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfigTest do
       config =
         ServeConfig.build(@hostname, [{"8443", "http://app.ns.svc.cluster.local:80"}])
 
-      decoded = config |> ServeConfig.encode() |> Jason.decode!()
+      encoded = ServeConfig.encode(config)
+      decoded = Jason.decode!(encoded)
 
       assert decoded["TCP"]["8443"]["HTTPS"] == true
       assert decoded["Web"]["#{@hostname}.${TS_CERT_DOMAIN}:8443"]["Handlers"]["/"]["Proxy"]

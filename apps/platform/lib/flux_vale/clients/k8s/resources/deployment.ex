@@ -120,8 +120,10 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
 
     case Kubereq.apply(req, manifest, "fluxvale") do
       {:ok, %{status: status, body: body}} when status in [200, 201] ->
-        Logger.info("Applied deployment manifest: #{get_in(manifest, ["metadata", "namespace"])}/" <>
-                      "#{get_in(manifest, ["metadata", "name"])}")
+        Logger.info(
+          "Applied deployment manifest: #{get_in(manifest, ["metadata", "namespace"])}/" <>
+            "#{get_in(manifest, ["metadata", "name"])}"
+        )
 
         {:ok, body}
 

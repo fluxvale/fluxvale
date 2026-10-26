@@ -39,14 +39,14 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     authorizers: [Ash.Policy.Authorizer],
     notifiers: [Ash.Notifier.PubSub]
 
-  require Ash.Query
-
   alias FluxVale.Infrastructure.AccessGateway.GenerateHostname
-  alias FluxVale.Infrastructure.AccessGateway.ProvisionCluster
   alias FluxVale.Infrastructure.AccessGateway.PerformSettle
   alias FluxVale.Infrastructure.AccessGateway.PerformTeardown
+  alias FluxVale.Infrastructure.AccessGateway.ProvisionCluster
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
+
+  require Ash.Query
 
   postgres do
     table("access_gateways")
@@ -376,7 +376,7 @@ defmodule FluxVale.Infrastructure.AccessGateway do
                    update_state(gateway, %{state: :destroying, status_message: "Removing access"},
                      authorize?: false
                    ) do
-              _ = enqueue_teardown!(destroying)
+              enqueue_teardown!(destroying)
               {:ok, destroying}
             end
 
@@ -464,6 +464,11 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     define(:suspend)
     define(:resume)
     define(:delete, args: [:id])
+    define(:perform_provision)
+    define(:perform_settle)
+    define(:perform_teardown)
+    define(:mark_provision_error)
+    define(:mark_teardown_error)
   end
 
   identities do

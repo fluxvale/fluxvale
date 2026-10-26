@@ -24,20 +24,10 @@ defmodule FluxVale.Infrastructure.AccessGateway.Resume do
     Ash.Changeset.before_action(changeset, fn changeset ->
       gateway = changeset.data
 
-      # Only a suspended gateway resumes; the action's guard is the
-      # arbiter so a double-click is a no-op, not a second scale.
+      # Only a suspended gateway resumes; a double-click is a no-op, not
+      # a second scale.
       if gateway.state == :suspended do
-        case AccessProvider.impl_for(gateway).scale_gateway(gateway, 1) do
-          :ok ->
-            changeset
-            |> Ash.Changeset.force_change_attribute(:state, :provisioning)
-            |> Ash.Changeset.force_change_attribute(:status_message, "Reconnecting access")
-            |> Ash.Changeset.force_change_attribute(:metering_since, DateTime.utc_now())
-
-          {:error, reason} ->
-            Logger.error("Access gateway #{gateway.id} resume failed: #{inspect(reason)}")
-            Ash.Changeset.add_error(changeset, message: "Couldn't resume access")
-        end
+        resume(gateway, changeset)
       else
         changeset
       end
@@ -45,5 +35,22 @@ defmodule FluxVale.Infrastructure.AccessGateway.Resume do
   end
 
   @impl Ash.Resource.Change
+  # coveralls-ignore-next-line trivial callback — always false (cluster I/O in the hook)
   def atomic?, do: false
+
+  defp resume(gateway, changeset) do
+    provider = AccessProvider.impl_for(gateway)
+
+    case provider.scale_gateway(gateway, 1) do
+      :ok ->
+        changeset
+        |> Ash.Changeset.force_change_attribute(:state, :provisioning)
+        |> Ash.Changeset.force_change_attribute(:status_message, "Reconnecting access")
+        |> Ash.Changeset.force_change_attribute(:metering_since, DateTime.utc_now())
+
+      {:error, reason} ->
+        Logger.error("Access gateway #{gateway.id} resume failed: #{inspect(reason)}")
+        Ash.Changeset.add_error(changeset, message: "Couldn't resume access")
+    end
+  end
 end

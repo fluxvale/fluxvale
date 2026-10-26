@@ -42,7 +42,8 @@ defmodule FluxVale.Infrastructure.AccessGateway.ProvisionCluster do
   # coveralls-ignore-next-line trivial callback — always false (cluster I/O in the hook)
   def atomic?, do: false
 
-  defp provision(%AccessGateway{} = gateway, auth_key) when is_binary(auth_key) and auth_key != "" do
+  defp provision(%AccessGateway{} = gateway, auth_key)
+       when is_binary(auth_key) and auth_key != "" do
     run(gateway, auth_key)
   end
 
@@ -57,7 +58,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ProvisionCluster do
 
   defp run(%AccessGateway{} = gateway, auth_key) do
     case AccessProvider.impl_for(gateway).provision_gateway(gateway, auth_key) do
-      {:ok, _} -> :ok
+      {:ok, _provisioned} -> :ok
       {:error, reason} -> {:error, reason}
     end
   end

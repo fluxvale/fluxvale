@@ -60,6 +60,12 @@ defmodule FluxVale.Infrastructure do
 
   defdelegate observe_access_gateway(gateway), to: ObserveAccessGateway, as: :call
 
+  # Opt-out (#268): the async teardown entry. The action flips
+  # :destroying and enqueues the trigger; the resource owns both.
+  defdelegate delete_access_gateway(id, opts \\ []),
+    to: FluxVale.Infrastructure.AccessGateway,
+    as: :delete
+
   # #203: the anonymous edge's wake and restore — the wake endpoint's
   # entries (the funded gate and the route flip live on the ops).
   defdelegate wake_instance(instance), to: WakeInstance, as: :call

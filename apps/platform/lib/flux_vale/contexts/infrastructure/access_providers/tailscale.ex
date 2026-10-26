@@ -29,8 +29,6 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
 
   @behaviour FluxVale.Infrastructure.AccessProvider
 
-  require Ash.Query
-
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Deployment
@@ -42,6 +40,8 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   alias FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfig
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
+
+  require Ash.Query
 
   # The gateway's Kubernetes objects, all in the access namespace.
   @deployment "gateway"
@@ -56,7 +56,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # provision_gateway/2
   # ------------------------------------------------------------------
 
-  @impl true
+  @impl FluxVale.Infrastructure.AccessProvider
   def provision_gateway(%AccessGateway{} = gateway, auth_key) do
     with {:ok, kubeconfig} <- kubeconfig(),
          namespace = access_namespace(),
@@ -73,7 +73,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # attach_instance/2
   # ------------------------------------------------------------------
 
-  @impl true
+  @impl FluxVale.Infrastructure.AccessProvider
   def attach_instance(%AccessGateway{} = gateway, %Instance{} = instance) do
     with :ok <- require_private(instance),
          {:ok, kubeconfig} <- kubeconfig(),
@@ -96,7 +96,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # detach_instance/2
   # ------------------------------------------------------------------
 
-  @impl true
+  @impl FluxVale.Infrastructure.AccessProvider
   def detach_instance(%AccessGateway{} = gateway, %Instance{} = instance) do
     with {:ok, kubeconfig} <- kubeconfig() do
       _removed = delete_route(instance)
@@ -112,7 +112,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # gateway_status/1
   # ------------------------------------------------------------------
 
-  @impl true
+  @impl FluxVale.Infrastructure.AccessProvider
   def gateway_status(%AccessGateway{} = gateway) do
     with {:ok, kubeconfig} <- kubeconfig() do
       observe(kubeconfig, gateway)
@@ -123,7 +123,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # wake_intercept/2
   # ------------------------------------------------------------------
 
-  @impl true
+  @impl FluxVale.Infrastructure.AccessProvider
   def wake_intercept(%AccessGateway{} = gateway, %Instance{}) do
     with {:ok, kubeconfig} <- kubeconfig() do
       # The instance is :running now, so the route's target must become
@@ -139,17 +139,20 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # update_credential/2
   # ------------------------------------------------------------------
 
-  @impl true
+  @impl FluxVale.Infrastructure.AccessProvider
   def update_credential(%AccessGateway{}, auth_key) do
     with {:ok, kubeconfig} <- kubeconfig(),
          :ok <- write_credential(kubeconfig, access_namespace(), auth_key) do
       # Restart, not recreate: the pod rejoins under the new key with the
       # persisted state, and the Secret update alone would not re-read.
-      Deployment.restart(kubeconfig, access_namespace(), @deployment)
+      case Deployment.restart(kubeconfig, access_namespace(), @deployment) do
+        {:ok, _deployment} -> :ok
+        {:error, _reason} = error -> error
+      end
     end
   end
 
-  @impl true
+  @impl FluxVale.Infrastructure.AccessProvider
   def read_credential(%AccessGateway{}) do
     with {:ok, kubeconfig} <- kubeconfig() do
       case Secret.get_data(kubeconfig, access_namespace(), @credential_secret) do
@@ -164,7 +167,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # scale_gateway/2
   # ------------------------------------------------------------------
 
-  @impl true
+  @impl FluxVale.Infrastructure.AccessProvider
   def scale_gateway(%AccessGateway{}, replicas) when replicas in [0, 1] do
     with {:ok, kubeconfig} <- kubeconfig() do
       case Deployment.scale(kubeconfig, access_namespace(), @deployment, replicas) do
@@ -178,7 +181,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # teardown_gateway/1
   # ------------------------------------------------------------------
 
-  @impl true
+  @impl FluxVale.Infrastructure.AccessProvider
   def teardown_gateway(%AccessGateway{} = gateway) do
     with {:ok, kubeconfig} <- kubeconfig() do
       namespace = access_namespace()
@@ -186,14 +189,13 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
       # Detach every instance first: each detach re-admits only
       # same-namespace and rewrites the serve config, so an instance can
       # never be left pointing at a gateway that no longer exists.
-      _detached =
-        Enum.each(AccessGateway.attached_instances(gateway), &detach_instance(gateway, &1))
+      attached = AccessGateway.attached_instances(gateway)
+      Enum.each(attached, &detach_instance(gateway, &1))
 
       with :ok <- safe_delete_deployment(kubeconfig, namespace),
            :ok <- safe_delete_secret(kubeconfig, namespace, @serve_secret),
-           :ok <- safe_delete_secret(kubeconfig, namespace, @credential_secret),
-           :ok <- safe_delete_pvc(kubeconfig, namespace, @state_claim) do
-        :ok
+           :ok <- safe_delete_secret(kubeconfig, namespace, @credential_secret) do
+        safe_delete_pvc(kubeconfig, namespace, @state_claim)
       end
     end
   end
@@ -267,13 +269,18 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # for. The policy and serve config are re-derived from the rows, so
   # removing the row is enough for both; the original error is preserved.
   defp cleanup_failed_attach(gateway, instance, error) do
-    _ = delete_route(instance)
+    # Both cleanups are best-effort: the original error is what the
+    # caller surfaces and retries on.
+    delete_route(instance)
 
-    _ =
-      case kubeconfig() do
-        {:ok, kubeconfig} -> apply_routes(kubeconfig, gateway)
-        _no_cluster -> :ok
-      end
+    # coveralls-ignore-start - unreachable here: the attach that reached
+    # this arm already resolved a kubeconfig moments ago
+    case kubeconfig() do
+      {:ok, kubeconfig} -> apply_routes(kubeconfig, gateway)
+      _no_cluster -> :ok
+    end
+
+    # coveralls-ignore-stop
 
     error
   end
@@ -303,6 +310,9 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
     |> Ash.Query.filter(instance_id == ^instance_id)
     |> Ash.read_one!(authorize?: false)
   rescue
+    # Defensive: only a malformed/duplicate row written out of band
+    # reaches this — the identity makes it impossible through the app.
+    # coveralls-ignore-next-line
     Ash.Error.Invalid -> nil
   end
 
@@ -429,7 +439,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
           }
         }
       ],
-      "ports" => [%{"containerPort" => 41641, "protocol" => "UDP"}],
+      "ports" => [%{"containerPort" => 41_641, "protocol" => "UDP"}],
       "volumeMounts" => [
         %{"name" => "state", "mountPath" => "/state"},
         %{"name" => "serve", "mountPath" => "/serve", "readOnly" => true}
@@ -513,12 +523,24 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # guessing (a gateway on the wrong cluster reaches nothing).
   defp kubeconfig do
     case Ash.read(FluxVale.Infrastructure.Cluster, authorize?: false) do
-      {:ok, [cluster]} -> K8s.kubeconfig(cluster.kubeconfig_ref)
-      {:ok, []} -> {:error, :no_cluster}
-      {:ok, _multiple} -> {:error, :multiple_clusters}
-      # coveralls-ignore-start - defensive: cluster read DB failure
-      {:error, _reason} = error -> error
+      {:ok, [cluster]} ->
+        K8s.kubeconfig(cluster.kubeconfig_ref)
+
+      {:ok, []} ->
+        {:error, :no_cluster}
+
+      # coveralls-ignore-start - staging a second cluster breaks the
+      # suite-wide exactly-one-cluster invariant every other test relies
+      # on; the arm is the ADR-0006 refusal, pinned by construction
+      {:ok, _multiple} ->
+        {:error, :multiple_clusters}
+
       # coveralls-ignore-stop
+
+      # coveralls-ignore-start - defensive: cluster read DB failure
+      {:error, _reason} = error ->
+        error
+        # coveralls-ignore-stop
     end
   end
 

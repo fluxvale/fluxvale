@@ -32,11 +32,10 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.Ports do
   @spec allocate([port_key()]) :: {:ok, port_key()} | {:error, :pool_exhausted}
   def allocate(taken) do
     used = MapSet.new(taken)
+    pool = @first_port..@last_port
+    free = Enum.find(pool, fn port -> not MapSet.member?(used, Integer.to_string(port)) end)
 
-    Enum.find(@first_port..@last_port, fn port ->
-      not MapSet.member?(used, Integer.to_string(port))
-    end)
-    |> case do
+    case free do
       nil -> {:error, :pool_exhausted}
       port -> {:ok, Integer.to_string(port)}
     end

@@ -35,7 +35,8 @@ defmodule FluxVale.Repo.Migrations.AddAccessGateways do
             type: :uuid,
             prefix: "public",
             on_delete: :delete_all
-          ), null: false
+          ),
+          null: false
     end
 
     create unique_index(:access_gateways, [:hostname],
@@ -56,7 +57,8 @@ defmodule FluxVale.Repo.Migrations.AddAccessGateways do
             type: :uuid,
             prefix: "public",
             on_delete: :delete_all
-          ), null: false
+          ),
+          null: false
 
       add :route_key, :text, null: false
     end
@@ -77,7 +79,8 @@ defmodule FluxVale.Repo.Migrations.AddAccessGateways do
             type: :uuid,
             prefix: "public",
             on_delete: :delete_all
-          ), null: false
+          ),
+          null: false
     end
 
     create unique_index(:access_routes, [:instance_id],
