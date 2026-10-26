@@ -150,6 +150,60 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGatewayTest do
     end
   end
 
+  describe "a stale observation (P3-2)" do
+    test "cannot resurrect a suspension committed after the read", %{org: org} do
+      # The interleave: the observer holds an :active record, the ladder's
+      # Suspend commits :suspended (anchor parked), then the observation
+      # would land :active and REOPEN the anchor — a scaled-to-zero
+      # gateway billing as active until the next hourly sweep.
+      gateway = AccessFixtures.gateway!(org)
+      stale = %{gateway | state: :active}
+      assert stale.metering_since
+
+      # Suspend commits behind the observer's back.
+      expect(Tailscale, :scale_gateway, fn _gateway, 0 -> :ok end)
+      {:ok, suspended} = AccessGateway.suspend(gateway, authorize?: false)
+      assert suspended.state == :suspended
+      assert suspended.metering_since == nil
+
+      # The observer now reports the pod as still up (the read raced the
+      # scale), deciding against the STALE :active record.
+      stub(Tailscale, :gateway_status, fn _gateway ->
+        {:ok, %{state: :active, message: "Connected"}}
+      end)
+
+      # It must not win: the write is state-filtered, so it is refused,
+      # the observer re-reads, and the committed suspension is the
+      # authority.
+      assert {:ok, observed} = Infrastructure.observe_access_gateway(stale)
+
+      assert observed.state == :suspended
+      assert observed.metering_since == nil
+
+      fresh = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+      assert fresh.state == :suspended
+      assert fresh.metering_since == nil
+    end
+
+    test "a stale write is refused rather than silently overwriting", %{org: org} do
+      gateway = AccessFixtures.gateway!(org)
+
+      # Bypass the observer's own re-decide to prove the write itself is
+      # conditional: the changeset carries the state it decided against.
+      stale = %{gateway | state: :provisioning}
+
+      stub(Tailscale, :gateway_status, fn _gateway ->
+        {:ok, %{state: :active, message: "Connected"}}
+      end)
+
+      # The row is :active, the stale record says :provisioning, so the
+      # filtered write is refused — StaleRecord — and the retry path
+      # re-reads and succeeds against the committed row.
+      assert {:ok, observed} = Infrastructure.observe_access_gateway(stale)
+      assert observed.state == :active
+    end
+  end
+
   describe "read failure" do
     test "a status read error surfaces without writing", %{org: org} do
       gateway = AccessFixtures.gateway!(org)
