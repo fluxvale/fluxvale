@@ -1,9 +1,12 @@
 # Refund Policy
 
-**Status: PUBLISHED at `/policies/refund`** (in-app page, #140). The
-customer-facing text of record is that page's template
+**Status: PUBLISHED at `/policies/refund`** (in-app page, #140) — the
+page goes live with the merge to `main`, and that merge is held for
+the owner's advisor review (#140's gate): publishing and the advisor
+pass are the same event, wording tweaks land before or right at it.
+The customer-facing text of record is that page's template
 (`apps/platform/lib/flux_vale_web/controllers/policy_html/refund.html.heex`)
-— advisor wording tweaks land there, one cohesive edit. This doc is the
+— advisor edits are one cohesive change there. This doc is the
 decision record.
 
 ## The stance (decided 2026-10-13, owner; PikaPods-shaped)

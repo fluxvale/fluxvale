@@ -208,6 +208,14 @@ defmodule FluxVale.Billing.LedgerEntry do
     # reconcilable). AshAdmin renders this as the ledger's create form;
     # the system :create above stays actor-forbidden by policy and is
     # hidden from the admin surface (`create_actions` below).
+    #
+    # Keyless by deliberation: GrantCredits' contract puts once-only on
+    # the caller, and an admin form submit can retry (double-click,
+    # back-button) — the guard is the operator reviewing the posted row
+    # plus ReverseEntry, the compensating unwind for exactly this class
+    # of mistake. A form-supplied idempotency key would add friction
+    # without deduping (each submit mints its own). Revisit trigger: a
+    # first report of a doubled goodwill grant.
     create :grant_goodwill do
       description(
         "Post a goodwill credit to a wallet (#140) — admin-only, lands as an :adjustment credit"

@@ -21,7 +21,11 @@ defmodule FluxVale.Billing do
   # ActorIsPlatformAdmin like every exposed domain): the goodwill
   # surface only. Wallet (read-only, to find the wallet) and LedgerEntry
   # (reads + the grant_goodwill create); Topup stays out — buyer
-  # PII, no role in a goodwill grant.
+  # PII, no role in a goodwill grant. Surface note: /admin mounts only
+  # where dev_routes is on (dev/test today) — until it ships in prod
+  # (ADR-0027 §2's admin-gated mount), prod operates :grant_goodwill
+  # through the code interface with an admin actor; the policies below
+  # hold either way (AshAdmin's Authorize toggle enables them in the UI).
   admin do
     show?(true)
     show_resources([FluxVale.Billing.Wallet, FluxVale.Billing.LedgerEntry])

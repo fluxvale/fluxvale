@@ -28,6 +28,10 @@ defmodule FluxValeWeb.PolicyControllerTest do
       conn = get(conn, ~p"/policies/refund")
 
       assert conn.assigns.page_title == "Refund policy · FluxVale"
+
+      assert conn.assigns.page_description ==
+               "FluxVale credits are non-refundable and never expire"
+
       assert conn.assigns.canonical_path == "/policies/refund"
     end
   end
