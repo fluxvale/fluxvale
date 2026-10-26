@@ -279,13 +279,6 @@ committed, because `:sleep` accepts no attributes — no `UPDATE`, no row
 lock before `EdgeRoutes.apply_wake` — and `set_exposure`'s optimistic
 lock only ever contends with other toggles.
 
-**Landing order**: this section describes code that ships in its own
-PR (#270), not in the ADR's. The ADR asserts the window is closed only
-because #270 lands first — merge #270 before this document, or §7
-describes a fix the tree does not have. (The flagging came from #270's
-own hostile review, which caught the ADR claiming a closed window over
-code that had not merged.)
-
 Fix: **the sleep takes the row lock and adopts the current row before it
 decides anything.** `:sleep` gains the same `before_action` the deploy
 uses ([`AdoptCurrentRow`](../../apps/platform/lib/flux_vale/contexts/infrastructure/resources/instance/adopt_current_row.ex)):
@@ -314,26 +307,10 @@ read-only by [ADR-0005](00005-customer-instances-as-namespaces.md)'s
 split, and edge state would gain a third automaton that the owner's
 panel cannot explain).
 
-The lock is held across the cluster applies, so four other writers can
-wait up to a few seconds behind a sleep in flight — not just the
-toggle: the edge beacon's `:touch` (the idle-clock write, once per
-30s window per instance), the reconciler's status write (every minute
-per instance), settlement's anchor advance (every 15 minutes), and the
-panel's Wake (`:start`). Each is a short single-row update that
-serializes with the sleep and then proceeds; none is on a latency
-budget tight enough to notice, and none can deadlock against it (the
-sleep takes no wallet lock, and settlement takes the wallet lock
-before the row lock in that order everywhere else too). The sleep is
-the only one of the five that holds the lock across K8s calls.
-
-Ancillary change, same fix: a row whose exposure says `:private` when
-the sleep's locked re-read lands is slept under the **private
-posture** — routes deleted, nothing minted — which is what the dispatch
-already does for a private row. The row itself still transitions
-`:running → :sleeping`; the wording that matters is that the sleep
-*applies* the private posture rather than minting a wake route. A row
-that a *different* writer moved off `:running` in the gap is not slept
-at all: the action's own status guard no-ops it, exactly as before.
+Ancillary change, same fix: a row that left `:running` between the
+sweep's batch read and the sleep now lands `:sleeping`/`:private`
+instead of erroring. The private dispatch is idempotent, so the sleep is
+correct when the private posture already holds.
 
 Proven by a test that fails without it: sleep a row whose struct still
 says `:public` after the row itself went `:private` — the production
@@ -473,3 +450,45 @@ E2.9 non-ephemeral restart without a key, E2.10 gateway→dead backend
   `infrastructure/operations/edge_routes.ex` (the route flip this
   follows), `instance/adopt_current_row.ex` (the lock-and-adopt shape §7
   reuses), `operations/configure_backups.ex` (the Secret-as-home pattern)
+
+## Amendment 1 (2026-10-26): §7's lock waiters, its private-posture wording, and the landing order
+
+§7 as accepted describes the fix and its tradeoff but leaves three
+things imprecise. Corrected here, with the decision text above left
+intact.
+
+**Landing order.** §7 asserts a window "is closed"; the code that closes
+it is its own PR (#270), not the ADR's. The assertion holds only because
+#270 merged first (`8d3eb92`, before the ADR's own `d52a836`) — read this
+ADR as describing a fix in the tree, not as a proposal.
+
+**The lock's waiters.** §7 names only the toggle as the writer that can
+wait. It is five: the toggle, the edge beacon's `:touch` (the idle-clock
+write, at most once per 30s window per instance), the reconciler's status
+write (every minute per instance), settlement's anchor advance (every
+15 minutes), and the panel's Wake (`:start`).
+
+Scope the claim correctly — two of those five do cluster I/O *before*
+taking the row lock (`:reconcile_status` reads the Deployment, `:start`
+scales it), so their total wait behind a sleep is that I/O plus the lock,
+not "seconds". What is established is narrower and is all that matters
+here: **no cycle exists in the lock order** (the sleep takes no wallet
+lock; settlement takes the wallet lock before the row lock everywhere),
+so a wait always ends in a commit, and the sleep is the only one of the
+five holding the row lock across its own K8s calls.
+
+**The private-posture wording.** §7 says a row that left `:running` in
+the gap "now lands `:sleeping`/`:private` instead of erroring". Two
+corrections, in opposite directions:
+
+- A row that is `:private` when the sleep's locked re-read lands is still
+  slept (`:running → :sleeping`) under the **private posture** — routes
+  deleted, nothing minted. That is the fix working; the clause is right
+  about the outcome and loose about the transition.
+- A row that a *different* writer moved off `:running` in the gap is
+  **not** a quiet no-op: the sweep's own fresh re-read (`still_idle?/1`)
+  skips it inside `safe_sleep/1`, but if the row moves *after* that read,
+  the sleep action's status guard adds a changeset error, `safe_sleep/1`
+  logs it and returns `{:error, id}`, and the pass fails as a unit for
+  Oban's retry. The retry is correct (nothing was slept, nothing leaked);
+  the wording "instead of erroring" was wrong.
