@@ -294,14 +294,36 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
       # Detach every instance first: each detach re-admits only
       # same-namespace and rewrites the serve config, so an instance can
       # never be left pointing at a gateway that no longer exists.
+      #
+      # A detach failure FAILS the teardown, deliberately. Collecting and
+      # ignoring it would hard-delete the row and then report success while
+      # an instance kept a policy entry pointing at this gateway's labels —
+      # residue nothing would ever return to the private floor (the route
+      # rows die in the FK cascade, so no later detach could find it). Oban
+      # retries; detach and the deletes are both idempotent, so the retry
+      # converges instead of compounding.
       attached = AccessGateway.attached_instances(gateway)
-      Enum.each(attached, &detach_instance(gateway, &1))
 
-      with :ok <- safe_delete_deployment(kubeconfig, namespace, gateway),
-           :ok <- safe_delete_secret(kubeconfig, namespace, serve_secret_name(gateway)),
-           :ok <- safe_delete_secret(kubeconfig, namespace, credential_secret_name(gateway)) do
-        safe_delete_pvc(kubeconfig, namespace, state_claim_name(gateway))
+      with :ok <- detach_all(gateway, attached) do
+        delete_objects(kubeconfig, namespace, gateway)
       end
+    end
+  end
+
+  defp detach_all(gateway, attached) do
+    Enum.reduce_while(attached, :ok, fn instance, :ok ->
+      case detach_instance(gateway, instance) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, {:detach_failed, instance.id, reason}}}
+      end
+    end)
+  end
+
+  defp delete_objects(kubeconfig, namespace, gateway) do
+    with :ok <- safe_delete_deployment(kubeconfig, namespace, gateway),
+         :ok <- safe_delete_secret(kubeconfig, namespace, serve_secret_name(gateway)),
+         :ok <- safe_delete_secret(kubeconfig, namespace, credential_secret_name(gateway)) do
+      safe_delete_pvc(kubeconfig, namespace, state_claim_name(gateway))
     end
   end
 

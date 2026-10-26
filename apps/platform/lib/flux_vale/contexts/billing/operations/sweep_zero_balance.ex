@@ -98,8 +98,14 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
         # suspending inside it would let one cluster hiccup discard the
         # whole pass (stops, markers, warnings). Out here, a failure is
         # what it should be: this gateway stays up, the log says why, and
-        # the next sweep retries. Same reasoning for the stop arm's K8s
-        # call, which is the one other out-of-DB side effect.
+        # the next sweep retries.
+        #
+        # Do NOT read the stop arm as the same shape. It cannot roll the
+        # pass back at all: `StopInstance.call/1` absorbs a K8s failure
+        # into an `:error` status write and always returns `{:ok, _}`, so
+        # `stop_step` has no failure branch. The gateway arm is the only
+        # out-of-DB side effect that can refuse the pass, which is exactly
+        # why it runs out here.
         {:ok, %{summary | suspended_gateway_ids: suspend_gateways(wallet)}}
 
       # defensive: rollback only fires from the arms that name it —

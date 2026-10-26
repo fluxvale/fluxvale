@@ -10,9 +10,15 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformTeardown do
   objects; this module runs it, then the row.
 
   Failure posture (the instance teardown's): return the error so Oban
-  retries; `mark_teardown_error` surfaces exhaustion as
-  `:needs_attention` with the row and its objects intact — a retry can
-  finish what the first attempt started.
+  retries; `mark_teardown_error` parks the row in `:destroying` with its
+  objects intact — a retry can finish what the first attempt started.
+  Not `:needs_attention`: the `:observe` and `:settle` triggers both select
+  that state, so a failed removal would be re-observed as a live gateway and
+  start billing the org that just opted out.
+
+  **Write-off policy:** the final partial interval since the last settle tick
+  is not billed (see `Suspend` for the reasoning — the same policy, the same
+  reason).
   """
 
   use Ash.Resource.Change

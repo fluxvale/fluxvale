@@ -111,6 +111,44 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformSettleTest do
       assert ledger_total(settled.organization_id) == 0
     end
 
+    test "the interval ends at the transition, not at the settle tick" do
+      # P3-1: a row that went :needs_attention at T must bill UP TO T and no
+      # further, however late the tick runs. The gap is 3 days because the
+      # ledger's unit is a cent: 200¢/month is ~6.6¢/day, so a sub-hour
+      # difference would be invisible and the assertion meaningless.
+      {org, _owner, _wallet} = wallet!(10_000)
+      gateway = AccessFixtures.gateway!(org, monthly_cents: @monthly_cents)
+
+      pin_metering_since!(gateway, ago(@month_seconds))
+      pin_needs_attention!(gateway, ago(3 * 24 * 60 * 60))
+
+      assert {:ok, settled} = settle(gateway)
+
+      # Strictly less than a full month: the 3 days after the transition
+      # were not served and must not be billed.
+      billed = ledger_total(settled.organization_id)
+      assert billed > -@monthly_cents
+      # ...and close to the true served interval (whole-cent arithmetic:
+      # a 1¢ rounding allowance absorbs the anchor's second-level slop).
+      assert_in_delta billed, -@monthly_cents + cents_at_rate(@monthly_cents, 3 * 24 * 60 * 60), 1
+
+      assert settled.metering_since == nil
+    end
+
+    test "a tick that lands the same instant as the transition bills the full interval" do
+      # The 12-minute gap is the only thing that differs; with the
+      # transition at "now" the bill must equal the plain month (the arm
+      # must not under-bill either).
+      {org, _owner, _wallet} = wallet!(10_000)
+      gateway = AccessFixtures.gateway!(org, monthly_cents: @monthly_cents)
+
+      pin_metering_since!(gateway, ago(@month_seconds))
+      pin_needs_attention!(gateway, DateTime.utc_now())
+
+      assert {:ok, settled} = settle(gateway)
+      assert ledger_total(settled.organization_id) == -@monthly_cents
+    end
+
     test "leaving :active closes the window so recovery cannot bill the gap" do
       # The #268 must-fix's other half: a :needs_attention row used to
       # keep its anchor, so the first settle after recovery billed the
@@ -157,6 +195,21 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformSettleTest do
     end
 
     {org, owner, wallet}
+  end
+
+  # The rate helper: cents for `seconds` at the monthly rate.
+  defp cents_at_rate(monthly_cents, seconds) do
+    div(monthly_cents * seconds, @month_seconds)
+  end
+
+  defp pin_needs_attention!(gateway, at) do
+    gateway
+    |> Ash.Changeset.for_update(
+      :update_state,
+      %{state: :needs_attention, needs_attention_since: at},
+      authorize?: false
+    )
+    |> Ash.update!()
   end
 
   defp settle(gateway) do

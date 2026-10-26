@@ -333,7 +333,7 @@ wake-mode route is minted.
   do them.
 - **Fleet work is reported, not done**: the access namespace, its quota
   and PSA labels, and the platform SA's RBAC on gateway Deployments,
-  Secrets and Pods live in the private fleet repo.
+  Secrets, PVCs and Pods live in the private fleet repo.
 
 ## Rejected alternatives
 

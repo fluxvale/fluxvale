@@ -626,6 +626,42 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
     end
   end
 
+  describe "a detach failure during teardown (P3-4)" do
+    test "fails the teardown instead of deleting objects and claiming success", %{
+      org: org,
+      owner: owner
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+      {:ok, _route} = Tailscale.attach_instance(gateway, instance)
+
+      # The instance's policy restore fails. Deleting the objects anyway
+      # would leave that policy entry pointing at this gateway's labels
+      # with nothing ever returning it to the private floor, and report
+      # success — the teardown's "detach-first is the contract" lie.
+      expect(NetworkPolicy, :create, fn _kc, _ns, _n, _spec ->
+        {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
+      end)
+
+      reject(Deployment, :delete, 3)
+
+      assert {:error, {:detach_failed, _instance_id, _reason}} =
+               Tailscale.teardown_gateway(gateway)
+    end
+
+    test "a clean detach still tears everything down", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+      {:ok, _route} = Tailscale.attach_instance(gateway, instance)
+
+      expect(Deployment, :delete, fn _kc, _ns, _n -> :ok end)
+      expect(Secret, :delete, 2, fn _kc, _ns, _n -> :ok end)
+      expect(PersistentVolumeClaim, :delete, fn _kc, _ns, _n -> :ok end)
+
+      assert :ok = Tailscale.teardown_gateway(gateway)
+    end
+  end
+
   describe "teardown_gateway/1" do
     test "detaches attached instances, then deletes every object", %{org: org, owner: owner} do
       gateway = AccessFixtures.gateway!(org)

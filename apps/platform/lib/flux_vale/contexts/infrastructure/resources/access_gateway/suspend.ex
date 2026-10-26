@@ -14,6 +14,17 @@ defmodule FluxVale.Infrastructure.AccessGateway.Suspend do
   the panel says why (the balance copy, not an access error). Detaching
   on suspend would silently rewrite the owner's configuration for a
   billing event, which is not this arm's business.
+
+  **Write-off policy, stated:** the final partial interval since the last
+  settle tick (up to 15 minutes of served time) is **not billed**. It is a
+  deliberate choice, not an oversight: the suspension is a non-payment
+  event already, chasing a fraction of a tick from an org that could not
+  pay would be the wrong signal, and billing it would need the scale call
+  and the wallet debit in one transaction — coupling a cluster write to a
+  money write for cents. Opt-out teardown is the same policy for the same
+  reason. `PerformSettle` bounds the other direction (it bills to
+  `needs_attention_since`, never past it), so the two arms agree that a
+  gateway is never charged for time it was not serving.
   """
 
   use Ash.Resource.Change
