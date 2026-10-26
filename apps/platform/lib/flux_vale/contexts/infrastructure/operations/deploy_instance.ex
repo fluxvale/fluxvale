@@ -186,7 +186,9 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
              kubeconfig,
              namespace,
              "default-deny-ingress",
-             network_policy_spec()
+             # #265: the exposure row picks the spec — private deploys
+             # deny edge ingress from the first pod, not retroactively.
+             InstanceK8s.network_policy_spec(instance.exposure)
            ),
          {:ok, _pvc} <- maybe_create_pvc(kubeconfig, namespace, instance),
          {:ok, _secret} <- maybe_create_secret(kubeconfig, namespace, env),
@@ -202,21 +204,35 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   # Serving routes now, dormant wake targets alongside: the first
   # sleep must only rewrite a route Traefik already watches (see
   # EdgeRoutes.ensure_wake_targets/2 for the observed alternative).
+  # #265: a private instance gets neither's public half — apply_serving
+  # converges on no routes, and wake targets without a route are
+  # unreachable by design (nothing wakes a private instance).
   defp deploy_edge(kubeconfig, instance) do
     with :ok <- EdgeRoutes.apply_serving(kubeconfig, instance) do
-      EdgeRoutes.ensure_wake_targets(kubeconfig, instance)
+      maybe_wake_targets(kubeconfig, instance)
     end
   end
 
+  defp maybe_wake_targets(_kubeconfig, %{exposure: :private}), do: :ok
+
+  defp maybe_wake_targets(kubeconfig, instance),
+    do: EdgeRoutes.ensure_wake_targets(kubeconfig, instance)
+
   # The merged env (catalog defaults under user values) plus the
   # instance's public URL when the AppVersion asks for it
-  # (`instance_url_env` — Forgejo's ROOT_URL; the URL isn't catalog data).
+  # (`instance_url_env` — Forgejo's ROOT_URL; the URL isn't catalog
+  # data). Private rows get NO URL (PR #267 review round 2): the
+  # address never serves, and an app seeded with a dead ROOT_URL
+  # mints dead links of its own. The env lands on the first deploy
+  # that finds the row public (toggling later doesn't rewrite a
+  # running app's env Secret — the next deploy does).
   defp deploy_env(instance) do
     with {:ok, instance} <- Ash.load(instance, :app_version, authorize?: false),
-         env_name when not is_nil(env_name) <- instance.app_version.instance_url_env do
+         env_name when not is_nil(env_name) <- instance.app_version.instance_url_env,
+         :public <- instance.exposure do
       Map.put(instance.env_vars, env_name, instance_url(instance))
     else
-      _no_url_env -> instance.env_vars
+      _no_public_url -> instance.env_vars
     end
   end
 
@@ -309,13 +325,6 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
     BackupSetting
     |> Ash.Query.filter(instance_id == ^instance.id)
     |> Ash.exists(authorize?: false)
-  end
-
-  # Config-driven like its RBAC siblings: prod's Traefik may not live in
-  # "traefik", and a wrong namespace would silently drop all edge ingress.
-  defp network_policy_spec do
-    edge = Application.fetch_env!(:flux_vale, :instance_ingress_namespace)
-    %{ingress_from_namespaces: [edge]}
   end
 
   defp maybe_create_pvc(kubeconfig, namespace, %{storage_gb: gb}) when gb > 0 do

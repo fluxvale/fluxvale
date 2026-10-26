@@ -76,7 +76,15 @@ defmodule FluxValeWeb.InstanceLive.Show do
             </div>
           </div>
 
-          <p class="mt-1 font-mono text-sm text-ink-subtle" data-testid="instance-url">
+          <%!-- #265: the header URL is a public affordance too — a
+          private instance has no address that answers, so it renders
+          nothing (the Open-button gate, same reasoning: never show a
+          link that cannot work). --%>
+          <p
+            :if={@instance.exposure == :public}
+            class="mt-1 font-mono text-sm text-ink-subtle"
+            data-testid="instance-url"
+          >
             {instance_url(@instance)}
           </p>
         </div>
@@ -143,6 +151,62 @@ defmodule FluxValeWeb.InstanceLive.Show do
             data-testid="always-on-toggle"
           >
             {if(@instance.always_on, do: "Let it sleep when idle", else: "Keep always on")}
+          </.button>
+
+          <%!-- #265: the reachability posture — private is the
+          network-isolation primitive (no public route, edge ingress
+          denied), the foundation the upcoming access layer attaches
+          to. Honest copy: today private = panel-managed but
+          unreachable; the access layer is named as upcoming, never
+          promised with a date. Exposure bills nothing. --%>
+          <div class="flex items-center justify-between gap-3 border-t border-line pt-3">
+            <h3 class="text-sm font-medium text-ink-muted">Exposure</h3>
+            <span
+              class={[
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
+                if(@instance.exposure == :private,
+                  do: "border-line-warning bg-warning-muted text-warning",
+                  else: "border-line bg-primary-muted text-primary"
+                )
+              ]}
+              data-testid="exposure-mode"
+            >
+              {if(@instance.exposure == :private, do: "Private", else: "Public")}
+            </span>
+          </div>
+
+          <p class="text-sm text-ink-subtle" data-testid="exposure-copy">
+            <%= if @instance.exposure == :private do %>
+              Private instances are unreachable from the internet — this app has no public address.
+              You keep full control from this panel (deploy, stop, start, back up), and always-on
+              still works — but nothing can wake a sleeping private instance: no traffic reaches
+              it. A way to reach private instances is upcoming. Exposure never changes what you pay.
+            <% else %>
+              Anyone on the internet can reach this app at its address. Making it private removes
+              that address immediately — the panel keeps working either way, and exposure never
+              changes what you pay.
+            <% end %>
+          </p>
+
+          <%!-- #261's gate logic, one card over: making private is the
+          reachability-cutting direction — confirm first, in plain
+          words, because the app goes dark at once (the instant
+          kill-switch is the feature, so say it). Making public only
+          restores service, so it rides bare. --%>
+          <.button
+            size="sm"
+            variant="ghost"
+            phx-click="toggle-exposure"
+            phx-value-exposure={if(@instance.exposure == :private, do: "public", else: "private")}
+            data-confirm={
+              if(@instance.exposure == :public,
+                do:
+                  "Make this instance private? Its public address stops working immediately — the app becomes unreachable from the internet until you make it public again. You keep full control from this panel."
+              )
+            }
+            data-testid="exposure-toggle"
+          >
+            {if(@instance.exposure == :private, do: "Make public", else: "Make private")}
           </.button>
         </.card>
 
@@ -379,8 +443,12 @@ defmodule FluxValeWeb.InstanceLive.Show do
       <% end %>
     </.button>
 
+    <%!-- #265: an unreachable app must not offer a working-looking
+    Open — a private instance's address answers nothing at the edge
+    (the file_access_on? precedent: never render an affordance that
+    cannot work). --%>
     <.button
-      :if={@instance.status in [:running, :sleeping]}
+      :if={@instance.status in [:running, :sleeping] and @instance.exposure == :public}
       size="sm"
       href={instance_url(@instance)}
       target="_blank"
@@ -481,6 +549,22 @@ defmodule FluxValeWeb.InstanceLive.Show do
       {:noreply, reask_always_on(socket)}
     else
       apply_always_on(socket, instance, always_on)
+    end
+  end
+
+  # #265: the reachability toggle. The action applies the cluster
+  # posture synchronously and fails the write on a cluster error —
+  # here that surfaces as copy (the row never claimed a posture the
+  # cluster didn't reach), same stance as apply_always_on's error arm.
+  def handle_event("toggle-exposure", %{"exposure" => exposure}, socket) do
+    instance = socket.assigns.instance
+
+    if exposure == Atom.to_string(instance.exposure) do
+      # A stale view's double-click re-sends the current value: the
+      # cluster already holds it, nothing to re-apply.
+      {:noreply, socket}
+    else
+      apply_exposure(socket, instance, exposure)
     end
   end
 
@@ -642,6 +726,26 @@ defmodule FluxValeWeb.InstanceLive.Show do
     end
   end
 
+  # The toggle's action arms: success re-reads the row (the action
+  # result carries no loaded relationships); the error arm flashes —
+  # the action fails on cluster errors (a refused route delete, a
+  # stale row under the optimistic lock) and the flash hands retry
+  # ownership to the owner. An unknown value is a stale view's crafted
+  # click — refuse like a bad platform tab, keep the current exposure.
+  defp apply_exposure(socket, instance, exposure) when exposure in ["public", "private"] do
+    case Instance.set_exposure(instance, %{exposure: String.to_existing_atom(exposure)},
+           actor: socket.assigns.current_user
+         ) do
+      {:ok, updated} ->
+        {:noreply, assign_instance(socket, reload(updated, socket))}
+
+      {:error, _error} ->
+        {:noreply, put_flash(socket, :error, "Couldn't change the exposure setting.")}
+    end
+  end
+
+  defp apply_exposure(socket, _instance, _unknown), do: {:noreply, socket}
+
   defp instance_url(instance) do
     "https://#{instance.slug}.#{Application.fetch_env!(:flux_vale, :instances_base_domain)}/"
   end
@@ -692,6 +796,12 @@ defmodule FluxValeWeb.InstanceLive.Show do
   # a file-access instance WITH a volume to serve — at 0 GB there is no
   # endpoint, no secret, no route, so the page must not advertise one.
   defp file_access_on?(%{status: :lost}), do: false
+
+  # #265: the /dav endpoint rides the same public hostname — a private
+  # instance has no route, so the address book is dead until it goes
+  # public again (same stance as :lost above: the page shows no
+  # affordance that cannot work; the credential Secret is untouched).
+  defp file_access_on?(%{exposure: :private}), do: false
 
   # #190 (ADR-0035): the sidecar, route, and credential Secret all live
   # in the instance namespace — when it vanished externally (#196's

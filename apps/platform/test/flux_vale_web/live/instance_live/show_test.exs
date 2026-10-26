@@ -948,6 +948,171 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     end
   end
 
+  describe "exposure toggle (#265)" do
+    test "the availability card carries the exposure posture with honest copy", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(view, "[data-testid=exposure-mode]", "Public")
+      assert has_element?(view, "[data-testid=exposure-toggle]", "Make private")
+
+      # Honest public copy: reachability, and that exposure bills
+      # nothing (#265's no-billing-change) — fragments that don't
+      # cross the template's line breaks.
+      copy = render(element(view, "[data-testid=exposure-copy]"))
+      assert copy =~ "Anyone on the internet"
+      assert copy =~ "changes what you pay"
+    end
+
+    test "the toggle flips public → private; the copy states the cut-off plainly", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      view
+      |> element("[data-testid=exposure-toggle]")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid=exposure-mode]", "Private")
+      assert has_element?(view, "[data-testid=exposure-toggle]", "Make public")
+
+      # #265's copy contract: manageable via the panel, NOT reachable,
+      # nothing wakes a sleeping one, the access layer is upcoming
+      # (never dated, never named), exposure is free.
+      copy = render(element(view, "[data-testid=exposure-copy]"))
+
+      assert copy =~ "unreachable from the internet"
+      assert copy =~ "full control from this panel"
+      assert copy =~ "nothing can wake a sleeping private instance"
+      assert copy =~ "upcoming"
+      assert copy =~ "never changes what you pay"
+
+      assert Instance.get_by_id!(instance.id, authorize?: false).exposure == :private
+    end
+
+    # #265: making private is the reachability-cutting direction —
+    # confirm in plain words (the always-on enable gate's stance);
+    # making public only restores service, so it rides bare.
+    test "making private carries the cut-off confirmation; making public carries none", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      make_private = render(element(view, "[data-testid=exposure-toggle]"))
+
+      assert make_private =~ "data-confirm="
+      assert make_private =~ "stops working immediately"
+
+      view
+      |> element("[data-testid=exposure-toggle]")
+      |> render_click()
+
+      make_public = render(element(view, "[data-testid=exposure-toggle]"))
+      refute make_public =~ "data-confirm="
+    end
+
+    test "the Open affordance never renders for a private instance", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      pending = create_instance!(version, user)
+
+      private =
+        pending
+        |> InstanceFixtures.pin!(namespace: "fluxvale-app-#{pending.id}")
+        |> InstanceFixtures.walk_to!(:running)
+        |> InstanceFixtures.pin!(exposure: :private)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{private.id}")
+      refute has_element?(view, "[data-testid=open-instance]")
+      # PR #267 review finding 1: the header URL is a public
+      # affordance too — a private instance renders no address that
+      # cannot answer.
+      refute has_element?(view, "[data-testid=instance-url]")
+
+      public = InstanceFixtures.pin!(private, exposure: :public)
+      {:ok, public_view, _html} = live(conn, ~p"/instances/#{public.id}")
+      assert has_element?(public_view, "[data-testid=open-instance]")
+      assert has_element?(public_view, "[data-testid=instance-url]")
+    end
+
+    test "the file-access panel hides while private — its endpoint rides the public hostname", %{
+      conn: conn,
+      user: user
+    } do
+      version = InstanceFixtures.app_version!(file_access: true, default_storage_gb: 10)
+      pending = create_instance!(version, user)
+
+      private =
+        pending
+        |> InstanceFixtures.pin!(namespace: "fluxvale-app-#{pending.id}")
+        |> InstanceFixtures.walk_to!(:running)
+        |> InstanceFixtures.pin!(exposure: :private)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{private.id}")
+      refute has_element?(view, "[data-testid=file-access-panel]")
+    end
+
+    # A stale view can carry any string in phx-value; an unknown value
+    # or the already-held one changes nothing (the platform-tab
+    # stance: keep the current posture).
+    test "crafted or no-op payloads leave the exposure untouched", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      render_click(view, "toggle-exposure", %{"exposure" => "banana"})
+      assert Instance.get_by_id!(instance.id, authorize?: false).exposure == :public
+
+      render_click(view, "toggle-exposure", %{"exposure" => "public"})
+      assert Instance.get_by_id!(instance.id, authorize?: false).exposure == :public
+
+      assert has_element?(view, "[data-testid=exposure-mode]", "Public")
+    end
+
+    # PR #267 review finding 2: the action's error arm is stageable —
+    # a cluster failure through the LiveView flashes and keeps the row
+    # public (the action rolls back; the flash owns the retry).
+    test "a cluster failure flashes and keeps the instance public", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      pending = create_instance!(version, user)
+
+      instance =
+        pending
+        |> InstanceFixtures.pin!(namespace: "fluxvale-app-#{pending.id}")
+        |> InstanceFixtures.walk_to!(:running)
+
+      stub(K8s, :kubeconfig, fn nil -> {:error, Error.connection_error("cluster down")} end)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      html = render_click(view, "toggle-exposure", %{"exposure" => "private"})
+
+      # The apostrophe rides HTML-escaped (the stale-stop flash
+      # test's stance).
+      assert html =~ "Couldn&#39;t change the exposure setting"
+      assert has_element?(view, "[data-testid=exposure-mode]", "Public")
+      assert Instance.get_by_id!(instance.id, authorize?: false).exposure == :public
+    end
+  end
+
   describe "file access panel (#190, ADR-0035)" do
     test "renders the WebDAV address, username, and rclone snippet — no password until asked", %{
       conn: conn,

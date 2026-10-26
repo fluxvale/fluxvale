@@ -13,7 +13,7 @@ already ruled out.
 | [ADR-00002](00002-single-ash-liveview-app.md) | Single Phoenix + Ash + LiveView app; no SPA | Accepted |
 | [ADR-00003](00003-ashauthentication-drop-authentik.md) | AshAuthentication passwordless (email codes); drop Authentik | Accepted (amended — see Amendments 1–2) |
 | [ADR-00004](00004-bare-metal-netcup-k3s.md) | Bare-metal Netcup (Talos per ADR-00022); reject managed Kubernetes | Accepted (amended — see Amendment 1) |
-| [ADR-00005](00005-customer-instances-as-namespaces.md) | Customer workloads as k8s namespaces (the Instance model) | Accepted (amended — see Amendments 1–2) |
+| [ADR-00005](00005-customer-instances-as-namespaces.md) | Customer workloads as k8s namespaces (the Instance model) | Accepted (amended — see Amendments 1–4) |
 | [ADR-00006](00006-single-cluster-multi-region-ready.md) | One cluster now, schema-ready for regions; vertical first | Accepted (amended — see Amendments 1–2) |
 | [ADR-00007](00007-fluxcd-fleet-repo.md) | FluxCD retained; separate fleet repo | Accepted |
 | [ADR-00008](00008-app-runs-in-cluster.md) | Platform app runs in-cluster | Accepted |
@@ -46,6 +46,7 @@ already ruled out.
 | [ADR-0035](00035-per-instance-file-access.md) | Per-instance file access: rclone WebDAV sidecar + per-instance generated credential (presigned R2 phase 2) | Accepted (amended — Am. 1–3) |
 | [ADR-0036](00036-scale-to-zero-wake-on-use.md) | Scale-to-zero with wake-on-use: idle instances sleep after 1h, wake on the next request; always-on bills the 24/7 running rate | Accepted (amended — see Amendments 1–2) |
 | [ADR-0037](00037-instance-backups-s3.md) | Instance backups: restic to BYO S3-compatible storage (R2 first); crash-consistent PVC snapshots; Oban sweep + k8s Jobs; namespace-Secret credentials; same-instance restore | Accepted (amended — see Amendment 1) |
+| [ADR-0038](00038-instance-exposure-modes.md) | Instance exposure modes: public (default) \| private (no public route, edge ingress denied; provider-agnostic seam for the upcoming access layer); exposure is free | Accepted |
 
 ## Conventions
 

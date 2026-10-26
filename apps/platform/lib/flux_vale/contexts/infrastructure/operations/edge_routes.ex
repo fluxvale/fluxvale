@@ -25,6 +25,7 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   this IS the one owner).
   """
 
+  alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Ingress
   alias FluxVale.Clients.K8s.Resources.Middleware
   alias FluxVale.Clients.K8s.Resources.Service
@@ -52,10 +53,73 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   Applies the serving-mode object set: beacon Middleware + app route
   (+ `/dav` route for file-access instances). `:ok` or the first
   `{:error, Error.t()}`.
+
+  A private instance never serves publicly (#265): the call converges
+  on the private posture (delete any public routes) instead of minting
+  one — callers stay exposure-blind.
   """
   @spec apply_serving(Kubereq.Kubeconfig.t(), Instance.t()) ::
           :ok | {:error, term()}
+  def apply_serving(kubeconfig, %{exposure: :private} = instance) do
+    apply_private(kubeconfig, instance)
+  end
+
   def apply_serving(kubeconfig, instance) do
+    serving_apply(kubeconfig, instance)
+  end
+
+  @doc """
+  Applies the wake-mode object set: the dormant wake targets (see
+  `ensure_wake_targets/2`) plus the wake-mode app route (+ `/dav`).
+  Called from the sleep path — the app Deployment is already at 0 by
+  then, so visitors must land on the wake endpoint, not a
+  connectionless Service.
+
+  A private instance has no public route to flip (#265): the call
+  converges on the private posture — a sleeping private instance
+  stays asleep because nothing at the edge can reach it.
+  """
+  @spec apply_wake(Kubereq.Kubeconfig.t(), Instance.t()) :: :ok | {:error, term()}
+  def apply_wake(kubeconfig, %{exposure: :private} = instance) do
+    apply_private(kubeconfig, instance)
+  end
+
+  def apply_wake(kubeconfig, instance) do
+    wake_apply(kubeconfig, instance)
+  end
+
+  @doc """
+  The public posture's routes in an explicit mode — SetExposure's
+  compensating-restore seam (PR #267 review finding 3): the row is
+  mid-rollback (the record in hand still names the failed direction),
+  so the exposure dispatch of `apply_serving/2`/`apply_wake/2` must
+  not re-route it. Every other caller uses the dispatched entries.
+  """
+  @spec apply_public(Kubereq.Kubeconfig.t(), Instance.t(), :serving | :wake) ::
+          :ok | {:error, term()}
+  def apply_public(kubeconfig, instance, :serving), do: serving_apply(kubeconfig, instance)
+  def apply_public(kubeconfig, instance, :wake), do: wake_apply(kubeconfig, instance)
+
+  @doc """
+  The private posture (#265): NO route on the public entrypoint — any
+  existing app (+ `/dav`) IngressRoute is deleted, none minted. The
+  wake targets are deliberately not minted either: without a route
+  they are unreachable, and a private instance has nothing to wake.
+  Idempotent (a missing route is already the posture); `:ok` or the
+  first `{:error, Error.t()}`.
+  """
+  @spec apply_private(Kubereq.Kubeconfig.t(), Instance.t()) :: :ok | {:error, term()}
+  def apply_private(kubeconfig, instance) do
+    namespace = instance.namespace
+
+    with :ok <- safe_delete_route(kubeconfig, namespace, @app_ingress) do
+      maybe_delete_dav(kubeconfig, instance)
+    end
+  end
+
+  # The dispatched entries' public bodies — shared with apply_public/3
+  # (the compensating-restore seam above).
+  defp serving_apply(kubeconfig, instance) do
     namespace = instance.namespace
     domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
 
@@ -67,15 +131,7 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
     end
   end
 
-  @doc """
-  Applies the wake-mode object set: the dormant wake targets (see
-  `ensure_wake_targets/2`) plus the wake-mode app route (+ `/dav`).
-  Called from the sleep path — the app Deployment is already at 0 by
-  then, so visitors must land on the wake endpoint, not a
-  connectionless Service.
-  """
-  @spec apply_wake(Kubereq.Kubeconfig.t(), Instance.t()) :: :ok | {:error, term()}
-  def apply_wake(kubeconfig, instance) do
+  defp wake_apply(kubeconfig, instance) do
     namespace = instance.namespace
     domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
 
@@ -184,6 +240,26 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
       end
     else
       :ok
+    end
+  end
+
+  # Same gate as DeployInstance's sidecar decision: no volume, no dav
+  # route ever existed — private-mode must not hunt one.
+  defp maybe_delete_dav(kubeconfig, instance) do
+    if dav_routed?(instance) do
+      safe_delete_route(kubeconfig, instance.namespace, @dav_ingress)
+    else
+      :ok
+    end
+  end
+
+  # 404 is the posture already holding — the private apply is
+  # idempotent (TeardownInstance's safe_delete stance).
+  defp safe_delete_route(kubeconfig, namespace, name) do
+    case Ingress.delete(kubeconfig, namespace, name) do
+      :ok -> :ok
+      {:error, %Error{reason: :not_found}} -> :ok
+      {:error, _error} = error -> error
     end
   end
 

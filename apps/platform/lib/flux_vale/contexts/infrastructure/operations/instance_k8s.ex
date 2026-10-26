@@ -67,6 +67,30 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
   # coveralls-ignore-next-line - defensive: K8s errors are %Error{} or strings
   def format_error(other), do: inspect(other)
 
+  @doc """
+  The namespace's ingress policy spec (#265): public admits the edge
+  namespace (Traefik) on top of same-namespace traffic; private
+  admits same-namespace only — no external source, the edge included.
+  Same-namespace is always the NetworkPolicy client's own floor.
+
+  Shared by DeployInstance (the deploy-time apply) and SetExposure
+  (the toggle's re-apply) — the two writers of the same object, one
+  spec source so they can't drift.
+  """
+  @spec network_policy_spec(:public | :private) :: %{
+          required(:ingress_from_namespaces) => [String.t()]
+        }
+  def network_policy_spec(:public) do
+    edge = Application.fetch_env!(:flux_vale, :instance_ingress_namespace)
+    %{ingress_from_namespaces: [edge]}
+  end
+
+  def network_policy_spec(:private) do
+    # No edge entry: the empty list is the denial (same-namespace
+    # only) — not a removed policy, which would re-admit everything.
+    %{ingress_from_namespaces: []}
+  end
+
   defp truncate(nil, _limit), do: nil
 
   defp truncate(message, limit) when is_binary(message) do
