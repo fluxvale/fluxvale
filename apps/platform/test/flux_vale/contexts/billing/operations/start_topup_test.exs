@@ -11,6 +11,7 @@ defmodule FluxVale.Billing.Operations.StartTopupTest do
 
   alias FluxVale.Billing
   alias FluxVale.Billing.Topup
+  alias FluxVale.Pricing.TaxRate
   alias FluxVale.TestSupport.BillingFixtures
 
   require Ash.Query
@@ -22,6 +23,14 @@ defmodule FluxVale.Billing.Operations.StartTopupTest do
       api_key: "sbx_key",
       webhook_salt: "salt",
       base_url: "https://api.example"
+    )
+
+    # The rate table StartTopup resolves against (#260): DE at the
+    # launch rate. Tests asserting 19% figures rely on it;
+    # unpriced-market cases use other countries.
+    TaxRate.create!(
+      %{country: "DE", rate_bp: 1900, effective_from: ~U[2021-01-01 00:00:00Z]},
+      authorize?: false
     )
 
     on_exit(fn -> Application.put_env(:flux_vale, :hitpay, original) end)
@@ -51,12 +60,66 @@ defmodule FluxVale.Billing.Operations.StartTopupTest do
     assert topup.payment_request_id == "pr_1"
     assert topup.amount_cents == 500
     assert topup.billing_country == "DE"
-    assert topup.tax_rate_bp == 0
-    assert topup.tax_cents == 0
+    # The row's rate is resolved from the table (#260) " + D + " the caller sent none.
+    assert topup.tax_rate_bp == 1900
+    assert topup.tax_cents == 95
 
     # The gateway's reference names the row — the webhook's fallback join.
     assert_receive {:form, form}
     assert {"reference_number", topup.id} in form
+  end
+
+  test "an unpriced market (no table row, or no billing country) resolves to 0%" do
+    {org, _wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
+
+    expect(Req, :post, fn _req, _opts ->
+      {:ok, %Req.Response{status: 200, body: %{"id" => "pr_ph", "url" => "https://x/pr_ph"}}}
+    end)
+
+    expect(Req, :post, fn _req, opts ->
+      send(self(), {:form, opts[:form]})
+      {:ok, %Req.Response{status: 200, body: %{"id" => "pr_none", "url" => "https://x/pr_none"}}}
+    end)
+
+    # PH has no row — threshold-gated markets stay out of the table.
+    assert {:ok, topup, _url} = Billing.start_topup(org, Map.put(@params, :billing_country, "PH"))
+
+    assert topup.tax_rate_bp == 0
+    assert topup.tax_cents == 0
+
+    # A caller with no billing country at all: the same 0% stance.
+    assert {:ok, countryless, _url} =
+             Billing.start_topup(org, Map.delete(@params, :billing_country))
+
+    assert countryless.tax_rate_bp == 0
+    assert countryless.tax_cents == 0
+
+    assert_receive {:form, form}
+    assert {"amount", "5.00"} in form
+  end
+
+  test "a caller rate contradicting the rate table fails closed, nothing persisted" do
+    {org, _wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
+
+    # No gateway call may happen — the mismatch rejects before any
+    # charge.
+    stub(Req, :post, fn _req, _opts ->
+      {:ok, %Req.Response{status: 200, body: %{"id" => "pr_leak", "url" => "https://x/pr_leak"}}}
+    end)
+
+    # The table says DE 19% (seeded above); a caller carrying 21% with
+    # self-consistent tax is still wrong (#260) — the guard checks the
+    # caller's rate against the table, never against itself.
+    params = Map.merge(@params, %{tax_rate_bp: 2100, tax_cents: 105})
+
+    assert {:error, :tax_rate_mismatch} = Billing.start_topup(org, params)
+
+    rows =
+      Topup
+      |> Ash.Query.filter(organization_id == ^org.id)
+      |> Ash.read!(authorize?: false)
+
+    assert rows == []
   end
 
   test "charges the gateway the gross (net + VAT) and keeps the net on the row" do
@@ -67,8 +130,8 @@ defmodule FluxVale.Billing.Operations.StartTopupTest do
       {:ok, %Req.Response{status: 200, body: %{"id" => "pr_1", "url" => "https://checkout/pr_1"}}}
     end)
 
-    # The wizard's figures: 19% on the $5.00 net — a caller figure that
-    # matches the rate's arithmetic passes the cross-check.
+    # The wizard's figures: 19% on the $5.00 net — a caller rate and
+    # figure matching the table's resolution pass both cross-checks.
     params = Map.merge(@params, %{tax_rate_bp: 1900, tax_cents: 95})
 
     assert {:ok, topup, _url} = Billing.start_topup(org, params)
@@ -129,15 +192,16 @@ defmodule FluxVale.Billing.Operations.StartTopupTest do
     assert rows == []
   end
 
-  test "derives tax_cents from tax_rate_bp when the caller omits it" do
+  test "derives the row's figures from the rate table when the caller omits them" do
     {org, _wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
 
     expect(Req, :post, fn _req, _opts ->
       {:ok, %Req.Response{status: 200, body: %{"id" => "pr_1", "url" => "https://checkout/pr_1"}}}
     end)
 
-    assert {:ok, topup, _url} = Billing.start_topup(org, Map.put(@params, :tax_rate_bp, 1900))
+    assert {:ok, topup, _url} = Billing.start_topup(org, @params)
 
+    assert topup.tax_rate_bp == 1900
     assert topup.tax_cents == 95
   end
 

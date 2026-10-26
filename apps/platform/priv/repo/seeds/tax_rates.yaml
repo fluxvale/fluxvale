@@ -46,9 +46,12 @@
 - country: EE
   rate_bp: 2000
   effective_from: "2021-01-01T00:00:00Z"
+# EE's 22% row is effective 2024-07-01, not 2024-01-01 — the
+# 2024 step-up took effect 1 July (EMTA, verified #260); a January date
+# mis-priced Jan-Jun 2024 lookups at 22%.
 - country: EE
   rate_bp: 2200
-  effective_from: "2024-01-01T00:00:00Z"
+  effective_from: "2024-07-01T00:00:00Z"
 - country: EE
   rate_bp: 2400
   effective_from: "2025-07-01T00:00:00Z"

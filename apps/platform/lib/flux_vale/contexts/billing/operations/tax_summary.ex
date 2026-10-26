@@ -2,8 +2,10 @@ defmodule FluxVale.Billing.Operations.TaxSummary do
   @moduledoc """
   The quarterly per-country tax summary (ADR-0029 Am. 3 gate 3) — a
   return is a query, not a reconstruction: the period's tax-bearing
-  entries (charge credits and, copied by ReverseEntry, the refund
-  debits that reverse them) grouped by billing country, billing state
+  entries (charge credits and, copied by ReverseEntry, the
+  compensating entries that reverse them either direction — a
+  refund debit, or the credit that reverses one back, #260) grouped
+  by billing country, billing state
   within the US, applied rate, and reverse-charge marker. The marker
   rides the group key so OSS consumer nets are never inflated by B2B
   reverse-charge rows.

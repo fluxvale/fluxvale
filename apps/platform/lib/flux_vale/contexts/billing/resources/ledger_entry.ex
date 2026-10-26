@@ -18,7 +18,8 @@ defmodule FluxVale.Billing.LedgerEntry do
   layer's facts — `billing_country`, `billing_state` (US), the
   `applied_rate` in basis points, the collected `tax_cents`, and the
   B2B `reverse_charge?` marker — and `ReverseEntry` copies them onto
-  the compensating refund debit, so the quarterly per-country tax
+  the compensating reversal (a refund debit, or the credit that
+  reverses one back), so the quarterly per-country tax
   summary (ADR-0029 Am. 3 gate 3) sums what was collected, net of
   reversals, without re-deriving anything. Every other posting keeps
   these null, and all history before the fields landed (M6, #139)
@@ -254,7 +255,9 @@ defmodule FluxVale.Billing.LedgerEntry do
 
     # ADR-0029 Am. 3 gate 3: the quarterly per-country tax summary's
     # source rows — the period's tax-bearing entries: purchase credits
-    # and the compensating debits that reverse them. Reversals are
+    # and the compensating entries that reverse them, either direction
+    # (#260) — a refund debit, and the credit that reverses one back
+    # (the restored tax must land in the return again). Reversals are
     # matched by `reverses_id`, not reason — ReverseEntry accepts a
     # reason override while still copying the original's tax facts, and
     # a reversal under any other name must still net out of the return.
@@ -271,8 +274,7 @@ defmodule FluxVale.Billing.LedgerEntry do
 
       filter(
         expr(
-          ((type == :credit and reason == :purchase) or
-             (type == :debit and not is_nil(reverses_id))) and
+          ((type == :credit and reason == :purchase) or not is_nil(reverses_id)) and
             not is_nil(billing_country) and not is_nil(applied_rate) and
             created_at >= ^arg(:from) and created_at < ^arg(:to)
         )
