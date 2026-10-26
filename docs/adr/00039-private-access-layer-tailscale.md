@@ -279,6 +279,13 @@ committed, because `:sleep` accepts no attributes — no `UPDATE`, no row
 lock before `EdgeRoutes.apply_wake` — and `set_exposure`'s optimistic
 lock only ever contends with other toggles.
 
+**Landing order**: this section describes code that ships in its own
+PR (#270), not in the ADR's. The ADR asserts the window is closed only
+because #270 lands first — merge #270 before this document, or §7
+describes a fix the tree does not have. (The flagging came from #270's
+own hostile review, which caught the ADR claiming a closed window over
+code that had not merged.)
+
 Fix: **the sleep takes the row lock and adopts the current row before it
 decides anything.** `:sleep` gains the same `before_action` the deploy
 uses ([`AdoptCurrentRow`](../../apps/platform/lib/flux_vale/contexts/infrastructure/resources/instance/adopt_current_row.ex)):
@@ -307,10 +314,26 @@ read-only by [ADR-0005](00005-customer-instances-as-namespaces.md)'s
 split, and edge state would gain a third automaton that the owner's
 panel cannot explain).
 
-Ancillary change, same fix: a row that left `:running` between the
-sweep's batch read and the sleep now lands `:sleeping`/`:private`
-instead of erroring. The private dispatch is idempotent, so the sleep is
-correct when the private posture already holds.
+The lock is held across the cluster applies, so four other writers can
+wait up to a few seconds behind a sleep in flight — not just the
+toggle: the edge beacon's `:touch` (the idle-clock write, once per
+30s window per instance), the reconciler's status write (every minute
+per instance), settlement's anchor advance (every 15 minutes), and the
+panel's Wake (`:start`). Each is a short single-row update that
+serializes with the sleep and then proceeds; none is on a latency
+budget tight enough to notice, and none can deadlock against it (the
+sleep takes no wallet lock, and settlement takes the wallet lock
+before the row lock in that order everywhere else too). The sleep is
+the only one of the five that holds the lock across K8s calls.
+
+Ancillary change, same fix: a row whose exposure says `:private` when
+the sleep's locked re-read lands is slept under the **private
+posture** — routes deleted, nothing minted — which is what the dispatch
+already does for a private row. The row itself still transitions
+`:running → :sleeping`; the wording that matters is that the sleep
+*applies* the private posture rather than minting a wake route. A row
+that a *different* writer moved off `:running` in the gap is not slept
+at all: the action's own status guard no-ops it, exactly as before.
 
 Proven by a test that fails without it: sleep a row whose struct still
 says `:public` after the row itself went `:private` — the production
