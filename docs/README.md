@@ -17,7 +17,7 @@ what's still open. v1: <https://github.com/fluxvale/fluxvale_old>
 | [pricing-recalibration-2026-10.md](pricing-recalibration-2026-10.md) | Recalibration for NetCup renewal costs (#200) — density model + options; **decided B′ ×1.2** (2026-10-22, shipped #206), B′-SG ×1.25 on standby |
 | [design-system.md](design-system.md) | The amber design system (#178): tokens, components, storybook, wave-2 plan |
 | [adr/](adr/) | One decision per file, with rationale and rejected alternatives — index in [adr/README.md](adr/README.md) |
-| [refund-policy.md](refund-policy.md) · [data-deletion.md](data-deletion.md) | Customer-facing policy drafts — advisor review + publication ride M6 checkout ([ADR-0029](adr/00029-payments-adapter-selfmor.md)) |
+| [refund-policy.md](refund-policy.md) · [data-deletion.md](data-deletion.md) | Customer-facing policies — refund **published** at `/policies/refund` (#140, [ADR-0029](adr/00029-payments-adapter-selfmor.md); the page is the text of record, this doc the decision record); data-deletion still draft |
 | [open-questions.md](open-questions.md) | Everything deliberately **not** decided yet |
 | [v1-salvage.md](v1-salvage.md) | What to carry over from v1 (and what to leave behind) |
 

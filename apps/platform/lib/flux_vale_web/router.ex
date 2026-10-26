@@ -164,6 +164,10 @@ defmodule FluxValeWeb.Router do
 
     get("/", PageController, :home)
     get("/about", PageController, :about)
+
+    # #140: the published policies — public and anonymous-OK; the top-up
+    # flow links the refund policy before payment.
+    get("/policies/refund", PolicyController, :refund)
   end
 
   scope "/", FluxValeWeb do
@@ -263,7 +267,8 @@ defmodule FluxValeWeb.Router do
     # upstream) — registered-but-not-exposed domains don't count, so the
     # swap key is `ash_admin_domains` (opt-in, ADR-0027 §3), not `ash_domains`.
     # Identity is registered but stays out of AshAdmin; Ops opted in with
-    # #25, Catalog with #70, Infrastructure with #72.
+    # #25, Catalog with #70, Infrastructure with #72, Pricing with #125,
+    # Billing with #140.
     if Application.compile_env(:flux_vale, :ash_admin_domains) == [] do
       scope "/admin", FluxValeWeb do
         pipe_through(:browser)

@@ -8,6 +8,7 @@ defmodule FluxVale.Billing.WalletTest do
 
   alias FluxVale.Billing
   alias FluxVale.Billing.Wallet
+  alias FluxVale.Identity.User
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
 
@@ -64,5 +65,29 @@ defmodule FluxVale.Billing.WalletTest do
     # read policies filter to nothing — the wrapped NotFound shape
     assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Query.NotFound{}]}} =
              Billing.balance(wallet, actor: stranger)
+  end
+
+  test "platform admins read any wallet (support surface, #140)" do
+    # A wallet the admin has no membership in — the goodwill flow's
+    # wallet discovery in AshAdmin rides this read.
+    {_org, wallet} = BillingFixtures.funded_wallet!(balance_cents: 700)
+
+    assert {:ok, 700} = Billing.balance(wallet, actor: admin())
+  end
+
+  # Bootstrap posture (mirrors the Ops policy tests): the precondition
+  # runs authorize?: false; the policy itself is under test above.
+  defp admin do
+    case User.get_by_email("admin@fluxvale.com", authorize?: false) do
+      {:ok, existing} ->
+        existing
+
+      {:error, _not_found} ->
+        User.create!(
+          "admin@fluxvale.com",
+          %{platform_role: :admin},
+          authorize?: false
+        )
+    end
   end
 end
