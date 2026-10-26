@@ -19,6 +19,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
+  alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -155,9 +156,19 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
 
       assert_received {:policy_create, ns, "default-deny-ingress", spec}
       assert ns == instance.namespace
+
       # The gateway's namespace — and NOT the edge namespace, ever
       # (ADR-0038 §5's constraint).
-      assert spec.ingress_from_namespaces == [access_namespace()]
+      assert [peer] = spec.ingress_from_sources
+      assert peer.namespace == access_namespace()
+
+      # THE LOAD-BEARING LINE: without this pod selector the policy admits
+      # every pod in the shared access namespace, so org B's gateway
+      # reaches org A's app. Dropping it must fail a test, not silently
+      # degrade the tenancy boundary.
+      assert peer.match_labels == InstanceK8s.gateway_pod_labels(gateway.id)
+
+      refute Enum.any?(spec.ingress_from_sources, &(&1.namespace == edge_namespace()))
 
       assert route.route_key == "8443"
       assert route.instance_id == instance.id
@@ -704,6 +715,8 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
   defp access_namespace do
     Application.fetch_env!(:flux_vale, :access_gateway)[:namespace] || "fluxvale-access"
   end
+
+  defp edge_namespace, do: Application.fetch_env!(:flux_vale, :instance_ingress_namespace)
 
   # The per-gateway object names (ADR-0039 §1's multi-tenancy fix): the
   # provider keys every object by the RANDOM TAIL of the gateway id (a

@@ -27,14 +27,24 @@ defmodule FluxVale.Clients.K8s.Resources.NetworkPolicy do
   Simplified network policy specification.
 
   `ingress_from_namespaces` admits *every* pod in each listed namespace.
-  `ingress_from_pods` narrows that to pods matching the given labels in
-  each namespace — required when several tenants' pods share one
-  namespace (the access gateway: org A's gateway must not reach org B's
-  app), and omitted by the single-tenant callers (edge, instance).
+  Use `ingress_from_sources` instead when the admitted pods within a
+  namespace must be narrowed — several tenants' pods share the access
+  namespace, so org A's gateway must reach org A's app and nothing else.
+  The two forms are mutually exclusive in practice; sources wins if both
+  are present.
   """
   @type spec :: %{
           required(:ingress_from_namespaces) => [String.t()],
-          optional(:ingress_from_pods) => %{optional(String.t()) => String.t()}
+          optional(:ingress_from_sources) => [source()]
+        }
+
+  @typedoc """
+  One admitted peer: a namespace, optionally narrowed to pods carrying
+  every one of `match_labels`.
+  """
+  @type source :: %{
+          required(:namespace) => String.t(),
+          optional(:match_labels) => %{optional(String.t()) => String.t()}
         }
 
   @doc "Creates (server-side-applies) a NetworkPolicy from a simplified spec."
@@ -107,16 +117,10 @@ defmodule FluxVale.Clients.K8s.Resources.NetworkPolicy do
   """
   @spec build_manifest(String.t(), String.t(), spec()) :: map()
   def build_manifest(namespace, name, spec) do
-    pod_selector = pod_selector(spec)
-
     external_sources =
-      Enum.map(spec.ingress_from_namespaces, fn ns ->
-        source = %{
-          "namespaceSelector" => %{"matchLabels" => %{"kubernetes.io/metadata.name" => ns}}
-        }
-
-        maybe_add_pod_selector(source, pod_selector)
-      end)
+      spec
+      |> sources()
+      |> Enum.map(&source_manifest/1)
 
     %{
       "apiVersion" => "networking.k8s.io/v1",
@@ -140,16 +144,27 @@ defmodule FluxVale.Clients.K8s.Resources.NetworkPolicy do
     }
   end
 
-  # Only a spec that names pods narrows the namespace admission; the
-  # single-tenant callers keep the whole-namespace shape they had.
-  defp pod_selector(%{ingress_from_pods: labels}) when is_map(labels) and labels != %{} do
-    %{"matchLabels" => labels}
+  # `ingress_from_sources` is the narrowing form; `ingress_from_namespaces`
+  # the whole-namespace one the single-tenant callers use.
+  defp sources(%{ingress_from_sources: sources}) when is_list(sources), do: sources
+
+  defp sources(%{ingress_from_namespaces: namespaces}) do
+    Enum.map(namespaces, &%{namespace: &1})
   end
 
-  defp pod_selector(_spec), do: nil
+  defp source_manifest(%{namespace: ns} = source) do
+    peer = %{
+      "namespaceSelector" => %{"matchLabels" => %{"kubernetes.io/metadata.name" => ns}}
+    }
 
-  defp maybe_add_pod_selector(source, nil), do: source
-  defp maybe_add_pod_selector(source, selector), do: Map.put(source, "podSelector", selector)
+    case Map.get(source, :match_labels) do
+      labels when is_map(labels) and labels != %{} ->
+        Map.put(peer, "podSelector", %{"matchLabels" => labels})
+
+      _whole_namespace ->
+        peer
+    end
+  end
 
   defp create_req(kubeconfig) do
     Kubereq.attach(Req.new(),

@@ -439,7 +439,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
     # org A's app through the shared namespace (the same multi-tenancy
     # break the per-gateway object names close).
     apply_policy(kubeconfig, instance, [access_namespace()],
-      ingress_from_pods: selector_labels(gateway)
+      match_labels: selector_labels(gateway)
     )
   end
 
@@ -456,8 +456,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   defp disadmit_gateway(_kubeconfig, _instance), do: :ok
 
   defp apply_policy(kubeconfig, instance, external_namespaces, opts \\ []) do
-    spec =
-      maybe_put_pods(%{ingress_from_namespaces: external_namespaces}, opts[:ingress_from_pods])
+    spec = build_spec(external_namespaces, opts[:match_labels])
 
     case NetworkPolicy.create(kubeconfig, instance.namespace, policy_name(), spec) do
       {:ok, _policy} -> :ok
@@ -465,8 +464,13 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
     end
   end
 
-  defp maybe_put_pods(spec, nil), do: spec
-  defp maybe_put_pods(spec, labels), do: Map.put(spec, :ingress_from_pods, labels)
+  # The detach path passes no labels (the private floor, whole-namespace
+  # empty); the attach path narrows the one namespace to this gateway.
+  defp build_spec(namespaces, nil), do: %{ingress_from_namespaces: namespaces}
+
+  defp build_spec(namespaces, labels) do
+    %{ingress_from_sources: Enum.map(namespaces, &%{namespace: &1, match_labels: labels})}
+  end
 
   # The same object name EdgeRoutes / InstanceK8s / SetExposure use.
   defp policy_name, do: "default-deny-ingress"
@@ -631,13 +635,12 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
     Map.put(selector, "app.kubernetes.io/managed-by", "fluxvale")
   end
 
-  # The pod labels a gateway's Deployment selects AND the labels the
-  # NetworkPolicy admits from. Must be identical in both places.
+  # The pod labels a gateway's Deployment selects. The same pair is what
+  # the instance NetworkPolicy matches on, so the source lives in
+  # InstanceK8s (the policy's owner) rather than being duplicated here —
+  # a divergence between the two is a silent reachability change.
   defp selector_labels(gateway) do
-    %{
-      "app.kubernetes.io/name" => "access-gateway",
-      "fluxvale.io/gateway" => gateway.id
-    }
+    FluxVale.Infrastructure.Operations.InstanceK8s.gateway_pod_labels(gateway.id)
   end
 
   # ==================================================================
