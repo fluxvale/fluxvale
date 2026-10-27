@@ -206,6 +206,41 @@ jobs:
 
       - run: ./scripts/lint-skill-frontmatter.sh
 
+  # Linked issues (umbrella close): a body that closes an issue while
+  # calling itself an incomplete slice — `Closes #N (slice 1 of 4)` —
+  # closes that issue on merge, before the other slices exist. #62 did it
+  # to #61 (reopened 15s later) and #269 did it to #268 (closed with three
+  # of six scope items unbuilt, #273). Both passed a green pipeline:
+  # nothing read the body. NOT path-filtered, deliberately — every lint
+  # above keys on files, but this class can fire on any PR, and the two
+  # incidents being docs PRs was luck, not a property of the class. The
+  # job is a bash regex over an event payload, so it costs a runner start
+  # and seconds, on every PR. `if: pull_request` because the body only
+  # exists there (push/workflow_dispatch have no PR to check). Body EDITS
+  # are handled by linked-issues-edited.yml, not by widening this
+  # workflow's triggers — that would re-run the E2E legs on every body
+  # edit, and CodeRabbit edits every body.
+  linked-issues:
+    name: Linked issues
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The body comes from the event payload — no token, no API call, and
+      # the same script a local run uses.
+      - name: Lint PR body
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: printf '%s' "$PR_BODY" | ./scripts/lint-linked-issues.sh
+
+      # The guard is proven on every PR that touches it, not just when a
+      # body happens to trip it (fixtures are the real #62/#269 bodies).
+      - name: Test the lint
+        run: ./scripts/test-lint-linked-issues.sh
+
   # The M3 E2E suite (#75, ADR-0024 local runtime / ADR-0020 Am. 4):
   # the same scripts/e2e-bootstrap.sh a local re-run uses, driven on an
   # ephemeral runner k3d — one path, no drift. Sharded by file (#210):
@@ -737,7 +772,7 @@ jobs:
   # checks run — a green umbrella that proved nothing.
   wait-for-ci:
     name: Wait for CI
-    needs: [check-changes, platform, docs-lint, skills-lint, e2e, deploy-image, watch-deploy, smoke]
+    needs: [check-changes, platform, docs-lint, skills-lint, linked-issues, e2e, deploy-image, watch-deploy, smoke]
 
     if: always()
     runs-on: ubuntu-24.04

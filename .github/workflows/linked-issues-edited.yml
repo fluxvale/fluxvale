@@ -1,0 +1,45 @@
+   # Body edits re-check the linked-issues rule (the hostile-review gap):
+   # `on: pull_request` in ci.yml fires opened/synchronize/reopened only, so
+   # a body edited after a green run is never re-read. Widening ci.yml's own
+   # trigger would re-run every job — including three E2E legs — on every
+   # body edit, and CodeRabbit edits the body on every PR (PR #269 has two
+   # body edits, one by coderabbitai). So the edit path is a separate, tiny
+   # workflow instead: seconds of runner time, and it cannot wash out the
+   # code run's verdicts because it posts a different check name.
+   #
+   # Advisory, and said out loud: this check is NOT required for merge
+   # (branch protection requires `CodeRabbit` and `Wait for CI` only), so a
+   # red result here is visible but not blocking. Making it blocking is a
+   # ruleset change, not a PR's call. The blocking path for the two real
+   # incidents is ci.yml's `linked-issues` job, which runs at open time —
+   # where both #62 and #269 wrote their bad first line.
+name: Linked issues (body edit)
+
+on:
+  pull_request:
+    types: [edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linked-issues-edited-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  linked-issues-edited:
+    name: Linked issues (body edit)
+    # `edited` covers title and body edits both; a title edit re-lints an
+    # unchanged body. Harmless (same verdict, seconds) but noisy, so gate on
+    # the body actually changing.
+    if: github.event.changes.body != null
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Lint PR body
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: printf '%s' "$PR_BODY" | ./scripts/lint-linked-issues.sh
