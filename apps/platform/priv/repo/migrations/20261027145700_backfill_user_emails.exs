@@ -5,6 +5,11 @@ defmodule FluxVale.Repo.Migrations.BackfillUserEmails do
   verified (it proved itself by code sign-in, so `verified_at` = the
   user's `created_at`) and primary.
 
+  ADR-00013 rule 3 says backfills are never inline migrations; this rides
+  Am. 1's pre-launch carve-out (dev/staging rows are disposable until the
+  first production deploy, M6). Revisit trigger: move the sweep out of
+  the migration before M6.
+
   Idempotent: users who already have rows are skipped, so a re-run is
   safe.
 
