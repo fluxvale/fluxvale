@@ -74,7 +74,7 @@ defmodule FluxValeWeb.CoreComponents do
         <.icon
           :if={@kind == :info}
           name="hero-information-circle"
-          class="mt-0.5 size-5 shrink-0 text-primary"
+          class="mt-0.5 size-5 shrink-0 text-link"
         />
         <.icon
           :if={@kind == :error}
@@ -941,7 +941,7 @@ defmodule FluxValeWeb.CoreComponents do
     }
 
     icons = %{
-      "info" => {"hero-information-circle", "text-primary"},
+      "info" => {"hero-information-circle", "text-link"},
       "warning" => {"hero-exclamation-triangle", "text-warning"},
       "danger" => {"hero-exclamation-circle", "text-danger"},
       "success" => {"hero-check-circle", "text-success"}

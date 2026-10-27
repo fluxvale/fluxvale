@@ -30,7 +30,7 @@
               <img :if={app.icon_url} src={app.icon_url} alt={app.name} class="size-9 rounded-lg" />
               <span :if={is_nil(app.icon_url)}>{String.first(app.name)}</span>
             </div>
-            <h3 class="text-base font-medium text-ink transition-colors group-hover:text-primary">
+            <h3 class="text-base font-medium text-ink transition-colors group-hover:text-link">
               {app.name}
             </h3>
             <.icon

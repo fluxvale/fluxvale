@@ -120,7 +120,8 @@
 
   /* Success leans teal to hold >= 40° OKLCH hue from every olive
      token (measured 57° light / 62° dark; see foundations "Info vs
-     success"). Warning/danger semantics and values unchanged.
+     success"). Semantics unchanged; danger values unchanged — the
+     dark warning is retuned (see the dark block).
      Caveat: success text on the OLIVE tint would be 4.31:1 — status
      text never sits on the info tint; it carries its own. */
   --success: #007b65;

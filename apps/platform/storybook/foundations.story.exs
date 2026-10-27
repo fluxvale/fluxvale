@@ -300,7 +300,7 @@ defmodule FluxValeWeb.Storybook.Foundations do
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" data-testid="elevation">
           <div
             :for={{name, value, class} <- @elevation}
-            class={["rounded-panel border border-line bg-panel p-4", class]}
+            class={["rounded-panel border border-line bg-panel p-4 dark:border-line-strong", class]}
           >
             <p class="text-sm font-medium text-ink">{name}</p>
             <p class="mt-1 font-mono text-[10px] leading-relaxed text-ink-muted">{value}</p>
