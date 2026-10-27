@@ -13,9 +13,10 @@ defmodule FluxVale.Identity do
     extensions: [AshJsonApi.Domain]
 
   resources do
-    resource FluxVale.Identity.AuthCode
-    resource FluxVale.Identity.Token
-    resource FluxVale.Identity.User
+    resource(FluxVale.Identity.AuthCode)
+    resource(FluxVale.Identity.Token)
+    resource(FluxVale.Identity.User)
+    resource(FluxVale.Identity.UserEmail)
   end
 
   # Operations are verb-named modules under operations/ (see
