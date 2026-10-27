@@ -25,7 +25,13 @@ const email = `test+orghome-organization-with-a-long-display-name-${runId}@fluxv
 
 // The signed-in actor's own org, discovered through the switcher panel —
 // its org rows ARE the /organizations/:slug links (no API seam needed).
+// The sign-in flash rides the dashboard and, fixed to the top-right, it
+// overlays the switcher at narrow widths — dismiss it if present.
 async function ownOrgPath(page: Page): Promise<string> {
+  const flashClose = page.getByRole("button", { name: "close" });
+  if (await flashClose.first().isVisible().catch(() => false)) {
+    await flashClose.first().click();
+  }
   await page.getByTestId("org-switcher-button").click();
   const href = await page
     .locator('[data-testid="org-switcher-panel"] a[href^="/organizations/"]')
