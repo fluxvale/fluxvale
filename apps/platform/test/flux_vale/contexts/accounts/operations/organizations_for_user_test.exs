@@ -40,12 +40,37 @@ defmodule FluxVale.Accounts.Operations.OrganizationsForUserTest do
       assert roles_by_org[team.id] == :member
     end
 
+    test "a co-member cannot read the other member's row — the actor scopes the rows" do
+      owner = AccountsFixtures.user!()
+      _owner_org = AccountsFixtures.personal_org!(owner)
+      member = AccountsFixtures.user!()
+      member_org = AccountsFixtures.personal_org!(member)
+      shared = shared_org!(owner, member)
+
+      # The read policy authorizes orgs, not rows: both co-members pass
+      # it for the shared org, so only the actor scoping keeps the row
+      # set to the actor's own memberships.
+      assert {:ok, []} = Accounts.organizations_for_user(owner.id, actor: member)
+
+      assert {:ok, rows} = Accounts.organizations_for_user(member.id, actor: member)
+      org_ids = Enum.map(rows, & &1.organization.id)
+
+      assert Enum.sort(org_ids) == Enum.sort([member_org.id, shared.id])
+    end
+
     test "another actor's id yields nothing (the read policy filter-checks)" do
       user = AccountsFixtures.user!()
       _org = AccountsFixtures.personal_org!(user)
       stranger = AccountsFixtures.user!()
 
       assert {:ok, []} = Accounts.organizations_for_user(user.id, actor: stranger)
+    end
+
+    test "no actor with the default authorize? is Forbidden (the policy gate)" do
+      user = AccountsFixtures.user!()
+      _org = AccountsFixtures.personal_org!(user)
+
+      assert {:error, %Ash.Error.Forbidden{}} = Accounts.organizations_for_user(user.id)
     end
 
     test "authorize?: false reads as the system caller (bootstrap posture)" do
@@ -84,6 +109,24 @@ defmodule FluxVale.Accounts.Operations.OrganizationsForUserTest do
       )
 
     Membership.create!(%{organization_id: org.id, user_id: user.id, role: role},
+      authorize?: false
+    )
+
+    org
+  end
+
+  defp shared_org!(owner, member) do
+    org =
+      Organization.create!(
+        %{name: "Team Org", slug: "team-#{System.unique_integer([:positive])}"},
+        authorize?: false
+      )
+
+    Membership.create!(%{organization_id: org.id, user_id: owner.id, role: :owner},
+      authorize?: false
+    )
+
+    Membership.create!(%{organization_id: org.id, user_id: member.id, role: :member},
       authorize?: false
     )
 

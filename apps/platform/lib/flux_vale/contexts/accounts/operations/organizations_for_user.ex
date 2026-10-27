@@ -5,9 +5,14 @@ defmodule FluxVale.Accounts.Operations.OrganizationsForUser do
   `:organization` loaded, so each row carries org + role together.
 
   Authorization propagates from the caller (never hard-coded), exactly
-  like `PersonalOrgForUser`: an actor reading their own memberships
-  passes the Membership read policy (`relates_to_actor_via`); rows for
-  orgs the actor doesn't belong to filter out.
+  like `PersonalOrgForUser`. With an actor, the actor is the authority:
+  the query returns only the actor's own memberships — orgs they belong
+  to — and the `user_id` argument cannot widen that (a co-member of a
+  shared org passes the read policy for the whole org, so the row scope
+  is the actor's, per the `SetOrganizationFromActor` stance). The
+  `user_id` argument scopes the system path (`authorize?: false`, seeds
+  and preconditions). A caller with no actor and the default
+  `authorize?` is Forbidden.
   """
 
   alias FluxVale.Accounts.Membership
@@ -17,11 +22,20 @@ defmodule FluxVale.Accounts.Operations.OrganizationsForUser do
   @spec call(String.t() | Ash.UUID.t(), keyword()) ::
           {:ok, [Membership.t()]} | {:error, term()}
   def call(user_id, opts \\ []) when is_binary(user_id) do
-    query =
+    base_query =
       Membership
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.filter(user_id == ^user_id)
       |> Ash.Query.load(:organization)
+
+    query =
+      case Keyword.get(opts, :actor) do
+        nil ->
+          base_query
+
+        actor ->
+          Ash.Query.filter(base_query, user_id == ^actor.id)
+      end
 
     case Ash.read(query,
            actor: Keyword.get(opts, :actor),
@@ -30,11 +44,9 @@ defmodule FluxVale.Accounts.Operations.OrganizationsForUser do
       {:ok, memberships} ->
         {:ok, memberships}
 
-      # defensive: DB read failure, not simulatable under the sandbox
-      # coveralls-ignore-start
+      # The no-actor/default-authorize? caller — Forbidden by policy.
       {:error, _reason} = error ->
         error
-        # coveralls-ignore-stop
     end
   end
 end

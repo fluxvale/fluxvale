@@ -13,8 +13,8 @@ defmodule FluxVale.Accounts do
   use Ash.Domain, otp_app: :flux_vale
 
   resources do
-    resource(FluxVale.Accounts.Membership)
-    resource(FluxVale.Accounts.Organization)
+    resource FluxVale.Accounts.Membership
+    resource FluxVale.Accounts.Organization
   end
 
   # Operations are verb-named modules under operations/ (see

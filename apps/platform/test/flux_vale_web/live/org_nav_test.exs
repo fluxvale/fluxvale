@@ -31,6 +31,20 @@ defmodule FluxValeWeb.OrgNavTest do
     assert socket.assigns.actor_orgs == []
   end
 
+  test "no current_user assign degrades to an empty list — data, not a gate" do
+    # A miswiring (UserAuth runs first on every sanctioned site) must
+    # cost an empty switcher, never a raise.
+    assert {:cont, socket} = OrgNav.on_mount(:assign_orgs, %{}, %{}, %Phoenix.LiveView.Socket{})
+    assert socket.assigns.actor_orgs == []
+  end
+
+  test "a nil current_user degrades to an empty list too" do
+    socket = Phoenix.Component.assign(%Phoenix.LiveView.Socket{}, :current_user, nil)
+
+    assert {:cont, socket} = OrgNav.on_mount(:assign_orgs, %{}, %{}, socket)
+    assert socket.assigns.actor_orgs == []
+  end
+
   defp socket_with(user) do
     Phoenix.Component.assign(%Phoenix.LiveView.Socket{}, :current_user, user)
   end

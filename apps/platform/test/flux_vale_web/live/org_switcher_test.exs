@@ -39,6 +39,19 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     assert html =~ ~s(href="/")
     assert html =~ ~s(href="/organizations/#{org.slug}")
     assert html =~ org.name
+
+    # Personal is pinned first in the panel, ahead of every org row —
+    # the same slice technique the #255 user-menu tests use.
+    panel =
+      html
+      |> String.split(~s(data-testid="org-switcher-panel"))
+      |> List.last()
+
+    assert panel =~ "Personal"
+
+    {personal_at, _match_len} = :binary.match(panel, "Personal")
+    {org_at, _match_len} = :binary.match(panel, ~s(href="/organizations/))
+    assert personal_at < org_at
   end
 
   test "every membership gets a row — a second org rides along", %{conn: conn, user: user} do
@@ -68,11 +81,36 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     refute html =~ ~s(href="/organizations/)
   end
 
-  test "the public chrome carries no switcher", %{conn: conn} do
-    conn = get(conn, ~p"/about")
+  # Layouts.public's real consumers — the #164 SEO surfaces render the
+  # session-aware chrome, so a signed-in visitor proves the `apps`
+  # guard, not a standalone landing template that never calls chrome.
+  test "the public chrome carries no switcher, even signed in", %{conn: conn} do
+    conn = get(conn, ~p"/catalog")
     html = html_response(conn, 200)
 
     refute html =~ ~s(data-testid="org-switcher")
+    # Sanity: this really is the session-aware public chrome.
+    assert html =~ ~s(data-testid="user-menu")
+  end
+
+  test "the refund policy's public chrome carries no switcher", %{conn: conn} do
+    conn = get(conn, ~p"/policies/refund")
+    html = html_response(conn, 200)
+
+    refute html =~ ~s(data-testid="org-switcher")
+  end
+
+  # The live_session wiring is half of the hook's contract — every
+  # assertion above rides `/`, whose view declares the pair itself.
+  test "the authenticated live_session wires the hook — the switcher rides /apps", %{
+    conn: conn,
+    org: org
+  } do
+    conn = get(conn, ~p"/apps")
+    html = html_response(conn, 200)
+
+    assert html =~ ~s(data-testid="org-switcher")
+    assert html =~ ~s(href="/organizations/#{org.slug}")
   end
 
   test "the anonymous app chrome (sign-in) carries no switcher", %{conn: conn} do
