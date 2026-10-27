@@ -1259,10 +1259,7 @@ defmodule FluxValeWeb.CoreComponents do
         <p class="px-3 py-1.5 text-xs text-ink-subtle">Contexts</p>
         <div class="mb-1 border-t border-line" aria-hidden="true"></div>
         <%!-- href, not navigate: full page loads close the dropdown, the
-        user_menu's reason (#205). The org rows interpolate the path
-        rather than ride ~p — /organizations/:slug is a sibling ticket
-        in this lane, and ~p warns (warnings-as-errors) until its route
-        lands. Flip to ~p with that ticket. --%>
+        user_menu's reason (#205). --%>
         <.link
           href={~p"/"}
           class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
@@ -1283,7 +1280,7 @@ defmodule FluxValeWeb.CoreComponents do
           375 open, gate-2 F1). --%>
           <.link
             :for={membership <- @orgs}
-            href={"/organizations/" <> membership.organization.slug}
+            href={~p"/organizations/#{membership.organization.slug}"}
             class="flex items-baseline gap-1 rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
           >
             <span class="truncate">{membership.organization.name}</span>
