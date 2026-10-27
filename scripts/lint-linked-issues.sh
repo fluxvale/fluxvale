@@ -96,39 +96,58 @@ unless body.valid_encoding?
   exit 2
 end
 
-# Drop fenced blocks line-wise. A closing fence must match its opener's
-# character and be at least as long (CommonMark): a ``` block containing a
-# ~~~ line keeps going, because that ~~~ is content, not a fence. An
-# unterminated fence hides the rest of the body rather than leaking half a
-# code sample into the match.
+# Drop fenced blocks line-wise, following CommonMark where it is cheap to:
+# a closing fence must use the opener's character, be at least as long, and
+# carry nothing but whitespace after it. An opener may not have a backtick
+# in its info string, so "``` a ` b" is content, not a fence. A fence-ish
+# line that fails those tests is content, not a close. An unterminated
+# fence hides the rest of the body rather than leaking half a code sample.
+#
+# Known margin: 4-space INDENTED code blocks are not stripped, so a body
+# that quotes an incident inside one does fire. Stripping every 4-space
+# line would hide a real "Closes #N" sitting inside a list continuation,
+# and a silent miss is the worse failure here — so the margin is stated
+# rather than closed by guesswork.
 fence = nil
 prose = body.each_line.reject do |line|
-  run = line[/\A[[:space:]]*(`{3,}|~{3,})/, 1]
+  # chomp: each_line keeps the newline, and a fence line is the line alone
+  opener = line.chomp[/\A {0,3}(`{3,}|~{3,})(.*)\z/, 1]
+  info = opener && Regexp.last_match(2)
+  run = opener unless opener&.start_with?("`") && info.include?("`")
   if run
     if fence.nil?
       fence = run
       true
-    elsif run[0] == fence[0] && run.length >= fence.length
+    elsif run[0] == fence[0] && run.length >= fence.length && info.strip.empty?
       fence = nil
       true
     else
-      true   # a fence-ish line of the wrong character/length is content
+      true   # wrong character/length, or text after the run: content
     end
   else
     !fence.nil?
   end
 end.join
 
-# HTML comments: markers AND contents. CodeRabbit brackets its summary with
-# them, but the summary text itself sits between the markers and is machine
-# written, so strip the whole span. An UNCLOSED comment strips from the
-# opener to the end of the body — an unclosed comment is not prose either,
-# and the alternative (leaving it matchable) fails a body quoting an old one.
-prose = prose.gsub(/<!--.*?(?:-->|\z)/m, "")
+# CodeRabbit's release-notes block is TWO comments with its summary in
+# between, so stripping comments alone leaves the machine-written prose
+# matchable. Its own marker text is stable, so strip that span outright —
+# marker to marker, never "from any comment to any other", which would eat
+# human prose written between two unrelated ones.
+prose = prose.gsub(
+  /<!--\s*This is an auto-generated comment.*?end of auto-generated comment[^>]*-->/m, " "
+)
+
+# Remaining HTML comments: markers AND contents. An UNCLOSED comment strips
+# to the end of the body — an unclosed comment is not prose either, and the
+# alternative (leaving it matchable) fails a body quoting an old one.
+# Stripped spans become a SPACE, never nothing: gluing "Clo" and "ses"
+# together would invent a closing keyword the raw body does not contain.
+prose = prose.gsub(/<!--.*?(?:-->|\z)/m, " ")
 
 # Inline code spans, including GFM's multi-line ones (a backtick run closed
 # by an equal-length run, newlines allowed).
-prose = prose.gsub(/(`+)(?:(?!\1).)+?\1/m, "")
+prose = prose.gsub(/(`+)(?:(?!\1).)+?\1/m, " ")
 
 # `.match`/`.scan`, not `prose[RE]`: String#[] with a Regexp hands back the
 # matched text, so `slice[1]` would be a character of it, not the capture.

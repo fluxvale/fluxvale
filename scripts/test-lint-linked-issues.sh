@@ -103,6 +103,19 @@ expect_stdin_exit 0 "'refs #7' with slice language" 'Refs #7 (slice 2 of 4 — t
 expect_stdin_exit 0 "'slices' as a plural noun, no N of M" \
   'Closes #7. Two slices of the old code were merged; nothing else.'
 
+# 3b. CodeRabbit's release-notes block sits BETWEEN two comments, so its
+#     machine-written summary must not be matchable — and neither must any
+#     other comment's contents.
+expect_stdin_exit 0 "CodeRabbit's summary block between its two markers" \
+  $'Closes #9\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n\n## Summary by CodeRabbit\n\nImplements slice 1 of 4 of the access layer.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->'
+
+# Stripping must not INVENT a keyword: removing a span leaves a space, so
+# "Clo" + "ses" cannot be glued into "Closes" the raw body never contained.
+expect_stdin_exit 0 "comment between 'Clo' and 'ses' does not synthesize a keyword" \
+  'Clo<!-- x -->ses #61 (slice 1 of 4)'
+expect_stdin_exit 0 "inline span between 'Clo' and 'ses' does not synthesize a keyword" \
+  'Clo`x`ses #61 (slice 1 of 4)'
+
 # 4a. Every slice count is checked, not just the first (review finding, and
 #     the one shape where checking only the first silently passed a real
 #     violation).
@@ -132,6 +145,13 @@ expect_stdin_exit 0 "incident quoted in an HTML comment" \
 # then read the still-fenced quote as prose.
 expect_stdin_exit 0 "tilde fence containing a backtick-fence line stays fenced" \
   $'Quoted:\n\n~~~\nCloses #61 (slice 1 of 7)\n```\n~~~'
+expect_stdin_exit 1 "backtick fence with a backtick in its info string is not a fence" \
+  $'``` a ` b\nCloses #61 (slice 1 of 7)'
+# Same trap as the character/length cases: the trailing-text closer must
+# come BEFORE the quote, or removing the check still hides it by accident.
+expect_stdin_exit 0 "closer with trailing text does not close the block" \
+  $'```\n``` trailing\n\nCloses #61 (slice 1 of 7)\n```'
+
 # The mismatched fence has to come BEFORE the quote, or a naive toggle
 # happens to skip it anyway and the case proves nothing (it did not, at
 # first: the mutation test passed with the bug reintroduced).
@@ -152,8 +172,8 @@ expect_exit 0 "derived from #269: 'Closes' rewritten to 'Refs'" "$tmp/refs.md"
 
 # 7. Bad invocation is a usage error, not a pass — a broken path must never
 #    read as "consistent".
+mkdir -p "$tmp/dir-input"
 for bad in "$tmp/does-not-exist.md" "$tmp/dir-input"; do
-  mkdir -p "$bad"
   set +e
   "$lint" "$bad" >/dev/null 2>&1
   got=$?

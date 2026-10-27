@@ -29,6 +29,10 @@ concurrency:
 jobs:
   linked-issues-edited:
     name: Linked issues (body edit)
+    # `edited` covers title and body edits both; a title edit re-lints an
+    # unchanged body. Harmless (same verdict, seconds) but noisy, so gate on
+    # the body actually changing.
+    if: github.event.changes.body != null
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
