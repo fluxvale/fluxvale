@@ -8,6 +8,7 @@ defmodule FluxVale.Identity.UserEmail.SetPrimary do
 
   use Ash.Resource.Change
 
+  alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
 
   require Ash.Query
@@ -15,9 +16,19 @@ defmodule FluxVale.Identity.UserEmail.SetPrimary do
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
     Ash.Changeset.before_action(changeset, fn changeset ->
-      record = changeset.data
+      # The user-row lock is the per-user serialization point (same shape
+      # as EnforceEmailCap/RemoveGuard). Decisions come from a fresh
+      # re-read under that lock: changeset.data can be stale (loaded
+      # before a concurrent promotion) or forged (an in-memory
+      # verified_at that the database never saw).
+      User
+      |> Ash.Query.filter(id == ^changeset.data.user_id)
+      |> Ash.Query.lock(:for_update)
+      |> Ash.read_one!(authorize?: false)
 
-      if record.verified_at == nil do
+      fresh = Ash.get!(UserEmail, changeset.data.id, authorize?: false)
+
+      if fresh.verified_at == nil do
         # A pending address cannot become primary.
         Ash.Changeset.add_error(
           changeset,
@@ -28,7 +39,7 @@ defmodule FluxVale.Identity.UserEmail.SetPrimary do
         # authorize?: false — same invariant-count stance as EnforceEmailCap:
         # sibling demotion is the action's own job, not a policy question.
         UserEmail
-        |> Ash.Query.filter(user_id == ^record.user_id and is_primary and id != ^record.id)
+        |> Ash.Query.filter(user_id == ^fresh.user_id and is_primary and id != ^fresh.id)
         |> Ash.read!(authorize?: false)
         |> Enum.each(&Ash.update!(&1, %{}, action: :unset_primary, authorize?: false))
 

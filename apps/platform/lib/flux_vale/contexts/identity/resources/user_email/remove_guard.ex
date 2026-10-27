@@ -16,10 +16,21 @@ defmodule FluxVale.Identity.UserEmail.RemoveGuard do
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
     Ash.Changeset.before_action(changeset, fn changeset ->
-      record = changeset.data
+      # The user-row lock is the per-user serialization point (same shape
+      # as EnforceEmailCap/SetPrimary). Decisions come from a fresh
+      # re-read under that lock: changeset.data can be stale (loaded
+      # before a concurrent promotion turned this row into the primary)
+      # or forged (an in-memory is_primary/verified_at the database
+      # never saw).
+      User
+      |> Ash.Query.filter(id == ^changeset.data.user_id)
+      |> Ash.Query.lock(:for_update)
+      |> Ash.read_one!(authorize?: false)
+
+      fresh = Ash.get!(UserEmail, changeset.data.id, authorize?: false)
 
       cond do
-        record.is_primary ->
+        fresh.is_primary ->
           Ash.Changeset.add_error(
             changeset,
             field: :is_primary,
@@ -29,7 +40,7 @@ defmodule FluxVale.Identity.UserEmail.RemoveGuard do
         # The invariant is about verified addresses: removing a pending
         # row (a typo claim, say) can never drop the user below one
         # verified address.
-        record.verified_at != nil and last_verified?(record) ->
+        fresh.verified_at != nil and last_verified?(fresh) ->
           Ash.Changeset.add_error(
             changeset,
             field: :verified_at,
@@ -43,15 +54,7 @@ defmodule FluxVale.Identity.UserEmail.RemoveGuard do
   end
 
   # authorize?: false — invariant count, same stance as EnforceEmailCap.
-  # The user-row lock serializes concurrent removals for one user (under
-  # READ COMMITTED two transactions could otherwise each see the other's
-  # row as "the remaining verified one" and delete both).
   defp last_verified?(record) do
-    User
-    |> Ash.Query.filter(id == ^record.user_id)
-    |> Ash.Query.lock(:for_update)
-    |> Ash.read_one!(authorize?: false)
-
     count =
       UserEmail
       |> Ash.Query.filter(

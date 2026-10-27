@@ -37,6 +37,12 @@ defmodule FluxVale.Identity.UserEmailTest do
     |> Ash.count!(authorize?: false)
   end
 
+  defp count_rows(user) do
+    UserEmail
+    |> Ash.Query.filter(user_id == ^user.id)
+    |> Ash.count!(authorize?: false)
+  end
+
   describe "add/2" do
     test "creates a pending (unverified, non-primary) row for the actor" do
       user = create_user("owner@emails.fluxvale.test")
@@ -92,6 +98,25 @@ defmodule FluxVale.Identity.UserEmailTest do
 
       assert message =~ "too many email addresses"
     end
+
+    test "the cap holds on the bulk path — a whole over-cap batch fails" do
+      user = create_user("bulk-capped@emails.fluxvale.test")
+      cap = UserEmail.max_emails_per_user()
+
+      inputs =
+        for n <- 1..(cap + 3) do
+          %{address: "bulk#{n}@emails.fluxvale.test", user: user}
+        end
+
+      # authorize?: false — the cap is a data invariant, not a policy
+      # question (same posture as the single-row cap test).
+      result = Ash.bulk_create(inputs, UserEmail, :add, authorize?: false, return_errors?: true)
+
+      refute match?({:ok, %Ash.BulkResult{status: :success}}, result)
+
+      # whole-batch rollback: not a partial insert of cap-3 stragglers
+      assert count_rows(user) == 0
+    end
   end
 
   describe "mark_verified/1" do
@@ -140,6 +165,22 @@ defmodule FluxVale.Identity.UserEmailTest do
                UserEmail.set_primary(pending, actor: user, authorize?: true)
 
       assert message =~ "must be verified"
+    end
+
+    test "judges fresh state, not the caller's struct — a forged verified_at cannot promote a pending row" do
+      user = create_user("forger@emails.fluxvale.test")
+      {:ok, pending} = add_email(user, "forged@emails.fluxvale.test", authorize?: false)
+      forged = Map.put(pending, :verified_at, DateTime.utc_now())
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               UserEmail.set_primary(forged, actor: user, authorize?: true)
+
+      still =
+        UserEmail
+        |> Ash.Query.filter(address == ^Ash.CiString.value(pending.address))
+        |> Ash.read_one!(authorize?: false)
+
+      refute still.is_primary
     end
   end
 
@@ -193,6 +234,23 @@ defmodule FluxVale.Identity.UserEmailTest do
       {:ok, pending} = add_email(user, "typo@emails.fluxvale.test", authorize?: false)
 
       assert UserEmail.remove(pending, actor: user, authorize?: true) == :ok
+    end
+
+    test "judges fresh state, not the caller's struct — a stale snapshot of the now-primary row is refused" do
+      user = create_user("stale@emails.fluxvale.test")
+      verified_email(user, "stale-a@emails.fluxvale.test")
+      promoted = verified_email(user, "stale-b@emails.fluxvale.test")
+
+      # snapshot taken BEFORE the promotion — a real call, no forgery
+      {:ok, stale} = Ash.get(UserEmail, promoted.id, authorize?: false)
+      {:ok, _promoted} = UserEmail.set_primary(promoted, actor: user, authorize?: true)
+      refute stale.is_primary
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               UserEmail.remove(stale, actor: user, authorize?: true)
+
+      # the primary survived: exactly one remains
+      assert count_primaries(user) == 1
     end
   end
 
@@ -273,6 +331,23 @@ defmodule FluxVale.Identity.UserEmailTest do
                Ash.update(row, %{}, action: :unset_primary, actor: user, authorize?: true)
 
       assert count_primaries(user) == 1
+    end
+
+    test "the AshAuthentication interaction context grants nothing here — no strategy touches this resource" do
+      user = create_user("interaction@emails.fluxvale.test")
+      row = verified_email(user, "unbypassed@emails.fluxvale.test")
+      context = %{private: %{ash_authentication?: true}}
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Ash.update(row, %{},
+                 action: :unset_primary,
+                 actor: user,
+                 context: context,
+                 authorize?: true
+               )
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Ash.read(UserEmail, context: context, authorize?: true)
     end
 
     test "calls without an actor are forbidden" do

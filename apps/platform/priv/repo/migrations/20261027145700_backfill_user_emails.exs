@@ -23,8 +23,6 @@ defmodule FluxVale.Repo.Migrations.BackfillUserEmails do
   import Ecto.Query
 
   def up do
-    now = DateTime.utc_now()
-
     # Anti-join = the idempotency guard: only users without rows. Simple
     # pass, ordered by created_at — the table is small, and UUIDv7 is
     # time-ordered so ids run roughly parallel to account age.
@@ -50,8 +48,10 @@ defmodule FluxVale.Repo.Migrations.BackfillUserEmails do
           address: user.email,
           verified_at: DateTime.truncate(user.created_at, :second),
           is_primary: true,
-          created_at: now,
-          updated_at: now
+          # the row is an account-history fact: it begins when the
+          # account began, not when this migration happened to run
+          created_at: user.created_at,
+          updated_at: user.created_at
         }
       end
 

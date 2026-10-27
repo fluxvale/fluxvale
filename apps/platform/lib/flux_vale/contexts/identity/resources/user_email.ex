@@ -43,10 +43,10 @@ defmodule FluxVale.Identity.UserEmail do
   end
 
   policies do
-    bypass(AshAuthentication.Checks.AshAuthenticationInteraction) do
-      description("AshAuthentication's own interactions")
-      authorize_if(always())
-    end
+    # No AshAuthenticationInteraction bypass: no AshAuthentication strategy
+    # touches this resource (User/AuthCode/Token are the strategy
+    # surfaces), and the future identity operations run actions with
+    # authorize?: false — never the interaction context.
 
     # Same stance as User's :me: always() is honest because the action's
     # actor filter already constrains the result to the caller's rows —
