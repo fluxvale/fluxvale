@@ -1179,9 +1179,11 @@ defmodule FluxValeWeb.CoreComponents do
   navigation (full page load — no live patch can strand the panel open).
 
   `current_org` names the active context in the closed summary — nil is
-  the personal one. Below sm the summary collapses to the icon (#255
-  posture: the header row must not overflow 375px); the panel keeps
-  every entry reachable.
+  the personal one. Below lg the summary collapses to the icon: at `sm`
+  the label rejoining the nav links occludes the first of them (the
+  640-712px band — a pill of intrinsic width over a shrunken cluster,
+  #276 review), and above lg `truncate` bounds a long active name. The
+  panel keeps every entry reachable.
 
   ## Examples
 
@@ -1208,7 +1210,7 @@ defmodule FluxValeWeb.CoreComponents do
         data-testid="org-switcher-button"
       >
         <.icon name="hero-building-library-micro" class="size-4 shrink-0 text-ink-subtle" />
-        <span class="hidden max-w-32 truncate text-xs font-semibold text-ink sm:inline">{@active_name}</span>
+        <span class="hidden max-w-32 truncate text-xs font-semibold text-ink lg:inline">{@active_name}</span>
         <.icon
           name="hero-chevron-down-micro"
           class="size-3 text-ink-subtle transition-transform group-open:rotate-180"

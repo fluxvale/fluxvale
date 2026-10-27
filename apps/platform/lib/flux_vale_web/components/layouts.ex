@@ -98,10 +98,12 @@ defmodule FluxValeWeb.Layouts do
     <header class="sticky top-0 z-40 border-b border-line bg-canvas/80 backdrop-blur">
       <div class="mx-auto flex h-14 max-w-5xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
         <%!-- min-w-0: the cluster is a flex child that must be allowed to
-        shrink — without it the switcher label's intrinsic width overflows
-        the 280-336px and 640-642px bands (and widens with real org names
-        once current_org is wired, #276 review). The label truncates
-        inside. --%>
+        shrink — without it the switcher label's intrinsic width puts the
+        header into horizontal scroll (280-336px and 640-642px bands, and
+        any real current_org name, #276 review). The shrink is safe only
+        because the switcher pill carries no text below lg (see
+        org_switcher: at sm the label occluded the first nav link in the
+        640-712px band); above lg the label truncates instead. --%>
         <div class="flex min-w-0 items-center gap-6">
           <.link href="/" class="flex w-fit items-center gap-2">
             <img src={~p"/images/logo.svg"} width="26" height="26" alt="FluxVale" />
