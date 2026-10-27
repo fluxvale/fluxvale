@@ -204,6 +204,7 @@ defmodule FluxValeWeb.Router do
       # #276: org settings — slug-keyed like the catalog; the org home
       # route at /organizations/:slug lands with its own ticket.
       live("/organizations/:slug/settings", OrganizationLive.Settings)
+      live("/organizations/:slug/settings/members", OrganizationLive.Members)
       # #276: the org billing view — the /billing shape scoped to the
       # URL's org; slug-keyed like the catalog.
       live("/organizations/:slug/billing", OrganizationLive.Billing)

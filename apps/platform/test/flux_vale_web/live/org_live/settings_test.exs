@@ -34,13 +34,14 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
     assert has_element?(view, "[data-testid='org-switcher-button'] span", org.name)
   end
 
-  test "the tab nav renders exactly one tab — General (no dead tabs ship)", %{
+  test "the tab nav renders exactly two tabs — General and Members (no dead tabs ship)", %{
     conn: conn,
     org: org
   } do
     {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings")
 
     assert has_element?(view, "[data-testid='org-settings-tab-general']", "General")
+    assert has_element?(view, "[data-testid='org-settings-tab-members']", "Members")
 
     # Count the tab keys, not just the container: a dead tab injected by a
     # mutation must fail this. (LiveViewTest has no count API, and
@@ -52,7 +53,7 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
       |> then(&Regex.scan(~r/data-testid="org-settings-tab-[a-z-]+"/, &1))
       |> length()
 
-    assert tab_count == 1
+    assert tab_count == 2
   end
 
   test "the slug preview follows the input live", %{conn: conn, org: org} do

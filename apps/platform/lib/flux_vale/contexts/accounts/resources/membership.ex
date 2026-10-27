@@ -96,4 +96,12 @@ defmodule FluxVale.Accounts.Membership do
   identities do
     identity(:unique_user_per_org, [:organization_id, :user_id])
   end
+
+  calculations do
+    # The roster's email column (#276): User reads are :me/platform-admin
+    # only, so co-member emails cannot ride a `:user` load. This calc
+    # joins the email into the membership read — whoever may read the
+    # roster (the read policy) may read its emails, and nobody else.
+    calculate(:user_email, :string, expr(user.email))
+  end
 end
