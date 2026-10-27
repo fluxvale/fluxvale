@@ -25,12 +25,29 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
 
     assert has_element?(view, "[data-testid='org-name']", org.name)
     assert has_element?(view, "[data-testid='org-slug']", org.slug)
-    assert has_element?(view, "[data-testid='org-settings-tab-general']", "General")
     assert has_element?(view, "#org-general-form")
     assert has_element?(view, "[data-testid='slug-preview']", "/organizations/#{org.slug}")
+  end
 
-    # No dead tabs: General is the only tab until its content ships.
-    assert has_element?(view, "[data-testid='org-settings-tabs']")
+  test "the tab nav renders exactly one tab — General (no dead tabs ship)", %{
+    conn: conn,
+    org: org
+  } do
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings")
+
+    assert has_element?(view, "[data-testid='org-settings-tab-general']", "General")
+
+    # Count the tab keys, not just the container: a dead tab injected by a
+    # mutation must fail this. (LiveViewTest has no count API, and
+    # LazyHTML's parser chokes on the page's script tags — hence the
+    # rendered-HTML count of the testid each tab renders exactly once.)
+    tab_count =
+      view
+      |> render()
+      |> then(&Regex.scan(~r/data-testid="org-settings-tab-[a-z-]+"/, &1))
+      |> length()
+
+    assert tab_count == 1
   end
 
   test "the slug preview follows the input live", %{conn: conn, org: org} do
@@ -61,19 +78,20 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
     assert renamed.name == "Renamed Co"
   end
 
-  test "the owner renames the slug — confirm step, then the page lives at the new address", %{
+  test "the owner renames the slug — confirm names the target, then the page lives there", %{
     conn: conn,
     owner: owner,
     org: org
   } do
     {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings")
 
-    # First submit arms the confirm step — nothing has moved yet.
+    # First submit arms the confirm step — the copy names the destination.
     view
     |> form("#org-general-form", organization: %{name: org.name, slug: "moved-slug"})
     |> render_submit()
 
     assert has_element?(view, "[data-testid='slug-confirm']")
+    assert has_element?(view, "#slug-confirm", "/organizations/moved-slug")
 
     assert {:ok, unchanged} = Organization.get_by_slug(org.slug, actor: owner)
     assert unchanged.slug == org.slug
@@ -89,7 +107,92 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
     assert moved.id == org.id
   end
 
-  test "cancel keeps the org where it is", %{conn: conn, org: org} do
+  test "editing the field after arming disarms: a confirm click applies nothing", %{
+    conn: conn,
+    org: org
+  } do
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings")
+
+    view
+    |> form("#org-general-form", organization: %{slug: "armed-alpha"})
+    |> render_submit()
+
+    assert has_element?(view, "[data-testid='slug-confirm']")
+
+    view
+    |> form("#org-general-form", organization: %{slug: "edited-beta"})
+    |> render_change()
+
+    # The arm died with the edit — the panel hides and the queued confirm
+    # (real or crafted) is a no-op.
+    refute has_element?(view, "[data-testid='slug-confirm']")
+
+    render_click(view, "confirm-rename", %{})
+
+    assert {:ok, unchanged} = Organization.get_by_slug(org.slug, authorize?: false)
+    assert unchanged.slug == org.slug
+  end
+
+  test "an invalid edit while armed disarms too", %{conn: conn, org: org} do
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings")
+
+    view
+    |> form("#org-general-form", organization: %{slug: "armed-alpha"})
+    |> render_submit()
+
+    assert has_element?(view, "[data-testid='slug-confirm']")
+
+    view
+    |> form("#org-general-form", organization: %{slug: "Not Valid!"})
+    |> render_change()
+
+    refute has_element?(view, "[data-testid='slug-confirm']")
+  end
+
+  test "a validate that still holds the armed value keeps the panel armed", %{
+    conn: conn,
+    owner: owner,
+    org: org
+  } do
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings")
+
+    view
+    |> form("#org-general-form", organization: %{slug: "steady-slug"})
+    |> render_submit()
+
+    assert has_element?(view, "[data-testid='slug-confirm']")
+
+    # A keystroke round trip that re-validates to the same value — the arm
+    # survives, and the confirm still applies exactly what was named.
+    view
+    |> form("#org-general-form", organization: %{slug: "steady-slug"})
+    |> render_change()
+
+    assert has_element?(view, "[data-testid='slug-confirm']")
+
+    view
+    |> element("[data-testid='confirm-rename']")
+    |> render_click()
+
+    assert {:ok, moved} = Organization.get_by_slug("steady-slug", actor: owner)
+    assert moved.id == org.id
+  end
+
+  test "a confirm click with no armed panel is a no-op", %{conn: conn, org: org} do
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings")
+
+    # A phx-change alone never arms — a crafted confirm-rename must not rename.
+    view
+    |> form("#org-general-form", organization: %{slug: "never-confirmed"})
+    |> render_change()
+
+    render_click(view, "confirm-rename", %{})
+
+    assert {:ok, unchanged} = Organization.get_by_slug(org.slug, authorize?: false)
+    assert unchanged.slug == org.slug
+  end
+
+  test "cancel disarms, so a queued confirm click applies nothing", %{conn: conn, org: org} do
     {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings")
 
     view
@@ -98,12 +201,39 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
 
     assert has_element?(view, "[data-testid='slug-confirm']")
 
-    view
-    |> element("[data-testid='cancel-rename']")
-    |> render_click()
+    render_click(view, "cancel-rename", %{})
+    render_click(view, "confirm-rename", %{})
 
     refute has_element?(view, "[data-testid='slug-confirm']")
-    assert {:ok, ^org} = Organization.get_by_slug(org.slug, authorize?: false)
+    assert {:ok, unchanged} = Organization.get_by_slug(org.slug, authorize?: false)
+    assert unchanged.slug == org.slug
+  end
+
+  test "saving a new slug while armed re-arms for the new value; confirm applies it", %{
+    conn: conn,
+    owner: owner,
+    org: org
+  } do
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings")
+
+    view
+    |> form("#org-general-form", organization: %{slug: "armed-alpha"})
+    |> render_submit()
+
+    view
+    |> form("#org-general-form", organization: %{slug: "edited-beta"})
+    |> render_submit()
+
+    # Re-armed for the submitted slug — the copy names it now.
+    assert has_element?(view, "[data-testid='slug-confirm']")
+    assert has_element?(view, "#slug-confirm", "/organizations/edited-beta")
+
+    view
+    |> element("[data-testid='confirm-rename']")
+    |> render_click()
+
+    assert {:ok, moved} = Organization.get_by_slug("edited-beta", actor: owner)
+    assert moved.id == org.id
   end
 
   test "the old slug reads as not-here after a rename — flash + redirect home", %{
@@ -123,15 +253,10 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
 
     assert_redirect(view, ~p"/organizations/gone-slug/settings")
 
-    case live(conn, ~p"/organizations/#{org.slug}/settings") do
-      {:ok, old_view, _html} ->
-        assert_redirect(old_view, ~p"/")
+    assert {:error, {:live_redirect, %{flash: flash, to: "/"}}} =
+             live(conn, ~p"/organizations/#{org.slug}/settings")
 
-      # push_navigate in mount surfaces as live_redirect from live/2
-      {:error, {:live_redirect, %{to: to}}} ->
-        assert to == ~p"/"
-    end
-
+    assert flash["error"] == "Organization not found."
     assert {:ok, _moved} = Organization.get_by_slug("gone-slug", actor: owner)
   end
 
@@ -185,6 +310,37 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
     assert unchanged.slug == org.slug
   end
 
+  test "a form mounted before a rename cannot write the stale slug back", %{
+    conn: conn,
+    owner: owner,
+    org: org
+  } do
+    {:ok, tab1, _html} = live(conn, ~p"/organizations/#{org.slug}/settings")
+    {:ok, tab2, _html} = live(conn, ~p"/organizations/#{org.slug}/settings")
+
+    tab1
+    |> form("#org-general-form", organization: %{name: org.name, slug: "tab1-target"})
+    |> render_submit()
+
+    tab1
+    |> element("[data-testid='confirm-rename']")
+    |> render_click()
+
+    # tab2's form predates the rename: its "name-only" save looks
+    # unchanged to itself, skips the confirm step — and must fail stale
+    # instead of silently moving the address back.
+    tab2
+    |> form("#org-general-form", organization: %{name: "Tab Two Name", slug: org.slug})
+    |> render_submit()
+
+    assert has_element?(tab2, "#flash-error", "This organization changed underneath you")
+
+    assert {:ok, current} = Organization.get_by_slug("tab1-target", actor: owner)
+    assert current.name == org.name
+
+    assert {:error, _gone} = Organization.get_by_slug(org.slug, actor: owner)
+  end
+
   test "a non-owner member is gated away from settings", %{conn: conn, org: org} do
     member = AccountsFixtures.user!()
 
@@ -196,12 +352,9 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
 
     member_conn = SessionHelpers.sign_in(conn, member)
 
-    case live(member_conn, ~p"/organizations/#{org.slug}/settings") do
-      {:ok, view, _html} ->
-        assert_redirect(view, ~p"/")
+    assert {:error, {:live_redirect, %{flash: flash, to: "/"}}} =
+             live(member_conn, ~p"/organizations/#{org.slug}/settings")
 
-      {:error, {:live_redirect, %{to: to}}} ->
-        assert to == ~p"/"
-    end
+    assert flash["error"] == "Only organization owners can access settings."
   end
 end

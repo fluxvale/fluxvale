@@ -103,7 +103,8 @@ defmodule FluxVale.Accounts.OrganizationTest do
       assert renamed.name == "Renamed Org"
       assert renamed.slug == "renamed-org"
 
-      assert {:ok, ^renamed} = Organization.get_by_slug("renamed-org", actor: user)
+      assert {:ok, fetched} = Organization.get_by_slug("renamed-org", actor: user)
+      assert fetched.id == renamed.id
     end
 
     test "a non-owner member is forbidden — the policy is the authority" do
@@ -158,6 +159,40 @@ defmodule FluxVale.Accounts.OrganizationTest do
       # deliberately closed; the claim proves the old slug is released).
       assert {:ok, _claimed} =
                Organization.create(%{name: "Squatter", slug: old_slug}, authorize?: false)
+    end
+
+    test "field caps: slug tops out at 39 (GitHub org-login parity), name at 100" do
+      user = AccountsFixtures.user!()
+      org = AccountsFixtures.personal_org!(user)
+
+      assert {:ok, renamed} =
+               Organization.update(org, %{slug: String.duplicate("a", 39)}, actor: user)
+
+      assert {:error, %Invalid{}} =
+               Organization.update(renamed, %{slug: String.duplicate("b", 40)}, actor: user)
+
+      assert {:ok, named} =
+               Organization.update(renamed, %{name: String.duplicate("n", 100)}, actor: user)
+
+      assert {:error, %Invalid{}} =
+               Organization.update(named, %{name: String.duplicate("m", 101)}, actor: user)
+    end
+
+    test "a changeset mounted before a rename fails stale instead of writing the old slug back" do
+      user = AccountsFixtures.user!()
+      org = AccountsFixtures.personal_org!(user)
+
+      # Mount-time changeset: built against the pre-rename row.
+      stale = Ash.Changeset.for_update(org, :update, %{name: "Raced Edit"}, actor: user)
+
+      assert {:ok, _moved} = Organization.update(org, %{slug: "moved-first"}, actor: user)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} = Ash.update(stale)
+
+      assert Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
+
+      assert {:ok, current} = Organization.get_by_slug("moved-first", actor: user)
+      assert current.name == org.name
     end
   end
 end
