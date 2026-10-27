@@ -25,32 +25,41 @@ defmodule FluxVale.Accounts.Organization do
   require Ash.Query
 
   postgres do
-    table "organizations"
-    repo FluxVale.Repo
+    table("organizations")
+    repo(FluxVale.Repo)
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
-    migration_defaults id: "nil"
+    migration_defaults(id: "nil")
   end
 
   policies do
     policy action_type(:read) do
-      description "Members read their organizations"
+      description("Members read their organizations")
       authorize_if(relates_to_actor_via(:members))
     end
 
     policy action_type(:create) do
-      description "System-only: JIT provisioning (authorize?: false). Actor-driven creation waits for the team-features flow that members the creator in the same transaction — without it, a created org is unreadable even by its creator."
+      description(
+        "System-only: JIT provisioning (authorize?: false). Actor-driven creation waits for the team-features flow that members the creator in the same transaction — without it, a created org is unreadable even by its creator."
+      )
+
       forbid_if(always())
     end
 
     # Team features will gate destroy on the :owner role; today every
     # membership is :owner (provisioning only creates owners), so
     # member-level authorization is safe. Revisit trigger: the first
-    # :member membership. No update action exists yet — the first
-    # rename flow adds it.
+    # :member membership.
     policy action_type(:destroy) do
-      description "Members destroy their organizations"
+      description("Members destroy their organizations")
       authorize_if(relates_to_actor_via(:members))
+    end
+
+    # The first rename flow (#276): owners set the display name and the
+    # URL slug — GitHub-parity renaming, the owner's explicit choice.
+    policy action(:update) do
+      description("Owners update their organization (display name and slug)")
+      authorize_if(FluxVale.Checks.ActorIsOrganizationOwner)
     end
   end
 
@@ -91,7 +100,7 @@ defmodule FluxVale.Accounts.Organization do
     # caller). Instances and the wallet also FK the org: teardown of THOSE
     # is #124's design — destroying a non-empty org still fails loudly.
     destroy :destroy do
-      primary? true
+      primary?(true)
       require_atomic?(false)
 
       change(fn changeset, _context ->
@@ -110,19 +119,27 @@ defmodule FluxVale.Accounts.Organization do
     end
 
     create :create do
-      primary? true
+      primary?(true)
+      accept([:name, :slug])
+    end
+
+    # Renaming — either field — frees the old slug immediately: no
+    # redirects and no slug reservations ship with this flow. Revisit
+    # trigger: org creation or any public org surface.
+    update :update do
+      primary?(true)
       accept([:name, :slug])
     end
 
     read :get_by_id do
-      description "Get an organization by id"
+      description("Get an organization by id")
       get?(true)
       argument(:id, :uuid, allow_nil?: false)
       filter(expr(id == ^arg(:id)))
     end
 
     read :get_by_slug do
-      description "Get an organization by slug"
+      description("Get an organization by slug")
       get?(true)
       argument(:slug, :string, allow_nil?: false)
       filter(expr(slug == ^arg(:slug)))
@@ -130,9 +147,10 @@ defmodule FluxVale.Accounts.Organization do
   end
 
   code_interface do
-    domain FluxVale.Accounts
+    domain(FluxVale.Accounts)
 
     define(:create)
+    define(:update)
     define(:get_by_id, args: [:id])
     define(:get_by_slug, args: [:slug])
   end
@@ -142,8 +160,16 @@ defmodule FluxVale.Accounts.Organization do
   end
 
   validations do
+    # on: :update rides with the rename flow (#276) — the rename path
+    # must not ship unvalidated. `where: changing` scopes it to slugs
+    # actually being set (create always sets one), which is also what
+    # keeps the update atomic — the engine can't re-check an untouched
+    # attribute. `unique_slug` stays the uniqueness arbiter; unchanged
+    # attributes skip it, so a same-slug save (a name-only edit) never
+    # self-conflicts.
     validate(match(:slug, ~r/^[a-z0-9][a-z0-9-]*[a-z0-9]$/),
-      on: :create,
+      on: [:create, :update],
+      where: changing(:slug),
       message: "must contain only lowercase alphanumeric characters and hyphens"
     )
   end

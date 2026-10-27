@@ -200,6 +200,9 @@ defmodule FluxValeWeb.Router do
       # param; the DB row is the truth, the status param is ignored).
       live("/billing/topup", BillingLive.Topup)
       live("/billing/topup/return", BillingLive.Topup)
+      # #276: org settings — slug-keyed like the catalog; the org home
+      # route at /organizations/:slug lands with its own ticket.
+      live("/organizations/:slug/settings", OrganizationLive.Settings)
     end
   end
 

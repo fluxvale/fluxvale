@@ -91,4 +91,73 @@ defmodule FluxVale.Accounts.OrganizationTest do
       assert {:ok, ^org} = Organization.get_by_id(org.id, authorize?: false)
     end
   end
+
+  describe "update (the rename flow, #276)" do
+    test "an owner renames name and slug" do
+      user = AccountsFixtures.user!()
+      org = AccountsFixtures.personal_org!(user)
+
+      assert {:ok, renamed} =
+               Organization.update(org, %{name: "Renamed Org", slug: "renamed-org"}, actor: user)
+
+      assert renamed.name == "Renamed Org"
+      assert renamed.slug == "renamed-org"
+
+      assert {:ok, ^renamed} = Organization.get_by_slug("renamed-org", actor: user)
+    end
+
+    test "a non-owner member is forbidden — the policy is the authority" do
+      org = AccountsFixtures.personal_org!(AccountsFixtures.user!())
+      member = AccountsFixtures.user!()
+
+      # Sanctioned precondition: nothing creates :member rows in the
+      # system yet, so the row rides the action with authorize?: false.
+      Membership.create!(%{organization_id: org.id, user_id: member.id, role: :member},
+        authorize?: false
+      )
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Organization.update(org, %{name: "Hostile Edit"}, actor: member)
+    end
+
+    test "no actor is forbidden" do
+      org = AccountsFixtures.personal_org!(AccountsFixtures.user!())
+
+      assert {:error, %Ash.Error.Forbidden{}} = Organization.update(org, %{name: "X"})
+    end
+
+    test "the slug regex holds on update, not just create" do
+      user = AccountsFixtures.user!()
+      org = AccountsFixtures.personal_org!(user)
+
+      for bad <- ["Uppercase", "-leading", "trailing-", "sp ace", "x", "under_score"] do
+        assert {:error, %Invalid{}} =
+                 Organization.update(org, %{slug: bad}, actor: user),
+               "expected #{inspect(bad)} to be rejected"
+      end
+    end
+
+    test "a same-slug save never self-conflicts (unchanged attributes skip the identity)" do
+      user = AccountsFixtures.user!()
+      org = AccountsFixtures.personal_org!(user)
+
+      assert {:ok, saved} =
+               Organization.update(org, %{name: "Name-only edit", slug: org.slug}, actor: user)
+
+      assert saved.slug == org.slug
+    end
+
+    test "a rename frees the old slug immediately" do
+      user = AccountsFixtures.user!()
+      org = AccountsFixtures.personal_org!(user)
+      old_slug = org.slug
+
+      assert {:ok, _moved} = Organization.update(org, %{slug: "moved-away"}, actor: user)
+
+      # authorize?: false — system posture (actor-driven create is
+      # deliberately closed; the claim proves the old slug is released).
+      assert {:ok, _claimed} =
+               Organization.create(%{name: "Squatter", slug: old_slug}, authorize?: false)
+    end
+  end
 end
