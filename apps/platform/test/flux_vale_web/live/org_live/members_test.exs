@@ -53,9 +53,12 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     assert has_element?(view, "#member-row-#{membership_a.id}", "Member")
     assert has_element?(view, "#member-row-#{membership_b.id}", "Member")
 
-    # Row order is the sort: owners first, then joined-asc.
-    html = render(view)
-    [before_b | _after_b] = String.split(html, member_b_email)
+    # Row order is the sort: owners first, then joined-asc. Scoped to the
+    # table — the chrome's user menu prints the owner's email above <main>,
+    # so a whole-page scan would pass whatever the rows did.
+    table_html = render(element(view, "#org-members-table"))
+
+    [before_b | _after_b] = String.split(table_html, member_b_email)
     assert before_b =~ member_a_email
 
     [before_a | _after_a] = String.split(before_b, member_a_email)
@@ -76,6 +79,9 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
 
     general_tab = render(element(view, "[data-testid='org-settings-tab-general']"))
     assert general_tab =~ ~s(href="/organizations/#{org.slug}/settings")
+
+    # Only the active tab carries aria-current — an inactive tab must not.
+    refute general_tab =~ "aria-current"
 
     members_tab = render(element(view, "[data-testid='org-settings-tab-members']"))
     assert members_tab =~ ~s(aria-current="page")

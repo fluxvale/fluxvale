@@ -86,6 +86,8 @@ defmodule FluxValeWeb.OrganizationLive.Members do
 
   # Owners first, then joined-asc; id is the tiebreak (uuid_v7 is
   # time-ordered, so equal timestamps still sort deterministically).
+  # The date key is iso8601 — DateTime structs don't term-compare
+  # chronologically, so the default `<=` would sort day-of-month first.
   defp list_members(org, user) do
     memberships =
       Membership
@@ -94,7 +96,7 @@ defmodule FluxValeWeb.OrganizationLive.Members do
       |> Ash.Query.load([:user_email])
       |> Ash.read!()
 
-    Enum.sort_by(memberships, &{&1.role != :owner, &1.created_at, &1.id})
+    Enum.sort_by(memberships, &{&1.role != :owner, DateTime.to_iso8601(&1.created_at), &1.id})
   end
 
   defp role_label(:owner), do: "Owner"
