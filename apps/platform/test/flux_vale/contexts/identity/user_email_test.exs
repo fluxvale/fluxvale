@@ -158,9 +158,6 @@ defmodule FluxVale.Identity.UserEmailTest do
       assert {:error, %Ash.Error.Invalid{errors: [%{message: message}]}} =
                UserEmail.remove(primary, actor: user, authorize?: true)
 
-      assert {:error, %Ash.Error.Invalid{errors: [%{message: message}]}} =
-               UserEmail.remove(primary, actor: user, authorize?: true)
-
       assert message =~ "primary"
     end
 
@@ -265,6 +262,17 @@ defmodule FluxVale.Identity.UserEmailTest do
       assert {:ok, _restamped} = UserEmail.mark_verified(row, actor: admin, authorize?: true)
 
       assert {:ok, _all} = Ash.read(UserEmail, actor: admin, authorize?: true)
+    end
+
+    test "unset_primary is internal — an owner cannot demote their only primary" do
+      user = create_user("demoter@emails.fluxvale.test")
+      row = verified_email(user, "anchor@emails.fluxvale.test")
+      {:ok, _promoted} = UserEmail.set_primary(row, actor: user, authorize?: true)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Ash.update(row, %{}, action: :unset_primary, actor: user, authorize?: true)
+
+      assert count_primaries(user) == 1
     end
 
     test "calls without an actor are forbidden" do

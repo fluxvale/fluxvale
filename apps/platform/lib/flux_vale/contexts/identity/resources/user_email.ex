@@ -83,10 +83,19 @@ defmodule FluxVale.Identity.UserEmail do
       authorize_if(FluxVale.Checks.ActorIsPlatformAdmin)
     end
 
-    policy action([:set_primary, :unset_primary]) do
-      description("Users promote/demote their own email rows")
+    policy action(:set_primary) do
+      description("Users promote their own email rows")
       authorize_if(FluxVale.Checks.ActorIsPlatformAdmin)
       authorize_if(expr(user_id == ^actor(:id)))
+    end
+
+    # Internal-only: SetPrimary's sibling demotion runs authorize?: false.
+    # Owner-reachable unset_primary could demote the account's ONLY
+    # primary — and nothing else on the resource preserves at-least-one
+    # (the partial index is at-most-one).
+    policy action(:unset_primary) do
+      description("Platform admins — :unset_primary is SetPrimary's internal step")
+      authorize_if(FluxVale.Checks.ActorIsPlatformAdmin)
     end
 
     policy action_type(:destroy) do
@@ -177,8 +186,8 @@ defmodule FluxVale.Identity.UserEmail do
 
     # Internal counterpart to :set_primary, called by SetPrimary on the
     # sibling rows inside the same transaction (authorize?: false — the
-    # entry action's policy already gated the caller). Reachable by an
-    # owner directly; harmless — it can only demote, never promote.
+    # entry action's policy already gated the caller). Internal-only by
+    # policy: owner-reachable demotion could leave a zero-primary user.
     update :unset_primary do
       description("Demote this address (internal — SetPrimary's sibling step)")
       accept([])
