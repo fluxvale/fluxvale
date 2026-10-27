@@ -143,17 +143,19 @@ defmodule FluxVale.Identity.UserTest do
       # them outright (derivation is the only writer), so a pre-set one
       # can only reach the change from an earlier-listed change — a
       # future slice's. The no-op branch is pinned directly on the
-      # change module: the RETURNED changeset must carry the kept value.
+      # change module: the RETURNED changeset must carry the forced
+      # value verbatim — one the email would NOT derive (kept@x.test
+      # derives "kept"), so always-derive cannot pass this test.
       changeset =
         User
         |> Ash.Changeset.new()
         |> Ash.Changeset.for_create(:create, %{email: "kept@x.test"})
-        |> Ash.Changeset.force_change_attribute(:username, "kept")
+        |> Ash.Changeset.force_change_attribute(:username, "custom-handle")
 
       result = DeriveUsername.change(changeset, %{}, %{})
 
       assert %Ash.Changeset{} = result
-      assert Ash.Changeset.get_attribute(result, :username) == "kept"
+      assert Ash.Changeset.get_attribute(result, :username) == "custom-handle"
     end
 
     test "exhausting the probe range falls back to an unguessable suffix" do
@@ -168,9 +170,29 @@ defmodule FluxVale.Identity.UserTest do
 
       user = User.create!("+@exhausted.test", %{}, authorize?: false)
 
-      assert String.starts_with?(user.username, "user-")
-      assert user.username not in ["user", "user-2", "user-100"]
+      # The exact fallback shape: base + "-" + 8 lowercase hex chars —
+      # a constant straggler like "user-101" must not pass.
+      assert Regex.match?(~r/^user-[0-9a-f]{8}$/, user.username)
       assert valid_shape?(user.username)
+    end
+
+    test "the injected probe seam drives suffixing (the migration's path)" do
+      # The backfill injects a raw-SQL closure; the algorithm must not
+      # care what probes the names. A scripted taken/free sequence
+      # picks the next suffix.
+      taken_then_free? = fn
+        "terence" -> false
+        _free -> true
+      end
+
+      assert DeriveUsername.derive_unique("terence@x.test", taken_then_free?) == "terence-2"
+    end
+
+    test "an always-taken injected probe reaches the random fallback" do
+      username = DeriveUsername.derive_unique("terence@x.test", fn _taken -> false end)
+
+      assert Regex.match?(~r/^terence-[0-9a-f]{8}$/, username)
+      assert valid_shape?(username)
     end
   end
 

@@ -37,6 +37,22 @@ defmodule FluxValeWeb.Api.MeRouteTest do
 
       refute Map.has_key?(data["attributes"], "hashed_password")
     end
+
+    test "renders username null for rollout-window users", %{conn: conn} do
+      # Rollout-window state actions cannot produce (derivation always
+      # sets a username) — Ash.seed! per the house rule. Nullable-but-
+      # public ships with this slice, so /me pins the null arm.
+      Ash.Seed.seed!(User, %{email: "pre-backfill@fluxvale.test"})
+
+      pat = mint_pat!("pre-backfill@fluxvale.test")
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> pat)
+        |> get("/api/v1/me")
+
+      assert %{"data" => %{"attributes" => %{"username" => nil}}} = json_response(conn, 200)
+    end
   end
 
   describe "GET /api/v1/me unauthenticated" do

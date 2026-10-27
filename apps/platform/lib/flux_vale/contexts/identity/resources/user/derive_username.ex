@@ -43,13 +43,17 @@ defmodule FluxVale.Identity.User.DeriveUsername do
 
   @doc """
   The derive+probe core, shared with the `backfill_usernames` migration —
-  one algorithm, no forked copy. Probes the users table through
-  `get_by_username`, so the Repo must be running.
+  one algorithm, no forked copy. `free?/1` decides whether a candidate
+  is claimable; the default probes the users table through
+  `get_by_username`. The migration must inject a raw-SQL closure
+  instead: an Ash read SELECTs every current User attribute, so it
+  would break fresh-DB replay the moment the resource outgrows the
+  frozen migration (ADR-00013's undefined-column class).
   """
-  @spec derive_unique(String.Chars.t()) :: String.t()
-  def derive_unique(email) do
+  @spec derive_unique(String.Chars.t(), (String.t() -> boolean())) :: String.t()
+  def derive_unique(email, free? \\ &default_free?/1) do
     derived = base(email)
-    unique(derived, 0)
+    unique(derived, 0, free?)
   end
 
   # Sanitize the local part, truncate to 39, re-trim the hyphen the cut
@@ -80,15 +84,20 @@ defmodule FluxVale.Identity.User.DeriveUsername do
   # Probe posture mirrors ProvisionPersonalOrg's slug probe: the read
   # runs authorize?: false (system operation — the signup path has no
   # actor); a read failure falls out as "free" and the create fails
-  # loudly instead, with the identity index as the race arbiter.
-  defp unique(base, attempt) when attempt < @max_probes do
+  # loudly instead, with the identity index as the race arbiter. A
+  # same-local-part concurrent signup therefore burns its email code and
+  # dies in the catch-all flash — provisioning's identical posture (its
+  # org-slug race). Revisit trigger: retry-in-transaction or an advisory
+  # lock when usernames become load-bearing public handles (the
+  # switcher slice).
+  defp unique(base, attempt, free?) when attempt < @max_probes do
     suffix = if attempt == 0, do: "", else: "-#{attempt + 1}"
     proposed = with_suffix(base, suffix)
 
-    if taken?(proposed), do: unique(base, attempt + 1), else: proposed
+    if taken?(proposed, free?), do: unique(base, attempt + 1, free?), else: proposed
   end
 
-  defp unique(base, _attempt) do
+  defp unique(base, _attempt, _free?) do
     # No real local part exhausts the probe range; fall back to an
     # unguessable suffix rather than fail the signup (provisioning's
     # exact fallback shape).
@@ -109,16 +118,18 @@ defmodule FluxVale.Identity.User.DeriveUsername do
     trimmed <> suffix
   end
 
-  defp taken?(proposed) do
-    reserved?(proposed) or not free?(proposed)
+  defp taken?(proposed, free?) do
+    reserved?(proposed) or not free?.(proposed)
   end
 
   defp reserved?(proposed), do: proposed in @reserved
 
-  defp free?(proposed) do
+  # System path — the signup probe runs authorize?: false (no actor on
+  # the JIT path).
+  defp default_free?(candidate) do
     # get? reads wrap NotFound inside Ash.Error.Invalid — treat any miss
     # (the only realistic outcome here) as free.
-    case User.get_by_username(proposed, authorize?: false) do
+    case User.get_by_username(candidate, authorize?: false) do
       {:ok, _taken} -> false
       {:error, _not_found_or_failed} -> true
     end
