@@ -266,6 +266,19 @@ if System.get_env("STORYBOOK_ENABLED") in ["true", "1"] do
   config :flux_vale, :storybook_enabled, true
 end
 
+# The AshAdmin mount gate (#288, ADR-0027 §2): same gated-release shape
+# — staging sets ADMIN_MOUNT_KEY (BWS-rendered env) to serve /admin;
+# prod leaves it unset and /admin answers a bare 404. The value is a
+# secret, never presented per-request (the credential is the
+# platform-admin session behind the gate). Fail-closed parsing lives in
+# the gate plug (AdminEnabled.enabled?/0 — the one answer the route and
+# the socket re-check share): blank and off-intent literals stay off,
+# so this pass-through stores whatever was set and the plug decides.
+case System.get_env("ADMIN_MOUNT_KEY") do
+  key when key in [nil, ""] -> :ok
+  key -> config :flux_vale, :admin_mount_key, key
+end
+
 # Repo connection: DATABASE_URL wins; otherwise discrete DB_* vars compose
 # it (the in-cluster shape — Kubernetes can't template a URL from Secret
 # refs, so the Deployment passes DB_USER/DB_PASSWORD via secretKeyRef).

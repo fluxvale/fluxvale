@@ -7,7 +7,7 @@ This is a web application written using the Phoenix web framework.
   directory; databases are `flux_vale_{dev,test}`. No root-level deps.
 - **Generators first** (phx.new/igniter/Ash installers). Hand-written
   glue stays minimal and carries a comment saying why (see the
-  AshAdmin placeholder in the router).
+  admin-gate pipelines in the router).
 - **Domain layout**: `lib/flux_vale/contexts/<domain>.ex`, resources
   under `contexts/<domain>/resources/`, shared types under
   `contexts/<domain>/types/` — the `Types` namespace keeps

@@ -27,10 +27,13 @@ config :ash, known_types: [AshPostgres.Timestamptz, AshPostgres.TimestamptzUsec]
 
 config :flux_vale,
   ecto_repos: [FluxVale.Repo],
-  # Ash domain registry — first domain landed with Identity (#20), which is
-  # deliberately NOT admin-exposed (ADR-0027 §3: User/Token are sensitive).
-  # The next two keys interact: /admin serves a placeholder (see the router)
-  # until a domain opts into AshAdmin via `ash_admin_domains`.
+  # Ash domain registry — first domain landed with Identity (#20). The
+  # AshAdmin mount exposes a domain iff its `admin show?` is set
+  # (opt-in, ADR-0027 §3): Ops #25, Catalog #70, Infrastructure #72,
+  # Pricing #125, Billing #140 (the goodwill-credit surface: wallet +
+  # ledger only, Topup excluded). Identity stays admin-unexposed
+  # (User/Token are sensitive) until a concrete need appears; Accounts
+  # joins when a support flow needs it.
   ash_domains: [
     FluxVale.Identity,
     FluxVale.Accounts,
@@ -39,20 +42,6 @@ config :flux_vale,
     FluxVale.Catalog,
     FluxVale.Infrastructure,
     FluxVale.Pricing
-  ],
-  # Domains opted into AshAdmin (exposure is opt-in, ADR-0027 §3). AshAdmin
-  # crashes on zero admin-enabled domains (upstream nil action_type bug),
-  # so the router keeps the placeholder while this is empty. Ops opted in
-  # with #25, Catalog with #70, Infrastructure with #72, Pricing with
-  # #125, Billing with #140 (the goodwill-credit surface: wallet +
-  # ledger only, Topup excluded); Identity stays admin-unexposed;
-  # Accounts joins when a support flow needs it.
-  ash_admin_domains: [
-    FluxVale.Ops,
-    FluxVale.Catalog,
-    FluxVale.Infrastructure,
-    FluxVale.Pricing,
-    FluxVale.Billing
   ],
   generators: [timestamp_type: :utc_datetime],
   # AccessRules snapshot TTL (#26, settled): 60s — the cross-node
@@ -251,6 +240,16 @@ config :flux_vale, :test_inbox,
 # flips it (runtime.exs; the fleet attaches the internal hostname
 # where it runs). Dev overrides to on.
 config :flux_vale, :storybook_enabled, false
+
+# The AshAdmin mount gate (#288, ADR-0027 §2 Am. 1): /admin compiles
+# into every release and answers a bare 404 while this is unset —
+# default-denied, the TestInbox gate shape above. runtime.exs flips it
+# from ADMIN_MOUNT_KEY (staging sets it via BWS; prod leaves it unset).
+# The value is a deliberate SECRET, not a boolean: enabling requires a
+# vault write, and it is never presented per-request — the credential
+# is the platform-admin session behind the gate plug. Fail-closed on
+# blank/off-intent values (see AdminEnabled.enabled?/0).
+config :flux_vale, :admin_mount_key, nil
 
 # AshOban: open-source Oban, not Pro (v1's stance, kept)
 config :ash_oban, :pro?, false

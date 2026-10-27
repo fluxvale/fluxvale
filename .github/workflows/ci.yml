@@ -160,6 +160,22 @@ jobs:
 
       - run: mix ci
 
+      # #288: the release-mode proof for the admin gate, run as a real
+      # leg — the whole point of the mount is that it works under
+      # MIX_ENV=prod, and nothing in mix ci compiles that shape. Boots
+      # the prod-mode app against a throwaway DB on the same postgres
+      # service and runs the env-agnostic gate file (closed 404s + the
+      # open arm). The secrets are dummies: signing keys for a run that
+      # asserts status codes, never written anywhere.
+      - name: Release-mode admin gate proof (MIX_ENV=prod)
+        env:
+          MIX_ENV: prod
+          DATABASE_URL: ecto://postgres:postgres@localhost/flux_vale_prod_gate
+          SECRET_KEY_BASE: cicidummysecretcibase64chars-0000000000000000000000000000000000000000
+          TOKEN_SIGNING_SECRET: cicidummytokensecret-00000000000000000000000000000000000000000000
+          PLATFORM_ENV: local
+        run: mix test test/flux_vale_web/admin_gate_test.exs
+
       # v7.1.1 — pinned to commit: mutable tags execute unreviewed code.
       # NB: `uses:` steps run at the workspace root — the job's
       # working-directory default doesn't apply, hence the repo-root path.
