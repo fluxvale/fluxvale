@@ -36,6 +36,21 @@ defmodule FluxValeWeb.Storybook.Components.Card do
           <p class="mt-3 text-xs text-ink-subtle">Credits never expire and are non-refundable.</p>
           """
         ]
+      },
+      %Variation{
+        id: :hover_lift,
+        description:
+          "Link-wrapped card pattern (#277): the lift lives on the card — elevation steps to md and the card rises 1 while wrapped in a link. Hover it.",
+        attributes: %{
+          class:
+            "transition-[box-shadow,translate] duration-(--motion-base) ease-(--motion-ease-out) hover:[box-shadow:var(--elevation-md)] hover:-translate-y-1"
+        },
+        slots: [
+          """
+          <h3 class="font-semibold text-ink">Forgejo</h3>
+          <p class="mt-1 text-sm text-ink-muted">A lightweight software forge — your own GitHub, minus the rent.</p>
+          """
+        ]
       }
     ]
   end

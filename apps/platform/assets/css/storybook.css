@@ -40,8 +40,8 @@
   --radius-control: 0.5rem;
   --radius-pill: 9999px;
   /* Radius/motion tokens always emit as vars; their utilities generate
-     only where a scanned source uses them — no app-bundle consumer yet,
-     so rounded-panel etc. exist in the storybook bundle only. */
+     only where a scanned source uses them — core_components now
+     consumes rounded-panel/control and the motion durations (#277 T2). */
 
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 }
@@ -120,21 +120,27 @@
 
   /* Success leans teal to hold >= 40° OKLCH hue from every olive
      token (measured 57° light / 62° dark; see foundations "Info vs
-     success"). Semantics unchanged; danger values unchanged — the
-     dark warning is retuned (see the dark block).
+     success"). Semantics unchanged; danger values unchanged — warning
+     is retuned below: light text + tints for AA and the olive gap,
+     dark tints in the dark block (#277 T2).
      Caveat: success text on the OLIVE tint would be 4.31:1 — status
      text never sits on the info tint; it carries its own. */
   --success: #007b65;
-  --warning: #d97706;
+  /* Retuned (#277 T2): #d97706 never cleared 4.5:1 on a light surface
+     (3.14:1 on panel). #a55200 passes everywhere it sits — worst
+     4.82:1, on panel-raised — and holds the olive gap (64°). */
+  --warning: #a55200;
   --danger: #dc2626;
   --danger-hover: #b91c1c;
 
   --success-muted: #e7faf4;
-  --warning-muted: #fffbeb;
+  /* Amber-family cream and edge, sitting with the retuned text hue:
+     64° and 55° — both >= 40° from olive (was 22° / 26°). */
+  --warning-muted: #fdf4ec;
   --danger-muted: #fef2f2;
 
   --border-success: #8aceba;
-  --border-warning: #fcd34d;
+  --border-warning: #ffa361;
   --border-danger: #fca5a5;
 
   /* Elevation — warm-tinted shadow scale, consumed via shadow-xs..lg.
@@ -202,11 +208,14 @@
   --danger-hover: #ef4444;
 
   --success-muted: oklch(75% 0.13 184 / 0.18);
-  --warning-muted: oklch(75% 0.18 70 / 0.15);
+  /* Tints ride at the text hue, like success's do (#277 T2): the old
+     hue-70 tints split the amber family. Chroma 0.15 stays under the
+     L75/H78 gamut edge (0.156). Authored hue delta vs --info: 44°. */
+  --warning-muted: oklch(75% 0.15 78 / 0.15);
   --danger-muted: oklch(70% 0.19 22 / 0.15);
 
   --border-success: oklch(75% 0.13 184 / 0.3);
-  --border-warning: oklch(75% 0.18 70 / 0.3);
+  --border-warning: oklch(75% 0.15 78 / 0.3);
   --border-danger: oklch(70% 0.19 22 / 0.3);
 
   /* Shadow is imperceptible on near-black surfaces: elevation

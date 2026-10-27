@@ -71,7 +71,7 @@ defmodule FluxValeWeb.CoreComponents do
            toast) — the dismiss handler rides the close button, the one
            element that opts back in; don't undo it via rest/class. --%>
       <div class={[
-        "pointer-events-none flex items-start gap-3 rounded-xl border bg-panel p-4 shadow-lg",
+        "pointer-events-none flex items-start gap-3 rounded-panel border bg-panel p-4 [box-shadow:var(--elevation-lg)]",
         @kind == :info && "border-line text-ink",
         @kind == :error && "border-line-danger text-ink"
       ]}>
@@ -133,18 +133,19 @@ defmodule FluxValeWeb.CoreComponents do
 
   def button(assigns) do
     base =
-      "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors outline-offset-2 outline-focus focus-visible:outline-2 disabled:pointer-events-none"
+      "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-control font-medium transition-[color,background-color,border-color,box-shadow,translate] duration-(--motion-fast) outline-offset-2 outline-focus focus-visible:outline-2 disabled:pointer-events-none"
 
     # Disabled reads inert, not faded-in-place: neutral surface + subtle
     # text (the vision QA flagged white-on-amber-wash as decorative).
+    # Pair is ink-subtle on panel-raised: 5.51:1 light / 4.77:1 dark.
     disabled =
-      "disabled:border disabled:border-line disabled:bg-panel-raised disabled:text-ink-subtle disabled:shadow-none"
+      "disabled:border disabled:border-line disabled:bg-panel-raised disabled:text-ink-subtle disabled:[box-shadow:none]"
 
     variants = %{
       "primary" =>
-        "border border-line-primary bg-primary text-on-primary shadow-sm hover:bg-primary-hover active:bg-primary-active",
+        "border border-line-primary bg-primary text-on-primary [box-shadow:var(--elevation-sm)] hover:bg-primary-hover hover:[box-shadow:var(--elevation-md)] active:bg-primary-active active:translate-y-px active:[box-shadow:var(--elevation-xs)]",
       "secondary" =>
-        "border border-line-strong bg-panel text-ink shadow-sm hover:bg-panel-raised",
+        "border border-line-strong bg-panel text-ink [box-shadow:var(--elevation-sm)] hover:bg-panel-raised",
       "ghost" => "text-ink-muted hover:bg-panel-raised hover:text-ink",
       "destructive" => "border border-line-danger bg-panel text-danger hover:bg-danger-muted"
     }
@@ -366,7 +367,7 @@ defmodule FluxValeWeb.CoreComponents do
   # base styling.
   defp control_class(%{errors: errors} = assigns) do
     base =
-      "w-full rounded-lg border bg-panel px-3 py-2 text-sm text-ink shadow-sm transition-colors placeholder:text-ink-subtle focus:outline-none focus:ring-2 disabled:opacity-50"
+      "w-full rounded-control border bg-panel px-3 py-2 text-sm text-ink [box-shadow:var(--elevation-sm)] transition-[color,background-color,border-color,box-shadow] duration-(--motion-fast) placeholder:text-ink-subtle focus:outline-none focus:ring-2 disabled:opacity-50"
 
     state =
       if errors != [],
@@ -463,7 +464,7 @@ defmodule FluxValeWeb.CoreComponents do
           "[&::-webkit-slider-runnable-track]:h-1.5 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-panel-sunken",
           "[&::-webkit-slider-thumb]:mt-[-5px] [&::-webkit-slider-thumb]:size-4",
           "[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full",
-          "[&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:shadow-sm",
+          "[&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:[box-shadow:var(--elevation-sm)]",
           "[&::-moz-range-track]:h-1.5 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-panel-sunken",
           "[&::-moz-range-thumb]:size-4 [&::-moz-range-thumb]:rounded-full",
           "[&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary"
@@ -553,7 +554,13 @@ defmodule FluxValeWeb.CoreComponents do
 
   def card(assigns) do
     ~H"""
-    <div class={["rounded-xl border border-line-strong bg-panel shadow-sm p-5", @class]} {@rest}>
+    <div
+      class={[
+        "rounded-panel border border-line-strong bg-panel [box-shadow:var(--elevation-sm)] p-5",
+        @class
+      ]}
+      {@rest}
+    >
       {render_slot(@inner_block)}
     </div>
     """
@@ -640,7 +647,7 @@ defmodule FluxValeWeb.CoreComponents do
   def empty_state(assigns) do
     ~H"""
     <div class={[
-      "flex flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-line-strong bg-panel px-6 py-16 text-center",
+      "flex flex-col items-center justify-center gap-1.5 rounded-panel border border-dashed border-line-strong bg-panel px-6 py-16 text-center",
       @class
     ]}>
       <p class="text-sm font-medium text-ink">{@title}</p>
@@ -684,7 +691,10 @@ defmodule FluxValeWeb.CoreComponents do
       end
 
     ~H"""
-    <div class="overflow-x-auto rounded-xl border border-line bg-panel">
+    <%!-- text-ink on the chrome: cells inherit it, so table text flips
+    with the theme. Without it a dark panel leaked light-mode ink
+    wherever the page didn't set a color (storybook, bare embeds). --%>
+    <div class="overflow-x-auto rounded-panel border border-line bg-panel text-ink">
       <table class="w-full text-sm">
         <thead>
           <tr class="border-b border-line text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
@@ -698,7 +708,7 @@ defmodule FluxValeWeb.CoreComponents do
           <tr
             :for={row <- @rows}
             id={@row_id && @row_id.(row)}
-            class="border-b border-line last:border-0 hover:bg-panel-raised/60"
+            class="border-b border-line last:border-0 transition-colors hover:bg-panel-raised/60"
           >
             <td
               :for={col <- @col}
@@ -804,7 +814,7 @@ defmodule FluxValeWeb.CoreComponents do
       type="button"
       id={@id}
       class={[
-        "inline-flex shrink-0 items-center gap-1.5 rounded-md border border-line bg-panel px-2 py-1",
+        "inline-flex shrink-0 items-center gap-1.5 rounded-control border border-line bg-panel px-2 py-1",
         "text-xs font-medium text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink",
         "data-[copied=true]:border-line-success data-[copied=true]:text-success",
         @class
@@ -970,7 +980,7 @@ defmodule FluxValeWeb.CoreComponents do
 
     ~H"""
     <div
-      class={["rounded-xl border px-4 py-3 text-sm text-ink", @tone_class, @class]}
+      class={["rounded-panel border px-4 py-3 text-sm text-ink", @tone_class, @class]}
       {@rest}
     >
       <div class="flex items-start gap-2.5">
@@ -1056,7 +1066,7 @@ defmodule FluxValeWeb.CoreComponents do
     ~H"""
     <.link
       class={[
-        "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+        "rounded-control px-3 py-1.5 text-sm font-medium transition-colors",
         @active && "bg-primary-muted text-link",
         !@active && "text-ink-muted hover:bg-panel-raised hover:text-ink",
         @class
@@ -1102,7 +1112,7 @@ defmodule FluxValeWeb.CoreComponents do
     ~H"""
     <details data-testid="user-menu" class={["group relative", @class]} {@rest}>
       <summary
-        class="flex cursor-pointer list-none items-center gap-1.5 rounded-full border border-line bg-panel p-1 pr-2.5 shadow-sm transition-colors hover:bg-panel-raised [&::-webkit-details-marker]:hidden"
+        class="flex cursor-pointer list-none items-center gap-1.5 rounded-full border border-line bg-panel p-1 pr-2.5 [box-shadow:var(--elevation-sm)] transition-colors hover:bg-panel-raised [&::-webkit-details-marker]:hidden"
         aria-label="Account menu"
         data-testid="user-menu-button"
       >
@@ -1118,7 +1128,7 @@ defmodule FluxValeWeb.CoreComponents do
         />
       </summary>
       <div
-        class="absolute right-0 z-50 mt-2 w-56 rounded-xl border border-line-strong bg-panel p-1.5 shadow-lg"
+        class="absolute right-0 z-50 mt-2 w-56 rounded-panel border border-line-strong bg-panel p-1.5 [box-shadow:var(--elevation-lg)]"
         data-testid="user-menu-panel"
       >
         <p class="truncate px-3 py-2 text-xs text-ink-subtle" title={@email}>{@email}</p>
@@ -1128,14 +1138,14 @@ defmodule FluxValeWeb.CoreComponents do
         <.link
           :if={@app_links}
           href={~p"/apps"}
-          class="block rounded-lg px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink sm:hidden"
+          class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink sm:hidden"
         >
           Catalog
         </.link>
         <.link
           :if={@app_links}
           href={~p"/instances"}
-          class="block rounded-lg px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink sm:hidden"
+          class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink sm:hidden"
         >
           Instances
         </.link>
@@ -1143,13 +1153,13 @@ defmodule FluxValeWeb.CoreComponents do
         every surface — a live patch would strand it open (#205). --%>
         <.link
           href={~p"/billing"}
-          class="block rounded-lg px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+          class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
         >
           Billing
         </.link>
         <.link
           href={~p"/about"}
-          class="block rounded-lg px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+          class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
         >
           About FluxVale
         </.link>
@@ -1159,7 +1169,7 @@ defmodule FluxValeWeb.CoreComponents do
           <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
           <button
             type="submit"
-            class="block w-full cursor-pointer rounded-lg px-3 py-1.5 text-left text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+            class="block w-full cursor-pointer rounded-control px-3 py-1.5 text-left text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
           >
             Sign out
           </button>
@@ -1214,7 +1224,7 @@ defmodule FluxValeWeb.CoreComponents do
     ~H"""
     <details data-testid="org-switcher" class={["group relative", @class]} {@rest}>
       <summary
-        class="flex cursor-pointer list-none items-center gap-1 rounded-full border border-line bg-panel py-1 pr-1.5 pl-2 shadow-sm transition-colors hover:bg-panel-raised [&::-webkit-details-marker]:hidden"
+        class="flex cursor-pointer list-none items-center gap-1 rounded-full border border-line bg-panel py-1 pr-1.5 pl-2 [box-shadow:var(--elevation-sm)] transition-colors hover:bg-panel-raised [&::-webkit-details-marker]:hidden"
         aria-label="Organization switcher"
         data-testid="org-switcher-button"
       >
@@ -1226,7 +1236,7 @@ defmodule FluxValeWeb.CoreComponents do
         />
       </summary>
       <div
-        class="absolute left-0 z-50 mt-2 w-56 rounded-xl border border-line bg-panel p-1.5 shadow-lg"
+        class="absolute left-0 z-50 mt-2 w-56 rounded-panel border border-line bg-panel p-1.5 [box-shadow:var(--elevation-lg)]"
         data-testid="org-switcher-panel"
       >
         <p class="px-3 py-1.5 text-xs text-ink-subtle">Contexts</p>
@@ -1238,14 +1248,14 @@ defmodule FluxValeWeb.CoreComponents do
         lands. Flip to ~p with that ticket. --%>
         <.link
           href={~p"/"}
-          class="block rounded-lg px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+          class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
         >
           Personal
         </.link>
         <.link
           :for={membership <- @orgs}
           href={"/organizations/" <> membership.organization.slug}
-          class="block rounded-lg px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+          class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
         >
           {membership.organization.name}
           <span class="font-mono text-xs text-ink-subtle">{membership.organization.slug}</span>
@@ -1267,7 +1277,7 @@ defmodule FluxValeWeb.CoreComponents do
       to: selector,
       time: 300,
       transition:
-        {"transition-all ease-out duration-300",
+        {"transition-[opacity,translate,scale] ease-(--motion-ease-out) duration-(--motion-slow)",
          "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95",
          "opacity-100 translate-y-0 sm:scale-100"}
     )
@@ -1278,7 +1288,8 @@ defmodule FluxValeWeb.CoreComponents do
       to: selector,
       time: 200,
       transition:
-        {"transition-all ease-in duration-200", "opacity-100 translate-y-0 sm:scale-100",
+        {"transition-[opacity,translate,scale] ease-in duration-(--motion-base)",
+         "opacity-100 translate-y-0 sm:scale-100",
          "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"}
     )
   end

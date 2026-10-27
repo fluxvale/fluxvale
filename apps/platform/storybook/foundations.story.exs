@@ -71,10 +71,11 @@ defmodule FluxValeWeb.Storybook.Foundations do
     {"--success (text)", "#007b65", "oklch(75% 0.13 184) ≈ #17c8b7"},
     {"--success-muted (tint)", "#e7faf4", "oklch(75% 0.13 184 / 18%)"},
     {"--border-success (tint edge)", "#8aceba", "oklch(75% 0.13 184 / 30%)"},
-    # --warning (dark retuned): hue 84° → 78° (chroma nudged to stay in
-    # sRGB gamut) so the olive accent keeps >= 40° of hue from BOTH
-    # neighbours; the authored value renders exactly (#ffbc46).
-    {"--warning", "#d97706 · 59° from olive",
+    # --warning retuned (#277): light text darkened to clear 4.5:1 on
+    # every surface (worst 4.82:1); dark text hue 84° → 78° so the
+    # amber family keeps >= 40° of hue from BOTH olive neighbours; the
+    # tints ride at the text hue in both modes.
+    {"--warning", "#a55200 · 64° from olive",
      "oklch(83.69% 0.15 78) ≈ #ffbc46 · 44° (was #fbbf24 · 38°)"}
   ]
 
