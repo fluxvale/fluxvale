@@ -133,7 +133,7 @@ defmodule FluxValeWeb.CoreComponents do
 
     variants = %{
       "primary" =>
-        "bg-primary text-on-primary shadow-sm hover:bg-primary-hover active:bg-primary-active",
+        "border border-line-primary bg-primary text-on-primary shadow-sm hover:bg-primary-hover active:bg-primary-active",
       "secondary" =>
         "border border-line-strong bg-panel text-ink shadow-sm hover:bg-panel-raised",
       "ghost" => "text-ink-muted hover:bg-panel-raised hover:text-ink",
@@ -362,7 +362,7 @@ defmodule FluxValeWeb.CoreComponents do
     state =
       if errors != [],
         do: "border-danger focus:border-danger focus:ring-danger/25",
-        else: "border-line focus:border-primary focus:ring-focus/25"
+        else: "border-line focus:border-line-primary focus:ring-focus/25"
 
     [base, state, assigns[:class], assigns[:error_class]]
     |> Enum.reject(&is_nil/1)
@@ -544,7 +544,7 @@ defmodule FluxValeWeb.CoreComponents do
 
   def card(assigns) do
     ~H"""
-    <div class={["rounded-xl border border-line bg-panel shadow-sm p-5", @class]} {@rest}>
+    <div class={["rounded-xl border border-line-strong bg-panel shadow-sm p-5", @class]} {@rest}>
       {render_slot(@inner_block)}
     </div>
     """
@@ -594,7 +594,7 @@ defmodule FluxValeWeb.CoreComponents do
   def badge(assigns) do
     tones = %{
       "neutral" => "border-line bg-panel-raised text-ink-muted",
-      "primary" => "border-primary/25 bg-primary-muted text-primary",
+      "primary" => "border-primary/25 bg-primary-muted text-link",
       "success" => "border-line-success bg-success-muted text-success",
       "warning" => "border-line-warning bg-warning-muted text-warning",
       "danger" => "border-line-danger bg-danger-muted text-danger"
@@ -903,7 +903,7 @@ defmodule FluxValeWeb.CoreComponents do
         <span class={[
           "flex size-6 items-center justify-center rounded-full border text-xs font-medium",
           index < @current && "border-line-success bg-success-muted text-success",
-          index == @current && "border-primary bg-primary-muted text-primary",
+          index == @current && "border-primary bg-primary-muted text-link",
           index > @current && "border-line bg-panel text-ink-subtle"
         ]}>
           {index + 1}
@@ -995,7 +995,7 @@ defmodule FluxValeWeb.CoreComponents do
         :running -> {"border-line-success bg-success-muted text-success", "static"}
         # #203: asleep, not stopped — brand amber, a resting state the
         # next visitor reverses (distinct from stopped's neutral gray).
-        :sleeping -> {"border-line bg-primary-muted text-primary", "none"}
+        :sleeping -> {"border-line bg-primary-muted text-link", "none"}
         :stopped -> {"border-line bg-panel-raised text-ink-muted", "none"}
         :error -> {"border-line-danger bg-danger-muted text-danger", "static"}
         :deleting -> {"border-line-danger bg-danger-muted text-danger", "pulse"}
@@ -1048,7 +1048,7 @@ defmodule FluxValeWeb.CoreComponents do
     <.link
       class={[
         "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
-        @active && "bg-primary-muted text-primary",
+        @active && "bg-primary-muted text-link",
         !@active && "text-ink-muted hover:bg-panel-raised hover:text-ink",
         @class
       ]}
@@ -1098,7 +1098,7 @@ defmodule FluxValeWeb.CoreComponents do
         data-testid="user-menu-button"
       >
         <span
-          class="grid size-7 place-items-center rounded-full bg-primary-muted text-xs font-semibold text-primary"
+          class="grid size-7 place-items-center rounded-full bg-primary-muted text-xs font-semibold text-link"
           aria-hidden="true"
         >
           {initial(@email)}
@@ -1109,7 +1109,7 @@ defmodule FluxValeWeb.CoreComponents do
         />
       </summary>
       <div
-        class="absolute right-0 z-50 mt-2 w-56 rounded-xl border border-line bg-panel p-1.5 shadow-lg"
+        class="absolute right-0 z-50 mt-2 w-56 rounded-xl border border-line-strong bg-panel p-1.5 shadow-lg"
         data-testid="user-menu-panel"
       >
         <p class="truncate px-3 py-2 text-xs text-ink-subtle" title={@email}>{@email}</p>

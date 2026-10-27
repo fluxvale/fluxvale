@@ -243,7 +243,7 @@ defmodule FluxValeWeb.InstanceLive.DavSnippet do
           phx-value-platform={platform.key}
           class={[
             "flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-            platform.key == @platform && "bg-primary-muted text-primary",
+            platform.key == @platform && "bg-primary-muted text-link",
             platform.key != @platform && "text-ink-muted hover:bg-panel-raised hover:text-ink"
           ]}
           data-testid={"#{@id}-tab-#{platform.key}"}

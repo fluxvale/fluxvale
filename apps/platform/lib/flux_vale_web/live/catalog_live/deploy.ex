@@ -299,7 +299,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                       {preset.slug}
                       <span
                         :if={preset.recommended}
-                        class="ml-1 align-middle rounded-full bg-primary-muted px-1.5 py-0.5 text-[0.6875rem] font-normal text-primary"
+                        class="ml-1 align-middle rounded-full bg-primary-muted px-1.5 py-0.5 text-[0.6875rem] font-normal text-link"
                       >
                         recommended
                       </span>

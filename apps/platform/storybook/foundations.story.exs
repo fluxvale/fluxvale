@@ -14,17 +14,21 @@ defmodule FluxValeWeb.Storybook.Foundations do
     "Direction C — Grove (#277): amber stays the action colour (bright fill, dark ink — never white-on-amber), an olive accent carries information, and surfaces are warm sand (light) and warm brown-black (dark). Success leans teal to hold ≥40° hue from olive. Status is never colour-alone: icon and label always pair."
   end
 
+  # Strip labels: dark ink on the light steps (brand-900 in dark mode,
+  # where page ink flips light), light brand-50 on the dark steps.
+  # brand-600 is the one step no token inks at 4.5 (white 4.18:1, ink
+  # 4.10:1, brand-50 3.82:1) — #000 is the only 4.5+ label there (5.02).
   @ramp [
-    {"50", "bg-brand-50"},
-    {"100", "bg-brand-100"},
-    {"200", "bg-brand-200"},
-    {"300", "bg-brand-300"},
-    {"400", "bg-brand-400"},
-    {"500", "bg-brand-500"},
-    {"600", "bg-brand-600"},
-    {"700", "bg-brand-700"},
-    {"800", "bg-brand-800"},
-    {"900", "bg-brand-900"}
+    {"50", "bg-brand-50", "text-ink dark:text-brand-900"},
+    {"100", "bg-brand-100", "text-ink dark:text-brand-900"},
+    {"200", "bg-brand-200", "text-ink dark:text-brand-900"},
+    {"300", "bg-brand-300", "text-ink dark:text-brand-900"},
+    {"400", "bg-brand-400", "text-ink dark:text-brand-900"},
+    {"500", "bg-brand-500", "text-ink dark:text-brand-900"},
+    {"600", "bg-brand-600", "text-black"},
+    {"700", "bg-brand-700", "text-brand-50"},
+    {"800", "bg-brand-800", "text-brand-50"},
+    {"900", "bg-brand-900", "text-brand-50"}
   ]
 
   @semantic [
@@ -66,14 +70,19 @@ defmodule FluxValeWeb.Storybook.Foundations do
   @success_tokens [
     {"--success (text)", "#007b65", "oklch(75% 0.13 184) ≈ #17c8b7"},
     {"--success-muted (tint)", "#e7faf4", "oklch(75% 0.13 184 / 18%)"},
-    {"--border-success (tint edge)", "#8aceba", "oklch(75% 0.13 184 / 30%)"}
+    {"--border-success (tint edge)", "#8aceba", "oklch(75% 0.13 184 / 30%)"},
+    # --warning (dark retuned): hue 84° → 78° (chroma nudged to stay in
+    # sRGB gamut) so the olive accent keeps >= 40° of hue from BOTH
+    # neighbours; the authored value renders exactly (#ffbc46).
+    {"--warning", "#d97706 · 59° from olive",
+     "oklch(83.69% 0.15 78) ≈ #ffbc46 · 44° (was #fbbf24 · 38°)"}
   ]
 
   @elevation [
     {"shadow-xs", "0 1px 2px 0 rgb(38 43 43 / 5%)", "shadow-xs"},
     {"shadow-sm", "0 2px 4px -1px rgb(38 43 43 / 12%)", "shadow-sm"},
     {"shadow-md", "0 2px 8px -2px rgb(38 43 43 / 20%)", "shadow-md"},
-    {"shadow-lg", "0 10px 15px -3px rgb(0 0 0 / 10%), 0 4px 6px -4px rgb(0 0 0 / 10%)",
+    {"shadow-lg", "0 10px 15px -3px rgb(38 43 43 / 10%), 0 4px 6px -4px rgb(38 43 43 / 10%)",
      "shadow-lg"}
   ]
 
@@ -120,8 +129,8 @@ defmodule FluxValeWeb.Storybook.Foundations do
         </p>
         <div class="flex overflow-hidden rounded-xl border border-line">
           <div
-            :for={{step, class} <- @ramp}
-            class={["flex-1 pt-16 pb-2 text-center text-[10px] font-medium", class]}
+            :for={{step, bg_class, label_class} <- @ramp}
+            class={["flex-1 pt-16 pb-2 text-center text-[10px] font-medium", bg_class, label_class]}
             data-testid={"ramp-#{step}"}
           >
             {step}
@@ -170,8 +179,9 @@ defmodule FluxValeWeb.Storybook.Foundations do
         <h2 id="foundations-info" class="text-lg font-semibold text-ink">Info accent</h2>
         <p class="text-sm text-ink-muted">
           Grove's olive carries information — callouts, hints, meta (WCAG: 6.87/7.17 on
-          canvas/panel light, 11.63/10.61 dark). It never marks actions: links stay amber
-          (<span class="font-mono text-xs">--link #953c00 / #ffb66d</span>).
+          canvas/panel light, 11.63/10.61 dark). The rule runs both ways: the accent never marks
+          actions, and links never read as info — actionable text stays amber-family
+          (<span class="font-mono text-xs">--link #953c00 / #ffb66d</span>), information stays olive.
         </p>
         <div class="rounded-xl border border-line-info bg-info-muted p-4" data-testid="info-accent">
           <p class="flex items-center gap-2 text-sm font-medium text-info">
@@ -213,8 +223,10 @@ defmodule FluxValeWeb.Storybook.Foundations do
           The lane accepted Grove knowing olive sits near success-green, so the separation is
           engineered, not hoped for: success was re-tuned to hold ≥40° OKLCH hue from every olive
           token with clearly separated lightness — measured 57° light / 62° dark (ΔL ≥ 0.07), still
-          AA on every text pair. The rules on top of the colour: status is never colour-alone (icon
-          and label always pair), and the info accent never carries positive/success semantics.
+          AA on every text pair. Warning keeps its distance too: 59° light, and dark was re-tuned
+          (hue 84° → 78°, chroma nudged to stay in sRGB gamut) from 38° to 44°. The rules on top of
+          the colour: status is never colour-alone (icon and label always pair), and the info
+          accent never carries positive/success semantics.
         </p>
         <div class="grid gap-3 sm:grid-cols-2" data-testid="info-vs-success">
           <div class="rounded-xl border border-line-info bg-info-muted p-4">

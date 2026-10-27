@@ -39,6 +39,9 @@
   --radius-panel: 0.75rem;
   --radius-control: 0.5rem;
   --radius-pill: 9999px;
+  /* Radius/motion tokens always emit as vars; their utilities generate
+     only where a scanned source uses them — no app-bundle consumer yet,
+     so rounded-panel etc. exist in the storybook bundle only. */
 
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 }
@@ -117,7 +120,9 @@
 
   /* Success leans teal to hold >= 40° OKLCH hue from every olive
      token (measured 57° light / 62° dark; see foundations "Info vs
-     success"). Warning/danger semantics and values unchanged. */
+     success"). Warning/danger semantics and values unchanged.
+     Caveat: success text on the OLIVE tint would be 4.31:1 — status
+     text never sits on the info tint; it carries its own. */
   --success: #007b65;
   --warning: #d97706;
   --danger: #dc2626;
@@ -137,13 +142,15 @@
   --elevation-sm: 0 2px 4px -1px rgb(38 43 43 / 0.12);
   --elevation-md: 0 2px 8px -2px rgb(38 43 43 / 0.2);
   --elevation-lg:
-    0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+    0 10px 15px -3px rgb(38 43 43 / 0.1), 0 4px 6px -4px rgb(38 43 43 / 0.1);
 
-  /* Motion — durations + the shared ease-out curve. Defined in #277;
-     no component consumes them yet. */
+  /* Motion — durations + the shared ease-out curve. fast/slow have no
+     consumer yet; --motion-base drives the foundations demo tile. */
   --motion-fast: 150ms;
   --motion-base: 200ms;
   --motion-slow: 300ms;
+  /* Named for the curve family, matching Tailwind's stock --ease-out
+     value; mode-independent. */
   --motion-ease-out: cubic-bezier(0, 0, 0.2, 1);
 }
 
@@ -186,7 +193,10 @@
   --border-info: #505432;
 
   --success: oklch(75% 0.13 184); /* ~#17c8b7 — 62° from olive, ΔL 0.09 */
-  --warning: #fbbf24;
+  /* Retuned from #fbbf24, which sat 37.7° from the olive accent; hue
+     84° → 78° (chroma 0.16 → 0.15 stays in sRGB gamut) — now 44.3°
+     from olive (#ffbc46), AA kept everywhere. */
+  --warning: oklch(83.69% 0.15 78);
   --danger: #f87171;
   --danger-hover: #ef4444;
 
@@ -266,6 +276,12 @@
 
 /* All dark-mode triggers (see the dark token block above). */
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *, .dark, .dark *, [data-psb-color-mode=dark], [data-psb-color-mode=dark] *));
+
+/* Mirror app.css's LiveView loading variants — the workshop renders the
+   real components, so their loading states must be styleable here too. */
+@custom-variant phx-click-loading (.phx-click-loading&, .phx-click-loading &);
+@custom-variant phx-submit-loading (.phx-submit-loading&, .phx-submit-loading &);
+@custom-variant phx-change-loading (.phx-change-loading&, .phx-change-loading &);
 
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 

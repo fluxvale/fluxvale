@@ -38,7 +38,7 @@ defmodule FluxValeWeb.CatalogLive.Show do
           </.button>
 
           <div class="flex items-start gap-4">
-            <div class="flex size-14 shrink-0 items-center justify-center rounded-xl bg-primary-muted text-xl font-semibold text-primary">
+            <div class="flex size-14 shrink-0 items-center justify-center rounded-xl bg-primary-muted text-xl font-semibold text-link">
               <img :if={@app.icon_url} src={@app.icon_url} alt={@app.name} class="size-14 rounded-xl" />
               <span :if={is_nil(@app.icon_url)}>{String.first(@app.name)}</span>
             </div>
@@ -53,7 +53,7 @@ defmodule FluxValeWeb.CatalogLive.Show do
                 <a
                   :if={@app.source_url}
                   href={@app.source_url}
-                  class="font-medium text-primary hover:underline"
+                  class="font-medium text-link hover:underline"
                   target="_blank"
                   rel="noopener"
                 >
@@ -62,7 +62,7 @@ defmodule FluxValeWeb.CatalogLive.Show do
                 <a
                   :if={@app.docs_url}
                   href={@app.docs_url}
-                  class="font-medium text-primary hover:underline"
+                  class="font-medium text-link hover:underline"
                   target="_blank"
                   rel="noopener"
                 >
