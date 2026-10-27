@@ -6,9 +6,11 @@ defmodule FluxVale.Accounts.Organization do
   for per-org entitlements (welcome credits, #122).
 
   Every user gets a personal org at signup (JIT, creator = owner — see
-  `FluxVale.Accounts.provision_personal_org/1`). `slug` is the stable
-  handle (`[a-z0-9-]`, GitHub-style); `name` is display-only and carries
-  no uniqueness — two orgs may be named alike, the slug cannot.
+  `FluxVale.Accounts.provision_personal_org/1`). `slug` is the unique
+  address (`[a-z0-9-]`, GitHub-style) — stable until an owner renames it
+  in settings: the old slug is released immediately and no redirect is
+  created. `name` is display-only and carries no uniqueness — two orgs
+  may be named alike, the slug cannot.
 
   Deliberately no JSON:API surface (v1 stance — backend model until a
   consumer needs one) and no AshAdmin (no support flow needs it yet).
@@ -46,11 +48,17 @@ defmodule FluxVale.Accounts.Organization do
     # Team features will gate destroy on the :owner role; today every
     # membership is :owner (provisioning only creates owners), so
     # member-level authorization is safe. Revisit trigger: the first
-    # :member membership. No update action exists yet — the first
-    # rename flow adds it.
+    # :member membership.
     policy action_type(:destroy) do
       description "Members destroy their organizations"
       authorize_if(relates_to_actor_via(:members))
+    end
+
+    # The first rename flow (#276): owners set the display name and the
+    # URL slug — GitHub-parity renaming, the owner's explicit choice.
+    policy action(:update) do
+      description "Owners update their organization (display name and slug)"
+      authorize_if(FluxVale.Checks.ActorIsOrganizationOwner)
     end
   end
 
@@ -114,6 +122,47 @@ defmodule FluxVale.Accounts.Organization do
       accept([:name, :slug])
     end
 
+    # Renaming — either field — frees the old slug immediately: no
+    # redirects and no slug reservations ship with this flow. Revisit
+    # trigger: org creation or any public org surface.
+    #
+    # require_atomic? false: the stale-form guard below is a function
+    # change, which Ash cannot run atomically — the trade the destroy
+    # action already makes. A rename is a single-row, owner-initiated
+    # write; failing loudly on a moved row is worth more than batch
+    # atomicity.
+    update :update do
+      primary? true
+      require_atomic?(false)
+      accept([:name, :slug])
+
+      # Stale-form guard: the write is filtered on the slug the caller
+      # loaded, so a view mounted before a rename fails with StaleRecord
+      # instead of silently writing the old address back (the
+      # observe_access_gateway idiom; Instance's optimistic_lock(:version)
+      # is the same contract with a counter).
+      #
+      # Known bypass, deliberately accepted: atomic_update/force_change
+      # mutations ride past this filter AND the length caps below — and
+      # under require_atomic?(false) they are not in
+      # changeset.attributes (which is also why `where: changing`
+      # correctly skips them). Unreachable today: no bulk/crafted callers
+      # on Organization, and Accounts is not an AshAdmin domain. A future
+      # caller needing those shapes must re-check this filter and the
+      # caps with it.
+      change(fn changeset, _context ->
+        case Map.get(changeset.data, :slug) do
+          # Dead in practice, kept so a slug-less shape can never add a
+          # nil filter: require_atomic?(false) keeps bulk :atomic
+          # strategies out entirely, and every changeset that does run
+          # (record + streamed bulk) carries the loaded row.
+          # coveralls-ignore-next-line
+          nil -> changeset
+          loaded_slug -> Ash.Changeset.filter(changeset, slug: loaded_slug)
+        end
+      end)
+    end
+
     read :get_by_id do
       description "Get an organization by id"
       get?(true)
@@ -133,6 +182,7 @@ defmodule FluxVale.Accounts.Organization do
     domain FluxVale.Accounts
 
     define(:create)
+    define(:update)
     define(:get_by_id, args: [:id])
     define(:get_by_slug, args: [:slug])
   end
@@ -142,9 +192,35 @@ defmodule FluxVale.Accounts.Organization do
   end
 
   validations do
+    # on: :update rides with the rename flow (#276) — the rename path
+    # must not ship unvalidated. `where: changing` scopes it to slugs
+    # actually being set (create always sets one), which is also what
+    # keeps the update atomic — the engine can't re-check an untouched
+    # attribute. `unique_slug` stays the uniqueness arbiter; unchanged
+    # attributes skip it, so a same-slug save (a name-only edit) never
+    # self-conflicts.
     validate(match(:slug, ~r/^[a-z0-9][a-z0-9-]*[a-z0-9]$/),
-      on: :create,
+      on: [:create, :update],
+      where: changing(:slug),
       message: "must contain only lowercase alphanumeric characters and hyphens"
+    )
+
+    # The length caps bind the RENAME flow only — never the create. The
+    # slug is the sanitized email local part at signup, and a 64-char RFC
+    # local part is legal; capping the attribute turned a 40-char local
+    # part into a retry-proof signup outage (the code burns before the
+    # provisioning failure surfaces). Legacy rows with longer slugs keep
+    # saving: `where: changing` skips untouched fields.
+    validate(string_length(:slug, max: 39),
+      on: :update,
+      where: changing(:slug),
+      message: "must be at most 39 characters"
+    )
+
+    validate(string_length(:name, max: 100),
+      on: :update,
+      where: changing(:name),
+      message: "must be at most 100 characters"
     )
   end
 end
