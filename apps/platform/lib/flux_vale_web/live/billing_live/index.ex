@@ -8,7 +8,8 @@ defmodule FluxValeWeb.BillingLive.Index do
 
   "Add credits" opens the top-up wizard (#137). No live updates:
   balance reads at mount; the wizard's confirmation refreshes on its
-  own navigation.
+  own navigation. The balance header and the ledger history render
+  through BillingComponents — shared with the org billing view (#276).
   """
 
   use FluxValeWeb, :live_view
@@ -16,7 +17,7 @@ defmodule FluxValeWeb.BillingLive.Index do
   alias FluxVale.Accounts
   alias FluxVale.Billing
   alias FluxVale.Billing.LedgerEntry
-  alias FluxVale.Pricing
+  alias FluxValeWeb.BillingComponents
 
   @page_size 25
 
@@ -94,12 +95,8 @@ defmodule FluxValeWeb.BillingLive.Index do
 
         <.card class="space-y-4">
           <div class="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <h2 class="text-sm font-medium text-ink-muted">Balance</h2>
-              <p class="mt-1 text-4xl font-bold tracking-tight text-ink" data-testid="wallet-balance">
-                {format_balance(@balance)}
-              </p>
-            </div>
+            <BillingComponents.balance_header balance={@balance} />
+
             <.button navigate={~p"/billing/topup"} size="sm" id="add-credits">
               Add credits
             </.button>
@@ -115,39 +112,11 @@ defmodule FluxValeWeb.BillingLive.Index do
           </p>
         </.card>
 
-        <.card>
-          <h2 class="text-sm font-medium text-ink-muted">History</h2>
-          <%!-- Empty state lives OUTSIDE the stream container: streams
-              can't count, and an in-stream hidden placeholder makes
-              divide/border selectors render a phantom row divider
-              (vision QA round 2). --%>
-          <p :if={@history_empty?} class="mt-3 text-sm text-ink-subtle">
-            No activity yet.
-          </p>
-          <div id="entries" phx-update="stream" class="mt-2">
-            <div
-              :for={{dom_id, entry} <- @streams.entries}
-              id={dom_id}
-              data-testid="ledger-row"
-              class="flex items-center justify-between gap-4 border-t border-line py-3 first:border-t-0"
-            >
-              <span class="text-sm whitespace-nowrap text-ink-muted">
-                {Calendar.strftime(entry.created_at, "%b %d, %Y %H:%M UTC")}
-              </span>
-              <span class="min-w-0 flex-1 truncate text-sm text-ink capitalize">
-                {reason_label(entry.reason)}
-              </span>
-              <span class={["font-mono text-sm whitespace-nowrap", amount_color(entry)]}>
-                {format_amount(entry.amount)}
-              </span>
-            </div>
-          </div>
-          <div class="mt-4">
-            <.button :if={@page.more?} id="load-more" variant="ghost" size="sm" phx-click="load-more">
-              Load more
-            </.button>
-          </div>
-        </.card>
+        <BillingComponents.ledger_history
+          entries={@streams.entries}
+          page={@page}
+          history_empty?={@history_empty?}
+        />
       </div>
     </Layouts.app>
     """
@@ -158,41 +127,5 @@ defmodule FluxValeWeb.BillingLive.Index do
     |> Ash.Query.for_read(:list_for_wallet, %{wallet_id: wallet_id}, actor: user)
     |> Ash.Query.sort(created_at: :desc, id: :desc)
     |> Ash.read!(page: [limit: @page_size])
-  end
-
-  # Prices (Pricing.format_usd/1) are non-negative by constraint; the
-  # ledger carries signed cents — negative balances and debit rows get
-  # their own sign handling here, at the billing display seam.
-  defp format_balance(cents) when cents < 0 do
-    "-" <> Pricing.format_usd(-cents)
-  end
-
-  defp format_balance(cents) do
-    Pricing.format_usd(cents)
-  end
-
-  defp format_amount(cents) when cents < 0 do
-    "-" <> Pricing.format_usd(-cents)
-  end
-
-  defp format_amount(cents) do
-    "+" <> Pricing.format_usd(cents)
-  end
-
-  defp amount_color(%LedgerEntry{type: :credit}) do
-    "text-success"
-  end
-
-  defp amount_color(%LedgerEntry{type: :debit}) do
-    "text-danger"
-  end
-
-  # Display copy at the billing seam: raw reason atoms read as bare
-  # words — "welcome" deserves its product name (vision QA round 2).
-  defp reason_label(:welcome), do: "Welcome credit"
-
-  defp reason_label(reason) when is_atom(reason) do
-    word = to_string(reason)
-    String.capitalize(word)
   end
 end

@@ -44,8 +44,8 @@ defmodule FluxValeWeb.Layouts do
   attr(:actor_orgs, :list, default: [])
 
   # The active org context (nil = personal) — the closed switcher names
-  # it. No caller passes it yet: the org-scoped surfaces are a later
-  # ticket in this lane.
+  # it. The org-scoped surfaces pass it; the org billing view (#276) is
+  # the first caller.
   attr(:current_org, :map, default: nil)
 
   slot(:inner_block, required: true)

@@ -106,6 +106,13 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
     assert has_element?(view, "[data-testid='ledger-row']", "+$0.01")
     refute has_element?(view, "#load-more")
 
+    # Append, not prepend: the older page lands AFTER the first page's
+    # rows in the rendered DOM (the stream insert rides at: -1).
+    html = render(view)
+    assert {first_page_last, 6} = :binary.match(html, "+$0.06")
+    assert {appended_first, 6} = :binary.match(html, "+$0.05")
+    assert first_page_last < appended_first
+
     # exhausted-page click (double-click race) is a no-op, not a crash
     render_click(view, "load-more", %{})
     assert has_element?(view, "[data-testid='ledger-row']", "+$0.01")
