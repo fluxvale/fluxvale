@@ -12,7 +12,8 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrg do
 
   The org's `name` is the email's local part (display-only); its `slug` is
   the sanitized local part, `-2`, `-3`… probed on collision (v1 named orgs
-  after `user.username`, which v2 users don't have). The `unique_slug`
+  after `user.username`; v2's slug stays the email local part — usernames
+  are their own namespace, #285). The `unique_slug`
   identity stays the race arbiter: a lost JIT-signup race fails the create
   loudly instead of double-provisioning.
 

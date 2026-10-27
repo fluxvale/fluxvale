@@ -124,20 +124,36 @@ defmodule FluxVale.Identity.UserTest do
       assert user.username == String.duplicate("a", 38)
     end
 
+    test "a suffix eating into the base re-trims the exposed hyphen" do
+      # The base hyphen sits exactly at the suffix's budget cut (39-char
+      # base, budget 37 for "-2") — without with_suffix's re-trim the
+      # colliding user would derive "aaa…--2".
+      local = String.duplicate("a", 36) <> "-xy"
+
+      first = User.create!(local <> "@one.test", %{}, authorize?: false)
+      assert first.username == local
+
+      second = User.create!(local <> "@two.test", %{}, authorize?: false)
+      assert second.username == String.duplicate("a", 36) <> "-2"
+      assert valid_shape?(second.username)
+    end
+
     test "keeps a username already on the changeset" do
       # Usernames have no input surface and accept-validation rejects
       # them outright (derivation is the only writer), so a pre-set one
       # can only reach the change from an earlier-listed change — a
       # future slice's. The no-op branch is pinned directly on the
-      # change module.
+      # change module: the RETURNED changeset must carry the kept value.
       changeset =
         User
         |> Ash.Changeset.new()
         |> Ash.Changeset.for_create(:create, %{email: "kept@x.test"})
         |> Ash.Changeset.force_change_attribute(:username, "kept")
 
-      assert %Ash.Changeset{} = DeriveUsername.change(changeset, %{}, %{})
-      assert Ash.Changeset.get_attribute(changeset, :username) == "kept"
+      result = DeriveUsername.change(changeset, %{}, %{})
+
+      assert %Ash.Changeset{} = result
+      assert Ash.Changeset.get_attribute(result, :username) == "kept"
     end
 
     test "exhausting the probe range falls back to an unguessable suffix" do

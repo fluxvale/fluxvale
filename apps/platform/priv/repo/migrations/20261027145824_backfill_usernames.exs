@@ -2,16 +2,18 @@ defmodule FluxVale.Repo.Migrations.BackfillUsernames do
   @moduledoc """
   One-time data backfill (#285 T2): existing users get the username a
   signup with their email would derive today. Iterates in created_at
-  order so the earliest signer keeps the bare local part, and is
-  idempotent — users with a username are skipped, so a rolling deploy
-  that already signed users up (or a re-run after a partial failure)
-  never clobbers.
+  order so the earliest signer keeps the bare local part; idempotent —
+  users with a username are skipped, so a re-run (or a rolling-deploy
+  node that already backfilled) never clobbers.
 
   Shares `DeriveUsername.derive_unique/1` with the Ash change — one
-  algorithm, no forked copy. The loop writes through the Repo pool,
-  which autocommits per user: that is what the shared probe needs, so
-  it sees usernames backfilled moments ago (the migration connection's
-  own transaction would hide them).
+  algorithm, no forked copy. The migrator wraps `up/0` in a Repo
+  transaction, and same-process Repo work joins it: the loop's writes
+  and the shared probe ride that one transaction, so each backfilled
+  username is visible to the next probe and the whole backfill commits
+  atomically. A signup concurrent with the backfill can still race a
+  claimed name — it fails loudly, the identity index arbitrates, and
+  the retry probes the next suffix: provisioning's accepted posture.
   """
 
   use Ecto.Migration

@@ -138,11 +138,12 @@ defmodule FluxVale.Identity.User do
       primary? true
       accept([:email, :platform_role])
 
-      # Username derivation (#285 T2) — valid by construction, so a
-      # signup can never fail on it (no input surface, no format
-      # validation until the rename UI). Listed BEFORE
-      # ProvisionPersonalOrg: changes run in listing order and
-      # provisioning must see the username (a later slice uses it).
+      # Username derivation (#285 T2) — the only writer (no input
+      # surface, no format validation until the rename UI), always
+      # producing a 2–39 [a-z0-9-] value; residual failure arms (probe
+      # read failure, lost race) fail loudly, like provisioning's.
+      # Listed BEFORE ProvisionPersonalOrg: provisioning must see the
+      # username (a later slice uses it).
       change(DeriveUsername)
 
       # Every registration path gets an org (#119) — JIT signup, seeds,
