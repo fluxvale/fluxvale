@@ -70,3 +70,7 @@ config :flux_vale, :test_inbox, enabled: true
 # The storybook (#178) — on in test so the gate's allow-path and the
 # route are exercised (see storybook plug/route tests).
 config :flux_vale, :storybook_enabled, true
+
+# /admin on in test (#288) — the closed arms force the key off per-case
+# (admin_gate_test / admin_mount_test); on is the tested surface shape.
+config :flux_vale, :admin_mount_key, "test-only-literal"

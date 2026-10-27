@@ -44,3 +44,47 @@ hand-rolled LiveView was proposed in this very session before anyone checked.)
 **Deferred**: which domains host `FeatureFlag`/`AccessRule` (and thus how
 AshAdmin's navigation groups them) is settled with the domain-model cut
 (OQ #1).
+
+## Amendment 1 (2026-10-27): §2's prod mount built (#288) — gate mechanism, dev's "open", and the policy reality
+
+§2 sanctioned the admin-gated prod mount; the first build (#288) settles
+what §2 left open — including one premise §3 held that the dependency
+does not deliver.
+
+- **The gate is runtime and default-denied**, not `dev_routes` compile
+  mounting: `/admin` compiles into every release (ADR-0010's same-image
+  rule) and answers a bare 404 while `ADMIN_MOUNT_KEY` is unset — the
+  TestInbox gate pattern, run *before* the browser pipeline so a closed
+  surface negotiates nothing. The app side ships first; flipping
+  staging on is a fleet-side follow-up (a BWS secret + the overlay env).
+  The key is a secret, not a boolean: enabling requires a vault write,
+  the value is never presented per-request, and the gate fails closed
+  on blank and off-intent values ("false"/"0"/"off"/"no"). An on_mount
+  hook re-checks gate + actor at every LiveView socket mount — without
+  it a session token would outlive a gate close or demotion, since a
+  socket never re-enters the router.
+- **"Open in dev" reads as mounted without the env flip, not
+  unauthenticated**: route-level auth is the platform-admin session in
+  *every* env (the TestInbox discipline), served by the seeded
+  `admin@fluxvale.com`.
+- **§3's "mutations ride the same policy path" is corrected by
+  measurement**: AshAdmin's `authorizing` toggle defaults OFF upstream
+  (and is admin-toggled in the UI), so actions through the mount run
+  `authorize?: false` — the mount is a **trusted-operator superuser
+  surface**, and the §3 per-domain opt-out (Identity/Accounts stay
+  out), not the resource policies, is the data boundary behind the
+  route gate. That opt-out carries more weight than it sounds:
+  AshAdmin ignores `public?(false)` and renders non-public columns of
+  shown domains as table data (measured across Wallet/Instance/
+  AccessGateway — including `AccessGateway.credential_secret_ref`;
+  it names the Secret, never holds the key, but nothing on the mount
+  should be treated as private). Flipping the toggle's default would
+  be theater (any admin can toggle it back) and with no actor wired
+  it only breaks the UI; the honest control is who mounts the surface
+  at all.
+
+§4's actor impersonation remains structurally unavailable on this mount:
+AshAdmin's actor picker only offers resources with the admin `actor?`
+flag inside *shown* domains, and §3 keeps Identity (User) out. A concrete
+impersonation need reopens §3's "unless a concrete need appears" clause —
+minimal `show_resources([User])` — as its own decision.
