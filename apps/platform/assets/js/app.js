@@ -29,16 +29,23 @@ const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute
 
 // Generic <details> dismissal (#284): native <details> only closes on a
 // summary re-click; this adds the GitHub-style outside-click + Escape
-// close. Attach to any <details> host (phx-hook requires a unique DOM
-// id) — it only flips the host's own `open` attribute, so it manages no
-// DOM children and needs no phx-update="ignore".
+// close. Escape also returns focus to the summary (APG disclosure
+// pattern) when focus is inside the panel. Attach to any <details>
+// host (phx-hook requires a unique DOM id) — it only flips the host's
+// own `open` attribute, so it manages no DOM children and needs no
+// phx-update="ignore".
 const DetailsDismiss = {
   mounted() {
     this.onDocClick = event => {
       if (this.el.open && !this.el.contains(event.target)) this.el.open = false
     }
     this.onKeyDown = event => {
-      if (event.key === "Escape" && this.el.open) this.el.open = false
+      if (event.key === "Escape" && this.el.open) {
+        if (this.el.contains(document.activeElement)) {
+          this.el.querySelector("summary")?.focus()
+        }
+        this.el.open = false
+      }
     }
     document.addEventListener("click", this.onDocClick)
     document.addEventListener("keydown", this.onKeyDown)

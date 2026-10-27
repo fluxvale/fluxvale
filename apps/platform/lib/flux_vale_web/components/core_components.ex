@@ -1221,6 +1221,11 @@ defmodule FluxValeWeb.CoreComponents do
 
   attr(:current_org, :map, default: nil, doc: "the active org; nil = personal context")
 
+  attr(:id, :string,
+    default: "org-switcher",
+    doc: "unique DOM id — the DetailsDismiss hook's target"
+  )
+
   attr(:class, :any, default: nil)
   attr(:rest, :global)
 
@@ -1229,7 +1234,7 @@ defmodule FluxValeWeb.CoreComponents do
 
     ~H"""
     <details
-      id="org-switcher"
+      id={@id}
       phx-hook="DetailsDismiss"
       data-testid="org-switcher"
       class={["group relative", @class]}

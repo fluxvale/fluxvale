@@ -163,6 +163,22 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     assert both =~ ~s(href="/organizations/oss-friends")
   end
 
+  # The hook's unique-DOM-id contract stays caller-owned: the default
+  # is "org-switcher" (the app chrome's one switcher), a caller's id
+  # renders exactly once.
+  test "a caller-supplied id wins over the default" do
+    html =
+      render_component(&FluxValeWeb.CoreComponents.org_switcher/1,
+        orgs: [],
+        id: "my-own-switcher"
+      )
+
+    assert html =~ ~s(id="my-own-switcher")
+    # data-testid="org-switcher" also contains `id="org-switcher"` as a
+    # substring, so anchor on the attribute's leading space.
+    refute html =~ ~s( id="org-switcher")
+  end
+
   # Both creates are system-only (#119) — the bootstrap posture,
   # mirroring seeds.
   defp member_org!(user) do

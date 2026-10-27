@@ -1,10 +1,11 @@
 defmodule FluxValeWeb.Storybook.Components.OrgSwitcher do
   @moduledoc """
-  Org-switcher stories (#276): the app chrome's context dropdown.
-  Open one to see the panel — a native <details>, so the storybook's
-  own chrome exercises the toggle exactly like the app's. Rows follow
-  the #284 rule: hidden while only-personal, all of them from the
-  second org on.
+  Org-switcher stories (#276): the app chrome's context dropdown. The
+  previews show the open/closed states — the outside-click and Esc
+  dismissal is app-runtime behavior (the DetailsDismiss hook rides
+  app.js, which the storybook page doesn't load), so check it in the
+  app chrome. Rows follow the #284 rule: hidden while only-personal,
+  all of them from the second org on.
   """
 
   use PhoenixStorybook.Story, :component
