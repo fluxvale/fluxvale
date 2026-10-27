@@ -27,6 +27,11 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
     assert has_element?(view, "[data-testid='org-slug']", org.slug)
     assert has_element?(view, "#org-general-form")
     assert has_element?(view, "[data-testid='slug-preview']", "/organizations/#{org.slug}")
+
+    # The chrome's switcher names THIS org as the active context — the
+    # settings page passes actor_orgs + current_org through (without it
+    # the summary would say "Personal" on an org page).
+    assert has_element?(view, "[data-testid='org-switcher-button'] span", org.name)
   end
 
   test "the tab nav renders exactly one tab — General (no dead tabs ship)", %{
