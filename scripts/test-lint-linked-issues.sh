@@ -132,10 +132,13 @@ expect_stdin_exit 0 "incident quoted in an HTML comment" \
 # then read the still-fenced quote as prose.
 expect_stdin_exit 0 "tilde fence containing a backtick-fence line stays fenced" \
   $'Quoted:\n\n~~~\nCloses #61 (slice 1 of 7)\n```\n~~~'
+# The mismatched fence has to come BEFORE the quote, or a naive toggle
+# happens to skip it anyway and the case proves nothing (it did not, at
+# first: the mutation test passed with the bug reintroduced).
 expect_stdin_exit 0 "backtick fence containing a tilde-fence line stays fenced" \
-  $'Quoted:\n\n```\nCloses #61 (slice 1 of 7)\n~~~\n```'
+  $'Quoted:\n\n```\n~~~\n\nCloses #61 (slice 1 of 7)\n```'
 expect_stdin_exit 0 "shorter closing fence does not close a longer block" \
-  $'````\nCloses #61 (slice 1 of 7)\n```\n````'
+  $'````\n```\nCloses #61 (slice 1 of 7)\n````'
 expect_stdin_exit 0 "incident quoted in a two-backtick span" \
   'Quoted: ``Closes #61 (slice 1 of 7)`` here.'
 expect_stdin_exit 0 "incident quoted in a MULTI-LINE inline span (GFM allows it)" \
