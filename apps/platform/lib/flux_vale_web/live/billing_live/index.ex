@@ -85,7 +85,7 @@ defmodule FluxValeWeb.BillingLive.Index do
   @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_user={@current_user}>
+    <Layouts.app flash={@flash} current_user={@current_user} actor_orgs={@actor_orgs}>
       <div class="space-y-6">
         <.header>
           Billing

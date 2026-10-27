@@ -45,6 +45,12 @@ defmodule FluxValeWeb.DashboardLive do
 
   on_mount({FluxValeWeb.UserAuth, :ensure_authenticated})
 
+  # #276: the chrome's org data — OrgNav rides after the auth gate so
+  # `current_user` is already resolved. The authenticated live_session
+  # carries the same pair for its own routes; this view renders through
+  # `live_render`, so it declares them itself.
+  on_mount({FluxValeWeb.OrgNav, :assign_orgs})
+
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
     user = socket.assigns.current_user
@@ -69,7 +75,7 @@ defmodule FluxValeWeb.DashboardLive do
   @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_user={@current_user}>
+    <Layouts.app flash={@flash} current_user={@current_user} actor_orgs={@actor_orgs}>
       <div class="space-y-8">
         <.header>
           Dashboard

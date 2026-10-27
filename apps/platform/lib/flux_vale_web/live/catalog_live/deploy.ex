@@ -128,7 +128,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
     assigns = assign(assigns, :presets, preset_options(assigns))
 
     ~H"""
-    <Layouts.app flash={@flash} current_user={@current_user}>
+    <Layouts.app flash={@flash} current_user={@current_user} actor_orgs={@actor_orgs}>
       <div class="max-w-2xl mx-auto space-y-8">
         <div>
           <.button variant="ghost" size="sm" navigate={~p"/apps/#{@app.slug}"} class="-ml-2 mb-4">

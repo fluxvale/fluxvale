@@ -13,8 +13,8 @@ defmodule FluxVale.Accounts do
   use Ash.Domain, otp_app: :flux_vale
 
   resources do
-    resource FluxVale.Accounts.Membership
-    resource FluxVale.Accounts.Organization
+    resource(FluxVale.Accounts.Membership)
+    resource(FluxVale.Accounts.Organization)
   end
 
   # Operations are verb-named modules under operations/ (see
@@ -25,5 +25,9 @@ defmodule FluxVale.Accounts do
 
   defdelegate personal_org_for_user(user_id, opts \\ []),
     to: FluxVale.Accounts.Operations.PersonalOrgForUser,
+    as: :call
+
+  defdelegate organizations_for_user(user_id, opts \\ []),
+    to: FluxVale.Accounts.Operations.OrganizationsForUser,
     as: :call
 end

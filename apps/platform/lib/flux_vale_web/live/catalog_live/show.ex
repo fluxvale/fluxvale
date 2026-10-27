@@ -30,7 +30,7 @@ defmodule FluxValeWeb.CatalogLive.Show do
   @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_user={@current_user}>
+    <Layouts.app flash={@flash} current_user={@current_user} actor_orgs={@actor_orgs}>
       <div class="space-y-8">
         <div>
           <.button variant="ghost" size="sm" navigate={~p"/apps"} class="-ml-2 mb-4">
