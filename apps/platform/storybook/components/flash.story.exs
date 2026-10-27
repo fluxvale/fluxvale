@@ -13,17 +13,18 @@ defmodule FluxValeWeb.Storybook.Components.Flash do
       %Variation{
         id: :info,
         description: "Info toast (fixed top-right in the app)",
-        attributes: %{flash: %{info: "Instance forgejo-prod is now running."}}
+        attributes: %{kind: :info, flash: %{info: "Instance forgejo-prod is now running."}}
       },
       %Variation{
         id: :error,
         description: "Error toast",
-        attributes: %{flash: %{error: "Deploy failed — cluster quota exceeded."}}
+        attributes: %{kind: :error, flash: %{error: "Deploy failed — cluster quota exceeded."}}
       },
       %Variation{
         id: :titled,
         description: "With a title",
         attributes: %{
+          kind: :error,
           flash: %{error: "Check your wallet balance and try again."},
           title: "Deploy failed"
         }
