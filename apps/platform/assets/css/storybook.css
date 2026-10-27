@@ -104,12 +104,13 @@
 }
 
 /* ------------------------------------------------------------------ */
-/* Semantic tokens — dark. Both selectors: the app flips [data-theme]  */
-/* on <html>; the storybook's color-mode toggle puts .dark on the      */
-/* sandbox container.                                                  */
+/* Semantic tokens — dark. The app flips [data-theme] on <html>; the   */
+/* storybook's color-mode toggle sets data-psb-color-mode on #psb-main */
+/* and class "dark" on component-iframe bodies.                        */
 /* ------------------------------------------------------------------ */
 [data-theme="dark"],
-.dark {
+.dark,
+[data-psb-color-mode="dark"] {
   --primary: var(--color-brand-400);
   --primary-hover: var(--color-brand-300);
   --primary-active: var(--color-brand-500);
@@ -186,8 +187,8 @@
   );
 }
 
-/* Both dark-mode triggers (see the dark token block above). */
-@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *, .dark, .dark *));
+/* All dark-mode triggers (see the dark token block above). */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *, .dark, .dark *, [data-psb-color-mode=dark], [data-psb-color-mode=dark] *));
 
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
