@@ -22,10 +22,12 @@ defmodule FluxVale.Identity.UserEmailTest do
     )
   end
 
-  # Adds, verifies, and reloads — a verified row straight through actions.
+  # Adds, verifies, and reloads — a verified row straight through
+  # actions. Verification rides the internal path (authorize?: false):
+  # in production only the auth-code identity operation stamps it.
   defp verified_email(user, address) do
     {:ok, row} = add_email(user, address, authorize?: false)
-    {:ok, _verified} = UserEmail.mark_verified(row, actor: user, authorize?: false)
+    {:ok, _verified} = UserEmail.mark_verified(row, authorize?: false)
     Ash.get!(UserEmail, row.id, authorize?: false)
   end
 
@@ -93,14 +95,22 @@ defmodule FluxVale.Identity.UserEmailTest do
   end
 
   describe "mark_verified/1" do
-    test "stamps verified_at" do
+    test "stamps verified_at (the internal path — verification is proven by the auth code, not the actor)" do
       user = create_user("verifier@emails.fluxvale.test")
       {:ok, row} = add_email(user, "pending@emails.fluxvale.test", authorize?: false)
       assert row.verified_at == nil
 
-      assert {:ok, verified} = UserEmail.mark_verified(row, actor: user, authorize?: true)
+      assert {:ok, verified} = UserEmail.mark_verified(row, authorize?: false)
       assert %DateTime{} = verified.verified_at
       assert DateTime.compare(verified.verified_at, DateTime.utc_now()) != :gt
+    end
+
+    test "refuses an owner stamping their own address — verification needs a proven code" do
+      user = create_user("self-stamper@emails.fluxvale.test")
+      {:ok, row} = add_email(user, "unproven@emails.fluxvale.test", authorize?: false)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               UserEmail.mark_verified(row, actor: user, authorize?: true)
     end
   end
 
@@ -179,6 +189,13 @@ defmodule FluxVale.Identity.UserEmailTest do
       spare = verified_email(user, "spare@emails.fluxvale.test")
 
       assert UserEmail.remove(spare, actor: user, authorize?: true) == :ok
+    end
+
+    test "allows removing the only row when it is still pending (nothing verified is lost)" do
+      user = create_user("typo@emails.fluxvale.test")
+      {:ok, pending} = add_email(user, "typo@emails.fluxvale.test", authorize?: false)
+
+      assert UserEmail.remove(pending, actor: user, authorize?: true) == :ok
     end
   end
 

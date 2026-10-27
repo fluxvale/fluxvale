@@ -73,8 +73,18 @@ defmodule FluxVale.Identity.UserEmail do
       authorize_if(expr(user_id == ^actor(:id)))
     end
 
-    policy action_type(:update) do
-      description("Users update their own email rows")
+    # Verification is proven by holding a verified auth code, not by
+    # being the row's owner — an owner stamping verified_at themselves
+    # would hollow out every guard that reads it (set_primary, remove).
+    # The identity operation calls this with authorize?: false (internal
+    # path, same posture as the seeds); admins keep a management path.
+    policy action(:mark_verified) do
+      description("Platform admins stamp verification")
+      authorize_if(FluxVale.Checks.ActorIsPlatformAdmin)
+    end
+
+    policy action([:set_primary, :unset_primary]) do
+      description("Users promote/demote their own email rows")
       authorize_if(FluxVale.Checks.ActorIsPlatformAdmin)
       authorize_if(expr(user_id == ^actor(:id)))
     end

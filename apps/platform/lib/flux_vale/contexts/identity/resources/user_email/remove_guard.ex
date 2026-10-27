@@ -8,6 +8,7 @@ defmodule FluxVale.Identity.UserEmail.RemoveGuard do
 
   use Ash.Resource.Change
 
+  alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
 
   require Ash.Query
@@ -25,7 +26,10 @@ defmodule FluxVale.Identity.UserEmail.RemoveGuard do
             message: "is the primary address — make another address primary first"
           )
 
-        last_verified?(record) ->
+        # The invariant is about verified addresses: removing a pending
+        # row (a typo claim, say) can never drop the user below one
+        # verified address.
+        record.verified_at != nil and last_verified?(record) ->
           Ash.Changeset.add_error(
             changeset,
             field: :verified_at,
@@ -39,7 +43,15 @@ defmodule FluxVale.Identity.UserEmail.RemoveGuard do
   end
 
   # authorize?: false — invariant count, same stance as EnforceEmailCap.
+  # The user-row lock serializes concurrent removals for one user (under
+  # READ COMMITTED two transactions could otherwise each see the other's
+  # row as "the remaining verified one" and delete both).
   defp last_verified?(record) do
+    User
+    |> Ash.Query.filter(id == ^record.user_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one!(authorize?: false)
+
     count =
       UserEmail
       |> Ash.Query.filter(

@@ -8,6 +8,7 @@ defmodule FluxVale.Identity.UserEmail.EnforceEmailCap do
 
   use Ash.Resource.Change
 
+  alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
 
   require Ash.Query
@@ -18,6 +19,16 @@ defmodule FluxVale.Identity.UserEmail.EnforceEmailCap do
 
     Ash.Changeset.before_action(changeset, fn changeset ->
       user = Ash.Changeset.get_argument(changeset, :user)
+
+      # Serialize per user: two concurrent adds could both count below the
+      # cap and both insert (unique_address can't arbitrate across
+      # different addresses). Locking the parent user row makes
+      # count-and-insert a per-user critical section (the Instance
+      # adopt_* idiom).
+      User
+      |> Ash.Query.filter(id == ^user.id)
+      |> Ash.Query.lock(:for_update)
+      |> Ash.read_one!(authorize?: false)
 
       # authorize?: false is an invariant count, not an authorization
       # question: the action's policy already gated the caller, and the
