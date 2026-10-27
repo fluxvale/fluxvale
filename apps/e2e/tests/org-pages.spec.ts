@@ -60,7 +60,7 @@ test("org-home: signed-in visit renders the org home", async ({ page, request })
   await expect(page.getByTestId("org-slug")).toHaveText(/\S/);
   // A fresh account: exactly the JIT-provisioned owner.
   await expect(page.getByTestId("member-count")).toContainText("1 member");
-  await expect(page.getByTestId("org-wallet-balance")).toBeVisible();
+  await expect(page.getByTestId("wallet-balance")).toBeVisible();
   // Nothing deployed yet — the empty state points at the catalog.
   await expect(page.getByTestId("instances-empty")).toBeVisible();
 });

@@ -17,7 +17,7 @@ defmodule FluxValeWeb.OrganizationLive.Home do
   alias FluxVale.Billing
   alias FluxVale.Checks.ActorIsOrganizationOwner
   alias FluxVale.Infrastructure.Instance
-  alias FluxVale.Pricing
+  alias FluxValeWeb.BillingComponents
 
   require Ash.Query
 
@@ -104,12 +104,9 @@ defmodule FluxValeWeb.OrganizationLive.Home do
           {member_label(@member_count)}
         </p>
 
-        <.metric_card
-          label="Balance"
-          value={format_balance(@balance_cents)}
-          hint="Credits never expire."
-          data-testid="org-wallet-balance"
-        />
+        <.card>
+          <BillingComponents.balance_header balance={@balance_cents} />
+        </.card>
 
         <section aria-labelledby="org-instances-title" class="space-y-3">
           <h2 id="org-instances-title" class="text-lg font-semibold tracking-tight text-ink">
@@ -147,8 +144,12 @@ defmodule FluxValeWeb.OrganizationLive.Home do
                     {instance.name}
                   </h3>
                 </div>
-                <div class="flex items-center gap-3">
-                  <span class="truncate text-sm text-ink-muted">
+                <%!-- min-w-0 twice: the cluster is a flex child that must
+                be allowed to shrink, and the app name is a flex item
+                whose truncate is dead without it (a long app name
+                overflowed the card by ~199px at 375). --%>
+                <div class="flex min-w-0 items-center gap-3">
+                  <span class="min-w-0 truncate text-sm text-ink-muted">
                     {instance.app_version.app.name}
                   </span>
                   <.status_badge status={instance.status} />
@@ -173,10 +174,4 @@ defmodule FluxValeWeb.OrganizationLive.Home do
 
   defp member_label(1), do: "1 member"
   defp member_label(count), do: "#{count} members"
-
-  # Prices (Pricing.format_usd/1) are non-negative by constraint; the
-  # ledger carries signed cents — the sign is the display seam's
-  # business, like billing's and the dashboard's.
-  defp format_balance(cents) when cents < 0, do: "-" <> Pricing.format_usd(-cents)
-  defp format_balance(cents), do: Pricing.format_usd(cents)
 end

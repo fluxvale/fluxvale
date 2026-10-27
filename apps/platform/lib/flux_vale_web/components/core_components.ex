@@ -1204,11 +1204,13 @@ defmodule FluxValeWeb.CoreComponents do
   (#284, interim until the usernames/multi-email root fix).
 
   `current_org` names the active context in the closed summary — nil is
-  the personal one. Below lg the summary collapses to the icon: at `sm`
-  the label rejoining the nav links occludes the first of them (the
-  640-712px band — a pill of intrinsic width over a shrunken cluster,
-  #276 review), and above lg `truncate` bounds a long active name. The
-  panel keeps every entry reachable.
+  the personal one. Below lg the summary collapses to the glyph: the
+  active org's initial (the user_menu pattern — the building icon can't
+  say which org is active), the building icon for Personal. At `sm` a
+  label would occlude the first nav link (the 640-712px band — a pill
+  of intrinsic width over a shrunken cluster, #276 review), and above
+  lg `truncate` bounds a long active name. The panel keeps every entry
+  reachable.
 
   ## Examples
 
@@ -1245,7 +1247,20 @@ defmodule FluxValeWeb.CoreComponents do
         aria-label="Organization switcher"
         data-testid="org-switcher-button"
       >
-        <.icon name="hero-building-library-micro" class="size-4 shrink-0 text-ink-subtle" />
+        <%!-- Below lg the summary carries no label, so a set context
+        names itself by its initial (the user_menu glyph) — the building
+        icon alone cannot say which org is active. Personal keeps the
+        icon; above lg both show the icon beside the truncated name. --%>
+        <span
+          :if={@current_org}
+          class="grid size-4 shrink-0 place-items-center rounded-full bg-primary-muted text-[9px] font-semibold text-primary lg:hidden"
+        >
+          {initial(@current_org.name)}
+        </span>
+        <.icon
+          name="hero-building-library-micro"
+          class={["size-4 shrink-0 text-ink-subtle", @current_org && "hidden lg:block"]}
+        />
         <span class="hidden max-w-32 truncate text-xs font-semibold text-ink lg:inline">{@active_name}</span>
         <.icon
           name="hero-chevron-down-micro"

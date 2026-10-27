@@ -2,8 +2,8 @@ defmodule FluxValeWeb.OrgSwitcherTest do
   @moduledoc """
   The app chrome's org switcher (#276): rendered for a signed-in actor
   beside the logo, absent from the public and anonymous chrome. Rows are
-  asserted by href — the /organizations/:slug surfaces are a sibling
-  ticket in this lane. One org = only-personal, so the org rows hide
+  asserted by href — the /organizations/:slug surfaces they target are
+  this lane's org pages. One org = only-personal, so the org rows hide
   and Personal is the whole panel (#284, interim until the usernames
   root fix).
   """
@@ -48,6 +48,9 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     assert html =~ ~s(phx-hook="DetailsDismiss")
     # The closed summary names the active context — personal by default.
     assert html =~ ~s(>Personal</span>)
+    assert html =~ ~s(href="/")
+    assert html =~ ~s(href="/organizations/#{org.slug}")
+    assert html =~ org.name
 
     # One org = only-personal: the Personal row is the whole panel — an
     # org row would be the same context twice (#284).
@@ -147,6 +150,23 @@ defmodule FluxValeWeb.OrgSwitcherTest do
       )
 
     assert html =~ ~s(>Acme Collective</span>)
+    assert html =~ ~s(href="/organizations/acme")
+
+    # Below lg the label is hidden, so the active org leads the pill
+    # with its initial (the user_menu glyph) while the building icon
+    # demotes to lg+ — the icon alone can't say which org is active.
+    assert html =~ ~s(lg:hidden)
+    assert html =~ ~r/>\s*A\s*<\/span>/
+    assert html =~ "hidden lg:block"
+
+    personal_html =
+      render_component(&FluxValeWeb.CoreComponents.org_switcher/1,
+        orgs: [%{organization: %{name: "Acme Collective", slug: "acme"}}]
+      )
+
+    # Personal keeps the building icon at every width — no initial.
+    refute personal_html =~ "lg:hidden"
+    refute personal_html =~ "hidden lg:block"
   end
 
   # The #284 row rule at the component level, off the chrome: one org

@@ -12,6 +12,7 @@ defmodule FluxValeWeb.OrganizationLive.HomeTest do
   alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
+  alias FluxVale.Infrastructure.Instance
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
@@ -58,6 +59,58 @@ defmodule FluxValeWeb.OrganizationLive.HomeTest do
     refute has_element?(view, "[data-testid='instances-empty']")
   end
 
+  test "instances are org-scoped — the URL org's rows, never another org's", %{
+    conn: conn,
+    user: user,
+    org: org
+  } do
+    version = InstanceFixtures.app_version!()
+    personal_instance = InstanceFixtures.instance!(version, user)
+
+    # The discriminating case (the org billing view's two-org pattern):
+    # the SAME actor owns a second org with its own instance, so "the
+    # URL's org" and "the actor's other org" are different rows. An
+    # action create can't land there (SetOrganizationFromActor pins
+    # every create to the actor's personal org), so the team instance
+    # rides Ash.seed! — the sanctioned escape for states actions can't
+    # produce.
+    team = team_org!(user)
+
+    team_instance =
+      Ash.Seed.seed!(Instance, %{
+        name: "Team Inst #{System.unique_integer([:positive])}",
+        slug: "team-inst-#{System.unique_integer([:positive])}",
+        image: "registry.example.com/team:1",
+        port: 3000,
+        healthcheck_path: "/",
+        status: :running,
+        namespace: "fluxvale-app-team-#{System.unique_integer([:positive])}",
+        deployed_at: DateTime.utc_now(),
+        env_vars: %{},
+        app_version_id: version.id,
+        organization_id: team.id
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}")
+
+    assert has_element?(
+             view,
+             "[data-testid='instance-row'][href='/instances/#{personal_instance.id}']"
+           )
+
+    refute has_element?(view, "[data-testid='instance-row']", team_instance.name)
+
+    # And the team org's page is the mirror image.
+    {:ok, team_view, _html} = live(conn, ~p"/organizations/#{team.slug}")
+
+    assert has_element?(
+             team_view,
+             "[data-testid='instance-row'][href='/instances/#{team_instance.id}']"
+           )
+
+    refute has_element?(team_view, "[data-testid='instance-row']", personal_instance.name)
+  end
+
   test "zero instances shows the empty state pointing at the catalog", %{conn: conn, org: org} do
     {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}")
 
@@ -79,7 +132,7 @@ defmodule FluxValeWeb.OrganizationLive.HomeTest do
     {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}")
 
     # 10_000¢ − 25¢ = 9_975¢
-    assert has_element?(view, "[data-testid='org-wallet-balance']", "$99.75")
+    assert has_element?(view, "[data-testid='wallet-balance']", "$99.75")
   end
 
   test "a negative balance renders with a minus sign", %{conn: conn, org: org} do
@@ -95,7 +148,7 @@ defmodule FluxValeWeb.OrganizationLive.HomeTest do
 
     {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}")
 
-    assert has_element?(view, "[data-testid='org-wallet-balance']", "-$100.00")
+    assert has_element?(view, "[data-testid='wallet-balance']", "-$100.00")
   end
 
   test "the owner sees the Settings link", %{conn: conn, org: org} do
