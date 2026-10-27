@@ -26,6 +26,29 @@ import {hooks as colocatedHooks} from "phoenix-colocated/flux_vale"
 import topbar from "../vendor/topbar"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
+
+// Generic <details> dismissal (#284): native <details> only closes on a
+// summary re-click; this adds the GitHub-style outside-click + Escape
+// close. Attach to any <details> host (phx-hook requires a unique DOM
+// id) — it only flips the host's own `open` attribute, so it manages no
+// DOM children and needs no phx-update="ignore".
+const DetailsDismiss = {
+  mounted() {
+    this.onDocClick = event => {
+      if (this.el.open && !this.el.contains(event.target)) this.el.open = false
+    }
+    this.onKeyDown = event => {
+      if (event.key === "Escape" && this.el.open) this.el.open = false
+    }
+    document.addEventListener("click", this.onDocClick)
+    document.addEventListener("keydown", this.onKeyDown)
+  },
+  destroyed() {
+    document.removeEventListener("click", this.onDocClick)
+    document.removeEventListener("keydown", this.onKeyDown)
+  },
+}
+
 // No longpoll fallback (#215 — phx.new scaffold default, not a decision):
 // on a slow edge its poll cycle resurrects the socket mid-sign-out and
 // LiveView's isUnloaded guard reloads /, aborting the pending /sign-in
@@ -33,7 +56,7 @@ const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute
 // resurrect-after-disconnect race.
 const liveSocket = new LiveSocket("/live", Socket, {
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks},
+  hooks: {...colocatedHooks, DetailsDismiss},
 })
 
 // Show progress bar on live navigation and form submits
