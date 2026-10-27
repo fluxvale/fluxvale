@@ -28,10 +28,11 @@ defmodule FluxValeWeb.Api.MeRouteTest do
       assert data["id"] == user.id
 
       # Public attributes are the API contract (ADR-0019 §1) — id, email,
-      # platform_role and nothing else
+      # platform_role, username (#285 T2) and nothing else
       assert data["attributes"] == %{
                "email" => "me-route@fluxvale.com",
-               "platform_role" => "user"
+               "platform_role" => "user",
+               "username" => "me-route"
              }
 
       refute Map.has_key?(data["attributes"], "hashed_password")
