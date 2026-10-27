@@ -71,17 +71,11 @@ defmodule FluxVale.Accounts.Organization do
     attribute :name, :string do
       allow_nil?(false)
       public?(true)
-
-      # Display-only; kept clear of URL and UI overflow.
-      constraints(max_length: 100)
     end
 
     attribute :slug, :string do
       allow_nil?(false)
       public?(true)
-
-      # 39 = GitHub's org-login cap — the parity the rename flow targets.
-      constraints(max_length: 39)
     end
   end
 
@@ -151,9 +145,10 @@ defmodule FluxVale.Accounts.Organization do
       # nothing in the system bulk-updates orgs.
       change(fn changeset, _context ->
         case Map.get(changeset.data, :slug) do
-          # Only a query-bulk update carries no original row, and this
-          # non-atomic action rejects that strategy — kept so a slug-less
-          # shape can never add a nil filter.
+          # Dead in practice, kept so a slug-less shape can never add a
+          # nil filter: bulk :atomic strategies are rejected before any
+          # change runs (function changes implement no atomic/3), and
+          # streamed/record changesets always carry the loaded row.
           # coveralls-ignore-next-line
           nil -> changeset
           loaded_slug -> Ash.Changeset.filter(changeset, slug: loaded_slug)
@@ -201,6 +196,24 @@ defmodule FluxVale.Accounts.Organization do
       on: [:create, :update],
       where: changing(:slug),
       message: "must contain only lowercase alphanumeric characters and hyphens"
+    )
+
+    # The length caps bind the RENAME flow only — never the create. The
+    # slug is the sanitized email local part at signup, and a 64-char RFC
+    # local part is legal; capping the attribute turned a 40-char local
+    # part into a retry-proof signup outage (the code burns before the
+    # provisioning failure surfaces). Legacy rows with longer slugs keep
+    # saving: `where: changing` skips untouched fields.
+    validate(string_length(:slug, max: 39),
+      on: :update,
+      where: changing(:slug),
+      message: "must be at most 39 characters"
+    )
+
+    validate(string_length(:name, max: 100),
+      on: :update,
+      where: changing(:name),
+      message: "must be at most 100 characters"
     )
   end
 end

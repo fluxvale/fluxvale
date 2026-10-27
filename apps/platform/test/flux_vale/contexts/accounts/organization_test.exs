@@ -161,21 +161,107 @@ defmodule FluxVale.Accounts.OrganizationTest do
                Organization.create(%{name: "Squatter", slug: old_slug}, authorize?: false)
     end
 
-    test "field caps: slug tops out at 39 (GitHub org-login parity), name at 100" do
+    test "a 40+ char email local part still provisions (the caps bind renames, not signup)" do
+      # Round-2 P1 regression: the length caps once sat on the attribute,
+      # so the JIT provisioning create failed for a long local part —
+      # after the auth code was burned. Signup must not care.
+      local_part = String.duplicate("u", 44)
+      user = AccountsFixtures.user!(local_part)
+
+      org = AccountsFixtures.personal_org!(user)
+      assert org.slug == String.duplicate("u", 44)
+    end
+
+    test "a rename to a 40-char slug fails with the field error; 39 fits" do
       user = AccountsFixtures.user!()
       org = AccountsFixtures.personal_org!(user)
 
       assert {:ok, renamed} =
                Organization.update(org, %{slug: String.duplicate("a", 39)}, actor: user)
 
-      assert {:error, %Invalid{}} =
+      assert {:error, %Invalid{errors: errors}} =
                Organization.update(renamed, %{slug: String.duplicate("b", 40)}, actor: user)
 
-      assert {:ok, named} =
-               Organization.update(renamed, %{name: String.duplicate("n", 100)}, actor: user)
+      assert Enum.any?(
+               errors,
+               &match?(
+                 %Ash.Error.Changes.InvalidAttribute{
+                   field: :slug,
+                   message: "must be at most 39 characters"
+                 },
+                 &1
+               )
+             )
+    end
 
-      assert {:error, %Invalid{}} =
+    test "a rename caps the name at 100" do
+      user = AccountsFixtures.user!()
+      org = AccountsFixtures.personal_org!(user)
+
+      assert {:ok, named} =
+               Organization.update(org, %{name: String.duplicate("n", 100)}, actor: user)
+
+      assert {:error, %Invalid{errors: errors}} =
                Organization.update(named, %{name: String.duplicate("m", 101)}, actor: user)
+
+      assert Enum.any?(
+               errors,
+               &match?(
+                 %Ash.Error.Changes.InvalidAttribute{
+                   field: :name,
+                   message: "must be at most 100 characters"
+                 },
+                 &1
+               )
+             )
+    end
+
+    test "a legacy >39-char slug can still save a name edit (caps bind changing fields only)" do
+      owner = AccountsFixtures.user!()
+      legacy_slug = String.duplicate("x", 43)
+
+      # The legacy row predates the cap; the create action carries no
+      # length validation (the caps are rename-scoped). Seed via the
+      # action with authorize?: false — the bootstrap posture.
+      legacy = Organization.create!(%{name: "Legacy", slug: legacy_slug}, authorize?: false)
+
+      # Sanctioned precondition: an owner membership for the policy.
+      Membership.create!(%{organization_id: legacy.id, user_id: owner.id, role: :owner},
+        authorize?: false
+      )
+
+      # The settings form always submits both fields — the untouched slug
+      # must not trip the cap.
+      assert {:ok, saved} =
+               Organization.update(legacy, %{name: "Legacy Renamed", slug: legacy_slug},
+                 actor: owner
+               )
+
+      assert saved.name == "Legacy Renamed"
+      assert saved.slug == legacy_slug
+    end
+
+    test "a stale form cannot revert a concurrent name edit (the non-atomic contract)" do
+      user = AccountsFixtures.user!()
+      org = AccountsFixtures.personal_org!(user)
+
+      # tab2's form: mounted before the concurrent write — its submitted
+      # values equal its own stale data.
+      stale =
+        Ash.Changeset.for_update(org, :update, %{name: org.name, slug: org.slug}, actor: user)
+
+      # tab1 moves the NAME only — the stale form's slug still matches, so
+      # this write goes through.
+      assert {:ok, _newer} = Organization.update(org, %{name: "Newer Name"}, actor: user)
+
+      # The stale submit succeeds as a no-op write: equal-to-data fields
+      # drop out of the SET (a property of the non-atomic action), so the
+      # newer name survives. Flipping require_atomic? back on would
+      # clobber it — this test fails first.
+      assert {:ok, _no_op} = Ash.update(stale)
+
+      assert {:ok, current} = Organization.get_by_slug(org.slug, actor: user)
+      assert current.name == "Newer Name"
     end
 
     test "a changeset mounted before a rename fails stale instead of writing the old slug back" do

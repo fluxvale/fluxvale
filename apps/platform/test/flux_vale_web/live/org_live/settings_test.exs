@@ -319,7 +319,7 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
     {:ok, tab2, _html} = live(conn, ~p"/organizations/#{org.slug}/settings")
 
     tab1
-    |> form("#org-general-form", organization: %{name: org.name, slug: "tab1-target"})
+    |> form("#org-general-form", organization: %{name: "Tab One Name", slug: "tab1-target"})
     |> render_submit()
 
     tab1
@@ -328,7 +328,8 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
 
     # tab2's form predates the rename: its "name-only" save looks
     # unchanged to itself, skips the confirm step — and must fail stale
-    # instead of silently moving the address back.
+    # instead of silently moving the address back or clobbering tab1's
+    # newer name.
     tab2
     |> form("#org-general-form", organization: %{name: "Tab Two Name", slug: org.slug})
     |> render_submit()
@@ -336,7 +337,7 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
     assert has_element?(tab2, "#flash-error", "This organization changed underneath you")
 
     assert {:ok, current} = Organization.get_by_slug("tab1-target", actor: owner)
-    assert current.name == org.name
+    assert current.name == "Tab One Name"
 
     assert {:error, _gone} = Organization.get_by_slug(org.slug, actor: owner)
   end
