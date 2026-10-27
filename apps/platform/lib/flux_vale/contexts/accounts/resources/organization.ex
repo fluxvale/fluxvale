@@ -140,15 +140,22 @@ defmodule FluxVale.Accounts.Organization do
       # loaded, so a view mounted before a rename fails with StaleRecord
       # instead of silently writing the old address back (the
       # observe_access_gateway idiom; Instance's optimistic_lock(:version)
-      # is the same contract with a counter). No original row (query-bulk
-      # updates) → no slug to lock on — the guard can't apply there, and
-      # nothing in the system bulk-updates orgs.
+      # is the same contract with a counter).
+      #
+      # Known bypass, deliberately accepted: atomic_update/force_change
+      # mutations ride past this filter AND the length caps below — and
+      # under require_atomic?(false) they are not in
+      # changeset.attributes (which is also why `where: changing`
+      # correctly skips them). Unreachable today: no bulk/crafted callers
+      # on Organization, and Accounts is not an AshAdmin domain. A future
+      # caller needing those shapes must re-check this filter and the
+      # caps with it.
       change(fn changeset, _context ->
         case Map.get(changeset.data, :slug) do
           # Dead in practice, kept so a slug-less shape can never add a
-          # nil filter: bulk :atomic strategies are rejected before any
-          # change runs (function changes implement no atomic/3), and
-          # streamed/record changesets always carry the loaded row.
+          # nil filter: require_atomic?(false) keeps bulk :atomic
+          # strategies out entirely, and every changeset that does run
+          # (record + streamed bulk) carries the loaded row.
           # coveralls-ignore-next-line
           nil -> changeset
           loaded_slug -> Ash.Changeset.filter(changeset, slug: loaded_slug)
