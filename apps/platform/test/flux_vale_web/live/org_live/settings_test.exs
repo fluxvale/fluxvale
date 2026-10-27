@@ -44,16 +44,35 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
     assert has_element?(view, "[data-testid='org-settings-tab-members']", "Members")
 
     # Count the tab keys, not just the container: a dead tab injected by a
-    # mutation must fail this. (LiveViewTest has no count API, and
-    # LazyHTML's parser chokes on the page's script tags — hence the
-    # rendered-HTML count of the testid each tab renders exactly once.)
+    # mutation must fail this. The key charset is wide ([^"]+, not
+    # lowercase-only — an uppercase key still renders a tab), and the
+    # <nav>'s link count is pinned separately so a testid-less dead link
+    # cannot hide. (LiveViewTest has no count API, and LazyHTML's parser
+    # chokes on the page's script tags — hence the rendered-HTML counts.)
     tab_count =
       view
       |> render()
-      |> then(&Regex.scan(~r/data-testid="org-settings-tab-[a-z-]+"/, &1))
+      |> then(&Regex.scan(~r/data-testid="org-settings-tab-[^"]+"/, &1))
       |> length()
 
     assert tab_count == 2
+
+    nav_html = render(element(view, "[data-testid='org-settings-tabs']"))
+
+    link_count =
+      nav_html
+      |> then(&Regex.scan(~r/<a /, &1))
+      |> length()
+
+    assert link_count == 2
+
+    # General is the active tab on THIS page — and only it.
+    general_tab = render(element(view, "[data-testid='org-settings-tab-general']"))
+    assert general_tab =~ ~s(aria-current="page")
+    assert general_tab =~ "border-primary"
+
+    members_tab = render(element(view, "[data-testid='org-settings-tab-members']"))
+    refute members_tab =~ "border-primary"
   end
 
   test "the slug preview follows the input live", %{conn: conn, org: org} do

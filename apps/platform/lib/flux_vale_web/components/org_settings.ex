@@ -49,4 +49,37 @@ defmodule FluxValeWeb.OrgSettings do
     </nav>
     """
   end
+
+  attr(:org, :map, required: true)
+
+  @doc """
+  The org identity block — back link, avatar, name, slug — carried
+  verbatim from the Settings page so every tab page renders the same
+  frame (and the page has its `<h1>`).
+  """
+  @spec org_header(map()) :: Phoenix.LiveView.Rendered.t()
+  def org_header(assigns) do
+    ~H"""
+    <div>
+      <.button variant="ghost" size="sm" navigate={~p"/"} class="-ml-2 mb-4">
+        &larr; Dashboard
+      </.button>
+
+      <div class="flex items-center gap-4">
+        <div class="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary-muted text-lg font-semibold text-primary">
+          {String.first(@org.name)}
+        </div>
+        <div class="min-w-0">
+          <h1
+            class="truncate text-2xl font-semibold tracking-tight text-ink"
+            data-testid="org-name"
+          >
+            {@org.name}
+          </h1>
+          <p class="text-sm text-ink-muted" data-testid="org-slug">{@org.slug}</p>
+        </div>
+      </div>
+    </div>
+    """
+  end
 end

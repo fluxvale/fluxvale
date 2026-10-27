@@ -24,10 +24,11 @@ defmodule FluxValeWeb.OrganizationLive.Members do
 
     case Organization.get_by_slug(slug, actor: user) do
       {:ok, org} ->
-        # UX gate, not the authority: the read policy already scopes the
-        # roster rows to the actor's own org. This just spares a member
-        # a settings surface that is owners-only — same posture as
-        # Settings.
+        # UX gate, not the authority: the read policy scopes roster rows to
+        # the actor's own orgs, and the query's organization_id filter is
+        # what narrows them to THIS org — both are load-bearing (pinned by
+        # the two-org test). The gate itself only spares a member a
+        # settings surface that is owners-only — same posture as Settings.
         if ActorIsOrganizationOwner.owner?(user, org) do
           {:ok, assign(socket, org: org, members: list_members(org, user))}
         else
@@ -54,7 +55,9 @@ defmodule FluxValeWeb.OrganizationLive.Members do
       actor_orgs={@actor_orgs}
       current_org={@org}
     >
-      <div class="mx-auto max-w-3xl space-y-6">
+      <div class="mx-auto max-w-3xl space-y-8">
+        <OrgSettings.org_header org={@org} />
+
         <OrgSettings.settings_tabs current="members" slug={@org.slug} />
 
         <div>
@@ -84,6 +87,9 @@ defmodule FluxValeWeb.OrganizationLive.Members do
     """
   end
 
+  # The organization_id filter is load-bearing, not redundant: the read
+  # policy scopes rows to the actor's own orgs — plural — and this is
+  # what narrows them to the org on the URL (pinned by the two-org test).
   # Owners first, then joined-asc; id is the tiebreak (uuid_v7 is
   # time-ordered, so equal timestamps still sort deterministically).
   # The date key is iso8601 — DateTime structs don't term-compare
