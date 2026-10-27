@@ -19,5 +19,7 @@ defmodule FluxValeWeb.Storybook do
     # Lets the workshop's header toggle flip component tokens (the dark
     # token block in app.css also keys off the .dark class).
     color_mode: true,
-    color_mode_sandbox_dark_class: "dark"
+    color_mode_sandbox_dark_class: "dark",
+    # Ensure the sandbox container inherits the color-mode state from the root
+    color_mode_root_selector: "html[data-psb-color-mode='dark']"
 end

@@ -186,8 +186,10 @@
   );
 }
 
-/* Both dark-mode triggers (see the dark token block above). */
-@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *, .dark, .dark *));
+/* Both dark-mode triggers (see the dark token block above).
+ * PhoenixStorybook's ColorModeHook uses class "psb:dark" (via e.classList.toggle("psb:dark", e==="dark"))
+ */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *, .psb:dark, .psb:dark *));
 
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
