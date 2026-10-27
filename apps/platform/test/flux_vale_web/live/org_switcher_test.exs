@@ -199,6 +199,18 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     refute html =~ ~s( id="org-switcher")
   end
 
+  test "an empty org name renders the neutral glyph, not a crash" do
+    html =
+      render_component(&FluxValeWeb.CoreComponents.org_switcher/1,
+        orgs: [%{organization: %{name: "", slug: "empty"}}],
+        current_org: %{name: "", slug: "empty"}
+      )
+
+    # The DB admits '' names; initial/1 is defensive chrome — the pill
+    # shows the neutral glyph instead of raising.
+    assert html =~ ~r/>\s*\?\s*<\/span>/
+  end
+
   # Both creates are system-only (#119) — the bootstrap posture,
   # mirroring seeds.
   defp member_org!(user) do

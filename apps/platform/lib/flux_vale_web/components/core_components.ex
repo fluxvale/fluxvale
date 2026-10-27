@@ -1181,11 +1181,17 @@ defmodule FluxValeWeb.CoreComponents do
     """
   end
 
-  # The avatar glyph: the email's first grapheme, uppercased — no
-  # external avatar source in v1. Emails are CiStrings at the Ash
-  # boundary; downcast before String owns it.
-  defp initial(email) do
-    email
+  # The avatar glyph: the first grapheme, uppercased — no external
+  # avatar source in v1. Emails are CiStrings at the Ash boundary;
+  # downcast before String owns it. Defensively nil/empty-safe — the DB
+  # admits '' names and this helper is shared chrome, so a neutral glyph
+  # renders instead of a crash (the glyph is aria-hidden decoration, so
+  # nothing is announced either way).
+  defp initial(nil), do: "?"
+  defp initial(""), do: "?"
+
+  defp initial(subject) do
+    subject
     |> to_string()
     |> String.first()
     |> String.upcase()
@@ -1253,7 +1259,8 @@ defmodule FluxValeWeb.CoreComponents do
         icon; above lg both show the icon beside the truncated name. --%>
         <span
           :if={@current_org}
-          class="grid size-4 shrink-0 place-items-center rounded-full bg-primary-muted text-[9px] font-semibold text-primary lg:hidden"
+          aria-hidden="true"
+          class="grid size-4 shrink-0 place-items-center overflow-hidden rounded-full bg-primary-muted text-[9px] font-semibold text-primary lg:hidden"
         >
           {initial(@current_org.name)}
         </span>

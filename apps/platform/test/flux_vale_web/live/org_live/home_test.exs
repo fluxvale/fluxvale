@@ -59,7 +59,7 @@ defmodule FluxValeWeb.OrganizationLive.HomeTest do
     refute has_element?(view, "[data-testid='instances-empty']")
   end
 
-  test "instances are org-scoped — the URL org's rows, never another org's", %{
+  test "instances and the wallet are org-scoped — the URL org's, never another org's", %{
     conn: conn,
     user: user,
     org: org
@@ -91,6 +91,18 @@ defmodule FluxValeWeb.OrganizationLive.HomeTest do
         organization_id: team.id
       })
 
+    # Distinct wallet amounts per org (the billing view's shape): drain
+    # the personal JIT grant first so the arithmetic below owns itself,
+    # then grant each wallet its marker.
+    {:ok, personal_wallet} = Billing.ensure_wallet(org)
+
+    {:ok, personal_balance} = Billing.balance(personal_wallet, authorize?: false)
+    {:ok, _drain} = Billing.debit_wallet(personal_wallet, personal_balance * 10_000)
+    {:ok, _grant} = Billing.grant_credits(personal_wallet, 11_100)
+
+    {:ok, team_wallet} = Billing.ensure_wallet(team)
+    {:ok, _grant} = Billing.grant_credits(team_wallet, 22_200)
+
     {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}")
 
     assert has_element?(
@@ -100,7 +112,12 @@ defmodule FluxValeWeb.OrganizationLive.HomeTest do
 
     refute has_element?(view, "[data-testid='instance-row']", team_instance.name)
 
-    # And the team org's page is the mirror image.
+    # The personal page bills the personal wallet.
+    assert has_element?(view, "[data-testid='wallet-balance']", "$111.00")
+    refute has_element?(view, "[data-testid='wallet-balance']", "$222.00")
+
+    # And the team org's page is the mirror image — its instance and its
+    # wallet, never the personal org's.
     {:ok, team_view, _html} = live(conn, ~p"/organizations/#{team.slug}")
 
     assert has_element?(
@@ -109,6 +126,9 @@ defmodule FluxValeWeb.OrganizationLive.HomeTest do
            )
 
     refute has_element?(team_view, "[data-testid='instance-row']", personal_instance.name)
+
+    assert has_element?(team_view, "[data-testid='wallet-balance']", "$222.00")
+    refute has_element?(team_view, "[data-testid='wallet-balance']", "$111.00")
   end
 
   test "zero instances shows the empty state pointing at the catalog", %{conn: conn, org: org} do
