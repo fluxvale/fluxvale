@@ -72,11 +72,11 @@ defmodule FluxValeWeb.CatalogLive.Index do
               class="group relative rounded-xl border border-line bg-panel p-5 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
             >
               <div class="flex items-center gap-3">
-                <div class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-muted font-semibold text-primary">
+                <div class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-muted font-semibold text-link">
                   <img :if={app.icon_url} src={app.icon_url} alt={app.name} class="size-9 rounded-lg" />
                   <span :if={is_nil(app.icon_url)}>{String.first(app.name)}</span>
                 </div>
-                <h3 class="text-base font-medium text-ink transition-colors group-hover:text-primary">
+                <h3 class="text-base font-medium text-ink transition-colors group-hover:text-link">
                   {app.name}
                 </h3>
                 <.icon

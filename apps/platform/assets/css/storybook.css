@@ -1,10 +1,11 @@
 /* FluxVale Storybook bundle (#178).
  *
  * PhoenixStorybook loads THIS file instead of app.css, so it mirrors
- * the app's token directives: ramp, Inter, semantic vars, dark-mode
- * variant, heroicons plugin. Deliberately NO daisyUI — the design
- * system is hand-written Tailwind, and the workshop must prove the
- * components stand on the tokens alone.
+ * the app's token directives — ramp, Inter, semantic vars (Grove,
+ * #277), elevation/radius/motion, dark-mode variant, heroicons plugin
+ * — exactly; if the bundles diverge the workshop lies. Deliberately NO
+ * daisyUI — the design system is hand-written Tailwind, and the
+ * workshop must prove the components stand on the tokens alone.
  */
 
 @import "tailwindcss" source(none);
@@ -16,19 +17,31 @@
 @plugin "../vendor/heroicons";
 
 /* ------------------------------------------------------------------ */
-/* Brand ramp — Flux Stream amber (v1 heritage, static in both modes)  */
+/* Brand ramp — Flux Stream amber (OKLCH, hue ~55), static in both     */
+/* modes. Steps 100/200/300/600/700 are re-authored at the sRGB gamut  */
+/* boundary (#277): same L and H, chroma pulled in, so rendering       */
+/* matches authoring.                                                  */
 /* ------------------------------------------------------------------ */
 @theme {
   --color-brand-50: oklch(97% 0.02 70);
-  --color-brand-100: oklch(95% 0.045 68);
-  --color-brand-200: oklch(90% 0.08 65);
-  --color-brand-300: oklch(84% 0.12 60);
+  --color-brand-100: oklch(95% 0.035 68); /* #ffebd6 */
+  --color-brand-200: oklch(90% 0.069 65); /* #ffd5ae */
+  --color-brand-300: oklch(84% 0.108 60); /* #ffba81 */
   --color-brand-400: oklch(78% 0.15 58);
   --color-brand-500: oklch(72% 0.17 55);
-  --color-brand-600: oklch(60% 0.17 50);
-  --color-brand-700: oklch(52% 0.15 48);
+  --color-brand-600: oklch(60% 0.158 50); /* #c85d02 */
+  --color-brand-700: oklch(52% 0.142 48); /* #a74900 */
   --color-brand-800: oklch(42% 0.11 47);
   --color-brand-900: oklch(32% 0.07 48);
+
+  /* Radius — semantic, mode-independent: panels/cards go soft
+     (xl-class), controls stay crisp (lg-class), pills stay full. */
+  --radius-panel: 0.75rem;
+  --radius-control: 0.5rem;
+  --radius-pill: 9999px;
+  /* Radius/motion tokens always emit as vars; their utilities generate
+     only where a scanned source uses them — no app-bundle consumer yet,
+     so rounded-panel etc. exist in the storybook bundle only. */
 
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 }
@@ -66,47 +79,87 @@
 }
 
 /* ------------------------------------------------------------------ */
-/* Semantic tokens — light (role-based; what components use)           */
+/* Semantic tokens — light: Grove (amber + olive on sand). Values      */
+/* from the measured Direction C tables (#277); derived values are     */
+/* commented.                                                          */
 /* ------------------------------------------------------------------ */
 :root {
-  --primary: var(--color-brand-600);
-  --primary-hover: var(--color-brand-700);
-  --primary-active: var(--color-brand-800);
-  --primary-muted: var(--color-brand-50);
-  --on-primary: #ffffff;
+  /* Action: bright fill + dark ink — never white-on-amber. */
+  --primary: var(--color-brand-500); /* #f3821d */
+  --primary-hover: #e67511;
+  --primary-active: #d96a03;
+  --primary-muted: #fef0e4;
+  --on-primary: #1c1917;
+  --border-primary: var(--color-brand-600); /* #c85d02 */
 
-  --canvas: #fafaf9;
-  --panel: #ffffff;
-  --panel-raised: #f5f5f4;
-  --panel-sunken: #f0f0ef;
+  /* Amber-family text lives here, not on --primary: bright fill amber
+     can't be text on light surfaces. */
+  --link: #953c00;
+  --link-hover: #782d00;
 
-  --ink: #1c1917;
-  --ink-muted: #57534e;
-  --ink-subtle: #78716c;
+  /* Warm sand surfaces. */
+  --canvas: #fbf8f3;
+  --panel: #fffdfa;
+  --panel-raised: #f5efe5;
+  --panel-sunken: #efe8da; /* derived: between raised and line */
 
-  --line: #e7e5e4;
-  --line-strong: #d6d3d1;
+  --ink: #221a12;
+  --ink-muted: #514639;
+  /* Also the disabled label: 5.51:1 on panel-raised. */
+  --ink-subtle: #655f58;
+
+  --line: #eae0d1;
+  --line-strong: #d8cab3; /* derived: deepened --line; borders only */
 
   --focus: var(--color-brand-500);
 
-  --success: #059669;
+  /* Info accent — olive. Information only; links stay amber. */
+  --info: #515c0a;
+  --info-muted: #eaeadd;
+  --border-info: #b6b995;
+
+  /* Success leans teal to hold >= 40° OKLCH hue from every olive
+     token (measured 57° light / 62° dark; see foundations "Info vs
+     success"). Semantics unchanged; danger values unchanged — the
+     dark warning is retuned (see the dark block).
+     Caveat: success text on the OLIVE tint would be 4.31:1 — status
+     text never sits on the info tint; it carries its own. */
+  --success: #007b65;
   --warning: #d97706;
   --danger: #dc2626;
   --danger-hover: #b91c1c;
 
-  --success-muted: #ecfdf5;
+  --success-muted: #e7faf4;
   --warning-muted: #fffbeb;
   --danger-muted: #fef2f2;
 
-  --border-success: #6ee7b7;
+  --border-success: #8aceba;
   --border-warning: #fcd34d;
   --border-danger: #fca5a5;
+
+  /* Elevation — warm-tinted shadow scale, consumed via shadow-xs..lg.
+     Dark collapses it to border emphasis (see the dark block). */
+  --elevation-xs: 0 1px 2px 0 rgb(38 43 43 / 0.05);
+  --elevation-sm: 0 2px 4px -1px rgb(38 43 43 / 0.12);
+  --elevation-md: 0 2px 8px -2px rgb(38 43 43 / 0.2);
+  --elevation-lg:
+    0 10px 15px -3px rgb(38 43 43 / 0.1), 0 4px 6px -4px rgb(38 43 43 / 0.1);
+
+  /* Motion — durations + the shared ease-out curve. fast/slow have no
+     consumer yet; --motion-base drives the foundations demo tile. */
+  --motion-fast: 150ms;
+  --motion-base: 200ms;
+  --motion-slow: 300ms;
+  /* Named for the curve family, matching Tailwind's stock --ease-out
+     value; mode-independent. */
+  --motion-ease-out: cubic-bezier(0, 0, 0.2, 1);
 }
 
 /* ------------------------------------------------------------------ */
-/* Semantic tokens — dark. The app flips [data-theme] on <html>; the   */
-/* storybook's color-mode toggle sets data-psb-color-mode on #psb-main */
-/* and class "dark" on component-iframe bodies.                        */
+/* Semantic tokens — dark: Grove's warm brown-black. The app flips     */
+/* [data-theme] on <html>; the storybook's color-mode toggle sets      */
+/* data-psb-color-mode on #psb-main and class "dark" on component-     */
+/* iframe bodies.                                                      */
 /* ------------------------------------------------------------------ */
 [data-theme="dark"],
 .dark,
@@ -114,35 +167,55 @@
   --primary: var(--color-brand-400);
   --primary-hover: var(--color-brand-300);
   --primary-active: var(--color-brand-500);
-  --primary-muted: oklch(78% 0.15 58 / 0.15);
+  --primary-muted: oklch(78% 0.15 58 / 0.16); /* amber-400 @ 16% */
   --on-primary: var(--color-brand-900);
+  --border-primary: var(--color-brand-500);
 
-  --canvas: #0f172a;
-  --panel: #1e293b;
-  --panel-raised: #334155;
-  --panel-sunken: #020617;
+  --link: #ffb66d;
+  --link-hover: #ffd295;
 
-  --ink: #f1f5f9;
-  --ink-muted: #94a3b8;
-  --ink-subtle: #64748b;
+  --canvas: #17130f;
+  --panel: #221c16;
+  --panel-raised: #322a21;
+  --panel-sunken: #0f0c09; /* derived: a step below canvas */
 
-  --line: #334155;
-  --line-strong: #475569;
+  --ink: #f5ece1;
+  --ink-muted: #c2b3a1;
+  /* Also the disabled label: 4.77:1 on panel-raised. */
+  --ink-subtle: #a29484;
+
+  --line: #322a21;
+  --line-strong: #4a3f31; /* derived: lifted --line; borders only */
 
   --focus: var(--color-brand-400);
 
-  --success: #34d399;
-  --warning: #fbbf24;
+  --info: #bcd874;
+  --info-muted: #343321;
+  --border-info: #505432;
+
+  --success: oklch(75% 0.13 184); /* ~#17c8b7 — 62° from olive, ΔL 0.09 */
+  /* Retuned from #fbbf24, which sat 37.7° from the olive accent; hue
+     84° → 78° (chroma 0.16 → 0.15 stays in sRGB gamut) — now 44.3°
+     from olive (#ffbc46), AA kept everywhere. */
+  --warning: oklch(83.69% 0.15 78);
   --danger: #f87171;
   --danger-hover: #ef4444;
 
-  --success-muted: oklch(70% 0.17 152 / 0.15);
+  --success-muted: oklch(75% 0.13 184 / 0.18);
   --warning-muted: oklch(75% 0.18 70 / 0.15);
   --danger-muted: oklch(70% 0.19 22 / 0.15);
 
-  --border-success: oklch(70% 0.17 152 / 0.3);
+  --border-success: oklch(75% 0.13 184 / 0.3);
   --border-warning: oklch(75% 0.18 70 / 0.3);
   --border-danger: oklch(70% 0.19 22 / 0.3);
+
+  /* Shadow is imperceptible on near-black surfaces: elevation
+     collapses to transparent here and raised/overlay panels carry
+     depth with border emphasis (--line-strong) instead. */
+  --elevation-xs: 0 0 #0000;
+  --elevation-sm: 0 0 #0000;
+  --elevation-md: 0 0 #0000;
+  --elevation-lg: 0 0 #0000;
 }
 
 @theme inline {
@@ -151,6 +224,9 @@
   --color-primary-active: var(--primary-active);
   --color-primary-muted: var(--primary-muted);
   --color-on-primary: var(--on-primary);
+
+  --color-link: var(--link);
+  --color-link-hover: var(--link-hover);
 
   --color-canvas: var(--canvas);
   --color-panel: var(--panel);
@@ -163,11 +239,16 @@
 
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
+  --color-line-primary: var(--border-primary);
+  --color-line-info: var(--border-info);
   --color-line-success: var(--border-success);
   --color-line-warning: var(--border-warning);
   --color-line-danger: var(--border-danger);
 
   --color-focus: var(--focus);
+
+  --color-info: var(--info);
+  --color-info-muted: var(--info-muted);
 
   --color-success: var(--success);
   --color-warning: var(--warning);
@@ -176,6 +257,13 @@
   --color-success-muted: var(--success-muted);
   --color-warning-muted: var(--warning-muted);
   --color-danger-muted: var(--danger-muted);
+
+  /* Elevation → the Tailwind shadow scale, so shadow-xs..lg resolve
+     through the mode-aware tokens. */
+  --shadow-xs: var(--elevation-xs);
+  --shadow-sm: var(--elevation-sm);
+  --shadow-md: var(--elevation-md);
+  --shadow-lg: var(--elevation-lg);
 }
 
 @utility bg-brand-gradient {
@@ -189,6 +277,12 @@
 
 /* All dark-mode triggers (see the dark token block above). */
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *, .dark, .dark *, [data-psb-color-mode=dark], [data-psb-color-mode=dark] *));
+
+/* Mirror app.css's LiveView loading variants — the workshop renders the
+   real components, so their loading states must be styleable here too. */
+@custom-variant phx-click-loading (.phx-click-loading&, .phx-click-loading &);
+@custom-variant phx-submit-loading (.phx-submit-loading&, .phx-submit-loading &);
+@custom-variant phx-change-loading (.phx-change-loading&, .phx-change-loading &);
 
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 

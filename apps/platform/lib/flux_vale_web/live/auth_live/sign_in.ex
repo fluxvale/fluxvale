@@ -89,7 +89,7 @@ defmodule FluxValeWeb.AuthLive.SignIn do
 
           <button
             phx-click="change-email"
-            class="text-sm font-medium text-primary transition-colors hover:text-primary-hover"
+            class="text-sm font-medium text-link transition-colors hover:text-link-hover"
           >
             Use a different email
           </button>

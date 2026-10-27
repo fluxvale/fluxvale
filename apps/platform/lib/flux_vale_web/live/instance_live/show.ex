@@ -116,7 +116,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
                 "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
                 if(@instance.always_on,
                   do: "border-line-success bg-success-muted text-success",
-                  else: "border-line bg-primary-muted text-primary"
+                  else: "border-line bg-primary-muted text-link"
                 )
               ]}
               data-testid="availability-mode"
@@ -166,7 +166,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
                 "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
                 if(@instance.exposure == :private,
                   do: "border-line-warning bg-warning-muted text-warning",
-                  else: "border-line bg-primary-muted text-primary"
+                  else: "border-line bg-primary-muted text-link"
                 )
               ]}
               data-testid="exposure-mode"

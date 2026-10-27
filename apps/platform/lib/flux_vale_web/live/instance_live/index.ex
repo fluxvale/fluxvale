@@ -68,7 +68,7 @@ defmodule FluxValeWeb.InstanceLive.Index do
             <div class="space-y-2">
               <div class="flex flex-wrap items-center justify-between gap-3">
                 <div class="flex min-w-0 items-center gap-3">
-                  <h2 class="text-base font-medium text-ink transition-colors group-hover:text-primary">
+                  <h2 class="text-base font-medium text-ink transition-colors group-hover:text-link">
                     {instance.name}
                   </h2>
                   <span class="font-mono text-xs text-ink-subtle">{instance.slug}</span>
