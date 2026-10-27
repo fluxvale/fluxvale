@@ -80,6 +80,44 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
     refute has_element?(view, "[data-testid='ledger-row']", "+$1234.56")
   end
 
+  test "the page bills the URL org — same actor, two orgs", %{
+    conn: conn,
+    user: user,
+    org: org,
+    wallet: wallet
+  } do
+    # The discriminating case: the SAME actor belongs to two orgs, so
+    # "the URL's org" and "the personal org" are different rows and the
+    # page must bill whichever the URL names. No flow creates a second
+    # org or a second membership yet (team features are future), so both
+    # rows ride the actions with authorize?: false — the sanctioned
+    # bootstrap posture (the #279 membership precondition).
+    team_org = Organization.create!(%{name: "Team Org", slug: "team-org"}, authorize?: false)
+    {:ok, team_wallet} = Billing.ensure_wallet(team_org)
+
+    Membership.create!(%{organization_id: team_org.id, user_id: user.id, role: :owner},
+      authorize?: false
+    )
+
+    {:ok, _grant} = Billing.grant_credits(team_wallet, 22_200)
+    {:ok, _grant} = Billing.grant_credits(wallet, 11_100)
+
+    # The team page bills the team wallet: its balance and its row show,
+    # the personal wallet's row never leaks in.
+    {:ok, team_view, _html} = live(conn, ~p"/organizations/#{team_org.slug}/billing")
+
+    assert has_element?(team_view, "[data-testid='wallet-balance']", "$222.00")
+    assert has_element?(team_view, "[data-testid='ledger-row']", "+$222.00")
+    refute has_element?(team_view, "[data-testid='ledger-row']", "+$111.00")
+
+    # And the personal org's page is the mirror image.
+    {:ok, personal_view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+    assert has_element?(personal_view, "[data-testid='wallet-balance']", "$111.00")
+    assert has_element?(personal_view, "[data-testid='ledger-row']", "+$111.00")
+    refute has_element?(personal_view, "[data-testid='ledger-row']", "+$222.00")
+  end
+
   test "load more appends the older page and retires at the end", %{
     conn: conn,
     org: org,
@@ -105,6 +143,13 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
     assert has_element?(view, "[data-testid='ledger-row']", "+$0.05")
     assert has_element?(view, "[data-testid='ledger-row']", "+$0.01")
     refute has_element?(view, "#load-more")
+
+    # Append, not prepend: the older page lands AFTER the first page's
+    # rows in the rendered DOM (the stream insert rides at: -1).
+    html = render(view)
+    assert {first_page_last, 6} = :binary.match(html, "+$0.06")
+    assert {appended_first, 6} = :binary.match(html, "+$0.05")
+    assert first_page_last < appended_first
 
     # exhausted-page click (double-click race) is a no-op, not a crash
     render_click(view, "load-more", %{})
