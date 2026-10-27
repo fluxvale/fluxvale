@@ -30,7 +30,11 @@ defmodule FluxValeWeb.OrganizationLive.Members do
         # the two-org test). The gate itself only spares a member a
         # settings surface that is owners-only — same posture as Settings.
         if ActorIsOrganizationOwner.owner?(user, org) do
-          {:ok, assign(socket, org: org, members: list_members(org, user))}
+          {:ok,
+           socket
+           |> assign(:org, org)
+           |> stream_configure(:members, dom_id: &"member-row-#{&1.id}")
+           |> stream(:members, list_members(org, user))}
         else
           {:ok,
            socket
@@ -65,7 +69,11 @@ defmodule FluxValeWeb.OrganizationLive.Members do
           <p class="mt-1 text-sm text-ink-muted">People with access to this organization.</p>
         </div>
 
-        <.table id="org-members-table" rows={@members} row_id={&"member-row-#{&1.id}"}>
+        <.table
+          id="org-members-table"
+          rows={@streams.members}
+          row_item={fn {_dom_id, member} -> member end}
+        >
           <:col :let={member} label="Email">{member.user_email}</:col>
           <:col :let={member} label="Role">
             <span class="inline-flex items-center rounded-full bg-primary-muted px-2 py-0.5 text-xs font-medium text-primary">
