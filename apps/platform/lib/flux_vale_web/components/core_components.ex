@@ -1170,6 +1170,87 @@ defmodule FluxValeWeb.CoreComponents do
     |> String.upcase()
   end
 
+  @doc """
+  Renders the org switcher (#276): the app chrome's context dropdown —
+  "Personal" pinned first, then one row per org the actor belongs to
+  (`actor_orgs`, resolved by the `FluxValeWeb.OrgNav` on_mount). A
+  native `<details>` dropdown for the same reasons as `user_menu`: zero
+  JS, keyboard-toggleable, and plain-href rows that close it on
+  navigation (full page load — no live patch can strand the panel open).
+
+  `current_org` names the active context in the closed summary — nil is
+  the personal one. Below lg the summary collapses to the icon: at `sm`
+  the label rejoining the nav links occludes the first of them (the
+  640-712px band — a pill of intrinsic width over a shrunken cluster,
+  #276 review), and above lg `truncate` bounds a long active name. The
+  panel keeps every entry reachable.
+
+  ## Examples
+
+      <.org_switcher orgs={@actor_orgs} />
+  """
+  attr(:orgs, :list,
+    default: [],
+    doc: "the actor's memberships with :organization loaded (OrgNav's actor_orgs)"
+  )
+
+  attr(:current_org, :map, default: nil, doc: "the active org; nil = personal context")
+
+  attr(:class, :any, default: nil)
+  attr(:rest, :global)
+
+  def org_switcher(assigns) do
+    assigns = assign(assigns, :active_name, active_name(assigns.current_org))
+
+    ~H"""
+    <details data-testid="org-switcher" class={["group relative", @class]} {@rest}>
+      <summary
+        class="flex cursor-pointer list-none items-center gap-1 rounded-full border border-line bg-panel py-1 pr-1.5 pl-2 shadow-sm transition-colors hover:bg-panel-raised [&::-webkit-details-marker]:hidden"
+        aria-label="Organization switcher"
+        data-testid="org-switcher-button"
+      >
+        <.icon name="hero-building-library-micro" class="size-4 shrink-0 text-ink-subtle" />
+        <span class="hidden max-w-32 truncate text-xs font-semibold text-ink lg:inline">{@active_name}</span>
+        <.icon
+          name="hero-chevron-down-micro"
+          class="size-3 text-ink-subtle transition-transform group-open:rotate-180"
+        />
+      </summary>
+      <div
+        class="absolute left-0 z-50 mt-2 w-56 rounded-xl border border-line bg-panel p-1.5 shadow-lg"
+        data-testid="org-switcher-panel"
+      >
+        <p class="px-3 py-1.5 text-xs text-ink-subtle">Contexts</p>
+        <div class="mb-1 border-t border-line" aria-hidden="true"></div>
+        <%!-- href, not navigate: full page loads close the dropdown, the
+        user_menu's reason (#205). The org rows interpolate the path
+        rather than ride ~p — /organizations/:slug is a sibling ticket
+        in this lane, and ~p warns (warnings-as-errors) until its route
+        lands. Flip to ~p with that ticket. --%>
+        <.link
+          href={~p"/"}
+          class="block rounded-lg px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+        >
+          Personal
+        </.link>
+        <.link
+          :for={membership <- @orgs}
+          href={"/organizations/" <> membership.organization.slug}
+          class="block rounded-lg px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+        >
+          {membership.organization.name}
+          <span class="font-mono text-xs text-ink-subtle">{membership.organization.slug}</span>
+        </.link>
+      </div>
+    </details>
+    """
+  end
+
+  # The closed switcher's label: the active org's name, "Personal" when
+  # no org context is set.
+  defp active_name(nil), do: "Personal"
+  defp active_name(%{name: name}), do: name
+
   ## JS Commands
 
   def show(js \\ %JS{}, selector) do

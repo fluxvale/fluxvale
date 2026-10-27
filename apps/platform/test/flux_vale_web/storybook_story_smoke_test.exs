@@ -16,7 +16,8 @@ defmodule FluxValeWeb.Storybook.StorySmokeTest do
   @stories [
     {"backup_run_row", "Backup Run Row"},
     {"dav_snippet", "Dav Snippet"},
-    {"readonly_field", "Readonly Field"}
+    {"readonly_field", "Readonly Field"},
+    {"org_switcher", "Org Switcher"}
   ]
 
   test "the panel components' stories load and list their variations" do

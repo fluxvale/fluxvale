@@ -26,4 +26,8 @@ defmodule FluxVale.Accounts do
   defdelegate personal_org_for_user(user_id, opts \\ []),
     to: FluxVale.Accounts.Operations.PersonalOrgForUser,
     as: :call
+
+  defdelegate organizations_for_user(user_id, opts \\ []),
+    to: FluxVale.Accounts.Operations.OrganizationsForUser,
+    as: :call
 end

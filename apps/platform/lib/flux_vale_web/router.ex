@@ -181,9 +181,14 @@ defmodule FluxValeWeb.Router do
 
     # #74: the authenticated app surface — catalog browse, deploy stepper,
     # instance status. The on_mount gate resolves the actor from the M2
-    # session and redirects to /sign-in without one.
+    # session and redirects to /sign-in without one. #276 rides after it:
+    # OrgNav assigns the actor's orgs for the chrome's switcher — data
+    # only, never a gate.
     live_session :authenticated,
-      on_mount: {FluxValeWeb.UserAuth, :ensure_authenticated} do
+      on_mount: [
+        {FluxValeWeb.UserAuth, :ensure_authenticated},
+        {FluxValeWeb.OrgNav, :assign_orgs}
+      ] do
       live("/apps", CatalogLive.Index)
       live("/apps/:slug", CatalogLive.Show)
       live("/apps/:slug/deploy", CatalogLive.Deploy)
