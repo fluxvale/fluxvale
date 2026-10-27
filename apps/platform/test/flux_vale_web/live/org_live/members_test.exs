@@ -180,6 +180,9 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     assert has_element?(view, "[data-testid='org-slug']", org.slug)
     assert has_element?(view, "h1", org.name)
 
+    # The back link leaves settings for the dashboard.
+    assert render(element(view, "[data-testid='org-back']")) =~ ~s(href="/")
+
     # The chrome's switcher names THIS org — current_org passes through.
     assert has_element?(view, "[data-testid='org-switcher-button'] span", org.name)
   end

@@ -61,7 +61,7 @@ defmodule FluxValeWeb.OrgSettings do
   def org_header(assigns) do
     ~H"""
     <div>
-      <.button variant="ghost" size="sm" navigate={~p"/"} class="-ml-2 mb-4">
+      <.button variant="ghost" size="sm" navigate={~p"/"} class="-ml-2 mb-4" data-testid="org-back">
         &larr; Dashboard
       </.button>
 

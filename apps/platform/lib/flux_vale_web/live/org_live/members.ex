@@ -76,9 +76,7 @@ defmodule FluxValeWeb.OrganizationLive.Members do
         >
           <:col :let={member} label="Email">{member.user_email}</:col>
           <:col :let={member} label="Role">
-            <span class="inline-flex items-center rounded-full bg-primary-muted px-2 py-0.5 text-xs font-medium text-primary">
-              {role_label(member.role)}
-            </span>
+            <.badge tone="primary">{role_label(member.role)}</.badge>
           </:col>
           <:col :let={member} label="Joined">
             <span class="whitespace-nowrap text-ink-muted">
