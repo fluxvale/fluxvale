@@ -54,6 +54,9 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
 - `landing.spec.ts` — the marketing landing renders (hero, CTAs).
 - `root-session.spec.ts` — `/` is session-aware (#207): marketing
   landing signed out, dashboard + user menu signed in.
+- `switcher-dismiss.spec.ts` — #284: the org switcher closes on
+  outside click and Esc (native `<details>` only closes on a summary
+  re-click). Signed-in chrome, so the same gates as sign-in.
 - `sign-in.spec.ts` — the human login flow via TestInbox; staging and
   local.
 - `file-access.spec.ts` — #190: deploy Kavita → rclone put through

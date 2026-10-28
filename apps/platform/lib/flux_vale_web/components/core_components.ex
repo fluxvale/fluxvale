@@ -1193,11 +1193,15 @@ defmodule FluxValeWeb.CoreComponents do
 
   @doc """
   Renders the org switcher (#276): the app chrome's context dropdown —
-  "Personal" pinned first, then one row per org the actor belongs to
-  (`actor_orgs`, resolved by the `FluxValeWeb.OrgNav` on_mount). A
-  native `<details>` dropdown for the same reasons as `user_menu`: zero
-  JS, keyboard-toggleable, and plain-href rows that close it on
-  navigation (full page load — no live patch can strand the panel open).
+  "Personal" always, then one row per org once the actor has more than
+  one (`actor_orgs`, resolved by the `FluxValeWeb.OrgNav` on_mount).
+  A native `<details>` dropdown for the same reasons as `user_menu`:
+  keyboard-toggleable, plain-href rows that close it on navigation
+  (full page load — no live patch can strand the panel open); the one
+  JS is the shared DetailsDismiss hook for GitHub-style dismissal
+  (outside click + Esc). Rows hide while only-personal — every user has
+  exactly one personal org, so a single row would be the context twice
+  (#284, interim until the usernames/multi-email root fix).
 
   `current_org` names the active context in the closed summary — nil is
   the personal one. Below lg the summary collapses to the icon: at `sm`
@@ -1217,6 +1221,11 @@ defmodule FluxValeWeb.CoreComponents do
 
   attr(:current_org, :map, default: nil, doc: "the active org; nil = personal context")
 
+  attr(:id, :string,
+    default: "org-switcher",
+    doc: "unique DOM id — the DetailsDismiss hook's target"
+  )
+
   attr(:class, :any, default: nil)
   attr(:rest, :global)
 
@@ -1224,7 +1233,13 @@ defmodule FluxValeWeb.CoreComponents do
     assigns = assign(assigns, :active_name, active_name(assigns.current_org))
 
     ~H"""
-    <details data-testid="org-switcher" class={["group relative", @class]} {@rest}>
+    <details
+      id={@id}
+      phx-hook="DetailsDismiss"
+      data-testid="org-switcher"
+      class={["group relative", @class]}
+      {@rest}
+    >
       <summary
         class="flex cursor-pointer list-none items-center gap-1 rounded-full border border-line bg-panel py-1 pr-1.5 pl-2 [box-shadow:var(--elevation-sm)] transition-colors hover:bg-panel-raised [&::-webkit-details-marker]:hidden"
         aria-label="Organization switcher"
@@ -1254,14 +1269,29 @@ defmodule FluxValeWeb.CoreComponents do
         >
           Personal
         </.link>
-        <.link
-          :for={membership <- @orgs}
-          href={"/organizations/" <> membership.organization.slug}
-          class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
-        >
-          {membership.organization.name}
-          <span class="font-mono text-xs text-ink-subtle">{membership.organization.slug}</span>
-        </.link>
+        <%!-- Org rows only once a second org exists: every user has
+        exactly one personal org, so one org = only-personal and the
+        Personal link above already is that context — both rows would
+        be the context twice (#284). From two orgs on, non-personal
+        orgs exist and every row renders, personal included. Interim
+        until the GitHub-style usernames/multi-email root fix — that
+        lane is the revisit trigger. --%>
+        <%= if length(@orgs) > 1 do %>
+          <%!-- min-w-0/truncate pair: a 39-char username (the #296 name
+          ceiling) must clip inside the w-56 panel, not push the page
+          into sideways scroll at phone widths (measured: +166px at
+          375 open, gate-2 F1). --%>
+          <.link
+            :for={membership <- @orgs}
+            href={"/organizations/" <> membership.organization.slug}
+            class="flex items-baseline gap-1 rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+          >
+            <span class="truncate">{membership.organization.name}</span>
+            <span class="truncate font-mono text-xs text-ink-subtle">
+              {membership.organization.slug}
+            </span>
+          </.link>
+        <% end %>
       </div>
     </details>
     """
