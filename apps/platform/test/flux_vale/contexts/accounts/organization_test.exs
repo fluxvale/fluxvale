@@ -161,15 +161,33 @@ defmodule FluxVale.Accounts.OrganizationTest do
                Organization.create(%{name: "Squatter", slug: old_slug}, authorize?: false)
     end
 
-    test "a 40+ char email local part still provisions (the caps bind renames, not signup)" do
+    test "a 40+ char email local part still provisions; a past-cap collision slug is permitted" do
       # Round-2 P1 regression: the length caps once sat on the attribute,
       # so the JIT provisioning create failed for a long local part —
-      # after the auth code was burned. Signup must not care.
+      # after the auth code was burned. Signup must not care: the local
+      # part truncates into a 39-char username (#285), and when an org
+      # already owns that slug the probe appends "-2" — 41 chars, past
+      # the cap. The create must permit it; the cap binds renames only.
+      long = String.duplicate("u", 39)
+
+      # Precondition via actions, authorize?: false (bootstrap posture —
+      # no actor; mirrors seeds): an org already owns the 39-char slug.
+      Organization.create!(%{name: "Squatter", slug: long}, authorize?: false)
+
       local_part = String.duplicate("u", 44)
       user = AccountsFixtures.user!(local_part)
-
       org = AccountsFixtures.personal_org!(user)
-      assert org.slug == String.duplicate("u", 44)
+
+      assert user.username == long
+
+      slug = long <> "-2"
+      assert org.slug == slug
+      assert String.length(slug) == 41
+
+      # The past-cap slug persists: a name-only edit saves — the length
+      # caps skip the untouched slug (`where: changing`).
+      assert {:ok, renamed} = Organization.update(org, %{name: "Still Ours"}, actor: user)
+      assert renamed.slug == org.slug
     end
 
     test "a rename to a 40-char slug fails with the field error; 39 fits" do

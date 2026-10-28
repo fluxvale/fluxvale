@@ -28,16 +28,16 @@ defmodule FluxVale.Identity.User do
   authentication do
     add_ons do
       log_out_everywhere do
-        apply_on_password_change? true
+        apply_on_password_change?(true)
       end
     end
 
     tokens do
-      enabled? true
-      token_resource FluxVale.Identity.Token
-      signing_secret FluxVale.Identity.Secrets
-      store_all_tokens? true
-      require_token_presence_for_authentication? true
+      enabled?(true)
+      token_resource(FluxVale.Identity.Token)
+      signing_secret(FluxVale.Identity.Secrets)
+      store_all_tokens?(true)
+      require_token_presence_for_authentication?(true)
 
       # Sessions are absolute-TTL: ash_authentication has no refresh tokens,
       # so `exp` is baked at mint and use never extends it (ADR-0003; 60d
@@ -45,18 +45,18 @@ defmodule FluxVale.Identity.User do
       # mechanism — every auth checks a live token-store row (both options
       # above). Revisit trigger: daily users annoyed by the periodic email
       # round-trip — then a re-mint-on-activity plug, not a longer TTL.
-      token_lifetime {60, :days}
+      token_lifetime({60, :days})
     end
   end
 
   policies do
     bypass(AshAuthentication.Checks.AshAuthenticationInteraction) do
-      description "AshAuthentication's own interactions (strategy sign-in, token storage)"
+      description("AshAuthentication's own interactions (strategy sign-in, token storage)")
       authorize_if(always())
     end
 
     policy FluxVale.Checks.ActorIsPlatformAdmin do
-      description "Platform admins manage users"
+      description("Platform admins manage users")
       authorize_if(always())
     end
 
@@ -65,32 +65,32 @@ defmodule FluxVale.Identity.User do
     # cannot leak another record (nil actor never reaches policy — the
     # filter errors ReadActionRequiresActor first).
     policy action(:me) do
-      description "Any authenticated user reads their own record"
+      description("Any authenticated user reads their own record")
       authorize_if(always())
     end
   end
 
   json_api do
-    type "user"
+    type("user")
 
     routes do
       # GET /api/v1/me — the current actor's record, no id (#24). The only
       # public User surface: deliberately no collection routes (listing
       # users is not a machine API — ADR-0019 §1).
-      get :me, route: "/me"
+      get(:me, route: "/me")
     end
   end
 
   postgres do
-    table "users"
-    repo FluxVale.Repo
+    table("users")
+    repo(FluxVale.Repo)
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job. ash_postgres
     # would emit uuid_generate_v7(), which no stock Postgres provides (PG18's
     # native one is uuidv7()); a v4 gen_random_uuid() backstop would
     # silently mint mismatched ids. A non-Ash insert omitting id fails loudly
     # instead (NOT NULL) — the intended guardrail.
-    migration_defaults id: "nil"
+    migration_defaults(id: "nil")
   end
 
   attributes do
@@ -135,7 +135,7 @@ defmodule FluxVale.Identity.User do
       # the interaction bypass above). Serves admins and the bootstrap
       # seed too (which runs authorize?: false — there is no actor to
       # authorize before the first admin exists).
-      primary? true
+      primary?(true)
       accept([:email, :platform_role])
 
       # Username derivation (#285 T2) — the only writer (no input
@@ -143,7 +143,7 @@ defmodule FluxVale.Identity.User do
       # producing a 2–39 [a-z0-9-] value; residual failure arms (probe
       # read failure, lost race) fail loudly, like provisioning's.
       # Listed BEFORE ProvisionPersonalOrg: provisioning must see the
-      # username (a later slice uses it).
+      # username — it names the org after it (#285 T7).
       change(DeriveUsername)
 
       # Every registration path gets an org (#119) — JIT signup, seeds,
@@ -157,19 +157,19 @@ defmodule FluxVale.Identity.User do
     # (ReadActionRequiresActor) before policy runs. Same templating shape
     # as get_by_email's ^arg(:email).
     read :me do
-      description "The current actor's own record"
+      description("The current actor's own record")
       filter(expr(id == ^actor(:id)))
     end
 
     read :get_by_subject do
-      description "Get a user by the subject claim in a JWT"
+      description("Get a user by the subject claim in a JWT")
       argument(:subject, :string, allow_nil?: false)
       get?(true)
       prepare(AshAuthentication.Preparations.FilterBySubject)
     end
 
     read :get_by_email do
-      description "Get a user by email"
+      description("Get a user by email")
       argument(:email, :ci_string, allow_nil?: false)
       get?(true)
       filter(expr(email == ^arg(:email)))
@@ -180,7 +180,7 @@ defmodule FluxVale.Identity.User do
     # the policies — no public listing surface. DeriveUsername's probe
     # is a system path and calls it authorize?: false.
     read :get_by_username do
-      description "Get a user by username"
+      description("Get a user by username")
       argument(:username, :string, allow_nil?: false)
       get?(true)
       filter(expr(username == ^arg(:username)))
@@ -193,7 +193,7 @@ defmodule FluxVale.Identity.User do
     # `Authorization: Bearer <token>`; the mint surface in M2 is the code
     # interface (IEx) — a user-facing mint arrives with a consumer.
     action :mint_pat, :string do
-      description "Mints a long-lived PAT for the user with the given email."
+      description("Mints a long-lived PAT for the user with the given email.")
 
       argument(:email, :ci_string, allow_nil?: false)
 
@@ -228,7 +228,7 @@ defmodule FluxVale.Identity.User do
   end
 
   code_interface do
-    domain FluxVale.Identity
+    domain(FluxVale.Identity)
 
     define(:create, args: [:email])
     define(:get_by_email, args: [:email])

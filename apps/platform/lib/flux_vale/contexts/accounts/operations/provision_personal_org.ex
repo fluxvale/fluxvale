@@ -10,10 +10,11 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrg do
   it creates the org and returns `{:ok, org, true}` — the `created?` flag
   is the caller-visible signal that provisioning (grant included) just ran.
 
-  The org's `name` is the email's local part (display-only); its `slug` is
-  the sanitized local part, `-2`, `-3`… probed on collision (v1 named orgs
-  after `user.username`; v2's slug stays the email local part — usernames
-  are their own namespace, #285). The `unique_slug`
+  The org is named after the user's handle (owner-approved, #285): `name`
+  is `user.username` and its `slug` is that same username, `-2`, `-3`…
+  probed against org slugs on collision. The namespaces usually coincide —
+  both derive from the same email local part in the same order — but
+  diverge after renames or collisions, by design. The `unique_slug`
   identity stays the race arbiter: a lost JIT-signup race fails the create
   loudly instead of double-provisioning.
 
@@ -27,7 +28,7 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrg do
   alias FluxVale.Identity.User
 
   # Bounded slug probing: exhausted only if the base plus every suffix up
-  # to here is taken — a collision run no single local part should produce.
+  # to here is taken — a collision run no single username should produce.
   @max_slug_probes 100
 
   # #122: $3 of non-expiring credits (1 credit = 1 US cent, product.md).
@@ -49,12 +50,21 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrg do
     end
   end
 
-  defp create_personal_org(user) do
+  defp create_personal_org(%User{username: nil}) do
+    # The rolling-window straggler (NULL username) reaching the
+    # docs/deployment.md operator heal: provisioning names the org after
+    # the handle, so a bare Required :name/:slug error would name
+    # nothing. One clear arm — the operator needs the straggler sweep,
+    # not a changeset dump.
+    {:error, :username_missing}
+  end
+
+  defp create_personal_org(%User{} = user) do
     outcome =
       Organization
       |> Ash.Changeset.for_create(:create, %{
-        name: org_name(user),
-        slug: unique_slug(base_slug(user), 0)
+        name: user.username,
+        slug: unique_slug(user.username, 0)
       })
       |> Ash.Changeset.manage_relationship(:members, [user], type: :append, authorize?: false)
       |> Ash.Changeset.after_action(fn _changeset, org ->
@@ -107,7 +117,7 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrg do
   end
 
   defp unique_slug(base, _attempt) do
-    # No real local part exhausts the probe range; fall back to an
+    # No real username exhausts the probe range; fall back to an
     # unguessable suffix rather than fail the signup.
     "#{base}-#{Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)}"
   end
@@ -123,27 +133,5 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrg do
       {:error, _not_found_or_failed} ->
         true
     end
-  end
-
-  defp org_name(user), do: local_part(user.email)
-
-  defp base_slug(user) do
-    slug =
-      user.email
-      |> local_part()
-      |> String.downcase()
-      |> String.replace(~r/[^a-z0-9]+/, "-")
-      |> String.trim("-")
-
-    # The slug validation needs 2+ chars; degenerate local parts ("+tag@…")
-    # fall back to a neutral base that the suffix probe still uniquifies.
-    if String.length(slug) < 2, do: "org", else: slug
-  end
-
-  defp local_part(email) do
-    email
-    |> to_string()
-    |> String.split("@", parts: 2)
-    |> List.first()
   end
 end

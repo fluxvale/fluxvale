@@ -11,9 +11,10 @@ defmodule FluxVale.TestSupport.AccountsFixtures do
 
   @doc """
   Creates a user via the create action; the JIT change provisions the
-  personal org as a side effect. `local_part` pins the org slug base —
-  callers needing colliding slugs pass the same local part with a
-  colliding domain, or generate their own addresses.
+  personal org as a side effect. `local_part` pins the derived username,
+  which carries the org's name and slug base — callers needing colliding
+  handles pass the same local part with a colliding domain, or generate
+  their own addresses.
   """
   @spec user!(String.t() | nil) :: User.t()
   def user!(local_part \\ nil) do

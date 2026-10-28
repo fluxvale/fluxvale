@@ -56,8 +56,15 @@ defmodule FluxVale.Seeds.AdminSeedTest do
     test "heals a pre-#119 admin — exactly one personal org, owner membership" do
       # Ash.Seed.seed! — pre-#119 admins have no org and the User create
       # action now always provisions one (state actions can't produce,
-      # the documented seed! exception).
-      Ash.Seed.seed!(User, %{email: "admin@fluxvale.com", platform_role: :admin})
+      # the documented seed! exception). The username rides along: the
+      # #285 backfill gave every legacy row one, reserving handles as
+      # it went — "admin" derives to "admin-2" — and provisioning names
+      # the org after it (a bare row is unreachable state).
+      Ash.Seed.seed!(User, %{
+        email: "admin@fluxvale.com",
+        platform_role: :admin,
+        username: "admin-2"
+      })
 
       :ok = Seeds.seed_admin!()
       :ok = Seeds.seed_admin_org!()
@@ -71,7 +78,11 @@ defmodule FluxVale.Seeds.AdminSeedTest do
     end
 
     test "idempotent — a second run adds no org and no second ledger entry" do
-      Ash.Seed.seed!(User, %{email: "admin@fluxvale.com", platform_role: :admin})
+      Ash.Seed.seed!(User, %{
+        email: "admin@fluxvale.com",
+        platform_role: :admin,
+        username: "admin-2"
+      })
 
       :ok = Seeds.seed_admin!()
       :ok = Seeds.seed_admin_org!()
@@ -105,7 +116,11 @@ defmodule FluxVale.Seeds.AdminSeedTest do
     end
 
     test "the welcome grant is 300 cents with reason :welcome" do
-      Ash.Seed.seed!(User, %{email: "admin@fluxvale.com", platform_role: :admin})
+      Ash.Seed.seed!(User, %{
+        email: "admin@fluxvale.com",
+        platform_role: :admin,
+        username: "admin-2"
+      })
 
       :ok = Seeds.seed_admin!()
       :ok = Seeds.seed_admin_org!()
@@ -162,7 +177,11 @@ defmodule FluxVale.Seeds.AdminSeedTest do
     test "heals a pre-#119 admin through the promotable path" do
       # Delegation guard: the heal rides seed/0 itself — dropping
       # seed_admin_org!/0 from it must fail here, not in prod bring-up.
-      Ash.Seed.seed!(User, %{email: "admin@fluxvale.com", platform_role: :admin})
+      Ash.Seed.seed!(User, %{
+        email: "admin@fluxvale.com",
+        platform_role: :admin,
+        username: "admin-2"
+      })
 
       :ok = Seeds.seed()
 
