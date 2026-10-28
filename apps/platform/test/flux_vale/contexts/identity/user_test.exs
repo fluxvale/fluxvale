@@ -1,7 +1,13 @@
 defmodule FluxVale.Identity.UserTest do
   @moduledoc false
 
-  use FluxVale.DataCase, async: true
+  # Not async: this file's exhaustion/degenerate tests speculate on the
+  # same users_unique_username_index keys ("user"…"user-100") that
+  # provision_personal_org_test's degenerate fixtures derive — concurrent
+  # sandbox transactions deadlock there (40P01: the pair alone 7/10,
+  # serialized 0/8). Non-async cases run after all async ones, so the
+  # files never overlap.
+  use FluxVale.DataCase, async: false
 
   alias FluxVale.Identity.User
   alias FluxVale.Identity.User.DeriveUsername
@@ -193,6 +199,12 @@ defmodule FluxVale.Identity.UserTest do
 
       assert Regex.match?(~r/^terence-[0-9a-f]{8}$/, username)
       assert valid_shape?(username)
+    end
+
+    test "reserved names suffix even on the injected probe path" do
+      # reserved? is algorithm-level, probe-independent — a probe-only
+      # reserved check would let the migration derive bare admin.
+      assert DeriveUsername.derive_unique("admin@x.test", fn _taken -> true end) == "admin-2"
     end
   end
 
