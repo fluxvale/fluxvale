@@ -15,6 +15,7 @@ defmodule FluxVale.Identity.User do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshAuthentication, AshJsonApi.Resource]
 
+  alias FluxVale.Identity.User.DeriveUsername
   alias FluxVale.Identity.User.ProvisionPersonalOrg
 
   require Logger
@@ -108,6 +109,16 @@ defmodule FluxVale.Identity.User do
       public?(true)
     end
 
+    # GitHub-style handle (#285 T2): derived from the email at signup
+    # (DeriveUsername — the only writer in this slice). Nullable until a
+    # later contract migration flips NOT NULL: existing rows and the
+    # rolling-deploy window need the slack. Its own namespace among
+    # users — organization slugs are never consulted.
+    attribute :username, :string do
+      allow_nil?(true)
+      public?(true)
+    end
+
     attribute :platform_role, FluxVale.Identity.Types.PlatformRole do
       allow_nil?(false)
       default(:user)
@@ -126,6 +137,14 @@ defmodule FluxVale.Identity.User do
       # authorize before the first admin exists).
       primary? true
       accept([:email, :platform_role])
+
+      # Username derivation (#285 T2) — the only writer (no input
+      # surface, no format validation until the rename UI), always
+      # producing a 2–39 [a-z0-9-] value; residual failure arms (probe
+      # read failure, lost race) fail loudly, like provisioning's.
+      # Listed BEFORE ProvisionPersonalOrg: provisioning must see the
+      # username (a later slice uses it).
+      change(DeriveUsername)
 
       # Every registration path gets an org (#119) — JIT signup, seeds,
       # admin-created users. Runs in the create transaction; see the
@@ -154,6 +173,17 @@ defmodule FluxVale.Identity.User do
       argument(:email, :ci_string, allow_nil?: false)
       get?(true)
       filter(expr(email == ^arg(:email)))
+    end
+
+    # Same policy posture as get_by_email (#285 T2): only the
+    # AshAuthentication interaction bypass and platform admins get past
+    # the policies — no public listing surface. DeriveUsername's probe
+    # is a system path and calls it authorize?: false.
+    read :get_by_username do
+      description "Get a user by username"
+      argument(:username, :string, allow_nil?: false)
+      get?(true)
+      filter(expr(username == ^arg(:username)))
     end
 
     # PATs (#23): v1's shape ported — a generic action minting a 1-yr JWT
@@ -202,10 +232,15 @@ defmodule FluxVale.Identity.User do
 
     define(:create, args: [:email])
     define(:get_by_email, args: [:email])
+    define(:get_by_username, args: [:username])
     define(:mint_pat, args: [:email])
   end
 
   identities do
     identity(:unique_email, [:email])
+
+    # Usernames are unique among users (#285 T2) — a separate namespace
+    # from organization slugs, deliberately.
+    identity(:unique_username, [:username])
   end
 end

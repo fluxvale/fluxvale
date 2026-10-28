@@ -28,13 +28,30 @@ defmodule FluxValeWeb.Api.MeRouteTest do
       assert data["id"] == user.id
 
       # Public attributes are the API contract (ADR-0019 §1) — id, email,
-      # platform_role and nothing else
+      # platform_role, username (#285 T2) and nothing else
       assert data["attributes"] == %{
                "email" => "me-route@fluxvale.com",
-               "platform_role" => "user"
+               "platform_role" => "user",
+               "username" => "me-route"
              }
 
       refute Map.has_key?(data["attributes"], "hashed_password")
+    end
+
+    test "renders username null for rollout-window users", %{conn: conn} do
+      # Rollout-window state actions cannot produce (derivation always
+      # sets a username) — Ash.seed! per the house rule. Nullable-but-
+      # public ships with this slice, so /me pins the null arm.
+      Ash.Seed.seed!(User, %{email: "pre-backfill@fluxvale.test"})
+
+      pat = mint_pat!("pre-backfill@fluxvale.test")
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> pat)
+        |> get("/api/v1/me")
+
+      assert %{"data" => %{"attributes" => %{"username" => nil}}} = json_response(conn, 200)
     end
   end
 
