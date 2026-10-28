@@ -151,6 +151,12 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
     |> Ash.Query.filter(address == ^email and is_nil(verified_at))
     |> Ash.read!(authorize?: false)
     |> Enum.each(fn row ->
+      # Race-only: a concurrent VerifyEmail on the claimant's side can
+      # flip the row verified between our read and the guard's fresh
+      # re-read, making the remove refuse — the create below then
+      # collides on unique_address and the retry wins once the
+      # concurrent party settles. Both parties hold codes for the same
+      # inbox; this self-heals, so the result is deliberately discarded.
       _removed = UserEmail.remove(row, authorize?: false)
     end)
   end

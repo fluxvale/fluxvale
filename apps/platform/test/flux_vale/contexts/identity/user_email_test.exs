@@ -388,19 +388,38 @@ defmodule FluxVale.Identity.UserEmailTest do
       assert message =~ "primary"
     end
 
-    test "refuses the user's only verified address — the create mirror itself, before a switch" do
-      # Since the create mirror (T3 §5) every account's primary is
-      # verified, so the only-verified row is necessarily the primary:
-      # this corner is exactly "remove the mirror before ever promoting
-      # another address".
+    test "refuses removing the create mirror — it is frozen into users.email (#285 T3 §5)" do
+      # The mirror is the account's only verified address before any
+      # switch; the frozen clause is its accurate refusal (the
+      # only-verified branch fires on drifted data — see the
+      # guard-concurrency test).
       user = create_user("sole@emails.fluxvale.test")
       primary = mirror_row(user)
 
       assert {:error, %Ash.Error.Invalid{errors: [%{message: message}]}} =
                UserEmail.remove(primary, actor: user, authorize?: true)
 
-      assert message =~ "only verified"
+      assert message =~ "frozen"
       assert count_verified(user) == 1
+    end
+
+    test "refuses the signup address — frozen into users.email even after a switch (#285 T3)" do
+      # Sign-in resolves through this table; if the frozen mirror's row
+      # went away, the address would be unresolvable AND unprovisionable
+      # (the users unique-email index still holds it).
+      user = create_user("frozen@emails.fluxvale.test")
+      second = verified_email(user, "switched@emails.fluxvale.test")
+      {:ok, _promoted} = UserEmail.set_primary(second, actor: user, authorize?: true)
+
+      old =
+        UserEmail
+        |> Ash.Query.filter(address == ^user.email)
+        |> Ash.read_one!(authorize?: false)
+
+      assert {:error, %Ash.Error.Invalid{errors: [%{message: message}]}} =
+               UserEmail.remove(old, actor: user, authorize?: true)
+
+      assert message =~ "frozen"
     end
 
     test "allows removing a pending row while a verified one remains" do

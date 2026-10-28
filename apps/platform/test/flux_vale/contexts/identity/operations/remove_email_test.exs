@@ -43,6 +43,26 @@ defmodule FluxVale.Identity.Operations.RemoveEmailTest do
       assert {:error, %Ash.Error.Invalid{}} = Identity.remove_email(user, primary.id)
     end
 
+    test "the demoted signup address is refused — it is frozen into users.email (#285 T3 §5)" do
+      user = user!()
+      switched = "switched-#{System.unique_integer()}@fluxvale.test"
+
+      {:ok, row} = Identity.add_email(user, switched)
+      code = mailbox_code()
+      {:ok, _verified} = Identity.verify_email(user, row.id, code)
+      {:ok, _promoted} = Identity.set_primary_email(user, row.id)
+
+      old =
+        UserEmail
+        |> Ash.Query.filter(address == ^user.email)
+        |> Ash.read_one!(authorize?: false)
+
+      assert {:error, %Ash.Error.Invalid{errors: [%{message: message}]}} =
+               Identity.remove_email(user, old.id)
+
+      assert message =~ "frozen"
+    end
+
     test "another user's row id is :not_found" do
       owner = user!()
       stranger = user!()
@@ -66,16 +86,25 @@ defmodule FluxVale.Identity.Operations.RemoveEmailTest do
 
       {:ok, _promoted} = Identity.set_primary_email(user, row.id)
 
-      # the old primary is demoted now (fresh state — the op re-reads) and removable
-      assert :ok = Identity.remove_email(user, old.id)
+      # the demoted signup address is frozen into users.email — it stays
+      # (see RemoveGuard); a verified non-primary address removes cleanly
+      assert {:error, %Ash.Error.Invalid{}} = Identity.remove_email(user, old.id)
+
+      spare = "cycle-spare-#{System.unique_integer()}@fluxvale.test"
+      {:ok, spare_row} = Identity.add_email(user, spare)
+      spare_code = mailbox_code()
+      {:ok, _spare_verified} = Identity.verify_email(user, spare_row.id, spare_code)
+      assert :ok = Identity.remove_email(user, spare_row.id)
 
       remaining =
         UserEmail
         |> Ash.Query.filter(user_id == ^user.id)
         |> Ash.read!(authorize?: false)
 
-      assert [%{address: address, is_primary: true}] = remaining
-      assert to_string(address) == new_address
+      # exactly the frozen mirror and the new primary survive
+      assert length(remaining) == 2
+
+      assert new_address in Enum.map(remaining, &to_string(&1.address))
     end
   end
 end

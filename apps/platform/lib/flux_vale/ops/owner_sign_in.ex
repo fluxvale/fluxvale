@@ -96,16 +96,23 @@ defmodule FluxVale.Ops.OwnerSignIn do
       [%{id: id}] ->
         # The account's primary VERIFIED address rides `user_emails`
         # (#285 T3) — `users.email` is a frozen mirror now.
-        primary_email(id)
+        case primary_email(id) do
+          {:ok, address} ->
+            address
+
+          # Only data drift can find nothing here (the create mirror
+          # stamps every action-created user a verified primary, #285
+          # T3 §5) — an admin with no verified primary has no signable
+          # address.
+          :none ->
+            raise "the platform admin has no verified primary email — set OWNER_EMAIL"
+        end
 
       admins ->
         raise "#{length(admins)} platform admins found (need exactly one) — set OWNER_EMAIL"
     end
   end
 
-  # Only data drift can find nothing here (the create mirror stamps
-  # every action-created user a verified primary, #285 T3 §5) — an admin
-  # with no verified primary has no signable address.
   defp primary_email(user_id) do
     found =
       UserEmail
@@ -113,25 +120,32 @@ defmodule FluxVale.Ops.OwnerSignIn do
       |> Ash.read_one!(authorize?: false)
 
     case found do
-      %{address: address} ->
-        to_string(address)
-
-      nil ->
-        raise "the platform admin has no verified primary email — set OWNER_EMAIL"
+      %{address: address} -> {:ok, to_string(address)}
+      nil -> :none
     end
   end
 
   # A typo'd OWNER_EMAIL is a valid-address operator decision (issue for
   # it), but the database may have one admin under a different address —
   # name that mismatch loudly so the operator can spot the typo. No abort:
-  # the address the operator named wins. Any other admin count (zero,
-  # several) carries no single admin to compare against, so it stays
-  # silent — `single_admin_email/0` owns those cases.
+  # the address the operator named wins. The comparison rides the
+  # table-backed primary (#285 T3) — the frozen users.email would warn
+  # wrong after a set_primary. Any other admin count (zero, several)
+  # carries no single admin to compare against, so it stays silent —
+  # `single_admin_email/0` owns those cases.
   defp warn_if_not_admin(email) do
     case platform_admins() do
-      [%{email: admin_email}] ->
-        admin_email = to_string(admin_email)
+      [%{id: id}] ->
+        warn_unless_primary(id, email)
 
+      _not_exactly_one ->
+        :ok
+    end
+  end
+
+  defp warn_unless_primary(admin_id, email) do
+    case primary_email(admin_id) do
+      {:ok, admin_email} ->
         if admin_email != email do
           Logger.warning(
             "OWNER_EMAIL #{email} does not match the platform admin #{admin_email} — " <>
@@ -139,10 +153,13 @@ defmodule FluxVale.Ops.OwnerSignIn do
           )
         end
 
-        :ok
-
-      _not_exactly_one ->
-        :ok
+      # A drift admin has no signable address to compare against;
+      # the named session will not be the admin's either way.
+      :none ->
+        Logger.warning(
+          "OWNER_EMAIL #{email}: the platform admin has no verified primary email — " <>
+            "issuing a code for #{email} anyway (that session will not be an admin)"
+        )
     end
   end
 

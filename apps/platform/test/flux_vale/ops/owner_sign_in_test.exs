@@ -96,6 +96,23 @@ defmodule FluxVale.Ops.OwnerSignInTest do
         OwnerSignIn.owner_email()
       end
     end
+
+    test "a drift admin under an explicit OWNER_EMAIL still issues — with the warning" do
+      Ash.Seed.seed!(User, %{
+        email: "drift-admin-#{System.unique_integer([:positive])}@fluxvale.test",
+        platform_role: :admin
+      })
+
+      System.put_env("OWNER_EMAIL", "named-#{System.unique_integer([:positive])}@fluxvale.test")
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok = OwnerSignIn.issue_code(fn _recipient, _code -> {:ok, :printed} end)
+        end)
+
+      assert log =~ "no verified primary email"
+      assert log =~ "that session will not be an admin"
+    end
   end
 
   describe "issue_code/1" do

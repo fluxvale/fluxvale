@@ -16,10 +16,12 @@ defmodule FluxVale.Identity.Operations.AddEmail do
   @doc """
   Creates the pending row for the actor and sends its code. Returns
   `{:ok, row}` — the pending row — or `{:error, reason}`: the resource's
-  add failures (cap, uniqueness, shape), or the code-send failures
-  (`:throttled`, `:delivery_failed`, `:not_allowed`). A code-send
-  failure leaves the pending row in place: removing and re-adding after
-  the throttle window is the retry.
+  add failures (cap, uniqueness, shape), or the code-send failures.
+  A code-send failure leaves the pending row in place: `:throttled` and
+  `:delivery_failed` retry as a remove + re-add after the throttle
+  window; `:not_allowed` needs the rule lifted first — no wait window
+  helps, so a retry loop would only litter pending claims against the
+  cap.
   """
   @spec call(term(), String.t() | Ash.CiString.t()) :: {:ok, UserEmail.t()} | {:error, term()}
   def call(actor, address) do
