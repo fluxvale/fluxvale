@@ -50,7 +50,9 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrgTest do
   end
 
   describe "slug collisions" do
-    test "identical local parts on different domains probe -2, -3…" do
+    test "same local part on different domains: usernames suffix, orgs follow" do
+      # The -2/-3 suffixing happens in the username namespace
+      # (DeriveUsername); the org name/slug copy the username verbatim.
       first = AccountsFixtures.user!("dup@one.test")
       second = AccountsFixtures.user!("dup@two.test")
       third = AccountsFixtures.user!("dup@three.test")

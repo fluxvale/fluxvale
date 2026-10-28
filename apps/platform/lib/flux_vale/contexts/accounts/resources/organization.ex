@@ -27,21 +27,24 @@ defmodule FluxVale.Accounts.Organization do
   require Ash.Query
 
   postgres do
-    table "organizations"
-    repo FluxVale.Repo
+    table("organizations")
+    repo(FluxVale.Repo)
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
-    migration_defaults id: "nil"
+    migration_defaults(id: "nil")
   end
 
   policies do
     policy action_type(:read) do
-      description "Members read their organizations"
+      description("Members read their organizations")
       authorize_if(relates_to_actor_via(:members))
     end
 
     policy action_type(:create) do
-      description "System-only: JIT provisioning (authorize?: false). Actor-driven creation waits for the team-features flow that members the creator in the same transaction — without it, a created org is unreadable even by its creator."
+      description(
+        "System-only: JIT provisioning (authorize?: false). Actor-driven creation waits for the team-features flow that members the creator in the same transaction — without it, a created org is unreadable even by its creator."
+      )
+
       forbid_if(always())
     end
 
@@ -50,14 +53,14 @@ defmodule FluxVale.Accounts.Organization do
     # member-level authorization is safe. Revisit trigger: the first
     # :member membership.
     policy action_type(:destroy) do
-      description "Members destroy their organizations"
+      description("Members destroy their organizations")
       authorize_if(relates_to_actor_via(:members))
     end
 
     # The first rename flow (#276): owners set the display name and the
     # URL slug — GitHub-parity renaming, the owner's explicit choice.
     policy action(:update) do
-      description "Owners update their organization (display name and slug)"
+      description("Owners update their organization (display name and slug)")
       authorize_if(FluxVale.Checks.ActorIsOrganizationOwner)
     end
   end
@@ -99,7 +102,7 @@ defmodule FluxVale.Accounts.Organization do
     # caller). Instances and the wallet also FK the org: teardown of THOSE
     # is #124's design — destroying a non-empty org still fails loudly.
     destroy :destroy do
-      primary? true
+      primary?(true)
       require_atomic?(false)
 
       change(fn changeset, _context ->
@@ -118,7 +121,7 @@ defmodule FluxVale.Accounts.Organization do
     end
 
     create :create do
-      primary? true
+      primary?(true)
       accept([:name, :slug])
     end
 
@@ -132,7 +135,7 @@ defmodule FluxVale.Accounts.Organization do
     # write; failing loudly on a moved row is worth more than batch
     # atomicity.
     update :update do
-      primary? true
+      primary?(true)
       require_atomic?(false)
       accept([:name, :slug])
 
@@ -164,14 +167,14 @@ defmodule FluxVale.Accounts.Organization do
     end
 
     read :get_by_id do
-      description "Get an organization by id"
+      description("Get an organization by id")
       get?(true)
       argument(:id, :uuid, allow_nil?: false)
       filter(expr(id == ^arg(:id)))
     end
 
     read :get_by_slug do
-      description "Get an organization by slug"
+      description("Get an organization by slug")
       get?(true)
       argument(:slug, :string, allow_nil?: false)
       filter(expr(slug == ^arg(:slug)))
@@ -179,7 +182,7 @@ defmodule FluxVale.Accounts.Organization do
   end
 
   code_interface do
-    domain FluxVale.Accounts
+    domain(FluxVale.Accounts)
 
     define(:create)
     define(:update)
@@ -205,12 +208,14 @@ defmodule FluxVale.Accounts.Organization do
       message: "must contain only lowercase alphanumeric characters and hyphens"
     )
 
-    # The length caps bind the RENAME flow only — never the create. The
-    # slug is the sanitized email local part at signup, and a 64-char RFC
-    # local part is legal; capping the attribute turned a 40-char local
-    # part into a retry-proof signup outage (the code burns before the
-    # provisioning failure surfaces). Legacy rows with longer slugs keep
-    # saving: `where: changing` skips untouched fields.
+    # The length caps bind the RENAME flow only — never the create.
+    # Create slugs are usernames (#285), ≤39 chars by construction
+    # (DeriveUsername). The update-only scoping survives from the
+    # round-2 P1 incident: when the slug was the sanitized email local
+    # part, an attribute-level cap turned a 40-char local part into a
+    # retry-proof signup outage (the code burns before the provisioning
+    # failure surfaces). Legacy rows with longer slugs keep saving:
+    # `where: changing` skips untouched fields.
     validate(string_length(:slug, max: 39),
       on: :update,
       where: changing(:slug),

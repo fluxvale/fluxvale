@@ -57,12 +57,13 @@ defmodule FluxVale.Seeds.AdminSeedTest do
       # Ash.Seed.seed! — pre-#119 admins have no org and the User create
       # action now always provisions one (state actions can't produce,
       # the documented seed! exception). The username rides along: the
-      # #285 backfill gave every legacy row one, so provisioning has a
-      # handle to name the org after (a bare row is unreachable state).
+      # #285 backfill gave every legacy row one, reserving handles as
+      # it went — "admin" derives to "admin-2" — and provisioning names
+      # the org after it (a bare row is unreachable state).
       Ash.Seed.seed!(User, %{
         email: "admin@fluxvale.com",
         platform_role: :admin,
-        username: "admin"
+        username: "admin-2"
       })
 
       :ok = Seeds.seed_admin!()
@@ -80,7 +81,7 @@ defmodule FluxVale.Seeds.AdminSeedTest do
       Ash.Seed.seed!(User, %{
         email: "admin@fluxvale.com",
         platform_role: :admin,
-        username: "admin"
+        username: "admin-2"
       })
 
       :ok = Seeds.seed_admin!()
@@ -118,7 +119,7 @@ defmodule FluxVale.Seeds.AdminSeedTest do
       Ash.Seed.seed!(User, %{
         email: "admin@fluxvale.com",
         platform_role: :admin,
-        username: "admin"
+        username: "admin-2"
       })
 
       :ok = Seeds.seed_admin!()
@@ -179,7 +180,7 @@ defmodule FluxVale.Seeds.AdminSeedTest do
       Ash.Seed.seed!(User, %{
         email: "admin@fluxvale.com",
         platform_role: :admin,
-        username: "admin"
+        username: "admin-2"
       })
 
       :ok = Seeds.seed()
