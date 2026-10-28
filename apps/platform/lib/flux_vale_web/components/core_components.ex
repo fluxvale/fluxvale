@@ -1277,13 +1277,19 @@ defmodule FluxValeWeb.CoreComponents do
         until the GitHub-style usernames/multi-email root fix — that
         lane is the revisit trigger. --%>
         <%= if length(@orgs) > 1 do %>
+          <%!-- min-w-0/truncate pair: a 39-char username (the #296 name
+          ceiling) must clip inside the w-56 panel, not push the page
+          into sideways scroll at phone widths (measured: +166px at
+          375 open, gate-2 F1). --%>
           <.link
             :for={membership <- @orgs}
             href={"/organizations/" <> membership.organization.slug}
-            class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+            class="flex items-baseline gap-1 rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
           >
-            {membership.organization.name}
-            <span class="font-mono text-xs text-ink-subtle">{membership.organization.slug}</span>
+            <span class="truncate">{membership.organization.name}</span>
+            <span class="truncate font-mono text-xs text-ink-subtle">
+              {membership.organization.slug}
+            </span>
           </.link>
         <% end %>
       </div>

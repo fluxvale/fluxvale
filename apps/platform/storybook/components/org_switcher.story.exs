@@ -20,25 +20,25 @@ defmodule FluxValeWeb.Storybook.Components.OrgSwitcher do
     ]
 
     [
+      # No id: here — PhoenixStorybook overwrites the :id assign with its
+      # own variation_dom_id, so a story-level id is dead markup (gate-2
+      # F6); uniqueness comes from the framework plus the component's
+      # attr(:id) default.
       %Variation{
         id: :personal_only,
         description: "Single (personal) org — the panel is the Personal row alone (#284)",
-        attributes: %{orgs: Enum.take(orgs, 1), id: "story-org-switcher-personal"}
+        attributes: %{orgs: Enum.take(orgs, 1)}
       },
       %Variation{
         id: :org_active,
         description:
           "Org context active — the closed summary names the org; still only-personal, so no org rows",
-        attributes: %{
-          orgs: Enum.take(orgs, 1),
-          current_org: hd(orgs).organization,
-          id: "story-org-switcher-org"
-        }
+        attributes: %{orgs: Enum.take(orgs, 1), current_org: hd(orgs).organization}
       },
       %Variation{
         id: :two_orgs,
         description: "Two memberships — rows render: Personal pinned first, both orgs after",
-        attributes: %{orgs: orgs, id: "story-org-switcher-two"}
+        attributes: %{orgs: orgs}
       }
     ]
   end

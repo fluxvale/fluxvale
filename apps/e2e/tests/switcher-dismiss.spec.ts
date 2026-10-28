@@ -34,9 +34,15 @@ test("escape closes the open switcher", async ({ page, request }) => {
   await page.getByTestId("org-switcher-button").click();
   await expect(page.locator("#org-switcher")).toHaveAttribute("open");
 
+  // Focus a panel row first: the APG disclosure pattern returns focus
+  // to the trigger on Esc — without the summary.focus() arm, focus
+  // strands on a row inside the now-closed panel (gate-2 round 1).
+  await page.getByTestId("org-switcher-panel").locator("a").first().focus();
+
   await page.keyboard.press("Escape");
   await expect(page.locator("#org-switcher")).not.toHaveAttribute("open");
   await expect(page.getByTestId("org-switcher-panel")).toBeHidden();
+  await expect(page.getByTestId("org-switcher-button")).toBeFocused();
 });
 
 test("a click outside closes the open switcher", async ({ page, request }) => {
