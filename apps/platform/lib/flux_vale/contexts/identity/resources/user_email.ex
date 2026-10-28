@@ -27,6 +27,9 @@ defmodule FluxVale.Identity.UserEmail do
   alias FluxVale.Identity.UserEmail.RemoveGuard
   alias FluxVale.Identity.UserEmail.SetPrimary
 
+  # Ash.Query.filter is a macro
+  require Ash.Query
+
   # Defined before the section that consumes it; EnforceEmailCap reads it
   # via max_emails_per_user/0 so the cap and its enforcement can't drift.
   @max_emails_per_user 5
@@ -200,6 +203,27 @@ defmodule FluxVale.Identity.UserEmail do
       accept([])
       change(set_attribute(:is_primary, false))
     end
+
+    # System-only supersede of pending claims — the sanctioned entry is
+    # `supersede_pending_claims/1` below, which scopes the bulk destroy
+    # to PENDING rows. Bypassing RemoveGuard is sound there: a pending
+    # row can never violate the guard's invariants — never primary
+    # (SetPrimary refuses unverified rows), never the frozen mirror (the
+    # create mirror stamps the signup address VERIFIED from birth, and
+    # unique_address excludes a second row), never the last verified
+    # address (it is unverified). No policy grants this action:
+    # internal-only by policy (the :unset_primary posture); the system
+    # caller runs authorize?: false.
+    #
+    # Atomic (no changes): the bulk destroy evaluates the caller's
+    # pending-only filter in SQL at delete time, not from a stale read —
+    # a row a concurrent VerifyEmail flips verified in between survives
+    # and the caller resolves to its owner instead of forking an account
+    # (review P2-1: the read-then-remove shape raced the flip past the
+    # guard).
+    destroy :supersede_pending do
+      description("Delete a pending claim (system supersede — a burned code is the inbox proof)")
+    end
   end
 
   code_interface do
@@ -234,6 +258,30 @@ defmodule FluxVale.Identity.UserEmail do
     address
     |> to_string()
     |> String.match?(@address_format)
+  end
+
+  @doc """
+  Atomically supersedes every PENDING claim on `address` — the system
+  seam shared by the sign-in JIT path (VerifyAuthCode) and the bootstrap
+  seed: a burned code is the inbox proof, and the seed address is
+  operator-trusted.
+
+  The pending-only filter is evaluated in SQL at destroy time
+  (`Ash.bulk_destroy!` on the atomic :supersede_pending action), not
+  from a stale read — see the action's comment for why bypassing
+  RemoveGuard is sound. A row a concurrent VerifyEmail flips verified
+  in between survives; the caller re-resolves to its owner instead of
+  forking a second account. authorize?: false — the burned code is the
+  authorization (the seed is bootstrap), and UserEmail has no
+  interaction context by design.
+  """
+  @spec supersede_pending_claims(String.t() | Ash.CiString.t()) :: :ok
+  def supersede_pending_claims(address) do
+    __MODULE__
+    |> Ash.Query.filter(address == ^address and is_nil(verified_at))
+    |> Ash.bulk_destroy!(:supersede_pending, %{}, authorize?: false)
+
+    :ok
   end
 
   @doc "The per-user email cap (see EnforceEmailCap)"

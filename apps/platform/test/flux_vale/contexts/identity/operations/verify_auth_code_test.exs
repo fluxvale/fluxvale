@@ -23,6 +23,12 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
     |> Ash.read!(authorize?: false)
   end
 
+  defp users_with_email(email) do
+    User
+    |> Ash.Query.filter(email == ^email)
+    |> Ash.read!(authorize?: false)
+  end
+
   describe "call/2" do
     test "wrong code increments attempts and stays verifiable", %{email: email} do
       :ok = Identity.request_auth_code(email)
@@ -168,6 +174,73 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
       refute fresh.id == claimant.id
       assert [%{user_id: owner_id, verified_at: verified, is_primary: true}] = rows_for(contested)
       assert owner_id == fresh.id
+      refute is_nil(verified)
+    end
+
+    test "a claim verified before the supersede wins the address — its owner signs in, row intact" do
+      claimant =
+        User.create!("claimant-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      contested = "contested-#{System.unique_integer()}@fluxvale.com"
+
+      assert {:ok, claim} = UserEmail.add(contested, %{user: claimant}, authorize?: false)
+
+      assert :ok = Identity.request_auth_code(contested)
+      code = mailbox_code()
+
+      # the concurrent VerifyEmail commits FIRST — the claim becomes a
+      # proven address before sign-in supersedes anything
+      assert {:ok, _verified} = UserEmail.mark_verified(claim, authorize?: false)
+
+      assert {:ok, signed_in, _token} = Identity.verify_auth_code(contested, code)
+
+      # no fork: THAT user signs in and their row is intact
+      assert signed_in.id == claimant.id
+
+      assert [%{user_id: owner_id, verified_at: verified}] = rows_for(contested)
+      assert owner_id == claimant.id
+      refute is_nil(verified)
+    end
+
+    test "a pre-T3 user (users.email only, no rows) signs in healed — same account, one verified row",
+         %{email: email} do
+      # A state actions cannot produce (the create mirror stamps a row) —
+      # seed! is the sanctioned bypass; this is the old-pod shape
+      # (review P2-3)
+      old_pod = Ash.Seed.seed!(User, %{email: email})
+
+      assert :ok = Identity.request_auth_code(email)
+      assert {:ok, signed_in, _token} = Identity.verify_auth_code(email, mailbox_code())
+
+      assert signed_in.id == old_pod.id
+
+      # the heal wrote the mirror row the create path would have —
+      # verified and primary — and no second account exists
+      assert [%{user_id: owner_id, verified_at: verified, is_primary: true}] = rows_for(email)
+      assert owner_id == old_pod.id
+      refute is_nil(verified)
+      assert [%User{}] = users_with_email(email)
+    end
+
+    test "a pending self-claim on an old-pod account is superseded — the heal lands, nothing wedges",
+         %{email: email} do
+      # old-pod shape: users.email holds the address, no user_emails row
+      old_pod = Ash.Seed.seed!(User, %{email: email})
+
+      # the account re-claims its own address (the owner-only add policy
+      # allows exactly this) — a pending row whose address matches the
+      # frozen users.email
+      assert {:ok, _claim} = UserEmail.add(email, %{user: old_pod}, authorize?: false)
+
+      assert :ok = Identity.request_auth_code(email)
+      assert {:ok, signed_in, _token} = Identity.verify_auth_code(email, mailbox_code())
+
+      # the atomic supersede removed the claim (RemoveGuard's frozen-
+      # mirror leg would have refused it and wedged the account) and the
+      # collision heal wrote the mirror row
+      assert signed_in.id == old_pod.id
+      assert [%{user_id: owner_id, verified_at: verified, is_primary: true}] = rows_for(email)
+      assert owner_id == old_pod.id
       refute is_nil(verified)
     end
   end

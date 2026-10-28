@@ -185,6 +185,57 @@ defmodule FluxValeWeb.Plugs.AuthenticateTest do
 
       assert conn.assigns.current_user.id == outsider.id
     end
+
+    # #285 review P3-1: pins the user-level gate at the token-presentation
+    # edge (ensure_allowed_user, NOT ensure_allowed(user.email) — the
+    # frozen users.email would admit users the table-backed identity severs).
+    test "a user whose only allowed address was removed is severed", %{
+      conn: conn
+    } do
+      outsider =
+        User.create!("gate-rm-#{System.unique_integer()}@example.com", %{}, authorize?: false)
+
+      {:ok, row} =
+        UserEmail.add("gate-rm-b-#{System.unique_integer()}@fluxvale.com", %{user: outsider},
+          authorize?: false
+        )
+
+      {:ok, _verified} = UserEmail.mark_verified(row, authorize?: false)
+
+      # the allowed address goes through the owner path
+      assert :ok = UserEmail.remove(row, actor: outsider)
+
+      {:ok, token, _claims} = Jwt.token_for_user(outsider)
+
+      conn =
+        conn
+        |> plug_conn()
+        |> Plug.Conn.put_req_header("authorization", "Bearer " <> token)
+        |> Authenticate.call([])
+
+      refute conn.assigns[:current_user]
+    end
+
+    test "a pre-T3 user with an allowlisted frozen address and no rows is severed", %{
+      conn: conn
+    } do
+      # A state actions cannot produce (the create mirror stamps a row) —
+      # seed! is the sanctioned bypass. Nothing proven, nothing granted:
+      # the allowlisted users.email alone must not admit them.
+      old_pod =
+        Ash.Seed.seed!(User, %{email: "gate-oldpod-#{System.unique_integer()}@fluxvale.com"})
+
+      {:ok, token, _claims} = Jwt.token_for_user(old_pod)
+
+      conn =
+        conn
+        |> plug_conn()
+        |> Plug.Conn.put_req_header("authorization", "Bearer " <> token)
+        |> Authenticate.call([])
+
+      refute conn.assigns[:current_user]
+      assert is_nil(Ash.PlugHelpers.get_actor(conn))
+    end
   end
 
   # store_in_session writes the live token under "user_token" (subject name

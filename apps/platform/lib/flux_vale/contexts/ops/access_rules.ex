@@ -87,7 +87,11 @@ defmodule FluxVale.Ops.AccessRules do
       |> Ash.read!(authorize?: false)
       |> Enum.map(& &1.address)
 
-    if Enum.any?(verified_addresses, &allowed?/1) do
+    # One snapshot for the whole check — re-fetching per address would
+    # multiply reads and could straddle a mid-check mutation
+    snapshot = fetch_snapshot()
+
+    if Enum.any?(verified_addresses, &decide(snapshot, &1)) do
       :ok
     else
       {:error, :not_allowed}

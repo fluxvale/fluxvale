@@ -193,9 +193,12 @@ defmodule FluxVale.Identity.User do
     # unknown address is not found, as before. Name, argument, and code
     # interface unchanged: callers (seeds, PAT mint) keep their shape.
     # unique_address guarantees at most one row per address, so the get?
-    # contract holds. `exists` is a data-layer filter — UserEmail's
-    # policies are not consulted (the caller's own authorization, here
-    # the AshAuthentication interaction bypass, is the gate).
+    # contract holds. `exists` DOES apply UserEmail's related-resource
+    # policies, fail-closed: a caller they don't authorize reads
+    # not-found, not forbidden. The AshAuthentication interaction bypass
+    # is what carries the auth flows; a future owner-actor caller would
+    # read not-found for their own address unless UserEmail's policies
+    # allow them.
     read :get_by_email do
       description("Get a user by one of their verified email addresses")
       argument(:email, :ci_string, allow_nil?: false)
