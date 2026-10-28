@@ -92,7 +92,7 @@ defmodule FluxValeWeb.CoreComponents do
         </div>
         <button
           type="button"
-          class="group -m-1 cursor-pointer p-1 pointer-events-auto"
+          class="group -m-1 cursor-pointer p-1 pointer-events-auto outline-offset-2 outline-focus focus-visible:outline-2"
           aria-label={gettext("close")}
           phx-click={JS.push("lv:clear-flash", value: %{key: @kind}) |> hide("##{@id}")}
         >

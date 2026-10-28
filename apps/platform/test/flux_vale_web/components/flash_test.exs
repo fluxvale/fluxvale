@@ -24,59 +24,62 @@ defmodule FluxValeWeb.Components.FlashTest do
   end
 
   describe "flash/1 passes clicks through to the page beneath (#294)" do
-    test "info toast: container and card opt out, close button opts in" do
-      doc = render_flash(:info)
+    test "info and error toasts: boxes opt out, close button opts in" do
+      for kind <- [:info, :error] do
+        doc = render_flash(kind)
+        id = "flash-#{kind}"
 
-      # The wide fixed box that used to eat header/menu clicks.
-      container = LazyHTML.query(doc, "#flash-info")
+        # The wide fixed box that used to eat header/menu clicks, and the
+        # visible card — the card used to re-enable pointer events. A
+        # phx-click on either would still swallow clicks landing there.
+        container = LazyHTML.query(doc, "##{id}")
+        card = LazyHTML.query(doc, "##{id} > div")
+        [container_class] = LazyHTML.attribute(container, "class")
+        [card_class] = LazyHTML.attribute(card, "class")
 
-      assert LazyHTML.attribute(container, "class") ==
-               ["pointer-events-none fixed top-4 right-4 z-50 w-[calc(100%-2rem)] max-w-sm"]
+        assert container_class =~ "pointer-events-none"
+        assert card_class =~ "pointer-events-none"
+        refute container_class =~ "pointer-events-auto"
+        refute card_class =~ "pointer-events-auto"
+        assert [] == LazyHTML.attribute(container, "phx-click")
 
-      # Pass-through boxes must not carry the dismiss handler — a
-      # phx-click there would still swallow clicks that land on them.
-      assert LazyHTML.attribute(container, "phx-click") == []
+        # The close button is the one element that opts back in, and the
+        # dismiss handler clears exactly its kind and hides its own toast.
+        # No aria-label selector: gettext may translate it.
+        button = LazyHTML.query(doc, "##{id} > div > button")
+        [button_class] = LazyHTML.attribute(button, "class")
 
-      card = LazyHTML.query(doc, "#flash-info > div")
+        assert button_class =~ "pointer-events-auto"
 
-      assert LazyHTML.attribute(card, "class") == [
-               "pointer-events-none flex items-start gap-3 rounded-xl border bg-panel p-4 shadow-lg border-line text-ink"
-             ]
-
-      button = LazyHTML.query(doc, ~s(#flash-info button[aria-label="close"]))
-
-      assert LazyHTML.attribute(button, "class") ==
-               ["group -m-1 cursor-pointer p-1 pointer-events-auto"]
-
-      [dismiss] = LazyHTML.attribute(button, "phx-click")
-      assert dismiss =~ "lv:clear-flash"
-      assert dismiss =~ "#flash-info"
+        [dismiss] = LazyHTML.attribute(button, "phx-click")
+        assert dismiss =~ "lv:clear-flash"
+        assert dismiss =~ ~s("key":"#{kind}")
+        assert dismiss =~ "##{id}"
+      end
     end
 
-    test "error toast: same pass-through wiring" do
-      doc = render_flash(:error)
+    test "caller attrs still ride the container: rest, custom id, hidden" do
+      assigns = %{
+        :"phx-mounted" => "transition-in",
+        id: "welcome-back",
+        kind: :info,
+        flash: %{"info" => "Welcome Back!"},
+        hidden: true
+      }
 
-      container = LazyHTML.query(doc, "#flash-error")
+      html = render_component(&CoreComponents.flash/1, assigns)
+      doc = LazyHTML.from_fragment(html)
 
-      assert ["pointer-events-none fixed top-4 right-4 z-50 w-[calc(100%-2rem)] max-w-sm"] ==
-               LazyHTML.attribute(container, "class")
+      container = LazyHTML.query(doc, "#welcome-back")
 
-      assert [] == LazyHTML.attribute(container, "phx-click")
+      assert ["transition-in"] == LazyHTML.attribute(container, "phx-mounted")
+      # hidden renders valueless — pin presence, not serialization.
+      assert [_present] = LazyHTML.attribute(container, "hidden")
 
-      card = LazyHTML.query(doc, "#flash-error > div")
-
-      assert [
-               "pointer-events-none flex items-start gap-3 rounded-xl border bg-panel p-4 shadow-lg border-line-danger text-ink"
-             ] == LazyHTML.attribute(card, "class")
-
-      button = LazyHTML.query(doc, ~s(#flash-error button[aria-label="close"]))
-
-      assert ["group -m-1 cursor-pointer p-1 pointer-events-auto"] ==
-               LazyHTML.attribute(button, "class")
-
+      # The hide target follows the caller's id, not the default one.
+      button = LazyHTML.query(doc, "#welcome-back > div > button")
       [dismiss] = LazyHTML.attribute(button, "phx-click")
-      assert dismiss =~ "lv:clear-flash"
-      assert dismiss =~ "#flash-error"
+      assert dismiss =~ "#welcome-back"
     end
   end
 end
