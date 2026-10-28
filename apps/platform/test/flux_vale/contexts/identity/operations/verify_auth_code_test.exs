@@ -107,9 +107,11 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
 
       org = AccountsFixtures.personal_org!(user)
 
-      # slug from the email local part (sanitized), creator-owned
-      assert String.starts_with?(org.slug, "verify-code-")
-      assert org.name == String.replace_trailing(email, "@fluxvale.com", "")
+      # name and slug follow the derived username (#285) — the local part
+      # sanitizes into it (e.g. a negative unique integer collapses the
+      # "code--123" double hyphen)
+      assert org.name == user.username
+      assert org.slug == user.username
     end
 
     test "email matching is case-insensitive", %{email: email} do

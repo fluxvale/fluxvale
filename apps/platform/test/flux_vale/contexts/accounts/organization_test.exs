@@ -164,12 +164,15 @@ defmodule FluxVale.Accounts.OrganizationTest do
     test "a 40+ char email local part still provisions (the caps bind renames, not signup)" do
       # Round-2 P1 regression: the length caps once sat on the attribute,
       # so the JIT provisioning create failed for a long local part —
-      # after the auth code was burned. Signup must not care.
+      # after the auth code was burned. Signup must not care: the local
+      # part truncates into a 39-char username (#285) and the org slug
+      # rides it, still under the rename cap.
       local_part = String.duplicate("u", 44)
       user = AccountsFixtures.user!(local_part)
 
       org = AccountsFixtures.personal_org!(user)
-      assert org.slug == String.duplicate("u", 44)
+      assert user.username == String.duplicate("u", 39)
+      assert org.slug == String.duplicate("u", 39)
     end
 
     test "a rename to a 40-char slug fails with the field error; 39 fits" do
