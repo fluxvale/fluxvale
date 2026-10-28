@@ -43,6 +43,12 @@ defmodule FluxVale.Identity.UserEmailTest do
     |> Ash.count!(authorize?: false)
   end
 
+  defp count_verified(user) do
+    UserEmail
+    |> Ash.Query.filter(user_id == ^user.id and not is_nil(verified_at))
+    |> Ash.count!(authorize?: false)
+  end
+
   describe "add/2" do
     test "creates a pending (unverified, non-primary) row for the actor" do
       user = create_user("owner@emails.fluxvale.test")
@@ -108,6 +114,12 @@ defmodule FluxVale.Identity.UserEmailTest do
           %{address: "bulk#{n}@emails.fluxvale.test", user: user}
         end
 
+      # The trigger is DEFERRABLE INITIALLY DEFERRED — inside a sandboxed
+      # test (one big transaction) it would only fire at test end, so flip
+      # it to IMMEDIATE: the checks then run at each statement's end, the
+      # same moment a production commit would run them.
+      Repo.query!("SET CONSTRAINTS ALL IMMEDIATE")
+
       # authorize?: false — the cap is a data invariant, not a policy
       # question (same posture as the single-row cap test).
       result = Ash.bulk_create(inputs, UserEmail, :add, authorize?: false, return_errors?: true)
@@ -115,6 +127,82 @@ defmodule FluxVale.Identity.UserEmailTest do
       refute match?({:ok, %Ash.BulkResult{status: :success}}, result)
 
       # whole-batch rollback: not a partial insert of cap-3 stragglers
+      assert count_rows(user) == 0
+    end
+
+    test "the cap holds when the caller disables bulk transactions" do
+      user = create_user("no-tx-bulk@emails.fluxvale.test")
+      cap = UserEmail.max_emails_per_user()
+
+      inputs =
+        for n <- 1..(cap + 3) do
+          %{address: "notx#{n}@emails.fluxvale.test", user: user}
+        end
+
+      Repo.query!("SET CONSTRAINTS ALL IMMEDIATE")
+
+      # authorize?: false — data invariant, as above.
+      result =
+        Ash.bulk_create(inputs, UserEmail, :add,
+          authorize?: false,
+          transaction: false,
+          return_errors?: true
+        )
+
+      refute match?({:ok, %Ash.BulkResult{status: :success}}, result)
+      assert count_rows(user) <= cap
+    end
+
+    test "the cap holds across batch splits (batch_size: 2)" do
+      user = create_user("batched-bulk@emails.fluxvale.test")
+      cap = UserEmail.max_emails_per_user()
+
+      inputs =
+        for n <- 1..(cap + 3) do
+          %{address: "split#{n}@emails.fluxvale.test", user: user}
+        end
+
+      Repo.query!("SET CONSTRAINTS ALL IMMEDIATE")
+
+      result =
+        Ash.bulk_create(inputs, UserEmail, :add,
+          authorize?: false,
+          batch_size: 2,
+          return_errors?: true
+        )
+
+      refute match?({:ok, %Ash.BulkResult{status: :success}}, result)
+      assert count_rows(user) <= cap
+    end
+
+    test "the cap is a data-layer arbiter — even non-Ash writes cannot exceed it" do
+      user = create_user("raw-sql@emails.fluxvale.test")
+      now = DateTime.utc_now()
+
+      rows =
+        for n <- 1..6 do
+          %{
+            id: Ash.UUIDv7.bingenerate(),
+            user_id: Ecto.UUID.dump!(user.id),
+            address: "raw#{n}@emails.fluxvale.test",
+            is_primary: false,
+            created_at: now,
+            updated_at: now
+          }
+        end
+
+      # Sanctioned bypass: this test deliberately writes around actions
+      # (raw insert_all, no Ash type layer — hence bingenerate + the
+      # dumped uuid) to prove the cap lives in the data layer, not in
+      # changeset hooks. The savepoint keeps the test's own transaction
+      # alive after the violation.
+      assert_raise(Postgrex.Error, fn ->
+        Repo.transaction(fn ->
+          Repo.query!("SET CONSTRAINTS ALL IMMEDIATE")
+          Repo.insert_all("user_emails", rows)
+        end)
+      end)
+
       assert count_rows(user) == 0
     end
   end
@@ -181,6 +269,17 @@ defmodule FluxVale.Identity.UserEmailTest do
         |> Ash.read_one!(authorize?: false)
 
       refute still.is_primary
+    end
+
+    test "a set_primary on an already-deleted row is a clean error, not a raise" do
+      user = create_user("gone-promoter@emails.fluxvale.test")
+      admin = create_user("gone-promoter-admin@emails.fluxvale.test", %{platform_role: :admin})
+      {:ok, pending} = add_email(user, "vanished@emails.fluxvale.test", authorize?: false)
+
+      assert UserEmail.remove(pending, actor: admin, authorize?: true) == :ok
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               UserEmail.set_primary(pending, actor: admin, authorize?: true)
     end
   end
 
@@ -251,6 +350,40 @@ defmodule FluxVale.Identity.UserEmailTest do
 
       # the primary survived: exactly one remains
       assert count_primaries(user) == 1
+    end
+
+    test "a second remove with the same (now-deleted) struct is a clean error, not a raise" do
+      user = create_user("twice@emails.fluxvale.test")
+      admin = create_user("twice-admin@emails.fluxvale.test", %{platform_role: :admin})
+      {:ok, pending} = add_email(user, "once@emails.fluxvale.test", authorize?: false)
+
+      assert UserEmail.remove(pending, actor: admin, authorize?: true) == :ok
+
+      # admin path: no policy filter short-circuits, so the guard itself
+      # refuses the vanished row. (An owner actor gets Forbidden from the
+      # policy filter first — also clean, never a raise.)
+      assert {:error, %Ash.Error.Invalid{}} =
+               UserEmail.remove(pending, actor: admin, authorize?: true)
+    end
+
+    test "a decoy user_id cannot dodge the per-user lock — the last verified row always refuses" do
+      owner = create_user("decoyed@emails.fluxvale.test")
+      decoy = create_user("decoy@emails.fluxvale.test")
+      first = verified_email(owner, "last-a@emails.fluxvale.test")
+      second = verified_email(owner, "last-b@emails.fluxvale.test")
+      admin = create_user("decoy-admin@emails.fluxvale.test", %{platform_role: :admin})
+
+      # forged structs point the lock target at an unrelated account;
+      # the guard must lock the FRESH row's user instead
+      forged_first = Map.put(first, :user_id, decoy.id)
+      assert UserEmail.remove(forged_first, actor: admin, authorize?: true) == :ok
+
+      forged_second = Map.put(second, :user_id, decoy.id)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               UserEmail.remove(forged_second, actor: admin, authorize?: true)
+
+      assert count_verified(owner) == 1
     end
   end
 

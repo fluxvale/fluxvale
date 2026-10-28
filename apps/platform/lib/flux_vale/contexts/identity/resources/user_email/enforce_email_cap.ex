@@ -1,23 +1,21 @@
 defmodule FluxVale.Identity.UserEmail.EnforceEmailCap do
   @moduledoc """
-  Caps how many email rows a user may hold (`UserEmail.max_emails_per_user/0`)
-  — the add action refuses past the cap.
+  The friendly face of the per-user email cap
+  (`UserEmail.max_emails_per_user/0`): the before_action pre-check
+  refuses a single over-cap add with a clear error before anything is
+  written.
 
-  Two checks, because neither alone can express the cap:
-
-  - `before_action` counts existing rows pre-insert — refuses a single
-    add past the cap before anything is written. It cannot see bulk
-    creates: Ash runs every before_action (each counting the untouched
-    table) before ONE batched INSERT, so every row in a batch counts 0.
-  - `after_action` re-counts post-insert and refuses when the end state
-    exceeds the cap. Bulk creates run each batch inside a transaction
-    with `rollback_on_error?: true` by default, so the over-cap batch
-    fails loudly as a whole — a partial insert cannot survive.
+  This hook is NOT the invariant — a hook cannot express one, because
+  the rollback guarantee on `Ash.bulk_create` is conditional on opts the
+  caller controls (`transaction: false` and `rollback_on_error?: false`
+  both persisted an over-cap batch; batch splits left a partial
+  success). The invariant lives in the data layer: a deferred constraint
+  trigger on `user_emails` (see the `add_user_email_cap_trigger`
+  migration) refuses any write — Ash or not — that would exceed the cap.
   """
 
   use Ash.Resource.Change
 
-  alias Ash.Error.Changes.InvalidAttribute
   alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
 
@@ -27,56 +25,36 @@ defmodule FluxVale.Identity.UserEmail.EnforceEmailCap do
   def change(changeset, _opts, _context) do
     cap = UserEmail.max_emails_per_user()
 
-    changeset =
-      Ash.Changeset.before_action(changeset, fn changeset ->
-        user = Ash.Changeset.get_argument(changeset, :user)
-
-        # Serialize per user: two concurrent adds could both count below the
-        # cap and both insert (unique_address can't arbitrate across
-        # different addresses). Locking the parent user row makes
-        # count-and-insert a per-user critical section (the Instance
-        # adopt_* idiom).
-        User
-        |> Ash.Query.filter(id == ^user.id)
-        |> Ash.Query.lock(:for_update)
-        |> Ash.read_one!(authorize?: false)
-
-        # authorize?: false is an invariant count, not an authorization
-        # question: the action's policy already gated the caller, and the
-        # cap must hold regardless of read-policy shape.
-        existing =
-          UserEmail
-          |> Ash.Query.filter(user_id == ^user.id)
-          |> Ash.count!(authorize?: false)
-
-        if existing >= cap do
-          Ash.Changeset.add_error(
-            changeset,
-            field: :address,
-            message: "too many email addresses (max #{cap})"
-          )
-        else
-          changeset
-        end
-      end)
-
-    Ash.Changeset.after_action(changeset, fn changeset, result ->
+    Ash.Changeset.before_action(changeset, fn changeset ->
       user = Ash.Changeset.get_argument(changeset, :user)
 
-      # authorize?: false — invariant count, same stance as the pre-check.
-      total =
+      # Serialize per user: two concurrent adds could both count below the
+      # cap and both insert (unique_address can't arbitrate across
+      # different addresses). Locking the parent user row makes
+      # count-and-insert a per-user critical section (the Instance
+      # adopt_* idiom). The deferred cap trigger is the final arbiter if
+      # anything still slips through.
+      User
+      |> Ash.Query.filter(id == ^user.id)
+      |> Ash.Query.lock(:for_update)
+      |> Ash.read_one!(authorize?: false)
+
+      # authorize?: false is an invariant count, not an authorization
+      # question: the action's policy already gated the caller, and the
+      # cap must hold regardless of read-policy shape.
+      existing =
         UserEmail
         |> Ash.Query.filter(user_id == ^user.id)
         |> Ash.count!(authorize?: false)
 
-      if total > cap do
-        {:error,
-         InvalidAttribute.exception(
-           field: :address,
-           message: "too many email addresses (max #{cap})"
-         )}
+      if existing >= cap do
+        Ash.Changeset.add_error(
+          changeset,
+          field: :address,
+          message: "too many email addresses (max #{cap})"
+        )
       else
-        {:ok, result}
+        changeset
       end
     end)
   end
