@@ -156,8 +156,8 @@
     0 10px 15px -3px rgb(38 43 43 / 0.1), 0 4px 6px -4px rgb(38 43 43 / 0.1);
 
   /* Motion — durations + the shared ease-out curve. fast drives the
-     button/input transitions, slow the flash show/hide; base the
-     foundations demo tile and the card lift. */
+     button/input transitions, slow the flash show, base the flash
+     hide, the foundations demo tile and the card lift. */
   --motion-fast: 150ms;
   --motion-base: 200ms;
   --motion-slow: 300ms;

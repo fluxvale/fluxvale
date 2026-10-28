@@ -40,7 +40,7 @@ defmodule FluxValeWeb.Storybook.Components.Card do
       %Variation{
         id: :hover_lift,
         description:
-          "Link-wrapped card pattern (#277): a real link carries the card — hover lifts (elevation steps to md, card rises 1, both motion-safe), focus-visible shows the outline. Tab to it.",
+          "Link-wrapped card pattern (#277): a real link carries the card — hover lifts (the rise is motion-safe; the elevation step stays for reduced motion), focus-visible shows the outline. Tab to it.",
         template:
           ~s|<a href="#hover-lift-demo" class="block rounded-panel outline-offset-2 outline-focus focus-visible:outline-2"><.psb-variation/></a>|,
         attributes: %{
