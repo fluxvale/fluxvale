@@ -139,13 +139,13 @@ defmodule FluxValeWeb.CoreComponents do
     # text (the vision QA flagged white-on-amber-wash as decorative).
     # Pair is ink-subtle on panel-raised: 5.51:1 light / 4.77:1 dark.
     disabled =
-      "disabled:border disabled:border-line disabled:bg-panel-raised disabled:text-ink-subtle disabled:[box-shadow:none]"
+      "disabled:border disabled:border-line disabled:bg-panel-raised disabled:text-ink-subtle disabled:shadow-none"
 
     variants = %{
       "primary" =>
-        "border border-line-primary bg-primary text-on-primary [box-shadow:var(--elevation-sm)] hover:bg-primary-hover hover:[box-shadow:var(--elevation-md)] active:bg-primary-active active:translate-y-px active:[box-shadow:var(--elevation-xs)]",
+        "border border-line-primary bg-primary text-on-primary shadow-sm hover:bg-primary-hover hover:shadow-md active:bg-primary-active motion-safe:active:translate-y-px active:shadow-xs",
       "secondary" =>
-        "border border-line-strong bg-panel text-ink [box-shadow:var(--elevation-sm)] hover:bg-panel-raised",
+        "border border-line-strong bg-panel text-ink shadow-sm hover:bg-panel-raised",
       "ghost" => "text-ink-muted hover:bg-panel-raised hover:text-ink",
       "destructive" => "border border-line-danger bg-panel text-danger hover:bg-danger-muted"
     }
@@ -289,6 +289,8 @@ defmodule FluxValeWeb.CoreComponents do
         disabled={@rest[:disabled]}
         form={@rest[:form]}
       />
+      <%!-- border-radius is inert on Chromium's native checkbox
+           (appearance: auto) — kept for engines that honor it. --%>
       <input
         type="checkbox"
         id={@id}
@@ -367,7 +369,7 @@ defmodule FluxValeWeb.CoreComponents do
   # base styling.
   defp control_class(%{errors: errors} = assigns) do
     base =
-      "w-full rounded-control border bg-panel px-3 py-2 text-sm text-ink [box-shadow:var(--elevation-sm)] transition-[color,background-color,border-color,box-shadow] duration-(--motion-fast) placeholder:text-ink-subtle focus:outline-none focus:ring-2 disabled:opacity-50"
+      "w-full rounded-control border bg-panel px-3 py-2 text-sm text-ink shadow-sm transition-[color,background-color,border-color,box-shadow] duration-(--motion-fast) placeholder:text-ink-subtle focus:outline-none focus:ring-2 disabled:opacity-50"
 
     state =
       if errors != [],
@@ -556,7 +558,7 @@ defmodule FluxValeWeb.CoreComponents do
     ~H"""
     <div
       class={[
-        "rounded-panel border border-line-strong bg-panel [box-shadow:var(--elevation-sm)] p-5",
+        "rounded-panel border border-line-strong bg-panel shadow-sm p-5",
         @class
       ]}
       {@rest}

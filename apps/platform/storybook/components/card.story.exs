@@ -40,10 +40,12 @@ defmodule FluxValeWeb.Storybook.Components.Card do
       %Variation{
         id: :hover_lift,
         description:
-          "Link-wrapped card pattern (#277): the lift lives on the card — elevation steps to md and the card rises 1 while wrapped in a link. Hover it.",
+          "Link-wrapped card pattern (#277): a real link carries the card — hover lifts (elevation steps to md, card rises 1, both motion-safe), focus-visible shows the outline. Tab to it.",
+        template:
+          ~s|<a href="#hover-lift-demo" class="block rounded-panel outline-offset-2 outline-focus focus-visible:outline-2"><.psb-variation/></a>|,
         attributes: %{
           class:
-            "transition-[box-shadow,translate] duration-(--motion-base) ease-(--motion-ease-out) hover:[box-shadow:var(--elevation-md)] hover:-translate-y-1"
+            "transition-[box-shadow,translate] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md motion-safe:hover:-translate-y-1"
         },
         slots: [
           """

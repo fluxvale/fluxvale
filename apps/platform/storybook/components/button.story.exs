@@ -37,7 +37,7 @@ defmodule FluxValeWeb.Storybook.Components.Button do
       %Variation{
         id: :disabled,
         description:
-          "Disabled state — ink-subtle on panel-raised (5.51:1 light / 4.77:1 dark), flat, pointer-inert",
+          "Disabled state — ink-subtle on panel-raised (5.51:1 light / 4.77:1 dark), flat, pointer-inert. Also the loading visual: phx-disable-with swaps the button to this state mid-request.",
         attributes: %{disabled: true},
         slots: ["Deploying…"]
       },

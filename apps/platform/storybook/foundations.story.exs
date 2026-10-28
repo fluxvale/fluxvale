@@ -73,8 +73,9 @@ defmodule FluxValeWeb.Storybook.Foundations do
     {"--border-success (tint edge)", "#8aceba", "oklch(75% 0.13 184 / 30%)"},
     # --warning retuned (#277): light text darkened to clear 4.5:1 on
     # every surface (worst 4.82:1); dark text hue 84° → 78° so the
-    # amber family keeps >= 40° of hue from BOTH olive neighbours; the
-    # tints ride at the text hue in both modes.
+    # amber TEXT keeps >= 40° of hue from the olive accent (44°); the
+    # tints ride at the text hue in both modes. Tint FILLS converge in
+    # dark (warning-muted ≈ info-muted) — icon+label separates them.
     {"--warning", "#a55200 · 64° from olive",
      "oklch(83.69% 0.15 78) ≈ #ffbc46 · 44° (was #fbbf24 · 38°)"}
   ]
@@ -224,10 +225,12 @@ defmodule FluxValeWeb.Storybook.Foundations do
           The lane accepted Grove knowing olive sits near success-green, so the separation is
           engineered, not hoped for: success was re-tuned to hold ≥40° OKLCH hue from every olive
           token with clearly separated lightness — measured 57° light / 62° dark (ΔL ≥ 0.07), still
-          AA on every text pair. Warning keeps its distance too: 59° light, and dark was re-tuned
-          (hue 84° → 78°, chroma nudged to stay in sRGB gamut) from 38° to 44°. The rules on top of
-          the colour: status is never colour-alone (icon and label always pair), and the info
-          accent never carries positive/success semantics.
+          AA on every text pair. Warning keeps its distance too: 64° light, and dark was re-tuned
+          (hue 84° → 78°, chroma nudged to stay in sRGB gamut) from 38° to 44° — measured on the
+          text pair; the dark tint fills converge (warning-muted ≈ info-muted), which is exactly
+          why the rules below exist. The rules on top of the colour: status is never
+          colour-alone (icon and label always pair), and the info accent never carries
+          positive/success semantics.
         </p>
         <div class="grid gap-3 sm:grid-cols-2" data-testid="info-vs-success">
           <div class="rounded-xl border border-line-info bg-info-muted p-4">
