@@ -17,6 +17,7 @@ defmodule FluxValeWeb.OrganizationLive.Settings do
 
   alias FluxVale.Accounts.Organization
   alias FluxVale.Checks.ActorIsOrganizationOwner
+  alias FluxValeWeb.OrgSettings
 
   @impl Phoenix.LiveView
   def mount(%{"slug" => slug}, _session, socket) do
@@ -162,28 +163,9 @@ defmodule FluxValeWeb.OrganizationLive.Settings do
       current_org={@org}
     >
       <div class="mx-auto max-w-3xl space-y-8">
-        <div>
-          <.button variant="ghost" size="sm" navigate={~p"/"} class="-ml-2 mb-4">
-            &larr; Dashboard
-          </.button>
+        <OrgSettings.org_header org={@org} />
 
-          <div class="flex items-center gap-4">
-            <div class="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary-muted text-lg font-semibold text-primary">
-              {String.first(@org.name)}
-            </div>
-            <div class="min-w-0">
-              <h1
-                class="truncate text-2xl font-semibold tracking-tight text-ink"
-                data-testid="org-name"
-              >
-                {@org.name}
-              </h1>
-              <p class="text-sm text-ink-muted" data-testid="org-slug">{@org.slug}</p>
-            </div>
-          </div>
-        </div>
-
-        <.settings_tabs current="general" slug={@org.slug} />
+        <OrgSettings.settings_tabs current="general" slug={@org.slug} />
 
         <.card id="org-general-card" class="space-y-4">
           <div>
@@ -262,42 +244,6 @@ defmodule FluxValeWeb.OrganizationLive.Settings do
         </.card>
       </div>
     </Layouts.app>
-    """
-  end
-
-  attr(:current, :string, required: true)
-  attr(:slug, :string, required: true)
-
-  # One line per tab — the Members tab lands here with its ticket, the
-  # Access tab with its lane. No dead tabs ship: the list carries only
-  # what exists.
-  defp settings_tabs(assigns) do
-    tabs = [
-      %{key: "general", label: "General", path: ~p"/organizations/#{assigns.slug}/settings"}
-    ]
-
-    assigns = assign(assigns, :tabs, tabs)
-
-    ~H"""
-    <nav
-      class="flex gap-1 border-b border-line"
-      aria-label="Organization settings"
-      data-testid="org-settings-tabs"
-    >
-      <.link
-        :for={tab <- @tabs}
-        navigate={tab.path}
-        aria-current={tab.key == @current && "page"}
-        class={[
-          "-mb-px rounded-t-lg border-b-2 px-3 py-2 text-sm font-medium transition-colors",
-          tab.key == @current && "border-primary text-ink",
-          tab.key != @current && "border-transparent text-ink-muted hover:text-ink"
-        ]}
-        data-testid={"org-settings-tab-#{tab.key}"}
-      >
-        {tab.label}
-      </.link>
-    </nav>
     """
   end
 end

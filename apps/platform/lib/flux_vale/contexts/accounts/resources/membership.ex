@@ -18,35 +18,35 @@ defmodule FluxVale.Accounts.Membership do
     authorizers: [Ash.Policy.Authorizer]
 
   postgres do
-    table "memberships"
-    repo FluxVale.Repo
+    table("memberships")
+    repo(FluxVale.Repo)
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
-    migration_defaults id: "nil"
+    migration_defaults(id: "nil")
 
     # The composite unique_user_per_org index leads on organization_id, so
     # user_id-only lookups ("which orgs does this actor belong to?", used
     # by the Organization read policy and instance org resolution) need
     # their own index.
     custom_indexes do
-      index [:user_id]
+      index([:user_id])
     end
   end
 
   policies do
     # An actor may read memberships for organizations they belong to.
     policy action_type(:read) do
-      description "Members read their org's memberships"
+      description("Members read their org's memberships")
       authorize_if(relates_to_actor_via([:organization, :members]))
     end
 
     policy action_type(:create) do
-      description "System-only: signup provisioning (authorize?: false)"
+      description("System-only: signup provisioning (authorize?: false)")
       forbid_if(always())
     end
 
     policy action_type(:destroy) do
-      description "System-only: org teardown (authorize?: false)"
+      description("System-only: org teardown (authorize?: false)")
       forbid_if(always())
     end
   end
@@ -80,13 +80,13 @@ defmodule FluxVale.Accounts.Membership do
     defaults([:read, :destroy])
 
     create :create do
-      primary? true
+      primary?(true)
       accept([:role, :organization_id, :user_id])
     end
   end
 
   code_interface do
-    domain FluxVale.Accounts
+    domain(FluxVale.Accounts)
 
     define(:create)
     define(:read)
@@ -95,5 +95,15 @@ defmodule FluxVale.Accounts.Membership do
 
   identities do
     identity(:unique_user_per_org, [:organization_id, :user_id])
+  end
+
+  calculations do
+    # The roster's email column (#276): User reads are :me/platform-admin
+    # only, so co-member emails cannot ride a `:user` load. This calc
+    # joins the email into the membership read — the org's membership read
+    # policy is the gate (any member of the org may read the roster's
+    # emails, including through the domain); the LiveView's owner gate is
+    # UI-only, not the column's protection.
+    calculate(:user_email, :string, expr(user.email))
   end
 end

@@ -28,31 +28,54 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
     assert has_element?(view, "#org-general-form")
     assert has_element?(view, "[data-testid='slug-preview']", "/organizations/#{org.slug}")
 
+    # The back link leaves settings for the dashboard.
+    assert render(element(view, "[data-testid='org-back']")) =~ ~s(href="/")
+
     # The chrome's switcher names THIS org as the active context — the
     # settings page passes actor_orgs + current_org through (without it
     # the summary would say "Personal" on an org page).
     assert has_element?(view, "[data-testid='org-switcher-button'] span", org.name)
   end
 
-  test "the tab nav renders exactly one tab — General (no dead tabs ship)", %{
+  test "the tab nav renders exactly two tabs — General and Members (no dead tabs ship)", %{
     conn: conn,
     org: org
   } do
     {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings")
 
     assert has_element?(view, "[data-testid='org-settings-tab-general']", "General")
+    assert has_element?(view, "[data-testid='org-settings-tab-members']", "Members")
 
     # Count the tab keys, not just the container: a dead tab injected by a
-    # mutation must fail this. (LiveViewTest has no count API, and
-    # LazyHTML's parser chokes on the page's script tags — hence the
-    # rendered-HTML count of the testid each tab renders exactly once.)
+    # mutation must fail this. The key charset is wide ([^"]+, not
+    # lowercase-only — an uppercase key still renders a tab), and the
+    # <nav>'s link count is pinned separately so a testid-less dead link
+    # cannot hide. (LiveViewTest has no count API, and LazyHTML's parser
+    # chokes on the page's script tags — hence the rendered-HTML counts.)
     tab_count =
       view
       |> render()
-      |> then(&Regex.scan(~r/data-testid="org-settings-tab-[a-z-]+"/, &1))
+      |> then(&Regex.scan(~r/data-testid="org-settings-tab-[^"]+"/, &1))
       |> length()
 
-    assert tab_count == 1
+    assert tab_count == 2
+
+    nav_html = render(element(view, "[data-testid='org-settings-tabs']"))
+
+    link_count =
+      nav_html
+      |> then(&Regex.scan(~r/<a /, &1))
+      |> length()
+
+    assert link_count == 2
+
+    # General is the active tab on THIS page — and only it.
+    general_tab = render(element(view, "[data-testid='org-settings-tab-general']"))
+    assert general_tab =~ ~s(aria-current="page")
+    assert general_tab =~ "border-primary"
+
+    members_tab = render(element(view, "[data-testid='org-settings-tab-members']"))
+    refute members_tab =~ "border-primary"
   end
 
   test "the slug preview follows the input live", %{conn: conn, org: org} do
