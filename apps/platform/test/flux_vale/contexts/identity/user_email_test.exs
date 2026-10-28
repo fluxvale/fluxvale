@@ -5,6 +5,7 @@ defmodule FluxVale.Identity.UserEmailTest do
 
   alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
+  alias FluxVale.Repo
 
   require Ash.Query
 
@@ -204,6 +205,75 @@ defmodule FluxVale.Identity.UserEmailTest do
       end)
 
       assert count_rows(user) == 0
+    end
+
+    test "the cap holds on the upsert path — upserts are updates, not inserts" do
+      victim = create_user("upsert-victim@emails.fluxvale.test")
+      donor = create_user("upsert-donor@emails.fluxvale.test")
+      cap = UserEmail.max_emails_per_user()
+
+      # donor owns cap addresses; victim starts 2 under the cap
+      addresses =
+        for n <- 1..cap do
+          address = "ups#{n}@emails.fluxvale.test"
+          {:ok, _donor_row} = add_email(donor, address, authorize?: false)
+          address
+        end
+
+      for n <- 1..2 do
+        {:ok, _victim_row} =
+          add_email(victim, "victim#{n}@emails.fluxvale.test", authorize?: false)
+      end
+
+      inputs = for a <- addresses, do: %{address: a, user: victim}
+
+      Repo.query!("SET CONSTRAINTS ALL IMMEDIATE")
+
+      # authorize?: false — data invariant, as above.
+      result =
+        Ash.bulk_create(inputs, UserEmail, :add,
+          authorize?: false,
+          upsert?: true,
+          upsert_identity: :unique_address,
+          upsert_fields: [:user_id],
+          return_errors?: true
+        )
+
+      refute match?({:ok, %Ash.BulkResult{status: :success}}, result)
+      assert count_rows(victim) <= cap
+    end
+
+    test "the cap holds when rows are moved between accounts (UPDATE of user_id)" do
+      donor = create_user("mover-donor@emails.fluxvale.test")
+      victim = create_user("mover-victim@emails.fluxvale.test")
+      cap = UserEmail.max_emails_per_user()
+
+      for n <- 1..cap do
+        {:ok, _donor_row} = add_email(donor, "mov#{n}@emails.fluxvale.test", authorize?: false)
+      end
+
+      {:ok, _victim_row} = add_email(victim, "mov-victim@emails.fluxvale.test", authorize?: false)
+
+      # Sanctioned bypass: a raw user_id move is exactly the write the
+      # UPDATE trigger exists for — no Ash action can express it.
+      assert_raise(Postgrex.Error, fn ->
+        Repo.transaction(fn ->
+          Repo.query!("SET CONSTRAINTS ALL IMMEDIATE")
+
+          donor_id = Ecto.UUID.dump!(donor.id)
+          victim_id = Ecto.UUID.dump!(victim.id)
+
+          move =
+            from(e in "user_emails",
+              where: e.user_id == ^donor_id,
+              update: [set: [user_id: ^victim_id]]
+            )
+
+          Repo.update_all(move, [])
+        end)
+      end)
+
+      assert count_rows(victim) == 1
     end
   end
 
@@ -406,6 +476,20 @@ defmodule FluxVale.Identity.UserEmailTest do
       end)
 
       assert count_primaries(user) == 1
+    end
+  end
+
+  describe "the cap trigger (data-layer arbiter)" do
+    test "the SQL cap cannot drift from the resource constant" do
+      # The twin tie: the trigger's hardcoded cap and
+      # UserEmail.max_emails_per_user/0 must move together (the DSL
+      # cannot parametrize raw SQL, and ash.codegen --check cannot see
+      # the trigger) — so read the LIVE function definition and pin it
+      # to the constant. Bumping one without the other fails here.
+      %{rows: [[definition]]} =
+        Repo.query!("SELECT pg_get_functiondef('fluxvale_user_email_cap'::regproc)")
+
+      assert definition =~ ~r/> #{UserEmail.max_emails_per_user()}/
     end
   end
 
