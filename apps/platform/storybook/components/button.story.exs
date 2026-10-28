@@ -12,7 +12,8 @@ defmodule FluxValeWeb.Storybook.Components.Button do
     [
       %VariationGroup{
         id: :variants,
-        description: "The four variants",
+        description:
+          "The four variants — hover lifts the primary's elevation; active presses down 1px with an elevation step-down",
         variations: [
           %Variation{id: :primary, attributes: %{}, slots: ["Deploy"]},
           %Variation{id: :secondary, attributes: %{variant: "secondary"}, slots: ["Cancel"]},
@@ -35,7 +36,8 @@ defmodule FluxValeWeb.Storybook.Components.Button do
       },
       %Variation{
         id: :disabled,
-        description: "Disabled state",
+        description:
+          "Disabled state — ink-subtle on panel-raised (5.51:1 light / 4.77:1 dark), flat, pointer-inert. Also the loading visual: phx-disable-with swaps the button to this state mid-request.",
         attributes: %{disabled: true},
         slots: ["Deploying…"]
       },

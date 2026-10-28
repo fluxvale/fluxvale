@@ -23,7 +23,8 @@ defmodule FluxValeWeb.Storybook.Components.Table do
     [
       %Variation{
         id: :instances,
-        description: "In situ: an instance list",
+        description:
+          "In situ: an instance list — cells inherit text-ink from the panel chrome, so text flips with the theme; rows wash panel-raised on hover",
         attributes: %{
           id: "sb-instances",
           rows: [

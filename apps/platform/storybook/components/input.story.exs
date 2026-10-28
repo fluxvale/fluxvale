@@ -50,6 +50,16 @@ defmodule FluxValeWeb.Storybook.Components.Input do
         id: :checkbox,
         attributes: %{label: "Send me deployment alerts", type: "checkbox", checked: true},
         description: "Checkbox"
+      },
+      %Variation{
+        id: :text_disabled,
+        attributes: %{
+          label: "Instance name",
+          type: "text",
+          placeholder: "Unavailable while deploying",
+          disabled: true
+        },
+        description: "Disabled field (50% wash, no focus ring)"
       }
     ]
   end
