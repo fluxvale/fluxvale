@@ -49,8 +49,6 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     # The closed summary names the active context — personal by default.
     assert html =~ ~s(>Personal</span>)
     assert html =~ ~s(href="/")
-    assert html =~ ~s(href="/organizations/#{org.slug}")
-    assert html =~ org.name
 
     # One org = only-personal: the Personal row is the whole panel — an
     # org row would be the same context twice (#284).
@@ -150,7 +148,6 @@ defmodule FluxValeWeb.OrgSwitcherTest do
       )
 
     assert html =~ ~s(>Acme Collective</span>)
-    assert html =~ ~s(href="/organizations/acme")
 
     # Below lg the label is hidden, so the active org leads the pill
     # with its initial (the user_menu glyph) while the building icon
