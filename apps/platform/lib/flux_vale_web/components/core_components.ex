@@ -32,7 +32,9 @@ defmodule FluxValeWeb.CoreComponents do
   alias Phoenix.LiveView.JS
 
   @doc """
-  Renders flash notices as top-right toasts.
+  Renders flash notices as top-right toasts. The toast is display-only
+  (#294): its boxes pass clicks through to the page beneath; the close
+  button is the one clickable thing on it.
 
   ## Examples
 
@@ -61,13 +63,16 @@ defmodule FluxValeWeb.CoreComponents do
     <div
       :if={msg = render_slot(@inner_block) || Phoenix.Flash.get(@flash, @kind)}
       id={@id}
-      phx-click={JS.push("lv:clear-flash", value: %{key: @kind}) |> hide("##{@id}")}
       role="alert"
-      class="fixed top-4 right-4 z-50 w-[calc(100%-2rem)] max-w-sm"
+      class="pointer-events-none fixed top-4 right-4 z-50 w-[calc(100%-2rem)] max-w-sm"
       {@rest}
     >
+      <%!-- #294: the z-50 box covered the header at 375px and the account
+           menu at every width — display-only now: container and card pass
+           clicks through, so the dismiss handler rides the close button,
+           the one element that opts back into pointer events. --%>
       <div class={[
-        "pointer-events-auto flex items-start gap-3 rounded-xl border bg-panel p-4 shadow-lg",
+        "pointer-events-none flex items-start gap-3 rounded-xl border bg-panel p-4 shadow-lg",
         @kind == :info && "border-line text-ink",
         @kind == :error && "border-line-danger text-ink"
       ]}>
@@ -85,7 +90,12 @@ defmodule FluxValeWeb.CoreComponents do
           <p :if={@title} class="text-sm font-semibold">{@title}</p>
           <p class="text-sm text-ink-muted">{msg}</p>
         </div>
-        <button type="button" class="group -m-1 cursor-pointer p-1" aria-label={gettext("close")}>
+        <button
+          type="button"
+          class="group -m-1 cursor-pointer p-1 pointer-events-auto"
+          aria-label={gettext("close")}
+          phx-click={JS.push("lv:clear-flash", value: %{key: @kind}) |> hide("##{@id}")}
+        >
           <.icon name="hero-x-mark" class="size-4 text-ink-subtle group-hover:text-ink-muted" />
         </button>
       </div>
