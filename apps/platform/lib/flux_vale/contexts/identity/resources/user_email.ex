@@ -3,9 +3,12 @@ defmodule FluxVale.Identity.UserEmail do
   One of a user's email addresses (identity lane #285): `verified_at` nil
   means a pending claim, `is_primary` marks the account's main address.
 
-  Deliberately parallel to `users.email` for now — nothing reads this
-  table yet (sign-in still goes through `users.email`; the cutover is a
-  later slice). An address belongs to at most one account at a time
+  Since T3 this table IS the account's identity: sign-in resolves
+  through it (`User.get_by_email`), the session/token gates read it, and
+  every create stamps a verified-primary row (the mirror — `users.email`
+  stays as a frozen column for old pods during rolling deploys).
+
+  An address belongs to at most one account at a time
   (`unique_address`), and a user keeps at most one primary (the partial
   index — a plain unique `[:user_id]` would cap the whole table at one
   row per user).
@@ -118,8 +121,8 @@ defmodule FluxVale.Identity.UserEmail do
       public?(false)
     end
 
-    # nil = pending claim; stamped by :mark_verified (a caller that holds
-    # a verified auth code — arrives in a later slice)
+    # nil = pending claim; stamped by :mark_verified (the identity
+    # operation holding a verified auth code — VerifyEmail, T3)
     attribute(:verified_at, :utc_datetime)
 
     attribute :is_primary, :boolean do

@@ -11,11 +11,20 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   after a code was already sent must still stop the session mint — the
   ≤10-min code-TTL window is exactly the severing case Am. 1 cares about.
   Denied addresses burn nothing.
+
+  Resolution is table-backed (#285 T3): a VERIFIED `user_emails` row
+  signs in to its user — any verified address, primary or not; a
+  PENDING claim carries no proof and is superseded by the burned code
+  (deleted, then a fresh JIT account); no row JITs as before.
   """
 
   alias FluxVale.Identity.AuthCode
   alias FluxVale.Identity.User
+  alias FluxVale.Identity.UserEmail
   alias FluxVale.Ops.AccessRules
+
+  # Ash.Query.filter is a macro
+  require Ash.Query
 
   # The framework's own door for auth flows — see RequestAuthCode's note
   @interaction %{private: %{ash_authentication?: true}}
@@ -121,9 +130,29 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
 
   defp ensure_user(email) do
     case lookup_user(email) do
-      {:ok, user} -> {:ok, user}
-      {:error, :not_found} -> provision_user(email)
+      {:ok, user} ->
+        {:ok, user}
+
+      {:error, :not_found} ->
+        delete_pending_claim(email)
+        provision_user(email)
     end
+  end
+
+  # A PENDING claim (someone started adding this address to another
+  # account) carries no proof — the burned code IS the inbox proof, and
+  # it supersedes the claim. Deleted BEFORE the JIT create so the
+  # unique_address identity cannot collide with the mirror row the
+  # create writes (#285 T3 §2/§5). authorize?: false: the code burn is
+  # the authorization, and UserEmail has no interaction context by
+  # design (its policies say so).
+  defp delete_pending_claim(email) do
+    UserEmail
+    |> Ash.Query.filter(address == ^email and is_nil(verified_at))
+    |> Ash.read!(authorize?: false)
+    |> Enum.each(fn row ->
+      _removed = UserEmail.remove(row, authorize?: false)
+    end)
   end
 
   defp lookup_user(email) do

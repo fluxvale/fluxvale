@@ -16,6 +16,7 @@ defmodule FluxVale.Seeds.AdminSeedTest do
   alias FluxVale.Catalog.Category
   alias FluxVale.Identity.User
   alias FluxVale.Seeds
+  alias FluxVale.TestSupport.AccountsFixtures
 
   require Ash.Query
 
@@ -53,18 +54,25 @@ defmodule FluxVale.Seeds.AdminSeedTest do
   end
 
   describe "seed_admin_org!/0" do
+    # Ash.Seed.seed! — pre-#119 admins have no org and the User create
+    # action now always provisions one (state actions can't produce, the
+    # documented seed! exception). backfill_email! adds the row the T1
+    # backfill gave every pre-existing user — without it the
+    # table-backed identity (#285 T3) cannot see the admin.
+    defp seed_pre119_admin! do
+      admin =
+        Ash.Seed.seed!(User, %{
+          email: "admin@fluxvale.com",
+          platform_role: :admin,
+          username: "admin-2"
+        })
+
+      AccountsFixtures.backfill_email!(admin)
+      admin
+    end
+
     test "heals a pre-#119 admin — exactly one personal org, owner membership" do
-      # Ash.Seed.seed! — pre-#119 admins have no org and the User create
-      # action now always provisions one (state actions can't produce,
-      # the documented seed! exception). The username rides along: the
-      # #285 backfill gave every legacy row one, reserving handles as
-      # it went — "admin" derives to "admin-2" — and provisioning names
-      # the org after it (a bare row is unreachable state).
-      Ash.Seed.seed!(User, %{
-        email: "admin@fluxvale.com",
-        platform_role: :admin,
-        username: "admin-2"
-      })
+      seed_pre119_admin!()
 
       :ok = Seeds.seed_admin!()
       :ok = Seeds.seed_admin_org!()
@@ -78,11 +86,7 @@ defmodule FluxVale.Seeds.AdminSeedTest do
     end
 
     test "idempotent — a second run adds no org and no second ledger entry" do
-      Ash.Seed.seed!(User, %{
-        email: "admin@fluxvale.com",
-        platform_role: :admin,
-        username: "admin-2"
-      })
+      seed_pre119_admin!()
 
       :ok = Seeds.seed_admin!()
       :ok = Seeds.seed_admin_org!()
@@ -116,11 +120,7 @@ defmodule FluxVale.Seeds.AdminSeedTest do
     end
 
     test "the welcome grant is 300 cents with reason :welcome" do
-      Ash.Seed.seed!(User, %{
-        email: "admin@fluxvale.com",
-        platform_role: :admin,
-        username: "admin-2"
-      })
+      seed_pre119_admin!()
 
       :ok = Seeds.seed_admin!()
       :ok = Seeds.seed_admin_org!()
@@ -177,11 +177,7 @@ defmodule FluxVale.Seeds.AdminSeedTest do
     test "heals a pre-#119 admin through the promotable path" do
       # Delegation guard: the heal rides seed/0 itself — dropping
       # seed_admin_org!/0 from it must fail here, not in prod bring-up.
-      Ash.Seed.seed!(User, %{
-        email: "admin@fluxvale.com",
-        platform_role: :admin,
-        username: "admin-2"
-      })
+      seed_pre119_admin!()
 
       :ok = Seeds.seed()
 

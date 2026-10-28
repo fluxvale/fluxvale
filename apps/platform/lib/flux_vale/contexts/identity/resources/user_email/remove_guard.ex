@@ -54,15 +54,14 @@ defmodule FluxVale.Identity.UserEmail.RemoveGuard do
 
   # authorize?: false throughout — invariant checks, same stance as
   # EnforceEmailCap: the action's policy already gated the caller.
+  #
+  # The only-verified check runs FIRST: since the create mirror (#285
+  # T3 §5) every account's primary is verified, so a non-primary row can
+  # never be the last verified — the corner where both checks fire is
+  # the primary itself, and "only verified" is the accurate refusal
+  # there.
   defp decide(fresh, changeset) do
     cond do
-      fresh.is_primary ->
-        Ash.Changeset.add_error(
-          changeset,
-          field: :is_primary,
-          message: "is the primary address — make another address primary first"
-        )
-
       # The invariant is about verified addresses: removing a pending
       # row (a typo claim, say) can never drop the user below one
       # verified address.
@@ -71,6 +70,13 @@ defmodule FluxVale.Identity.UserEmail.RemoveGuard do
           changeset,
           field: :verified_at,
           message: "is the only verified address — add and verify another first"
+        )
+
+      fresh.is_primary ->
+        Ash.Changeset.add_error(
+          changeset,
+          field: :is_primary,
+          message: "is the primary address — make another address primary first"
         )
 
       true ->

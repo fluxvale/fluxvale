@@ -7,6 +7,7 @@ defmodule FluxValeWeb.Plugs.AuthenticateTest do
   alias AshAuthentication.Plug.Helpers
   alias AshAuthentication.TokenResource.Actions
   alias FluxVale.Identity.User
+  alias FluxVale.Identity.UserEmail
   alias FluxVale.Ops.AccessRule
   alias FluxValeWeb.Plugs.Authenticate
 
@@ -157,6 +158,32 @@ defmodule FluxValeWeb.Plugs.AuthenticateTest do
         |> Authenticate.call([])
 
       refute conn.assigns[:current_user]
+    end
+
+    # #285 T3: the gate is user-level — any verified address under the
+    # allowlist keeps the account connected.
+    test "a second, allowlisted verified address keeps the bearer alive", %{
+      conn: conn
+    } do
+      outsider =
+        User.create!("gate-two-#{System.unique_integer()}@example.com", %{}, authorize?: false)
+
+      {:ok, row} =
+        UserEmail.add("gate-two-b-#{System.unique_integer()}@fluxvale.com", %{user: outsider},
+          authorize?: false
+        )
+
+      {:ok, _verified} = UserEmail.mark_verified(row, authorize?: false)
+
+      {:ok, token, _claims} = Jwt.token_for_user(outsider)
+
+      conn =
+        conn
+        |> plug_conn()
+        |> Plug.Conn.put_req_header("authorization", "Bearer " <> token)
+        |> Authenticate.call([])
+
+      assert conn.assigns.current_user.id == outsider.id
     end
   end
 

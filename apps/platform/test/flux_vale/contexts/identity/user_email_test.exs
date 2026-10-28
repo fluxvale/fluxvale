@@ -12,6 +12,10 @@ defmodule FluxVale.Identity.UserEmailTest do
   # Preconditions run authorize?: false — there is no actor to authorize
   # while building state (mirrors the seeds; the house rule). The
   # actor-ful calls in the assertions below are the actual test subject.
+  #
+  # NB: since the create mirror (#285 T3 §5), every action-created user
+  # starts with ONE verified primary row for its signup address — the
+  # counts below are written against that baseline.
   defp create_user(email, attrs \\ %{}) do
     User.create!(email, attrs, authorize?: false)
   end
@@ -21,6 +25,13 @@ defmodule FluxVale.Identity.UserEmailTest do
       actor: Keyword.get(opts, :actor, user),
       authorize?: Keyword.get(opts, :authorize?, true)
     )
+  end
+
+  # The create-mirror row: the user's one verified primary at birth.
+  defp mirror_row(user) do
+    UserEmail
+    |> Ash.Query.filter(user_id == ^user.id and is_primary)
+    |> Ash.read_one!(authorize?: false)
   end
 
   # Adds, verifies, and reloads — a verified row straight through
@@ -95,7 +106,8 @@ defmodule FluxVale.Identity.UserEmailTest do
       user = create_user("capped@emails.fluxvale.test")
       cap = UserEmail.max_emails_per_user()
 
-      for n <- 1..cap do
+      # the create mirror counts against the cap (T3 §5)
+      for n <- 1..(cap - 1) do
         assert {:ok, _added} =
                  add_email(user, "cap#{n}@emails.fluxvale.test", authorize?: false)
       end
@@ -127,8 +139,9 @@ defmodule FluxVale.Identity.UserEmailTest do
 
       refute match?({:ok, %Ash.BulkResult{status: :success}}, result)
 
-      # whole-batch rollback: not a partial insert of cap-3 stragglers
-      assert count_rows(user) == 0
+      # whole-batch rollback: not a partial insert of cap-3 stragglers —
+      # and the create mirror is untouched by the failed batch
+      assert count_rows(user) == 1
     end
 
     test "the cap holds when the caller disables bulk transactions" do
@@ -204,7 +217,8 @@ defmodule FluxVale.Identity.UserEmailTest do
         end)
       end)
 
-      assert count_rows(user) == 0
+      # only the create mirror remains
+      assert count_rows(user) == 1
     end
 
     test "the cap holds on the upsert path — upserts are updates, not inserts" do
@@ -212,9 +226,10 @@ defmodule FluxVale.Identity.UserEmailTest do
       donor = create_user("upsert-donor@emails.fluxvale.test")
       cap = UserEmail.max_emails_per_user()
 
-      # donor owns cap addresses; victim starts 2 under the cap
+      # donor owns cap addresses (mirror + cap-1 adds); victim starts 2
+      # under the cap (mirror + 2 adds)
       addresses =
-        for n <- 1..cap do
+        for n <- 1..(cap - 1) do
           address = "ups#{n}@emails.fluxvale.test"
           {:ok, _donor_row} = add_email(donor, address, authorize?: false)
           address
@@ -248,7 +263,8 @@ defmodule FluxVale.Identity.UserEmailTest do
       victim = create_user("mover-victim@emails.fluxvale.test")
       cap = UserEmail.max_emails_per_user()
 
-      for n <- 1..cap do
+      # the mirror + cap-1 adds = a donor at the cap
+      for n <- 1..(cap - 1) do
         {:ok, _donor_row} = add_email(donor, "mov#{n}@emails.fluxvale.test", authorize?: false)
       end
 
@@ -273,7 +289,8 @@ defmodule FluxVale.Identity.UserEmailTest do
         end)
       end)
 
-      assert count_rows(victim) == 1
+      # the victim keeps its own mirror + add — the refused move changed nothing
+      assert count_rows(victim) == 2
     end
   end
 
@@ -371,15 +388,19 @@ defmodule FluxVale.Identity.UserEmailTest do
       assert message =~ "primary"
     end
 
-    test "refuses the user's only verified address (even non-primary)" do
+    test "refuses the user's only verified address — the create mirror itself, before a switch" do
+      # Since the create mirror (T3 §5) every account's primary is
+      # verified, so the only-verified row is necessarily the primary:
+      # this corner is exactly "remove the mirror before ever promoting
+      # another address".
       user = create_user("sole@emails.fluxvale.test")
-      row = verified_email(user, "only@emails.fluxvale.test")
-      refute row.is_primary
+      primary = mirror_row(user)
 
       assert {:error, %Ash.Error.Invalid{errors: [%{message: message}]}} =
-               UserEmail.remove(row, actor: user, authorize?: true)
+               UserEmail.remove(primary, actor: user, authorize?: true)
 
       assert message =~ "only verified"
+      assert count_verified(user) == 1
     end
 
     test "allows removing a pending row while a verified one remains" do
@@ -398,9 +419,9 @@ defmodule FluxVale.Identity.UserEmailTest do
       assert UserEmail.remove(spare, actor: user, authorize?: true) == :ok
     end
 
-    test "allows removing the only row when it is still pending (nothing verified is lost)" do
+    test "allows removing the only pending row (nothing verified is lost)" do
       user = create_user("typo@emails.fluxvale.test")
-      {:ok, pending} = add_email(user, "typo@emails.fluxvale.test", authorize?: false)
+      {:ok, pending} = add_email(user, "typo-claim@emails.fluxvale.test", authorize?: false)
 
       assert UserEmail.remove(pending, actor: user, authorize?: true) == :ok
     end
@@ -441,6 +462,7 @@ defmodule FluxVale.Identity.UserEmailTest do
       decoy = create_user("decoy@emails.fluxvale.test")
       first = verified_email(owner, "last-a@emails.fluxvale.test")
       second = verified_email(owner, "last-b@emails.fluxvale.test")
+      mirror = mirror_row(owner)
       admin = create_user("decoy-admin@emails.fluxvale.test", %{platform_role: :admin})
 
       # forged structs point the lock target at an unrelated account;
@@ -449,9 +471,14 @@ defmodule FluxVale.Identity.UserEmailTest do
       assert UserEmail.remove(forged_first, actor: admin, authorize?: true) == :ok
 
       forged_second = Map.put(second, :user_id, decoy.id)
+      assert UserEmail.remove(forged_second, actor: admin, authorize?: true) == :ok
+
+      # only the mirror is left — the last verified. Forging its user_id
+      # still hits the guard, which reads fresh state.
+      forged_mirror = Map.put(mirror, :user_id, decoy.id)
 
       assert {:error, %Ash.Error.Invalid{}} =
-               UserEmail.remove(forged_second, actor: admin, authorize?: true)
+               UserEmail.remove(forged_mirror, actor: admin, authorize?: true)
 
       assert count_verified(owner) == 1
     end
@@ -520,11 +547,13 @@ defmodule FluxVale.Identity.UserEmailTest do
       assert {:error, %Ash.Error.Forbidden{}} =
                Ash.get(UserEmail, row.id, actor: stranger, authorize?: true)
 
+      # the stranger sees only their own rows (their create mirror)
       assert {:ok, mine} = UserEmail.mine(actor: stranger)
-      assert mine == []
+      assert Enum.map(mine, & &1.user_id) == [stranger.id]
 
+      # the owner sees the private row among theirs
       assert {:ok, mine} = UserEmail.mine(actor: owner)
-      assert Enum.map(mine, & &1.id) == [row.id]
+      assert row.id in Enum.map(mine, & &1.id)
     end
 
     test "a platform admin manages any row" do

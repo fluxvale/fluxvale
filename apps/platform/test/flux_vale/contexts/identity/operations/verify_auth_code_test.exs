@@ -6,11 +6,21 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
   import FluxVale.TestSupport.AuthCodeHelpers
 
   alias FluxVale.Identity
+  alias FluxVale.Identity.User
+  alias FluxVale.Identity.UserEmail
   alias FluxVale.Ops.AccessRule
+
+  require Ash.Query
 
   setup do
     email = "verify-code-#{System.unique_integer()}@fluxvale.com"
     %{email: email}
+  end
+
+  defp rows_for(address) do
+    UserEmail
+    |> Ash.Query.filter(address == ^address)
+    |> Ash.read!(authorize?: false)
   end
 
   describe "call/2" do
@@ -121,6 +131,44 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
       upcased = String.upcase(email)
 
       assert {:ok, _upcased_user, _upcased_token} = Identity.verify_auth_code(upcased, code)
+    end
+  end
+
+  describe "resolution (#285 T3 — table-backed identity)" do
+    test "sign-in with a secondary VERIFIED address resolves the same account", %{email: email} do
+      user = User.create!(email, %{}, authorize?: false)
+      secondary = "verify-secondary-#{System.unique_integer()}@fluxvale.com"
+
+      # precondition: the secondary rides the resource actions (the
+      # internal verification path — the same shape the VerifyEmail op
+      # drives in production)
+      assert {:ok, row} = UserEmail.add(secondary, %{user: user}, authorize?: false)
+      assert {:ok, _verified} = UserEmail.mark_verified(row, authorize?: false)
+
+      assert :ok = Identity.request_auth_code(secondary)
+      assert {:ok, signed_in, _token} = Identity.verify_auth_code(secondary, mailbox_code())
+      assert signed_in.id == user.id
+    end
+
+    test "a pending claim on another account is superseded by the true inbox owner" do
+      claimant =
+        User.create!("claimant-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      contested = "contested-#{System.unique_integer()}@fluxvale.com"
+
+      # someone started adding the address to the claimant's account —
+      # a claim with no proof
+      assert {:ok, _claim} = UserEmail.add(contested, %{user: claimant}, authorize?: false)
+
+      assert :ok = Identity.request_auth_code(contested)
+      assert {:ok, fresh, _token} = Identity.verify_auth_code(contested, mailbox_code())
+
+      # the claim was deleted; a fresh account (whose mirror owns the
+      # address now) was provisioned
+      refute fresh.id == claimant.id
+      assert [%{user_id: owner_id, verified_at: verified, is_primary: true}] = rows_for(contested)
+      assert owner_id == fresh.id
+      refute is_nil(verified)
     end
   end
 

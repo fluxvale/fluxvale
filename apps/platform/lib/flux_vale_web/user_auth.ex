@@ -46,7 +46,9 @@ defmodule FluxValeWeb.UserAuth do
     # within TTL). Any failure is "not signed in" — no error surface.
     with {:ok, user} <-
            Helpers.authenticate_resource_from_session(User, session, :flux_vale, []),
-         :ok <- AccessRules.ensure_allowed(user.email) do
+         # The user-level gate (#285 T3): any verified address passing
+         # the allowlist keeps the account connected.
+         :ok <- AccessRules.ensure_allowed_user(user) do
       user
     else
       _error -> nil

@@ -7,6 +7,11 @@ defmodule FluxVale.Identity.UserEmail.GuardConcurrencyTest do
   row as "the remaining verified one"); the fixed guard locks the fresh
   row's user, serializes on it, and exactly one remove can succeed.
 
+  The owner rides `Ash.Seed!` — since the create mirror (#285 T3 §5),
+  action-created accounts always carry a verified (irremovable) primary,
+  so a last-two-verified boundary only exists on drifted data, which is
+  exactly what the guard exists to defend.
+
   Uses `Sandbox.checkout(_, sandbox: false)` connections: the rows must
   be committed for both removers to see them. The test cleans up its own
   committed rows (in on_exit, so a failure mid-test never strands them
@@ -88,7 +93,10 @@ defmodule FluxVale.Identity.UserEmail.GuardConcurrencyTest do
   defp seeded! do
     committed?(fn ->
       unique = System.unique_integer([:positive])
-      owner = User.create!("guard-cc-owner-#{unique}@fluxvale.test", %{}, authorize?: false)
+
+      # see the moduledoc: a drifted owner with no mirror row — a state
+      # actions cannot produce (the create mirror stamps one)
+      owner = Ash.Seed.seed!(User, %{email: "guard-cc-owner-#{unique}@fluxvale.test"})
 
       decoy_a = User.create!("guard-cc-decoy-a-#{unique}@fluxvale.test", %{}, authorize?: false)
       decoy_b = User.create!("guard-cc-decoy-b-#{unique}@fluxvale.test", %{}, authorize?: false)

@@ -913,11 +913,15 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
 
   test "an orgless user is redirected to the apps surface", %{conn: conn} do
     # Ash.seed! — the only way to produce an org-less user (the create
-    # action's JIT change always provisions one).
+    # action's JIT change always provisions one). backfill_email! adds
+    # the row the T1 backfill gave every pre-existing user (#285 T3
+    # resolves identity through the table).
     orgless =
       Ash.Seed.seed!(FluxVale.Identity.User, %{
         email: "orgless-#{System.unique_integer()}@fluxvale.test"
       })
+
+    AccountsFixtures.backfill_email!(orgless)
 
     conn = SessionHelpers.sign_in(conn, orgless)
 

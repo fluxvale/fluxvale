@@ -12,6 +12,7 @@ defmodule FluxVale.Ops.OwnerSignIn do
 
   alias FluxVale.Identity
   alias FluxVale.Identity.User
+  alias FluxVale.Identity.UserEmail
 
   require Ash.Query
   require Logger
@@ -92,11 +93,31 @@ defmodule FluxVale.Ops.OwnerSignIn do
 
   defp single_admin_email do
     case platform_admins() do
-      [%{email: email}] ->
-        to_string(email)
+      [%{id: id}] ->
+        # The account's primary VERIFIED address rides `user_emails`
+        # (#285 T3) — `users.email` is a frozen mirror now.
+        primary_email(id)
 
       admins ->
         raise "#{length(admins)} platform admins found (need exactly one) — set OWNER_EMAIL"
+    end
+  end
+
+  # Only data drift can find nothing here (the create mirror stamps
+  # every action-created user a verified primary, #285 T3 §5) — an admin
+  # with no verified primary has no signable address.
+  defp primary_email(user_id) do
+    found =
+      UserEmail
+      |> Ash.Query.filter(user_id == ^user_id and is_primary and not is_nil(verified_at))
+      |> Ash.read_one!(authorize?: false)
+
+    case found do
+      %{address: address} ->
+        to_string(address)
+
+      nil ->
+        raise "the platform admin has no verified primary email — set OWNER_EMAIL"
     end
   end
 

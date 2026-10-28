@@ -11,6 +11,9 @@ defmodule FluxVale.Identity.UserTest do
 
   alias FluxVale.Identity.User
   alias FluxVale.Identity.User.DeriveUsername
+  alias FluxVale.Identity.UserEmail
+
+  require Ash.Query
 
   # The first user is bootstrapped without authorization — there is no actor
   # to authorize before an admin exists (mirrors priv/repo/seeds.exs).
@@ -66,6 +69,31 @@ defmodule FluxVale.Identity.UserTest do
       assert {:ok, %User{platform_role: :user}} =
                User.create("created@fluxvale.com", %{}, actor: admin, authorize?: true)
     end
+
+    # The mirror (#285 T3 §5): the account is table-backed from birth.
+    test "a fresh create leaves users.email AND one verified primary user_emails row" do
+      user = User.create!("mirrored@x.test", %{}, authorize?: false)
+
+      rows =
+        UserEmail
+        |> Ash.Query.filter(user_id == ^user.id)
+        |> Ash.read!(authorize?: false)
+
+      assert [row] = rows
+      refute is_nil(row.verified_at)
+      assert row.is_primary
+      assert to_string(row.address) == "mirrored@x.test"
+    end
+
+    test "create refuses an address another account holds as a pending claim" do
+      holder = User.create!("holder@x.test", %{}, authorize?: false)
+
+      {:ok, _claim} =
+        UserEmail.add("t3-contested@x.test", %{user: holder}, authorize?: false)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               User.create("t3-contested@x.test", %{}, authorize?: false)
+    end
   end
 
   describe "get_by_email/1" do
@@ -76,6 +104,19 @@ defmodule FluxVale.Identity.UserTest do
                User.get_by_email("mixed@FLUXVALE.com", authorize?: false)
 
       assert found.id == created.id
+    end
+
+    test "a pending claim never resolves — only verified rows are identity (#285 T3)" do
+      user = User.create!("pend-holder@x.test", %{}, authorize?: false)
+
+      {:ok, _claim} =
+        UserEmail.add("pending-claim@x.test", %{user: user}, authorize?: false)
+
+      assert {:error, _not_found} = User.get_by_email("pending-claim@x.test", authorize?: false)
+    end
+
+    test "an unknown address is not found" do
+      assert {:error, _not_found} = User.get_by_email("nobody@nowhere.test", authorize?: false)
     end
   end
 
