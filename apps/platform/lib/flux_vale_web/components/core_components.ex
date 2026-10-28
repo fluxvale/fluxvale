@@ -67,10 +67,9 @@ defmodule FluxValeWeb.CoreComponents do
       class="pointer-events-none fixed top-4 right-4 z-50 w-[calc(100%-2rem)] max-w-sm"
       {@rest}
     >
-      <%!-- #294: the z-50 box covered the header at 375px and the account
-           menu at every width — display-only now: container and card pass
-           clicks through, so the dismiss handler rides the close button,
-           the one element that opts back into pointer events. --%>
+      <%!-- #294: pointer-events on these boxes is load-bearing (display-only
+           toast) — the dismiss handler rides the close button, the one
+           element that opts back in; don't undo it via rest/class. --%>
       <div class={[
         "pointer-events-none flex items-start gap-3 rounded-xl border bg-panel p-4 shadow-lg",
         @kind == :info && "border-line text-ink",
