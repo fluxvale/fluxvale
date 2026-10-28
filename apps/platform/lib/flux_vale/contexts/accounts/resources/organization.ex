@@ -209,10 +209,12 @@ defmodule FluxVale.Accounts.Organization do
     )
 
     # The length caps bind the RENAME flow only — never the create.
-    # Create slugs are usernames (#285), ≤39 chars by construction
-    # (DeriveUsername). The update-only scoping survives from the
-    # round-2 P1 incident: when the slug was the sanitized email local
-    # part, an attribute-level cap turned a 40-char local part into a
+    # Create slugs start from the username (#285) — ≤39 chars from
+    # DeriveUsername, though a collision probe's suffix can push past
+    # that ("-2" on a 39-char base is 41) and the create permits it.
+    # The update-only scoping survives from the round-2 P1 incident:
+    # when the slug was the sanitized email local part, an
+    # attribute-level cap turned a 40-char local part into a
     # retry-proof signup outage (the code burns before the provisioning
     # failure surfaces). Legacy rows with longer slugs keep saving:
     # `where: changing` skips untouched fields.
