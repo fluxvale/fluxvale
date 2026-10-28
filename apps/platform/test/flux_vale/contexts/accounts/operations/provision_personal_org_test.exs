@@ -114,8 +114,11 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrgTest do
       org = AccountsFixtures.personal_org!(user)
 
       assert user.username == "user"
-      assert String.starts_with?(org.slug, "user-")
-      assert org.slug not in ["user", "user-2", "user-100"]
+
+      # The exact fallback shape: base + "-" + 8 lowercase hex chars —
+      # a constant straggler like "user-101" must not pass (mirrors the
+      # username pin in user_test.exs).
+      assert Regex.match?(~r/^user-[0-9a-f]{8}$/, org.slug)
     end
   end
 
@@ -156,6 +159,19 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrgTest do
 
       assert {:ok, 300} = Billing.balance(wallet_one, authorize?: false)
       assert {:ok, 300} = Billing.balance(wallet_two, authorize?: false)
+    end
+  end
+
+  describe "operator heal of a legacy row (docs/deployment.md rpc)" do
+    test "a NULL-username straggler fails with a clear arm, not a Required dump" do
+      # Ash.Seed.seed! — the only writer that can produce a NULL-username
+      # row (old-pod rolling-window straggler, the rpc's whole audience);
+      # the create action derives one (state actions can't produce, the
+      # documented seed! exception).
+      straggler = Ash.Seed.seed!(User, %{email: "straggler@fluxvale.test"})
+
+      assert {:error, :username_missing} = Accounts.provision_personal_org(straggler)
+      assert org_count(straggler) == 0
     end
   end
 
