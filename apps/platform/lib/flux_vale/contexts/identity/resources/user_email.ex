@@ -31,6 +31,10 @@ defmodule FluxVale.Identity.UserEmail do
   # via max_emails_per_user/0 so the cap and its enforcement can't drift.
   @max_emails_per_user 5
 
+  # The address format rule — one source: the validation below and the
+  # code-send gate (RequestAuthCode, via valid_address?/1) both read it.
+  @address_format ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
   postgres do
     table("user_emails")
     repo(FluxVale.Repo)
@@ -217,11 +221,19 @@ defmodule FluxVale.Identity.UserEmail do
   validations do
     # `where: changing` scopes the check to addresses actually being set
     # (create always sets one) — the Organization.update posture.
-    validate(match(:address, ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/),
+    validate(match(:address, @address_format),
       on: [:create, :update],
       where: changing(:address),
       message: "must be a valid email address"
     )
+  end
+
+  @doc "The address format rule (shared with the code-send gate — see RequestAuthCode)"
+  @spec valid_address?(String.t() | Ash.CiString.t()) :: boolean()
+  def valid_address?(address) do
+    address
+    |> to_string()
+    |> String.match?(@address_format)
   end
 
   @doc "The per-user email cap (see EnforceEmailCap)"

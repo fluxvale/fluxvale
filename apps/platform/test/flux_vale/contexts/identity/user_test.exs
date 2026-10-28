@@ -94,6 +94,11 @@ defmodule FluxVale.Identity.UserTest do
       assert {:error, %Ash.Error.Invalid{}} =
                User.create("t3-contested@x.test", %{}, authorize?: false)
     end
+
+    test "create refuses a non-deliverable address — the mirror rides :add's validation" do
+      assert {:error, %Ash.Error.Invalid{}} =
+               User.create("t3-not-an-email", %{}, authorize?: false)
+    end
   end
 
   describe "get_by_email/1" do

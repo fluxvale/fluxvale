@@ -106,7 +106,9 @@ defmodule FluxVale.Identity.Operations.VerifyEmail do
   # The burn is the arbiter (optimistic lock), exactly as in sign-in:
   # the loser of a race burns nothing and stamps nothing
   defp burn(auth_code) do
-    case destroy(auth_code) do
+    outcome = destroy(auth_code)
+
+    case outcome do
       :ok ->
         :ok
 
@@ -139,16 +141,10 @@ defmodule FluxVale.Identity.Operations.VerifyEmail do
   end
 
   defp destroy(auth_code) do
-    outcome =
-      auth_code
-      |> Ash.Changeset.for_destroy(:burn)
-      |> Ash.Changeset.set_context(@interaction)
-      |> Ash.destroy()
-
-    case outcome do
-      :ok -> :ok
-      {:error, reason} -> {:error, reason}
-    end
+    auth_code
+    |> Ash.Changeset.for_destroy(:burn)
+    |> Ash.Changeset.set_context(@interaction)
+    |> Ash.destroy()
   end
 
   # T1's designed internal path: the proof is the live code burned

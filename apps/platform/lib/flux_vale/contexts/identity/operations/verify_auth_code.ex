@@ -136,6 +136,12 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
       {:error, :not_found} ->
         delete_pending_claim(email)
         provision_user(email)
+
+      # coveralls-ignore-start - DB read failure mid-verify: same class
+      # as health's db_up? — not simulatable under the sandbox
+      {:error, _read_failed} = error ->
+        error
+        # coveralls-ignore-stop
     end
   end
 
