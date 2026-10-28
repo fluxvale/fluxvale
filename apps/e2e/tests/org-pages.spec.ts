@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { waitForLiveViewJoin } from "./helpers/live-view";
 import { runtimeFor } from "./helpers/runtime";
 import { signIn } from "./helpers/sign-in";
@@ -7,7 +7,8 @@ import { TestInbox } from "./helpers/test-inbox";
 // #276: the org home at /organizations/:slug — the org switcher rows'
 // target. A signed-in visit asserts the org renders; the header-geometry
 // guard rides the same page. The personal org's name IS the signup
-// email's local part, so long addresses make the long-name fixture.
+// email's derived username (#296), so long local parts make the
+// long-name fixture.
 const testInboxToken = process.env.E2E_TESTINBOX_TOKEN;
 const runId = process.env.E2E_RUN_ID ?? `run${Date.now()}`;
 const runtime = runtimeFor(process.env.BASE_URL);
@@ -24,35 +25,38 @@ test.skip(
 
 // One address per test (the suite's convention — the 60s resend throttle
 // makes a shared address' second sign-in read the already-consumed code,
-// and verify fails with "That code didn't match"). Each stays long: the
-// name is the local part, and the geometry guard wants a name that would
-// overflow the header if it could.
-const emailFor = (tag: string) =>
-  `test+orghome-${tag}-long-organization-name-${runId}@fluxvale.com`;
+// and verify fails with "That code didn't match"). The local part stays
+// long enough to stress the header (the name is the derived username)
+// but short enough that the per-run runId survives DeriveUsername's
+// 39-char window — so the slug below is exact by construction: no
+// truncation edge, no -2/-3 collision suffix across runs.
+const emailFor = (tag: string) => `test+orghome+${tag}+${runId}@fluxvale.com`;
 
-// The signed-in actor's own org, discovered through the switcher panel —
-// its org rows ARE the /organizations/:slug links (no API seam needed).
-// The sign-in flash rides the dashboard and, fixed to the top-right, it
-// overlays the switcher at narrow widths — dismiss it if present.
-async function ownOrgPath(page: Page): Promise<string> {
-  const flashClose = page.getByRole("button", { name: "close" });
-  if (await flashClose.first().isVisible().catch(() => false)) {
-    await flashClose.first().click();
-  }
-  await page.getByTestId("org-switcher-button").click();
-  const href = await page
-    .locator('[data-testid="org-switcher-panel"] a[href^="/organizations/"]')
-    .first()
-    .getAttribute("href");
-  expect(href).toBeTruthy();
-  await page.getByTestId("org-switcher-button").click();
-  return href!;
-}
+// Post-#286 the switcher hides its org rows for a single-org actor, so
+// a fresh user's panel has no /organizations/ link to read the path
+// from — derive it instead, mirroring DeriveUsername's base rule
+// (downcase, non-[a-z0-9] runs -> "-", trim; the org takes the username
+// verbatim as name and slug). The asserts keep the mirror honest: if an
+// edit ever pushes the local part past the 39-char window, truncation
+// semantics fork and this fails loudly instead of 404ing opaquely.
+const slugForEmail = (email: string) => {
+  const slug = email
+    .split("@")[0]!
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  expect(slug.length).toBeGreaterThan(2);
+  expect(slug.length).toBeLessThanOrEqual(39);
+  return slug;
+};
+
+const ownOrgPath = (email: string) => `/organizations/${slugForEmail(email)}`;
 
 test("org-home: signed-in visit renders the org home", async ({ page, request }) => {
-  await signIn(page, new TestInbox(request, testInboxToken!), emailFor("org-page"));
+  const email = emailFor("orgpage");
+  await signIn(page, new TestInbox(request, testInboxToken!), email);
 
-  const path = await ownOrgPath(page);
+  const path = ownOrgPath(email);
   await page.goto(path);
   await waitForLiveViewJoin(page);
 
@@ -73,9 +77,10 @@ for (const width of [375, 640]) {
     test.setTimeout(60_000); // sign-in plus two navigations
 
     await page.setViewportSize({ width, height: 800 });
-    await signIn(page, new TestInbox(request, testInboxToken!), emailFor(`${width}px`));
+    const email = emailFor(`w${width}`);
+    await signIn(page, new TestInbox(request, testInboxToken!), email);
 
-    const path = await ownOrgPath(page);
+    const path = ownOrgPath(email);
     await page.goto(path);
     // The org-name assertion passes on the static render, but header
     // interactions inside the join window race the connected re-render
