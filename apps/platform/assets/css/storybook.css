@@ -111,7 +111,11 @@
   --line: #eae0d1;
   --line-strong: #d8cab3; /* derived: deepened --line; borders only */
 
-  --focus: var(--color-brand-500);
+  /* Focus ring at brand-600 (#277 T2 addendum): brand-500 sat under the
+     WCAG 1.4.11 3:1 non-text bar (2.47:1 canvas / 2.58:1 panel);
+     brand-600 clears it (3.95 / 4.12) and is the --border-primary
+     token — focus and action borders share a family. */
+  --focus: var(--color-brand-600);
 
   /* Info accent — olive. Information only; links stay amber. */
   --info: #515c0a;
