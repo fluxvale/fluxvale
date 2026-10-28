@@ -23,29 +23,44 @@ defmodule FluxVale.Identity.UserEmail.GuardConcurrencyTest do
   require Ash.Query
 
   test "concurrent decoy removes cannot empty the account's verified set" do
-    %{owner: owner, decoy: decoy, rows: [first, second]} = seeded!()
+    %{owner: owner, decoy_a: decoy_a, decoy_b: decoy_b, rows: [first, second]} = seeded!()
 
     # The rows are committed outside the sandbox — cleanup runs in
     # on_exit so a failure mid-test never strands them in the shared DB.
-    on_exit(fn -> cleanup!([owner.id, decoy.id]) end)
+    on_exit(fn -> cleanup!([owner.id, decoy_a.id, decoy_b.id]) end)
 
     parent = self()
 
+    # Each worker forges its lock target to its OWN decoy account — the
+    # decoys must NOT serialize the forged removes, or a lock-target
+    # regression (locking changeset.data.user_id) would serialize on one
+    # decoy row and pass this test while still allowing the
+    # zero-verified violation in production.
+    attacks = [
+      {first, decoy_a.id},
+      {second, decoy_b.id}
+    ]
+
     workers =
-      for row <- [first, second] do
+      for {row, decoy_id} <- attacks do
         spawn(fn ->
           conn = Sandbox.checkout(Repo, sandbox: false)
           send(parent, {:ready, self()})
 
           # the attack: the lock target rides the caller's struct
-          forged = Map.put(row, :user_id, decoy.id)
+          forged = Map.put(row, :user_id, decoy_id)
 
           result =
-            receive do
-              :go -> UserEmail.remove(forged, actor: owner, authorize?: true)
+            try do
+              receive do
+                :go -> UserEmail.remove(forged, actor: owner, authorize?: true)
+              end
+            after
+              # a crash between checkout and checkin must not leak the
+              # connection for the rest of the suite
+              Sandbox.checkin(Repo, conn)
             end
 
-          Sandbox.checkin(Repo, conn)
           send(parent, {:done, self(), result})
         end)
       end
@@ -74,7 +89,9 @@ defmodule FluxVale.Identity.UserEmail.GuardConcurrencyTest do
     committed?(fn ->
       unique = System.unique_integer([:positive])
       owner = User.create!("guard-cc-owner-#{unique}@fluxvale.test", %{}, authorize?: false)
-      decoy = User.create!("guard-cc-decoy-#{unique}@fluxvale.test", %{}, authorize?: false)
+
+      decoy_a = User.create!("guard-cc-decoy-a-#{unique}@fluxvale.test", %{}, authorize?: false)
+      decoy_b = User.create!("guard-cc-decoy-b-#{unique}@fluxvale.test", %{}, authorize?: false)
 
       rows =
         for n <- 1..2 do
@@ -84,7 +101,7 @@ defmodule FluxVale.Identity.UserEmail.GuardConcurrencyTest do
           Ash.get!(UserEmail, row.id, authorize?: false)
         end
 
-      %{owner: owner, decoy: decoy, rows: rows}
+      %{owner: owner, decoy_a: decoy_a, decoy_b: decoy_b, rows: rows}
     end)
   end
 
