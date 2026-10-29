@@ -206,23 +206,33 @@ defmodule FluxVale.Identity.UserEmail do
 
     # System-only supersede of pending claims — the sanctioned entry is
     # `supersede_pending_claims/1` below, which scopes the bulk destroy
-    # to PENDING rows. Bypassing RemoveGuard is sound there: a pending
-    # row can never violate the guard's invariants — never primary
+    # to PENDING rows. Bypassing RemoveGuard is sound for a pending row:
+    # it can never violate the guard's invariants — never primary
     # (SetPrimary refuses unverified rows), never the frozen mirror (the
     # create mirror stamps the signup address VERIFIED from birth, and
     # unique_address excludes a second row), never the last verified
-    # address (it is unverified). No policy grants this action:
-    # internal-only by policy (the :unset_primary posture); the system
-    # caller runs authorize?: false.
+    # address (it is unverified).
     #
-    # Atomic (no changes): the bulk destroy evaluates the caller's
-    # pending-only filter in SQL at delete time, not from a stale read —
-    # a row a concurrent VerifyEmail flips verified in between survives
-    # and the caller resolves to its owner instead of forking an account
-    # (review P2-1: the read-then-remove shape raced the flip past the
-    # guard).
+    # The pending-only invariant lives ON the action (the changeset
+    # filter below), not in the caller alone: `action_type(:destroy)`
+    # grants this action to the row's owner and to platform admins, and
+    # those callers must not be able to delete a VERIFIED row through
+    # it — that would bypass every guard on the resource (review round
+    # 2, P2: the "no policy grants this action" comment was false). A
+    # verified row cannot match the filter, so the delete touches
+    # nothing and Ash refuses with a stale-record error; rows stay
+    # intact for any caller.
+    #
+    # Atomic (no other changes): the bulk destroy evaluates caller
+    # filter + this filter in SQL at delete time, not from a stale
+    # read — a row a concurrent VerifyEmail flips verified in between
+    # survives (the re-evaluated predicate excludes it) and the caller
+    # resolves to its owner instead of forking an account (review
+    # P2-1: the read-then-remove shape raced the flip past the guard).
     destroy :supersede_pending do
       description("Delete a pending claim (system supersede — a burned code is the inbox proof)")
+
+      change(filter(expr(is_nil(verified_at))))
     end
   end
 
@@ -266,14 +276,16 @@ defmodule FluxVale.Identity.UserEmail do
   seed: a burned code is the inbox proof, and the seed address is
   operator-trusted.
 
-  The pending-only filter is evaluated in SQL at destroy time
-  (`Ash.bulk_destroy!` on the atomic :supersede_pending action), not
-  from a stale read — see the action's comment for why bypassing
-  RemoveGuard is sound. A row a concurrent VerifyEmail flips verified
-  in between survives; the caller re-resolves to its owner instead of
-  forking a second account. authorize?: false — the burned code is the
-  authorization (the seed is bootstrap), and UserEmail has no
-  interaction context by design.
+  The pending-only invariant is enforced by the action itself (a
+  changeset filter — `is_nil(verified_at)`), so it holds regardless of
+  caller; this function scopes the bulk destroy to `address` on top.
+  The filter is evaluated in SQL at destroy time (`Ash.bulk_destroy!`
+  on the atomic :supersede_pending action), not from a stale read —
+  see the action's comment for why bypassing RemoveGuard is sound. A
+  row a concurrent VerifyEmail flips verified in between survives; the
+  caller re-resolves to its owner instead of forking a second account.
+  authorize?: false — the burned code is the authorization (the seed is
+  bootstrap), and UserEmail has no interaction context by design.
   """
   @spec supersede_pending_claims(String.t() | Ash.CiString.t()) :: :ok
   def supersede_pending_claims(address) do

@@ -539,6 +539,49 @@ defmodule FluxVale.Identity.UserEmailTest do
     end
   end
 
+  describe "supersede_pending (the pending-only invariant lives on the action — review round 2, P2)" do
+    test "the owner cannot destroy their own verified primary through it — rows intact" do
+      user = create_user("supersede-owner@emails.fluxvale.test")
+      row = mirror_row(user)
+
+      # the action's is_nil(verified_at) filter refuses the delete at
+      # the resource, regardless of caller — the destroy policy would
+      # grant the owner, and RemoveGuard is not on this action
+      assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Changes.StaleRecord{}]}} =
+               Ash.destroy(row, action: :supersede_pending, actor: user, authorize?: true)
+
+      assert count_rows(user) == 1
+      assert mirror_row(user).is_primary
+      refute is_nil(mirror_row(user).verified_at)
+    end
+
+    test "a platform admin cannot destroy another user's verified mirror through it — rows intact" do
+      owner = create_user("supersede-victim@emails.fluxvale.test")
+
+      admin =
+        create_user("supersede-admin@emails.fluxvale.test", %{platform_role: :admin})
+
+      row = mirror_row(owner)
+
+      assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Changes.StaleRecord{}]}} =
+               Ash.destroy(row, action: :supersede_pending, actor: admin, authorize?: true)
+
+      assert count_rows(owner) == 1
+      refute is_nil(mirror_row(owner).verified_at)
+    end
+
+    test "the internal seam still removes pending rows" do
+      user = create_user("supersede-internal@emails.fluxvale.test")
+      address = "supersede-claim-#{System.unique_integer()}@emails.fluxvale.test"
+      {:ok, _claim} = add_email(user, address, authorize?: false)
+
+      assert :ok = UserEmail.supersede_pending_claims(address)
+
+      # only the create mirror remains — the claim is gone
+      assert count_rows(user) == 1
+    end
+  end
+
   describe "policies" do
     test "a user cannot add to, or touch, another user's rows" do
       owner = create_user("mine-owner@emails.fluxvale.test")
