@@ -11,7 +11,9 @@ import { chromium } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { writeFileSync } from "node:fs";
 
-const BASE = "http://127.0.0.1:4000";
+// Base URL overridable for high-port dev runs (FV_BASE=…); 4000 stays
+// the plain `mix phx.server` default (T7 harness refresh).
+const BASE = process.env.FV_BASE ?? "http://127.0.0.1:4000";
 const outdir = process.argv[2] ?? "/tmp/opencode/fv178-shots";
 mkdirSync(outdir, { recursive: true });
 
@@ -38,13 +40,19 @@ await page.request.post(`${BASE}/auth/session`, {
 });
 
 const shots = [
-  ["landing", "/", false],
+  // "/" is the dashboard for a resolved session (#205) — the landing
+  // page itself lives at /about (canonical to /). T7 refresh: the Grove
+  // surfaces since this list was written (#277): dashboard, instances
+  // show, billing top-up, sign-in.
+  ["dashboard", "/", true],
+  ["landing", "/about", false],
   ["catalog-public", "/catalog", false],
   ["catalog-public-show", "/catalog/forgejo", false],
   ["catalog", "/apps", true],
   ["catalog-show", "/apps/forgejo", true],
   ["instances", "/instances", true],
   ["billing", "/billing", true],
+  ["billing-topup", "/billing/topup", true],
   ["storybook-foundations", "/storybook/foundations", true],
   ["storybook-button", "/storybook/components/button", true],
   ["storybook-input", "/storybook/components/input", true],
@@ -65,6 +73,47 @@ for (const mode of ["light", "dark"]) {
     await page.screenshot({ path: `${outdir}/${name}-${mode}.png`, fullPage: true });
     console.log(`captured ${name}-${mode}.png`);
   }
+}
+
+// Sign-in rides an anonymous context — the authenticated chrome (user
+// menu) is not the surface a visitor sees (T7 refresh).
+const anonCtx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+const anonPage = await anonCtx.newPage();
+for (const mode of ["light", "dark"]) {
+  await anonPage.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
+  await anonPage.evaluate((m) => {
+    localStorage.setItem("phx:theme", m);
+    document.documentElement.setAttribute("data-theme", m);
+    document.documentElement.setAttribute("data-theme-source", "user");
+  }, mode);
+  await anonPage.waitForTimeout(300);
+  await anonPage.screenshot({ path: `${outdir}/sign-in-${mode}.png`, fullPage: true });
+  console.log(`captured sign-in-${mode}.png`);
+}
+await anonCtx.close();
+
+// Instance show: the first row's href, when the actor has rows
+// (staged data is per-environment; skip cleanly without it).
+await page.goto(`${BASE}/instances`, { waitUntil: "networkidle" });
+const rowHref = await page.evaluate(() => {
+  const row = document.querySelector("[data-testid='instance-row']");
+  return row ? row.getAttribute("href") : null;
+});
+
+if (rowHref) {
+  for (const mode of ["light", "dark"]) {
+    await page.goto(`${BASE}${rowHref}`, { waitUntil: "networkidle" });
+    await page.evaluate((m) => {
+      localStorage.setItem("phx:theme", m);
+      document.documentElement.setAttribute("data-theme", m);
+      document.documentElement.setAttribute("data-theme-source", "user");
+    }, mode);
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: `${outdir}/instances-show-${mode}.png`, fullPage: true });
+    console.log(`captured instances-show-${mode}.png`);
+  }
+} else {
+  console.log("skipped instances-show (no instance rows for this actor)");
 }
 
 // Storybook overview (sidebar) at default theme

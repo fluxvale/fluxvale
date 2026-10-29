@@ -11,7 +11,10 @@
     never below ~272px and never stretch (auto-fit stretched a lone
     card full-bleed; the shipped seed is one app per category). The
     min() cap lets tracks shrink below the floor only when the section
-    itself is narrower (<304px). Dark + reduced-motion note: shadow
+    itself is narrower (<304px). Lift (T7): shadow on the link, the
+    motion-safe translate on the inner wrapper — the link's hit box
+    never moves, so a pointer parked at the bottom edge can't oscillate
+    (see instance_live/index.ex). Dark + reduced-motion note: shadow
     and translate are no-ops there, so the h3's group-hover hue shift
     is the hover cue by design. --%>
     <section
@@ -30,29 +33,31 @@
           navigate={~p"/catalog/#{app.slug}"}
           id={"app-#{app.id}"}
           data-testid={"app-#{app.slug}"}
-          class="group block rounded-panel border border-line-strong bg-panel p-5 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow,translate] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md motion-safe:hover:-translate-y-1"
+          class="group block rounded-panel border border-line-strong bg-panel p-5 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md"
         >
-          <div class="flex items-center gap-3">
-            <%!-- Icon-in-tile (#277 T4): the landing hero's tile idiom —
-            apps with and without an icon share one silhouette. --%>
-            <div class="grid size-9 shrink-0 place-items-center rounded-control bg-primary-muted text-sm font-semibold text-link">
-              <img
-                :if={app.icon_url}
-                src={app.icon_url}
-                alt={app.name}
-                class="size-6 rounded-control"
+          <div class="transition-[translate] duration-(--motion-base) ease-(--motion-ease-out) motion-safe:group-hover:-translate-y-1">
+            <div class="flex items-center gap-3">
+              <%!-- Icon-in-tile (#277 T4): the landing hero's tile idiom —
+              apps with and without an icon share one silhouette. --%>
+              <div class="grid size-9 shrink-0 place-items-center rounded-control bg-primary-muted text-sm font-semibold text-link">
+                <img
+                  :if={app.icon_url}
+                  src={app.icon_url}
+                  alt={app.name}
+                  class="size-6 rounded-control"
+                />
+                <span :if={is_nil(app.icon_url)}>{String.first(app.name)}</span>
+              </div>
+              <h3 class="min-w-0 flex-1 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
+                {app.name}
+              </h3>
+              <.icon
+                name="hero-chevron-right"
+                class="ml-auto size-4 shrink-0 text-ink-subtle opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100"
               />
-              <span :if={is_nil(app.icon_url)}>{String.first(app.name)}</span>
             </div>
-            <h3 class="min-w-0 flex-1 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
-              {app.name}
-            </h3>
-            <.icon
-              name="hero-chevron-right"
-              class="ml-auto size-4 shrink-0 text-ink-subtle opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100"
-            />
+            <p :if={app.tagline} class="mt-2.5 text-sm text-ink-muted">{app.tagline}</p>
           </div>
-          <p :if={app.tagline} class="mt-2.5 text-sm text-ink-muted">{app.tagline}</p>
         </.link>
       </div>
     </section>

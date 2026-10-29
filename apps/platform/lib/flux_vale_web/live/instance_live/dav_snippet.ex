@@ -227,7 +227,7 @@ defmodule FluxValeWeb.InstanceLive.DavSnippet do
       (no roving tabindex): every tab stays keyboard-reachable —
       detection assists, never traps. --%>
       <div
-        class="flex gap-1 rounded-lg border border-line bg-panel p-1"
+        class="flex gap-1 rounded-control border border-line bg-panel p-1"
         role="tablist"
         aria-label="Operating system"
         data-testid={"#{@id}-platform-tabs"}
@@ -242,7 +242,7 @@ defmodule FluxValeWeb.InstanceLive.DavSnippet do
           phx-click={@on_select}
           phx-value-platform={platform.key}
           class={[
-            "flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+            "flex-1 rounded-control px-3 py-1.5 text-xs font-medium transition-colors duration-(--motion-fast)",
             platform.key == @platform && "bg-primary-muted text-link",
             platform.key != @platform && "text-ink-muted hover:bg-panel-raised hover:text-ink"
           ]}
@@ -284,7 +284,7 @@ defmodule FluxValeWeb.InstanceLive.DavSnippet do
               <span class="text-xs font-medium text-ink">{step.title}</span>
             </div>
             <pre
-              class="overflow-x-auto rounded-lg bg-panel-raised p-3 text-xs leading-relaxed text-ink-muted"
+              class="overflow-x-auto rounded-control bg-panel-raised p-3 text-xs leading-relaxed text-ink-muted"
               phx-no-curly-interpolation
             ><code><%= step.command %></code></pre>
             <p :if={step.note} class="text-xs text-ink-subtle">{step.note}</p>
