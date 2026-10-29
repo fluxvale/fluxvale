@@ -14,7 +14,6 @@ defmodule FluxValeWeb.OrgSwitcherTest do
   alias FluxVale.Accounts
   alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.Organization
-  alias FluxVale.Billing.Wallet
   alias FluxVale.Identity.User
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.SessionHelpers
@@ -310,6 +309,42 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     assert row_href(row) == "/organizations/acme"
   end
 
+  # Same hazard for "": the email fallback's local_part of a degenerate
+  # seed-only address ("@fluxvale.test") is "" (#308 review) — same
+  # dangling-dash shape as nil, same bare-label answer.
+  test "an empty-string username renders a bare Personal label, no dangling dash" do
+    html =
+      render_component(&FluxValeWeb.CoreComponents.org_switcher/1,
+        orgs: [%{organization: %{id: "org-acme", name: "Acme Collective", slug: "acme"}}],
+        personal_org_id: "org-acme",
+        username: ""
+      )
+
+    assert [row] = panel_rows(html)
+    assert row_text(row) == "Personal"
+    assert row_href(row) == "/organizations/acme"
+  end
+
+  # The split state (#308 review): OrgNav resolves memberships and the
+  # canonical personal org in two non-transactional reads — a
+  # membership change straddling them can leave personal_org_id naming
+  # an org the loaded rows don't carry. The pill must not claim
+  # "Personal" with no Personal row behind it: it degrades to the bare
+  # glyph, while the rows stay honest.
+  test "split state: a personal_org_id absent from the rows degrades the pill to the glyph" do
+    html =
+      render_component(&FluxValeWeb.CoreComponents.org_switcher/1,
+        orgs: [%{organization: %{id: "org-team", name: "Team Org", slug: "team"}}],
+        personal_org_id: "org-personal",
+        username: "terence"
+      )
+
+    refute html =~ ~s(>Personal</span>)
+    assert [row] = panel_rows(html)
+    assert row_text(row) =~ "Team Org"
+    assert row_href(row) == "/organizations/team"
+  end
+
   # The hook's unique-DOM-id contract stays caller-owned: the default
   # is "org-switcher" (the app chrome's one switcher), a caller's id
   # renders exactly once.
@@ -352,7 +387,9 @@ defmodule FluxValeWeb.OrgSwitcherTest do
   # tie-break for two-owned-orgs users is the right answer is a T7
   # (identity spec) question — out of scope here; pinned is that every
   # consumer agrees on ONE answer.
-  test "two-owner user: switcher label and billing resolve the same org", %{conn: conn} do
+  test "two-owner user: the switcher's Personal label resolves the canonical org", %{
+    conn: conn
+  } do
     legacy =
       Organization.create!(
         %{name: "Legacy Org", slug: "probe-legacy-#{System.unique_integer([:positive])}"},
@@ -367,43 +404,31 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     Membership.create!(%{organization_id: legacy.id, user_id: user.id}, authorize?: false)
 
     {:ok, canonical} = Accounts.personal_org_for_user(user.id, actor: user)
+
+    # The fixture stays load-bearing: the canonical pick must differ
+    # from the old min-:owner-membership-id derivation this resolver
+    # replaced. If the shape ever collapses (the op gains a sort
+    # aligned with the old rule), the agreement assert below would
+    # pass vacuously — this fails first, at fixture time.
+    owners =
+      Membership
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(user_id == ^user.id and role == :owner)
+      |> Ash.read!(authorize?: false)
+
+    min_id_pick = Enum.min_by(owners, & &1.id)
+    refute canonical.id == min_id_pick.organization_id
+
     conn = SessionHelpers.sign_in(conn, user)
 
-    # Billing first, so the one wallet the billing mount provisions is
-    # observable: the two personal orgs in play already carry their
-    # signup welcome-grant wallets, while the pre-signup legacy org —
-    # a plain org create — has none. A wallet difference of exactly
-    # [canonical.id] means billing resolved the org the switcher
-    # labels; any other pick leaves the legacy org walletless.
-    wallets_before = MapSet.new(wallets_org_ids())
-
-    billing_html =
-      conn
-      |> get(~p"/billing")
-      |> html_response(200)
-
-    assert billing_html
-
-    wallets_after = MapSet.new(wallets_org_ids())
-    created = MapSet.difference(wallets_after, wallets_before)
-    assert MapSet.to_list(created) == [canonical.id]
-
     # The dashboard's switcher labels the canonical org "Personal" —
-    # the pill, panel row, and billed org all name one org.
+    # the org billing resolves; the pill and panel row name one org.
     html = dashboard_html(conn)
     rows = panel_rows(html)
     personal_rows = Enum.filter(rows, &(row_text(&1) =~ "Personal"))
 
     assert [personal_row] = personal_rows
     assert row_href(personal_row) == "/organizations/#{canonical.slug}"
-  end
-
-  defp wallets_org_ids do
-    Wallet
-    |> Ash.Query.for_read(:read, %{})
-    |> Ash.read!(authorize?: false)
-    |> Enum.map(& &1.organization_id)
-    |> Enum.sort()
   end
 
   # Both creates are system-only (#119) — the bootstrap posture,

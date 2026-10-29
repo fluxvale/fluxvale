@@ -25,7 +25,7 @@ defmodule FluxValeWeb.Layouts do
 
   ## Examples
 
-      <Layouts.app flash={@flash}>
+      <Layouts.app flash={@flash} personal_org_id={@personal_org_id} username={@username}>
         <h1>Content</h1>
       </Layouts.app>
 

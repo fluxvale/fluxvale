@@ -1231,8 +1231,8 @@ defmodule FluxValeWeb.CoreComponents do
   exactly one row per membership (`actor_orgs`, resolved by the
   `FluxValeWeb.OrgNav` on_mount). The actor's owned org renders as
   **"Personal — `<username>`"** — bare "Personal" when the handle is
-  nil (component-level callers; the in-app path always has one, OrgNav's
-  email fallback); other orgs render name + slug. The
+  nil or empty (OrgNav's email fallback can yield "" for a degenerate
+  address); other orgs render name + slug. The
   personal context IS an org (#285 T6), so there is no hardcoded
   "Personal" chrome row and no single-org suppression — the redundancy
   dies at the root. A native `<details>` dropdown for the same reasons
@@ -1243,9 +1243,12 @@ defmodule FluxValeWeb.CoreComponents do
 
   `current_org` names the active context in the closed summary. With no
   org context set the pill reads "Personal" — but only when a personal
-  org exists to fall back to (`personal_org_id`): a member-only or
-  zero-org actor has no personal context, and the pill must not claim
-  one (#285 T6 review) — it degrades to the bare building glyph. Below
+  org both resolves (`personal_org_id`) and sits among the rows: a
+  member-only or zero-org actor has no personal context, and the pill
+  must not claim one (#285 T6 review); nor when OrgNav's two
+  non-transactional reads straddle a membership change and leave
+  `personal_org_id` absent from `orgs` (#308 review) — it degrades to
+  the bare building glyph. Below
   lg the summary collapses to the glyph: the active org's initial (the
   user_menu pattern — the building icon can't say which org is active),
   the building icon for Personal. At `sm` a label would occlude the
@@ -1283,7 +1286,11 @@ defmodule FluxValeWeb.CoreComponents do
 
   def org_switcher(assigns) do
     assigns =
-      assign(assigns, :active_name, active_name(assigns.current_org, assigns.personal_org_id))
+      assign(
+        assigns,
+        :active_name,
+        active_name(assigns.current_org, assigns.personal_org_id, assigns.orgs)
+      )
 
     ~H"""
     <details
@@ -1362,19 +1369,31 @@ defmodule FluxValeWeb.CoreComponents do
   end
 
   # The closed switcher's label: the active org's name; "Personal" when
-  # no org context is set and the actor HAS a personal org to fall back
-  # to; nothing otherwise — a member-only or zero-org actor has no
-  # personal context, and the pill must not claim one (#285 T6 review):
-  # the bare building glyph is the empty-context state.
-  defp active_name(%{name: name}, _personal_org_id), do: name
-  defp active_name(nil, nil), do: nil
-  defp active_name(nil, _personal_org_id), do: "Personal"
+  # no org context is set and a Personal row backs the claim — the
+  # personal org must both resolve (personal_org_id) and be among the
+  # loaded rows. A member-only or zero-org actor has no personal
+  # context, and the pill must not claim one (#285 T6 review); and the
+  # rows gate also covers the split state (#308 review): OrgNav's two
+  # reads (memberships, then the canonical op) are not transactional,
+  # so a membership change straddling them can leave personal_org_id
+  # naming an org absent from @orgs — the pill degrades to the bare
+  # building glyph rather than claim a context with no row.
+  defp active_name(%{name: name}, _personal_org_id, _orgs), do: name
+  defp active_name(nil, nil, _orgs), do: nil
+
+  defp active_name(nil, personal_org_id, orgs) do
+    personal_row? = Enum.any?(orgs, &(Map.get(&1.organization, :id) == personal_org_id))
+
+    if personal_row? do
+      "Personal"
+    end
+  end
 
   # The personal row's label: "Personal — username"; bare "Personal"
-  # when the handle is nil (component-level callers can pass nil — the
-  # in-app path always carries a handle, OrgNav's email fallback). No
-  # dangling "Personal — " (#285 T6 review).
-  defp personal_label(nil), do: "Personal"
+  # when the handle is nil or "" — the email fallback's local_part of a
+  # degenerate address is "" (#308 review), the same dangling
+  # "Personal — " hazard as nil (#285 T6 review).
+  defp personal_label(username) when username in [nil, ""], do: "Personal"
   defp personal_label(username), do: "Personal — #{username}"
 
   ## JS Commands
