@@ -115,13 +115,6 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
 
   @impl FluxVale.Infrastructure.AccessProvider
   def attach_instance(%AccessGateway{} = gateway, %Instance{} = instance) do
-    # Resolve BEFORE the first write: the resolver raises on missing
-    # config, and the cleanup clauses below only run for error tuples —
-    # a raise after create_route lands would strand the row, and the
-    # idempotent retry would then report {:ok, existing} without the
-    # cluster limbs ever landing.
-    _namespace = access_namespace()
-
     with :ok <- require_private(instance),
          {:ok, kubeconfig} <- kubeconfig(),
          # Idempotent by instance identity: a retry (or a double-click)
@@ -807,6 +800,6 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   end
 
   defp access_namespace do
-    InstanceK8s.gateway_access_namespace()
+    Application.fetch_env!(:flux_vale, :access_gateway)[:namespace] || "fluxvale-access"
   end
 end

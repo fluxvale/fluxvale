@@ -13,10 +13,7 @@ defmodule FluxVale.Infrastructure.Operations.GatewayPolicySurvivalTest do
   # Both writers are pinned here because both had the bug — special-casing
   # the toggle alone would leave the redeploy path broken.
 
-  # NOT async: the fail-loud arm below deletes the :namespace key from
-  # global app env (restored in on_exit) — concurrent provider tests
-  # call the raising resolver and die on the window.
-  use FluxVale.DataCase, async: false
+  use FluxVale.DataCase, async: true
   use Mimic
 
   alias FluxVale.Clients.K8s
@@ -96,25 +93,20 @@ defmodule FluxVale.Infrastructure.Operations.GatewayPolicySurvivalTest do
       refute Map.has_key?(edge_peer, :match_labels)
     end
 
-    test "an attached instance with no access namespace configured FAILS LOUDLY", %{
+    test "an attached instance with no access namespace configured admits no gateway", %{
       org: org,
       owner: owner
     } do
       gateway = AccessFixtures.gateway!(org)
       instance = attached_instance!(org, owner, gateway, :private)
 
-      # Carried finding #1 chose fail-loud over degradation: at base,
-      # attach admitted the peer into the provider's "fluxvale-access"
-      # fallback while the instance-side spec builder dropped the peer
-      # on the next exposure flip or redeploy, silently severing
-      # reachability. The old contract here — degrade to the plain
-      # floor — is exactly the silent half-deploy the fix removes, so
-      # this now raises.
+      # The namespace is config: with it absent, the deployment has no
+      # gateway pods to admit, so the spec degrades to the plain floor
+      # rather than emitting a peer with a nil namespace (which the API
+      # server would reject, failing every exposure apply).
       put_access_config(:delete, :namespace)
 
-      assert_raise KeyError, ~r/key :namespace not found/, fn ->
-        InstanceK8s.network_policy_spec(instance)
-      end
+      assert InstanceK8s.network_policy_spec(instance) == %{ingress_from_namespaces: []}
     end
 
     test "an unattached instance keeps the plain exposure floor", %{org: _org, owner: owner} do
