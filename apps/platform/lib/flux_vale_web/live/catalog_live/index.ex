@@ -44,7 +44,13 @@ defmodule FluxValeWeb.CatalogLive.Index do
   @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_user={@current_user} actor_orgs={@actor_orgs}>
+    <Layouts.app
+      flash={@flash}
+      current_user={@current_user}
+      actor_orgs={@actor_orgs}
+      personal_org_id={@personal_org_id}
+      username={@username}
+    >
       <div class="space-y-10">
         <.header>
           Catalog

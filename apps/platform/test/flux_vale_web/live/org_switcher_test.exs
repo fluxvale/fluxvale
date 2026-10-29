@@ -2,10 +2,9 @@ defmodule FluxValeWeb.OrgSwitcherTest do
   @moduledoc """
   The app chrome's org switcher (#276): rendered for a signed-in actor
   beside the logo, absent from the public and anonymous chrome. Rows are
-  asserted by href — the /organizations/:slug surfaces they target are
-  this lane's org pages. One org = only-personal, so the org rows hide
-  and Personal is the whole panel (#284, interim until the usernames
-  root fix).
+  asserted by rendered markup — one row per membership, the owned org
+  labeled "Personal — username" (#285 T6), every row targeting the org's
+  own home at /organizations/:slug.
   """
 
   use FluxValeWeb.ConnCase, async: true
@@ -14,6 +13,7 @@ defmodule FluxValeWeb.OrgSwitcherTest do
 
   alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.Organization
+  alias FluxVale.Identity.User
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
@@ -30,15 +30,31 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     |> html_response(200)
   end
 
-  # The panel slice: everything from the panel marker on — the same
-  # slice technique the #255 user-menu tests use.
-  defp panel(html) do
+  # The panel's rows, off the whole rendered page — the selector scopes
+  # to the panel div, so page links around it stay out of the count.
+  defp panel_rows(html) do
     html
-    |> String.split(~s(data-testid="org-switcher-panel"))
-    |> List.last()
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query(~s([data-testid="org-switcher-panel"] a))
+    |> Enum.to_list()
   end
 
-  test "the app chrome renders the switcher, personal context active", %{conn: conn} do
+  defp row_text(row) do
+    row
+    |> LazyHTML.text()
+    |> String.trim()
+  end
+
+  defp row_href(row) do
+    [href] = LazyHTML.attribute(row, "href")
+    href
+  end
+
+  test "single-org user: exactly one row, the personal org labeled Personal — username", %{
+    conn: conn,
+    user: user,
+    org: org
+  } do
     html = dashboard_html(conn)
 
     assert html =~ ~s(data-testid="org-switcher")
@@ -48,15 +64,16 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     assert html =~ ~s(phx-hook="DetailsDismiss")
     # The closed summary names the active context — personal by default.
     assert html =~ ~s(>Personal</span>)
-    assert html =~ ~s(href="/")
 
-    # One org = only-personal: the Personal row is the whole panel — an
-    # org row would be the same context twice (#284).
-    assert panel(html) =~ ~s(href="/")
-    refute panel(html) =~ ~s(href="/organizations/)
+    # #285 T6: no hardcoded Personal chrome row, no single-org
+    # suppression — the one membership IS the personal context, labeled
+    # and linked to the org's own home. One row, one destination.
+    assert [row] = panel_rows(html)
+    assert row_text(row) == "Personal — #{user.username}"
+    assert row_href(row) == "/organizations/#{org.slug}"
   end
 
-  test "two orgs: every membership gets a row, Personal pinned first", %{
+  test "two orgs: one row per membership, exactly one Personal-labeled", %{
     conn: conn,
     user: user,
     org: org
@@ -65,21 +82,26 @@ defmodule FluxValeWeb.OrgSwitcherTest do
 
     html = dashboard_html(conn)
 
-    assert html =~ ~s(href="/organizations/#{team.slug}")
-    assert html =~ ~s(href="/organizations/#{org.slug}")
-    assert html =~ team.name
+    rows = panel_rows(html)
+    assert length(rows) == 2
 
-    # Personal is pinned first in the panel, ahead of every org row —
-    # the same slice technique the #255 user-menu tests use.
-    panel_html = panel(html)
-    assert panel_html =~ "Personal"
+    # Personal pinned first (#276), the later org after it.
+    assert row_href(hd(rows)) == "/organizations/#{org.slug}"
 
-    {personal_at, _match_len} = :binary.match(panel_html, "Personal")
-    {org_at, _match_len} = :binary.match(panel_html, ~s(href="/organizations/))
-    assert personal_at < org_at
+    personal = Enum.find(rows, &(row_text(&1) =~ "Personal"))
+    assert row_text(personal) == "Personal — #{user.username}"
+    assert row_href(personal) == "/organizations/#{org.slug}"
+
+    # The other row stays name + slug — and both rows are distinct
+    # destinations: no Personal row, no duplicate context.
+    others = Enum.reject(rows, &(row_text(&1) =~ "Personal"))
+    assert [team_row] = others
+    assert row_text(team_row) =~ team.name
+    assert row_text(team_row) =~ team.slug
+    assert row_href(team_row) == "/organizations/#{team.slug}"
   end
 
-  test "zero orgs keeps the switcher with its Personal entry alone", %{
+  test "zero orgs (legacy shape): an empty panel, closed label still Personal", %{
     conn: conn,
     user: user,
     org: org
@@ -87,14 +109,37 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     membership = membership!(user, org)
 
     # System posture — the destroy policy is system-only (#119); the
-    # empty shape is unreachable through actions.
+    # empty shape is unreachable through actions. Honest degradation:
+    # no memberships, no invented rows — the closed summary keeps its
+    # Personal reading (nil context).
     Ash.destroy!(membership, authorize?: false)
 
     html = dashboard_html(conn)
 
     assert html =~ ~s(data-testid="org-switcher")
     assert html =~ ~s(>Personal</span>)
-    refute html =~ ~s(href="/organizations/)
+    assert panel_rows(html) == []
+  end
+
+  # The #285 T6 fallback: a NULL-username rollout-window row (old-pod
+  # straggler — actions can't produce the state, the documented seed!
+  # exception) labels its personal row from the email local part.
+  test "a NULL-username row labels the personal row from the email local part", %{
+    conn: conn
+  } do
+    int = System.unique_integer([:positive])
+
+    straggler =
+      Ash.Seed.seed!(User, %{email: "straggler-#{int}@fluxvale.test"})
+
+    org = member_org!(straggler)
+    conn = SessionHelpers.sign_in(conn, straggler)
+
+    html = dashboard_html(conn)
+
+    assert [row] = panel_rows(html)
+    assert row_text(row) == "Personal — straggler-#{int}"
+    assert row_href(row) == "/organizations/#{org.slug}"
   end
 
   # Layouts.public's real consumers — the #164 SEO surfaces render the
@@ -120,12 +165,8 @@ defmodule FluxValeWeb.OrgSwitcherTest do
   # assertion above rides `/`, whose view declares the pair itself.
   test "the authenticated live_session wires the hook — the switcher rides /apps", %{
     conn: conn,
-    user: user,
     org: org
   } do
-    # Row assertions need a second org — one org hides the rows (#284).
-    member_org!(user)
-
     conn = get(conn, ~p"/apps")
     html = html_response(conn, 200)
 
@@ -170,18 +211,38 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     refute personal_html =~ "hidden lg:block"
   end
 
-  # The #284 row rule at the component level, off the chrome: one org
-  # hides its row, two render every row — personal included.
-  test "the org rows render only once a second org exists" do
-    acme = %{organization: %{name: "Acme Collective", slug: "acme"}}
-    oss = %{organization: %{name: "OSS Friends", slug: "oss-friends"}}
+  # The component level, off the chrome: exactly one row per membership,
+  # the owned org (personal_org_id) carrying the Personal—username label.
+  test "one row per membership, the owned org labeled Personal — username" do
+    acme = %{organization: %{id: "org-acme", name: "Acme Collective", slug: "acme"}}
+    oss = %{organization: %{id: "org-oss", name: "OSS Friends", slug: "oss-friends"}}
 
-    single = render_component(&FluxValeWeb.CoreComponents.org_switcher/1, orgs: [acme])
-    refute single =~ ~s(href="/organizations/acme)
+    single =
+      render_component(&FluxValeWeb.CoreComponents.org_switcher/1,
+        orgs: [acme],
+        personal_org_id: "org-acme",
+        username: "terence"
+      )
 
-    both = render_component(&FluxValeWeb.CoreComponents.org_switcher/1, orgs: [acme, oss])
-    assert both =~ ~s(href="/organizations/acme")
-    assert both =~ ~s(href="/organizations/oss-friends")
+    assert [row] = panel_rows(single)
+    assert row_text(row) == "Personal — terence"
+    assert row_href(row) == "/organizations/acme"
+
+    both =
+      render_component(&FluxValeWeb.CoreComponents.org_switcher/1,
+        orgs: [acme, oss],
+        personal_org_id: "org-acme",
+        username: "terence"
+      )
+
+    rows = panel_rows(both)
+    assert length(rows) == 2
+    assert Enum.count(rows, &(row_text(&1) =~ "Personal")) == 1
+    assert row_text(Enum.at(rows, 0)) == "Personal — terence"
+    assert row_href(Enum.at(rows, 0)) == "/organizations/acme"
+    assert row_text(Enum.at(rows, 1)) =~ "OSS Friends"
+    assert row_text(Enum.at(rows, 1)) =~ "oss-friends"
+    assert row_href(Enum.at(rows, 1)) == "/organizations/oss-friends"
   end
 
   # The hook's unique-DOM-id contract stays caller-owned: the default
@@ -203,7 +264,9 @@ defmodule FluxValeWeb.OrgSwitcherTest do
   test "an empty org name renders the neutral glyph, not a crash" do
     html =
       render_component(&FluxValeWeb.CoreComponents.org_switcher/1,
-        orgs: [%{organization: %{name: "", slug: "empty"}}],
+        orgs: [%{organization: %{id: "org-empty", name: "", slug: "empty"}}],
+        personal_org_id: "org-empty",
+        username: "terence",
         current_org: %{name: "", slug: "empty"}
       )
 

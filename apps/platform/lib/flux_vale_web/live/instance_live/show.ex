@@ -70,7 +70,13 @@ defmodule FluxValeWeb.InstanceLive.Show do
   @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_user={@current_user} actor_orgs={@actor_orgs}>
+    <Layouts.app
+      flash={@flash}
+      current_user={@current_user}
+      actor_orgs={@actor_orgs}
+      personal_org_id={@personal_org_id}
+      username={@username}
+    >
       <div class="space-y-6">
         <div>
           <.button variant="ghost" size="sm" navigate={~p"/instances"} class="-ml-2 mb-4">

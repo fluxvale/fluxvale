@@ -264,13 +264,25 @@ defmodule FluxValeWeb.BillingLive.Topup do
   def render(assigns) do
     if assigns.step == :confirmation do
       ~H"""
-      <Layouts.app flash={@flash} current_user={@current_user} actor_orgs={@actor_orgs}>
+      <Layouts.app
+        flash={@flash}
+        current_user={@current_user}
+        actor_orgs={@actor_orgs}
+        personal_org_id={@personal_org_id}
+        username={@username}
+      >
         <.confirmation topup={@topup} state={@confirmation_state} />
       </Layouts.app>
       """
     else
       ~H"""
-      <Layouts.app flash={@flash} current_user={@current_user} actor_orgs={@actor_orgs}>
+      <Layouts.app
+        flash={@flash}
+        current_user={@current_user}
+        actor_orgs={@actor_orgs}
+        personal_org_id={@personal_org_id}
+        username={@username}
+      >
         <div class="space-y-6">
           <.header>
             Add credits

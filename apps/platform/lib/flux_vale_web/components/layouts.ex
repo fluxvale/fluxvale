@@ -38,10 +38,13 @@ defmodule FluxValeWeb.Layouts do
   attr(:current_user, :map, default: nil)
 
   # Set only by OrgNav's on_mount — the actor's memberships with the
-  # org loaded, the org switcher's rows (#276). LiveViews in the
-  # authenticated surface pass it through; everything else renders no
-  # switcher rows.
+  # org loaded, the org switcher's rows (#276), plus the two facts the
+  # personal row needs: the owned org's id and the handle that labels
+  # it. LiveViews in the authenticated surface pass them through;
+  # everything else renders no switcher rows.
   attr(:actor_orgs, :list, default: [])
+  attr(:personal_org_id, :string, default: nil)
+  attr(:username, :string, default: nil)
 
   # The active org context (nil = personal) — the closed switcher names
   # it. The org-scoped surfaces pass it; the org billing view (#276) is
@@ -56,6 +59,8 @@ defmodule FluxValeWeb.Layouts do
       flash={@flash}
       current_user={@current_user}
       actor_orgs={@actor_orgs}
+      personal_org_id={@personal_org_id}
+      username={@username}
       current_org={@current_org}
       apps={true}
     >
@@ -88,6 +93,8 @@ defmodule FluxValeWeb.Layouts do
   attr(:flash, :map, required: true)
   attr(:current_user, :map, default: nil)
   attr(:actor_orgs, :list, default: [])
+  attr(:personal_org_id, :string, default: nil)
+  attr(:username, :string, default: nil)
   attr(:current_org, :map, default: nil)
   attr(:apps, :boolean, default: false, doc: "show the app-surface links (authenticated chrome)")
   attr(:footer, :boolean, default: false, doc: "render the marketing footer")
@@ -125,6 +132,8 @@ defmodule FluxValeWeb.Layouts do
           <.org_switcher
             :if={@apps and not is_nil(@current_user)}
             orgs={@actor_orgs}
+            personal_org_id={@personal_org_id}
+            username={@username}
             current_org={@current_org}
           />
         </div>
