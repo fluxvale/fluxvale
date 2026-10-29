@@ -57,21 +57,25 @@ defmodule FluxValeWeb.InstanceLive.Index do
           Deploy your first app from the catalog.
         </.empty_state>
 
+        <%!-- Rows on the card language (#277 T5a): the T4 catalog idiom —
+        panel radius, line-strong border, mapped elevation, lift on
+        hover (translate gated motion-safe; in dark + reduced-motion the
+        hover cue is the title hue shift, elevation is a no-op there). --%>
         <div id="instances" phx-update="stream" class="space-y-3">
           <.link
             :for={{dom_id, instance} <- @streams.instances}
             navigate={~p"/instances/#{instance.id}"}
             id={dom_id}
             data-testid="instance-row"
-            class="group block rounded-xl border border-line bg-panel p-5 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
+            class="group relative block rounded-panel border border-line-strong bg-panel p-5 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow,translate] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md motion-safe:hover:-translate-y-1"
           >
             <div class="space-y-2">
               <div class="flex flex-wrap items-center justify-between gap-3">
                 <div class="flex min-w-0 items-center gap-3">
-                  <h2 class="text-base font-medium text-ink transition-colors group-hover:text-link">
+                  <h2 class="min-w-0 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
                     {instance.name}
                   </h2>
-                  <span class="font-mono text-xs text-ink-subtle">{instance.slug}</span>
+                  <span class="font-mono text-xs text-ink-subtle shrink-0">{instance.slug}</span>
                 </div>
                 <div class="flex items-center gap-3">
                   <span class="text-sm text-ink-muted">
@@ -94,6 +98,13 @@ defmodule FluxValeWeb.InstanceLive.Index do
                 {InstanceStatus.message(instance)}
               </p>
             </div>
+            <%!-- Chevron rides the p-5 padding band (right-1): the reveal
+            can never collide with the row's content, and the badge keeps
+            its pre-T5a outboard position (in-flow it left a 28px gutter). --%>
+            <.icon
+              name="hero-chevron-right"
+              class="absolute right-1 top-1/2 size-4 -translate-y-1/2 text-ink-subtle opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100 group-focus-visible:opacity-100"
+            />
           </.link>
         </div>
       </div>

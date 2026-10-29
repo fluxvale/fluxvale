@@ -11,9 +11,12 @@ defmodule FluxVale.Clients.K8s.Resources.NetworkPolicy do
   ## Simplified Spec Format
 
       %{
-        ingress_from_namespaces: ["traefik"]  # Required: namespaces allowed
-                                              # to open inbound connections
+        ingress_from_namespaces: ["traefik"]  # namespaces allowed to open
+                                              # inbound connections
       }
+
+  A gateway-attached spec carries `ingress_from_sources` instead —
+  `t:spec/0` documents both shapes.
 
   Same-namespace ingress is always allowed (not part of the spec — an app
   talking to its own sidecars/replicas is not a policy question).
@@ -32,11 +35,21 @@ defmodule FluxVale.Clients.K8s.Resources.NetworkPolicy do
   namespace, so org A's gateway must reach org A's app and nothing else.
   The two forms are mutually exclusive in practice; sources wins if both
   are present.
+
+  ## Shapes
+
+  `network_policy_spec/1` emits exactly one of the two, never both:
+
+  - **No gateway attached** — `%{ingress_from_namespaces: [...]}`: the
+    plain exposure floor (the edge namespace for `:public`, `[]` for
+    `:private`, which is the same-namespace-only denial).
+  - **A gateway attached** — `%{ingress_from_sources: [...]}`: the
+    exposure floor as whole-namespace peers plus one narrowed peer per
+    attached gateway (`namespace` + `match_labels`).
   """
-  @type spec :: %{
-          required(:ingress_from_namespaces) => [String.t()],
-          optional(:ingress_from_sources) => [source()]
-        }
+  @type spec ::
+          %{required(:ingress_from_namespaces) => [String.t()]}
+          | %{required(:ingress_from_sources) => [source()]}
 
   @typedoc """
   One admitted peer: a namespace, optionally narrowed to pods carrying
