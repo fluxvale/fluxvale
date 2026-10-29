@@ -6,7 +6,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
   Not a user-facing operation — the verb modules (Deploy/Reconcile/
   Teardown/Stop/StartInstance) own the lifecycle decisions; this owns the
   mechanics they need identically (the one sanctioned shared helper set —
-  duplicating it five ways is the boundary error, not sharing it).
+  duplicating it five times is the boundary error, not sharing it).
   """
 
   alias FluxVale.Clients.K8s
@@ -125,22 +125,18 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
     instance
     |> attached_gateway_ids()
     |> Enum.flat_map(fn gateway_id ->
-      case gateway_access_namespace() do
-        nil ->
-          []
-
-        namespace ->
-          [%{namespace: namespace, match_labels: gateway_pod_labels(gateway_id)}]
-      end
+      # The list wrapper is load-bearing: flat_map over a bare map
+      # iterates its key/value TUPLES, so the spec would carry
+      # {:namespace, "…"} instead of the peer map and every exposure
+      # apply would fail.
+      [%{namespace: gateway_access_namespace(), match_labels: gateway_pod_labels(gateway_id)}]
     end)
   end
 
   @doc """
-  The pod labels a gateway's Deployment selects — and therefore the
-  labels its admitted peers must match. Public because the provider
-  builds the Deployment from the same pair; a divergence here is a
-  silent reachability change, so the two must be literally the same
-  source.
+  The cluster path label for a gateway Deployment — the selector the
+  provider uses and the NetworkPolicy peers must match. This is the single
+  source of the namespace-derived gateway identity.
   """
   @spec gateway_pod_labels(Ash.UUID.t()) :: %{optional(String.t()) => String.t()}
   def gateway_pod_labels(gateway_id) do
@@ -150,8 +146,34 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
     }
   end
 
-  defp gateway_access_namespace do
-    Application.get_env(:flux_vale, :access_gateway, [])[:namespace]
+  @doc """
+  The platform's access namespace — one shared namespace for every
+  org's gateway (ADR-0039 §1) — and the ONE source of truth for
+  gateway placement.
+
+  Called by the deploy/exposure-apply paths (`network_policy_spec/1`,
+  via DeployInstance and SetExposure) and by the provider callbacks
+  (`Tailscale.access_namespace/0`). A missing config key must fail
+  loudly: at base, attach admitted the peer into the provider's
+  `"fluxvale-access"` fallback while the instance-side spec builder
+  dropped the peer on the next exposure flip or redeploy, silently
+  severing reachability on every reconfigure.
+
+  The provider calls this directly — the resolver raises `KeyError` on
+  a missing key. Caller-side fallback to nil is not safe; attach must
+  reject misconfig at the start.
+  """
+  @spec gateway_access_namespace() :: String.t()
+  def gateway_access_namespace do
+    config = Application.fetch_env!(:flux_vale, :access_gateway)
+
+    # The single clause matches only a usable namespace: a nil/empty
+    # VALUE fails as loudly as a missing key (an env-var interpolation
+    # that yields nil is one deploy away) — CaseClauseError, not a
+    # half-configured attach.
+    case Keyword.fetch!(config, :namespace) do
+      namespace when is_binary(namespace) and namespace != "" -> namespace
+    end
   end
 
   defp attached_gateway_ids(%{id: id}) do

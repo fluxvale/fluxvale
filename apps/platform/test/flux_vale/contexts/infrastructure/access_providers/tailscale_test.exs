@@ -1009,7 +1009,11 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
   end
 
   defp access_namespace do
-    Application.fetch_env!(:flux_vale, :access_gateway)[:namespace] || "fluxvale-access"
+    # The one resolver — the old `|| "fluxvale-access"` fallback here was
+    # the second resolver this PR deleted from production; keeping it
+    # would let the suite assert the fallback shape while production
+    # raises.
+    InstanceK8s.gateway_access_namespace()
   end
 
   defp unique_violation do
