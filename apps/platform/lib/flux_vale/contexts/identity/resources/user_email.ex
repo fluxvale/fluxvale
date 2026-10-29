@@ -3,9 +3,12 @@ defmodule FluxVale.Identity.UserEmail do
   One of a user's email addresses (identity lane #285): `verified_at` nil
   means a pending claim, `is_primary` marks the account's main address.
 
-  Deliberately parallel to `users.email` for now — nothing reads this
-  table yet (sign-in still goes through `users.email`; the cutover is a
-  later slice). An address belongs to at most one account at a time
+  Since T3 this table IS the account's identity: sign-in resolves
+  through it (`User.get_by_email`), the session/token gates read it, and
+  every create stamps a verified-primary row (the mirror — `users.email`
+  stays as a frozen column for old pods during rolling deploys).
+
+  An address belongs to at most one account at a time
   (`unique_address`), and a user keeps at most one primary (the partial
   index — a plain unique `[:user_id]` would cap the whole table at one
   row per user).
@@ -24,9 +27,16 @@ defmodule FluxVale.Identity.UserEmail do
   alias FluxVale.Identity.UserEmail.RemoveGuard
   alias FluxVale.Identity.UserEmail.SetPrimary
 
+  # Ash.Query.filter is a macro
+  require Ash.Query
+
   # Defined before the section that consumes it; EnforceEmailCap reads it
   # via max_emails_per_user/0 so the cap and its enforcement can't drift.
   @max_emails_per_user 5
+
+  # The address format rule — one source: the validation below and the
+  # code-send gate (RequestAuthCode, via valid_address?/1) both read it.
+  @address_format ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
   postgres do
     table("user_emails")
@@ -118,8 +128,8 @@ defmodule FluxVale.Identity.UserEmail do
       public?(false)
     end
 
-    # nil = pending claim; stamped by :mark_verified (a caller that holds
-    # a verified auth code — arrives in a later slice)
+    # nil = pending claim; stamped by :mark_verified (the identity
+    # operation holding a verified auth code — VerifyEmail, T3)
     attribute(:verified_at, :utc_datetime)
 
     attribute :is_primary, :boolean do
@@ -193,6 +203,37 @@ defmodule FluxVale.Identity.UserEmail do
       accept([])
       change(set_attribute(:is_primary, false))
     end
+
+    # System-only supersede of pending claims — the sanctioned entry is
+    # `supersede_pending_claims/1` below, which scopes the bulk destroy
+    # to PENDING rows. Bypassing RemoveGuard is sound for a pending row:
+    # it can never violate the guard's invariants — never primary
+    # (SetPrimary refuses unverified rows), never the frozen mirror (the
+    # create mirror stamps the signup address VERIFIED from birth, and
+    # unique_address excludes a second row), never the last verified
+    # address (it is unverified).
+    #
+    # The pending-only invariant lives ON the action (the changeset
+    # filter below), not in the caller alone: `action_type(:destroy)`
+    # grants this action to the row's owner and to platform admins, and
+    # those callers must not be able to delete a VERIFIED row through
+    # it — that would bypass every guard on the resource (review round
+    # 2, P2: the "no policy grants this action" comment was false). A
+    # verified row cannot match the filter, so the delete touches
+    # nothing and Ash refuses with a stale-record error; rows stay
+    # intact for any caller.
+    #
+    # Atomic (no other changes): the bulk destroy evaluates caller
+    # filter + this filter in SQL at delete time, not from a stale
+    # read — a row a concurrent VerifyEmail flips verified in between
+    # survives (the re-evaluated predicate excludes it) and the caller
+    # resolves to its owner instead of forking an account (review
+    # P2-1: the read-then-remove shape raced the flip past the guard).
+    destroy :supersede_pending do
+      description("Delete a pending claim (system supersede — a burned code is the inbox proof)")
+
+      change(filter(expr(is_nil(verified_at))))
+    end
   end
 
   code_interface do
@@ -214,11 +255,45 @@ defmodule FluxVale.Identity.UserEmail do
   validations do
     # `where: changing` scopes the check to addresses actually being set
     # (create always sets one) — the Organization.update posture.
-    validate(match(:address, ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/),
+    validate(match(:address, @address_format),
       on: [:create, :update],
       where: changing(:address),
       message: "must be a valid email address"
     )
+  end
+
+  @doc "The address format rule (shared with the code-send gate — see RequestAuthCode)"
+  @spec valid_address?(String.t() | Ash.CiString.t()) :: boolean()
+  def valid_address?(address) do
+    address
+    |> to_string()
+    |> String.match?(@address_format)
+  end
+
+  @doc """
+  Atomically supersedes every PENDING claim on `address` — the system
+  seam shared by the sign-in JIT path (VerifyAuthCode) and the bootstrap
+  seed: a burned code is the inbox proof, and the seed address is
+  operator-trusted.
+
+  The pending-only invariant is enforced by the action itself (a
+  changeset filter — `is_nil(verified_at)`), so it holds regardless of
+  caller; this function scopes the bulk destroy to `address` on top.
+  The filter is evaluated in SQL at destroy time (`Ash.bulk_destroy!`
+  on the atomic :supersede_pending action), not from a stale read —
+  see the action's comment for why bypassing RemoveGuard is sound. A
+  row a concurrent VerifyEmail flips verified in between survives; the
+  caller re-resolves to its owner instead of forking a second account.
+  authorize?: false — the burned code is the authorization (the seed is
+  bootstrap), and UserEmail has no interaction context by design.
+  """
+  @spec supersede_pending_claims(String.t() | Ash.CiString.t()) :: :ok
+  def supersede_pending_claims(address) do
+    __MODULE__
+    |> Ash.Query.filter(address == ^address and is_nil(verified_at))
+    |> Ash.bulk_destroy!(:supersede_pending, %{}, authorize?: false)
+
+    :ok
   end
 
   @doc "The per-user email cap (see EnforceEmailCap)"

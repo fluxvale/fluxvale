@@ -6,6 +6,7 @@ defmodule FluxValeWeb.SessionControllerTest do
   alias AshAuthentication.Jwt
   alias AshAuthentication.Plug.Helpers
   alias FluxVale.Identity.User
+  alias FluxVale.Identity.UserEmail
   alias FluxVale.Ops.AccessRule
 
   # Controller-invocation level (the LiveView flow is covered in
@@ -28,6 +29,83 @@ defmodule FluxValeWeb.SessionControllerTest do
 
     assert redirected_to(conn) == ~p"/sign-in"
     refute Plug.Conn.get_session(conn, "user_token")
+  end
+
+  # #285 review P3-1: pins the user-level gate at SessionController
+  # (ensure_allowed_user, NOT ensure_allowed(user.email) — the frozen
+  # users.email would sever users the table-backed identity admits).
+  describe "user-level gate pins (#285 T3 — create/2)" do
+    setup do
+      AccessRule.create!(%{domain: "fluxvale.com"}, authorize?: false)
+      :ok
+    end
+
+    test "a multi-address user gets through on the allowed verified address", %{conn: conn} do
+      user =
+        User.create!("multi-in-#{System.unique_integer()}@example.com", %{}, authorize?: false)
+
+      {:ok, row} =
+        UserEmail.add("multi-in-b-#{System.unique_integer()}@fluxvale.com", %{user: user},
+          authorize?: false
+        )
+
+      {:ok, _verified} = UserEmail.mark_verified(row, authorize?: false)
+      {:ok, token, _claims} = Jwt.token_for_user(user)
+
+      conn =
+        conn
+        |> Plug.Test.init_test_session(%{})
+        |> fetch_flash()
+        |> FluxValeWeb.SessionController.create(%{"token" => token})
+
+      assert redirected_to(conn) == ~p"/"
+      assert Plug.Conn.get_session(conn, "user_token")
+    end
+
+    test "a user whose only allowed address was removed is severed", %{conn: conn} do
+      user =
+        User.create!("multi-out-#{System.unique_integer()}@example.com", %{}, authorize?: false)
+
+      {:ok, row} =
+        UserEmail.add("multi-out-b-#{System.unique_integer()}@fluxvale.com", %{user: user},
+          authorize?: false
+        )
+
+      {:ok, _verified} = UserEmail.mark_verified(row, authorize?: false)
+
+      # the allowed address goes through the owner path
+      assert :ok = UserEmail.remove(row, actor: user)
+
+      {:ok, token, _claims} = Jwt.token_for_user(user)
+
+      conn =
+        conn
+        |> Plug.Test.init_test_session(%{})
+        |> fetch_flash()
+        |> FluxValeWeb.SessionController.create(%{"token" => token})
+
+      assert redirected_to(conn) == ~p"/sign-in"
+      refute Plug.Conn.get_session(conn, "user_token")
+    end
+
+    test "a pre-T3 user with an allowlisted frozen address and no rows is severed", %{conn: conn} do
+      # A state actions cannot produce (the create mirror stamps a row) —
+      # seed! is the sanctioned bypass. Nothing proven, nothing granted:
+      # the allowlisted users.email alone must not admit them.
+      old_pod =
+        Ash.Seed.seed!(User, %{email: "old-pod-#{System.unique_integer()}@fluxvale.com"})
+
+      {:ok, token, _claims} = Jwt.token_for_user(old_pod)
+
+      conn =
+        conn
+        |> Plug.Test.init_test_session(%{})
+        |> fetch_flash()
+        |> FluxValeWeb.SessionController.create(%{"token" => token})
+
+      assert redirected_to(conn) == ~p"/sign-in"
+      refute Plug.Conn.get_session(conn, "user_token")
+    end
   end
 
   # #74: sign-out revokes the session's tokens (the store, not just the
