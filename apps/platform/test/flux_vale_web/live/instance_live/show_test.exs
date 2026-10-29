@@ -30,9 +30,13 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Identity.User
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale
+  alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Pricing.Size
+  alias FluxVale.TestSupport.AccessFixtures
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
@@ -983,15 +987,16 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       assert has_element?(view, "[data-testid=exposure-mode]", "Private")
       assert has_element?(view, "[data-testid=exposure-toggle]", "Make public")
 
-      # #265's copy contract: manageable via the panel, NOT reachable,
-      # nothing wakes a sleeping one, the access layer is upcoming
-      # (never dated, never named), exposure is free.
+      # #265's copy contract, #273-amended: manageable via the panel,
+      # NOT reachable, nothing wakes a sleeping one, the Access tab is
+      # named (no gateway yet, so "upcoming" is gone), exposure is free.
       copy = render(element(view, "[data-testid=exposure-copy]"))
 
       assert copy =~ "unreachable from the internet"
       assert copy =~ "full control from this panel"
       assert copy =~ "nothing can wake a sleeping private instance"
-      assert copy =~ "upcoming"
+      assert copy =~ "Settings → Access"
+      refute copy =~ "upcoming"
       assert copy =~ "never changes what you pay"
 
       assert Instance.get_by_id!(instance.id, authorize?: false).exposure == :private
@@ -1110,6 +1115,124 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       assert html =~ "Couldn&#39;t change the exposure setting"
       assert has_element?(view, "[data-testid=exposure-mode]", "Public")
       assert Instance.get_by_id!(instance.id, authorize?: false).exposure == :public
+    end
+  end
+
+  # #273 §4.2: the exposure card's state-aware copy — the access layer
+  # is live, so "upcoming" is gone. Three states, keyed on the pairing
+  # row and the org's gateway; the reachability line shows whenever a
+  # route exists, whatever the exposure.
+  describe "tailnet reachability copy (#273)" do
+    setup %{user: user} do
+      # The gateway fixture's create runs the provider's cluster leg —
+      # stubbed at the provider boundary (the access_test stance).
+      stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
+
+      org = AccountsFixtures.personal_org!(user)
+      %{org: org}
+    end
+
+    defp running_private!(version, user) do
+      pending = create_instance!(version, user)
+
+      pending
+      |> InstanceFixtures.pin!(namespace: "fluxvale-app-#{pending.id}")
+      |> InstanceFixtures.walk_to!(:running)
+      |> InstanceFixtures.pin!(exposure: :private)
+    end
+
+    test "no gateway: the private copy names the Access tab, never 'upcoming'", %{
+      conn: conn,
+      version: version,
+      user: user
+    } do
+      instance = running_private!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      copy = render(element(view, "[data-testid=exposure-copy]"))
+      assert copy =~ "unreachable from the internet"
+      assert copy =~ "Settings → Access"
+      assert copy =~ "Tailscale network"
+      refute copy =~ "upcoming"
+      assert copy =~ "never changes what you pay"
+
+      refute has_element?(view, "[data-testid=tailnet-reachability]")
+    end
+
+    test "gateway, no route: the copy points at attach", %{
+      conn: conn,
+      org: org,
+      version: version,
+      user: user
+    } do
+      AccessFixtures.gateway!(org)
+      instance = running_private!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      copy = render(element(view, "[data-testid=exposure-copy]"))
+      assert copy =~ "unreachable from the internet"
+      assert copy =~ "attach it in Settings → Access"
+      refute copy =~ "upcoming"
+
+      refute has_element?(view, "[data-testid=tailnet-reachability]")
+    end
+
+    test "route exists: the reachability line names the address and links the tab", %{
+      conn: conn,
+      org: org,
+      version: version,
+      user: user
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      instance = running_private!(version, user)
+
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(
+               view,
+               "[data-testid=tailnet-address]",
+               "#{gateway.hostname}:8443"
+             )
+
+      link = render(element(view, "[data-testid=tailnet-access-link]"))
+      assert link =~ "/organizations/#{org.slug}/settings/access"
+
+      copy = render(element(view, "[data-testid=exposure-copy]"))
+      assert copy =~ "reachable from your own devices on your tailnet"
+      assert copy =~ "a visit wakes it"
+      refute copy =~ "upcoming"
+    end
+
+    test "the public+attached corner still shows the reachability line", %{
+      conn: conn,
+      org: org,
+      version: version,
+      user: user
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      pending = create_instance!(version, user)
+
+      public =
+        pending
+        |> InstanceFixtures.pin!(namespace: "fluxvale-app-#{pending.id}")
+        |> InstanceFixtures.walk_to!(:running)
+
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: public.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{public.id}")
+
+      assert has_element?(view, "[data-testid=exposure-mode]", "Public")
+      assert has_element?(view, "[data-testid=tailnet-address]", "#{gateway.hostname}:8443")
     end
   end
 

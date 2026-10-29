@@ -11,7 +11,10 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
   use FluxValeWeb, :live_view
 
+  alias FluxVale.Accounts.Organization
   alias FluxVale.Checks.ActorIsPlatformAdmin
+  alias FluxVale.Infrastructure.AccessGateway
+  alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.Instance
   alias FluxValeWeb.InstanceLive.DavSnippet
@@ -31,7 +34,8 @@ defmodule FluxValeWeb.InstanceLive.Show do
         # renders only for platform admins — one predicate, shared with
         # policy-land, so the notion can't fork.
         socket =
-          assign(socket,
+          socket
+          |> assign(
             instance: instance,
             admin?: ActorIsPlatformAdmin.platform_admin?(user),
             always_on_confirm: always_on_confirm(instance),
@@ -43,6 +47,11 @@ defmodule FluxValeWeb.InstanceLive.Show do
             dav_platform_locked: false,
             tick_scheduled?: false
           )
+          # #273 §4.2: the exposure card's reachability copy reads the
+          # pairing (route), the org's gateway, and the org's slug (the
+          # Access-tab link). None of the three moves with an instance
+          # broadcast, so mount-time is the whole truth this page needs.
+          |> assign_access(instance, user)
 
         {:ok, maybe_schedule_status_tick(socket)}
 
@@ -164,10 +173,12 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
           <%!-- #265: the reachability posture — private is the
           network-isolation primitive (no public route, edge ingress
-          denied), the foundation the upcoming access layer attaches
-          to. Honest copy: today private = panel-managed but
-          unreachable; the access layer is named as upcoming, never
-          promised with a date. Exposure bills nothing. --%>
+          denied). #273 §4.2: the access layer is no longer "upcoming" —
+          the copy is state-aware. Route → reachable on the tailnet
+          (shown below, whatever the exposure — the engine permits the
+          public+attached corner and displays it honestly). Gateway, no
+          route → attach is the way in. No gateway → the Access tab is
+          named plainly. Exposure bills nothing. --%>
           <div class="flex items-center justify-between gap-3 border-t border-line pt-3">
             <h3 class="text-sm font-medium text-ink-muted">Exposure</h3>
             <span
@@ -186,16 +197,50 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
           <p class="text-sm text-ink-subtle" data-testid="exposure-copy">
             <%= if @instance.exposure == :private do %>
-              Private instances are unreachable from the internet — this app has no public address.
-              You keep full control from this panel (deploy, stop, start, back up), and always-on
-              still works — but nothing can wake a sleeping private instance: no traffic reaches
-              it. A way to reach private instances is upcoming. Exposure never changes what you pay.
+              <%= cond do %>
+                <% @route -> %>
+                  Private instances are unreachable from the internet — this app has no
+                  public address. It is reachable from your own devices on your tailnet,
+                  and a visit wakes it when it's asleep. Exposure never changes what you pay.
+                <% @gateway -> %>
+                  Private instances are unreachable from the internet — this app has no
+                  public address. You keep full control from this panel (deploy, stop,
+                  start, back up), and always-on still works — but
+                  nothing can wake a sleeping private instance: no traffic reaches it.
+                  To reach it from your own devices, attach it in Settings → Access.
+                  Exposure never changes what you pay.
+                <% true -> %>
+                  Private instances are unreachable from the internet — this app has no
+                  public address. You keep full control from this panel (deploy, stop,
+                  start, back up), and always-on still works — but
+                  nothing can wake a sleeping private instance: no traffic reaches it.
+                  Your organization's Settings → Access can put it on your own
+                  Tailscale network. Exposure never changes what you pay.
+              <% end %>
             <% else %>
               Anyone on the internet can reach this app at its address. Making it private removes
               that address immediately — the panel keeps working either way, and exposure never
               changes what you pay.
             <% end %>
           </p>
+
+          <%!-- §4.2's reachability line: whenever a route exists — also
+              in the public+attached corner, honestly. --%>
+          <div :if={@route} class="space-y-1" data-testid="tailnet-reachability">
+            <p class="text-sm text-ink">
+              Reachable on your tailnet at
+              <span class="font-mono" data-testid="tailnet-address">
+                {tailnet_address(@route)}
+              </span>
+              — manage this pairing in <.link
+                navigate={~p"/organizations/#{@org_slug}/settings/access"}
+                class="underline underline-offset-2 hover:text-ink"
+                data-testid="tailnet-access-link"
+              >
+                Settings → Access
+              </.link>.
+            </p>
+          </div>
 
           <%!-- #261's gate logic, one card over: making private is the
           reachability-cutting direction — confirm first, in plain
@@ -757,6 +802,49 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
   defp instance_url(instance) do
     "https://#{instance.slug}.#{Application.fetch_env!(:flux_vale, :instances_base_domain)}/"
+  end
+
+  # #273 §4.2: the exposure card's three-state inputs. The pairing row
+  # (loaded with its gateway for the hostname) decides the reachability
+  # line; the org's gateway decides the "attach it" vs "enable it"
+  # wording; the org slug is the Access-tab link. Each read rides its
+  # member policy with the actor; misses are the honest "not there".
+  defp assign_access(socket, instance, user) do
+    route = route_for(instance, user)
+
+    gateway =
+      case AccessGateway.get_for_organization(instance.organization_id, actor: user) do
+        {:ok, gateway} -> gateway
+        {:error, _none} -> nil
+      end
+
+    org_slug = org_slug_for(instance.organization_id, user)
+
+    assign(socket, route: route, gateway: gateway, org_slug: org_slug)
+  end
+
+  defp route_for(instance, user) do
+    case AccessRoute.get_by_instance(instance.id, actor: user) do
+      {:ok, route} -> Ash.load!(route, :gateway, actor: user)
+      {:error, _not_found} -> nil
+    end
+  end
+
+  defp org_slug_for(organization_id, user) do
+    case Organization.get_by_id(organization_id, actor: user) do
+      {:ok, org} -> org.slug
+      # Unreachable through this page: the org read's membership chain
+      # is the same one the instance read passed, and an org with
+      # instances is never hard-deleted (no reachable destroy). A bare
+      # nil drops the Access-tab link rather than crashing the card.
+      # coveralls-ignore-next-line
+      {:error, _none} -> nil
+    end
+  end
+
+  # §4.2's shape: hostname + route_key (the provider-opaque port).
+  defp tailnet_address(route) do
+    "#{route.gateway.hostname}:#{route.route_key}"
   end
 
   # The panel's own refresh: pass the assigns it already reads. The run

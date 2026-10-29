@@ -17,9 +17,12 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
+  alias FluxVale.Infrastructure.AccessRoute
+  alias FluxVale.Infrastructure.Instance
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
+  alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
   setup %{conn: conn} do
@@ -808,6 +811,353 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
 
       assert has_element?(view, "[data-testid='access-status-message']", "Removal failed")
       assert has_element?(view, "[data-testid='access-retry-remove']")
+    end
+  end
+
+  describe "pairing instances (ADR-0039 §3, §4.1)" do
+    setup do
+      stub_provider()
+      # The instance fixtures resolve placement (ResolveCluster's
+      # exactly-one-cluster contract).
+      InstanceFixtures.local_cluster!()
+
+      :ok
+    end
+
+    test "an active gateway shows both sections with their rows", %{
+      conn: conn,
+      owner: owner,
+      org: org
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      attached_instance = AccessFixtures.private_instance!(org, owner)
+      waiting = AccessFixtures.private_instance!(org, owner)
+
+      # The pairing row the provider's attach writes — create is
+      # system-only, so the row is seeded directly (the wake tests'
+      # sanctioned precondition).
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: attached_instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      # Attached row: name, live address (hostname + port + the owner's
+      # tailnet placeholder — the platform cannot know the suffix), and
+      # the no-confirm Detach with its reversible-consequence copy.
+      assert has_element?(view, "[data-testid='access-attached-row']", attached_instance.name)
+      assert has_element?(view, "[data-testid='access-attached-address']", gateway.hostname)
+      assert has_element?(view, "[data-testid='access-attached-address']", "8443")
+      assert has_element?(view, "[data-testid='access-attached-address']", "your-tailnet")
+      assert has_element?(view, "[data-testid='access-detach']")
+
+      assert has_element?(
+               view,
+               "[data-testid='access-attached']",
+               "reachable from the panel only again"
+             )
+
+      # The waiting half: exactly the unattached private instance.
+      assert has_element?(view, "[data-testid='access-attach-row']", waiting.name)
+      assert has_element?(view, "[data-testid='access-attach-button']")
+
+      refute has_element?(view, "[data-testid='access-attached-empty']")
+      refute has_element?(view, "[data-testid='access-attach-empty']")
+      refute_k8s_terms(render(view))
+    end
+
+    test "empty sections say so; a public instance never waits to attach", %{
+      conn: conn,
+      owner: owner,
+      org: org
+    } do
+      AccessFixtures.gateway!(org)
+      AccessFixtures.public_instance!(org, owner)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      assert has_element?(view, "[data-testid='access-attached-empty']")
+      assert has_element?(view, "[data-testid='access-attach-empty']")
+      refute has_element?(view, "[data-testid='access-attached-row']")
+      refute has_element?(view, "[data-testid='access-attach-row']")
+    end
+
+    test "attach pairs the app through the panel and shows its address", %{
+      conn: conn,
+      owner: owner,
+      org: org
+    } do
+      AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      expect(Tailscale, :attach_instance, fn %AccessGateway{} = gw, %Instance{} = inst ->
+        # The stub plays the provider's row-create; the cluster limbs
+        # are the provider tests' subject (this suite's stance).
+        {:ok,
+         AccessRoute.create!(
+           %{gateway_id: gw.id, instance_id: inst.id, route_key: "8443"},
+           authorize?: false
+         )}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      view
+      |> element("[data-testid='access-attach-button']")
+      |> render_click()
+
+      assert has_element?(view, "#flash-info", "#{instance.name} attached")
+      assert has_element?(view, "[data-testid='access-attached-row']", instance.name)
+      refute has_element?(view, "[data-testid='access-attach-row']")
+
+      assert {:ok, _route} = AccessRoute.get_by_instance(instance.id, authorize?: false)
+    end
+
+    test "attach while the gateway went dark answers wait-for-Connected", %{
+      conn: conn,
+      owner: owner,
+      org: org
+    } do
+      AccessFixtures.gateway!(org)
+      AccessFixtures.private_instance!(org, owner)
+
+      expect(Tailscale, :attach_instance, fn _gateway, _instance ->
+        {:error, :gateway_not_active}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      view
+      |> element("[data-testid='access-attach-button']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='access-attach-error']", "wait for Connected")
+    end
+
+    test "an exhausted pool lands its honest copy", %{conn: conn, owner: owner, org: org} do
+      AccessFixtures.gateway!(org)
+      AccessFixtures.private_instance!(org, owner)
+
+      expect(Tailscale, :attach_instance, fn _gateway, _instance ->
+        {:error, :pool_exhausted}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      view
+      |> element("[data-testid='access-attach-button']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='access-attach-error']", "addresses are all in use")
+    end
+
+    test "a cluster failure lands the try-again copy", %{conn: conn, owner: owner, org: org} do
+      AccessFixtures.gateway!(org)
+      AccessFixtures.private_instance!(org, owner)
+
+      expect(Tailscale, :attach_instance, fn _gateway, _instance ->
+        {:error, :cluster_down}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      view
+      |> element("[data-testid='access-attach-button']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='access-attach-error']", "Couldn't attach")
+    end
+
+    test "detach is a bare click — no confirm — and the app returns to the waiting list", %{
+      conn: conn,
+      owner: owner,
+      org: org
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      expect(Tailscale, :detach_instance, fn _gateway, %Instance{} = inst ->
+        inst.id
+        |> AccessRoute.get_by_instance!(authorize?: false)
+        |> AccessRoute.destroy!(authorize?: false)
+
+        :ok
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      view
+      |> element("[data-testid='access-detach']")
+      |> render_click()
+
+      assert has_element?(view, "#flash-info", "reachable from the panel only again")
+      refute has_element?(view, "[data-testid='access-attached-row']")
+      assert has_element?(view, "[data-testid='access-attach-row']", instance.name)
+
+      assert {:error, _gone} = AccessRoute.get_by_instance(instance.id, authorize?: false)
+    end
+
+    test "a failed detach answers with the retry copy and keeps the pairing", %{
+      conn: conn,
+      owner: owner,
+      org: org
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      expect(Tailscale, :detach_instance, fn _gateway, _instance -> {:error, :cluster_down} end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      view
+      |> element("[data-testid='access-detach']")
+      |> render_click()
+
+      assert has_element?(view, "#flash-error", "Couldn't detach")
+      assert has_element?(view, "[data-testid='access-attached-row']", instance.name)
+    end
+
+    test "a public-but-attached row lists honestly and detaches back to public", %{
+      conn: conn,
+      owner: owner,
+      org: org
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      public = AccessFixtures.public_instance!(org, owner)
+
+      # Attach refuses a public instance, so this row can only exist
+      # out-of-band — the exposure toggle's corner the row must show
+      # honestly (§4.1).
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: public.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      expect(Tailscale, :detach_instance, fn _gateway, %Instance{} = inst ->
+        inst.id
+        |> AccessRoute.get_by_instance!(authorize?: false)
+        |> AccessRoute.destroy!(authorize?: false)
+
+        :ok
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      assert has_element?(view, "[data-testid='access-attached-row']", public.name)
+      assert has_element?(view, "[data-testid='access-attached-public-note']")
+
+      view
+      |> element("[data-testid='access-detach']")
+      |> render_click()
+
+      assert has_element?(view, "#flash-info", "its public address still works")
+    end
+
+    test "a suspended gateway hides the pairing sections and says why", %{conn: conn, org: org} do
+      AccessFixtures.gateway!(org, state: :suspended)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      refute has_element?(view, "[data-testid='access-attached']")
+      refute has_element?(view, "[data-testid='access-attach']")
+      assert has_element?(view, "[data-testid='access-pairing-paused']")
+      assert has_element?(view, "[data-testid='access-pairing-paused']", "suspended")
+    end
+
+    test "a needs_attention gateway hides the sections with its own line", %{conn: conn, org: org} do
+      AccessFixtures.gateway!(org, state: :needs_attention)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      refute has_element?(view, "[data-testid='access-attached']")
+      refute has_element?(view, "[data-testid='access-attach']")
+
+      assert has_element?(
+               view,
+               "[data-testid='access-pairing-paused']",
+               "reconnect with a fresh key"
+             )
+    end
+
+    test "a destroying gateway hides the sections with its own line", %{conn: conn, org: org} do
+      AccessFixtures.gateway!(org, state: :destroying)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      refute has_element?(view, "[data-testid='access-attached']")
+      refute has_element?(view, "[data-testid='access-attach']")
+      assert has_element?(view, "[data-testid='access-pairing-paused']", "being removed")
+    end
+
+    test "a suspension broadcast hides the sections live; restoring brings them back", %{
+      conn: conn,
+      owner: owner,
+      org: org
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      assert has_element?(view, "[data-testid='access-attached-row']")
+
+      # Each write chains from the fresh row — a second write from the
+      # stale struct is a no-op (Ash skips no-change writes), and the
+      # publish is what moves the panel.
+      suspended =
+        gateway
+        |> Ash.Changeset.for_update(:update_state, %{state: :suspended}, authorize?: false)
+        |> Ash.update!()
+
+      refute has_element?(view, "[data-testid='access-attached']")
+      assert has_element?(view, "[data-testid='access-pairing-paused']")
+
+      suspended
+      |> Ash.Changeset.for_update(:update_state, %{state: :active}, authorize?: false)
+      |> Ash.update!()
+
+      assert has_element?(view, "[data-testid='access-attached-row']")
+      refute has_element?(view, "[data-testid='access-pairing-paused']")
+    end
+
+    test "pairing events are inert without a gateway", %{conn: conn, org: org} do
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      render_click(view, "attach", %{"instance_id" => Ecto.UUID.generate()})
+      render_click(view, "detach", %{"instance_id" => Ecto.UUID.generate()})
+
+      assert has_element?(view, "[data-testid='access-empty']")
+    end
+
+    test "stale clicks on vanished instances land the copy, never a crash", %{
+      conn: conn,
+      org: org
+    } do
+      AccessFixtures.gateway!(org)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      render_click(view, "attach", %{"instance_id" => Ecto.UUID.generate()})
+      assert has_element?(view, "[data-testid='access-attach-error']", "Couldn't attach")
+
+      render_click(view, "detach", %{"instance_id" => Ecto.UUID.generate()})
+      assert has_element?(view, "#flash-error", "Couldn't detach")
     end
   end
 
