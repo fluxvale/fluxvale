@@ -73,7 +73,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div class="min-w-0 space-y-1">
                 <div class="flex flex-wrap items-center gap-3">
-                  <h1 class="text-2xl font-semibold tracking-tight text-ink">{@instance.name}</h1>
+                  <h1 class="min-w-0 text-2xl font-semibold tracking-tight text-ink [overflow-wrap:anywhere]">
+                    {@instance.name}
+                  </h1>
                   <.status_badge status={@instance.status} />
                 </div>
 

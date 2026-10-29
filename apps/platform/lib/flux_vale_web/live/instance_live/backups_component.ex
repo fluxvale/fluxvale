@@ -572,7 +572,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
       myself={@myself}
     />
 
-    <div class="space-y-2 rounded-panel border border-line-strong bg-panel p-4">
+    <div class="space-y-2 rounded-panel border border-line bg-panel p-4">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <p class="text-sm font-medium text-ink">Backup password</p>
         <%= if @repo_password do %>
@@ -1042,7 +1042,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
 
     ~H"""
     <div
-      class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-control border border-line-strong bg-panel px-3 py-2 text-xs"
+      class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-control border border-line bg-panel px-3 py-2 text-xs"
       data-testid="backup-run"
       data-run-kind={@run.kind}
       data-run-status={@run.status}
