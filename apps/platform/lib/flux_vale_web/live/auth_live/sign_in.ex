@@ -57,7 +57,7 @@ defmodule FluxValeWeb.AuthLive.SignIn do
 
             <div :if={@step == :code} class="space-y-4">
               <p class="text-sm text-ink-muted">
-                We sent a 6-digit code to <span class="break-all font-medium text-ink">{@email}</span>.
+                We sent a 6-digit code to <span class="break-words font-medium text-ink">{@email}</span>.
                 It expires in 10 minutes.
               </p>
 
