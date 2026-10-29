@@ -57,18 +57,22 @@ defmodule FluxValeWeb.InstanceLive.Index do
           Deploy your first app from the catalog.
         </.empty_state>
 
+        <%!-- Rows on the card language (#277 T5a): the T4 catalog idiom —
+        panel radius, line-strong border, mapped elevation, lift on
+        hover (translate gated motion-safe; in dark + reduced-motion the
+        hover cue is the title hue shift, elevation is a no-op there). --%>
         <div id="instances" phx-update="stream" class="space-y-3">
           <.link
             :for={{dom_id, instance} <- @streams.instances}
             navigate={~p"/instances/#{instance.id}"}
             id={dom_id}
             data-testid="instance-row"
-            class="group block rounded-xl border border-line bg-panel p-5 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
+            class="group block rounded-panel border border-line-strong bg-panel p-5 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow,translate] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md motion-safe:hover:-translate-y-1"
           >
             <div class="space-y-2">
               <div class="flex flex-wrap items-center justify-between gap-3">
                 <div class="flex min-w-0 items-center gap-3">
-                  <h2 class="text-base font-medium text-ink transition-colors group-hover:text-link">
+                  <h2 class="min-w-0 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
                     {instance.name}
                   </h2>
                   <span class="font-mono text-xs text-ink-subtle">{instance.slug}</span>
@@ -81,6 +85,10 @@ defmodule FluxValeWeb.InstanceLive.Index do
                     </span>
                   </span>
                   <.status_badge status={instance.status} />
+                  <.icon
+                    name="hero-chevron-right"
+                    class="size-4 shrink-0 text-ink-subtle opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100"
+                  />
                 </div>
               </div>
               <%!-- #179: friendly copy only — raw status_message never
