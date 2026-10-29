@@ -55,7 +55,9 @@ defmodule FluxValeWeb.CatalogLive.Index do
 
         <%!-- Card grid (#277 T4) — see
         catalog_html/index.html.heex for the auto-fill rationale and
-        the dark/reduced-motion hover-cue note. --%>
+        the dark/reduced-motion hover-cue note; the T7 lift split
+        (shadow on the link, translate on the wrapper) is noted there
+        too. --%>
         <section
           :for={category <- @categories}
           id={"category-#{category.id}"}
@@ -72,38 +74,40 @@ defmodule FluxValeWeb.CatalogLive.Index do
               navigate={~p"/apps/#{app.slug}"}
               id={"app-#{app.id}"}
               data-testid={"app-#{app.slug}"}
-              class="group block rounded-panel border border-line-strong bg-panel p-5 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow,translate] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md motion-safe:hover:-translate-y-1"
+              class="group block rounded-panel border border-line-strong bg-panel p-5 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md"
             >
-              <div class="flex items-center gap-3">
-                <%!-- Icon-in-tile (#277 T4): the landing hero's tile idiom —
-                apps with and without an icon share one silhouette. --%>
-                <div class="grid size-9 shrink-0 place-items-center rounded-control bg-primary-muted text-sm font-semibold text-link">
-                  <img
-                    :if={app.icon_url}
-                    src={app.icon_url}
-                    alt={app.name}
-                    class="size-6 rounded-control"
+              <div class="transition-[translate] duration-(--motion-base) ease-(--motion-ease-out) motion-safe:group-hover:-translate-y-1">
+                <div class="flex items-center gap-3">
+                  <%!-- Icon-in-tile (#277 T4): the landing hero's tile idiom —
+                  apps with and without an icon share one silhouette. --%>
+                  <div class="grid size-9 shrink-0 place-items-center rounded-control bg-primary-muted text-sm font-semibold text-link">
+                    <img
+                      :if={app.icon_url}
+                      src={app.icon_url}
+                      alt={app.name}
+                      class="size-6 rounded-control"
+                    />
+                    <span :if={is_nil(app.icon_url)}>{String.first(app.name)}</span>
+                  </div>
+                  <h3 class="min-w-0 flex-1 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
+                    {app.name}
+                  </h3>
+                  <.icon
+                    name="hero-chevron-right"
+                    class="ml-auto size-4 shrink-0 text-ink-subtle opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100"
                   />
-                  <span :if={is_nil(app.icon_url)}>{String.first(app.name)}</span>
                 </div>
-                <h3 class="min-w-0 flex-1 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
-                  {app.name}
-                </h3>
-                <.icon
-                  name="hero-chevron-right"
-                  class="ml-auto size-4 shrink-0 text-ink-subtle opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100"
-                />
+                <p :if={app.tagline} class="mt-2.5 text-sm text-ink-muted">{app.tagline}</p>
+                <%= if estimate = @wake_estimates[app.slug] do %>
+                  <p
+                    class="mt-3 text-xs font-medium text-success"
+                    data-testid={"wake-estimate-#{app.slug}"}
+                  >
+                    <.icon name="hero-bolt" class="size-3.5 inline-block align-text-bottom" />
+                    Wakes in {format_estimate(estimate)}
+                  </p>
+                <% end %>
               </div>
-              <p :if={app.tagline} class="mt-2.5 text-sm text-ink-muted">{app.tagline}</p>
-              <%= if estimate = @wake_estimates[app.slug] do %>
-                <p
-                  class="mt-3 text-xs font-medium text-success"
-                  data-testid={"wake-estimate-#{app.slug}"}
-                >
-                  <.icon name="hero-bolt" class="size-3.5 inline-block align-text-bottom" />
-                  Wakes in {format_estimate(estimate)}
-                </p>
-              <% end %>
             </.link>
           </div>
         </section>

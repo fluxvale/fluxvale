@@ -111,7 +111,14 @@ defmodule FluxValeWeb.Layouts do
         <div class="flex min-w-0 items-center gap-6">
           <.link href="/" class="flex w-fit items-center gap-2">
             <img src={~p"/images/logo.svg"} width="26" height="26" alt="FluxVale" />
-            <span class="text-sm font-semibold tracking-tight text-ink">FluxVale</span>
+            <%!-- Wordmark yields below 300px (T7): the anonymous nav
+            cluster (theme trio + Sign in button) is a rigid ~186px, so
+            at ≤280 the wordmark rode under the toggle (27px overlap;
+            the scrollWidth absorbs it because this side carries
+            min-w-0). The mark's alt carries the name. --%>
+            <span class="hidden min-[300px]:inline text-sm font-semibold tracking-tight text-ink">
+              FluxVale
+            </span>
           </.link>
           <%!-- #276: the org switcher rides the app chrome only, for a
           signed-in actor, beside the logo left of the nav links. --%>
@@ -148,7 +155,10 @@ defmodule FluxValeWeb.Layouts do
             </li>
             <li :if={is_nil(@current_user)} class="ml-1">
               <.button navigate={~p"/sign-in"} size="sm">
-                Sign in <span aria-hidden="true">&rarr;</span>
+                Sign in
+                <%!-- decorative arrow (T7): hidden below sm — the ≤280
+                anonymous header buys 12px where the cluster is tightest. --%>
+                <span aria-hidden="true" class="hidden sm:inline">&rarr;</span>
               </.button>
             </li>
           </ul>

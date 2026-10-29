@@ -84,6 +84,24 @@ defmodule FluxValeWeb.DashboardLiveTest do
     refute has_element?(view, "#instances-#{their_row.id}")
   end
 
+  # #179 quiet-on-settled, T7 alignment: sleeping is a settled state —
+  # the badge says enough, the asleep paragraph stays on the show page.
+  # (The list rows were always quiet here; the dashboard matched them.)
+  test "a sleeping instance is quiet on the dashboard — badge only", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    instance = InstanceFixtures.instance!(version, user)
+    InstanceFixtures.walk_to!(instance, :sleeping)
+
+    {:ok, view, html} = dashboard(conn)
+
+    assert has_element?(view, "#instances-#{instance.id}", "Sleeping")
+    refute html =~ "wakes automatically"
+    refute has_element?(view, "#instances-#{instance.id} [data-testid='instance-status-message']")
+  end
+
   test "a running priced instance burns — finite runway with the burn hint", %{
     conn: conn,
     user: user,

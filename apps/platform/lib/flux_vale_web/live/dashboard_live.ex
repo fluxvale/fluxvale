@@ -22,11 +22,11 @@ defmodule FluxValeWeb.DashboardLive do
   writes — the dashboard's job is the at-a-glance state.
 
   #203 coupling is display-level only: statuses flow straight through
-  `status_badge`/`InstanceStatus`, so the upcoming sleeping/waking
-  states land here without dashboard-side changes. The one status list
-  below (quiet vs. noisy) is a display choice, not vocabulary —
-  running/stopped say enough in a badge, everything else earns its
-  friendly message line.
+  `status_badge`/`InstanceStatus`, so new states land here without
+  vocabulary changes. The one status list below (quiet vs. noisy) is a
+  display choice, not vocabulary — settled states (running/sleeping/
+  stopped, the list rows' quiet rule) say enough in a badge, everything
+  else earns its friendly message line.
   """
 
   use FluxValeWeb, :live_view
@@ -147,17 +147,18 @@ defmodule FluxValeWeb.DashboardLive do
             You have {format_usd(@wallet.balance_cents)} in credits — your first deploy is on us.
           </.callout>
 
-          <%!-- Same card language as the index rows (#277 T5a) — see
-          instance_live/index.ex for the note. --%>
+          <%!-- Same card language as the index rows (#277 T5a/T7) — see
+          instance_live/index.ex for the lift note (shadow on the link,
+          motion-safe translate on the wrapper + chevron). --%>
           <div id="dashboard-instances" phx-update="stream" class="space-y-3">
             <.link
               :for={{dom_id, instance} <- @streams.instances}
               navigate={~p"/instances/#{instance.id}"}
               id={dom_id}
               data-testid="instance-row"
-              class="group relative block rounded-panel border border-line-strong bg-panel p-5 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow,translate] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md motion-safe:hover:-translate-y-1"
+              class="group relative block rounded-panel border border-line-strong bg-panel p-5 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md"
             >
-              <div class="space-y-2">
+              <div class="space-y-2 transition-[translate] duration-(--motion-base) ease-(--motion-ease-out) motion-safe:group-hover:-translate-y-1">
                 <div class="flex flex-wrap items-center justify-between gap-3">
                   <div class="flex min-w-0 items-center gap-3">
                     <h3 class="min-w-0 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
@@ -187,7 +188,7 @@ defmodule FluxValeWeb.DashboardLive do
               </div>
               <.icon
                 name="hero-chevron-right"
-                class="absolute right-1 top-1/2 size-4 -translate-y-1/2 text-ink-subtle opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100 group-focus-visible:opacity-100"
+                class="absolute right-1 top-5 size-4 text-ink-subtle opacity-0 transition-[opacity,translate] duration-(--motion-base) ease-(--motion-ease-out) group-hover:opacity-100 group-focus-visible:opacity-100 motion-safe:group-hover:-translate-y-1"
               />
             </.link>
           </div>
@@ -236,9 +237,10 @@ defmodule FluxValeWeb.DashboardLive do
     end
   end
 
-  # Display choice, not vocabulary (#179/#203): settled states are the
+  # Display choice, not vocabulary (#179/#203): settled states
+  # (running/sleeping/stopped — the list rows' quiet rule) are the
   # badge's business; everything else earns the friendly message line.
-  defp noisy?(status), do: status not in [:running, :stopped]
+  defp noisy?(status), do: status not in [:running, :sleeping, :stopped]
 
   defp subscribe(socket, instances) do
     Enum.reduce(instances, socket, fn instance, socket ->
