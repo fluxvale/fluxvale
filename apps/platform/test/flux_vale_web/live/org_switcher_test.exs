@@ -11,8 +11,10 @@ defmodule FluxValeWeb.OrgSwitcherTest do
 
   import Phoenix.LiveViewTest
 
+  alias FluxVale.Accounts
   alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.Organization
+  alias FluxVale.Billing.Wallet
   alias FluxVale.Identity.User
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.SessionHelpers
@@ -101,7 +103,7 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     assert row_href(team_row) == "/organizations/#{team.slug}"
   end
 
-  test "zero orgs (legacy shape): an empty panel, closed label still Personal", %{
+  test "zero orgs (legacy shape): an empty panel, the pill claims no Personal", %{
     conn: conn,
     user: user,
     org: org
@@ -109,16 +111,51 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     membership = membership!(user, org)
 
     # System posture — the destroy policy is system-only (#119); the
-    # empty shape is unreachable through actions. Honest degradation:
-    # no memberships, no invented rows — the closed summary keeps its
-    # Personal reading (nil context).
+    # empty shape is unreachable through actions. Honest degradation,
+    # #285 T6 review: no memberships, no invented rows — and with no
+    # personal org behind it, the closed pill claims nothing (the bare
+    # glyph is the empty-context state).
     Ash.destroy!(membership, authorize?: false)
 
     html = dashboard_html(conn)
 
     assert html =~ ~s(data-testid="org-switcher")
-    assert html =~ ~s(>Personal</span>)
+    refute html =~ ~s(>Personal</span>)
     assert panel_rows(html) == []
+  end
+
+  # The member-only shape (#285 T6 review) — the same class: a user
+  # whose only membership is a :member one, no personal org. No :member
+  # writer ships today (#119), so the shape is system-posture-built;
+  # the create action accepts :role, and dropping the personal
+  # membership is the zero-org test's posture.
+  test "member-only user: the team row renders, the pill claims no Personal", %{
+    conn: conn
+  } do
+    user = SessionHelpers.user!()
+    personal = AccountsFixtures.personal_org!(user)
+    personal_membership = membership!(user, personal)
+    Ash.destroy!(personal_membership, authorize?: false)
+
+    team =
+      Organization.create!(
+        %{name: "Team Org", slug: "member-only-#{System.unique_integer([:positive])}"},
+        authorize?: false
+      )
+
+    Membership.create!(
+      %{organization_id: team.id, user_id: user.id, role: :member},
+      authorize?: false
+    )
+
+    conn = SessionHelpers.sign_in(conn, user)
+    html = dashboard_html(conn)
+
+    assert [row] = panel_rows(html)
+    assert row_text(row) =~ team.name
+    assert row_text(row) =~ team.slug
+    assert row_href(row) == "/organizations/#{team.slug}"
+    refute html =~ ~s(>Personal</span>)
   end
 
   # The #285 T6 fallback: a NULL-username rollout-window row (old-pod
@@ -203,12 +240,24 @@ defmodule FluxValeWeb.OrgSwitcherTest do
 
     personal_html =
       render_component(&FluxValeWeb.CoreComponents.org_switcher/1,
+        orgs: [%{organization: %{id: "org-acme", name: "Acme Collective", slug: "acme"}}],
+        personal_org_id: "org-acme"
+      )
+
+    # Personal keeps the building icon at every width — no initial —
+    # and the pill reads "Personal" (a personal org exists to claim).
+    refute personal_html =~ "lg:hidden"
+    refute personal_html =~ "hidden lg:block"
+    assert personal_html =~ ~s(>Personal</span>)
+
+    # The empty-context shape (#285 T6 review): no org context and no
+    # personal org — the pill claims nothing, the bare glyph only.
+    empty_html =
+      render_component(&FluxValeWeb.CoreComponents.org_switcher/1,
         orgs: [%{organization: %{name: "Acme Collective", slug: "acme"}}]
       )
 
-    # Personal keeps the building icon at every width — no initial.
-    refute personal_html =~ "lg:hidden"
-    refute personal_html =~ "hidden lg:block"
+    refute empty_html =~ ~s(>Personal</span>)
   end
 
   # The component level, off the chrome: exactly one row per membership,
@@ -245,6 +294,22 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     assert row_href(Enum.at(rows, 1)) == "/organizations/oss-friends"
   end
 
+  # A nil handle renders the bare label, not a dangling "Personal — "
+  # (#285 T6 review). Component-level only — the in-app path always
+  # carries a handle (OrgNav's email fallback).
+  test "a nil username renders a bare Personal label, no dangling dash" do
+    html =
+      render_component(&FluxValeWeb.CoreComponents.org_switcher/1,
+        orgs: [%{organization: %{id: "org-acme", name: "Acme Collective", slug: "acme"}}],
+        personal_org_id: "org-acme",
+        username: nil
+      )
+
+    assert [row] = panel_rows(html)
+    assert row_text(row) == "Personal"
+    assert row_href(row) == "/organizations/acme"
+  end
+
   # The hook's unique-DOM-id contract stays caller-owned: the default
   # is "org-switcher" (the app chrome's one switcher), a caller's id
   # renders exactly once.
@@ -274,6 +339,71 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     # them) — initial/1 is defensive shared chrome; the pill shows the
     # neutral glyph instead of raising.
     assert html =~ ~r/>\s*\?\s*<\/span>/
+  end
+
+  # The #285 T6 divergence probe, permanent: a user owning TWO orgs —
+  # their signup-provisioned personal org plus an org that already
+  # existed when they signed up (the reviewer's shape: the legacy org
+  # row predates the user, so the canonical op's unordered pick and the
+  # old min-membership-id derivation name different orgs). The
+  # switcher's "Personal" label must resolve the same org the billing
+  # mount (and the dashboard wallet) resolve — the canonical
+  # `Accounts.personal_org_for_user/2`. Whether the canonical op's own
+  # tie-break for two-owned-orgs users is the right answer is a T7
+  # (identity spec) question — out of scope here; pinned is that every
+  # consumer agrees on ONE answer.
+  test "two-owner user: switcher label and billing resolve the same org", %{conn: conn} do
+    legacy =
+      Organization.create!(
+        %{name: "Legacy Org", slug: "probe-legacy-#{System.unique_integer([:positive])}"},
+        authorize?: false
+      )
+
+    user = SessionHelpers.user!()
+    _personal = AccountsFixtures.personal_org!(user)
+
+    # System-only create (#119) — the bootstrap posture, mirroring
+    # seeds; the user now owns two orgs.
+    Membership.create!(%{organization_id: legacy.id, user_id: user.id}, authorize?: false)
+
+    {:ok, canonical} = Accounts.personal_org_for_user(user.id, actor: user)
+    conn = SessionHelpers.sign_in(conn, user)
+
+    # Billing first, so the one wallet the billing mount provisions is
+    # observable: the two personal orgs in play already carry their
+    # signup welcome-grant wallets, while the pre-signup legacy org —
+    # a plain org create — has none. A wallet difference of exactly
+    # [canonical.id] means billing resolved the org the switcher
+    # labels; any other pick leaves the legacy org walletless.
+    wallets_before = MapSet.new(wallets_org_ids())
+
+    billing_html =
+      conn
+      |> get(~p"/billing")
+      |> html_response(200)
+
+    assert billing_html
+
+    wallets_after = MapSet.new(wallets_org_ids())
+    created = MapSet.difference(wallets_after, wallets_before)
+    assert MapSet.to_list(created) == [canonical.id]
+
+    # The dashboard's switcher labels the canonical org "Personal" —
+    # the pill, panel row, and billed org all name one org.
+    html = dashboard_html(conn)
+    rows = panel_rows(html)
+    personal_rows = Enum.filter(rows, &(row_text(&1) =~ "Personal"))
+
+    assert [personal_row] = personal_rows
+    assert row_href(personal_row) == "/organizations/#{canonical.slug}"
+  end
+
+  defp wallets_org_ids do
+    Wallet
+    |> Ash.Query.for_read(:read, %{})
+    |> Ash.read!(authorize?: false)
+    |> Enum.map(& &1.organization_id)
+    |> Enum.sort()
   end
 
   # Both creates are system-only (#119) — the bootstrap posture,

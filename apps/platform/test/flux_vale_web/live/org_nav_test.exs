@@ -8,6 +8,7 @@ defmodule FluxValeWeb.OrgNavTest do
 
   use FluxVale.DataCase, async: true
 
+  alias FluxVale.Accounts
   alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.Organization
   alias FluxVale.Identity.User
@@ -23,7 +24,8 @@ defmodule FluxValeWeb.OrgNavTest do
     assert {:cont, socket} = OrgNav.on_mount(:assign_orgs, %{}, %{}, socket_with(user))
     assert [%{role: :owner, organization: %{id: org_id}}] = socket.assigns.actor_orgs
     assert org_id == org.id
-    # The :owner membership IS the personal org — no second query.
+    # personal_org_id is the canonical resolver's answer — the same op
+    # the dashboard wallet and billing mount read.
     assert socket.assigns.personal_org_id == org.id
     assert socket.assigns.username == user.username
   end
@@ -38,10 +40,11 @@ defmodule FluxValeWeb.OrgNavTest do
     assert socket.assigns.personal_org_id == personal.id
 
     # Both memberships are :owner today (the default role) — the
-    # earliest one wins, the same ambiguity PersonalOrgForUser's
-    # unordered `limit 1` resolves. The row order is pinned: personal
-    # first (#276), the rest in creation order — the raw DB list
-    # carries no order to pin.
+    # canonical op's pick (the org row it resolves first) is the
+    # personal org, and the row order is pinned personal-first (#276),
+    # the rest in creation order — the raw DB list carries no order to
+    # pin. The canonical tie-break for two-owned-orgs users is a T7
+    # question; this pins only that the switcher follows the resolver.
     assert [
              %{organization: %{id: first}},
              %{organization: %{id: second}}
@@ -49,6 +52,66 @@ defmodule FluxValeWeb.OrgNavTest do
 
     assert first == personal.id
     assert second == team.id
+  end
+
+  # ordered_orgs/2's teeth (#285 T6 review): the raw read carries no
+  # order the pin could ride, so the seed forces one that disagrees
+  # with creation order — memberships with explicit ids out of
+  # chronological sequence (Ash.Seed — the documented exception: the
+  # create action generates ids, so this is a state actions can't
+  # produce). Pinned output: personal first, then id (creation) order,
+  # whatever order the raw list comes back in. Mutation-checked: an
+  # identity `ordered_orgs` fails this test.
+  test "row order: personal first, then creation order — raw list order notwithstanding" do
+    user = AccountsFixtures.user!()
+    personal = AccountsFixtures.personal_org!(user)
+
+    # uuid_v7 ids sort chronologically; two fresh generates, sorted,
+    # give an (earlier, later) id pair without clock games.
+    generated = [Ash.UUID.generate(), Ash.UUID.generate()]
+    [early_id, late_id] = Enum.sort(generated)
+
+    first_created =
+      Organization.create!(
+        %{name: "Team Org", slug: "order-first-#{System.unique_integer([:positive])}"},
+        authorize?: false
+      )
+
+    second_created =
+      Organization.create!(
+        %{name: "Team Org", slug: "order-second-#{System.unique_integer([:positive])}"},
+        authorize?: false
+      )
+
+    # Seeded in the opposite order of their ids — the row with the
+    # LATER id lands first, so insertion (heap) order and id order
+    # disagree.
+    Ash.Seed.seed!(Membership, %{id: late_id, organization_id: first_created.id, user_id: user.id})
+
+    Ash.Seed.seed!(Membership, %{
+      id: early_id,
+      organization_id: second_created.id,
+      user_id: user.id
+    })
+
+    # Precondition: the seeded shape must actually diverge, else this
+    # test proves nothing — the raw read (system posture, no actor)
+    # comes back out of id order.
+    {:ok, raw} = Accounts.organizations_for_user(user.id, authorize?: false)
+    raw_ids = Enum.map(raw, & &1.id)
+    assert raw_ids != Enum.sort(raw_ids)
+
+    assert {:cont, socket} = OrgNav.on_mount(:assign_orgs, %{}, %{}, socket_with(user))
+
+    personal_id = personal.id
+    second_id = second_created.id
+    first_id = first_created.id
+
+    assert [
+             %{organization: %{id: ^personal_id}},
+             %{organization: %{id: ^second_id}},
+             %{organization: %{id: ^first_id}}
+           ] = socket.assigns.actor_orgs
   end
 
   test "zero orgs assigns an empty list and nil personal org" do

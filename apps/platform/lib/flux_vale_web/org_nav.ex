@@ -3,9 +3,10 @@ defmodule FluxValeWeb.OrgNav do
   The app chrome's org data (#276): resolves the actor's org memberships
   (org loaded) into `actor_orgs` for the `org_switcher`, plus the two
   facts the switcher's personal row needs — `personal_org_id` (the owned
-  org, the `:owner` membership) and `username` (its row label). Same
-  on_mount shape as `FluxValeWeb.UserAuth`; wire it after UserAuth in the
-  same on_mount lists — it reads the user UserAuth resolved.
+  org, resolved by the canonical `Accounts.personal_org_for_user/2`) and
+  `username` (its row label). Same on_mount shape as
+  `FluxValeWeb.UserAuth`; wire it after UserAuth in the same on_mount
+  lists — it reads the user UserAuth resolved.
 
   Data, not a gate: it never halts, redirects, or raises. No
   `current_user` (a miswiring — UserAuth runs first on every sanctioned
@@ -40,7 +41,7 @@ defmodule FluxValeWeb.OrgNav do
 
       user ->
         memberships = orgs(user)
-        personal_org_id = personal_org_id(memberships)
+        personal_org_id = personal_org_id(user)
 
         {:cont,
          Phoenix.Component.assign(socket,
@@ -68,23 +69,37 @@ defmodule FluxValeWeb.OrgNav do
     end
   end
 
-  # The personal org is the user's earliest `:owner` membership —
-  # signup's JIT provisioning creates it in-transaction, before any
-  # later org join, and uuid_v7 ids sort chronologically, so the minimum
-  # id is the personal org. `PersonalOrgForUser` resolves the same
-  # notion with an unordered `limit 1`; this derivation adds the
-  # ordering the loaded list can't promise, still from memberships
-  # already in hand — no second query.
-  defp personal_org_id(memberships) do
-    owners = Enum.filter(memberships, &(&1.role == :owner))
-    first = Enum.min_by(owners, & &1.id, fn -> nil end)
+  # The personal org is whatever the canonical resolver says — the same
+  # op `DashboardLive.wallet_summary/1` and the billing mount resolve
+  # with, so the switcher's "Personal" label can never name a different
+  # org than the one that gets billed (#285 T6 review: for a user owning
+  # two orgs, a min-membership-id derivation and the canonical op name
+  # different orgs; one extra query per mount buys correctness by
+  # construction). Whether the canonical op's own tie-break for
+  # two-owned-orgs users is the right one is the identity spec's (T7) —
+  # out of scope here. The pinned row order below keys off this id.
+  defp personal_org_id(user) do
+    case Accounts.personal_org_for_user(user.id, actor: user) do
+      {:ok, org} ->
+        org.id
 
-    first && first.organization.id
+      :none ->
+        nil
+
+      # defensive: DB read failure, not simulatable under the
+      # sandbox. Log + degrade: the switcher is chrome, not a gate.
+      # coveralls-ignore-start
+      {:error, reason} ->
+        Logger.warning("OrgNav personal org lookup failed: #{inspect(reason)}")
+        nil
+        # coveralls-ignore-stop
+    end
   end
 
   # One row per membership, the personal one first — #276's pinned
   # order, made deterministic (the DB doesn't promise a list order):
-  # the rest ride uuid_v7 id order, i.e. creation order.
+  # the rest ride uuid_v7 id order, i.e. creation order. Keyed off the
+  # canonical personal_org_id above.
   defp ordered_orgs(memberships, personal_org_id) do
     {personal, rest} = Enum.split_with(memberships, &(&1.organization.id == personal_org_id))
     personal_first = Enum.sort_by(personal, & &1.id)

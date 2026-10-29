@@ -1230,7 +1230,9 @@ defmodule FluxValeWeb.CoreComponents do
   Renders the org switcher (#276): the app chrome's context dropdown —
   exactly one row per membership (`actor_orgs`, resolved by the
   `FluxValeWeb.OrgNav` on_mount). The actor's owned org renders as
-  **"Personal — `<username>`"**; other orgs render name + slug. The
+  **"Personal — `<username>`"** — bare "Personal" when the handle is
+  nil (component-level callers; the in-app path always has one, OrgNav's
+  email fallback); other orgs render name + slug. The
   personal context IS an org (#285 T6), so there is no hardcoded
   "Personal" chrome row and no single-org suppression — the redundancy
   dies at the root. A native `<details>` dropdown for the same reasons
@@ -1239,14 +1241,17 @@ defmodule FluxValeWeb.CoreComponents do
   open); the one JS is the shared DetailsDismiss hook for GitHub-style
   dismissal (outside click + Esc).
 
-  `current_org` names the active context in the closed summary — nil is
-  the personal one, still labeled "Personal" (the dashboard's closed
-  state). Below lg the summary collapses to the glyph: the active org's
-  initial (the user_menu pattern — the building icon can't say which
-  org is active), the building icon for Personal. At `sm` a label would
-  occlude the first nav link (the 640-712px band — a pill of intrinsic
-  width over a shrunken cluster, #276 review), and above lg `truncate`
-  bounds a long active name. The panel keeps every entry reachable.
+  `current_org` names the active context in the closed summary. With no
+  org context set the pill reads "Personal" — but only when a personal
+  org exists to fall back to (`personal_org_id`): a member-only or
+  zero-org actor has no personal context, and the pill must not claim
+  one (#285 T6 review) — it degrades to the bare building glyph. Below
+  lg the summary collapses to the glyph: the active org's initial (the
+  user_menu pattern — the building icon can't say which org is active),
+  the building icon for Personal. At `sm` a label would occlude the
+  first nav link (the 640-712px band — a pill of intrinsic width over a
+  shrunken cluster, #276 review), and above lg `truncate` bounds a long
+  active name. The panel keeps every entry reachable.
 
   ## Examples
 
@@ -1277,7 +1282,8 @@ defmodule FluxValeWeb.CoreComponents do
   attr(:rest, :global)
 
   def org_switcher(assigns) do
-    assigns = assign(assigns, :active_name, active_name(assigns.current_org))
+    assigns =
+      assign(assigns, :active_name, active_name(assigns.current_org, assigns.personal_org_id))
 
     ~H"""
     <details
@@ -1307,7 +1313,13 @@ defmodule FluxValeWeb.CoreComponents do
           name="hero-building-library-micro"
           class={["size-4 shrink-0 text-ink-subtle", @current_org && "hidden lg:block"]}
         />
-        <span class="hidden max-w-32 truncate text-xs font-semibold text-ink lg:inline">{@active_name}</span>
+        <%!-- The label only renders when there is one to show — the
+        empty-context state (no org context, no personal org) is the
+        bare glyph, no text at all (see active_name/2). --%>
+        <span
+          :if={@active_name}
+          class="hidden max-w-32 truncate text-xs font-semibold text-ink lg:inline"
+        >{@active_name}</span>
         <.icon
           name="hero-chevron-down-micro"
           class="size-3 text-ink-subtle transition-transform group-open:rotate-180"
@@ -1332,7 +1344,7 @@ defmodule FluxValeWeb.CoreComponents do
           class="flex items-baseline gap-1 rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
         >
           <%= if @personal_org_id && Map.get(membership.organization, :id) == @personal_org_id do %>
-            <span class="truncate">Personal — {@username}</span>
+            <span class="truncate">{personal_label(@username)}</span>
           <% else %>
             <%!-- min-w-0/truncate pair: a 39-char username (the #296 name
             ceiling) must clip inside the w-56 panel, not push the page
@@ -1349,10 +1361,21 @@ defmodule FluxValeWeb.CoreComponents do
     """
   end
 
-  # The closed switcher's label: the active org's name, "Personal" when
-  # no org context is set.
-  defp active_name(nil), do: "Personal"
-  defp active_name(%{name: name}), do: name
+  # The closed switcher's label: the active org's name; "Personal" when
+  # no org context is set and the actor HAS a personal org to fall back
+  # to; nothing otherwise — a member-only or zero-org actor has no
+  # personal context, and the pill must not claim one (#285 T6 review):
+  # the bare building glyph is the empty-context state.
+  defp active_name(%{name: name}, _personal_org_id), do: name
+  defp active_name(nil, nil), do: nil
+  defp active_name(nil, _personal_org_id), do: "Personal"
+
+  # The personal row's label: "Personal — username"; bare "Personal"
+  # when the handle is nil (component-level callers can pass nil — the
+  # in-app path always carries a handle, OrgNav's email fallback). No
+  # dangling "Personal — " (#285 T6 review).
+  defp personal_label(nil), do: "Personal"
+  defp personal_label(username), do: "Personal — #{username}"
 
   ## JS Commands
 
