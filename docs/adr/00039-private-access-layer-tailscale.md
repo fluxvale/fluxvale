@@ -492,3 +492,43 @@ corrections, in opposite directions:
   logs it and returns `{:error, id}`, and the pass fails as a unit for
   Oban's retry. The retry is correct (nothing was slept, nothing leaked);
   the wording "instead of erroring" was wrong.
+
+## Amendment 2 (2026-10-29): `refresh_routes/1`, and §6's "in-cluster-only" posture
+
+Two corrections from the wake-intercept implementation (#273), with the
+decision text above left intact.
+
+**The callback.** §2's contract list pins
+`wake_intercept(gateway, instance) :: {:ok, :asleep | :awake} | {:error, term}`.
+As implemented the seam owns something else: regenerating the gateway's
+WHOLE serve config from its routes' current rows — which is what BOTH
+directions of the §6 flip need (the wake endpoint calls it on `:running`,
+the sleep path calls it after landing `:sleeping`), and which has no
+asleep/awake verdict to return. The callback is
+`refresh_routes(gateway) :: {:ok, term} | {:error, term}`; the
+asleep/awake verdict it originally promised is the caller's decision
+from the instance's own status, not the provider's.
+
+**The network posture.** §6 step 2 calls the endpoint "in-cluster-only,
+reachable by the gateway pod". In practice the platform answers
+`/internal/access/*` wherever it answers any path — the dev/staging
+ingress is Host-based and forwards the prefix from the public hostname —
+so the pairing row is the WHOLE gate, not a defense-in-depth layer
+behind a network boundary. That gate holds: the pair is an unguessable
+(gateway, instance) uuid pair, and it grants exactly the start the
+org's own panel offers (funded gate included). On the public path the
+load-bearing property is that capability's secrecy — the pair never
+leaves the panel and the owner's tailnet; the same-org check is a
+backstop for out-of-band rows, not a public-path defense (a public
+caller has no org to be confined to). The wake itself is **not**
+debounced: every request that finds `:sleeping` starts it, idempotent
+by status (the next request sees `:starting`) and funded-gated; the
+serve-config flip is the debounced half
+(`Edge.Activity.claim_access_flip/1`). Gate width (#301 review): a
+request arriving through the gateway is itself proof of a serving pod,
+so the row-side gate admits the observed states too — `:active`,
+`:provisioning` (the ~60s window after every balance resume lands
+`:provisioning`), `:needs_attention` — and refuses only the
+not-serving ones (`:suspended`, `:destroying`). The row is the consent;
+the states only decide whether anything is behind the port to hear it.
+Revisit trigger: a measured abuse of the path from outside the cluster.

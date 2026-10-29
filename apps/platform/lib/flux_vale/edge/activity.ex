@@ -70,6 +70,23 @@ defmodule FluxVale.Edge.Activity do
       :proceed
   end
 
+  @doc """
+  Claims this window's gateway serve-config flip for the instance —
+  the access wake's counterpart to `claim_restore/1` (#273, ADR-0039
+  §6). Same window, same wedged-server semantics, deliberately its own
+  claim key: the restore and the flip are two different applies, and
+  neither may starve the other's window.
+  """
+  @spec claim_access_flip(Ash.UUID.t()) :: :proceed | :throttled
+  def claim_access_flip(instance_id) do
+    GenServer.call(__MODULE__, {:claim, {:access_flip, instance_id}}, @mark_timeout)
+  catch
+    :exit, _reason ->
+      # A wedged server can't throttle — treat as proceed (the
+      # regeneration is idempotent; the cost is one redundant write).
+      :proceed
+  end
+
   @impl GenServer
   def init(:ok) do
     table = :ets.new(@table, [:named_table, :set, read_concurrency: true])
