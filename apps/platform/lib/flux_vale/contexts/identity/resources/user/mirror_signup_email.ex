@@ -73,20 +73,51 @@ defmodule FluxVale.Identity.User.MirrorSignupEmail do
     # plain setter refuses after that point — the values are literals
     # the create already knows (same escape SetPrimary's hook makes)
     |> Ash.Changeset.force_change_attribute(:verified_at, DateTime.utc_now())
-    |> Ash.Changeset.force_change_attribute(:is_primary, takes_primary?(user))
+    # is_primary is decided in a before_action, not here: the hook runs
+    # after EnforceEmailCap's FOR UPDATE lock on the user row, inside
+    # the transaction, so takes_primary?/1 serializes with SetPrimary
+    # (round-3 P2: in argument position the count ran before the
+    # transaction opened and lost the race to a concurrent promotion)
+    |> Ash.Changeset.before_action(fn changeset ->
+      case takes_primary?(user) do
+        # coveralls-ignore-start - a DB count failure is the DB-down
+        # class, not simulatable under the sandbox; it refuses the
+        # create as {:error, term} instead of raising past the spec
+        {:error, reason} ->
+          Ash.Changeset.add_error(changeset, reason)
+
+        # coveralls-ignore-stop
+        primary? ->
+          Ash.Changeset.force_change_attribute(changeset, :is_primary, primary?)
+      end
+    end)
     |> Ash.create(authorize?: false)
   end
 
   # authorize?: false — an invariant count, not an authorization
   # question (the caller is the system seam; same stance as
-  # EnforceEmailCap). Runs inside the caller's transaction, so the read
-  # sees the same row state the insert will commit against.
+  # EnforceEmailCap). Called from the before_action above, so the read
+  # runs inside the create transaction, after EnforceEmailCap's FOR
+  # UPDATE lock on the user row: SetPrimary takes that same lock
+  # before promoting, so this count and the insert are one serialized
+  # critical section per user — the read can no longer slip between a
+  # concurrent promotion's decision and its commit (review round 3, P2).
   defp takes_primary?(user) do
-    count =
-      UserEmail
-      |> Ash.Query.filter(user_id == ^user.id and is_primary)
-      |> Ash.count!(authorize?: false)
+    case UserEmail
+         |> Ash.Query.filter(user_id == ^user.id and is_primary)
+         |> Ash.count(authorize?: false) do
+      {:ok, 0} ->
+        true
 
-    count == 0
+      {:ok, _primary} ->
+        false
+
+      # coveralls-ignore-start - DB-down class, not simulatable under
+      # the sandbox; a returned term, never a raise (P3-1: Ash.count!
+      # would escape write_mirror_row/1's {:error, term()} spec)
+      {:error, reason} ->
+        {:error, reason}
+        # coveralls-ignore-stop
+    end
   end
 end
