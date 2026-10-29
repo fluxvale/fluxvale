@@ -5,12 +5,16 @@ display-only (#205): the template branches on @current_user for the chrome
 is also mounted at /about — canonical to / — so signed-in sessions keep a
 path to it once / becomes the dashboard.
 Copy lives inline on purpose; the wording is reviewed at merge (#164).
-/catalog hrefs are literal: the route registers with the catalog slice,
-and ~p would raise a verified-routes warning until then. --%>
+/catalog hrefs can move to ~p now that the route registers (router.ex)
+— left literal here pending that slice's cleanup.
+T3 (#277): sections band on surface color instead of hairline dividers,
+markers use the eyebrow idiom, and the hero anchors on the Flux Stream
+gradient matting a product mock — the D2(a) visual anchor, decorative
+(aria-hidden) with no text on the gradient itself. --%>
 
 <Layouts.flash_group flash={@flash} />
 
-<header class="sticky top-0 z-40 border-b border-line bg-canvas/80 backdrop-blur">
+<header class="sticky top-0 z-40 border-b border-line bg-canvas/80 backdrop-blur dark:border-line-strong">
   <div class="mx-auto flex h-14 max-w-5xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
     <a href={~p"/"} class="flex w-fit items-center gap-2">
       <img src={~p"/images/logo.svg"} width="26" height="26" alt="" />
@@ -20,12 +24,9 @@ and ~p would raise a verified-routes warning until then. --%>
       <ul class="flex items-center gap-2">
         <li><.nav_link href="/catalog">Apps</.nav_link></li>
         <li :if={is_nil(@current_user)}>
-          <.link
-            href={~p"/sign-in"}
-            class="inline-flex h-8 items-center justify-center gap-2 rounded-lg bg-primary px-3 text-xs font-medium text-on-primary shadow-sm transition-colors hover:bg-primary-hover"
-          >
+          <.button href={~p"/sign-in"} size="sm">
             Sign in <span aria-hidden="true">&rarr;</span>
-          </.link>
+          </.button>
         </li>
         <li :if={@current_user}>
           <.user_menu email={@current_user.email} />
@@ -35,104 +36,184 @@ and ~p would raise a verified-routes warning until then. --%>
   </div>
 </header>
 
-<main class="px-4 sm:px-6 lg:px-8">
-  <section class="mx-auto max-w-3xl py-20 text-center sm:py-28">
-    <h1 class="text-4xl font-bold tracking-tight text-balance text-ink sm:text-5xl lg:text-6xl">
-      Managed hosting for open source applications
-    </h1>
-    <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-ink-muted sm:text-xl">
-      Pick an open source app, deploy it in minutes, and FluxVale keeps it
-      running — updates and monitoring included.
-    </p>
-    <div class="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
-      <.link
-        href="/catalog"
-        class="inline-flex h-12 items-center justify-center rounded-lg bg-primary px-6 text-base font-medium text-on-primary shadow-sm transition-colors hover:bg-primary-hover"
-      >
-        Browse apps
-      </.link>
-      <.link
-        :if={is_nil(@current_user)}
-        href={~p"/sign-in"}
-        class="inline-flex h-12 items-center justify-center rounded-lg px-6 text-base font-medium text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
-      >
-        Sign in
-      </.link>
-      <.link
-        :if={@current_user}
-        href={~p"/"}
-        class="inline-flex h-12 items-center justify-center rounded-lg px-6 text-base font-medium text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
-      >
-        Your dashboard
-      </.link>
+<main class="flex-1">
+  <%!-- Band 1 — hero (canvas). --%>
+  <section class="px-4 sm:px-6 lg:px-8">
+    <div class="mx-auto max-w-4xl pb-20 pt-16 text-center sm:pb-24 sm:pt-24">
+      <h1 class="mx-auto max-w-3xl text-4xl font-bold leading-tight tracking-tight text-balance text-ink sm:text-5xl lg:text-6xl">
+        Managed hosting for open source applications
+      </h1>
+      <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-ink-muted sm:text-xl">
+        Pick an open source app, deploy it in minutes, and FluxVale keeps it
+        running — updates and monitoring included.
+      </p>
+      <div class="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
+        <.button href="/catalog" size="lg">
+          Browse apps
+        </.button>
+        <.button
+          :if={is_nil(@current_user)}
+          href={~p"/sign-in"}
+          variant="ghost"
+          size="lg"
+        >
+          Sign in
+        </.button>
+        <.button
+          :if={@current_user}
+          href={~p"/"}
+          variant="ghost"
+          size="lg"
+        >
+          Your dashboard
+        </.button>
+      </div>
+
+      <%!-- D2(a) visual anchor: the Flux Stream gradient mats a
+      product-shaped window mock built from real tokens. Decorative —
+      aria-hidden, and no text sits on the gradient (on-primary ink vs
+      the brand-700 stop is 2.99:1); everything reads on the mock's
+      panel surfaces. --%>
+      <div aria-hidden="true" class="mx-auto mt-16 max-w-3xl sm:mt-20">
+        <div class="bg-brand-gradient rounded-panel p-2 shadow-lg sm:p-3">
+          <div class="overflow-hidden rounded-panel border border-line-strong bg-panel shadow-sm">
+            <div class="flex items-center gap-1.5 border-b border-line bg-panel-raised px-4 py-2.5">
+              <span class="size-2.5 rounded-full bg-line-strong"></span>
+              <span class="size-2.5 rounded-full bg-line-strong"></span>
+              <span class="size-2.5 rounded-full bg-line-strong"></span>
+              <span class="ml-3 rounded-control bg-canvas px-2.5 py-0.5 font-mono text-xs text-ink-muted">
+                app.fluxvale.app
+              </span>
+            </div>
+            <div class="space-y-2.5 p-4 text-left sm:p-5">
+              <div class="flex items-center gap-3 rounded-control border border-line bg-canvas px-4 py-3">
+                <span class="grid size-8 shrink-0 place-items-center rounded-control bg-primary-muted text-link">
+                  <.icon name="hero-cube" class="size-4" />
+                </span>
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-sm font-medium text-ink">ghostboard</span>
+                  <span class="block truncate text-xs text-ink-subtle">Running v2.4.1</span>
+                </span>
+                <.badge tone="success">
+                  <.icon name="hero-check-circle" class="size-3.5" />Live
+                </.badge>
+              </div>
+              <div class="flex items-center gap-3 rounded-control border border-line bg-canvas px-4 py-3">
+                <span class="grid size-8 shrink-0 place-items-center rounded-control bg-primary-muted text-link">
+                  <.icon name="hero-book-open" class="size-4" />
+                </span>
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-sm font-medium text-ink">wiki</span>
+                  <span class="block truncate text-xs text-ink-subtle">Rolling out v1.1</span>
+                </span>
+                <.badge tone="primary">
+                  <.icon name="hero-arrow-path" class="size-3.5" />Deploying
+                </.badge>
+              </div>
+              <div class="flex items-center gap-3 rounded-control border border-line bg-canvas px-4 py-3">
+                <span class="grid size-8 shrink-0 place-items-center rounded-control bg-primary-muted text-link">
+                  <.icon name="hero-chat-bubble-left-right" class="size-4" />
+                </span>
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-sm font-medium text-ink">forum</span>
+                  <span class="block truncate text-xs text-ink-subtle">Update to v3.0 ready</span>
+                </span>
+                <.badge tone="warning">
+                  <.icon name="hero-bell" class="size-3.5" />Update ready
+                </.badge>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
-  <section aria-labelledby="how-it-works-title" class="mx-auto max-w-5xl pb-20 sm:pb-28">
-    <h2
-      id="how-it-works-title"
-      class="text-center text-2xl font-semibold tracking-tight text-ink sm:text-3xl"
-    >
-      How it works
-    </h2>
-    <div class="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-3">
-      <.card class="px-6 py-8 text-center">
-        <span class="mx-auto flex size-9 items-center justify-center rounded-lg bg-primary-muted text-sm font-semibold text-link">
-          1
-        </span>
-        <h3 class="mt-4 text-lg font-semibold text-ink">Pick an app</h3>
-        <p class="mt-2 text-sm leading-6 text-ink-muted">
-          Choose from a curated catalog of open source applications, ready to run.
+  <%!-- Band 2 — how it works (panel-tinted): surface color, not a
+  hairline, separates the section. Dark note (#277 T3 review): dark
+  surfaces invert — panel-raised is LIGHTER than panel — so the cards
+  read as recessed wells on the band in dark (light shows them
+  raised). That inversion is the token system's shape, accepted here:
+  the cards are decorative marketing weight, and dark depth rides
+  --line-strong borders by the system's own mechanism. --%>
+  <section aria-labelledby="how-it-works-title" class="bg-panel-raised px-4 sm:px-6 lg:px-8">
+    <div class="mx-auto max-w-5xl py-20 sm:py-24">
+      <div class="text-center">
+        <p class="text-xs font-semibold uppercase tracking-widest text-link">
+          How it works
         </p>
-      </.card>
-      <.card class="px-6 py-8 text-center">
-        <span class="mx-auto flex size-9 items-center justify-center rounded-lg bg-primary-muted text-sm font-semibold text-link">
-          2
-        </span>
-        <h3 class="mt-4 text-lg font-semibold text-ink">Deploy</h3>
-        <p class="mt-2 text-sm leading-6 text-ink-muted">
-          One guided flow from app to live URL — no YAML, no servers to babysit.
-        </p>
-      </.card>
-      <.card class="px-6 py-8 text-center">
-        <span class="mx-auto flex size-9 items-center justify-center rounded-lg bg-primary-muted text-sm font-semibold text-link">
-          3
-        </span>
-        <h3 class="mt-4 text-lg font-semibold text-ink">We run it</h3>
-        <p class="mt-2 text-sm leading-6 text-ink-muted">
-          Updates and monitoring are on us. Your data stays yours.
-        </p>
-      </.card>
+        <h2
+          id="how-it-works-title"
+          class="mt-3 text-2xl font-bold tracking-tight text-ink sm:text-3xl"
+        >
+          Three steps to a running app
+        </h2>
+      </div>
+      <div class="mt-12 grid grid-cols-1 gap-6 sm:grid-cols-3">
+        <.card class="px-6 py-8 text-center">
+          <span class="mx-auto flex size-9 items-center justify-center rounded-control bg-primary-muted text-sm font-semibold text-link">
+            1
+          </span>
+          <h3 class="mt-4 text-lg font-semibold text-ink">Pick an app</h3>
+          <p class="mt-2 text-sm leading-6 text-ink-muted">
+            Choose from a curated catalog of open source applications, ready to run.
+          </p>
+        </.card>
+        <.card class="px-6 py-8 text-center">
+          <span class="mx-auto flex size-9 items-center justify-center rounded-control bg-primary-muted text-sm font-semibold text-link">
+            2
+          </span>
+          <h3 class="mt-4 text-lg font-semibold text-ink">Deploy</h3>
+          <p class="mt-2 text-sm leading-6 text-ink-muted">
+            One guided flow from app to live URL — no YAML, no servers to babysit.
+          </p>
+        </.card>
+        <.card class="px-6 py-8 text-center">
+          <span class="mx-auto flex size-9 items-center justify-center rounded-control bg-primary-muted text-sm font-semibold text-link">
+            3
+          </span>
+          <h3 class="mt-4 text-lg font-semibold text-ink">We run it</h3>
+          <p class="mt-2 text-sm leading-6 text-ink-muted">
+            Updates and monitoring are on us. Your data stays yours.
+          </p>
+        </.card>
+      </div>
     </div>
   </section>
 
-  <section aria-labelledby="pricing-title" class="mx-auto max-w-3xl pb-20 sm:pb-28">
-    <.card class="px-6 py-10 text-center sm:px-10">
-      <h2 id="pricing-title" class="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+  <%!-- Band 3 — pricing (canvas): the band rhythm flips back. --%>
+  <section aria-labelledby="pricing-title" class="px-4 sm:px-6 lg:px-8">
+    <div class="mx-auto max-w-3xl py-20 text-center sm:py-24">
+      <p class="text-xs font-semibold uppercase tracking-widest text-link">
         Simple pricing
+      </p>
+      <h2 id="pricing-title" class="mt-3 text-2xl font-bold tracking-tight text-ink sm:text-3xl">
+        One flat rate, no surprises
       </h2>
       <p class="mx-auto mt-4 max-w-xl leading-7 text-ink-muted">
-        One flat monthly rate per app and size — no metered surprises. New
-        accounts start with welcome credits; top up when you're ready.
+        Pay per app and size, month to month. New accounts start with welcome credits; top
+        up when you're ready.
       </p>
-      <.link
-        href="/catalog"
-        class="mt-8 inline-flex h-10 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-on-primary shadow-sm transition-colors hover:bg-primary-hover"
-      >
-        See the apps and prices
-      </.link>
-    </.card>
-  </section>
+      <div class="mt-8">
+        <.button href="/catalog">
+          See the apps and prices
+        </.button>
+      </div>
 
-  <div class="mx-auto max-w-3xl pb-20 text-center sm:pb-28">
-    <p class="text-sm leading-6 text-ink-subtle">
-      Every app runs on FluxVale's own managed Kubernetes fleet — the same
-      infrastructure we run ourselves on.
-    </p>
-  </div>
+      <%!-- The honesty capsule (#277 pattern): the fleet line as a pill
+      near the footer. --%>
+      <div class="mt-16">
+        <p class="mx-auto inline-flex max-w-md items-center gap-2.5 rounded-panel border border-line bg-panel px-5 py-2.5 text-left text-sm leading-6 text-ink-muted sm:rounded-pill">
+          <.icon name="hero-server-stack" class="size-4 shrink-0 text-ink-subtle" />
+          Every app runs on FluxVale's own managed Kubernetes fleet — the same
+          infrastructure we run ourselves on.
+        </p>
+      </div>
+    </div>
+  </section>
 </main>
 
-<footer class="border-t border-line px-4 py-8 sm:px-6 lg:px-8">
+<footer class="bg-panel-raised px-4 py-8 sm:px-6 lg:px-8">
   <div class="mx-auto flex max-w-5xl flex-col items-center justify-between gap-4 sm:flex-row">
     <p class="text-sm text-ink-subtle">© {Date.utc_today().year} FluxVale</p>
     <nav aria-label="Footer">

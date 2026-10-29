@@ -1277,7 +1277,7 @@ defmodule FluxValeWeb.CoreComponents do
         />
       </summary>
       <div
-        class="absolute left-0 z-50 mt-2 w-56 rounded-panel border border-line bg-panel p-1.5 [box-shadow:var(--elevation-lg)]"
+        class="absolute left-0 z-50 mt-2 w-56 rounded-panel border border-line-strong bg-panel p-1.5 [box-shadow:var(--elevation-lg)]"
         data-testid="org-switcher-panel"
       >
         <p class="px-3 py-1.5 text-xs text-ink-subtle">Contexts</p>
