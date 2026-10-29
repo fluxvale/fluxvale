@@ -528,7 +528,14 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   defp disadmit_gateway(_kubeconfig, %{namespace: nil}), do: :ok
 
   defp disadmit_gateway(kubeconfig, %{exposure: :private} = instance) do
-    apply_policy(kubeconfig, instance, [])
+    case apply_policy(kubeconfig, instance, []) do
+      :ok -> :ok
+      # Namespace gone — the posture already holds (the object-delete stance
+      # from teardown_instance safe_delete). We only do this on DISADMIT; attach
+      # still fails on 404.
+      {:error, %FluxVale.Clients.K8s.Error{reason: :not_found}} -> :ok
+      {:error, _reason} = error -> error
+    end
   end
 
   defp disadmit_gateway(_kubeconfig, _instance), do: :ok
