@@ -183,6 +183,48 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       # same form.
       assert {:error, _none} = AccessGateway.get_for_organization(org.id, authorize?: false)
     end
+
+    test "the typed key never echoes into the markup", %{conn: conn, org: org} do
+      stub_provider()
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      # The validate round-trip is a read-back if the value re-renders
+      # (ADR-0039 §4): the typed marker must not appear in the patch or
+      # the markup.
+      view
+      |> form("#access-enable-form", gateway: %{auth_key: "tskey-TYPING-marker"})
+      |> render_change()
+
+      refute render(view) =~ "tskey-TYPING-marker"
+
+      # Typing still works: a submit right after lands the gateway.
+      view
+      |> form("#access-enable-form", gateway: %{auth_key: "tskey-auth-final"})
+      |> render_submit()
+
+      assert has_element?(view, "[data-testid='access-gateway-card']")
+    end
+
+    test "a failed re-paste leaves no key echo in the markup", %{conn: conn, org: org} do
+      stub_provider()
+
+      AccessFixtures.gateway!(org, state: :needs_attention)
+
+      expect(Tailscale, :update_credential, fn _gateway, _key -> {:error, :cluster_down} end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      view
+      |> form("#access-repaste-form", gateway: %{auth_key: "tskey-SECRET-marker"})
+      |> render_submit()
+
+      # The failure names itself and the form stays open for the retry —
+      # without carrying the submitted key anywhere.
+      assert has_element?(view, "#flash-error", "Couldn't update the access key")
+      assert has_element?(view, "#access-repaste-form")
+      refute render(view) =~ "tskey-SECRET-marker"
+    end
   end
 
   describe "the gateway card per state" do
@@ -215,16 +257,26 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       refute_k8s_terms(render(view))
     end
 
-    test ":provisioning — the connecting note and no actions", %{conn: conn, org: org} do
+    test ":provisioning — the honest copy and the reconnect affordance", %{conn: conn, org: org} do
       AccessFixtures.gateway!(org, state: :provisioning)
 
       {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
 
       assert has_element?(view, "[data-testid=status-badge]", "Connecting")
-      assert has_element?(view, "[data-testid='access-connecting-note']")
 
-      # Nothing to do yet: no re-paste, no remove.
-      refute has_element?(view, "[data-testid='access-repaste']")
+      # No time promise without a view of the clock: the copy names the
+      # stuck path and the key that fixes it (update_credential's drift
+      # repair is the engine half).
+      assert has_element?(
+               view,
+               "[data-testid='access-connecting-note']",
+               "if it sticks, reconnect with your key"
+             )
+
+      assert has_element?(view, "[data-testid='access-repaste-toggle']", "Re-paste key")
+
+      # No remove on this card: the reconnect works, and the row is not
+      # going away.
       refute has_element?(view, "[data-testid='access-remove']")
     end
 
@@ -515,6 +567,36 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       assert AccessGateway.get_by_id!(gateway.id, authorize?: false).state == :active
     end
 
+    test "a double-click on Retry removal survives the empty state", %{conn: conn, org: org} do
+      AccessFixtures.gateway!(org, state: :destroying)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      # The first click enqueues; the inline teardown hard-deletes the
+      # row and its broadcast lands the empty state.
+      view
+      |> element("[data-testid='access-retry-remove']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='access-empty']")
+
+      # The second click of the double arrives with the panel already
+      # empty — a no-op, never a crash.
+      render_click(view, "retry-remove", %{})
+
+      assert has_element?(view, "[data-testid='access-empty']")
+    end
+
+    test "the remove family is inert on an emptied panel", %{conn: conn, org: org} do
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      render_click(view, "arm-remove", %{})
+      render_click(view, "remove", %{})
+      render_click(view, "retry-remove", %{})
+
+      assert has_element?(view, "[data-testid='access-empty']")
+    end
+
     test "retrying a removal re-enqueues and lands the empty state", %{conn: conn, org: org} do
       AccessFixtures.gateway!(org, state: :destroying)
 
@@ -687,6 +769,45 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
 
       assert has_element?(view, "[data-testid=status-badge]", "Connecting")
       refute has_element?(view, "#access-repaste-form")
+    end
+
+    test "a provision exhaustion lands its copy and opens the recovery live", %{
+      conn: conn,
+      org: org
+    } do
+      gateway = AccessFixtures.gateway!(org, state: :provisioning)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      assert has_element?(view, "[data-testid=status-badge]", "Connecting")
+
+      gateway
+      |> Ash.Changeset.for_update(:mark_provision_error, %{error: %{}}, authorize?: false)
+      |> Ash.update!()
+
+      # The publish carries the state write: the badge flips and the
+      # recovery opens without a reload.
+      assert has_element?(view, "[data-testid=status-badge]", "Needs attention")
+      assert has_element?(view, "#access-repaste-form")
+
+      assert has_element?(
+               view,
+               "[data-testid='access-status-message']",
+               "try connecting again"
+             )
+    end
+
+    test "a teardown exhaustion lands its copy live", %{conn: conn, org: org} do
+      gateway = AccessFixtures.gateway!(org, state: :destroying)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      gateway
+      |> Ash.Changeset.for_update(:mark_teardown_error, %{error: %{}}, authorize?: false)
+      |> Ash.update!()
+
+      assert has_element?(view, "[data-testid='access-status-message']", "Removal failed")
+      assert has_element?(view, "[data-testid='access-retry-remove']")
     end
   end
 

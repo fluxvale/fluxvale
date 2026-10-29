@@ -69,7 +69,10 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
   @impl Phoenix.LiveView
   def handle_event("validate", %{"gateway" => params}, socket) do
-    form = AshPhoenix.Form.validate(socket.assigns.form, form_params(params, socket))
+    form =
+      socket.assigns.form
+      |> AshPhoenix.Form.validate(form_params(params, socket))
+      |> clear_key_display()
 
     {:noreply, assign(socket, form: form)}
   end
@@ -90,18 +93,18 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       {:error, form} ->
         if forbidden?(form) do
           # The funded-wallet gate — the fix is the wallet, so the copy
-          # says so instead of rendering a field error.
+          # says so instead of rendering a field error. The form is
+          # rebuilt from the row (no key echo — see clear_key_display)
+          # and carries only the errors.
           {:noreply,
            socket
            |> put_flash(:error, "Top up before enabling private access.")
-           |> assign(form: form)}
+           |> rebuild_form_with_errors(form)}
         else
-          # Invalid input renders under the field; everything else
-          # (the funded gate raced, a cluster failure) is the flash.
           {:noreply,
            socket
            |> put_flash(:error, "Couldn't enable private access — try again.")
-           |> assign(form: form)}
+           |> rebuild_form_with_errors(form)}
         end
     end
   end
@@ -122,11 +125,13 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       {:error, form} ->
         # The engine's own answer (the change writes "Couldn't update
         # the access key — try again") is field-less, so the flash is
-        # its surface — never a silent dead click.
+        # its surface — never a silent dead click. The form rebuilds
+        # from the row carrying only the errors: the submitted key is
+        # not echoed back (ADR-0039 §4).
         {:noreply,
          socket
          |> put_flash(:error, "Couldn't update the access key — try again.")
-         |> assign(form: form)}
+         |> rebuild_form_with_errors(form)}
     end
   end
 
@@ -134,8 +139,21 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     {:noreply, assign(socket, repaste_open?: not socket.assigns.repaste_open?)}
   end
 
+  # The empty state is a normal state of this panel (the teardown can
+  # delete the row out from under any card), so every event in the
+  # remove family is a no-op there — a nil gateway has nothing to arm,
+  # remove, or retry, and a real double-click on Retry removal lands
+  # exactly here after the first click's teardown wins.
+  def handle_event("arm-remove", _params, %{assigns: %{gateway: nil}} = socket) do
+    {:noreply, socket}
+  end
+
   def handle_event("arm-remove", _params, socket) do
     {:noreply, assign(socket, remove_armed?: true)}
+  end
+
+  def handle_event("retry-remove", _params, %{assigns: %{gateway: nil}} = socket) do
+    {:noreply, socket}
   end
 
   def handle_event("cancel-remove", _params, socket) do
@@ -144,7 +162,12 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
   # Guarded: only an armed panel removes — every path here passes
   # through the explicit confirm callout first (Settings' armed-rename
-  # posture), so a crafted click cannot delete on its own.
+  # posture), so a crafted click cannot delete on its own. The nil
+  # gateway arm is the empty state (see the arm-remove guard).
+  def handle_event("remove", _params, %{assigns: %{gateway: nil}} = socket) do
+    {:noreply, socket}
+  end
+
   def handle_event("remove", _params, socket) do
     case socket.assigns do
       %{remove_armed?: true} ->
@@ -448,8 +471,15 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       <%= cond do %>
         <% @gateway.state == :provisioning -> %>
           <p class="text-sm text-ink-muted" data-testid="access-connecting-note">
-            Connecting — usually under a minute. This page updates on its own.
+            Setting up access — usually under a minute; if it sticks, reconnect with
+            your key.
           </p>
+          <.repaste_panel
+            form={@form}
+            open?={@repaste_open?}
+            toggle_label="Re-paste key"
+            submit_label="Save key"
+          />
         <% @gateway.state == :active -> %>
           <.repaste_panel
             form={@form}
@@ -669,6 +699,37 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       "organization_id" => socket.assigns.org.id,
       "monthly_cents" => to_string(socket.assigns.price_cents)
     })
+  end
+
+  # The auth key never re-renders: ADR-0039 §4 forbids any read-back,
+  # and a validate round-trip is one — the typed value would land in the
+  # patch payload and the input's value= attribute. The submitted params
+  # were validated before this strip, and LiveView leaves a focused
+  # input's text alone, so typing survives; an unfocused field simply
+  # comes back empty (the backups panel's secret-field posture). The
+  # DOM-driven submit still sends whatever the browser holds. The strip
+  # targets the changeset's ARGUMENT — that is what AshPhoenix's
+  # input_value reads first, not the params maps.
+  defp clear_key_display(%Phoenix.HTML.Form{source: %AshPhoenix.Form{} = ash_form} = form) do
+    %{form | source: strip_key_argument(ash_form)}
+  end
+
+  defp strip_key_argument(ash_form) do
+    %{ash_form | source: Ash.Changeset.set_argument(ash_form.source, :auth_key, "")}
+  end
+
+  # A failed submit rediscovers the form from the row — which has no
+  # key — and carries only the errored form's field errors, so the
+  # submitted key never echoes back (ADR-0039 §4; the backups panel's
+  # secret-field posture).
+  defp rebuild_form_with_errors(socket, errored_form) do
+    socket
+    |> assign_forms()
+    |> then(fn socket ->
+      errors = AshPhoenix.Form.errors(errored_form)
+
+      assign(socket, form: %{socket.assigns.form | errors: errors})
+    end)
   end
 
   # A policy denial arrives as a Forbidden error inside the form — not

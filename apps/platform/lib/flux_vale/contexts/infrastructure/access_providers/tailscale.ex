@@ -214,6 +214,19 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # ------------------------------------------------------------------
 
   @impl FluxVale.Infrastructure.AccessProvider
+  def update_credential(%AccessGateway{state: :provisioning} = gateway, auth_key) do
+    # Drift repair, owner-triggered: a :provisioning row whose objects
+    # never landed (or were lost) has no Deployment to restart — the
+    # restart path would 404 and strand the row with no owner way out.
+    # Re-apply the objects instead: provision_gateway is SSA-idempotent
+    # and writes the key on the way, the create path's same call.
+    case provision_gateway(gateway, auth_key) do
+      {:ok, _ref} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @impl FluxVale.Infrastructure.AccessProvider
   def update_credential(%AccessGateway{state: state} = gateway, auth_key)
       when state in [:suspended, :destroying] do
     # Parked (or being torn down): write the key and stop. A restart is a
@@ -570,13 +583,14 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
         else
           # #179's friendly-vs-k8s split: this message renders on the
           # panel (the row's status_message), so it names no platform
-          # term — and no affordance it cannot back. A re-paste cannot
-          # recover a missing Deployment (the restart needs the object),
-          # so the honest next step is support.
+          # term — and only affordances the panel backs. With
+          # update_credential's drift repair, a fresh key re-applies the
+          # lost objects, so reconnect IS the honest next step here (no
+          # support link exists to point at).
           {:ok,
            %{
              state: :needs_attention,
-             message: "Not connected — access needs attention; contact support"
+             message: "Not connected — your access setup was lost; reconnect with a fresh key"
            }}
         end
 

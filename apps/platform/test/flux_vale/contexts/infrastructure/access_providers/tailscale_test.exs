@@ -320,12 +320,13 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       # forever and metering would continue against a pod that is gone).
       # The message renders on the panel (the row's status_message), so
       # it is pinned copy: friendly (#179's split — the old text named a
-      # platform term) and affordance-honest (a re-paste cannot recover
-      # a missing Deployment; support is the next step).
+      # platform term) and affordance-honest (update_credential's drift
+      # repair makes reconnect the real recovery; no dead support
+      # pointer).
       assert {:ok,
               %{
                 state: :needs_attention,
-                message: "Not connected — access needs attention; contact support"
+                message: "Not connected — your access setup was lost; reconnect with a fresh key"
               }} = Tailscale.gateway_status(gateway)
     end
   end
@@ -674,6 +675,40 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
 
       assert {:error, %Error{}} = Tailscale.update_credential(gateway, "tskey-new")
     end
+
+    test "a :provisioning row's re-paste is the drift repair — re-applies, no restart", %{
+      org: org
+    } do
+      # create! lands :provisioning: the row whose objects never landed
+      # (or were lost) — the shape the drift repair exists for.
+      gateway = gateway_row!(org, :provisioning)
+      parent = self()
+
+      # SSA re-apply — the same call the create path makes — never the
+      # restart, which is a get→apply that 404s on the missing object.
+      stub(Deployment, :apply_manifest, fn _kc, manifest ->
+        send(parent, {:deployment_apply, manifest})
+        {:ok, %{}}
+      end)
+
+      reject(Deployment, :restart, 3)
+
+      assert :ok = Tailscale.update_credential(gateway, "tskey-new")
+
+      assert_received {:secret_create, _ns, credential, %{"TS_AUTHKEY" => "tskey-new"}}
+      assert credential == name("credential", gateway)
+      assert_received {:deployment_apply, _manifest}
+    end
+
+    test "a failed re-apply surfaces", %{org: org} do
+      gateway = gateway_row!(org, :provisioning)
+
+      expect(Secret, :create, fn _kc, _ns, _name, _data ->
+        {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
+      end)
+
+      assert {:error, %Error{}} = Tailscale.update_credential(gateway, "tskey-new")
+    end
   end
 
   describe "scale_gateway/2" do
@@ -918,7 +953,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
   # A real row, built through the create action — which runs the REAL
   # provision_gateway against the setup's capturing K8s stubs. Nothing
   # here may stub the provider itself: these tests are the provider.
-  defp gateway_row!(org) do
+  defp gateway_row!(org, state \\ :active) do
     gateway =
       AccessGateway.create!(
         %{organization_id: org.id, monthly_cents: 200, auth_key: "tskey"},
@@ -926,7 +961,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       )
 
     gateway
-    |> Ash.Changeset.for_update(:update_state, %{state: :active}, authorize?: false)
+    |> Ash.Changeset.for_update(:update_state, %{state: state}, authorize?: false)
     |> Ash.update!()
   end
 
