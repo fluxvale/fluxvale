@@ -95,7 +95,11 @@ defmodule FluxValeWeb.Layouts do
 
   defp chrome(assigns) do
     ~H"""
-    <header class="sticky top-0 z-40 border-b border-line bg-canvas/80 backdrop-blur">
+    <%!-- Border-first depth (#277 T3): a hairline edge over a
+    translucent surface — never a heavy shadow. In dark, elevation
+    collapses to transparent by design, so the border lifts to
+    --line-strong and carries the depth. --%>
+    <header class="sticky top-0 z-40 border-b border-line bg-canvas/80 backdrop-blur dark:border-line-strong">
       <div class="mx-auto flex h-14 max-w-5xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
         <%!-- min-w-0: the cluster is a flex child that must be allowed to
         shrink — without it the switcher label's intrinsic width puts the
@@ -156,7 +160,7 @@ defmodule FluxValeWeb.Layouts do
       {render_slot(@inner_block)}
     </main>
 
-    <footer :if={@footer} class="border-t border-line px-4 py-8 sm:px-6 lg:px-8">
+    <footer :if={@footer} class="border-t border-line bg-panel-raised px-4 py-8 sm:px-6 lg:px-8">
       <div class="mx-auto flex max-w-5xl flex-col items-center justify-between gap-4 sm:flex-row">
         <p class="text-sm text-ink-subtle">© {Date.utc_today().year} FluxVale</p>
         <nav aria-label="Footer">

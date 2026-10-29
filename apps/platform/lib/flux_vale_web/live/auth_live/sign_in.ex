@@ -15,84 +15,92 @@ defmodule FluxValeWeb.AuthLive.SignIn do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash}>
-      <div class="mx-auto max-w-sm space-y-6 py-8">
-        <div class="space-y-2">
-          <h1 class="text-2xl font-semibold tracking-tight text-ink">Sign in to FluxVale</h1>
-          <p class="text-sm text-ink-muted">
-            Passwordless — we'll email you a one-time code.
-          </p>
-        </div>
+      <%!-- T3 (#277): the form panels on the chrome language — a panel
+      card with the Flux Stream gradient as its accent edge (no text on
+      the gradient; the marketing hero is its only other home). --%>
+      <div class="mx-auto max-w-sm py-12 sm:py-16">
+        <div class="overflow-hidden rounded-panel border border-line-strong bg-panel shadow-sm">
+          <div aria-hidden="true" class="h-1 bg-brand-gradient"></div>
+          <div class="space-y-6 p-6 sm:p-8">
+            <div class="space-y-2">
+              <h1 class="text-3xl font-bold tracking-tight text-ink">Sign in to FluxVale</h1>
+              <p class="text-sm leading-6 text-ink-muted">
+                Passwordless — we'll email you a one-time code.
+              </p>
+            </div>
 
-        <.form
-          :if={@step == :email}
-          for={@form}
-          id="email-form"
-          phx-submit="request-code"
-          class="space-y-4"
-        >
-          <.input
-            field={@form[:email]}
-            type="email"
-            label="Email address"
-            placeholder="you@example.com"
-            required
-            autofocus
-            data-testid="sign-in-email"
-          />
-          <.button
-            type="submit"
-            class="w-full"
-            phx-disable-with="Sending…"
-            data-testid="send-code"
-          >
-            Send code
-          </.button>
-        </.form>
-
-        <div :if={@step == :code} class="space-y-4">
-          <p class="text-sm text-ink-muted">
-            We sent a 6-digit code to <span class="font-medium text-ink">{@email}</span>.
-            It expires in 10 minutes.
-          </p>
-
-          <.form
-            for={@form}
-            id="code-form"
-            phx-submit="verify"
-            action={~p"/auth/session"}
-            method="post"
-            phx-trigger-action={@trigger_submit}
-            class="space-y-4"
-          >
-            <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
-            <input type="hidden" name="token" value={@token} />
-            <.input
-              field={@form[:code]}
-              type="text"
-              inputmode="numeric"
-              autocomplete="one-time-code"
-              maxlength="6"
-              label="Sign-in code"
-              required
-              autofocus
-              data-testid="sign-in-code"
-            />
-            <.button
-              type="submit"
-              class="w-full"
-              phx-disable-with="Signing in…"
-              data-testid="verify-code"
+            <.form
+              :if={@step == :email}
+              for={@form}
+              id="email-form"
+              phx-submit="request-code"
+              class="space-y-4"
             >
-              Verify &amp; sign in
-            </.button>
-          </.form>
+              <.input
+                field={@form[:email]}
+                type="email"
+                label="Email address"
+                placeholder="you@example.com"
+                required
+                autofocus
+                data-testid="sign-in-email"
+              />
+              <.button
+                type="submit"
+                class="w-full"
+                phx-disable-with="Sending…"
+                data-testid="send-code"
+              >
+                Send code
+              </.button>
+            </.form>
 
-          <button
-            phx-click="change-email"
-            class="text-sm font-medium text-link transition-colors hover:text-link-hover"
-          >
-            Use a different email
-          </button>
+            <div :if={@step == :code} class="space-y-4">
+              <p class="text-sm text-ink-muted">
+                We sent a 6-digit code to <span class="font-medium text-ink">{@email}</span>.
+                It expires in 10 minutes.
+              </p>
+
+              <.form
+                for={@form}
+                id="code-form"
+                phx-submit="verify"
+                action={~p"/auth/session"}
+                method="post"
+                phx-trigger-action={@trigger_submit}
+                class="space-y-4"
+              >
+                <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
+                <input type="hidden" name="token" value={@token} />
+                <.input
+                  field={@form[:code]}
+                  type="text"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  maxlength="6"
+                  label="Sign-in code"
+                  required
+                  autofocus
+                  data-testid="sign-in-code"
+                />
+                <.button
+                  type="submit"
+                  class="w-full"
+                  phx-disable-with="Signing in…"
+                  data-testid="verify-code"
+                >
+                  Verify &amp; sign in
+                </.button>
+              </.form>
+
+              <button
+                phx-click="change-email"
+                class="text-sm font-medium text-link transition-colors hover:text-link-hover"
+              >
+                Use a different email
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </Layouts.app>
