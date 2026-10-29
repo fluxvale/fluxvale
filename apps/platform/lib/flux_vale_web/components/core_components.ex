@@ -1125,9 +1125,19 @@ defmodule FluxValeWeb.CoreComponents do
 
   ## Examples
 
-      <.user_menu email={@current_user.email} />
+      <.user_menu username={@current_user.username} email={@current_user.primary_email} />
   """
-  attr(:email, :string, required: true)
+  # #285 T4: the glyph and the panel's name line derive from the
+  # username; the email line shows the account's PRIMARY address. Call
+  # sites pass `User.primary_email` (the calculation) — falling back to
+  # the frozen `users.email` mirror when nil (old-pod straggler, see the
+  # calculation's comment); the component renders what it is given.
+  attr(:username, :string, required: true, doc: "the account's handle — glyph + name line")
+
+  attr(:email, :string,
+    required: true,
+    doc: "the account's primary address (callers fall back to the frozen mirror)"
+  )
 
   attr(:app_links, :boolean,
     default: false,
@@ -1138,6 +1148,8 @@ defmodule FluxValeWeb.CoreComponents do
   attr(:rest, :global)
 
   def user_menu(assigns) do
+    assigns = assign(assigns, :name, menu_name(assigns.username, assigns.email))
+
     ~H"""
     <details data-testid="user-menu" class={["group relative", @class]} {@rest}>
       <summary
@@ -1149,7 +1161,7 @@ defmodule FluxValeWeb.CoreComponents do
           class="grid size-7 place-items-center rounded-full bg-primary-muted text-xs font-semibold text-link"
           aria-hidden="true"
         >
-          {initial(@email)}
+          {initial(@name)}
         </span>
         <.icon
           name="hero-chevron-down-micro"
@@ -1160,7 +1172,8 @@ defmodule FluxValeWeb.CoreComponents do
         class="absolute right-0 z-50 mt-2 w-56 rounded-panel border border-line-strong bg-panel p-1.5 [box-shadow:var(--elevation-lg)]"
         data-testid="user-menu-panel"
       >
-        <p class="truncate px-3 py-2 text-xs text-ink-subtle" title={@email}>{@email}</p>
+        <p class="truncate px-3 py-2 text-xs font-medium text-ink" title={@name}>{@name}</p>
+        <p class="truncate px-3 pb-2 text-xs text-ink-subtle" title={@email}>{@email}</p>
         <div class="my-1 border-t border-line" aria-hidden="true"></div>
         <%!-- #255: mobile-only surface rows — the header links these
         replace are hidden below sm, so no width shows both copies. --%>
@@ -1224,6 +1237,21 @@ defmodule FluxValeWeb.CoreComponents do
     |> to_string()
     |> String.first()
     |> String.upcase()
+  end
+
+  # The menu's name line + glyph source (#285 T4): the username when
+  # present, else the (primary) address's local part — rollout-window
+  # rows carry a NULL username (T2 derivation shipped with #285), and
+  # an empty name line or a bare "?" glyph is worse than the handle the
+  # address implies. Same degradation the org switcher's personal row
+  # uses (OrgNav.display_handle/1).
+  defp menu_name(username, _email) when username not in [nil, ""], do: username
+  defp menu_name(_username, email), do: local_part(email)
+
+  defp local_part(email) do
+    address = to_string(email)
+    [local_part | _domain] = String.split(address, "@", parts: 2)
+    local_part
   end
 
   @doc """

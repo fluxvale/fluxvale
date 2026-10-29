@@ -74,11 +74,19 @@ defmodule FluxVale.Identity.User do
   json_api do
     type("user")
 
+    # The contract's "email" key (#285 T4) serializes the `primary_email`
+    # calculation — same key, live value. The frozen-mirror attribute is
+    # private, so the key set of the /me document is unchanged. The app
+    # runs with show_public_calculations_when_loaded?: false, so the
+    # route pins its own field list — that list is also what the query
+    # loads (ash_json_api loads route default_fields before reading).
+    field_names(primary_email: :email)
+
     routes do
       # GET /api/v1/me — the current actor's record, no id (#24). The only
       # public User surface: deliberately no collection routes (listing
       # users is not a machine API — ADR-0019 §1).
-      get(:me, route: "/me")
+      get(:me, route: "/me", default_fields: [:primary_email, :platform_role, :username])
     end
   end
 
@@ -110,9 +118,12 @@ defmodule FluxVale.Identity.User do
     # now; this column stays written on create only so old pods keep
     # resolving new users during rolling deploys. `set_primary` does NOT
     # rewrite it — the follow-up contract release drops the column.
+    # Private since #285 T4: it is a write-compat column, not account
+    # truth — /api/v1/me's "email" key serializes the `primary_email`
+    # calculation instead (field_names below keeps the JSON key).
     attribute :email, :ci_string do
       allow_nil?(false)
-      public?(true)
+      public?(false)
     end
 
     # GitHub-style handle (#285 T2): derived from the email at signup
@@ -277,5 +288,40 @@ defmodule FluxVale.Identity.User do
     # Usernames are unique among users (#285 T2) — a separate namespace
     # from organization slugs, deliberately.
     identity(:unique_username, [:username])
+  end
+
+  aggregates do
+    # The account's verified primary address (#285 T4) — the value every
+    # user-visible surface displays. `first` over the emails join; the
+    # partial unique index caps matches at one row, so no sort. Nil when
+    # no verified primary row exists. Private plumbing: surfaces read it
+    # through the public `primary_email` calculation.
+    #
+    # authorize? false — without it an authorized load silently trips
+    # UserEmail's admin-only :read policy (probed: the roster calc
+    # degraded to the mirror under authorization). Sound: the aggregate
+    # exposes one address per user — no more than the pre-T4 roster
+    # join (`user.email`) already revealed, gated by the same read
+    # policies of the surface that loads it.
+    first :primary_address, :emails, :address do
+      filter(expr(is_primary and not is_nil(verified_at)))
+      authorize?(false)
+    end
+  end
+
+  calculations do
+    # The display email (#285 T4): the verified primary address; HONEST
+    # nil when the account has none (an old-pod user mid-window has no
+    # row). The nil rendering is a per-surface decision — showing nothing
+    # is wrong, so surfaces fall back to the frozen `email` mirror (the
+    # straggler's only address); each surface carries that fallback with
+    # a pointer here. Loaded with the user at resolution
+    # (UserAuth.resolve_user/1) — one query per surface, never an N+1.
+    # Public so /api/v1/me can serialize it; field_names below renders it
+    # under the contract's "email" key. F1 (#287) drops the mirror and
+    # this fallback dance with it.
+    calculate :primary_email, :string, expr(primary_address) do
+      public?(true)
+    end
   end
 end

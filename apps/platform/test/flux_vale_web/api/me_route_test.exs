@@ -7,6 +7,8 @@ defmodule FluxValeWeb.Api.MeRouteTest do
 
   use FluxValeWeb.ConnCase, async: true
 
+  import FluxVale.TestSupport.AuthCodeHelpers
+
   alias AshAuthentication.Jwt
   alias AshAuthentication.TokenResource.Actions
   alias FluxVale.Identity.User
@@ -56,6 +58,38 @@ defmodule FluxValeWeb.Api.MeRouteTest do
         |> get("/api/v1/me")
 
       assert %{"data" => %{"attributes" => %{"username" => nil}}} = json_response(conn, 200)
+    end
+
+    # The T4 arm: after the REAL email operations promote a verified
+    # secondary (AddEmail → the mailed code → VerifyEmail →
+    # SetPrimaryEmail), "email" shows the new primary — the frozen
+    # users.email mirror is write-compat only, never the API's answer.
+    test "email is the promoted secondary after SetPrimaryEmail", %{conn: conn} do
+      user = User.create!("promotable@fluxvale.com", %{}, authorize?: false)
+      secondary = "promoted@fluxvale.test"
+
+      assert {:ok, row} = FluxVale.Identity.add_email(user, secondary)
+      code = mailbox_code()
+      assert {:ok, _verified} = FluxVale.Identity.verify_email(user, row.id, code)
+      assert {:ok, _promoted} = FluxVale.Identity.set_primary_email(user, row.id)
+
+      pat = mint_pat!("promoted@fluxvale.test")
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> pat)
+        |> get("/api/v1/me")
+
+      # The key set is the contract (ADR-0019 §1); the email VALUE is the
+      # live primary. get_by_email resolves the new address too — the PAT
+      # mint above already rode it.
+      assert %{"data" => %{"attributes" => attributes}} = json_response(conn, 200)
+
+      assert attributes == %{
+               "email" => secondary,
+               "platform_role" => "user",
+               "username" => "promotable"
+             }
     end
   end
 

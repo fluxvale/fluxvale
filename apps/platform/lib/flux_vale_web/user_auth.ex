@@ -48,7 +48,11 @@ defmodule FluxValeWeb.UserAuth do
            Helpers.authenticate_resource_from_session(User, session, :flux_vale, []),
          # The user-level gate (#285 T3): any verified address passing
          # the allowlist keeps the account connected.
-         :ok <- AccessRules.ensure_allowed_user(user) do
+         :ok <- AccessRules.ensure_allowed_user(user),
+         # The display email (#285 T4): chrome and prefills read
+         # `primary_email` — loaded here, once per resolution, so no
+         # surface can N+1 it. A load failure is still "not signed in".
+         {:ok, user} <- Ash.load(user, :primary_email) do
       user
     else
       _error -> nil

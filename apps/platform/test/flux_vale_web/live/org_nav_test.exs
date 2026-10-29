@@ -12,6 +12,7 @@ defmodule FluxValeWeb.OrgNavTest do
   alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.Organization
   alias FluxVale.Identity.User
+  alias FluxVale.Identity.UserEmail
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxValeWeb.OrgNav
 
@@ -151,13 +152,40 @@ defmodule FluxValeWeb.OrgNavTest do
     # Ash.Seed.seed! — the only writer that can produce a NULL-username
     # row (old-pod rolling-window straggler); the create action derives
     # one (state actions can't produce, the documented seed! exception).
+    # No session rides this direct call, so the row-less shape (severed
+    # at the real gates post-T3) is reachable here: no verified primary
+    # row, the handle falls back to the frozen mirror's local part.
     straggler = Ash.Seed.seed!(User, %{email: "straggler@fluxvale.test"})
 
     assert {:cont, socket} = OrgNav.on_mount(:assign_orgs, %{}, %{}, socket_with(straggler))
     assert socket.assigns.username == "straggler"
   end
 
+  # #285 T4: when the handle is missing the local part comes from the
+  # PRIMARY address, not the frozen mirror — after a SetPrimaryEmail the
+  # switcher must not resurrect the demoted signup address. Mutation
+  # teeth: reverting display_handle to `user.email` fails the assert.
+  test "a NULL-username row with a promoted primary labels from the primary's local part" do
+    int = System.unique_integer([:positive])
+
+    straggler = Ash.Seed.seed!(User, %{email: "mirror-#{int}@fluxvale.test"})
+
+    {:ok, row} =
+      UserEmail.add("primary-#{int}@fluxvale.test", %{user: straggler}, authorize?: false)
+
+    {:ok, verified} = UserEmail.mark_verified(row, authorize?: false)
+    {:ok, _promoted} = UserEmail.set_primary(verified, actor: straggler)
+
+    assert {:cont, socket} = OrgNav.on_mount(:assign_orgs, %{}, %{}, socket_with(straggler))
+    assert socket.assigns.username == "primary-#{int}"
+  end
+
+  # The wiring contract: UserAuth.resolve_user/1 loads primary_email
+  # before OrgNav ever reads it (the sanctioned on_mount order — the
+  # router pins it). socket_with mirrors that shape.
   defp socket_with(user) do
+    {:ok, user} = Ash.load(user, :primary_email)
+
     Phoenix.Component.assign(%Phoenix.LiveView.Socket{}, :current_user, user)
   end
 

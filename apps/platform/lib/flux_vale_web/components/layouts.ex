@@ -162,7 +162,15 @@ defmodule FluxValeWeb.Layouts do
             below sm (#255): the row (logo + links + theme + menu)
             overflows 375px by 133px otherwise, dropdown closed. --%>
             <li :if={@current_user} class="ml-2">
-              <.user_menu email={@current_user.email} app_links={@apps} />
+              <%!-- #285 T4: the menu carries the handle + the PRIMARY
+              address — the frozen mirror is the fallback for an
+              old-pod straggler with no verified primary row (see
+              User.primary_email). --%>
+              <.user_menu
+                username={@current_user.username}
+                email={@current_user.primary_email || @current_user.email}
+                app_links={@apps}
+              />
             </li>
             <li :if={is_nil(@current_user)} class="ml-1">
               <.button navigate={~p"/sign-in"} size="sm">

@@ -6,7 +6,9 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
   import Phoenix.LiveViewTest
 
   alias FluxVale.Accounts.Membership
+  alias FluxVale.Identity
   alias FluxVale.TestSupport.AccountsFixtures
+  alias FluxVale.TestSupport.AuthCodeHelpers
   alias FluxVale.TestSupport.SessionHelpers
 
   require Ash.Query
@@ -149,6 +151,49 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
       to_string(second_created.email),
       to_string(first_created.email)
     ])
+  end
+
+  # #285 T4 teeth: the roster column shows the member's PRIMARY address —
+  # after the REAL operations promote a verified secondary, the demoted
+  # signup address must vanish from the member's row. Reverting the
+  # user_email calculation to `user.email` fails this test.
+  test "a member's row shows their promoted primary, not the frozen mirror", %{
+    conn: conn,
+    org: org
+  } do
+    member = AccountsFixtures.user!()
+    membership = seed_member!(org, member)
+
+    mirror = to_string(member.email)
+    promoted = "roster-promoted-#{System.unique_integer([:positive])}@fluxvale.test"
+
+    assert {:ok, row} = Identity.add_email(member, promoted)
+    code = AuthCodeHelpers.mailbox_code()
+    assert {:ok, _verified} = Identity.verify_email(member, row.id, code)
+    assert {:ok, _promoted} = Identity.set_primary_email(member, row.id)
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    member_row = "#member-row-#{membership.id}"
+    assert has_element?(view, member_row, promoted)
+    refute render(view) =~ mirror
+  end
+
+  # The nil-primary arm (old-pod straggler with no user_emails row):
+  # showing nothing is wrong — the frozen mirror is the honest fallback
+  # (see User.primary_email). Seeded shape: no session rides the row.
+  test "a member with no verified primary row shows the mirror address", %{
+    conn: conn,
+    org: org
+  } do
+    int = System.unique_integer([:positive])
+
+    straggler = Ash.Seed.seed!(FluxVale.Identity.User, %{email: "straggler-#{int}@fluxvale.test"})
+    membership = seed_member!(org, straggler)
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    assert has_element?(view, "#member-row-#{membership.id}", "straggler-#{int}@fluxvale.test")
   end
 
   test "the tab nav renders General (linking back) and Members (active)", %{conn: conn, org: org} do
