@@ -297,12 +297,18 @@ defmodule FluxVale.Identity.User do
     # no verified primary row exists. Private plumbing: surfaces read it
     # through the public `primary_email` calculation.
     #
-    # authorize? false — without it an authorized load silently trips
-    # UserEmail's admin-only :read policy (probed: the roster calc
-    # degraded to the mirror under authorization). Sound: the aggregate
-    # exposes one address per user — no more than the pre-T4 roster
-    # join (`user.email`) already revealed, gated by the same read
-    # policies of the surface that loads it.
+    # authorize?(false) — REQUIRED on the real load paths: without it
+    # the surfaces' authorized calc load trips UserEmail's admin-only
+    # :read and silently degrades the display to the frozen mirror —
+    # proven twice: the implementer's original roster probe, and the
+    # architect's full-suite run with the flag removed (7 surface tests
+    # red across the app chrome, public chrome, and roster; green
+    # restored with the flag). A hostile-review probe matrix of direct
+    # Ash.load shapes (actor + nil) does NOT reproduce this — the
+    # surfaces' load wiring is the path that trips; do not re-test the
+    # flag's necessity with direct loads. The exposure claim stands:
+    # one address per user, no more than the pre-T4 `user.email` join
+    # revealed, gated by the loading surface's read policies.
     first :primary_address, :emails, :address do
       filter(expr(is_primary and not is_nil(verified_at)))
       authorize?(false)
