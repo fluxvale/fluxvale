@@ -536,6 +536,30 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
                AccessRoute.get_by_instance(instance.id, authorize?: false)
     end
 
+    test "a missing instance namespace is the posture already holding — 404 on detach is :ok",
+         %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+      {:ok, _route} = Tailscale.attach_instance(gateway, instance)
+
+      # Mimic the case where the instance cluster deleted the namespace
+      # after attach, so Policy.create returns :not_found on detach.
+      expect(NetworkPolicy, :create, fn _kc, ns, _pn, _spec ->
+        assert ns == instance.namespace
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      # The route is present when detach starts, then deleted by the tear-down.
+      assert {:ok, %AccessRoute{}} =
+               AccessRoute.get_by_instance(instance.id, authorize?: false)
+
+      assert :ok = Tailscale.detach_instance(gateway, instance)
+
+      # Detach succeeds, then the route row is gone.
+      assert {:error, _not_found} =
+               AccessRoute.get_by_instance(instance.id, authorize?: false)
+    end
+
     test "detaching an unattached instance is a no-op success", %{org: org, owner: owner} do
       gateway = AccessFixtures.gateway!(org)
       instance = AccessFixtures.private_instance!(org, owner)
