@@ -53,35 +53,44 @@ defmodule FluxValeWeb.CatalogLive.Index do
 
         <.empty_state :if={@categories == []} title="No apps in the catalog yet." />
 
+        <%!-- Container-query grid (#277 T4, spec §3) — see
+        catalog_html/index.html.heex. --%>
         <section
           :for={category <- @categories}
           id={"category-#{category.id}"}
-          class="space-y-4"
+          class="@container space-y-4"
         >
           <div class="space-y-1">
             <h2 class="text-lg font-semibold tracking-tight text-ink">{category.name}</h2>
             <p :if={category.description} class="text-sm text-ink-muted">{category.description}</p>
           </div>
 
-          <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div class="grid grid-cols-1 gap-4 @lg:grid-cols-2 @2xl:grid-cols-3">
             <.link
               :for={app <- sort_by_name(category.apps)}
               navigate={~p"/apps/#{app.slug}"}
               id={"app-#{app.id}"}
               data-testid={"app-#{app.slug}"}
-              class="group relative rounded-xl border border-line bg-panel p-5 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
+              class="group block rounded-panel border border-line-strong bg-panel p-5 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow,translate] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md motion-safe:hover:-translate-y-1"
             >
               <div class="flex items-center gap-3">
-                <div class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-muted font-semibold text-link">
-                  <img :if={app.icon_url} src={app.icon_url} alt={app.name} class="size-9 rounded-lg" />
+                <%!-- Icon-in-tile (#277 T4): the landing hero's tile idiom —
+                apps with and without an icon share one silhouette. --%>
+                <div class="grid size-9 shrink-0 place-items-center rounded-control bg-primary-muted text-sm font-semibold text-link">
+                  <img
+                    :if={app.icon_url}
+                    src={app.icon_url}
+                    alt={app.name}
+                    class="size-6 rounded-control"
+                  />
                   <span :if={is_nil(app.icon_url)}>{String.first(app.name)}</span>
                 </div>
-                <h3 class="text-base font-medium text-ink transition-colors group-hover:text-link">
+                <h3 class="text-base font-medium text-ink transition-colors duration-(--motion-fast) group-hover:text-link">
                   {app.name}
                 </h3>
                 <.icon
                   name="hero-chevron-right"
-                  class="ml-auto size-4 text-ink-subtle opacity-0 transition-opacity group-hover:opacity-100"
+                  class="ml-auto size-4 text-ink-subtle opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100"
                 />
               </div>
               <p :if={app.tagline} class="mt-2.5 text-sm text-ink-muted">{app.tagline}</p>
