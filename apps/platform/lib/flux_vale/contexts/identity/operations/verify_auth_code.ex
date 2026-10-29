@@ -268,9 +268,13 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
 
   # coveralls-ignore-start - the other reachable attribute arms are
   # gone or intercepted earlier: the :user_id partial-index violation
-  # ended with the round-2 P1 primary-conditional heal, and username/
-  # org-slug identities are probed away by their changes (DeriveUsername,
-  # ProvisionPersonalOrg) — race-only residue
+  # is unreachable because the heal's primary decision runs inside the
+  # transaction, after EnforceEmailCap's FOR UPDATE lock on the user
+  # row — the same lock SetPrimary holds while promoting — so a
+  # concurrent promotion can no longer commit between the heal's count
+  # and its insert (round-4 fix; before it, this arm caught exactly
+  # that race). Username/org-slug identities are probed away by their
+  # changes (DeriveUsername, ProvisionPersonalOrg) — race-only residue
   defp unique_attribute?(_error), do: false
   # coveralls-ignore-stop
 
