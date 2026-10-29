@@ -9,11 +9,14 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfigTest do
   # the contract `containerboot` applies — a wrong key here is a gateway
   # that serves nothing.
 
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfig
 
   @hostname "fv-1a2b3c4d"
+
+  # async: false (see disable_wake_intercept/0): the flag tests mutate
+  # node-global application env.
 
   defp enable_wake_intercept do
     previous = Application.get_env(:flux_vale, :access_gateway)
@@ -22,6 +25,21 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfigTest do
       :flux_vale,
       :access_gateway,
       Keyword.put(previous, :wake_intercept_enabled, true)
+    )
+
+    on_exit(fn -> Application.put_env(:flux_vale, :access_gateway, previous) end)
+  end
+
+  # The flag-off posture test flips the SHIPPED default (on since #273),
+  # so this module must run exclusively — the env is node-global and
+  # other suites' config generation reads it.
+  defp disable_wake_intercept do
+    previous = Application.get_env(:flux_vale, :access_gateway)
+
+    Application.put_env(
+      :flux_vale,
+      :access_gateway,
+      Keyword.put(previous, :wake_intercept_enabled, false)
     )
 
     on_exit(fn -> Application.put_env(:flux_vale, :access_gateway, previous) end)
@@ -101,9 +119,8 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfigTest do
       gateway_id = "0192f000-0000-7000-8000-000000000001"
       instance = %{id: "0192f000-0000-7000-8000-000000000002", status: :sleeping, namespace: "ns"}
 
-      # The wake intercept ships in a later slice, so the target is gated:
-      # with it off, serve's honest 502 beats a hard 404 at an endpoint
-      # that does not exist yet.
+      # Explicit on (the shipped default since #273): the sleeping
+      # target is the wake endpoint the intercept controller serves.
       enable_wake_intercept()
 
       target = ServeConfig.target_for(gateway_id, instance)
@@ -116,7 +133,11 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfigTest do
     test "with the intercept disabled a sleeping instance targets the app itself" do
       instance = %{id: "i", status: :sleeping, namespace: "fluxvale-app-abc"}
 
-      refute Application.get_env(:flux_vale, :access_gateway)[:wake_intercept_enabled]
+      # The flag-off posture (#273): with the intercept stood down, a
+      # sleeping instance points at its own Service — serve answers an
+      # honest 502 rather than routing at a dead endpoint. Explicit,
+      # because the shipped default is on.
+      disable_wake_intercept()
 
       assert ServeConfig.target_for("g", instance) ==
                "http://app.fluxvale-app-abc.svc.cluster.local:80"

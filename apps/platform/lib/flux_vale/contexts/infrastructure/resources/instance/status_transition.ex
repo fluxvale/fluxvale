@@ -8,9 +8,10 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
   - deploying → starting, error
   - starting → running, error, lost
   - running → stopped, sleeping, restoring, error, lost
-  - sleeping → starting, restoring, error, lost (wake re-enters the start
+  - sleeping → starting, restoring, stopped, error, lost (wake re-enters the start
     lane; #203 — restore returns the row to `:sleeping` without waking it,
-    ADR-0037 §5)
+    ADR-0037 §5; `stopped` is the sleep path's honest landing when the
+    gateway serve rewrite fails, #273 — owner Start still works)
   - stopped → starting, restoring, error, lost
   - restoring → starting, stopped, sleeping, error, lost (#222, ADR-0037
     §5: back to the pre-restore state, or into the start lane when the
@@ -51,7 +52,7 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
     deploying: [:starting, :error],
     starting: [:running, :error, :lost],
     running: [:stopped, :sleeping, :restoring, :error, :lost],
-    sleeping: [:starting, :restoring, :error, :lost],
+    sleeping: [:starting, :restoring, :stopped, :error, :lost],
     stopped: [:starting, :restoring, :error, :lost],
     # #222 (ADR-0037 §5): restore releases into the state it found — the
     # pre-restore one, or :starting so the reconciler re-confirms

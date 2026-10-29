@@ -175,12 +175,14 @@ config :flux_vale,
     namespace: "fluxvale-access",
     image: "tailscale/tailscale:v1.90.6",
     monthly_cents: 200,
-    # The wake intercept (#268's next slice) is not shipped yet: with this
-    # false a sleeping instance's serve entry points at its own Service
-    # (serve answers 502 — honest "not running"), rather than at the
-    # platform's /internal/access endpoint, which would be a hard 404
-    # until the controller lands. Flip to true with that PR.
-    wake_intercept_enabled: false
+    # The wake intercept (#273, ADR-0039 §6) is live: a sleeping attached
+    # instance's serve entry points at the platform's /internal/access
+    # endpoint — the controller it addresses ships in the same PR — which
+    # wakes the instance and flips the config back to the app once it is
+    # running. Setting this false walks back to serve's honest 502 (a
+    # sleeping app reads "not running", nothing to wake); the sleep path
+    # converges a still-pointed-at-the-app row on its next cycle.
+    wake_intercept_enabled: true
   ],
   # One active payment provider (ADR-0029); per-provider webhook routes
   # and config blocks make the gateway a one-module swap. HitPay is the

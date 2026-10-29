@@ -78,6 +78,15 @@ defmodule FluxValeWeb.Router do
     match(:*, "/_fluxvale_edge/*path", EdgeWakeController, :wake)
   end
 
+  # #273 (ADR-0039 §6): the gateway's asleep serve target — tailscale
+  # serve proxies the visitor's path onto this prefix. Anonymous
+  # in-cluster traffic (the gateway pod is the intended caller); the
+  # AccessRoute pairing row in the path is the authority, the same
+  # no-pipeline stance as the edge wake above.
+  scope "/", FluxValeWeb do
+    match(:*, "/internal/access/:gateway_id/:instance_id/*path", AccessWakeController, :wake)
+  end
+
   # PromEx scrape endpoint (#98, ADR-0012) — gated + dispatched by
   # FluxValeWeb.Plugs.MetricsEndpoint (bearer token when :metrics_token
   # is set; exact-path only). Answers 503 while the PromEx tree is down

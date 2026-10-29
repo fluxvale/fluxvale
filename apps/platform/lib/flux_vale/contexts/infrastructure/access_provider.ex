@@ -59,12 +59,21 @@ defmodule FluxVale.Infrastructure.AccessProvider do
   @callback gateway_status(AccessGateway.t()) :: {:ok, status()} | {:error, term()}
 
   @doc """
-  Puts a freshly-woken instance back on the gateway's routes: rewrites
-  the serve config's target for the instance's port from the wake
-  endpoint to the app Service. Called by the wake endpoint once the
-  instance reports `:running` (ADR-0039 §6).
+  Regenerates the gateway's whole serve config from its routes' current
+  rows (ADR-0039 §3) — the convergent move behind BOTH directions of the
+  wake flip (§6), which is why one callback serves both call sites:
+
+  - the wake endpoint (`AccessWakeController`) calls it once the instance
+    reports `:running` — the regenerated config re-targets the app
+    Service, and the visitor's next refresh lands there;
+  - `SleepInstance` calls it after landing `:sleeping` — the regenerated
+    config points the instance's port at the platform's wake endpoint,
+    so the gateway's next request wakes it.
+
+  A concurrent attach/detach cannot be resurrected by a stale partial
+  write: every route is rebuilt from its row.
   """
-  @callback wake_intercept(AccessGateway.t(), Instance.t()) :: {:ok, term()} | {:error, term()}
+  @callback refresh_routes(AccessGateway.t()) :: {:ok, term()} | {:error, term()}
 
   @doc """
   Writes the auth key to the gateway's Secret and restarts the pod so it

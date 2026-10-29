@@ -196,17 +196,15 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   end
 
   # ------------------------------------------------------------------
-  # wake_intercept/2
+  # refresh_routes/1
   # ------------------------------------------------------------------
 
   @impl FluxVale.Infrastructure.AccessProvider
-  def wake_intercept(%AccessGateway{} = gateway, %Instance{}) do
+  def refresh_routes(%AccessGateway{} = gateway) do
     with {:ok, kubeconfig} <- kubeconfig() do
-      # The instance is :running now, so the route's target must become
-      # the app itself. Rewriting the whole serve config is the simple,
-      # convergent move: every route is regenerated from its row's
-      # current instance status, so a concurrent detach cannot be
-      # resurrected by a stale partial write.
+      # Both flip directions land here (see the behaviour's doc): the
+      # whole config is regenerated from the routes' current rows, so a
+      # concurrent detach cannot be resurrected by a stale partial write.
       write_serve_config(kubeconfig, access_namespace(), gateway)
     end
   end

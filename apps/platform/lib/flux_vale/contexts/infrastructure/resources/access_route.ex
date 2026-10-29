@@ -123,6 +123,19 @@ defmodule FluxVale.Infrastructure.AccessRoute do
       filter(expr(instance_id == ^arg(:instance_id)))
     end
 
+    read :get_by_pair do
+      description("""
+      Exactly this (gateway, instance) pairing — the wake endpoint's
+      authority (ADR-0039 §6): the row IS the owner's consent that this
+      gateway may start this instance.
+      """)
+
+      get?(true)
+      argument(:gateway_id, :uuid, allow_nil?: false)
+      argument(:instance_id, :uuid, allow_nil?: false)
+      filter(expr(gateway_id == ^arg(:gateway_id) and instance_id == ^arg(:instance_id)))
+    end
+
     read :list_for_gateway do
       description("The gateway's routes — serve-config generation's input")
       argument(:gateway_id, :uuid, allow_nil?: false)
@@ -136,6 +149,7 @@ defmodule FluxVale.Infrastructure.AccessRoute do
     define(:create)
     define(:destroy)
     define(:get_by_instance, args: [:instance_id])
+    define(:get_by_pair, args: [:gateway_id, :instance_id])
     define(:list_for_gateway, args: [:gateway_id])
   end
 

@@ -21,9 +21,21 @@ defmodule FluxVale.Infrastructure.Operations.SleepInstance do
     would 503 with nobody able to wake it. Stopped is the pre-#203
     degraded-but-honest shape (owner Start works, ingress is already
     correct).
+  - gateway serve rewrite fails after `:sleeping` landed (#273,
+    ADR-0039 §6's sleep-side half) → `:stopped`: the gateway's entry
+    still targets the app Service, so a sleeping ATTACHED instance
+    would serve 502 with nobody able to wake it through the gateway.
+    Same honest shape — owner Start works.
+
+  The rewrite runs only for an attached instance (an `access_routes`
+  row): the gateway's config must point the instance's port at the
+  platform's wake endpoint while it sleeps, or #273's intercept has
+  nothing to answer.
   """
 
   alias FluxVale.Clients.K8s.Resources.Deployment
+  alias FluxVale.Infrastructure.AccessProvider
+  alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.InstanceK8s
@@ -58,7 +70,7 @@ defmodule FluxVale.Infrastructure.Operations.SleepInstance do
   defp flip_edge(kubeconfig, instance) do
     case EdgeRoutes.apply_wake(kubeconfig, instance) do
       :ok ->
-        InstanceK8s.update_status(instance, :sleeping, nil)
+        land_sleeping(instance)
 
       {:error, error} ->
         # Routes still point at the app Service: traffic would 503 with
@@ -69,6 +81,52 @@ defmodule FluxVale.Infrastructure.Operations.SleepInstance do
           instance,
           :stopped,
           "Slept without wake routing; owner can start it again (#{InstanceK8s.format_error(error)})"
+        )
+    end
+  end
+
+  # The status write lands :sleeping FIRST, deliberately (ADR-0039 §6's
+  # sleep-side half): the gateway's serve config is regenerated from the
+  # rows' current statuses, so a rewrite that ran before this write would
+  # read :running and re-target the app — the exact gap #273 closes. A
+  # failed status write propagates unchanged (the sweep's retry owns it).
+  defp land_sleeping(instance) do
+    with {:ok, sleeping} <- InstanceK8s.update_status(instance, :sleeping, nil) do
+      rewrite_gateway_routing(sleeping)
+    end
+  end
+
+  # Only an ATTACHED instance rides the gateway: an unattached private
+  # row's whole story is the edge posture above (no route, nothing to
+  # wake), and every non-sleeping status targets the app by design.
+  defp rewrite_gateway_routing(sleeping) do
+    case AccessRoute.get_by_instance(sleeping.id, authorize?: false) do
+      {:ok, route} ->
+        rewrite_route(sleeping, route)
+
+      {:error, _unattached} ->
+        {:ok, sleeping}
+    end
+  end
+
+  defp rewrite_route(sleeping, route) do
+    # The load returns the ROUTE with its gateway populated.
+    with {:ok, route} <- Ash.load(route, :gateway, authorize?: false),
+         gateway = route.gateway,
+         {:ok, _serve_config} <-
+           AccessProvider.impl_for(gateway).refresh_routes(gateway) do
+      {:ok, sleeping}
+    else
+      {:error, error} ->
+        # The gateway's serve entry still targets the app Service, so a
+        # sleeping attached instance would serve 502 with nobody able to
+        # wake it through the gateway. Stopped is the honest pre-wake
+        # shape — owner Start works — the edge-flip clause's posture,
+        # gateway-flavored (#273).
+        InstanceK8s.update_status(
+          sleeping,
+          :stopped,
+          "Slept without gateway wake routing; owner can start it again (#{InstanceK8s.format_error(error)})"
         )
     end
   end

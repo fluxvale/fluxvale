@@ -70,6 +70,7 @@ defmodule FluxVale.Edge.ActivityTest do
 
     assert {:error, :overloaded} = Activity.mark("00000000-0000-7000-8000-000000000000")
     assert :proceed = Activity.claim_restore("restore-after-restart")
+    assert :proceed = Activity.claim_access_flip("flip-after-restart")
 
     :sys.resume(pid)
     _state = :sys.get_state(pid)
@@ -84,5 +85,19 @@ defmodule FluxVale.Edge.ActivityTest do
 
     assert :proceed = Activity.claim_restore(key)
     assert :throttled = Activity.claim_restore(key)
+  end
+
+  # #273: the access wake's flip debounce — same window, own claim key:
+  # the restore and the flip are two different applies, and neither may
+  # starve the other's window.
+  test "claim_access_flip proceeds once per window, independent of claim_restore" do
+    id = "flip-#{System.unique_integer()}"
+
+    assert :proceed = Activity.claim_access_flip(id)
+    assert :throttled = Activity.claim_access_flip(id)
+
+    # Same instance, different claim key: the restore's window is its own.
+    assert :proceed = Activity.claim_restore(id)
+    assert :throttled = Activity.claim_restore(id)
   end
 end

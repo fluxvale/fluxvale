@@ -588,23 +588,35 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
     end
   end
 
-  describe "wake_intercept/2" do
-    test "rewrites the serve config so the woken instance targets the app", %{
-      org: org,
-      owner: owner
-    } do
+  describe "refresh_routes/1" do
+    test "regenerates the config from the rows — asleep targets the wake endpoint, awake the app",
+         %{
+           org: org,
+           owner: owner
+         } do
       gateway = AccessFixtures.gateway!(org)
       instance = AccessFixtures.private_instance!(org, owner)
       {:ok, _route} = Tailscale.attach_instance(gateway, instance)
 
-      sleeping = %{instance | status: :sleeping}
-      {:ok, _secret} = Tailscale.wake_intercept(gateway, sleeping)
+      # Asleep in the DB: with the intercept on (#273) the regenerated
+      # config must point the port at the platform's wake endpoint, so a
+      # gateway request wakes the instance (ADR-0039 §6's sleep-side).
+      {:ok, sleeping} = InstanceK8s.update_status(instance, :sleeping, nil)
+      {:ok, _secret} = Tailscale.refresh_routes(gateway)
 
-      # The serve config for the instance's port now points at the app
-      # Service, not the platform's wake endpoint.
       config = latest_serve_config()
-      assert config =~ "app.#{instance.namespace}.svc.cluster.local:80"
-      refute config =~ "/internal/access/"
+      assert config =~ "/internal/access/#{gateway.id}/#{instance.id}"
+      refute config =~ "app.#{instance.namespace}.svc.cluster.local:80"
+
+      # And back: running re-targets the app Service (the wake
+      # endpoint's flip — ADR-0039 §6's wake-side).
+      {:ok, starting} = InstanceK8s.update_status(sleeping, :starting, nil)
+      {:ok, _running} = InstanceK8s.update_status(starting, :running, nil)
+      {:ok, _secret} = Tailscale.refresh_routes(gateway)
+
+      awake_config = latest_serve_config()
+      assert awake_config =~ "app.#{instance.namespace}.svc.cluster.local:80"
+      refute awake_config =~ "/internal/access/"
     end
   end
 

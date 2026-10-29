@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <%= if @status == :service_unavailable do %>
+      <meta http-equiv="refresh" content={@refresh_seconds} />
+    <% end %>
+    <title>Unavailable</title>
+    <%!-- Inline styles, deliberately — same stance as the waking page
+    (see AccessWakeHTML's moduledoc). --%>
+    <style>
+      body {
+        margin: 0; min-height: 100dvh; display: flex; align-items: center;
+        justify-content: center; padding: 1.5rem;
+        background: #fafaf9; color: #1c1917;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      main { max-width: 24rem; width: 100%; text-align: center; }
+      .ring {
+        width: 3rem; height: 3rem; margin: 0 auto 1rem; border-radius: 9999px;
+        display: flex; align-items: center; justify-content: center;
+        background: #fffbeb;
+      }
+      .ring svg { width: 1.5rem; height: 1.5rem; color: #d97706; }
+      h1 { font-size: 1.125rem; font-weight: 600; letter-spacing: -0.025em; margin: 0 0 0.5rem; }
+      p { font-size: 0.875rem; line-height: 1.5; color: #78716c; margin: 0.25rem 0; }
+      small { font-size: 0.75rem; color: #a8a29e; }
+    </style>
+  </head>
+  <body>
+    <main data-testid="access-status-page">
+      <div class="ring">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          aria-hidden="true"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M20.354 15.354A9 9 0 0 1 8.646 3.646 9.003 9.003 0 0 0 12 21a9.003 9.003 0 0 0 8.354-5.646Z"
+          />
+        </svg>
+      </div>
+      <h1>{status_title(@status)}</h1>
+      <%= if @body do %>
+        <p data-testid="access-status-body">{@body}</p>
+      <% end %>
+      <%= if @status == :service_unavailable do %>
+        <small>This page keeps checking.</small>
+      <% end %>
+    </main>
+  </body>
+</html>
