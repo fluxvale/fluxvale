@@ -187,7 +187,7 @@ defmodule FluxValeWeb.DashboardLive do
               </div>
               <.icon
                 name="hero-chevron-right"
-                class="absolute right-5 top-1/2 size-4 -translate-y-1/2 text-ink-subtle opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100 group-focus-visible:opacity-100"
+                class="absolute right-1 top-1/2 size-4 -translate-y-1/2 text-ink-subtle opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100 group-focus-visible:opacity-100"
               />
             </.link>
           </div>

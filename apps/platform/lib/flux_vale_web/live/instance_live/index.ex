@@ -98,12 +98,12 @@ defmodule FluxValeWeb.InstanceLive.Index do
                 {InstanceStatus.message(instance)}
               </p>
             </div>
-            <%!-- Chevron is out-of-flow in the p-5 padding band (an
-            in-flow one left a permanent 28px dead gutter before the
-            badge); reveals on hover or keyboard focus of the row. --%>
+            <%!-- Chevron rides the p-5 padding band (right-1): the reveal
+            can never collide with the row's content, and the badge keeps
+            its pre-T5a outboard position (in-flow it left a 28px gutter). --%>
             <.icon
               name="hero-chevron-right"
-              class="absolute right-5 top-1/2 size-4 -translate-y-1/2 text-ink-subtle opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100 group-focus-visible:opacity-100"
+              class="absolute right-1 top-1/2 size-4 -translate-y-1/2 text-ink-subtle opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100 group-focus-visible:opacity-100"
             />
           </.link>
         </div>
