@@ -38,6 +38,20 @@ defmodule FluxVale.TestSupport.BillingFixtures do
   end
 
   @doc """
+  Debits the org's wallet to exactly zero — the funded-gate tests'
+  precondition (the gate reads the live ledger). The ledger's unit is
+  micro-cents, hence the ×10_000.
+  """
+  @spec drain_wallet!(Organization.t()) :: :ok
+  def drain_wallet!(org) do
+    {:ok, wallet} = Billing.ensure_wallet(org)
+    {:ok, balance} = Billing.balance(wallet, authorize?: false)
+    {:ok, _drain} = Billing.debit_wallet(wallet, balance * 10_000)
+
+    :ok
+  end
+
+  @doc """
   `{org, owner}` without the JIT provisioning path — no welcome grant
   (#122), so balance math stays exact. `funded_wallet!/1` builds on it;
   concurrency tests reuse it for the committed-row ids they clean up.

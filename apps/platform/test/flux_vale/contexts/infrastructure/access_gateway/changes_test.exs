@@ -135,6 +135,24 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       assert resumed.metering_since
     end
 
+    test "a resume whose row moved concurrently is refused, not overwritten", %{org: org} do
+      gateway = AccessFixtures.gateway!(org, state: :suspended)
+
+      # Panel A's resume lands (exactly one scale — a second call fails
+      # this test).
+      expect(Tailscale, :scale_gateway, 1, fn _gateway, 1 -> :ok end)
+      {:ok, resumed} = AccessGateway.resume(gateway, authorize?: false)
+
+      # Panel B still holds the stale :suspended struct. Its write
+      # filters on the row, finds it moved, and refuses as a
+      # StaleRecord — no second scale, no anchor reset.
+      assert {:error, %Ash.Error.Invalid{}} = AccessGateway.resume(gateway, authorize?: false)
+
+      fresh = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+      assert fresh.state == :provisioning
+      assert fresh.metering_since == resumed.metering_since
+    end
+
     test "resuming a non-suspended gateway is a no-op", %{org: org} do
       gateway = AccessFixtures.gateway!(org)
 

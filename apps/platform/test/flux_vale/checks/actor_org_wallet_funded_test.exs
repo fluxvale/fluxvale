@@ -94,16 +94,14 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
     } do
       stub_k8s()
 
-      {_org, wallet, owner} = funded_org_owner!()
+      {org, wallet, owner} = funded_org_owner!()
 
       instance =
         Instance.create!(%{name: "Deploy Gate", app_version_id: version.id, env_vars: %{}},
           actor: owner
         )
 
-      # drain to exactly zero — the gate reads the live ledger
-      {:ok, balance} = Billing.balance(wallet, authorize?: false)
-      {:ok, _drain} = Billing.debit_wallet(wallet, balance * 10_000)
+      BillingFixtures.drain_wallet!(org)
 
       assert {:error, %Ash.Error.Forbidden{}} = Instance.deploy(instance, actor: owner)
 
@@ -119,7 +117,7 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
     } do
       stub_scale()
 
-      {_org, wallet, owner} = funded_org_owner!()
+      {org, wallet, owner} = funded_org_owner!()
 
       instance =
         Instance.create!(%{name: "Gate", app_version_id: version.id, env_vars: %{}}, actor: owner)
@@ -132,9 +130,7 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
 
       InstanceFixtures.pin!(stopped, namespace: "fluxvale-app-#{instance.id}")
 
-      # drain to exactly zero — the gate reads the live ledger
-      {:ok, balance} = Billing.balance(wallet, authorize?: false)
-      {:ok, _drain} = Billing.debit_wallet(wallet, balance * 10_000)
+      BillingFixtures.drain_wallet!(org)
 
       assert {:error, %Ash.Error.Forbidden{}} = Instance.start(stopped, actor: owner)
 
