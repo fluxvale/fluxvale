@@ -11,9 +11,9 @@ defmodule FluxValeWeb.AccessWakeController do
   consent that this gateway may start this instance, so the endpoint
   needs no second credential and grants nothing panel-shaped. Every
   non-pairing miss — unknown or garbage ids, a missing row, a suspended
-  gateway, a public instance, a cross-org pair — reads the identical
-  `404 "not found"`: no existence or posture leak (the EdgeWake
-  private-gate stance).
+  or being-removed gateway, a public instance, a cross-org pair — reads
+  the identical `404 "not found"`: no existence or posture leak (the
+  EdgeWake private-gate stance).
 
   Answers by status, mirroring EdgeWake's decision table with one
   difference: **no redirect, ever**. Serve owns the routing — once the
@@ -91,10 +91,19 @@ defmodule FluxValeWeb.AccessWakeController do
     end
   end
 
-  # A suspended gateway serves nothing (the ladder scaled it to 0), so
-  # there is nobody behind its ports to ask — same 404 as unknown.
-  defp gateway_serving?(%{state: :active}), do: :ok
-  defp gateway_serving?(_gateway), do: {:error, :not_active}
+  # A request arriving through the gateway is itself proof a pod sits
+  # behind the port; the row's observed state lags reality by up to the
+  # observer's minute (`:provisioning` for ~60s after every balance
+  # resume — Resume lands `:provisioning` and the `* * * * *` observer
+  # is the only `:active` promoter — `:needs_attention` while a
+  # recovered pod awaits re-reading). The excluded states are the
+  # not-serving ones: `:suspended` (scaled to 0, nothing can deliver)
+  # and `:destroying` (mid-teardown) — same 404 as unknown.
+  defp gateway_serving?(%{state: state})
+       when state in [:active, :provisioning, :needs_attention],
+       do: :ok
+
+  defp gateway_serving?(_gateway), do: {:error, :not_serving}
 
   # Defense-in-depth on top of the row (the attach operation refuses a
   # cross-org or public pairing): if an out-of-band row ever said
@@ -196,7 +205,7 @@ defmodule FluxValeWeb.AccessWakeController do
     if Edge.Activity.claim_access_flip(instance.id) == :proceed do
       case AccessProvider.impl_for(gateway).refresh_routes(gateway) do
         {:ok, _serve_config} ->
-          :ok
+          maybe_recheck(gateway, instance)
 
         # Silent would strand the visitor on a waking page that never
         # converges and leave the operator nothing to find: the config
@@ -213,6 +222,33 @@ defmodule FluxValeWeb.AccessWakeController do
       end
     else
       :throttled
+    end
+  end
+
+  # Last-writer race (P3-2, #301 review): the regeneration reads each
+  # row fresh, but this flip may have read THIS row `:running` just
+  # before a concurrent sleep committed `:sleeping` — the flip's write
+  # would then be the stale one, stranding a sleeping row on the app
+  # target (serve 502, owner-Start-only recovery, nothing re-triggers a
+  # flip). A successful regeneration therefore re-reads the row and,
+  # if it is no longer `:running`, runs ONE bounded retry — that call
+  # reads the committed `:sleeping` and re-points the entry at the wake
+  # endpoint.
+  defp maybe_recheck(gateway, instance) do
+    case Instance.get_by_id(instance.id, authorize?: false) do
+      {:ok, %{status: :running}} ->
+        :ok
+
+      {:ok, _moved_on} ->
+        _retried_config = AccessProvider.impl_for(gateway).refresh_routes(gateway)
+        :retried
+
+      # coveralls-ignore-start - race only: the row vanished under the
+      # flip (teardown won between the regeneration and this read);
+      # there is no entry left to re-point.
+      {:error, _gone} ->
+        :gone
+        # coveralls-ignore-stop
     end
   end
 

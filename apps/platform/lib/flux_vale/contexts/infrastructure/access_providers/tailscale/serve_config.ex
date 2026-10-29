@@ -101,9 +101,12 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfig do
   stopped it, or the deploy is still landing).
 
   The wake target is gated on `:access_gateway, :wake_intercept_enabled`
-  (on since #273): setting it false walks back to serve's honest 502 for
-  sleeping instances — the flag-off posture if the intercept ever needs
-  to be stood down.
+  (on since #273). The flag gates NEW serve-config writes only — a row
+  that is already `:sleeping` keeps its platform target until its next
+  wake->sleep cycle (or a re-paste / detach-attach refresh); setting it
+  false never unmounts the route, and no writer converges a
+  still-pointed-at-the-app sleeping row (the sweep selects `:running`
+  only).
   """
   @spec target_for(Ash.UUID.t(), map()) :: String.t()
   def target_for(gateway_id, %{status: :sleeping} = instance) do

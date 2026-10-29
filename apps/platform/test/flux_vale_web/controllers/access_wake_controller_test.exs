@@ -10,6 +10,8 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
   use FluxValeWeb.ConnCase, async: true
   use Mimic
 
+  import ExUnit.CaptureLog
+
   alias FluxVale.Billing
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
@@ -22,6 +24,7 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -79,6 +82,15 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
     {gateway, instance}
   end
 
+  # A second pairing on the same gateway (one gateway per org — the
+  # unique_organization identity).
+  defp attach_another!(gateway, org, owner, status) do
+    instance = private_at!(org, owner, status)
+    {:ok, _route} = Infrastructure.attach_instance(gateway, instance)
+
+    {gateway, instance}
+  end
+
   defp private_at!(org, user, status) do
     version = InstanceFixtures.app_version!()
 
@@ -119,6 +131,12 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
     gateway = AccessFixtures.gateway!(org)
 
     {org, gateway}
+  end
+
+  defp set_gateway_state!(gateway, state) do
+    gateway
+    |> Ash.Changeset.for_update(:update_state, %{state: state}, authorize?: false)
+    |> Ash.update!()
   end
 
   defp wake_url(gateway, instance, path \\ "deep/link"),
@@ -168,6 +186,39 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
 
       slept = Instance.get_by_id!(instance.id, authorize?: false)
       assert slept.status == :sleeping
+    end
+
+    test "a :provisioning gateway's pairing still wakes — the post-resume window", %{
+      conn: conn,
+      org: org,
+      owner: owner
+    } do
+      {gateway, instance} = pair!(org, owner, :sleeping)
+      set_gateway_state!(gateway, :provisioning)
+
+      conn =
+        conn
+        |> browser()
+        |> get(wake_url(gateway, instance))
+
+      # Resume lands the row :provisioning for up to the observer's
+      # minute, but the pod is already behind the port — the request
+      # proves it.
+      assert html_response(conn, 200) =~ "Waking"
+      assert Instance.get_by_id!(instance.id, authorize?: false).status == :starting
+    end
+
+    test "a :needs_attention gateway's pairing still wakes", %{conn: conn, org: org, owner: owner} do
+      {gateway, instance} = pair!(org, owner, :sleeping)
+      set_gateway_state!(gateway, :needs_attention)
+
+      conn =
+        conn
+        |> browser()
+        |> get(wake_url(gateway, instance))
+
+      assert html_response(conn, 200) =~ "Waking"
+      assert Instance.get_by_id!(instance.id, authorize?: false).status == :starting
     end
 
     test "a :starting instance gets the page without re-triggering", %{
@@ -223,15 +274,21 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
 
       stub(Tailscale, :refresh_routes, fn _gateway -> {:error, :cluster_down} end)
 
-      failed =
-        conn
-        |> browser()
-        |> get(wake_url(gateway, instance))
+      log =
+        capture_log(fn ->
+          failed =
+            conn
+            |> browser()
+            |> get(wake_url(gateway, instance))
 
-      # The flip's failure changes nothing for the visitor: the config
-      # still targets here, the next window retries, and the log names
-      # why (the throttled/failed attempt keeps the waking page).
-      assert html_response(failed, 200) =~ "Waking"
+          # The flip's failure changes nothing for the visitor: the
+          # config still targets here, the next window retries — and
+          # the operator gets the reason in the log.
+          assert html_response(failed, 200) =~ "Waking"
+        end)
+
+      assert log =~ "serve-config flip failed"
+      assert log =~ instance.id
       assert Instance.get_by_id!(instance.id, authorize?: false).status == :running
     end
 
@@ -264,6 +321,74 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
       assert html_response(second, 200) =~ "Waking"
 
       refute_received {:secret_create, _ns, _name, %{"serve.json" => _json}}
+    end
+
+    test "the production root shape — no path after the pairing — matches", %{
+      conn: conn,
+      org: org,
+      owner: owner
+    } do
+      {gateway, instance} = pair!(org, owner, :sleeping)
+
+      # Serve joins the visitor's "/" onto the target path: the most
+      # common request carries NOTHING after the prefix. The trailing
+      # slash is the same empty glob.
+      bare =
+        conn
+        |> browser()
+        |> get("/internal/access/#{gateway.id}/#{instance.id}")
+
+      assert html_response(bare, 200) =~ "Waking"
+
+      {^gateway, second_instance} = attach_another!(gateway, org, owner, :sleeping)
+      rooted_conn = build_conn()
+
+      rooted =
+        rooted_conn
+        |> browser()
+        |> get("/internal/access/#{gateway.id}/#{second_instance.id}/")
+
+      assert html_response(rooted, 200) =~ "Waking"
+    end
+
+    test "a flip that raced a sleep converges with one bounded retry", %{
+      conn: conn,
+      org: org,
+      owner: owner
+    } do
+      {gateway, instance} = pair!(org, owner, :running)
+      drain()
+
+      parent = self()
+
+      expect(Tailscale, :refresh_routes, 2, fn gw ->
+        assert gw.id == gateway.id
+
+        if Instance.get_by_id!(instance.id, authorize?: false).status == :running do
+          # Stage the last-writer race: the row commits :sleeping while
+          # the flip's regeneration is in flight, so the write this call
+          # would land is the stale app target.
+          {:ok, _asleep} = InstanceK8s.update_status(instance, :sleeping, nil)
+          send(parent, {:flip, :read_running})
+        else
+          send(parent, {:flip, :read_sleeping})
+        end
+
+        {:ok, %{}}
+      end)
+
+      raced =
+        conn
+        |> browser()
+        |> get(wake_url(gateway, instance))
+
+      assert html_response(raced, 200) =~ "Waking"
+
+      # The successful flip re-read the row, saw it moved, and ran the
+      # one bounded retry — the regeneration that reads :sleeping.
+      assert_received {:flip, :read_running}
+      assert_received {:flip, :read_sleeping}
+      assert Instance.get_by_id!(instance.id, authorize?: false).status == :sleeping
     end
 
     test "a :restoring instance answers the restore copy and never wakes", %{

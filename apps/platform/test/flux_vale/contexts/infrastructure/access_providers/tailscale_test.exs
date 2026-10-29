@@ -618,6 +618,28 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       assert awake_config =~ "app.#{instance.namespace}.svc.cluster.local:80"
       refute awake_config =~ "/internal/access/"
     end
+
+    test "regenerates the WHOLE config — a vanished route's port leaves the written Secret", %{
+      org: org,
+      owner: owner
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      instance_a = AccessFixtures.private_instance!(org, owner)
+      instance_b = AccessFixtures.private_instance!(org, owner)
+      {:ok, route_a} = Tailscale.attach_instance(gateway, instance_a)
+      {:ok, route_b} = Tailscale.attach_instance(gateway, instance_b)
+
+      # B's pairing row vanishes out-of-band (the race a concurrent
+      # teardown's row delete produces): the mounted config still
+      # carries B's port until a regeneration reads the rows.
+      AccessRoute.destroy(route_b, authorize?: false)
+
+      {:ok, _secret} = Tailscale.refresh_routes(gateway)
+
+      config = latest_serve_config()
+      assert config =~ route_a.route_key
+      refute config =~ route_b.route_key
+    end
   end
 
   describe "update_credential/2" do

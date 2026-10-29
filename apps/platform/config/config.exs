@@ -179,9 +179,10 @@ config :flux_vale,
     # instance's serve entry points at the platform's /internal/access
     # endpoint — the controller it addresses ships in the same PR — which
     # wakes the instance and flips the config back to the app once it is
-    # running. Setting this false walks back to serve's honest 502 (a
-    # sleeping app reads "not running", nothing to wake); the sleep path
-    # converges a still-pointed-at-the-app row on its next cycle.
+    # running. The flag gates NEW asleep-target writes only: a row that
+    # is already :sleeping keeps its platform target until its next
+    # wake->sleep cycle (or a re-paste / detach-attach refresh) —
+    # setting this false never unmounts the route.
     wake_intercept_enabled: true
   ],
   # One active payment provider (ADR-0029); per-provider webhook routes

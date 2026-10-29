@@ -515,9 +515,20 @@ reachable by the gateway pod". In practice the platform answers
 ingress is Host-based and forwards the prefix from the public hostname —
 so the pairing row is the WHOLE gate, not a defense-in-depth layer
 behind a network boundary. That gate holds: the pair is an unguessable
-(gateway, instance) uuid pair, it grants exactly the start the org's own
-panel offers (funded gate included), and a forged pair can only start an
-instance its own org already pays for — §6's own blast-radius argument,
-which never actually depended on the network claim. Revisit trigger: a
-measured abuse of the path from outside the cluster (the flip and the
-wake are debounced and funded-gated, so the abuse shape is narrow).
+(gateway, instance) uuid pair, and it grants exactly the start the
+org's own panel offers (funded gate included). On the public path the
+load-bearing property is that capability's secrecy — the pair never
+leaves the panel and the owner's tailnet; the same-org check is a
+backstop for out-of-band rows, not a public-path defense (a public
+caller has no org to be confined to). The wake itself is **not**
+debounced: every request that finds `:sleeping` starts it, idempotent
+by status (the next request sees `:starting`) and funded-gated; the
+serve-config flip is the debounced half
+(`Edge.Activity.claim_access_flip/1`). Gate width (#301 review): a
+request arriving through the gateway is itself proof of a serving pod,
+so the row-side gate admits the observed states too — `:active`,
+`:provisioning` (the ~60s window after every balance resume lands
+`:provisioning`), `:needs_attention` — and refuses only the
+not-serving ones (`:suspended`, `:destroying`). The row is the consent;
+the states only decide whether anything is behind the port to hear it.
+Revisit trigger: a measured abuse of the path from outside the cluster.
