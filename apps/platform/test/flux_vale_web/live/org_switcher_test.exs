@@ -429,6 +429,20 @@ defmodule FluxValeWeb.OrgSwitcherTest do
 
     assert [personal_row] = personal_rows
     assert row_href(personal_row) == "/organizations/#{canonical.slug}"
+
+    # The billing mount resolves the same org the switcher labels — the
+    # seam this PR exists to pin, wallet-free: the canonical pick here
+    # is necessarily the bare legacy org (the refute above pins it is
+    # NOT the personal one, and the user owns exactly two orgs), so its
+    # ledger renders the empty state; the personal org would show its
+    # welcome-grant ledger-row instead (#308 round-3 review, P2).
+    billing_html =
+      conn
+      |> get(~p"/billing")
+      |> html_response(200)
+
+    assert billing_html =~ ~s(data-testid="ledger-empty")
+    refute billing_html =~ ~s(data-testid="ledger-row")
   end
 
   # Both creates are system-only (#119) — the bootstrap posture,

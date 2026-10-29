@@ -1322,7 +1322,7 @@ defmodule FluxValeWeb.CoreComponents do
         />
         <%!-- The label only renders when there is one to show — the
         empty-context state (no org context, no personal org) is the
-        bare glyph, no text at all (see active_name/2). --%>
+        bare glyph, no text at all (see active_name/3). --%>
         <span
           :if={@active_name}
           class="hidden max-w-32 truncate text-xs font-semibold text-ink lg:inline"
