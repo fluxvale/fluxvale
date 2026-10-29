@@ -15,7 +15,6 @@ defmodule FluxVale.Identity.Operations.RequestAuthCode do
   alias FluxVale.Ops.AccessRules
 
   @code_digits 6
-  @ttl_minutes 10
   @resend_throttle_seconds 60
   @bcrypt_log_rounds 10
 
@@ -85,7 +84,9 @@ defmodule FluxVale.Identity.Operations.RequestAuthCode do
   end
 
   defp store_code(email, code) do
-    expires_at = DateTime.add(DateTime.utc_now(), @ttl_minutes, :minute)
+    # The TTL lives on AuthCode (ttl_minutes/0) so the pending-claim
+    # window (#285 T5) can pin to the same value without drifting.
+    expires_at = DateTime.add(DateTime.utc_now(), AuthCode.ttl_minutes(), :minute)
 
     AuthCode
     |> Ash.Changeset.for_create(:create, %{

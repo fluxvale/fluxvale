@@ -29,6 +29,11 @@ defmodule FluxVale.Identity.User.DeriveUsername do
   @max_length 39
   @min_length 2
 
+  # The shape every derived value satisfies — base/3 + with_suffix/2
+  # produce exactly this. The rename validation (#285 T5) reads the same
+  # regex via format_problem/1: one rule set, no second copy.
+  @username_format ~r/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/
+
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
     case Ash.Changeset.get_attribute(changeset, :username) do
@@ -54,6 +59,36 @@ defmodule FluxVale.Identity.User.DeriveUsername do
   def derive_unique(email, free? \\ &default_free?/1) do
     derived = base(email)
     unique(derived, 0, free?)
+  end
+
+  @doc """
+  The rename rule set (#285 T5) — one source with the derivation above:
+  no second regex, no second reserved list. Returns `nil` when the
+  username is claimable-shaped, or the friendly field message the
+  settings form renders when it is not. Uniqueness is deliberately NOT
+  here — that is the `unique_username` identity's business ("has already
+  been taken").
+  """
+  @spec format_problem(String.t() | nil) :: String.t() | nil
+  def format_problem(username) when username in [nil, ""], do: "is required"
+
+  def format_problem(username) do
+    cond do
+      String.length(username) < @min_length ->
+        "must be at least #{@min_length} characters"
+
+      String.length(username) > @max_length ->
+        "must be at most #{@max_length} characters"
+
+      not String.match?(username, @username_format) ->
+        "must use only lowercase letters, digits, and hyphens, without a leading or trailing hyphen"
+
+      username in @reserved ->
+        "is reserved"
+
+      true ->
+        nil
+    end
   end
 
   # Sanitize the local part, truncate to 39, re-trim the hyphen the cut

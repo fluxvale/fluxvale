@@ -269,6 +269,99 @@ defmodule FluxVale.Identity.UserTest do
     end
   end
 
+  describe "set_username/2 (the settings rename — #285 T5)" do
+    test "renames the account, touching nothing else" do
+      user = User.create!("renamable@x.test", %{}, authorize?: false)
+
+      assert {:ok, renamed} = rename(user, "new-handle", user)
+
+      assert renamed.username == "new-handle"
+      assert to_string(renamed.email) == to_string(user.email)
+      assert renamed.id == user.id
+    end
+
+    test "rejects an uppercase, a 1-char, a too-long, and a hyphen-edged name (DeriveUsername's rules)" do
+      user = User.create!("shapey@x.test", %{}, authorize?: false)
+      too_long = String.duplicate("a", 40)
+
+      for {bad, problem} <- [
+            {"Upper", "must use only lowercase letters"},
+            {"a", "must be at least 2 characters"},
+            {too_long, "must be at most 39 characters"},
+            {"-leading", "must use only lowercase letters"},
+            {"trailing-", "must use only lowercase letters"}
+          ] do
+        assert {:error, error} = rename(user, bad, user)
+        assert first_message(error) =~ problem, "#{inspect(bad)} should fail: #{problem}"
+      end
+
+      assert {:ok, unchanged} = User.get_by_username("shapey", authorize?: false)
+      assert unchanged.id == user.id
+    end
+
+    test "rejects a reserved name" do
+      user = User.create!("reserved@x.test", %{}, authorize?: false)
+
+      assert {:error, error} = rename(user, "admin", user)
+      assert first_message(error) =~ "is reserved"
+    end
+
+    test "rejects a blank name" do
+      user = User.create!("blanky@x.test", %{}, authorize?: false)
+
+      assert {:error, error} = rename(user, "", user)
+      assert first_message(error) =~ "is required"
+    end
+
+    test "a taken username fails with the identity's message" do
+      # seed! is the sanctioned bypass: a chosen username is a state the
+      # create action can't produce (username is not accepted there).
+      occupant = Ash.Seed.seed!(User, %{email: "occupant-set@x.test", username: "taken-name"})
+      assert occupant.username == "taken-name"
+
+      user = User.create!("contender@x.test", %{}, authorize?: false)
+
+      assert {:error, error} = rename(user, "taken-name", user)
+      assert first_message(error) =~ "has already been taken"
+    end
+
+    test "a user renames only their own record — Forbidden, and the admin keeps its grant" do
+      target = User.create!("target-of@x.test", %{}, authorize?: false)
+      actor = User.create!("actor-of@x.test", %{}, authorize?: false)
+      admin = bootstrap_admin("admin@fluxvale.com")
+
+      assert {:error, %Ash.Error.Forbidden{}} = rename(target, "hijacked", actor)
+
+      assert {:ok, renamed} = rename(target, "admin-renamed", admin)
+      assert renamed.username == "admin-renamed"
+    end
+
+    test "a run without the username changes nothing (where: changing posture)" do
+      user = User.create!("nochange@x.test", %{}, authorize?: false)
+
+      assert {:ok, same} =
+               user
+               |> Ash.Changeset.for_update(:set_username, %{})
+               |> Ash.update(actor: user, authorize?: true)
+
+      assert same.username == user.username
+    end
+
+    defp rename(user, username, actor) do
+      user
+      |> Ash.Changeset.for_update(:set_username, %{username: username})
+      |> Ash.update(actor: actor, authorize?: true)
+    end
+
+    # The first field message of an Invalid error class ("is reserved",
+    # "has already been taken", …).
+    defp first_message(%Ash.Error.Invalid{errors: errors}) do
+      errors
+      |> Enum.find(&is_binary(Map.get(&1, :message)))
+      |> then(&Map.get(&1, :message))
+    end
+  end
+
   # The derivation contract: `[a-z0-9][a-z0-9-]*[a-z0-9]`, 2–39 chars.
   defp valid_shape?(username) do
     Regex.match?(~r/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, username) and

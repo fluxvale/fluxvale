@@ -16,19 +16,23 @@ defmodule FluxVale.Identity.AuthCode do
 
   # Defined before the section that consumes it (Spark resolves DSL option
   # values at expansion time); Operations reads it via max_attempts/0 so
-  # the constraint and the ops pre-check can't drift apart.
+  # the constraint and the ops pre-check can't drift apart. ttl_minutes/0
+  # is the same tie for the code TTL: RequestAuthCode stamps it, and the
+  # pending-claim window (#285 T5) pins to it, so the two windows move
+  # together.
   @max_attempts 5
+  @ttl_minutes 10
 
   postgres do
-    table "auth_codes"
-    repo FluxVale.Repo
+    table("auth_codes")
+    repo(FluxVale.Repo)
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job
-    migration_defaults id: "nil"
+    migration_defaults(id: "nil")
 
     custom_indexes do
       # Verify lookups: latest unexpired code for an identity
-      index [:email, :expires_at]
+      index([:email, :expires_at])
     end
   end
 
@@ -36,7 +40,7 @@ defmodule FluxVale.Identity.AuthCode do
   # table; no human-facing action exists — same posture as Token.
   policies do
     bypass(AshAuthentication.Checks.AshAuthenticationInteraction) do
-      description "AshAuthentication can interact with the auth-code store"
+      description("AshAuthentication can interact with the auth-code store")
       authorize_if(always())
     end
   end
@@ -89,14 +93,14 @@ defmodule FluxVale.Identity.AuthCode do
     end
 
     destroy :burn do
-      description "Single-use: destroy on successful verify — the arbiter"
+      description("Single-use: destroy on successful verify — the arbiter")
       # Optimistic lock: concurrent burns race on attempts; exactly one
       # wins — the 0-row loser gets a stale error and mints nothing (CWE-367)
       change(optimistic_lock(:attempts))
     end
 
     read :active_for_email do
-      description "Unexpired codes for an identity (ops layer picks the latest)"
+      description("Unexpired codes for an identity (ops layer picks the latest)")
 
       argument(:email, :ci_string, allow_nil?: false)
 
@@ -107,4 +111,8 @@ defmodule FluxVale.Identity.AuthCode do
   @doc "The verify-attempt cap (see the atomic guard on register_attempt)"
   @spec max_attempts() :: pos_integer()
   def max_attempts, do: @max_attempts
+
+  @doc "The code TTL in minutes (RequestAuthCode stamps it; see UserEmail.claim_ttl_minutes/0)"
+  @spec ttl_minutes() :: pos_integer()
+  def ttl_minutes, do: @ttl_minutes
 end

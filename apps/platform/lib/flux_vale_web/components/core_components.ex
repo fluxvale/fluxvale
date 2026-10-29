@@ -1199,6 +1199,15 @@ defmodule FluxValeWeb.CoreComponents do
         >
           Billing
         </.link>
+        <%!-- #285 T5: account settings — a link row like the others;
+        href, not navigate, the same close-on-click posture (#205). --%>
+        <.link
+          href={~p"/settings"}
+          class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+          data-testid="user-menu-settings"
+        >
+          Account settings
+        </.link>
         <.link
           href={~p"/about"}
           class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"

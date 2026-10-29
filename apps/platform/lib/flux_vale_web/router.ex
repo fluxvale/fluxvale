@@ -227,6 +227,9 @@ defmodule FluxValeWeb.Router do
       # #276: the org home — the switcher rows' target, slug-keyed like
       # the catalog.
       live("/organizations/:slug", OrganizationLive.Home)
+      # #285 T5: account settings — the username rename + email
+      # management, linked from the user menu.
+      live("/settings", SettingsLive)
     end
   end
 

@@ -23,6 +23,7 @@ defmodule FluxVale.Identity.UserEmail do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias FluxVale.Identity.AuthCode
   alias FluxVale.Identity.UserEmail.EnforceEmailCap
   alias FluxVale.Identity.UserEmail.RemoveGuard
   alias FluxVale.Identity.UserEmail.SetPrimary
@@ -291,6 +292,46 @@ defmodule FluxVale.Identity.UserEmail do
   def supersede_pending_claims(address) do
     __MODULE__
     |> Ash.Query.filter(address == ^address and is_nil(verified_at))
+    |> Ash.bulk_destroy!(:supersede_pending, %{}, authorize?: false)
+
+    :ok
+  end
+
+  # The pending-claim window (#285 T5, the T3-review P2-2 expiry story):
+  # a claim is only as good as its outstanding code, so it lives exactly
+  # one code TTL — read LIVE from AuthCode so the two windows cannot
+  # drift. unique_address is global, so an unbounded claim pins the
+  # address account-wide: an abandoned claim blocked re-adds and even
+  # the JIT create forever. The window is the smallest honest
+  # abandonment story — supersede_expired_claims/1 frees the address
+  # once no proof can reasonably be in flight. It bounds the CLAIM, not
+  # the proof: a code that lands late still verifies (VerifyEmail reads
+  # no clock; the burned code is the proof).
+  @doc "The pending-claim window in minutes — one code TTL (see supersede_expired_claims/1)"
+  @spec claim_ttl_minutes() :: pos_integer()
+  def claim_ttl_minutes, do: AuthCode.ttl_minutes()
+
+  @doc """
+  Atomically supersedes every PENDING claim on `address` that is OLDER
+  than the claim window — the abandonment story (#285 T5, T3-review
+  P2-2). An unproven claim stops pinning the address once its window
+  passes, so `AddEmail` can re-claim it — any caller's re-claim, owner
+  or stranger: the claim conferred zero rights, and the re-claim still
+  needs inbox proof (a fresh code to that same inbox). A LIVE claim
+  still blocks: its code may be mid-verify.
+
+  Same pending-only/atomic posture as `supersede_pending_claims/1`
+  (the filter is evaluated in SQL at destroy time); the unconditional
+  seam stays the proof-carrying paths — the sign-in JIT and the seed.
+  authorize?: false — the expired window is the authorization, and
+  UserEmail has no interaction context by design.
+  """
+  @spec supersede_expired_claims(String.t() | Ash.CiString.t()) :: :ok
+  def supersede_expired_claims(address) do
+    cutoff = DateTime.add(DateTime.utc_now(), -claim_ttl_minutes(), :minute)
+
+    __MODULE__
+    |> Ash.Query.filter(address == ^address and is_nil(verified_at) and created_at < ^cutoff)
     |> Ash.bulk_destroy!(:supersede_pending, %{}, authorize?: false)
 
     :ok
