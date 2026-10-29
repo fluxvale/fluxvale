@@ -147,21 +147,23 @@ defmodule FluxValeWeb.DashboardLive do
             You have {format_usd(@wallet.balance_cents)} in credits — your first deploy is on us.
           </.callout>
 
+          <%!-- Same card language as the index rows (#277 T5a) — see
+          instance_live/index.ex for the note. --%>
           <div id="dashboard-instances" phx-update="stream" class="space-y-3">
             <.link
               :for={{dom_id, instance} <- @streams.instances}
               navigate={~p"/instances/#{instance.id}"}
               id={dom_id}
               data-testid="instance-row"
-              class="group block rounded-xl border border-line bg-panel p-5 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
+              class="group relative block rounded-panel border border-line-strong bg-panel p-5 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow,translate] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md motion-safe:hover:-translate-y-1"
             >
               <div class="space-y-2">
                 <div class="flex flex-wrap items-center justify-between gap-3">
                   <div class="flex min-w-0 items-center gap-3">
-                    <h3 class="text-base font-medium text-ink transition-colors group-hover:text-link">
+                    <h3 class="min-w-0 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
                       {instance.name}
                     </h3>
-                    <span class="font-mono text-xs text-ink-subtle">{instance.slug}</span>
+                    <span class="font-mono text-xs text-ink-subtle shrink-0">{instance.slug}</span>
                   </div>
                   <div class="flex items-center gap-3">
                     <span class="text-sm text-ink-muted">
@@ -183,6 +185,10 @@ defmodule FluxValeWeb.DashboardLive do
                   {InstanceStatus.message(instance)}
                 </p>
               </div>
+              <.icon
+                name="hero-chevron-right"
+                class="absolute right-1 top-1/2 size-4 -translate-y-1/2 text-ink-subtle opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100 group-focus-visible:opacity-100"
+              />
             </.link>
           </div>
         </section>
