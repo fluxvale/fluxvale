@@ -613,6 +613,23 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       assert has_element?(view, "[data-testid=status-badge]", "Connecting")
       refute has_element?(view, "[data-testid='access-resume']")
     end
+
+    test "a re-paste from another tab lands connecting live", %{conn: conn, org: org} do
+      gateway = AccessFixtures.gateway!(org, state: :needs_attention)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      assert has_element?(view, "[data-testid=status-badge]", "Needs attention")
+
+      # The same row re-pasted elsewhere: the :update_credential publish
+      # moves this panel off the reconnect surface too.
+      AccessGateway.update_credential(gateway, %{auth_key: "tskey-auth-elsewhere"},
+        authorize?: false
+      )
+
+      assert has_element?(view, "[data-testid=status-badge]", "Connecting")
+      refute has_element?(view, "#access-repaste-form")
+    end
   end
 
   # The gateway lifecycle's provider legs, Mimic-stubbed for every test

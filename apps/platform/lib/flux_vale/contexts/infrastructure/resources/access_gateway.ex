@@ -198,10 +198,11 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     publish(:create, ["access_gateways", :organization_id])
     # The owner/state-machine arms that bypass the :update_state funnel
     # (force-changes on their own actions) — without these an open panel
-    # never sees the ladder's suspension, a resume from another tab, or
-    # an error handler's landing.
+    # never sees the ladder's suspension, a resume or a re-paste from
+    # another tab, or an error handler's landing.
     publish(:suspend, ["access_gateways", :organization_id])
     publish(:resume, ["access_gateways", :organization_id])
+    publish(:update_credential, ["access_gateways", :organization_id])
     publish(:mark_provision_error, ["access_gateways", :organization_id])
     publish(:mark_teardown_error, ["access_gateways", :organization_id])
     # The teardown's hard delete is the one state change that never

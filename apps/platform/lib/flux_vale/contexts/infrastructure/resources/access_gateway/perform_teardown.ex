@@ -51,18 +51,20 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformTeardown do
     changeset =
       Ash.Changeset.for_destroy(gateway, :destroy_after_teardown, %{}, authorize?: false)
 
-    # Ash's destroy returns :ok when the action carries no publish
-    # (this system action publishes nothing) and {:ok, notifications}
-    # when it does — accept both rather than couple to the notifier's
-    # presence.
+    # The return shape is transaction-context-dependent: outside a repo
+    # transaction Ash delivers the publish itself and returns :ok;
+    # inside one, the notifications come back for post-commit delivery.
+    # Accept both rather than couple to the caller's nesting.
     result = Ash.destroy(changeset)
 
     case result do
       :ok ->
         {:ok, gateway}
 
-      # Defensive: Ash returns :ok today (this action publishes
-      # nothing); the tuple arm is the notifier-present shape.
+      # The tuple shape only shows up when the destroy nests inside a
+      # transaction; the suite's inline Oban teardown runs outside one,
+      # so Ash delivers the publish itself and returns :ok. (A
+      # single-file test run hits this arm; the full suite never does.)
       # coveralls-ignore-next-line
       {:ok, _notifications} ->
         {:ok, gateway}
