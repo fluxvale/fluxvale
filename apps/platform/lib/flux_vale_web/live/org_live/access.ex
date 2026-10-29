@@ -278,7 +278,13 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       # and the click — the generic copy is the honest answer to a
       # click that can no longer mean anything.
       _gone ->
-        {:noreply, assign(socket, attach_error: :cluster)}
+        # The instance left between render and click — a stale row. The
+        # generic copy answers the click AND the lists re-read so the
+        # ghost row disappears instead of failing forever.
+        {:noreply,
+         socket
+         |> assign(attach_error: :cluster)
+         |> refresh_pairing()}
     end
   end
 
@@ -305,7 +311,13 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         end
 
       _gone ->
-        {:noreply, put_flash(socket, :error, "Couldn't detach — try again.")}
+        # Stale row (CodeRabbit round): refresh alongside the retry copy
+        # so a vanished instance leaves the attached list, not a ghost
+        # that re-fails every click.
+        {:noreply,
+         socket
+         |> put_flash(:error, "Couldn't detach — try again.")
+         |> refresh_pairing()}
     end
   end
 

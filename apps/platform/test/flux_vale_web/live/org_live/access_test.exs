@@ -1174,6 +1174,27 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       render_click(view, "detach", %{"instance_id" => Ecto.UUID.generate()})
       assert has_element?(view, "#flash-error", "Couldn't detach")
     end
+
+    # CodeRabbit round: a stale row must leave with its failed click —
+    # the lists re-read, the ghost does not re-fail forever.
+    test "a stale attach click drops the vanished row from the waiting list", %{
+      conn: conn,
+      org: org,
+      owner: owner
+    } do
+      AccessFixtures.gateway!(org)
+      ghost = AccessFixtures.private_instance!(org, owner)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      assert has_element?(view, "#access-attach-#{ghost.id}")
+
+      Ash.destroy!(ghost, authorize?: false)
+
+      render_click(view, "attach", %{"instance_id" => ghost.id})
+      assert has_element?(view, "[data-testid='access-attach-error']", "Couldn't attach")
+      refute has_element?(view, "#access-attach-#{ghost.id}")
+    end
   end
 
   # The gateway lifecycle's provider legs, Mimic-stubbed for every test
