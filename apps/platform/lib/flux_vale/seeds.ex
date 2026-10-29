@@ -110,9 +110,12 @@ defmodule FluxVale.Seeds do
 
   # The collision arm: the address belongs to a user get_by_email
   # cannot see — the old-pod shape (users.email set, no user_emails
-  # row). Heal their mirror row exactly as the create path would, then
-  # apply the squatter gate: an admin passes; a non-admin occupant is
-  # the operator-decides raise, unchanged in spirit.
+  # row). Heal their mirror row exactly as the create path would
+  # (primary only when the account has none — a promoted second address
+  # stays primary; forcing it would collide the partial index and wedge
+  # every deploy, review round 2 P1), then apply the squatter gate: an
+  # admin passes; a non-admin occupant is the operator-decides raise,
+  # unchanged in spirit.
   defp heal_seed_admin!(collision) do
     case frozen_email_owner(@admin_email) do
       {:ok, %{platform_role: :admin} = admin} ->

@@ -220,9 +220,62 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
       # window between the re-lookup above and this create (review
       # P2-1). Either way the burned code is still the inbox proof —
       # resolve THAT account; no second account, no lost verified stamp.
-      {:error, _collision} ->
-        resolve_collided(email)
+      # Only the two uniqueness identities mean that, though: any other
+      # create failure routes into the heal and gets reinterpreted as
+      # one (review round 2, P3 — that match is what turned the P1
+      # primary-index failure into a silent wrong-arm write).
+      {:error, collision} ->
+        if unique_collision?(collision) do
+          resolve_collided(email)
+        else
+          # coveralls-ignore-start - non-uniqueness create failures are
+          # not sequentially reachable: format is refused at code-send,
+          # username/org-slug collisions are probed away by their
+          # changes (DeriveUsername, ProvisionPersonalOrg), and DB
+          # failures are the same class as the other DB-down arms
+          {:error, :provisioning_failed}
+          # coveralls-ignore-stop
+        end
     end
+  end
+
+  # A collision is a uniqueness violation on the address identities —
+  # users.unique_email or user_emails.unique_address (the mirror write
+  # riding the create). AshPostgres reports the violated constraint in
+  # the error's private_vars; anything else (a validation, a cap
+  # trigger, a DB failure) is not an "address already owned" signal.
+  defp unique_collision?(%Ash.Error.Invalid{} = error) do
+    Enum.any?(error.errors, &unique_constraint_error?/1)
+  end
+
+  # coveralls-ignore-start - a non-Invalid error class on the JIT
+  # create is a DB failure — the same class as the other DB-down arms,
+  # not simulatable under the sandbox
+  defp unique_collision?(_other_class), do: false
+  # coveralls-ignore-stop
+
+  defp unique_constraint_error?(%Ash.Error.Changes.InvalidAttribute{} = error) do
+    unique_attribute?(error) and unique_constraint?(error)
+  end
+
+  # coveralls-ignore-start - the collision error carries a single
+  # attribute error (the probes' shapes); a non-attribute member would
+  # need a concurrent multi-error commit
+  defp unique_constraint_error?(_error), do: false
+  # coveralls-ignore-stop
+
+  defp unique_attribute?(%{field: field}) when field in [:email, :address], do: true
+
+  # coveralls-ignore-start - the other reachable attribute arms are
+  # gone or intercepted earlier: the :user_id partial-index violation
+  # ended with the round-2 P1 primary-conditional heal, and username/
+  # org-slug identities are probed away by their changes (DeriveUsername,
+  # ProvisionPersonalOrg) — race-only residue
+  defp unique_attribute?(_error), do: false
+  # coveralls-ignore-stop
+
+  defp unique_constraint?(error) do
+    Keyword.get(error.private_vars || [], :constraint_type) == :unique
   end
 
   defp create_user(email) do
@@ -259,14 +312,26 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   # create collides on users.unique_email. The burned code is still the
   # inbox proof: fetch THAT user (authorize?: false, system seam) and
   # write the mirror row exactly as the create path would — riding the
-  # same :add changeset so the cap and validation hold, primary (they
-  # have none by construction). One-time re-login posture stands
-  # (ADR-0023 Am. 1); the F1 sweep closes the residue.
+  # same :add changeset so the cap and validation hold, primary only
+  # when the account has none yet (a healed account may own one already;
+  # forcing it would collide the partial index — review round 2, P1).
+  # One-time re-login posture stands (ADR-0023 Am. 1); the F1 sweep
+  # closes the residue.
   defp heal_old_pod_user(email) do
     case frozen_email_owner(email) do
       {:ok, %User{} = user} ->
-        with {:ok, _mirror_row} <- MirrorSignupEmail.write_mirror_row(user) do
-          {:ok, user}
+        case MirrorSignupEmail.write_mirror_row(user) do
+          {:ok, _mirror_row} ->
+            {:ok, user}
+
+          # The heal's write was refused (the cap, a DB failure — the
+          # uniqueness arms are routed away from here by
+          # unique_collision?/1). The bare-with used to leak the
+          # %Ash.Error.Invalid{} class out of call/2, breaking its
+          # {:error, atom()} contract — same public shape as the
+          # owner-gone arm below.
+          {:error, _refused} ->
+            {:error, :address_unresolved}
         end
 
       # The create just collided on this address, so an owner existed

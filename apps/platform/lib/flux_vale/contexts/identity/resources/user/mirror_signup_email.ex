@@ -20,12 +20,19 @@ defmodule FluxVale.Identity.User.MirrorSignupEmail do
   The same write is the old-pod heal's seam (`write_mirror_row/1`):
   accounts created by pre-T3 pods hold their address in `users.email`
   with no row, and their first post-T3 sign-in (or the seed) writes the
-  row this change would have (#285 review P2-3).
+  row this change would have (#285 review P2-3). The heal may reach an
+  account that already owns another row — a second address promoted
+  primary while the signup address still had none — so the row takes
+  `is_primary` only when the account has no primary yet; forcing true
+  would collide the partial unique index and wedge the sign-in.
   """
 
   use Ash.Resource.Change
 
   alias FluxVale.Identity.UserEmail
+
+  # Ash.Query.filter is a macro
+  require Ash.Query
 
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
@@ -43,13 +50,19 @@ defmodule FluxVale.Identity.User.MirrorSignupEmail do
   end
 
   @doc """
-  Writes the account's verified-primary mirror row for `user.email` —
-  the create path's own post-insert step, exposed so the old-pod heals
+  Writes the account's verified mirror row for `user.email` — the
+  create path's own post-insert step, exposed so the old-pod heals
   (VerifyAuthCode's collision arm, the seed admin) write exactly the row
   the create would have: one writer for the mirror shape, so the two
-  paths cannot fork. Primary: the healed account has no other row by
-  construction. authorize?: false — the caller is a system seam (a
-  burned code, or the bootstrap seed).
+  paths cannot fork.
+
+  Primary only when the account has no primary row yet. The create
+  path's account is brand-new (always none); a healed account may own
+  one already — a second address promoted while the signup address had
+  no row — and forcing true would collide the partial unique index
+  (at-most-one primary per user), failing the heal and wedging the
+  address (review round 2, P1). authorize?: false — the caller is a
+  system seam (a burned code, or the bootstrap seed).
   """
   @spec write_mirror_row(FluxVale.Identity.User.t()) ::
           {:ok, UserEmail.t()} | {:error, term()}
@@ -60,7 +73,20 @@ defmodule FluxVale.Identity.User.MirrorSignupEmail do
     # plain setter refuses after that point — the values are literals
     # the create already knows (same escape SetPrimary's hook makes)
     |> Ash.Changeset.force_change_attribute(:verified_at, DateTime.utc_now())
-    |> Ash.Changeset.force_change_attribute(:is_primary, true)
+    |> Ash.Changeset.force_change_attribute(:is_primary, takes_primary?(user))
     |> Ash.create(authorize?: false)
+  end
+
+  # authorize?: false — an invariant count, not an authorization
+  # question (the caller is the system seam; same stance as
+  # EnforceEmailCap). Runs inside the caller's transaction, so the read
+  # sees the same row state the insert will commit against.
+  defp takes_primary?(user) do
+    count =
+      UserEmail
+      |> Ash.Query.filter(user_id == ^user.id and is_primary)
+      |> Ash.count!(authorize?: false)
+
+    count == 0
   end
 end

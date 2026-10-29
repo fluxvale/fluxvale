@@ -243,6 +243,64 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
       assert owner_id == old_pod.id
       refute is_nil(verified)
     end
+
+    test "an old-pod account already at the address cap signs in refused — atom-shaped, nothing healed",
+         %{email: email} do
+      # The heal's else arm: a pre-T3 user who spent their cap on other
+      # addresses cannot gain a 6th row for the signup address — the
+      # honest answer is the atom-shaped refusal, not a wedging raise
+      # and not a lie. (A real operator path exists: free a slot.)
+      old_pod = Ash.Seed.seed!(User, %{email: email})
+
+      for n <- 1..UserEmail.max_emails_per_user() do
+        address = "verify-capped-#{n}-#{System.unique_integer()}@fluxvale.com"
+        assert {:ok, _row} = UserEmail.add(address, %{user: old_pod}, authorize?: false)
+      end
+
+      assert :ok = Identity.request_auth_code(email)
+
+      # the atom shape is the contract: the bare-with arm used to leak
+      # %Ash.Error.Invalid{} out of call/2
+      assert {:error, :address_unresolved} = Identity.verify_auth_code(email, mailbox_code())
+
+      # nothing healed: still exactly the five rows, no signup row
+      assert [] = rows_for(email)
+      assert [%User{}] = users_with_email(email)
+    end
+
+    test "an old-pod account that already promoted a second primary still signs in — the heal attaches the signup row non-primary",
+         %{email: email} do
+      # The p17 wedge (round-2 P1): a pre-T3 account served by a new pod
+      # during a rolling deploy adds and promotes a second address, then
+      # signs in with the SIGNUP address. The heal used to force
+      # is_primary: true — colliding the at-most-one-primary index,
+      # escaping call/2's {:error, atom()} contract as a non-atom
+      # %Ash.Error.Invalid{}, and burning a code per attempt forever.
+      old_pod = Ash.Seed.seed!(User, %{email: email})
+      second = "verify-wedge-#{System.unique_integer()}@fluxvale.com"
+
+      assert {:ok, row} = UserEmail.add(second, %{user: old_pod}, authorize?: false)
+      assert {:ok, _verified} = UserEmail.mark_verified(row, authorize?: false)
+      assert {:ok, _promoted} = UserEmail.set_primary(row, actor: old_pod, authorize?: true)
+
+      assert :ok = Identity.request_auth_code(email)
+
+      # the {:ok, _, _} SHAPE is the assertion: an error class escaping
+      # here fails the pattern match (and would not be an atom)
+      assert {:ok, signed_in, _token} = Identity.verify_auth_code(email, mailbox_code())
+      assert signed_in.id == old_pod.id
+
+      # the healed signup row is verified but NON-primary — the promoted
+      # second address keeps primary; no second account exists
+      assert [%{user_id: owner_id, verified_at: verified, is_primary: false}] = rows_for(email)
+      assert owner_id == old_pod.id
+      refute is_nil(verified)
+
+      assert [%{user_id: second_owner_id, is_primary: true}] = rows_for(second)
+      assert second_owner_id == old_pod.id
+
+      assert [%User{}] = users_with_email(email)
+    end
   end
 
   describe "access gate (#26 — Am. 1: the mint closes the code-TTL window)" do

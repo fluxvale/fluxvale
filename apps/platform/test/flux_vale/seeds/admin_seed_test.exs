@@ -177,6 +177,37 @@ defmodule FluxVale.Seeds.AdminSeedTest do
       assert [%User{}] = users_matching_email()
     end
 
+    test "heals a pre-T3 admin that promoted a second primary — :ok, the mirror row attaches non-primary" do
+      # Round-2 P1 arm F: the heal used to force is_primary and collide
+      # the at-most-one-primary index — RAISE on every deploy
+      # (ADR-0033's init container boots NotReady). The heal must take
+      # primary only when the account has none.
+      admin = Ash.Seed.seed!(User, %{email: "admin@fluxvale.com", platform_role: :admin})
+      second = "admin-second-#{System.unique_integer()}@fluxvale.com"
+
+      assert {:ok, row} = UserEmail.add(second, %{user: admin}, authorize?: false)
+      assert {:ok, _verified} = UserEmail.mark_verified(row, authorize?: false)
+      assert {:ok, _promoted} = UserEmail.set_primary(row, actor: admin, authorize?: true)
+
+      assert :ok = Seeds.seed_admin!()
+
+      # healed, not duplicated
+      healed = User.get_by_email!("admin@fluxvale.com", authorize?: false)
+      assert healed.id == admin.id
+      assert [%User{}] = users_matching_email()
+
+      # consistent rows: the signup address gained a verified NON-primary
+      # row; the promoted second address keeps primary
+      assert [%{user_id: owner_id, verified_at: verified, is_primary: false}] =
+               seed_address_rows()
+
+      assert owner_id == admin.id
+      refute is_nil(verified)
+
+      assert [%{user_id: second_owner_id, is_primary: true}] = rows_for(second)
+      assert second_owner_id == admin.id
+    end
+
     test "an old-pod NON-admin occupant of the seed address still raises — rows untouched" do
       Ash.Seed.seed!(User, %{email: "admin@fluxvale.com", platform_role: :user})
 
@@ -195,9 +226,11 @@ defmodule FluxVale.Seeds.AdminSeedTest do
       |> Ash.read!(authorize?: false)
     end
 
-    defp seed_address_rows do
+    defp seed_address_rows, do: rows_for("admin@fluxvale.com")
+
+    defp rows_for(address) do
       UserEmail
-      |> Ash.Query.filter(address == ^"admin@fluxvale.com")
+      |> Ash.Query.filter(address == ^address)
       |> Ash.read!(authorize?: false)
     end
   end
