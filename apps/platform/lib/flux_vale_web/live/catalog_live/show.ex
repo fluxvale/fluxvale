@@ -37,45 +37,59 @@ defmodule FluxValeWeb.CatalogLive.Show do
             &larr; Catalog
           </.button>
 
-          <div class="flex items-start gap-4">
-            <div class="flex size-14 shrink-0 items-center justify-center rounded-xl bg-primary-muted text-xl font-semibold text-link">
-              <img :if={@app.icon_url} src={@app.icon_url} alt={@app.name} class="size-14 rounded-xl" />
-              <span :if={is_nil(@app.icon_url)}>{String.first(@app.name)}</span>
-            </div>
-            <div class="space-y-1.5">
-              <h1 class="text-2xl font-semibold tracking-tight text-ink">{@app.name}</h1>
-              <p :if={@app.tagline} class="text-ink-muted">{@app.tagline}</p>
-              <div class="flex flex-wrap items-center gap-3 pt-1 text-sm">
-                <.badge>{@app.category.name}</.badge>
-                <.badge :if={@app.file_access} data-testid="file-access-badge">
-                  File access
-                </.badge>
-                <a
-                  :if={@app.source_url}
-                  href={@app.source_url}
-                  class="font-medium text-link hover:underline"
-                  target="_blank"
-                  rel="noopener"
-                >
-                  Source
-                </a>
-                <a
-                  :if={@app.docs_url}
-                  href={@app.docs_url}
-                  class="font-medium text-link hover:underline"
-                  target="_blank"
-                  rel="noopener"
-                >
-                  Docs
-                </a>
+          <%!-- App poster (#277 T4): identity + description in one card —
+          the page's panel band; versions stay cards on canvas below. --%>
+          <.card class="space-y-4">
+            <div class="flex items-start gap-4">
+              <div class="grid size-14 shrink-0 place-items-center rounded-control bg-primary-muted text-xl font-semibold text-link">
+                <img
+                  :if={@app.icon_url}
+                  src={@app.icon_url}
+                  alt={@app.name}
+                  class="size-9 rounded-control"
+                />
+                <span :if={is_nil(@app.icon_url)}>{String.first(@app.name)}</span>
+              </div>
+              <div class="space-y-1.5">
+                <h1 class="text-2xl font-semibold tracking-tight text-ink">{@app.name}</h1>
+                <p :if={@app.tagline} class="text-ink-muted">{@app.tagline}</p>
+                <div class="flex flex-wrap items-center gap-3 pt-1 text-sm">
+                  <.badge>{@app.category.name}</.badge>
+                  <.badge :if={@app.file_access} data-testid="file-access-badge">
+                    File access
+                  </.badge>
+                  <a
+                    :if={@app.source_url}
+                    href={@app.source_url}
+                    class="font-medium text-link hover:underline"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    Source
+                  </a>
+                  <a
+                    :if={@app.docs_url}
+                    href={@app.docs_url}
+                    class="font-medium text-link hover:underline"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    Docs
+                  </a>
+                </div>
               </div>
             </div>
-          </div>
+            <p
+              :if={is_binary(@app.description) and String.trim(@app.description) != ""}
+              class="border-t border-line pt-4 leading-relaxed text-ink-muted"
+            >
+              <%!-- pre-line rides the span: the p's own whitespace is normal,
+              so the template's indentation newlines collapse instead of
+              laying out a phantom blank line (T4 review). --%>
+              <span class="whitespace-pre-line">{String.trim(@app.description)}</span>
+            </p>
+          </.card>
         </div>
-
-        <p :if={@app.description} class="leading-relaxed whitespace-pre-line text-ink-muted">
-          {@app.description}
-        </p>
 
         <div class="space-y-4">
           <h2 class="text-lg font-semibold tracking-tight text-ink">Versions</h2>
@@ -98,8 +112,10 @@ defmodule FluxValeWeb.CatalogLive.Show do
                   Deploy
                 </.button>
               </div>
-              <p :if={version.release_notes} class="text-sm whitespace-pre-line text-ink-muted">
-                {version.release_notes}
+              <p :if={version.release_notes} class="text-sm text-ink-muted">
+                <%!-- pre-line rides the span — same phantom-line fix as the
+                poster description above (T4 review). --%>
+                <span class="whitespace-pre-line">{version.release_notes}</span>
               </p>
               <div class="flex flex-wrap gap-2">
                 <.badge>{version.default_cpu_cores} CPU</.badge>

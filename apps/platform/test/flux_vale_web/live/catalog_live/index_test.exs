@@ -31,11 +31,26 @@ defmodule FluxValeWeb.CatalogLive.IndexTest do
         authorize?: false
       )
 
+    # The icon-bearing sibling covers the img arm of the icon-in-tile
+    # (#277): Forgejo above exercises the letter-fallback arm.
+    iconed =
+      App.create!(
+        %{
+          name: "Gitea #{n}",
+          slug: "gitea-#{n}",
+          tagline: "Git service",
+          icon_url: "https://example.com/gitea.png",
+          category_id: category.id
+        },
+        authorize?: false
+      )
+
     {:ok, view, _html} = live(conn, ~p"/apps")
 
     assert has_element?(view, "h2", "Developer Tools #{n}")
     assert has_element?(view, "#app-#{app.id}", "Forgejo #{n}")
     assert has_element?(view, "#app-#{app.id} a, #app-#{app.id}")
+    assert has_element?(view, "#app-#{iconed.id} img[src='https://example.com/gitea.png']")
   end
 
   test "an empty catalog renders the empty state", %{conn: conn} do

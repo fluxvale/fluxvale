@@ -26,13 +26,19 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
     linked_app =
       App.update!(
         app,
-        %{source_url: "https://example.com/src", docs_url: "https://example.com/docs"},
+        %{
+          source_url: "https://example.com/src",
+          docs_url: "https://example.com/docs",
+          icon_url: "https://example.com/forgejo.png"
+        },
         authorize?: false
       )
 
     {:ok, view, html} = live(conn, ~p"/apps/#{linked_app.slug}")
 
     assert has_element?(view, "h1", app.name)
+    # The poster tile renders the app icon (#277 icon-in-tile).
+    assert has_element?(view, "img[src='https://example.com/forgejo.png']")
     assert has_element?(view, ".fv-badge", app.category.name)
     assert has_element?(view, "#version-#{version.id}", "v#{version.version}")
     assert has_element?(view, "#deploy-#{version.id}")

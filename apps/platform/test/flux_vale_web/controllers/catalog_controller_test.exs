@@ -35,7 +35,9 @@ defmodule FluxValeWeb.CatalogControllerTest do
 
   describe "GET /catalog" do
     test "renders category-grouped app cards for anonymous visitors", %{conn: conn} do
-      app = catalog_app!()
+      # icon_url exercises the SSR tile's img arm — the LiveView twin
+      # covers it, this file didn't (#277 T4 review).
+      app = catalog_app!(icon_url: "https://example.com/icon.png")
 
       conn = get(conn, ~p"/catalog")
       html = html_response(conn, 200)
@@ -44,6 +46,7 @@ defmodule FluxValeWeb.CatalogControllerTest do
       assert html =~ app.name
       assert html =~ app.tagline
       assert html =~ ~s(href="/catalog/#{app.slug}")
+      assert html =~ ~s(src="https://example.com/icon.png")
     end
 
     test "renders the empty state", %{conn: conn} do
