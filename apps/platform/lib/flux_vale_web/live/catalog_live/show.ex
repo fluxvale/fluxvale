@@ -112,8 +112,10 @@ defmodule FluxValeWeb.CatalogLive.Show do
                   Deploy
                 </.button>
               </div>
-              <p :if={version.release_notes} class="text-sm whitespace-pre-line text-ink-muted">
-                {version.release_notes}
+              <p :if={version.release_notes} class="text-sm text-ink-muted">
+                <%!-- pre-line rides the span — same phantom-line fix as the
+                poster description above (T4 review). --%>
+                <span class="whitespace-pre-line">{version.release_notes}</span>
               </p>
               <div class="flex flex-wrap gap-2">
                 <.badge>{version.default_cpu_cores} CPU</.badge>
