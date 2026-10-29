@@ -13,7 +13,10 @@ defmodule FluxVale.Infrastructure.Operations.GatewayPolicySurvivalTest do
   # Both writers are pinned here because both had the bug — special-casing
   # the toggle alone would leave the redeploy path broken.
 
-  use FluxVale.DataCase, async: true
+  # NOT async: the fail-loud arm below deletes the :namespace key from
+  # global app env (restored in on_exit) — concurrent provider tests
+  # call the raising resolver and die on the window.
+  use FluxVale.DataCase, async: false
   use Mimic
 
   alias FluxVale.Clients.K8s
@@ -100,12 +103,13 @@ defmodule FluxVale.Infrastructure.Operations.GatewayPolicySurvivalTest do
       gateway = AccessFixtures.gateway!(org)
       instance = attached_instance!(org, owner, gateway, :private)
 
-      # Carried finding #1 chose fail-loud over degradation: a missing
-      # namespace used to silently admit the gateway peer into the
-      # "fluxvale-access" fallback while the provider's Deployment went
-      # somewhere else, severing reachability on every reconfigure. The
-      # old contract here — degrade to the plain floor — is exactly the
-      # silent half-deploy the fix removes, so this now raises.
+      # Carried finding #1 chose fail-loud over degradation: at base,
+      # attach admitted the peer into the provider's "fluxvale-access"
+      # fallback while the instance-side spec builder dropped the peer
+      # on the next exposure flip or redeploy, silently severing
+      # reachability. The old contract here — degrade to the plain
+      # floor — is exactly the silent half-deploy the fix removes, so
+      # this now raises.
       put_access_config(:delete, :namespace)
 
       assert_raise KeyError, ~r/key :namespace not found/, fn ->

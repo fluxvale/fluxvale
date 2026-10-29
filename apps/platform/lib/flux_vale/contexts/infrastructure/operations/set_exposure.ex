@@ -24,6 +24,7 @@ defmodule FluxVale.Infrastructure.Operations.SetExposure do
   """
 
   alias FluxVale.Clients.K8s.Resources.NetworkPolicy
+  alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.InstanceK8s
@@ -39,7 +40,21 @@ defmodule FluxVale.Infrastructure.Operations.SetExposure do
   @spec call(Instance.t()) :: :ok | {:error, term()}
   def call(instance) do
     with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance) do
+      precheck_access_namespace(instance)
       apply_exposure(kubeconfig, instance)
+    end
+  end
+
+  # Attached instances reach the namespace resolver inside apply_policy
+  # — AFTER edge writes whose compensators below only handle error
+  # tuples, so a raise there unwinds past them and strands exactly the
+  # drift they exist to prevent. Resolve EAGERLY, before the first
+  # write. Unattached instances never reach the resolver; their
+  # exposure must not fail on access-gateway config.
+  defp precheck_access_namespace(%Instance{id: id}) do
+    case AccessRoute.get_by_instance(id, authorize?: false) do
+      {:ok, _route} -> InstanceK8s.gateway_access_namespace()
+      {:error, _no_route} -> :ok
     end
   end
 

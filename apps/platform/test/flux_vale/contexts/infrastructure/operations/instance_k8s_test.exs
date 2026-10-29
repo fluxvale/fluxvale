@@ -1,9 +1,44 @@
-defmodule FluxVale.Infrastructure.NamespacesTest do
+defmodule FluxVale.Infrastructure.Operations.InstanceK8sTest do
   # NOT async: the fail-loud arms mutate the :access_gateway application
   # env, which is global. It is restored in on_exit.
   use FluxVale.DataCase, async: false
+  use Mimic
 
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale
+  alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.TestSupport.AccessFixtures
+  alias FluxVale.TestSupport.BillingFixtures
+  alias FluxVale.TestSupport.InstanceFixtures
+
+  # The provider seam must raise BEFORE its first write, not after the
+  # route row lands: the cleanup clauses only handle error tuples, and
+  # an idempotent retry would then report {:ok, existing} with no
+  # cluster limb ever written (hostile review, fix round).
+  test "attach raises on a missing namespace BEFORE the route row lands" do
+    InstanceFixtures.local_cluster!()
+
+    # Fixture scaffolding only: the provider raises before any cluster
+    # limb, so nothing below the resolver is ever reached.
+    stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+      {:ok, %{credential_secret_ref: "credential-stub"}}
+    end)
+
+    {org, owner} = BillingFixtures.grant_free_org!()
+    {:ok, wallet} = FluxVale.Billing.ensure_wallet(org)
+    {:ok, _grant} = FluxVale.Billing.grant_credits(wallet, 10_000, reason: :adjustment)
+    gateway = AccessFixtures.gateway!(org)
+    instance = AccessFixtures.private_instance!(org, owner)
+
+    Application.put_env(:flux_vale, :access_gateway, image: "tailscale/tailscale:v1.90.6")
+
+    assert_raise KeyError, ~r/key :namespace not found/, fn ->
+      Tailscale.attach_instance(gateway, instance)
+    end
+
+    assert {:error, _no_route} =
+             AccessRoute.get_by_instance(instance.id, authorize?: false)
+  end
 
   setup do
     original = Application.fetch_env(:flux_vale, :access_gateway)

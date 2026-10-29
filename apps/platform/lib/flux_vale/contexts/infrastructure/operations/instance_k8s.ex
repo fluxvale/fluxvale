@@ -147,15 +147,17 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
   end
 
   @doc """
-  The organization's access namespace — the ONE source of truth for the
-  per-gateway deployment (ADR-0039).
+  The platform's access namespace — one shared namespace for every
+  org's gateway (ADR-0039 §1) — and the ONE source of truth for
+  gateway placement.
 
-  This function is called by both the instance attach path
-  (`network_policy_spec/1`) and the provider callbacks (e.g.
-  `Tailscale.access_namespace/0`). A misconfigured key in the access
-  gateway config should fail loudly: a missing namespace silently admits
-  routes into the fallback `"fluxvale-access"` while the NetworkPolicy
-  expected the config value, severing reachability on every reconfigure.
+  Called by the deploy/exposure-apply paths (`network_policy_spec/1`,
+  via DeployInstance and SetExposure) and by the provider callbacks
+  (`Tailscale.access_namespace/0`). A missing config key must fail
+  loudly: at base, attach admitted the peer into the provider's
+  `"fluxvale-access"` fallback while the instance-side spec builder
+  dropped the peer on the next exposure flip or redeploy, silently
+  severing reachability on every reconfigure.
 
   The provider calls this directly — the resolver raises `KeyError` on
   a missing key. Caller-side fallback to nil is not safe; attach must
