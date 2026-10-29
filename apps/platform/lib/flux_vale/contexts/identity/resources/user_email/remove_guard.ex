@@ -1,10 +1,9 @@
 defmodule FluxVale.Identity.UserEmail.RemoveGuard do
   @moduledoc """
-  Guards address removal: the account's signup address cannot go (it is
-  frozen into `users.email` until that column drops — #285 T3 §5), the
-  primary cannot go (switch first), and a user's last verified address
-  cannot go either — every account keeps at least one proven address.
-  All checks run before_action inside the destroy transaction.
+  Guards address removal: the primary cannot go (switch first), and a
+  user's last verified address cannot go either — every account keeps at
+  least one proven address. Both checks run before_action inside the
+  destroy transaction.
   """
 
   use Ash.Resource.Change
@@ -55,26 +54,13 @@ defmodule FluxVale.Identity.UserEmail.RemoveGuard do
 
   # authorize?: false throughout — invariant checks, same stance as
   # EnforceEmailCap: the action's policy already gated the caller.
-  #
-  # The only-verified check runs FIRST: since the create mirror (#285
-  # T3 §5) every account's primary is verified, so a non-primary row can
-  # never be the last verified — the corner where both checks fire is
-  # the primary itself, and "only verified" is the accurate refusal
-  # there.
   defp decide(fresh, changeset) do
     cond do
-      # The frozen mirror (#285 T3 §5): users.email keeps the signup
-      # address for old pods during rolling deploys, and sign-in resolves
-      # through THIS table — a removed row would make the address
-      # unresolvable AND unprovisionable (the users unique-email index
-      # still holds it). Goes away with the contract release that drops
-      # the column.
-      frozen_mirror?(fresh) ->
+      fresh.is_primary ->
         Ash.Changeset.add_error(
           changeset,
-          field: :address,
-          message:
-            "is the account's signup address (frozen into users.email) — it must keep a row until that column is dropped"
+          field: :is_primary,
+          message: "is the primary address — make another address primary first"
         )
 
       # The invariant is about verified addresses: removing a pending
@@ -87,34 +73,9 @@ defmodule FluxVale.Identity.UserEmail.RemoveGuard do
           message: "is the only verified address — add and verify another first"
         )
 
-      fresh.is_primary ->
-        Ash.Changeset.add_error(
-          changeset,
-          field: :is_primary,
-          message: "is the primary address — make another address primary first"
-        )
-
       true ->
         changeset
     end
-  end
-
-  # unique_address guarantees the frozen mirror is the only row that can
-  # match (so this never fires on a pending claim).
-  defp frozen_mirror?(row) do
-    owner = Ash.get!(User, row.user_id, authorize?: false)
-
-    row_address =
-      row.address
-      |> to_string()
-      |> String.downcase()
-
-    owner_address =
-      owner.email
-      |> to_string()
-      |> String.downcase()
-
-    row_address == owner_address
   end
 
   defp lock_user(user_id) do

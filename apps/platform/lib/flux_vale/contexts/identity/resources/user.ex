@@ -16,7 +16,6 @@ defmodule FluxVale.Identity.User do
     extensions: [AshAuthentication, AshJsonApi.Resource]
 
   alias FluxVale.Identity.User.DeriveUsername
-  alias FluxVale.Identity.User.MirrorSignupEmail
   alias FluxVale.Identity.User.ProvisionPersonalOrg
 
   require Logger
@@ -105,11 +104,6 @@ defmodule FluxVale.Identity.User do
 
     # public? from day one — the API surface is deliberate design, not an
     # afterthought of the LiveView UI (ADR-0019 §1; /api/me arrives in #24)
-    #
-    # FROZEN mirror (#285 T3): identity resolution reads `user_emails`
-    # now; this column stays written on create only so old pods keep
-    # resolving new users during rolling deploys. `set_primary` does NOT
-    # rewrite it — the follow-up contract release drops the column.
     attribute :email, :ci_string do
       allow_nil?(false)
       public?(true)
@@ -129,15 +123,6 @@ defmodule FluxVale.Identity.User do
       allow_nil?(false)
       default(:user)
       public?(true)
-    end
-  end
-
-  relationships do
-    # The user's email rows (#285 T3) — the table-backed identity the
-    # sign-in lookup rides. Private: no serialization surface.
-    has_many :emails, FluxVale.Identity.UserEmail do
-      destination_attribute(:user_id)
-      public?(false)
     end
   end
 
@@ -165,11 +150,6 @@ defmodule FluxVale.Identity.User do
       # admin-created users. Runs in the create transaction; see the
       # change module.
       change(ProvisionPersonalOrg)
-
-      # The mirror row (#285 T3 §5) — same transaction: the account is
-      # born with its verified primary user_emails row, the same end
-      # state the T1 backfill gave every pre-existing user.
-      change(MirrorSignupEmail)
     end
 
     # /api/v1/me (#24): the actor-template filter is the whole trick — the
@@ -188,26 +168,11 @@ defmodule FluxVale.Identity.User do
       prepare(AshAuthentication.Preparations.FilterBySubject)
     end
 
-    # Table-backed (#285 T3): the address resolves through `user_emails` —
-    # a VERIFIED row's user. A pending claim never resolves, and an
-    # unknown address is not found, as before. Name, argument, and code
-    # interface unchanged: callers (seeds, PAT mint) keep their shape.
-    # unique_address guarantees at most one row per address, so the get?
-    # contract holds.
-    #
-    # What makes this safe is the `not is_nil(verified_at)` filter in
-    # the `exists` clause plus User's own policies — nothing else. The
-    # `exists` does NOT apply UserEmail's related-resource policies (no
-    # actor predicate appears in the emitted subquery): an unauthorized
-    # or nil actor is refused with Forbidden by User's policies before
-    # execution ever reaches UserEmail, and the AshAuthentication
-    # interaction bypass is what carries the auth flows. A pending
-    # address never resolves either way — no unverified leak.
     read :get_by_email do
-      description("Get a user by one of their verified email addresses")
+      description("Get a user by email")
       argument(:email, :ci_string, allow_nil?: false)
       get?(true)
-      filter(expr(exists(emails, address == ^arg(:email) and not is_nil(verified_at))))
+      filter(expr(email == ^arg(:email)))
     end
 
     # Same policy posture as get_by_email (#285 T2): only the

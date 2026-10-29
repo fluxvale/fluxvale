@@ -15,15 +15,6 @@ defmodule FluxVale.Identity.Operations.RequestAuthCodeTest do
   end
 
   describe "call/2" do
-    test "refuses a malformed address before anything is stored or sent" do
-      malformed = "owner@localhost"
-
-      assert {:error, :invalid_address} = Identity.request_auth_code(malformed)
-      assert active_codes(malformed) == []
-
-      refute_received {:email, _email}
-    end
-
     test "stores a bcrypt hash — never the code — with a 10-minute TTL", %{
       email: email
     } do

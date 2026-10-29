@@ -9,7 +9,6 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalanceTest do
   use FluxVale.DataCase, async: true
   use Mimic
 
-  alias FluxVale.Accounts.Membership
   alias FluxVale.Billing
   alias FluxVale.Billing.Wallet
   alias FluxVale.Clients.K8s
@@ -22,8 +21,6 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalanceTest do
   alias FluxVale.Clients.K8s.Resources.RoleBinding
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Clients.K8s.Resources.Service
-  alias FluxVale.Identity.User
-  alias FluxVale.Identity.UserEmail
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.TestSupport.AccountsFixtures
@@ -170,47 +167,6 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalanceTest do
 
       assert_received {:email, %Swoosh.Email{text_body: body}}
       assert body =~ "about 7 hours"
-    end
-
-    # #285 T3: the recipient rides user_emails (the primary VERIFIED
-    # address) — users.email is a frozen mirror now.
-    test "the warning goes to the member's primary verified address; a member without one is skipped",
-         %{version: version} do
-      {user, wallet} = org!()
-      instance!(user, :running, version)
-      adjust_to!(wallet, 1)
-
-      # diverge the primary: users.email stays the signup address, the
-      # table's primary moves to the new inbox
-      switched = "switched-#{System.unique_integer([:positive])}@fluxvale.test"
-      {:ok, row} = UserEmail.add(switched, %{user: user}, authorize?: false)
-      {:ok, _verified} = UserEmail.mark_verified(row, authorize?: false)
-      {:ok, _promoted} = UserEmail.set_primary(row, actor: user)
-
-      # a member with no email rows at all rides along and is skipped —
-      # a state actions cannot produce (the create mirror stamps one),
-      # so seed! is the sanctioned bypass
-      drifted =
-        Ash.Seed.seed!(User, %{
-          email: "drifted-#{System.unique_integer([:positive])}@fluxvale.test"
-        })
-
-      {:ok, _membership} =
-        Membership.create(
-          %{role: :member, organization_id: wallet.organization_id, user_id: drifted.id},
-          authorize?: false
-        )
-
-      assert {:ok, _summary} = Billing.sweep_zero_balance(wallet)
-
-      assert_received {:email,
-                       %Swoosh.Email{subject: "Your FluxVale balance is running low", to: to}}
-
-      assert [recipient] = to
-      assert elem(recipient, 1) == switched
-
-      # exactly one mail: the drifted member has no verified primary
-      refute_received {:email, _email}
     end
   end
 

@@ -10,7 +10,6 @@ defmodule FluxValeWeb.Api.MeRouteTest do
   alias AshAuthentication.Jwt
   alias AshAuthentication.TokenResource.Actions
   alias FluxVale.Identity.User
-  alias FluxVale.TestSupport.AccountsFixtures
 
   setup do
     user = User.create!("me-route@fluxvale.com", %{}, authorize?: false)
@@ -41,12 +40,9 @@ defmodule FluxValeWeb.Api.MeRouteTest do
 
     test "renders username null for rollout-window users", %{conn: conn} do
       # Rollout-window state actions cannot produce (derivation always
-      # sets a username) — Ash.seed! per the house rule, plus the row the
-      # T1 backfill gave every pre-existing user (without it the
-      # table-backed identity, #285 T3, cannot see them). Nullable-but-
+      # sets a username) — Ash.seed! per the house rule. Nullable-but-
       # public ships with this slice, so /me pins the null arm.
-      pre_backfill = Ash.Seed.seed!(User, %{email: "pre-backfill@fluxvale.test"})
-      AccountsFixtures.backfill_email!(pre_backfill)
+      Ash.Seed.seed!(User, %{email: "pre-backfill@fluxvale.test"})
 
       pat = mint_pat!("pre-backfill@fluxvale.test")
 

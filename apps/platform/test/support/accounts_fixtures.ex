@@ -8,7 +8,6 @@ defmodule FluxVale.TestSupport.AccountsFixtures do
 
   alias FluxVale.Accounts
   alias FluxVale.Identity.User
-  alias FluxVale.Identity.UserEmail
 
   @doc """
   Creates a user via the create action; the JIT change provisions the
@@ -29,19 +28,5 @@ defmodule FluxVale.TestSupport.AccountsFixtures do
   def personal_org!(%User{} = user) do
     {:ok, org} = Accounts.personal_org_for_user(user.id, authorize?: false)
     org
-  end
-
-  @doc """
-  Stamps the T1-backfill shape onto a pre-existing (seeded) user: one
-  VERIFIED PRIMARY user_emails row for their address — exactly what the
-  backfill gave every pre-existing user. Without it the table-backed
-  identity (#285 T3) cannot see a seeded user at all.
-  """
-  @spec backfill_email!(User.t()) :: UserEmail.t()
-  def backfill_email!(%User{} = user) do
-    {:ok, row} = UserEmail.add(user.email, %{user: user}, authorize?: false)
-    {:ok, verified} = UserEmail.mark_verified(row, authorize?: false)
-    {:ok, primary} = UserEmail.set_primary(verified, actor: user)
-    primary
   end
 end

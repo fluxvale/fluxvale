@@ -92,21 +92,6 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
     assert resend_result =~ "wait a minute"
   end
 
-  test "a malformed address is named, not mailed", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/sign-in")
-
-    result =
-      view
-      |> form("#email-form", email: "not-an-email")
-      |> render_submit()
-
-    # NB: the apostrophe arrives HTML-escaped — assert on the stable tail
-    assert result =~ "look like an email address"
-    assert has_element?(view, "#email-form")
-    refute result =~ "code-form"
-    refute_received {:email, %Swoosh.Email{}}
-  end
-
   # #26: the door itself — explicit message, not enumeration-safe (staging
   # is team-only; uniform messaging is a beta-invite-flow concern)
   test "a denied address is told to ask an admin — and stays on the email step", %{

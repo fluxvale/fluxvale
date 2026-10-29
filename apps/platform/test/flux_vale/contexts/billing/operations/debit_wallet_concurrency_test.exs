@@ -120,7 +120,6 @@ defmodule FluxVale.Billing.Operations.DebitWalletConcurrencyTest do
         [org_ids]
       )
 
-      Repo.query!("DELETE FROM user_emails WHERE user_id = $1", [user_id])
       Repo.query!("DELETE FROM billing_wallets WHERE organization_id = ANY($1)", [org_ids])
       Repo.query!("DELETE FROM memberships WHERE user_id = $1", [user_id])
       Repo.query!("DELETE FROM organizations WHERE id = ANY($1)", [org_ids])

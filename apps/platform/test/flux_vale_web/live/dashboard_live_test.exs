@@ -248,13 +248,8 @@ defmodule FluxValeWeb.DashboardLiveTest do
   } do
     # Ash.seed! — the only way to produce an org-less user: the create
     # action's JIT change always provisions one (state actions can't
-    # produce, the documented seed! exception). backfill_email! adds the
-    # row the T1 backfill gave every pre-existing user (#285 T3 resolves
-    # identity through the table).
+    # produce, the documented seed! exception).
     orgless = Ash.Seed.seed!(User, %{email: "orgless-#{System.unique_integer()}@fluxvale.test"})
-
-    AccountsFixtures.backfill_email!(orgless)
-
     conn = SessionHelpers.sign_in(conn, orgless)
 
     {:ok, view, html} = dashboard(conn)

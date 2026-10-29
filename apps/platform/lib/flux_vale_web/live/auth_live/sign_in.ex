@@ -148,14 +148,6 @@ defmodule FluxValeWeb.AuthLive.SignIn do
            :error,
            "We couldn't send the email — please wait a minute, then try again."
          )}
-
-      {:error, :invalid_address} ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           "That doesn't look like an email address — check it and try again."
-         )}
     end
   end
 

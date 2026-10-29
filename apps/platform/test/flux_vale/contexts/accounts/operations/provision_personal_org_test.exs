@@ -53,12 +53,9 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrgTest do
     test "same local part on different domains: usernames suffix, orgs follow" do
       # The -2/-3 suffixing happens in the username namespace
       # (DeriveUsername); the org name/slug copy the username verbatim.
-      # Valid addresses with identical local parts — the mirror (#285 T3)
-      # refuses non-deliverable shapes, so `user!/1` would append a second
-      # domain; create straight through instead.
-      first = User.create!("dup@one.test", %{}, authorize?: false)
-      second = User.create!("dup@two.test", %{}, authorize?: false)
-      third = User.create!("dup@three.test", %{}, authorize?: false)
+      first = AccountsFixtures.user!("dup@one.test")
+      second = AccountsFixtures.user!("dup@two.test")
+      third = AccountsFixtures.user!("dup@three.test")
 
       assert AccountsFixtures.personal_org!(first).slug == "dup"
       assert AccountsFixtures.personal_org!(second).slug == "dup-2"
