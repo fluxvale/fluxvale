@@ -35,7 +35,8 @@ defmodule FluxValeWeb.OrganizationLive.HomeTest do
     assert has_element?(view, "[data-testid='member-count']", "1 member")
 
     # current_org rides the layout: the closed switcher names the org,
-    # and the panel keeps its pinned Personal entry.
+    # and the panel's one row is the personal org, labeled Personal —
+    # username (#285 T6).
     assert has_element?(view, "[data-testid='org-switcher-button'] span", org.name)
     assert has_element?(view, "[data-testid='org-switcher-panel'] a", "Personal")
   end

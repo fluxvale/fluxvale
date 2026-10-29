@@ -94,6 +94,8 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
       flash={@flash}
       current_user={@current_user}
       actor_orgs={@actor_orgs}
+      personal_org_id={@personal_org_id}
+      username={@username}
       current_org={@org}
     >
       <div class="space-y-6">

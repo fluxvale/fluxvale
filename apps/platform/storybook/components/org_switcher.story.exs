@@ -4,8 +4,8 @@ defmodule FluxValeWeb.Storybook.Components.OrgSwitcher do
   previews show the open/closed states — the outside-click and Esc
   dismissal is app-runtime behavior (the DetailsDismiss hook rides
   app.js, which the storybook page doesn't load), so check it in the
-  app chrome. Rows follow the #284 rule: hidden while only-personal,
-  all of them from the second org on.
+  app chrome. One row per membership (#285 T6): the owned org renders
+  as Personal — username, others as name + slug.
   """
 
   use PhoenixStorybook.Story, :component
@@ -14,10 +14,11 @@ defmodule FluxValeWeb.Storybook.Components.OrgSwitcher do
   def render_source, do: :function
 
   def variations do
-    orgs = [
-      %{organization: %{name: "Acme Collective", slug: "acme"}},
-      %{organization: %{name: "OSS Friends", slug: "oss-friends"}}
-    ]
+    # Plain maps with ids — the personal row is whichever org matches
+    # personal_org_id (the chrome passes OrgNav's assigns).
+    acme = %{organization: %{id: "org-acme", name: "Acme Collective", slug: "acme"}}
+    oss = %{organization: %{id: "org-oss", name: "OSS Friends", slug: "oss-friends"}}
+    personal = %{personal_org_id: "org-acme", username: "terence"}
 
     [
       # No id: here — PhoenixStorybook overwrites the :id assign with its
@@ -26,28 +27,32 @@ defmodule FluxValeWeb.Storybook.Components.OrgSwitcher do
       # attr(:id) default.
       %Variation{
         id: :personal_only,
-        description: "Single (personal) org — the panel is the Personal row alone (#284)",
-        attributes: %{orgs: Enum.take(orgs, 1)}
+        description: "Single (personal) org — one row, labeled Personal — username (#285 T6)",
+        attributes: Map.merge(personal, %{orgs: [acme]})
       },
       %Variation{
         id: :org_active,
         description:
-          "Org context active — the closed summary names the org; below lg its initial leads the pill; still only-personal, so no org rows",
-        attributes: %{orgs: Enum.take(orgs, 1), current_org: hd(orgs).organization}
+          "Org context active — the closed summary names the org; below lg its initial leads the pill; the panel row is unchanged",
+        attributes:
+          Map.merge(personal, %{orgs: [acme], current_org: Map.get(acme, :organization)})
       },
       %Variation{
         id: :org_active_long,
         description:
           "Long org name active — the label truncates above lg, the initial leads below",
         attributes: %{
-          orgs: orgs,
+          orgs: [acme, oss],
+          personal_org_id: "org-acme",
+          username: "terence",
           current_org: %{name: "A Very Long Organization Display Name", slug: "very-long"}
         }
       },
       %Variation{
         id: :two_orgs,
-        description: "Two memberships — rows render: Personal pinned first, both orgs after",
-        attributes: %{orgs: orgs}
+        description:
+          "Two memberships — one row each: Personal — username first (the owned org), name + slug for the rest",
+        attributes: Map.merge(personal, %{orgs: [acme, oss]})
       }
     ]
   end

@@ -1228,33 +1228,51 @@ defmodule FluxValeWeb.CoreComponents do
 
   @doc """
   Renders the org switcher (#276): the app chrome's context dropdown —
-  "Personal" always, then one row per org once the actor has more than
-  one (`actor_orgs`, resolved by the `FluxValeWeb.OrgNav` on_mount).
-  A native `<details>` dropdown for the same reasons as `user_menu`:
-  keyboard-toggleable, plain-href rows that close it on navigation
-  (full page load — no live patch can strand the panel open); the one
-  JS is the shared DetailsDismiss hook for GitHub-style dismissal
-  (outside click + Esc). Rows hide while only-personal — every user has
-  exactly one personal org, so a single row would be the context twice
-  (#284, interim until the usernames/multi-email root fix).
+  exactly one row per membership (`actor_orgs`, resolved by the
+  `FluxValeWeb.OrgNav` on_mount). The actor's owned org renders as
+  **"Personal — `<username>`"** — bare "Personal" when the handle is
+  nil or empty (OrgNav's email fallback can yield "" for a degenerate
+  address); other orgs render name + slug. The
+  personal context IS an org (#285 T6), so there is no hardcoded
+  "Personal" chrome row and no single-org suppression — the redundancy
+  dies at the root. A native `<details>` dropdown for the same reasons
+  as `user_menu`: keyboard-toggleable, plain-href rows that close it on
+  navigation (full page load — no live patch can strand the panel
+  open); the one JS is the shared DetailsDismiss hook for GitHub-style
+  dismissal (outside click + Esc).
 
-  `current_org` names the active context in the closed summary — nil is
-  the personal one. Below lg the summary collapses to the glyph: the
-  active org's initial (the user_menu pattern — the building icon can't
-  say which org is active), the building icon for Personal. At `sm` a
-  label would occlude the first nav link (the 640-712px band — a pill
-  of intrinsic width over a shrunken cluster, #276 review), and above
-  lg `truncate` bounds a long active name. The panel keeps every entry
-  reachable.
+  `current_org` names the active context in the closed summary. With no
+  org context set the pill reads "Personal" — but only when a personal
+  org both resolves (`personal_org_id`) and sits among the rows: a
+  member-only or zero-org actor has no personal context, and the pill
+  must not claim one (#285 T6 review); nor when OrgNav's two
+  non-transactional reads straddle a membership change and leave
+  `personal_org_id` absent from `orgs` (#308 review) — it degrades to
+  the bare building glyph. Below
+  lg the summary collapses to the glyph: the active org's initial (the
+  user_menu pattern — the building icon can't say which org is active),
+  the building icon for Personal. At `sm` a label would occlude the
+  first nav link (the 640-712px band — a pill of intrinsic width over a
+  shrunken cluster, #276 review), and above lg `truncate` bounds a long
+  active name. The panel keeps every entry reachable.
 
   ## Examples
 
-      <.org_switcher orgs={@actor_orgs} />
+      <.org_switcher orgs={@actor_orgs} personal_org_id={@personal_org_id} username={@username} />
   """
   attr(:orgs, :list,
     default: [],
-    doc: "the actor's memberships with :organization loaded (OrgNav's actor_orgs)"
+    doc:
+      "the actor's memberships with :organization loaded (OrgNav's actor_orgs); " <>
+        "component-level callers may pass plain maps — :id is only read for the personal row"
   )
+
+  attr(:personal_org_id, :string,
+    default: nil,
+    doc: "the owned (personal) org's id — OrgNav's personal_org_id; its row is the Personal one"
+  )
+
+  attr(:username, :string, default: nil, doc: "the actor's handle — labels the personal row")
 
   attr(:current_org, :map, default: nil, doc: "the active org; nil = personal context")
 
@@ -1267,7 +1285,12 @@ defmodule FluxValeWeb.CoreComponents do
   attr(:rest, :global)
 
   def org_switcher(assigns) do
-    assigns = assign(assigns, :active_name, active_name(assigns.current_org))
+    assigns =
+      assign(
+        assigns,
+        :active_name,
+        active_name(assigns.current_org, assigns.personal_org_id, assigns.orgs)
+      )
 
     ~H"""
     <details
@@ -1297,7 +1320,13 @@ defmodule FluxValeWeb.CoreComponents do
           name="hero-building-library-micro"
           class={["size-4 shrink-0 text-ink-subtle", @current_org && "hidden lg:block"]}
         />
-        <span class="hidden max-w-32 truncate text-xs font-semibold text-ink lg:inline">{@active_name}</span>
+        <%!-- The label only renders when there is one to show — the
+        empty-context state (no org context, no personal org) is the
+        bare glyph, no text at all (see active_name/3). --%>
+        <span
+          :if={@active_name}
+          class="hidden max-w-32 truncate text-xs font-semibold text-ink lg:inline"
+        >{@active_name}</span>
         <.icon
           name="hero-chevron-down-micro"
           class="size-3 text-ink-subtle transition-transform group-open:rotate-180"
@@ -1310,45 +1339,62 @@ defmodule FluxValeWeb.CoreComponents do
         <p class="px-3 py-1.5 text-xs text-ink-subtle">Contexts</p>
         <div class="mb-1 border-t border-line" aria-hidden="true"></div>
         <%!-- href, not navigate: full page loads close the dropdown, the
-        user_menu's reason (#205). --%>
+        user_menu's reason (#205). Exactly one row per membership
+        (#285 T6) — the owned org (personal_org_id) is the personal
+        context and renders as its Personal—username label. The
+        personal_org_id guard stays falsy for callers that pass no
+        personal_org_id or orgs without an :id (component-level maps)
+        — every row renders name + slug there. --%>
         <.link
-          href={~p"/"}
-          class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+          :for={membership <- @orgs}
+          href={~p"/organizations/#{membership.organization.slug}"}
+          class="flex items-baseline gap-1 rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
         >
-          Personal
-        </.link>
-        <%!-- Org rows only once a second org exists: every user has
-        exactly one personal org, so one org = only-personal and the
-        Personal link above already is that context — both rows would
-        be the context twice (#284). From two orgs on, non-personal
-        orgs exist and every row renders, personal included. Interim
-        until the GitHub-style usernames/multi-email root fix — that
-        lane is the revisit trigger. --%>
-        <%= if length(@orgs) > 1 do %>
-          <%!-- min-w-0/truncate pair: a 39-char username (the #296 name
-          ceiling) must clip inside the w-56 panel, not push the page
-          into sideways scroll at phone widths (measured: +166px at
-          375 open, gate-2 F1). --%>
-          <.link
-            :for={membership <- @orgs}
-            href={~p"/organizations/#{membership.organization.slug}"}
-            class="flex items-baseline gap-1 rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
-          >
+          <%= if @personal_org_id && Map.get(membership.organization, :id) == @personal_org_id do %>
+            <span class="truncate">{personal_label(@username)}</span>
+          <% else %>
+            <%!-- min-w-0/truncate pair: a 39-char username (the #296 name
+            ceiling) must clip inside the w-56 panel, not push the page
+            into sideways scroll at phone widths (measured: +166px at
+            375 open, gate-2 F1). --%>
             <span class="truncate">{membership.organization.name}</span>
             <span class="truncate font-mono text-xs text-ink-subtle">
               {membership.organization.slug}
             </span>
-          </.link>
-        <% end %>
+          <% end %>
+        </.link>
       </div>
     </details>
     """
   end
 
-  # The closed switcher's label: the active org's name, "Personal" when
-  # no org context is set.
-  defp active_name(nil), do: "Personal"
-  defp active_name(%{name: name}), do: name
+  # The closed switcher's label: the active org's name; "Personal" when
+  # no org context is set and a Personal row backs the claim — the
+  # personal org must both resolve (personal_org_id) and be among the
+  # loaded rows. A member-only or zero-org actor has no personal
+  # context, and the pill must not claim one (#285 T6 review); and the
+  # rows gate also covers the split state (#308 review): OrgNav's two
+  # reads (memberships, then the canonical op) are not transactional,
+  # so a membership change straddling them can leave personal_org_id
+  # naming an org absent from @orgs — the pill degrades to the bare
+  # building glyph rather than claim a context with no row.
+  defp active_name(%{name: name}, _personal_org_id, _orgs), do: name
+  defp active_name(nil, nil, _orgs), do: nil
+
+  defp active_name(nil, personal_org_id, orgs) do
+    personal_row? = Enum.any?(orgs, &(Map.get(&1.organization, :id) == personal_org_id))
+
+    if personal_row? do
+      "Personal"
+    end
+  end
+
+  # The personal row's label: "Personal — username"; bare "Personal"
+  # when the handle is nil or "" — the email fallback's local_part of a
+  # degenerate address is "" (#308 review), the same dangling
+  # "Personal — " hazard as nil (#285 T6 review).
+  defp personal_label(username) when username in [nil, ""], do: "Personal"
+  defp personal_label(username), do: "Personal — #{username}"
 
   ## JS Commands
 

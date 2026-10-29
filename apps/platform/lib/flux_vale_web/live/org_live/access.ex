@@ -367,6 +367,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       flash={@flash}
       current_user={@current_user}
       actor_orgs={@actor_orgs}
+      personal_org_id={@personal_org_id}
+      username={@username}
       current_org={@org}
     >
       <div class="mx-auto max-w-3xl space-y-8">

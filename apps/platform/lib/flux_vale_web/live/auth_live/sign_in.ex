@@ -13,8 +13,14 @@ defmodule FluxValeWeb.AuthLive.SignIn do
   alias FluxVale.Identity
 
   def render(assigns) do
+    # The anonymous shell: no actor, so no org facts — these explicit
+    # nils are the decision required: true demands (a default would let
+    # an authenticated caller drop the assigns silently). Bound as
+    # assigns, not literals, so the attrs' :string type check passes.
+    assigns = assign(assigns, personal_org_id: nil, username: nil)
+
     ~H"""
-    <Layouts.app flash={@flash}>
+    <Layouts.app flash={@flash} personal_org_id={@personal_org_id} username={@username}>
       <%!-- T3 (#277): the form panel rides the chrome language. T7: the
       landing hero's gradient mat wraps the panel (replacing the h-1
       edge strip) — the hero-adjacent moment, same rule as the hero
