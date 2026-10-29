@@ -87,8 +87,10 @@ defmodule FluxValeWeb.SettingsLiveTest do
     assert {:ok, renamed} = reload(user)
     assert renamed.username == "brand-new-handle"
 
-    # the chrome follows: the menu's name line reads the new handle
+    # the chrome follows: the menu's name line AND the switcher's
+    # Personal row read the new handle
     assert has_element?(view, "[data-testid='user-menu-panel']", "brand-new-handle")
+    assert has_element?(view, "[data-testid='org-switcher-panel']", "Personal — brand-new-handle")
   end
 
   test "an invalid rename shows the field error and never arms", %{conn: conn, user: user} do
@@ -535,6 +537,20 @@ defmodule FluxValeWeb.SettingsLiveTest do
     result = render_click(view, "verify-email", %{"row_id" => verified.id, "code" => "123456"})
 
     assert result =~ "already verified"
+  end
+
+  test "several pending claims render unique verify-input DOM ids", %{conn: conn, user: user} do
+    pending_claim!(user)
+    pending_claim!(user)
+
+    {:ok, view, _html} = live(conn, ~p"/settings")
+
+    html = render(view)
+
+    # the shared form struct would name every row's field `id="code"` —
+    # duplicate ids break the label association and LiveView patching
+    refute html =~ ~s(id="code")
+    assert Regex.scan(~r/id="verify-code-input-/, html) |> length() == 2
   end
 
   test "verifying an unknown row id reads as gone, not someone else's claim", %{conn: conn} do

@@ -80,7 +80,9 @@ defmodule FluxValeWeb.SettingsLive do
 
             {:noreply,
              socket
-             |> assign(current_user: user, pending_username: nil)
+             # username too: OrgNav's chrome assign feeds the switcher's
+             # Personal row — the menu and the switcher must move together
+             |> assign(current_user: user, username: updated.username, pending_username: nil)
              |> assign(username_form: build_username_form(user))
              |> assign(emails: present(mine(user), user))
              |> put_flash(:info, "Username updated.")}
@@ -421,8 +423,12 @@ defmodule FluxValeWeb.SettingsLive do
                 >
                   <input type="hidden" name="row_id" value={item.row.id} />
                   <div class="w-32">
+                    <%!-- one shared form struct names every row's field the
+                    same — the explicit id keeps the DOM ids unique per row
+                    (the cap allows several pending claims on one page) --%>
                     <.input
                       field={@verify_form[:code]}
+                      id={"verify-code-input-#{item.row.id}"}
                       type="text"
                       inputmode="numeric"
                       maxlength={6}
