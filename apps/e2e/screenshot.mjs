@@ -60,25 +60,41 @@ const shots = [
   ["storybook-table", "/storybook/components/table", true],
 ];
 
+// Anonymous context for visitor surfaces — the authenticated chrome
+// (user menu) is not what a visitor sees. Entries flagged false in the
+// shot list and the sign-in page below capture through it (T7 refresh,
+// CodeRabbit #312: the flag was previously ignored, so "landing" showed
+// the signed-in header).
+const anonCtx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+const anonPage = await anonCtx.newPage();
+
 for (const mode of ["light", "dark"]) {
-  for (const [name, path] of shots) {
-    await page.goto(`${BASE}${path}`, { waitUntil: "networkidle" });
+  for (const [name, path, auth = true] of shots) {
+    const target = auth ? page : anonPage;
+    await target.goto(`${BASE}${path}`, { waitUntil: "networkidle" });
+    // The top-up form prefills the account's billing email — captures
+    // must never carry a real address (CodeRabbit #312). Swap in a
+    // synthetic value before the shot; DOM-only, no LiveView event.
+    if (name === "billing-topup") {
+      await target.evaluate(() => {
+        for (const input of document.querySelectorAll("input[type='email']")) {
+          input.value = "jane@example.com";
+        }
+      });
+    }
     // Flip the theme the way the toggle does; the root script owns the attrs.
-    await page.evaluate((m) => {
+    await target.evaluate((m) => {
       localStorage.setItem("phx:theme", m);
       document.documentElement.setAttribute("data-theme", m);
       document.documentElement.setAttribute("data-theme-source", "user");
     }, mode);
-    await page.waitForTimeout(300);
-    await page.screenshot({ path: `${outdir}/${name}-${mode}.png`, fullPage: true });
+    await target.waitForTimeout(300);
+    await target.screenshot({ path: `${outdir}/${name}-${mode}.png`, fullPage: true });
     console.log(`captured ${name}-${mode}.png`);
   }
 }
 
-// Sign-in rides an anonymous context — the authenticated chrome (user
-// menu) is not the surface a visitor sees (T7 refresh).
-const anonCtx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-const anonPage = await anonCtx.newPage();
+// Sign-in rides the same anonymous context.
 for (const mode of ["light", "dark"]) {
   await anonPage.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
   await anonPage.evaluate((m) => {
