@@ -7,25 +7,24 @@
 
     <.empty_state :if={@categories == []} title="No apps in the catalog yet." />
 
-    <%!-- Container-query grid (#277 T4): column count follows the space
-    the section actually gets, not the viewport. The container is the
-    section — a query can't match its own element. auto-fit with a
-    17rem floor replaces fixed @lg/@2xl counts: cards never go below
-    ~272px (the @2xl count fired at 688px sections, making 213px
-    cards in the 704-1023px band — T4 review). Dark + reduced-motion
-    note: shadow and translate are no-ops there, so the h3's
-    group-hover hue shift is the hover cue by design. --%>
+    <%!-- Card grid (#277 T4): auto-FILL with a 17rem floor — cards
+    never below ~272px and never stretch (auto-fit stretched a lone
+    card full-bleed; the shipped seed is one app per category). The
+    min() cap lets tracks shrink below the floor only when the section
+    itself is narrower (<304px). Dark + reduced-motion note: shadow
+    and translate are no-ops there, so the h3's group-hover hue shift
+    is the hover cue by design. --%>
     <section
       :for={category <- @categories}
       id={"category-#{category.id}"}
-      class="@container space-y-4"
+      class="space-y-4"
     >
       <div class="space-y-1">
         <h2 class="text-lg font-semibold tracking-tight text-ink">{category.name}</h2>
         <p :if={category.description} class="text-sm text-ink-muted">{category.description}</p>
       </div>
 
-      <div class="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(17rem,1fr))]">
+      <div class="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(min(17rem,100%),1fr))]">
         <.link
           :for={app <- sort_by_name(category.apps)}
           navigate={~p"/catalog/#{app.slug}"}

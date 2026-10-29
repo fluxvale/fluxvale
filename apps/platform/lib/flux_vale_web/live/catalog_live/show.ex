@@ -80,9 +80,14 @@ defmodule FluxValeWeb.CatalogLive.Show do
               </div>
             </div>
             <p
-              :if={String.trim(@app.description)}
-              class="border-t border-line pt-4 leading-relaxed whitespace-pre-line text-ink-muted"
-            >{String.trim(@app.description)}</p>
+              :if={is_binary(@app.description) and String.trim(@app.description) != ""}
+              class="border-t border-line pt-4 leading-relaxed text-ink-muted"
+            >
+              <%!-- pre-line rides the span: the p's own whitespace is normal,
+              so the template's indentation newlines collapse instead of
+              laying out a phantom blank line (T4 review). --%>
+              <span class="whitespace-pre-line">{String.trim(@app.description)}</span>
+            </p>
           </.card>
         </div>
 

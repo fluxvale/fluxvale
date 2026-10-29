@@ -53,20 +53,20 @@ defmodule FluxValeWeb.CatalogLive.Index do
 
         <.empty_state :if={@categories == []} title="No apps in the catalog yet." />
 
-        <%!-- Container-query grid (#277 T4) — see
-        catalog_html/index.html.heex for the auto-fit rationale and the
-        dark/reduced-motion hover-cue note. --%>
+        <%!-- Card grid (#277 T4) — see
+        catalog_html/index.html.heex for the auto-fill rationale and
+        the dark/reduced-motion hover-cue note. --%>
         <section
           :for={category <- @categories}
           id={"category-#{category.id}"}
-          class="@container space-y-4"
+          class="space-y-4"
         >
           <div class="space-y-1">
             <h2 class="text-lg font-semibold tracking-tight text-ink">{category.name}</h2>
             <p :if={category.description} class="text-sm text-ink-muted">{category.description}</p>
           </div>
 
-          <div class="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(17rem,1fr))]">
+          <div class="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(min(17rem,100%),1fr))]">
             <.link
               :for={app <- sort_by_name(category.apps)}
               navigate={~p"/apps/#{app.slug}"}
