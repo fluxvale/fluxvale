@@ -98,13 +98,16 @@ This is a web application written using the Phoenix web framework.
   `access_wake_screenshot.mjs` — the route lists are per-surface,
   never generic (Playwright; `npm install` + `npx playwright install
   chromium` in `apps/e2e`, local dev server). Never capture a secret —
-  mask key fields. When the change itself is motion (transitions,
-  hover/focus states, toasts, spinners, animated reveals, keyboard
-  interactions), a short GIF rides alongside the stills in
-  `docs/screenshots/<pr>/` — Playwright `recordVideo` → webm → `ffmpeg
-  -i in.webm -vf "fps=12,scale=720:-1:flags=lanczos" out.gif`, under
-  ~15s, cropped to the element where practical, light+dark where the
-  motion differs. Stills remain the default for static changes.
+  mask key fields.
+  - **GIF when the change is motion** (owner rule, Oct 29 2026):
+    transitions, hover/focus states, toasts, spinners, animated
+    reveals — a short GIF rides the stills in the same folder, embedded
+    the same way. Mechanics: Playwright `recordVideo` → webm, then
+    `ffmpeg -i in.webm -vf "fps=12,scale=720:-1:flags=lanczos" out.gif`;
+    under ~15s and a few MB, trimmed to the motion, cropped to the
+    element where practical, light+dark where the motion differs.
+    Stills stay the default — static layout needs no animation. A
+    motion-change PR with only stills is an incomplete capture.
 
 ## Toolchain recipes (session-tested — read before scaffolding)
 

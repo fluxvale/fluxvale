@@ -10,6 +10,7 @@ defmodule FluxVale.Identity.Operations.RequestAuthCode do
   """
 
   alias FluxVale.Identity.AuthCode
+  alias FluxVale.Identity.UserEmail
   alias FluxVale.Mailer
   alias FluxVale.Ops.AccessRules
 
@@ -26,14 +27,19 @@ defmodule FluxVale.Identity.Operations.RequestAuthCode do
   @doc """
   Issues a #{@code_digits}-digit code to `email`. Throttled to one send
   per #{@resend_throttle_seconds}s per address (the ADR-0003
-  send-endpoint throttle).
+  send-endpoint throttle). Malformed addresses are refused
+  (`:invalid_address`) before anything is stored or sent — with the
+  create mirror (#285 T3 §5) the JIT create would otherwise fail
+  validation only after the code was burned, an error every retry
+  repeats.
 
   `deliver/2` is injectable for the delivery-failure path.
   """
   @spec call(String.t() | Ash.CiString.t(), function()) ::
-          :ok | {:error, :throttled | :delivery_failed | :not_allowed}
+          :ok | {:error, :throttled | :delivery_failed | :not_allowed | :invalid_address}
   def call(email, deliver \\ &Mailer.deliver_auth_code/2) do
-    with :ok <- AccessRules.ensure_allowed(email),
+    with :ok <- valid_address?(email),
+         :ok <- AccessRules.ensure_allowed(email),
          :ok <- throttle_check(email) do
       code = random_code()
       {:ok, auth_code} = store_code(email, code)
@@ -51,6 +57,11 @@ defmodule FluxVale.Identity.Operations.RequestAuthCode do
           {:error, :delivery_failed}
       end
     end
+  end
+
+  # The same format rule UserEmail's :add enforces — see the @doc.
+  defp valid_address?(email) do
+    if UserEmail.valid_address?(email), do: :ok, else: {:error, :invalid_address}
   end
 
   defp throttle_check(email) do

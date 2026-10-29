@@ -13,6 +13,7 @@ defmodule FluxVale.Ops.OwnerSignInTest do
 
   alias FluxVale.Identity
   alias FluxVale.Identity.User
+  alias FluxVale.Identity.UserEmail
   alias FluxVale.Ops.AccessRule
   alias FluxVale.Ops.OwnerSignIn
   alias FluxVale.TestSupport.AccountsFixtures
@@ -68,6 +69,49 @@ defmodule FluxVale.Ops.OwnerSignInTest do
       admin!()
 
       assert_raise RuntimeError, ~r/2 platform admins found/, fn -> OwnerSignIn.owner_email() end
+    end
+
+    # #285 T3: the fallback reads the PRIMARY VERIFIED address through
+    # user_emails — users.email is a frozen mirror.
+    test "the single-admin fallback reads the admin's primary verified address" do
+      admin = User.get_by_email!(admin!(), authorize?: false)
+      switched = "switched-#{System.unique_integer([:positive])}@fluxvale.test"
+
+      {:ok, row} = UserEmail.add(switched, %{user: admin}, authorize?: false)
+      {:ok, _verified} = UserEmail.mark_verified(row, authorize?: false)
+      {:ok, _promoted} = UserEmail.set_primary(row, actor: admin)
+
+      assert OwnerSignIn.owner_email() == switched
+    end
+
+    test "an admin with no verified primary is drift — the operator decides" do
+      # A user without user_emails rows is a state actions cannot produce
+      # (the create mirror stamps one) — seed! is the sanctioned bypass.
+      Ash.Seed.seed!(User, %{
+        email: "drift-admin-#{System.unique_integer([:positive])}@fluxvale.test",
+        platform_role: :admin
+      })
+
+      assert_raise RuntimeError, ~r/no verified primary email/, fn ->
+        OwnerSignIn.owner_email()
+      end
+    end
+
+    test "a drift admin under an explicit OWNER_EMAIL still issues — with the warning" do
+      Ash.Seed.seed!(User, %{
+        email: "drift-admin-#{System.unique_integer([:positive])}@fluxvale.test",
+        platform_role: :admin
+      })
+
+      System.put_env("OWNER_EMAIL", "named-#{System.unique_integer([:positive])}@fluxvale.test")
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok = OwnerSignIn.issue_code(fn _recipient, _code -> {:ok, :printed} end)
+        end)
+
+      assert log =~ "no verified primary email"
+      assert log =~ "that session will not be an admin"
     end
   end
 

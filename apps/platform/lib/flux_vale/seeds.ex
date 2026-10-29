@@ -19,6 +19,8 @@ defmodule FluxVale.Seeds do
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Catalog.Category
   alias FluxVale.Identity.User
+  alias FluxVale.Identity.User.MirrorSignupEmail
+  alias FluxVale.Identity.UserEmail
   alias FluxVale.Infrastructure.Cluster
   alias FluxVale.Pricing.Size
   alias FluxVale.Pricing.TaxRate
@@ -58,6 +60,13 @@ defmodule FluxVale.Seeds do
   raises — the operator resolves it; the seed neither promotes nor
   silently skips.
 
+  Deploy-resilient (#285 review P2-2): a PENDING claim on the seed
+  address is superseded atomically before the create (operator-trusted —
+  the seed address is the environment's own), and a pre-T3 admin whose
+  address lives only in `users.email` (no `user_emails` row) is healed
+  through the collision arm instead of failing every deploy (ADR-0033's
+  init container boots NotReady).
+
   authorize?: false — bootstrap: there is no actor to authorize before
   the first admin exists (same posture as the User#create policy
   comment).
@@ -75,10 +84,70 @@ defmodule FluxVale.Seeds do
         raise "seed admin: #{@admin_email} exists with a non-admin role — promote or remove that user manually, then re-run"
 
       {:error, _not_found} ->
-        User.create!(@admin_email, %{platform_role: :admin}, authorize?: false)
+        # A pending claim on the seed address would collide the create
+        # (unique_address) and fail every deploy — supersede it first.
+        # Operator-trusted: the seed address is the environment's own.
+        UserEmail.supersede_pending_claims(@admin_email)
 
-        :ok
+        case create_admin() do
+          {:ok, _admin} ->
+            :ok
+
+          # users.email already holds the seed address with no row the
+          # table-backed identity can see (a pre-T3 pod created it).
+          # Heal, then the same role gate as the verified-row arm.
+          {:error, collision} ->
+            heal_seed_admin!(collision)
+        end
     end
+  end
+
+  defp create_admin do
+    User
+    |> Ash.Changeset.for_create(:create, %{email: @admin_email, platform_role: :admin})
+    |> Ash.create(authorize?: false)
+  end
+
+  # The collision arm: the address belongs to a user get_by_email
+  # cannot see — the old-pod shape (users.email set, no user_emails
+  # row). Heal their mirror row exactly as the create path would
+  # (primary only when the account has none — a promoted second address
+  # stays primary; forcing it would collide the partial index and wedge
+  # every deploy, review round 2 P1), then apply the squatter gate: an
+  # admin passes; a non-admin occupant is the operator-decides raise,
+  # unchanged in spirit.
+  defp heal_seed_admin!(collision) do
+    case frozen_email_owner(@admin_email) do
+      {:ok, %{platform_role: :admin} = admin} ->
+        case MirrorSignupEmail.write_mirror_row(admin) do
+          {:ok, _row} ->
+            :ok
+
+          # Race-only: the create just collided, so the address's row
+          # state changed moments ago — a claim re-added mid-window, say.
+          # coveralls-ignore-start - bootstrap fails loudly instead
+          {:error, reason} ->
+            raise "seed admin: mirror-row heal failed for #{@admin_email} — #{inspect(reason)}"
+            # coveralls-ignore-stop
+        end
+
+      {:ok, %{} = _squatter} ->
+        raise "seed admin: #{@admin_email} exists with a non-admin role — promote or remove that user manually, then re-run"
+
+      # No owner at all ({:ok, nil}) or the owner read failed: the create
+      # collided with a rolled-back or aborted writer, or the failure
+      # was not an address collision. Bootstrap fails loudly; re-run.
+      # coveralls-ignore-start - bootstrap fails loudly instead
+      _owner_gone ->
+        raise "seed admin: #{@admin_email} could not be created (#{Exception.message(collision)}) and no user holds it — re-run"
+        # coveralls-ignore-stop
+    end
+  end
+
+  defp frozen_email_owner(email) do
+    User
+    |> Ash.Query.filter(email == ^email)
+    |> Ash.read_one(authorize?: false)
   end
 
   @doc """

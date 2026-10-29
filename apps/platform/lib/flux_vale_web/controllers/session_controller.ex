@@ -23,7 +23,9 @@ defmodule FluxValeWeb.SessionController do
   def create(conn, %{"token" => token}) do
     with {:ok, claims, resource} <- Jwt.verify(token, :flux_vale),
          {:ok, user} <- AshAuthentication.subject_to_user(claims["sub"], resource),
-         :ok <- AccessRules.ensure_allowed(user.email),
+         # User-level gate (#285 T3) — the token may present any verified
+         # address of the account
+         :ok <- AccessRules.ensure_allowed_user(user),
          user <- Ash.Resource.put_metadata(user, :token, token) do
       conn
       |> Helpers.store_in_session(user)

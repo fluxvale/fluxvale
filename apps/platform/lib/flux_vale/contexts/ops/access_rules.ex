@@ -10,15 +10,23 @@ defmodule FluxVale.Ops.AccessRules do
   Deliberately fail-open on empty: that IS prod's pre-beta state;
   environments that must gate enter their own rows (settled on #26).
 
-  Enforcement boundaries (all settled on #26):
+  Enforcement boundaries (all settled on #26; #285 T3 generalizes the
+  session/token edges to the user):
 
   - **code-send** — `FluxVale.Identity.Operations.RequestAuthCode` (the
-    JIT gate: no code sent, no account created, therefore no PAT)
+    JIT gate: no code sent, no account created, therefore no PAT) —
+    still address-level (`ensure_allowed/1`: a code is only ever sent
+    to an allowed address)
   - **session mint** — `VerifyAuthCode` before token mint + `SessionController`
     before the session write (closes the ≤10-min window where a rule was
-    removed after a code was already sent)
-  - **token presentation** — `FluxValeWeb.Plugs.Authenticate`, where PAT
-    bearer and session validation converge
+    removed after a code was already sent) — user-level
+    (`ensure_allowed_user/1`) since T3: a user signs in with any of
+    their verified addresses
+  - **token presentation** — `FluxValeWeb.Plugs.Authenticate` and the
+    LiveView on_mount gate, where PAT bearer and session validation
+    converge — user-level as above: ANY verified address passing the
+    allowlist keeps the account connected; severing requires every
+    verified address denied
 
   Reads consult `AccessRules.Cache` (60s snapshot, bust-on-mutation) —
   revocation latency is instant on the mutating node and TTL-bounded
@@ -27,8 +35,12 @@ defmodule FluxVale.Ops.AccessRules do
   curated admin view.
   """
 
+  alias FluxVale.Identity.UserEmail
   alias FluxVale.Ops.AccessRule
   alias FluxVale.Ops.AccessRules.Cache
+
+  # Ash.Query.filter is a macro
+  require Ash.Query
 
   @typedoc "An AccessRule row as stored (any shape the resource can hold)."
   @type rule_row :: %AccessRule{}
@@ -51,6 +63,38 @@ defmodule FluxVale.Ops.AccessRules do
     case allowed?(email) do
       true -> :ok
       false -> {:error, :not_allowed}
+    end
+  end
+
+  @doc """
+  The user-level gate (#285 T3): `:ok` when ANY verified address of the
+  user passes the allowlist, `{:error, :not_allowed}` otherwise. A
+  single-address user behaves exactly as `ensure_allowed/1` on that
+  address; a user with several addresses stays connected while one good
+  address remains. A user with no verified address is severed — nothing
+  proven, nothing granted.
+
+  authorize?: false — the system seam: this runs for an
+  already-authenticated user on every session/token presentation;
+  UserEmail's actor-shaped reads are not the gate's question.
+  """
+  @spec ensure_allowed_user(FluxVale.Identity.User.t()) :: :ok | {:error, :not_allowed}
+  def ensure_allowed_user(user) do
+    verified_addresses =
+      UserEmail
+      |> Ash.Query.filter(user_id == ^user.id and not is_nil(verified_at))
+      |> Ash.Query.select(:address)
+      |> Ash.read!(authorize?: false)
+      |> Enum.map(& &1.address)
+
+    # One snapshot for the whole check — re-fetching per address would
+    # multiply reads and could straddle a mid-check mutation
+    snapshot = fetch_snapshot()
+
+    if Enum.any?(verified_addresses, &decide(snapshot, &1)) do
+      :ok
+    else
+      {:error, :not_allowed}
     end
   end
 
