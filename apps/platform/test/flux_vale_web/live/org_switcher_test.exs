@@ -15,6 +15,7 @@ defmodule FluxValeWeb.OrgSwitcherTest do
   alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.Organization
   alias FluxVale.Identity.User
+  alias FluxVale.Identity.UserEmail
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
@@ -160,6 +161,11 @@ defmodule FluxValeWeb.OrgSwitcherTest do
   # The #285 T6 fallback: a NULL-username rollout-window row (old-pod
   # straggler — actions can't produce the state, the documented seed!
   # exception) labels its personal row from the email local part.
+  # Post-T3 (#297), the session gates sever users with no user_emails
+  # row — the reachable straggler on the dashboard is the HEALED one
+  # (their first post-T3 sign-in wrote the verified mirror row), so the
+  # fixture carries it; username stays NULL and users.email remains
+  # the label source, which is what this test pins.
   test "a NULL-username row labels the personal row from the email local part", %{
     conn: conn
   } do
@@ -167,6 +173,13 @@ defmodule FluxValeWeb.OrgSwitcherTest do
 
     straggler =
       Ash.Seed.seed!(User, %{email: "straggler-#{int}@fluxvale.test"})
+
+    Ash.Seed.seed!(UserEmail, %{
+      address: "straggler-#{int}@fluxvale.test",
+      user_id: straggler.id,
+      verified_at: DateTime.utc_now(),
+      is_primary: true
+    })
 
     org = member_org!(straggler)
     conn = SessionHelpers.sign_in(conn, straggler)
