@@ -1,60 +1,51 @@
 defmodule FluxVale.Infrastructure.NamespacesTest do
-  use FluxVale.DataCase, async: true
-  use Mimic
+  # NOT async: the fail-loud arms mutate the :access_gateway application
+  # env, which is global. It is restored in on_exit.
+  use FluxVale.DataCase, async: false
 
-  alias FluxVale.Infrastructure.InstanceK8s
-  alias FluxVale.Infrastructure.Tailscale
+  alias FluxVale.Infrastructure.Operations.InstanceK8s
 
-  describe "access_namespace resolver split-brain fix" do
-    test "both resolvers return the same value when the key exists" do
-      namespace = "fluxvale-access"
+  setup do
+    original = Application.fetch_env(:flux_vale, :access_gateway)
+    on_exit(fn -> restore(original) end)
+    :ok
+  end
 
-      # Mock Application.fetch_env! to return the configured namespace
-      expect(Application, :fetch_env!, fn
-        :flux_vale, :access_gateway -> {:ok, [namespace: namespace]}
-      end)
+  defp restore({:ok, value}), do: Application.put_env(:flux_vale, :access_gateway, value)
+  defp restore(:error), do: Application.delete_env(:flux_vale, :access_gateway)
 
-      stub(Application, :get_env, fn :flux_vale, :access_gateway, [] ->
-        [namespace: namespace]
-      end)
+  describe "gateway_access_namespace/0" do
+    test "returns the configured namespace" do
+      Application.put_env(:flux_vale, :access_gateway, namespace: "fluxvale-access")
 
-      # Clear any cached state
-      Process.unregister(:access_namespace, dead: true)
-      Process.unregister(:access_namespace_cached, dead: true)
-
-      assert InstanceK8s.gateway_access_namespace() == namespace
-      assert Tailscale.access_namespace() == namespace
+      assert InstanceK8s.gateway_access_namespace() == "fluxvale-access"
     end
 
-    test "both resolvers raise on missing config key (fail-loud)" do
-      # Remove the key from runtime config
-      Application.delete_env(:flux_vale, :access_gateway)
+    test "the config value wins — no hardcoded fallback" do
+      Application.put_env(:flux_vale, :access_gateway, namespace: "a-different-ns")
 
-      # Clear any cached state
-      Process.unregister(:access_namespace, dead: true)
-      Process.unregister(:access_namespace_cached, dead: true)
+      assert InstanceK8s.gateway_access_namespace() == "a-different-ns"
+    end
 
-      assert_raise KeyError, ~r/key :namespace not found in :access_gateway config/, fn ->
+    test "raises rather than admitting into a default when the key is missing" do
+      # Carried finding #1: a silent "fluxvale-access" fallback admitted the
+      # peer into one namespace while the Deployment went elsewhere, so
+      # every reconfigure severed reachability. Fail loudly instead.
+      Application.put_env(:flux_vale, :access_gateway, image: "tailscale/tailscale:v1.90.6")
+
+      assert_raise KeyError, ~r/key :namespace not found/, fn ->
         InstanceK8s.gateway_access_namespace()
       end
-
-      assert_raise KeyError, ~r/key :namespace not found in :access_gateway config/, fn ->
-        Tailscale.access_namespace()
-      end
     end
 
-    test "provider re-uses InstanceK8s resolver via delegation" do
-      # Verify the provider calls the instance-side resolver for the shared namespace
-      namespace = "fluxvale-access"
+    test "raises when the config block is absent entirely" do
+      # A missing block is ArgumentError from fetch_env!/2; a missing key
+      # inside a block is KeyError. Both fail loudly — neither falls back.
+      Application.delete_env(:flux_vale, :access_gateway)
 
-      stub(Application, :get_env, fn :flux_vale, :access_gateway, [] ->
-        [namespace: namespace]
-      end)
-
-      Process.unregister(:access_namespace, dead: true)
-      Process.unregister(:access_namespace_cached, dead: true)
-
-      assert Tailscale.access_namespace() == namespace
+      assert_raise ArgumentError, ~r/:access_gateway/, fn ->
+        InstanceK8s.gateway_access_namespace()
+      end
     end
   end
 end

@@ -93,20 +93,24 @@ defmodule FluxVale.Infrastructure.Operations.GatewayPolicySurvivalTest do
       refute Map.has_key?(edge_peer, :match_labels)
     end
 
-    test "an attached instance with no access namespace configured admits no gateway", %{
+    test "an attached instance with no access namespace configured FAILS LOUDLY", %{
       org: org,
       owner: owner
     } do
       gateway = AccessFixtures.gateway!(org)
       instance = attached_instance!(org, owner, gateway, :private)
 
-      # The namespace is config: with it absent, the deployment has no
-      # gateway pods to admit, so the spec degrades to the plain floor
-      # rather than emitting a peer with a nil namespace (which the API
-      # server would reject, failing every exposure apply).
+      # Carried finding #1 chose fail-loud over degradation: a missing
+      # namespace used to silently admit the gateway peer into the
+      # "fluxvale-access" fallback while the provider's Deployment went
+      # somewhere else, severing reachability on every reconfigure. The
+      # old contract here — degrade to the plain floor — is exactly the
+      # silent half-deploy the fix removes, so this now raises.
       put_access_config(:delete, :namespace)
 
-      assert InstanceK8s.network_policy_spec(instance) == %{ingress_from_namespaces: []}
+      assert_raise KeyError, ~r/key :namespace not found/, fn ->
+        InstanceK8s.network_policy_spec(instance)
+      end
     end
 
     test "an unattached instance keeps the plain exposure floor", %{org: _org, owner: owner} do

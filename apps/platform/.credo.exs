@@ -33,7 +33,7 @@
           ~r"/lib/flux_vale_web.ex",
           ~r"/lib/flux_vale_web/components/core_components.ex",
           ~r"/lib/flux_vale_web/telemetry.ex",
-          ~r "/test/support/"
+          ~r"/test/support/"
         ]
       },
       plugins: [],
@@ -78,6 +78,20 @@
           {Credo.Check.Readability.ModuleDoc, []},
           {Credo.Check.Readability.ModuleNames, []},
           {Credo.Check.Readability.MultiAlias, []},
+          {Credo.Check.Readability.NestedFunctionCalls, []},
+          {Credo.Check.Readability.OneArityFunctionInPipe, []},
+          {Credo.Check.Readability.OnePipePerLine, []},
+          {Credo.Check.Readability.ParenthesesInCondition, []},
+          {Credo.Check.Readability.ParenthesesOnZeroArityDefs, []},
+          {Credo.Check.Readability.PipeIntoAnonymousFunctions, []},
+          {Credo.Check.Readability.PredicateFunctionNames, []},
+          {Credo.Check.Readability.PreferImplicitTry, []},
+          {Credo.Check.Readability.RedundantBlankLines, []},
+          {Credo.Check.Readability.Semicolons, []},
+          {Credo.Check.Readability.SeparateAliasRequire, []},
+          {Credo.Check.Readability.SingleFunctionToBlockPipe, []},
+          {Credo.Check.Readability.SinglePipe, []},
+          {Credo.Check.Readability.SpaceAfterCommas, []},
           # v1 rule: specs everywhere except the web presentation layer
           {Credo.Check.Readability.Specs,
            [
@@ -118,7 +132,7 @@
           {Credo.Check.Refactor.NegatedConditionsWithElse, []},
           {Credo.Check.Refactor.Nesting, []},
           {Credo.Check.Refactor.PassAsyncInTestCases, []},
-          {Credo.Check.Refactor.PipeChainStart, [{FluxVale.Infrastructure.Operations.InstanceK8s, [:gateway_access_namespace]}]},
+          {Credo.Check.Refactor.PipeChainStart, []},
           {Credo.Check.Refactor.RedundantWithClauseResult, []},
           {Credo.Check.Refactor.RejectFilter, []},
           {Credo.Check.Refactor.RejectReject, []},
@@ -148,7 +162,8 @@
           {Credo.Check.Warning.UnusedEnumOperation, []},
           {Credo.Check.Warning.UnusedFileOperation, []},
           {Credo.Check.Warning.UnusedKeywordOperation, []},
-          {Credo.Check.WARNING.UnusedListOperation, []},
+          {Credo.Check.Warning.UnusedListOperation, []},
+          {Credo.Check.Warning.UnusedMapOperation, []},
           {Credo.Check.Warning.UnusedPathOperation, []},
           {Credo.Check.Warning.UnusedRegexOperation, []},
           {Credo.Check.Warning.UnusedStringOperation, []},
@@ -173,10 +188,8 @@
           #
           # Custom checks can be created using `mix credo.gen.check`.
           #
-
-          # Disable PipeChainStart for gateway_access_namespace/0 which uses Keyword.fetch! that raises
-          # KeyError on missing config (intentional misconfig trap, not a refactoring opportunity)
-          {Credo.Check.Refactor.PipeChainStart, [{FluxVale.Infrastructure.Operations.InstanceK8s, [:gateway_access_namespace]}]},
-
-          # Fix typo from earlier (UnusedEnumOperation should be the list for UnusedListOperation)
-          {Credo.Check.WARNING.UnusedListOperation, []},
+        ]
+      }
+    }
+  ]
+}

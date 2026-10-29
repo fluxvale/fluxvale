@@ -125,8 +125,11 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
     instance
     |> attached_gateway_ids()
     |> Enum.flat_map(fn gateway_id ->
-      namespace = gateway_access_namespace()
-      %{namespace: namespace, match_labels: gateway_pod_labels(gateway_id)}
+      # The list wrapper is load-bearing: flat_map over a bare map
+      # iterates its key/value TUPLES, so the spec would carry
+      # {:namespace, "…"} instead of the peer map and every exposure
+      # apply would fail.
+      [%{namespace: gateway_access_namespace(), match_labels: gateway_pod_labels(gateway_id)}]
     end)
   end
 
@@ -160,8 +163,9 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
   """
   @spec gateway_access_namespace() :: String.t()
   def gateway_access_namespace do
-    # credo:ignore[R] — Keyword.fetch! raises KeyError directly, cannot be piped
-    Keyword.fetch!(Application.fetch_env!(:flux_vale, :access_gateway), :namespace)
+    :flux_vale
+    |> Application.fetch_env!(:access_gateway)
+    |> Keyword.fetch!(:namespace)
   end
 
   defp attached_gateway_ids(%{id: id}) do
