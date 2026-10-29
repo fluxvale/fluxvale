@@ -5,8 +5,8 @@ display-only (#205): the template branches on @current_user for the chrome
 is also mounted at /about — canonical to / — so signed-in sessions keep a
 path to it once / becomes the dashboard.
 Copy lives inline on purpose; the wording is reviewed at merge (#164).
-/catalog hrefs are literal: the route registers with the catalog slice,
-and ~p would raise a verified-routes warning until then.
+/catalog hrefs can move to ~p now that the route registers (router.ex)
+— left literal here pending that slice's cleanup.
 T3 (#277): sections band on surface color instead of hairline dividers,
 markers use the eyebrow idiom, and the hero anchors on the Flux Stream
 gradient matting a product mock — the D2(a) visual anchor, decorative
@@ -36,7 +36,7 @@ gradient matting a product mock — the D2(a) visual anchor, decorative
   </div>
 </header>
 
-<main>
+<main class="flex-1">
   <%!-- Band 1 — hero (canvas). --%>
   <section class="px-4 sm:px-6 lg:px-8">
     <div class="mx-auto max-w-4xl pb-20 pt-16 text-center sm:pb-24 sm:pt-24">
@@ -130,7 +130,12 @@ gradient matting a product mock — the D2(a) visual anchor, decorative
   </section>
 
   <%!-- Band 2 — how it works (panel-tinted): surface color, not a
-  hairline, separates the section. --%>
+  hairline, separates the section. Dark note (#277 T3 review): dark
+  surfaces invert — panel-raised is LIGHTER than panel — so the cards
+  read as recessed wells on the band in dark (light shows them
+  raised). That inversion is the token system's shape, accepted here:
+  the cards are decorative marketing weight, and dark depth rides
+  --line-strong borders by the system's own mechanism. --%>
   <section aria-labelledby="how-it-works-title" class="bg-panel-raised px-4 sm:px-6 lg:px-8">
     <div class="mx-auto max-w-5xl py-20 sm:py-24">
       <div class="text-center">
@@ -198,7 +203,7 @@ gradient matting a product mock — the D2(a) visual anchor, decorative
       <%!-- The honesty capsule (#277 pattern): the fleet line as a pill
       near the footer. --%>
       <div class="mt-16">
-        <p class="mx-auto inline-flex max-w-md items-center gap-2.5 rounded-pill border border-line bg-panel px-5 py-2.5 text-left text-sm leading-6 text-ink-muted">
+        <p class="mx-auto inline-flex max-w-md items-center gap-2.5 rounded-panel border border-line bg-panel px-5 py-2.5 text-left text-sm leading-6 text-ink-muted sm:rounded-pill">
           <.icon name="hero-server-stack" class="size-4 shrink-0 text-ink-subtle" />
           Every app runs on FluxVale's own managed Kubernetes fleet — the same
           infrastructure we run ourselves on.
@@ -208,7 +213,7 @@ gradient matting a product mock — the D2(a) visual anchor, decorative
   </section>
 </main>
 
-<footer class="border-t border-line bg-panel-raised px-4 py-8 sm:px-6 lg:px-8">
+<footer class="bg-panel-raised px-4 py-8 sm:px-6 lg:px-8">
   <div class="mx-auto flex max-w-5xl flex-col items-center justify-between gap-4 sm:flex-row">
     <p class="text-sm text-ink-subtle">© {Date.utc_today().year} FluxVale</p>
     <nav aria-label="Footer">

@@ -49,7 +49,11 @@
       })();
     </script>
   </head>
-  <body>
+  <%!-- min-h-dvh flex column (#277 T3 review): the footer band must
+  reach the viewport bottom on short public pages — without this, the
+  raised band floats mid-viewport on /catalog and /policies/* and a
+  canvas strip shows below it. --%>
+  <body class="flex min-h-dvh flex-col">
     {@inner_content}
   </body>
 </html>

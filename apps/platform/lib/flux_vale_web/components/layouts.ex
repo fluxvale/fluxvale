@@ -156,11 +156,14 @@ defmodule FluxValeWeb.Layouts do
       </div>
     </header>
 
-    <main class="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
+    <main class="mx-auto w-full max-w-5xl flex-1 px-4 py-10 sm:px-6 lg:px-8">
       {render_slot(@inner_block)}
     </main>
 
-    <footer :if={@footer} class="border-t border-line bg-panel-raised px-4 py-8 sm:px-6 lg:px-8">
+    <%!-- Banding, not a hairline (#277 T3 review): the raised footer
+    band's top edge is a surface change — border-t stacked a 1px line
+    on the color edge, the one hairline left between bands. --%>
+    <footer :if={@footer} class="bg-panel-raised px-4 py-8 sm:px-6 lg:px-8">
       <div class="mx-auto flex max-w-5xl flex-col items-center justify-between gap-4 sm:flex-row">
         <p class="text-sm text-ink-subtle">© {Date.utc_today().year} FluxVale</p>
         <nav aria-label="Footer">
