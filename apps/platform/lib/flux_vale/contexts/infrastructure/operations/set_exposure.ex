@@ -23,6 +23,8 @@ defmodule FluxVale.Infrastructure.Operations.SetExposure do
   must not widen this policy's edge entry.
   """
 
+  alias Ash.Error.Invalid
+  alias Ash.Error.Query.NotFound
   alias FluxVale.Clients.K8s.Resources.NetworkPolicy
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
@@ -39,8 +41,8 @@ defmodule FluxVale.Infrastructure.Operations.SetExposure do
   """
   @spec call(Instance.t()) :: :ok | {:error, term()}
   def call(instance) do
-    with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance) do
-      precheck_access_namespace(instance)
+    with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance),
+         :ok <- precheck_access_namespace(instance) do
       apply_exposure(kubeconfig, instance)
     end
   end
@@ -50,11 +52,40 @@ defmodule FluxVale.Infrastructure.Operations.SetExposure do
   # tuples, so a raise there unwinds past them and strands exactly the
   # drift they exist to prevent. Resolve EAGERLY, before the first
   # write. Unattached instances never reach the resolver; their
-  # exposure must not fail on access-gateway config.
+  # exposure must not fail on access-gateway config. A read FAILURE is
+  # not "not attached" — fail the exposure rather than proceed with the
+  # precheck silently void (configure_backups' NotFound split is the
+  # precedent for telling a miss from an outage).
   defp precheck_access_namespace(%Instance{id: id}) do
     case AccessRoute.get_by_instance(id, authorize?: false) do
-      {:ok, _route} -> InstanceK8s.gateway_access_namespace()
-      {:error, _no_route} -> :ok
+      {:ok, _route} ->
+        resolve_access_namespace()
+
+      {:error, %Invalid{errors: errors}} ->
+        split_read_error(errors)
+
+      # coveralls-ignore-start - defensive: the only other read failure is
+      # a DB outage, which ExUnit cannot simulate (configure_backups'
+      # NotFound split is the precedent for this shape).
+      {:error, _reason} = error ->
+        error
+        # coveralls-ignore-stop
+    end
+  end
+
+  defp resolve_access_namespace do
+    InstanceK8s.gateway_access_namespace()
+    :ok
+  end
+
+  defp split_read_error(errors) do
+    if Enum.any?(errors, &match?(%NotFound{}, &1)) do
+      :ok
+    else
+      # coveralls-ignore-start - defensive: a non-NotFound Invalid from
+      # this read is the same DB-outage class as the arm above.
+      {:error, %Invalid{errors: errors}}
+      # coveralls-ignore-stop
     end
   end
 

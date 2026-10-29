@@ -165,9 +165,15 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
   """
   @spec gateway_access_namespace() :: String.t()
   def gateway_access_namespace do
-    :flux_vale
-    |> Application.fetch_env!(:access_gateway)
-    |> Keyword.fetch!(:namespace)
+    config = Application.fetch_env!(:flux_vale, :access_gateway)
+
+    # The single clause matches only a usable namespace: a nil/empty
+    # VALUE fails as loudly as a missing key (an env-var interpolation
+    # that yields nil is one deploy away) — CaseClauseError, not a
+    # half-configured attach.
+    case Keyword.fetch!(config, :namespace) do
+      namespace when is_binary(namespace) and namespace != "" -> namespace
+    end
   end
 
   defp attached_gateway_ids(%{id: id}) do

@@ -73,6 +73,18 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8sTest do
       end
     end
 
+    test "a nil or empty namespace VALUE fails as loudly as a missing key" do
+      # An env-var interpolation that yields nil is one deploy away;
+      # fetch!/2 alone would happily return it.
+      for value <- [nil, ""] do
+        Application.put_env(:flux_vale, :access_gateway, namespace: value)
+
+        assert_raise CaseClauseError, fn ->
+          InstanceK8s.gateway_access_namespace()
+        end
+      end
+    end
+
     test "raises when the config block is absent entirely" do
       # A missing block is ArgumentError from fetch_env!/2; a missing key
       # inside a block is KeyError. Both fail loudly — neither falls back.
