@@ -800,6 +800,6 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   end
 
   defp access_namespace do
-    Application.fetch_env!(:flux_vale, :access_gateway)[:namespace] || "fluxvale-access"
+    InstanceK8s.gateway_access_namespace()
   end
 end
