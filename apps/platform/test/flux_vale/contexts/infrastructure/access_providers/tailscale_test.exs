@@ -318,7 +318,15 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
 
       # Not :provisioning (the panel would say "Setting up access"
       # forever and metering would continue against a pod that is gone).
-      assert {:ok, %{state: :needs_attention}} = Tailscale.gateway_status(gateway)
+      # The message renders on the panel (the row's status_message), so
+      # it is pinned copy: friendly (#179's split — the old text named a
+      # platform term) and affordance-honest (a re-paste cannot recover
+      # a missing Deployment; support is the next step).
+      assert {:ok,
+              %{
+                state: :needs_attention,
+                message: "Not connected — access needs attention; contact support"
+              }} = Tailscale.gateway_status(gateway)
     end
   end
 

@@ -170,6 +170,31 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     end
   end
 
+  # A failed removal parks the row in :destroying — this is its owner
+  # path forward. The engine's delete re-enqueues idempotently from
+  # :destroying (its own comment: a duplicate against a live job costs
+  # one wasted pass), so one explicit click needs no confirm arm; the
+  # destructive confirm stays on the :active/:needs_attention/:suspended
+  # cards, where the click is what STARTS the removal.
+  def handle_event("retry-remove", _params, socket) do
+    case Infrastructure.delete_access_gateway(socket.assigns.gateway.id,
+           actor: socket.assigns.current_user
+         ) do
+      {:ok, gateway} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Retrying removal — this page updates on its own.")
+         |> assign(gateway: gateway)
+         |> assign(remove_armed?: false)
+         |> assign_forms()}
+
+      {:error, _reason} ->
+        # The stale-view arm: the row vanished (the in-flight teardown
+        # won) — the next broadcast lands the empty state.
+        {:noreply, put_flash(socket, :error, "Could not remove private access — try again.")}
+    end
+  end
+
   # The zero-balance ladder's undo — the engine's funded-wallet policy
   # is the authority; the flash just says what the wallet needs.
   def handle_event("resume", _params, socket) do
@@ -185,10 +210,20 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       {:error, %Forbidden{}} ->
         {:noreply, put_flash(socket, :error, "Top up before resuming private access.")}
 
-      {:error, _reason} ->
-        # A transient failure mid-resume (the scale call) — the row kept
-        # :suspended, so the retry is the same button.
-        {:noreply, put_flash(socket, :error, "Could not resume private access — try again.")}
+      {:error, error} ->
+        if stale_gateway?(error) do
+          # The stale-view arm: another tab won the resume (or the
+          # teardown won the race) between this panel's last refetch and
+          # the click. The row filter refused the write — retrying here
+          # would guess at a state this panel cannot see. Settings'
+          # stale posture: reload, not retry.
+          {:noreply,
+           put_flash(socket, :error, "This gateway changed underneath you — reload to continue.")}
+        else
+          # A transient failure mid-resume (the scale call) — the row
+          # kept :suspended, so the retry is the same button.
+          {:noreply, put_flash(socket, :error, "Could not resume private access — try again.")}
+        end
     end
   end
 
@@ -445,6 +480,15 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           <p class="text-sm text-ink-muted" data-testid="access-removing-note">
             Removing private access… This page updates on its own.
           </p>
+          <.button
+            type="button"
+            phx-click="retry-remove"
+            variant="ghost"
+            size="sm"
+            data-testid="access-retry-remove"
+          >
+            Retry removal
+          </.button>
       <% end %>
     </div>
     """
@@ -635,6 +679,19 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   defp forbidden?(form) do
     Enum.any?(form.source.source.errors, &match?(%Ash.Error.Forbidden.Policy{}, &1))
   end
+
+  # The code interface wraps a refused filtered write (the resume's row
+  # filter) as Invalid carrying StaleRecord — the settings form's stale
+  # marker, error-class shape.
+  defp stale_gateway?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
+  end
+
+  # Defensive: code-interface failures are always error classes (the
+  # Forbidden arm is caught before this), so no test can land a bare
+  # term here; the clause keeps a future shape from crashing the flash.
+  # coveralls-ignore-next-line
+  defp stale_gateway?(_error), do: false
 
   defp refresh_funded(socket) do
     assign(socket, funded?: ActorOrgWalletFunded.org_funded?(socket.assigns.org.id))

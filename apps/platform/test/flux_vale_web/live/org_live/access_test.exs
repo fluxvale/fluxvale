@@ -11,6 +11,8 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
   import FluxVale.TestSupport.NoK8sLeaks
   import Phoenix.LiveViewTest
 
+  alias Ash.Error.Changes.StaleRecord
+  alias Ash.Error.Invalid
   alias FluxVale.Accounts.Membership
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessGateway
@@ -274,15 +276,18 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       assert has_element?(view, "[data-testid='access-resume-topup-link']")
     end
 
-    test ":destroying — the removing note and no actions", %{conn: conn, org: org} do
+    test ":destroying — the removing note and the retry affordance", %{conn: conn, org: org} do
       AccessFixtures.gateway!(org, state: :destroying)
 
       {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
 
       assert has_element?(view, "[data-testid=status-badge]", "Removing")
       assert has_element?(view, "[data-testid='access-removing-note']")
+      # No armed remove on a row already going away — but an exhausted
+      # teardown needs an owner path forward, so the retry is here.
       refute has_element?(view, "[data-testid='access-remove']")
       refute has_element?(view, "[data-testid='access-repaste']")
+      assert has_element?(view, "[data-testid='access-retry-remove']", "Retry removal")
     end
   end
 
@@ -413,6 +418,28 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       assert has_element?(view, "#flash-error", "Could not resume private access")
       assert AccessGateway.get_by_id!(gateway.id, authorize?: false).state == :suspended
     end
+
+    test "a resume refused as stale says reload, not retry", %{conn: conn, org: org} do
+      AccessFixtures.gateway!(org, state: :suspended)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      # The race the engine's row filter answers: this panel's struct is
+      # stale by the time its resume reaches the row (another tab won).
+      # Stubbed at the seam — the real filter is pinned in the
+      # AccessGateway changes tests; this pins the panel's discrimination.
+      Mimic.copy(AccessGateway)
+
+      stub(AccessGateway, :resume, fn _gateway, _opts ->
+        {:error, Invalid.exception(errors: [%StaleRecord{}])}
+      end)
+
+      view
+      |> element("[data-testid='access-resume']")
+      |> render_click()
+
+      assert has_element?(view, "#flash-error", "changed underneath you")
+    end
   end
 
   describe "removing the gateway" do
@@ -486,6 +513,37 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
 
       assert has_element?(view, "#flash-error", "Could not remove private access")
       assert AccessGateway.get_by_id!(gateway.id, authorize?: false).state == :active
+    end
+
+    test "retrying a removal re-enqueues and lands the empty state", %{conn: conn, org: org} do
+      AccessFixtures.gateway!(org, state: :destroying)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      # One click: the engine's delete re-enqueues idempotently from
+      # :destroying, and the inline teardown finishes the job.
+      view
+      |> element("[data-testid='access-retry-remove']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='access-empty']")
+      assert has_element?(view, "#access-enable-form")
+    end
+
+    test "a retry that fails answers with the retry copy", %{conn: conn, org: org} do
+      gateway = AccessFixtures.gateway!(org, state: :destroying)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      Mimic.copy(Infrastructure)
+      stub(Infrastructure, :delete_access_gateway, fn _id, _opts -> {:error, :cluster_down} end)
+
+      view
+      |> element("[data-testid='access-retry-remove']")
+      |> render_click()
+
+      assert has_element?(view, "#flash-error", "Could not remove private access")
+      assert AccessGateway.get_by_id!(gateway.id, authorize?: false).state == :destroying
     end
   end
 

@@ -62,6 +62,14 @@ defmodule FluxVale.Infrastructure.AccessGateway.Resume do
   # gateway exactly as it was.
   defp resume(gateway, changeset) do
     changeset
+    # The observer's expected_state pattern: the UPDATE lands only on a
+    # still-:suspended row, so a concurrent writer (a second resume, the
+    # teardown) turns this write into a StaleRecord instead of a blind
+    # overwrite — the after_action scale never runs on a row we didn't
+    # win, and the anchor cannot restart twice. The guard above still
+    # reads the struct: it is the cheap no-op for a caller whose own
+    # view is already out of :suspended.
+    |> Ash.Changeset.filter(state: :suspended)
     |> Ash.Changeset.force_change_attribute(:state, :provisioning)
     |> Ash.Changeset.force_change_attribute(:status_message, "Reconnecting access")
     |> Ash.Changeset.force_change_attribute(:metering_since, DateTime.utc_now())

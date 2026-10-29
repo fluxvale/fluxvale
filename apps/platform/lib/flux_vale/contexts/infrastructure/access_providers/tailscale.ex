@@ -568,7 +568,16 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
         if gateway.state == :provisioning do
           {:ok, %{state: :provisioning, message: "Setting up access"}}
         else
-          {:ok, %{state: :needs_attention, message: "Not connected — the gateway pod is missing"}}
+          # #179's friendly-vs-k8s split: this message renders on the
+          # panel (the row's status_message), so it names no platform
+          # term — and no affordance it cannot back. A re-paste cannot
+          # recover a missing Deployment (the restart needs the object),
+          # so the honest next step is support.
+          {:ok,
+           %{
+             state: :needs_attention,
+             message: "Not connected — access needs attention; contact support"
+           }}
         end
 
       {:error, _reason} = error ->
