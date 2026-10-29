@@ -12,6 +12,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
+  alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
@@ -87,6 +88,38 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       second = AccessFixtures.gateway!(other_org)
 
       assert first.hostname != second.hostname
+    end
+  end
+
+  describe "attached_instances/1" do
+    # Direct pin (teardown's detach list + the settle's pairing sanity):
+    # every route the gateway holds, instance loaded. Pinned directly so
+    # the helper's coverage no longer rides the async teardown suite's
+    # attribution (a measured 99.9/100.0 flake in excoveralls).
+    test "lists every paired instance with its route", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      first = AccessFixtures.private_instance!(org, owner)
+      second = AccessFixtures.private_instance!(org, owner)
+
+      {:ok, _route} =
+        AccessRoute.create(
+          %{gateway_id: gateway.id, instance_id: first.id, route_key: "8443"},
+          authorize?: false
+        )
+
+      {:ok, _route} =
+        AccessRoute.create(
+          %{gateway_id: gateway.id, instance_id: second.id, route_key: "8444"},
+          authorize?: false
+        )
+
+      attached_ids =
+        gateway
+        |> AccessGateway.attached_instances()
+        |> Enum.map(& &1.id)
+        |> MapSet.new()
+
+      assert attached_ids == MapSet.new([first.id, second.id])
     end
   end
 

@@ -2,8 +2,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   @moduledoc """
   Org settings, Access tab (#273, ADR-0039): the private-access
   gateway's owner surface — enable, watch, re-paste the key, resume
-  after suspension, remove. Instance pairing (attach/detach) is the
-  next slice; this tab is the gateway's lifecycle only.
+  after suspension, remove, and pair instances (attach/detach, §4.1 —
+  the owner's reachability switch).
 
   Slug-keyed mount like the sibling tabs; unknown slugs (and policy
   denials) read as "not here" — never a bare 404. Owners-only in the
@@ -26,6 +26,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   alias FluxVale.Checks.ActorOrgWalletFunded
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessGateway
+  alias FluxVale.Infrastructure.AccessRoute
+  alias FluxVale.Infrastructure.Instance
   alias FluxVale.Pricing
   alias FluxValeWeb.OrgSettings
 
@@ -50,8 +52,12 @@ defmodule FluxValeWeb.OrganizationLive.Access do
            socket
            |> assign(org: org, gateway: gateway, price_cents: monthly_cents())
            |> assign(repaste_open?: repaste_open_for(gateway), remove_armed?: false)
+           |> assign(attach_error: nil)
+           |> stream_configure(:attached, dom_id: &"access-attached-#{&1.route.id}")
+           |> stream_configure(:attachable, dom_id: &"access-attach-#{&1.id}")
            |> refresh_funded()
-           |> assign_forms()}
+           |> assign_forms()
+           |> refresh_pairing()}
         else
           {:ok,
            socket
@@ -250,6 +256,73 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     end
   end
 
+  # ---- Pairing (ADR-0039 §3): the owner's reachability switch ----
+
+  # The sections aren't rendered without a gateway (or on a gateway the
+  # operation would refuse), so these guards are the crafted/stale-click
+  # arms — no-ops, never crashes (the remove family's stance). The
+  # trailing catch-alls make that total over crafted payloads too: a
+  # phx event without an instance_id is a no-op, not a crash.
+  def handle_event("attach", _params, %{assigns: %{gateway: nil}} = socket) do
+    {:noreply, socket}
+  end
+
+  def handle_event("attach", %{"instance_id" => instance_id}, socket) do
+    user = socket.assigns.current_user
+
+    case Instance.get_by_id(instance_id, actor: user) do
+      {:ok, instance} ->
+        attach(socket, instance)
+
+      # The stale view: the instance left between this panel's render
+      # and the click — the generic copy is the honest answer to a
+      # click that can no longer mean anything.
+      _gone ->
+        # The instance left between render and click — a stale row. The
+        # generic copy answers the click AND the lists re-read so the
+        # ghost row disappears instead of failing forever.
+        {:noreply,
+         socket
+         |> assign(attach_error: :cluster)
+         |> refresh_pairing()}
+    end
+  end
+
+  def handle_event("attach", _params, socket), do: {:noreply, socket}
+
+  def handle_event("detach", _params, %{assigns: %{gateway: nil}} = socket) do
+    {:noreply, socket}
+  end
+
+  def handle_event("detach", %{"instance_id" => instance_id}, socket) do
+    user = socket.assigns.current_user
+
+    case Instance.get_by_id(instance_id, actor: user) do
+      {:ok, instance} ->
+        case Infrastructure.detach_instance(socket.assigns.gateway, instance) do
+          :ok ->
+            {:noreply,
+             socket
+             |> put_flash(:info, detach_flash(instance))
+             |> refresh_pairing()}
+
+          {:error, _reason} ->
+            {:noreply, put_flash(socket, :error, "Couldn't detach — try again.")}
+        end
+
+      _gone ->
+        # Stale row (CodeRabbit round): refresh alongside the retry copy
+        # so a vanished instance leaves the attached list, not a ghost
+        # that re-fails every click.
+        {:noreply,
+         socket
+         |> put_flash(:error, "Couldn't detach — try again.")
+         |> refresh_pairing()}
+    end
+  end
+
+  def handle_event("detach", _params, socket), do: {:noreply, socket}
+
   @impl Phoenix.LiveView
   # The per-org topic's catch-all: every gateway write lands here (the
   # observer's tick, a state change from another tab, the create) and so
@@ -273,7 +346,9 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
   # Rebuild the panel's chrome only when the state actually moved — a
   # no-op broadcast (the observer re-publishing the same state) must not
-  # wipe a half-typed key out of the re-paste form.
+  # wipe a half-typed key out of the re-paste form. A state move can
+  # also flip the pairing sections' visibility (the suspension hides
+  # them), so their data refetches with the chrome.
   defp maybe_rebuild_panel(socket, gateway, previous) do
     if state_of(gateway) == previous do
       socket
@@ -281,6 +356,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       socket
       |> assign(repaste_open?: repaste_open_for(gateway), remove_armed?: false)
       |> assign_forms()
+      |> refresh_pairing()
     end
   end
 
@@ -313,6 +389,31 @@ defmodule FluxValeWeb.OrganizationLive.Access do
             funded?={@funded?}
             repaste_open?={@repaste_open?}
             remove_armed?={@remove_armed?}
+          />
+
+          <%!-- §4.1's pairing sections — only while the operation would
+              accept an attach; every other state gets one honest line
+              instead (the banner explains why). --%>
+          <p
+            :if={pairing_paused_copy(@gateway)}
+            class="text-sm text-ink-muted"
+            data-testid="access-pairing-paused"
+          >
+            {pairing_paused_copy(@gateway)}
+          </p>
+
+          <.attached_card
+            :if={pairing_open?(@gateway)}
+            gateway={@gateway}
+            attached={@streams.attached}
+            attached_empty?={@attached_empty?}
+          />
+
+          <.attach_card
+            :if={pairing_open?(@gateway)}
+            attachable={@streams.attachable}
+            attachable_empty?={@attachable_empty?}
+            attach_error={@attach_error}
           />
         <% else %>
           <.access_empty_state org={@org} form={@form} funded?={@funded?} price_cents={@price_cents} />
@@ -651,6 +752,129 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     """
   end
 
+  # §4.1's attached half: one row per paired app — name, status, the
+  # tailnet address (hostname + route_key; the tailnet suffix is the
+  # owner's, so it renders as a deliberate placeholder), and Detach
+  # with no confirm (reversible). The list is a stream reset on every
+  # pairing change — the refetch is the update.
+  attr(:gateway, AccessGateway, required: true)
+  attr(:attached, :any, required: true)
+  attr(:attached_empty?, :boolean, required: true)
+
+  defp attached_card(assigns) do
+    ~H"""
+    <.card id="access-attached-card" class="space-y-4" data-testid="access-attached">
+      <div>
+        <h3 class="text-sm font-medium text-ink-muted">Attached apps</h3>
+        <p class="mt-1 text-sm text-ink-muted">
+          Each app gets its own address on your tailnet. Detaching is reversible — a
+          detached app is reachable from the panel only again.
+        </p>
+      </div>
+
+      <p :if={@attached_empty?} class="text-sm text-ink-muted" data-testid="access-attached-empty">
+        Nothing attached yet — pick an app below.
+      </p>
+
+      <ul id="access-attached-rows" phx-update="stream" class="divide-y divide-line">
+        <li
+          :for={{dom_id, row} <- @attached}
+          id={dom_id}
+          class="space-y-1.5 py-3"
+          data-testid="access-attached-row"
+        >
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex min-w-0 flex-wrap items-center gap-2">
+              <span class="text-sm font-medium text-ink">{row.instance.name}</span>
+              <.status_badge status={row.instance.status} />
+            </div>
+            <.button
+              type="button"
+              phx-click="detach"
+              phx-value-instance_id={row.instance.id}
+              variant="ghost"
+              size="sm"
+              data-testid="access-detach"
+            >
+              Detach
+            </.button>
+          </div>
+
+          <p class="font-mono text-xs text-ink-muted break-all" data-testid="access-attached-address">
+            {address(row.route, @gateway)}
+          </p>
+
+          <%!-- §4.1: the exposure toggle can put a public instance here
+              after the fact — the two switches are independent, and the
+              row says so honestly instead of hiding it. --%>
+          <p
+            :if={row.instance.exposure == :public}
+            class="text-xs text-ink-muted"
+            data-testid="access-attached-public-note"
+          >
+            Also public — anyone can reach it at its own address too.
+          </p>
+        </li>
+      </ul>
+    </.card>
+    """
+  end
+
+  # §4.1's attach half: the org's private instances that have no route
+  # yet. Refusals are the operation's; each error lands its own line
+  # here, and the section hides entirely where attaching can't work.
+  attr(:attachable, :any, required: true)
+  attr(:attachable_empty?, :boolean, required: true)
+  attr(:attach_error, :atom, required: true)
+
+  defp attach_card(assigns) do
+    ~H"""
+    <.card id="access-attach-card" class="space-y-4" data-testid="access-attach">
+      <div>
+        <h3 class="text-sm font-medium text-ink-muted">Attach an app</h3>
+        <p class="mt-1 text-sm text-ink-muted">
+          Give a private app an address on your tailnet. Attaching never changes an
+          app's exposure — the two switches stay independent.
+        </p>
+      </div>
+
+      <.callout :if={@attach_error} id="access-attach-error" tone="warning">
+        <p data-testid="access-attach-error">
+          {attach_error_copy(@attach_error)}
+        </p>
+      </.callout>
+
+      <p :if={@attachable_empty?} class="text-sm text-ink-muted" data-testid="access-attach-empty">
+        No private apps waiting — apps show up here while they are private and not
+        attached yet.
+      </p>
+
+      <ul id="access-attach-rows" phx-update="stream" class="divide-y divide-line">
+        <li
+          :for={{dom_id, instance} <- @attachable}
+          id={dom_id}
+          class="flex flex-wrap items-center justify-between gap-3 py-3"
+          data-testid="access-attach-row"
+        >
+          <div class="flex min-w-0 flex-wrap items-center gap-2">
+            <span class="text-sm font-medium text-ink">{instance.name}</span>
+            <.status_badge status={instance.status} />
+          </div>
+          <.button
+            type="button"
+            phx-click="attach"
+            phx-value-instance_id={instance.id}
+            size="sm"
+            data-testid="access-attach-button"
+          >
+            Attach
+          </.button>
+        </li>
+      </ul>
+    </.card>
+    """
+  end
+
   # The member read policy scopes to the actor's orgs; the owner passed
   # the UX gate, so a miss here is genuinely "no gateway".
   defp fetch_gateway(org, user) do
@@ -756,6 +980,133 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
   defp refresh_funded(socket) do
     assign(socket, funded?: ActorOrgWalletFunded.org_funded?(socket.assigns.org.id))
+  end
+
+  # ---- Pairing data + copy (§4.1) ----
+
+  # The operation is the authority (state, exposure, org); the error map
+  # is §4.1's copy contract — each refusal gets its own honest line.
+  defp attach(socket, instance) do
+    case Infrastructure.attach_instance(socket.assigns.gateway, instance) do
+      {:ok, _route} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "#{instance.name} attached — its tailnet address is below.")
+         |> assign(attach_error: nil)
+         |> refresh_pairing()}
+
+      {:error, :gateway_not_active} ->
+        {:noreply, assign(socket, attach_error: :gateway_not_active)}
+
+      {:error, :pool_exhausted} ->
+        {:noreply, assign(socket, attach_error: :pool_exhausted)}
+
+      {:error, _cluster_or_stale} ->
+        {:noreply, assign(socket, attach_error: :cluster)}
+    end
+  end
+
+  # Detach never changes exposure (the two switches are independent),
+  # so the flash says what the instance is actually left as — the
+  # public-but-attached corner detaches back to public, not panel-only.
+  defp detach_flash(%Instance{exposure: :private} = instance) do
+    "#{instance.name} detached — reachable from the panel only again."
+  end
+
+  defp detach_flash(%Instance{} = instance) do
+    "#{instance.name} detached — its public address still works."
+  end
+
+  # Both lists refetch wholesale: the pairing table is small, and every
+  # refetch reads the rows fresh. What triggers a refetch is bounded —
+  # this panel's own actions and gateway state moves; AccessRoute has no
+  # notifier, so ANOTHER tab's attach or an exposure toggle elsewhere
+  # does not land here until then (a stale row's click converges through
+  # the operation's own guards). The emptiness flags ride alongside —
+  # streams can't be counted in the template.
+  defp refresh_pairing(socket) do
+    {attached, attachable} =
+      pairing_lists(socket.assigns.gateway, socket.assigns.org, socket.assigns.current_user)
+
+    socket
+    |> stream(:attached, attached, reset: true)
+    |> stream(:attachable, attachable, reset: true)
+    |> assign(attached_empty?: attached == [], attachable_empty?: attachable == [])
+  end
+
+  defp pairing_lists(nil, _org, _user), do: {[], []}
+
+  defp pairing_lists(gateway, org, user) do
+    attached = attached_rows(gateway, user)
+    taken = MapSet.new(attached, & &1.route.instance_id)
+
+    attachable =
+      org.id
+      |> Instance.list_for_organization!(actor: user)
+      |> Enum.filter(&private_and_free?(&1, taken))
+      |> Enum.sort_by(&{&1.name, &1.id})
+
+    {Enum.sort_by(attached, &{&1.instance.name, &1.route.id}), attachable}
+  end
+
+  # §4.1's filter: exposure == :private with no existing route. A
+  # public-but-attached row keeps its route (the switches are
+  # independent), and its instance is rightly absent from this list.
+  defp private_and_free?(%Instance{exposure: :private} = instance, taken),
+    do: not MapSet.member?(taken, instance.id)
+
+  defp private_and_free?(%Instance{}, _taken), do: false
+
+  # The routes ride the route read policy (member-scoped through the
+  # gateway); each row's instance loads under the instance read policy
+  # the same way — the FK cascades the route with its instance, so a
+  # row always has one.
+  defp attached_rows(gateway, user) do
+    gateway.id
+    |> AccessRoute.list_for_gateway!(actor: user)
+    |> Ash.load!(:instance, actor: user)
+    |> Enum.map(&%{route: &1, instance: &1.instance})
+  end
+
+  # The states the attach operation accepts (AttachInstance's guard) —
+  # the UI mirrors the authority, the operation keeps the last word.
+  defp pairing_open?(%AccessGateway{state: state}), do: state in [:active, :provisioning]
+
+  # Where the sections hide, one honest line says why (§4.1's banner:
+  # attach while suspended is refused, so the section isn't offered).
+  defp pairing_paused_copy(%AccessGateway{state: :suspended}) do
+    "Attaching is paused while private access is suspended — resume it to bring your apps' addresses back."
+  end
+
+  defp pairing_paused_copy(%AccessGateway{state: :needs_attention}) do
+    "Attaching is paused while the gateway isn't connected — reconnect with a fresh key first."
+  end
+
+  defp pairing_paused_copy(%AccessGateway{state: :destroying}) do
+    "Attaching is unavailable — private access is being removed."
+  end
+
+  # The open states render the sections instead — nil hides the note.
+  defp pairing_paused_copy(%AccessGateway{}), do: nil
+
+  # §4.1's error map: each refusal in the operation's own words.
+  defp attach_error_copy(:gateway_not_active) do
+    "Private access isn't connected yet — wait for Connected, then attach again."
+  end
+
+  defp attach_error_copy(:pool_exhausted) do
+    "This gateway's addresses are all in use — detach an app to free one."
+  end
+
+  defp attach_error_copy(_cluster_or_stale) do
+    "Couldn't attach — try again."
+  end
+
+  # §4.1's address shape: hostname + route_key, the tailnet suffix left
+  # as a deliberate placeholder — the platform cannot know it (ADR-0039
+  # §1's opaque fv- name is all that's ours).
+  defp address(route, gateway) do
+    "#{gateway.hostname}.<your-tailnet>.ts.net:#{route.route_key}"
   end
 
   # The recovery state shows the re-paste form outright (the ADR's

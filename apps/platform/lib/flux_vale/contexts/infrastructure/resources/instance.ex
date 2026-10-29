@@ -538,11 +538,15 @@ defmodule FluxVale.Infrastructure.Instance do
       filter(expr(exists(organization.memberships, user_id == ^actor(:id))))
     end
 
-    # #124's burn-rate input: every instance of an org, priced. System
-    # seam (the sweep runs authorize?: false); members have no call for
-    # an org-wide unpaginated list — list_for_actor is theirs.
+    # #124's burn-rate input: every instance of an org, priced. Born a
+    # system seam (the sweep runs authorize?: false); the Access tab's
+    # attachable list is a member-facing caller (the read policy above
+    # scopes to org members — list_for_actor stays the per-user shape).
     read :list_for_organization do
-      description("The org's instances (#124's runway/burn-rate input)")
+      description(
+        "The org's instances (#124's runway/burn-rate input; the Access tab's attachable list)"
+      )
+
       argument(:organization_id, :uuid, allow_nil?: false)
       filter(expr(organization_id == ^arg(:organization_id)))
     end
