@@ -37,7 +37,7 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
     assert has_element?(view, "[data-testid='org-switcher-button'] span", org.name)
   end
 
-  test "the tab nav renders exactly two tabs — General and Members (no dead tabs ship)", %{
+  test "the tab nav renders exactly three tabs — General, Members, Access (no dead tabs ship)", %{
     conn: conn,
     org: org
   } do
@@ -45,6 +45,7 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
 
     assert has_element?(view, "[data-testid='org-settings-tab-general']", "General")
     assert has_element?(view, "[data-testid='org-settings-tab-members']", "Members")
+    assert has_element?(view, "[data-testid='org-settings-tab-access']", "Access")
 
     # Count the tab keys, not just the container: a dead tab injected by a
     # mutation must fail this. The key charset is wide ([^"]+, not
@@ -58,7 +59,7 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
       |> then(&Regex.scan(~r/data-testid="org-settings-tab-[^"]+"/, &1))
       |> length()
 
-    assert tab_count == 2
+    assert tab_count == 3
 
     nav_html = render(element(view, "[data-testid='org-settings-tabs']"))
 
@@ -67,7 +68,7 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
       |> then(&Regex.scan(~r/<a /, &1))
       |> length()
 
-    assert link_count == 2
+    assert link_count == 3
 
     # General is the active tab on THIS page — and only it.
     general_tab = render(element(view, "[data-testid='org-settings-tab-general']"))
@@ -76,6 +77,9 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
 
     members_tab = render(element(view, "[data-testid='org-settings-tab-members']"))
     refute members_tab =~ "border-primary"
+
+    access_tab = render(element(view, "[data-testid='org-settings-tab-access']"))
+    refute access_tab =~ "border-primary"
   end
 
   test "the slug preview follows the input live", %{conn: conn, org: org} do

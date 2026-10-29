@@ -22,6 +22,11 @@ defmodule FluxValeWeb.OrgSettings do
         key: "members",
         label: "Members",
         path: ~p"/organizations/#{assigns.slug}/settings/members"
+      },
+      %{
+        key: "access",
+        label: "Access",
+        path: ~p"/organizations/#{assigns.slug}/settings/access"
       }
     ]
 

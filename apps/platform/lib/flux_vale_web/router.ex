@@ -217,6 +217,10 @@ defmodule FluxValeWeb.Router do
       # #276: org settings — slug-keyed like the catalog.
       live("/organizations/:slug/settings", OrganizationLive.Settings)
       live("/organizations/:slug/settings/members", OrganizationLive.Members)
+      # #273 (ADR-0039): the private-access gateway's owner surface — the
+      # Access tab. Owners-only in the panel (the UX gate); the actions'
+      # own policies stay the authority.
+      live("/organizations/:slug/settings/access", OrganizationLive.Access)
       # #276: the org billing view — the /billing shape scoped to the
       # URL's org; slug-keyed like the catalog.
       live("/organizations/:slug/billing", OrganizationLive.Billing)

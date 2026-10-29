@@ -1,7 +1,8 @@
 defmodule FluxValeWeb.Storybook.Components.StatusBadge do
   @moduledoc """
-  Status badge stories — one per instance state-machine state, pulsing
-  dot on the in-motion ones.
+  Status badge stories — one per state-machine state, pulsing dot on
+  the in-motion ones. Both machines the component serves: the
+  Instance's and the AccessGateway's (ADR-0039).
   """
 
   use PhoenixStorybook.Story, :component
@@ -28,6 +29,16 @@ defmodule FluxValeWeb.Storybook.Components.StatusBadge do
                   :deleting,
                   :lost
                 ] do
+            %Variation{id: status, attributes: %{status: status}}
+          end
+      },
+      %VariationGroup{
+        id: :gateway_states,
+        description:
+          "AccessGateway states (ADR-0039): connecting/removing pulse; needs_attention is the owner's to fix; suspended is the ladder's resting neutral",
+        variations:
+          for status <-
+                [:provisioning, :active, :needs_attention, :suspended, :destroying] do
             %Variation{id: status, attributes: %{status: status}}
           end
       }

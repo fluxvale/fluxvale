@@ -997,11 +997,14 @@ defmodule FluxValeWeb.CoreComponents do
   end
 
   @doc """
-  Renders an Instance status badge (#74) — one per state-machine state,
-  with a pulsing dot on the in-motion ones (deploying/starting/deleting).
-  No DOM id: the badge appears once per row in lists, and ids must stay
-  unique — assert via `[data-testid=status-badge]` + text. The label
-  is #179's user-facing vocabulary (Submitted/Provisioning/…), never
+  Renders a status badge — one per state-machine state, with a pulsing
+  dot on the in-motion ones (deploying/starting/deleting; connecting/
+  removing on the gateway). Serves both state machines: the Instance's
+  (#74) and the AccessGateway's (ADR-0039) — no atom collides, so one
+  component labels both. No DOM id: the badge appears once per row in
+  lists, and ids must stay unique — assert via
+  `[data-testid=status-badge]` + text. The label is #179's user-facing
+  vocabulary (Submitted/Provisioning/…, Connecting/Connected/…), never
   the internal atom.
   """
   attr(:status, :atom, required: true)
@@ -1023,6 +1026,15 @@ defmodule FluxValeWeb.CoreComponents do
         # #196: externally-deleted — an anomaly, not motion; danger
         # styling without the pulse.
         :lost -> {"border-line-danger bg-danger-muted text-danger", "static"}
+        # ADR-0039's gateway states (the Access tab's badge):
+        # connecting and removing are motion (pulse); needs_attention is
+        # the owner's to fix (warning, no pulse); suspended is the
+        # ladder's resting neutral, not a failure.
+        :provisioning -> {"border-line-warning bg-warning-muted text-warning", "pulse"}
+        :active -> {"border-line-success bg-success-muted text-success", "static"}
+        :needs_attention -> {"border-line-warning bg-warning-muted text-warning", "static"}
+        :suspended -> {"border-line bg-panel-raised text-ink-muted", "none"}
+        :destroying -> {"border-line-danger bg-danger-muted text-danger", "pulse"}
         _other -> {"border-line bg-panel-raised text-ink-muted", "none"}
       end
 
@@ -1030,7 +1042,7 @@ defmodule FluxValeWeb.CoreComponents do
       assign(assigns,
         classes: classes,
         dot: dot,
-        label: InstanceStatus.label(status)
+        label: badge_label(status)
       )
 
     ~H"""
@@ -1049,6 +1061,21 @@ defmodule FluxValeWeb.CoreComponents do
     </span>
     """
   end
+
+  # Gateway labels (ADR-0039) live here — the #179 vocabulary, never the
+  # internal atom. Instance states keep InstanceStatus's map.
+  defp badge_label(status)
+       when status in [:provisioning, :active, :needs_attention, :suspended, :destroying] do
+    case status do
+      :provisioning -> "Connecting"
+      :active -> "Connected"
+      :needs_attention -> "Needs attention"
+      :suspended -> "Suspended"
+      :destroying -> "Removing"
+    end
+  end
+
+  defp badge_label(status), do: InstanceStatus.label(status)
 
   @doc """
   Renders a nav bar link (app chrome, public chrome, landing header).
