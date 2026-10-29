@@ -550,7 +550,8 @@ defmodule FluxValeWeb.SettingsLiveTest do
     # the shared form struct would name every row's field `id="code"` —
     # duplicate ids break the label association and LiveView patching
     refute html =~ ~s(id="code")
-    assert Regex.scan(~r/id="verify-code-input-/, html) |> length() == 2
+    id_count = length(Regex.scan(~r/id="verify-code-input-/, html))
+    assert id_count == 2
   end
 
   test "verifying an unknown row id reads as gone, not someone else's claim", %{conn: conn} do
