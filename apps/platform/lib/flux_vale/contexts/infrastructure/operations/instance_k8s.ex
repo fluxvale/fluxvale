@@ -94,7 +94,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
   (the toggle's re-apply) — the two writers of the same object.
   """
   @spec network_policy_spec(map()) :: %{
-          required(:ingress_from_namespaces) => [String.t()],
+          optional(:ingress_from_namespaces) => [String.t()],
           optional(:ingress_from_sources) => [map()]
         }
   def network_policy_spec(%{exposure: exposure} = instance) do

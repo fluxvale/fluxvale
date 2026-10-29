@@ -88,6 +88,14 @@ This is a web application written using the Phoenix web framework.
   boilerplate. New uncovered lines in a diff are a finding: test the
   path or justify the exclusion. If a "can't test" block later becomes
   testable, the test wins.
+- **A user-visible PR carries screenshots** (owner convention, Oct 29
+  2026): captures in the PR body — before/after where feasible, light
+  and dark where the surface has both. Open the PR first, commit the
+  images on the PR branch under `docs/screenshots/<pr-number>/`, and
+  reference them with relative paths (GitHub renders those from the
+  head branch, so the body needs no hosting). Tool:
+  `apps/e2e/screenshot.mjs` (Playwright; `npm install` in
+  `apps/e2e`). Never capture a secret — mask key fields.
 
 ## Toolchain recipes (session-tested — read before scaffolding)
 
