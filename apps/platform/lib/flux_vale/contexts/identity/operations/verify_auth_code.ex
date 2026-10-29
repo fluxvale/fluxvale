@@ -274,12 +274,14 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   # A writer that promotes WITHOUT that lock (raw SQL, the T1
   # backfill's shape) still fires the user_id index — but one layer
   # down, in heal_old_pod_user's mirror write, which surfaces
-  # {:error, :address_unresolved} (:340). This matcher only ever
-  # sees the JIT create's address collision (field :email), so its
-  # fall-through stays dead; :provisioning_failed is the
-  # non-uniqueness branch above (:236), not this path. Username/
-  # org-slug identities are probed away by their changes
-  # (DeriveUsername, ProvisionPersonalOrg).
+  # {:error, :address_unresolved} (:345).
+  # Sequentially this matcher sees only the JIT create's address
+  # collision (field :email); a username/org-slug probe race
+  # (DeriveUsername, ProvisionPersonalOrg — same-local-part signups)
+  # CAN deliver its field here under true concurrency: the
+  # fall-through runs and routes it to :provisioning_failed
+  # (:236), atom-shaped — a retry probes the
+  # next suffix. Race-only residue: untestable sequentially, not dead.
   defp unique_attribute?(_error), do: false
   # coveralls-ignore-stop
 
