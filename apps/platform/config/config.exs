@@ -218,6 +218,12 @@ config :phoenix_live_view,
   # the attribute set on all root tags. Used for Phoenix.LiveView.ColocatedCSS.
   root_tag_attribute: "phx-r"
 
+# The gateway auth key joins the default password filter (#273): LiveView
+# logs event params at debug level, and the key is write-only — no path
+# may echo it back (ADR-0039 §4), debug logs included (dev-only exposure;
+# prod logs at :info).
+config :phoenix, :filter_parameters, ["password", "auth_key"]
+
 # Configure the mailer
 #
 # By default it uses the "Local" adapter which stores the emails
