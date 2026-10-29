@@ -99,12 +99,13 @@ defmodule FluxVale.Identity.User.MirrorSignupEmail do
   # The index is the arbiter for ALL writers; the lock is the
   # serializer for the sanctioned ones (review round 4, P2).
   #
-  # Ash.count! raises on DB failure — Ash's action boundary converts
-  # the raise into the create's error return (deps/ash
-  # ash/actions/create/create.ex), the containment every neighbouring
-  # write already relies on; there is no value-shaped failure arm to
-  # match (round-4 review, P3-1: the {:error, _} arm this replaced
-  # was dead code — Ash.count/2 raises on the same classes).
+  # Ash.count! raises on DB failure. Ash's action boundary (deps/ash
+  # ash/actions/create/create.ex) re-raises it as Ash.Error.Unknown —
+  # it does NOT become this create's {:error, _} return, so a DB
+  # failure escapes write_mirror_row/1's spec and call/2's atom
+  # contract (pre-existing; round-4 review P3-1). Hence no
+  # value-shaped arm: the {:error, _} arm this replaced was dead
+  # code — Ash.count/2 raises on the same classes.
   defp takes_primary?(user) do
     count =
       UserEmail

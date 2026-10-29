@@ -272,12 +272,14 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   # runs inside the transaction, after EnforceEmailCap's FOR UPDATE
   # user-row lock — the same lock SetPrimary holds while promoting.
   # A writer that promotes WITHOUT that lock (raw SQL, the T1
-  # backfill's shape) can still land here; this matcher correctly
-  # refuses to treat it as a heal request and the caller surfaces
-  # {:error, :provisioning_failed} — atom-shaped, retry heals
-  # (round-4 review: race-only residue either way, unreachable
-  # sequentially). Username/org-slug identities are probed away by
-  # their changes (DeriveUsername, ProvisionPersonalOrg).
+  # backfill's shape) still fires the user_id index — but one layer
+  # down, in heal_old_pod_user's mirror write, which surfaces
+  # {:error, :address_unresolved} (:340). This matcher only ever
+  # sees the JIT create's address collision (field :email), so its
+  # fall-through stays dead; :provisioning_failed is the
+  # non-uniqueness branch above (:236), not this path. Username/
+  # org-slug identities are probed away by their changes
+  # (DeriveUsername, ProvisionPersonalOrg).
   defp unique_attribute?(_error), do: false
   # coveralls-ignore-stop
 
