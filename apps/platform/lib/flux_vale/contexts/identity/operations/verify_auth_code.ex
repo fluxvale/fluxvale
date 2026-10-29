@@ -267,14 +267,17 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   defp unique_attribute?(%{field: field}) when field in [:email, :address], do: true
 
   # coveralls-ignore-start - the other reachable attribute arms are
-  # gone or intercepted earlier: the :user_id partial-index violation
-  # is unreachable because the heal's primary decision runs inside the
-  # transaction, after EnforceEmailCap's FOR UPDATE lock on the user
-  # row — the same lock SetPrimary holds while promoting — so a
-  # concurrent promotion can no longer commit between the heal's count
-  # and its insert (round-4 fix; before it, this arm caught exactly
-  # that race). Username/org-slug identities are probed away by their
-  # changes (DeriveUsername, ProvisionPersonalOrg) — race-only residue
+  # gone or intercepted earlier. The :user_id partial-index violation
+  # cannot arise from a lock-taking writer: the heal's primary decision
+  # runs inside the transaction, after EnforceEmailCap's FOR UPDATE
+  # user-row lock — the same lock SetPrimary holds while promoting.
+  # A writer that promotes WITHOUT that lock (raw SQL, the T1
+  # backfill's shape) can still land here; this matcher correctly
+  # refuses to treat it as a heal request and the caller surfaces
+  # {:error, :provisioning_failed} — atom-shaped, retry heals
+  # (round-4 review: race-only residue either way, unreachable
+  # sequentially). Username/org-slug identities are probed away by
+  # their changes (DeriveUsername, ProvisionPersonalOrg).
   defp unique_attribute?(_error), do: false
   # coveralls-ignore-stop
 

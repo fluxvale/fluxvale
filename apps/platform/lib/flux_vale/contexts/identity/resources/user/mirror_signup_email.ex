@@ -79,17 +79,7 @@ defmodule FluxVale.Identity.User.MirrorSignupEmail do
     # (round-3 P2: in argument position the count ran before the
     # transaction opened and lost the race to a concurrent promotion)
     |> Ash.Changeset.before_action(fn changeset ->
-      case takes_primary?(user) do
-        # coveralls-ignore-start - a DB count failure is the DB-down
-        # class, not simulatable under the sandbox; it refuses the
-        # create as {:error, term} instead of raising past the spec
-        {:error, reason} ->
-          Ash.Changeset.add_error(changeset, reason)
-
-        # coveralls-ignore-stop
-        primary? ->
-          Ash.Changeset.force_change_attribute(changeset, :is_primary, primary?)
-      end
+      Ash.Changeset.force_change_attribute(changeset, :is_primary, takes_primary?(user))
     end)
     |> Ash.create(authorize?: false)
   end
@@ -98,26 +88,29 @@ defmodule FluxVale.Identity.User.MirrorSignupEmail do
   # question (the caller is the system seam; same stance as
   # EnforceEmailCap). Called from the before_action above, so the read
   # runs inside the create transaction, after EnforceEmailCap's FOR
-  # UPDATE lock on the user row: SetPrimary takes that same lock
-  # before promoting, so this count and the insert are one serialized
-  # critical section per user — the read can no longer slip between a
-  # concurrent promotion's decision and its commit (review round 3, P2).
+  # UPDATE lock on the user row. That serializes the count-and-insert
+  # with every writer that takes the same user-row lock — SetPrimary
+  # (its hook locks before promoting) and the cap itself. It does NOT
+  # serialize with a writer that promotes by other means (raw SQL, an
+  # operator UPDATE, the T1 backfill's shape): such a writer can still
+  # commit between this count and the insert, and the at-most-one-
+  # primary partial index then refuses the insert — the heal returns
+  # {:error, :address_unresolved}, atom-shaped, and a retry heals.
+  # The index is the arbiter for ALL writers; the lock is the
+  # serializer for the sanctioned ones (review round 4, P2).
+  #
+  # Ash.count! raises on DB failure — Ash's action boundary converts
+  # the raise into the create's error return (deps/ash
+  # ash/actions/create/create.ex), the containment every neighbouring
+  # write already relies on; there is no value-shaped failure arm to
+  # match (round-4 review, P3-1: the {:error, _} arm this replaced
+  # was dead code — Ash.count/2 raises on the same classes).
   defp takes_primary?(user) do
-    case UserEmail
-         |> Ash.Query.filter(user_id == ^user.id and is_primary)
-         |> Ash.count(authorize?: false) do
-      {:ok, 0} ->
-        true
+    count =
+      UserEmail
+      |> Ash.Query.filter(user_id == ^user.id and is_primary)
+      |> Ash.count!(authorize?: false)
 
-      {:ok, _primary} ->
-        false
-
-      # coveralls-ignore-start - DB-down class, not simulatable under
-      # the sandbox; a returned term, never a raise (P3-1: Ash.count!
-      # would escape write_mirror_row/1's {:error, term()} spec)
-      {:error, reason} ->
-        {:error, reason}
-        # coveralls-ignore-stop
-    end
+    count == 0
   end
 end

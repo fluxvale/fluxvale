@@ -143,10 +143,26 @@ defmodule FluxVale.Identity.UserEmail.HealSetPrimaryConcurrencyTest do
     # the decision was taken inside the transaction — B's heal begin
     # preceded its primary count (a pre-transaction count arms as
     # :counted and the first-attempt assertion above already failed).
-    # :unobserved means concurrent async traffic broke the adjacency
-    # while B was blocked; the commit-anyway guard kept every outcome
-    # assertion above meaningful, so only the arm shape is unproven.
-    assert decision_point in [:begin, :unobserved]
+    # B has finished by this point, and the arm message is emitted
+    # strictly before {:done_b} in real time — one local hop — so a
+    # still-missing arm after one last drain means the in-transaction
+    # decision was NOT proven: fail loudly instead of letting the
+    # property go unproven (round-4 review, P3-3 — :unobserved used
+    # to be tolerated here).
+    arm =
+      case decision_point do
+        :unobserved ->
+          receive do
+            {:arm, point} -> point
+          after
+            100 -> :unobserved
+          end
+
+        observed ->
+          observed
+      end
+
+    assert arm == :begin
   end
 
   # Telemetry classifier: forwards only the query classes the handshake
