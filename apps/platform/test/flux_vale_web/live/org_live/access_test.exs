@@ -12,12 +12,12 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
   import Phoenix.LiveViewTest
 
   alias FluxVale.Accounts.Membership
-  alias FluxVale.Billing
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.AccountsFixtures
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
   setup %{conn: conn} do
@@ -156,7 +156,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
 
       assert has_element?(view, "#flash-error", "Top up before enabling private access")
 
-      # The policy gate answered before any work ran: no row exists.
+      # No row: the policy gate answered before any work ran.
       assert {:error, _none} = AccessGateway.get_for_organization(org.id, authorize?: false)
     end
 
@@ -172,6 +172,8 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       |> form("#access-enable-form", gateway: %{auth_key: "tskey-auth-abc123"})
       |> render_submit()
 
+      # The failure is a flash, never a silent dead click.
+      assert has_element?(view, "#flash-error", "Couldn't enable private access")
       assert has_element?(view, "#access-enable-form")
       refute has_element?(view, "[data-testid='access-gateway-card']")
 
@@ -351,6 +353,8 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       |> form("#access-repaste-form", gateway: %{auth_key: "tskey-auth-fresh"})
       |> render_submit()
 
+      # The engine's answer reaches the owner — a flash, not a dead click.
+      assert has_element?(view, "#flash-error", "Couldn't update the access key")
       assert has_element?(view, "[data-testid=status-badge]", "Needs attention")
       assert has_element?(view, "#access-repaste-form")
 
@@ -540,6 +544,75 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       assert has_element?(view, "#access-enable-form")
       refute has_element?(view, "[data-testid='access-gateway-card']")
     end
+
+    test "a same-state broadcast keeps the panel — and the typed key — untouched", %{
+      conn: conn,
+      org: org
+    } do
+      gateway = AccessFixtures.gateway!(org)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      view
+      |> element("[data-testid='access-repaste-toggle']")
+      |> render_click()
+
+      view
+      |> form("#access-repaste-form", gateway: %{auth_key: "tskey-auth-typing"})
+      |> render_change()
+
+      # The observer writes every minute while :active and always
+      # publishes (the reconciler's stance) — the panel refetches
+      # silently and must not rebuild the form out from under the
+      # half-typed key.
+      gateway
+      |> Ash.Changeset.for_update(
+        :update_state,
+        %{status_message: "Connected to your tailnet"},
+        authorize?: false
+      )
+      |> Ash.update!()
+
+      assert has_element?(view, "[data-testid=status-badge]", "Connected")
+      assert has_element?(view, "#access-repaste-form")
+      assert has_element?(view, "[data-testid='access-remove']")
+    end
+
+    test "the ladder's suspension lands the suspended banner live", %{conn: conn, org: org} do
+      gateway = AccessFixtures.gateway!(org)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      assert has_element?(view, "[data-testid=status-badge]", "Connected")
+
+      # The zero-balance ladder's arm: force-changes on the :suspend
+      # action (never the :update_state funnel), authorize?: false —
+      # and its publish is what moves an open panel. (The wallet here
+      # stays funded: what's under test is the publish-driven panel
+      # transition, and a funded org renders the Resume button.)
+      gateway
+      |> Ash.Changeset.for_update(:suspend, %{}, authorize?: false)
+      |> Ash.update!()
+
+      assert has_element?(view, "[data-testid=status-badge]", "Suspended")
+      assert has_element?(view, "[data-testid='access-suspended-banner']")
+      assert has_element?(view, "[data-testid='access-resume']")
+    end
+
+    test "a resume from another tab lands connecting live", %{conn: conn, owner: owner, org: org} do
+      gateway = AccessFixtures.gateway!(org, state: :suspended)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      assert has_element?(view, "[data-testid=status-badge]", "Suspended")
+
+      # The same row resumed elsewhere: this panel follows on the
+      # publish, not a reload.
+      AccessGateway.resume(gateway, actor: owner)
+
+      assert has_element?(view, "[data-testid=status-badge]", "Connecting")
+      refute has_element?(view, "[data-testid='access-resume']")
+    end
   end
 
   # The gateway lifecycle's provider legs, Mimic-stubbed for every test
@@ -557,15 +630,8 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
     :ok
   end
 
-  # The welcome grant is the org's only balance: debit it to zero (the
-  # ledger's unit is micro-cents) and the funded gate goes dark. The
-  # same drain the funded-check tests use.
-  defp drain_wallet!(org) do
-    {:ok, wallet} = Billing.ensure_wallet(org)
-    {:ok, loaded} = Ash.load(wallet, :balance, authorize?: false)
-
-    {:ok, _drain} = Billing.debit_wallet(wallet, (loaded.balance || 0) * 10_000)
-
-    :ok
-  end
+  # The welcome grant is the org's only balance: drain it to zero and
+  # the funded gate goes dark (the shared fixture — the funded-check
+  # tests use the same one).
+  defp drain_wallet!(org), do: BillingFixtures.drain_wallet!(org)
 end

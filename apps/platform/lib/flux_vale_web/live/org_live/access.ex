@@ -11,9 +11,11 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   (membership, funded wallet) are what actually forbid a call.
 
   Live updates ride the gateway's per-org PubSub topic — every state
-  write (the observer's minute tick included) lands here, and the
-  teardown's hard delete refetches the panel to the empty state. The
-  auth key is write-only: a password input, never rendered back.
+  write publishes there (the observer's minute tick, the ladder's
+  suspension, a resume from another tab), and the teardown's hard
+  delete refetches the panel to the empty state. The auth key is
+  write-only: a password input, and no read-back path ever returns the
+  stored key (ADR-0039 §4).
   """
 
   use FluxValeWeb, :live_view
@@ -94,7 +96,12 @@ defmodule FluxValeWeb.OrganizationLive.Access do
            |> put_flash(:error, "Top up before enabling private access.")
            |> assign(form: form)}
         else
-          {:noreply, assign(socket, form: form)}
+          # Invalid input renders under the field; everything else
+          # (the funded gate raced, a cluster failure) is the flash.
+          {:noreply,
+           socket
+           |> put_flash(:error, "Couldn't enable private access — try again.")
+           |> assign(form: form)}
         end
     end
   end
@@ -113,7 +120,13 @@ defmodule FluxValeWeb.OrganizationLive.Access do
          |> assign_forms()}
 
       {:error, form} ->
-        {:noreply, assign(socket, form: form)}
+        # The engine's own answer (the change writes "Couldn't update
+        # the access key — try again") is field-less, so the flash is
+        # its surface — never a silent dead click.
+        {:noreply,
+         socket
+         |> put_flash(:error, "Couldn't update the access key — try again.")
+         |> assign(form: form)}
     end
   end
 
