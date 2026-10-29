@@ -270,7 +270,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
       id="backup-settings-form"
       phx-submit="save-settings"
       phx-target={@myself}
-      class="space-y-3 rounded-xl border border-line bg-panel-raised p-4"
+      class="space-y-3 rounded-panel border border-line-strong bg-panel-raised p-4"
     >
       <p class="text-sm font-medium text-ink">Backup destination</p>
 
@@ -464,7 +464,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
       </div>
     </div>
 
-    <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-panel-raised px-3 py-2">
+    <div class="flex flex-wrap items-center justify-between gap-3 rounded-control border border-line-strong bg-panel-raised px-3 py-2">
       <div>
         <p class="text-sm text-ink">
           {if(@setting.enabled, do: "Backing up daily", else: "Backups paused")}
@@ -572,7 +572,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
       myself={@myself}
     />
 
-    <div class="space-y-2 rounded-xl border border-line bg-panel p-4">
+    <div class="space-y-2 rounded-panel border border-line-strong bg-panel p-4">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <p class="text-sm font-medium text-ink">Backup password</p>
         <%= if @repo_password do %>
@@ -608,7 +608,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
 
       <code
         :if={@repo_password}
-        class="block min-w-0 overflow-x-auto rounded-md border border-line bg-panel-raised px-2 py-1 font-mono text-xs whitespace-nowrap text-ink"
+        class="block min-w-0 overflow-x-auto rounded-control border border-line-strong bg-panel-raised px-2 py-1 font-mono text-xs whitespace-nowrap text-ink"
         data-testid="repo-password"
       >
         {@repo_password}
@@ -649,7 +649,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   defp confirm_block(assigns) do
     ~H"""
     <div
-      class="space-y-3 rounded-xl border-2 border-line-danger bg-danger-muted px-4 py-3"
+      class="space-y-3 rounded-panel border-2 border-line-danger bg-danger-muted px-4 py-3"
       data-testid="destructive-confirm"
     >
       <p class="text-sm font-semibold text-danger">{@title}</p>
@@ -1004,7 +1004,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
     <div class="grid gap-1.5">
       <span class="text-ink-subtle">{@label}</span>
       <code
-        class="min-w-0 overflow-x-auto rounded-md border border-line bg-panel-raised px-2 py-1 font-mono text-xs whitespace-nowrap text-ink"
+        class="min-w-0 overflow-x-auto rounded-control border border-line-strong bg-panel-raised px-2 py-1 font-mono text-xs whitespace-nowrap text-ink"
         data-testid={@testid}
       >
         {@value}
@@ -1042,7 +1042,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
 
     ~H"""
     <div
-      class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line bg-panel px-3 py-2 text-xs"
+      class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-control border border-line-strong bg-panel px-3 py-2 text-xs"
       data-testid="backup-run"
       data-run-kind={@run.kind}
       data-run-status={@run.status}
