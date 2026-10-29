@@ -66,27 +66,36 @@ defmodule FluxValeWeb.InstanceLive.Show do
             &larr; Instances
           </.button>
 
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div class="flex items-center gap-3">
-              <h1 class="text-2xl font-semibold tracking-tight text-ink">{@instance.name}</h1>
-              <.status_badge status={@instance.status} />
-            </div>
-            <div class="flex gap-2">
-              <.action_buttons instance={@instance} />
-            </div>
-          </div>
+          <%!-- Identity panel (#277 T5): the T4 poster-card pattern —
+          name, status, address, and the lifecycle controls in one
+          card, the page's panel band. --%>
+          <.card>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="min-w-0 space-y-1">
+                <div class="flex flex-wrap items-center gap-3">
+                  <h1 class="min-w-0 text-2xl font-semibold tracking-tight text-ink [overflow-wrap:anywhere]">
+                    {@instance.name}
+                  </h1>
+                  <.status_badge status={@instance.status} />
+                </div>
 
-          <%!-- #265: the header URL is a public affordance too — a
-          private instance has no address that answers, so it renders
-          nothing (the Open-button gate, same reasoning: never show a
-          link that cannot work). --%>
-          <p
-            :if={@instance.exposure == :public}
-            class="mt-1 font-mono text-sm text-ink-subtle"
-            data-testid="instance-url"
-          >
-            {instance_url(@instance)}
-          </p>
+                <%!-- #265: the header URL is a public affordance too — a
+                private instance has no address that answers, so it renders
+                nothing (the Open-button gate, same reasoning: never show a
+                link that cannot work). --%>
+                <p
+                  :if={@instance.exposure == :public}
+                  class="min-w-0 font-mono text-sm text-ink-subtle [overflow-wrap:anywhere]"
+                  data-testid="instance-url"
+                >
+                  {instance_url(@instance)}
+                </p>
+              </div>
+              <div class="flex shrink-0 flex-wrap gap-2">
+                <.action_buttons instance={@instance} />
+              </div>
+            </div>
+          </.card>
         </div>
 
         <.card class="space-y-4">
@@ -280,7 +289,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
                   <%= if @dav_password do %>
                     <div class="flex min-w-0 items-start gap-2">
                       <code
-                        class="min-w-0 flex-1 overflow-x-auto rounded-md border border-line bg-panel-raised px-2 py-1 font-mono text-xs whitespace-nowrap text-ink"
+                        class="min-w-0 flex-1 overflow-x-auto rounded-control border border-line-strong bg-panel-raised px-2 py-1 font-mono text-xs whitespace-nowrap text-ink"
                         data-testid="dav-password"
                       >
                         {@dav_password}
@@ -781,7 +790,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
       <span class="text-ink-subtle">{@label}</span>
       <div class="flex min-w-0 items-start gap-2">
         <code
-          class="min-w-0 flex-1 overflow-x-auto rounded-md border border-line bg-panel-raised px-2 py-1 font-mono text-xs whitespace-nowrap text-ink"
+          class="min-w-0 flex-1 overflow-x-auto rounded-control border border-line-strong bg-panel-raised px-2 py-1 font-mono text-xs whitespace-nowrap text-ink"
           data-testid={@testid}
         >
           {@value}
