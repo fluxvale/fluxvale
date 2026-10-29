@@ -67,7 +67,7 @@ defmodule FluxValeWeb.InstanceLive.Index do
             navigate={~p"/instances/#{instance.id}"}
             id={dom_id}
             data-testid="instance-row"
-            class="group block rounded-panel border border-line-strong bg-panel p-5 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow,translate] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md motion-safe:hover:-translate-y-1"
+            class="group relative block rounded-panel border border-line-strong bg-panel p-5 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow,translate] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md motion-safe:hover:-translate-y-1"
           >
             <div class="space-y-2">
               <div class="flex flex-wrap items-center justify-between gap-3">
@@ -75,7 +75,7 @@ defmodule FluxValeWeb.InstanceLive.Index do
                   <h2 class="min-w-0 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
                     {instance.name}
                   </h2>
-                  <span class="font-mono text-xs text-ink-subtle">{instance.slug}</span>
+                  <span class="font-mono text-xs text-ink-subtle shrink-0">{instance.slug}</span>
                 </div>
                 <div class="flex items-center gap-3">
                   <span class="text-sm text-ink-muted">
@@ -85,10 +85,6 @@ defmodule FluxValeWeb.InstanceLive.Index do
                     </span>
                   </span>
                   <.status_badge status={instance.status} />
-                  <.icon
-                    name="hero-chevron-right"
-                    class="size-4 shrink-0 text-ink-subtle opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100"
-                  />
                 </div>
               </div>
               <%!-- #179: friendly copy only — raw status_message never
@@ -102,6 +98,13 @@ defmodule FluxValeWeb.InstanceLive.Index do
                 {InstanceStatus.message(instance)}
               </p>
             </div>
+            <%!-- Chevron is out-of-flow in the p-5 padding band (an
+            in-flow one left a permanent 28px dead gutter before the
+            badge); reveals on hover or keyboard focus of the row. --%>
+            <.icon
+              name="hero-chevron-right"
+              class="absolute right-5 top-1/2 size-4 -translate-y-1/2 text-ink-subtle opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100 group-focus-visible:opacity-100"
+            />
           </.link>
         </div>
       </div>
