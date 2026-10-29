@@ -436,7 +436,15 @@ defmodule FluxValeWeb.BillingLive.Topup do
       </.form>
 
       <%= if is_integer(@amount_dollars) and @amount_dollars >= 1 do %>
-        <div class="space-y-2 rounded-xl bg-panel-raised p-4 text-sm" data-testid="topup-summary">
+        <%!-- Receipt panels on the card language (#277 T6): the backups
+            sub-panel idiom — panel radius, raised fill, line-strong
+            border (in dark --line IS --panel-raised, so a border or
+            hairline on this fill vanishes unless it rides the strong
+            step; the in-panel row hairlines below ride it too). --%>
+        <div
+          class="space-y-2 rounded-panel border border-line-strong bg-panel-raised p-4 text-sm"
+          data-testid="topup-summary"
+        >
           <p class="flex justify-between">
             <span class="text-ink-muted">{@amount_dollars} × $1.00 credit</span>
             <span class="font-mono text-ink">{Pricing.format_usd(@totals.subtotal)}</span>
@@ -446,14 +454,14 @@ defmodule FluxValeWeb.BillingLive.Topup do
             <span class="font-mono text-ink">{Pricing.format_usd(@totals.tax)}</span>
           </p>
           <p
-            class="flex justify-between border-t border-line pt-2 font-semibold text-ink"
+            class="flex justify-between border-t border-line-strong pt-2 font-semibold text-ink"
             data-testid="topup-total"
           >
             <span>Total</span>
             <span class="font-mono">{Pricing.format_usd(@totals.total)}</span>
           </p>
           <p
-            class="flex justify-between border-t border-line pt-2 text-xs text-ink-muted"
+            class="flex justify-between border-t border-line-strong pt-2 text-xs text-ink-muted"
             data-testid="topup-new-balance"
           >
             <span>New balance after top-up</span>
@@ -488,7 +496,11 @@ defmodule FluxValeWeb.BillingLive.Topup do
     <.card class="space-y-4">
       <h2 class="text-base font-medium text-ink">Review and pay</h2>
 
-      <div class="space-y-2 rounded-xl bg-panel-raised p-4 text-sm" data-testid="topup-summary">
+      <%!-- Same receipt panel idiom as the Amount step (#277 T6). --%>
+      <div
+        class="space-y-2 rounded-panel border border-line-strong bg-panel-raised p-4 text-sm"
+        data-testid="topup-summary"
+      >
         <p class="flex justify-between">
           <span class="text-ink-muted">Credit</span>
           <span class="font-mono text-ink">{@amount_dollars} × $1.00 = {Pricing.format_usd(
@@ -500,22 +512,28 @@ defmodule FluxValeWeb.BillingLive.Topup do
           <span class="font-mono text-ink">{Pricing.format_usd(@totals.tax)}</span>
         </p>
         <p
-          class="flex justify-between border-t border-line pt-2 font-semibold text-ink"
+          class="flex justify-between border-t border-line-strong pt-2 font-semibold text-ink"
           data-testid="topup-total"
         >
           <span>Total</span>
           <span class="font-mono">{Pricing.format_usd(@totals.total)}</span>
         </p>
         <p
-          class="flex justify-between border-t border-line pt-2 text-xs text-ink-muted"
+          class="flex justify-between border-t border-line-strong pt-2 text-xs text-ink-muted"
           data-testid="topup-new-balance"
         >
           <span>New balance after top-up</span>
           <span class="font-mono">{Pricing.format_usd(@balance + @totals.subtotal)}</span>
         </p>
-        <p class="flex justify-between text-xs text-ink-muted">
-          <span>Billed to</span>
-          <span data-testid="topup-billed-to">{billed_to(@details)}</span>
+        <%!-- billed_to is buyer-typed and can run long and unbroken
+            (name · email · VAT) — the guards let it wrap inside its
+            cell instead of blowing the receipt out. --%>
+        <p class="flex justify-between gap-3 text-xs text-ink-muted">
+          <span class="shrink-0">Billed to</span>
+          <span
+            class="min-w-0 text-right [overflow-wrap:anywhere]"
+            data-testid="topup-billed-to"
+          >{billed_to(@details)}</span>
         </p>
       </div>
 
