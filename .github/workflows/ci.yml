@@ -283,7 +283,7 @@ jobs:
       matrix:
         leg:
           - name: pages
-            specs: tests/health.spec.ts tests/landing.spec.ts tests/public-pages.spec.ts tests/root-session.spec.ts tests/sign-in.spec.ts tests/switcher-dismiss.spec.ts
+            specs: tests/health.spec.ts tests/landing.spec.ts tests/org-pages.spec.ts tests/public-pages.spec.ts tests/root-session.spec.ts tests/sign-in.spec.ts tests/switcher-dismiss.spec.ts
           - name: lifecycle
             specs: tests/forgejo-lifecycle.spec.ts tests/file-access.spec.ts tests/backups.spec.ts
           # #210 part 3: threshold 45s + probe window 150s are safe

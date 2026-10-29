@@ -1181,11 +1181,19 @@ defmodule FluxValeWeb.CoreComponents do
     """
   end
 
-  # The avatar glyph: the email's first grapheme, uppercased — no
-  # external avatar source in v1. Emails are CiStrings at the Ash
-  # boundary; downcast before String owns it.
-  defp initial(email) do
-    email
+  # The avatar glyph: the first grapheme, uppercased — no external
+  # avatar source in v1. Emails are CiStrings at the Ash boundary;
+  # downcast before String owns it. Defensively empty/nil-safe: the
+  # column admits '' on raw writes and seeds (create/update both
+  # reject it), nil is impossible past the not-null column — the nil
+  # clause is belt-and-braces on shared chrome, so a neutral glyph
+  # renders instead of a crash (the glyph is aria-hidden decoration,
+  # so nothing is announced either way).
+  defp initial(nil), do: "?"
+  defp initial(""), do: "?"
+
+  defp initial(subject) do
+    subject
     |> to_string()
     |> String.first()
     |> String.upcase()
@@ -1204,11 +1212,13 @@ defmodule FluxValeWeb.CoreComponents do
   (#284, interim until the usernames/multi-email root fix).
 
   `current_org` names the active context in the closed summary — nil is
-  the personal one. Below lg the summary collapses to the icon: at `sm`
-  the label rejoining the nav links occludes the first of them (the
-  640-712px band — a pill of intrinsic width over a shrunken cluster,
-  #276 review), and above lg `truncate` bounds a long active name. The
-  panel keeps every entry reachable.
+  the personal one. Below lg the summary collapses to the glyph: the
+  active org's initial (the user_menu pattern — the building icon can't
+  say which org is active), the building icon for Personal. At `sm` a
+  label would occlude the first nav link (the 640-712px band — a pill
+  of intrinsic width over a shrunken cluster, #276 review), and above
+  lg `truncate` bounds a long active name. The panel keeps every entry
+  reachable.
 
   ## Examples
 
@@ -1245,7 +1255,21 @@ defmodule FluxValeWeb.CoreComponents do
         aria-label="Organization switcher"
         data-testid="org-switcher-button"
       >
-        <.icon name="hero-building-library-micro" class="size-4 shrink-0 text-ink-subtle" />
+        <%!-- Below lg the summary carries no label, so a set context
+        names itself by its initial (the user_menu glyph) — the building
+        icon alone cannot say which org is active. Personal keeps the
+        icon; above lg both show the icon beside the truncated name. --%>
+        <span
+          :if={@current_org}
+          aria-hidden="true"
+          class="grid size-4 shrink-0 place-items-center overflow-hidden rounded-full bg-primary-muted text-[9px] font-semibold text-link lg:hidden"
+        >
+          {initial(@current_org.name)}
+        </span>
+        <.icon
+          name="hero-building-library-micro"
+          class={["size-4 shrink-0 text-ink-subtle", @current_org && "hidden lg:block"]}
+        />
         <span class="hidden max-w-32 truncate text-xs font-semibold text-ink lg:inline">{@active_name}</span>
         <.icon
           name="hero-chevron-down-micro"
@@ -1259,10 +1283,7 @@ defmodule FluxValeWeb.CoreComponents do
         <p class="px-3 py-1.5 text-xs text-ink-subtle">Contexts</p>
         <div class="mb-1 border-t border-line" aria-hidden="true"></div>
         <%!-- href, not navigate: full page loads close the dropdown, the
-        user_menu's reason (#205). The org rows interpolate the path
-        rather than ride ~p — /organizations/:slug is a sibling ticket
-        in this lane, and ~p warns (warnings-as-errors) until its route
-        lands. Flip to ~p with that ticket. --%>
+        user_menu's reason (#205). --%>
         <.link
           href={~p"/"}
           class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
@@ -1283,7 +1304,7 @@ defmodule FluxValeWeb.CoreComponents do
           375 open, gate-2 F1). --%>
           <.link
             :for={membership <- @orgs}
-            href={"/organizations/" <> membership.organization.slug}
+            href={~p"/organizations/#{membership.organization.slug}"}
             class="flex items-baseline gap-1 rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
           >
             <span class="truncate">{membership.organization.name}</span>

@@ -32,8 +32,17 @@ defmodule FluxValeWeb.Storybook.Components.OrgSwitcher do
       %Variation{
         id: :org_active,
         description:
-          "Org context active — the closed summary names the org; still only-personal, so no org rows",
+          "Org context active — the closed summary names the org; below lg its initial leads the pill; still only-personal, so no org rows",
         attributes: %{orgs: Enum.take(orgs, 1), current_org: hd(orgs).organization}
+      },
+      %Variation{
+        id: :org_active_long,
+        description:
+          "Long org name active — the label truncates above lg, the initial leads below",
+        attributes: %{
+          orgs: orgs,
+          current_org: %{name: "A Very Long Organization Display Name", slug: "very-long"}
+        }
       },
       %Variation{
         id: :two_orgs,
