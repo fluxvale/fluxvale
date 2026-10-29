@@ -74,8 +74,11 @@ defmodule FluxValeWeb.OrganizationLive.Home do
       <div class="space-y-6">
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div class="flex min-w-0 items-center gap-4">
-            <div class="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary-muted text-lg font-semibold text-primary">
-              {String.first(@org.name)}
+            <div
+              aria-hidden="true"
+              class="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-primary-muted text-lg font-semibold text-link"
+            >
+              {String.upcase(String.first(@org.name || "?"))}
             </div>
             <div class="min-w-0">
               <h1

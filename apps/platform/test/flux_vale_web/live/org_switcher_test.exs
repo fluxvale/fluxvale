@@ -152,6 +152,10 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     # Below lg the label is hidden, so the active org leads the pill
     # with its initial (the user_menu glyph) while the building icon
     # demotes to lg+ — the icon alone can't say which org is active.
+    # The glyph is decoration: aria-hidden keeps it out of the a11y
+    # tree (the user_menu twin's pattern), pinned so a future edit
+    # can't drop it silently.
+    assert html =~ ~r/aria-hidden="true"[^>]*lg:hidden/
     assert html =~ ~s(lg:hidden)
     assert html =~ ~r/>\s*A\s*<\/span>/
     assert html =~ "hidden lg:block"
@@ -203,8 +207,9 @@ defmodule FluxValeWeb.OrgSwitcherTest do
         current_org: %{name: "", slug: "empty"}
       )
 
-    # The DB admits '' names; initial/1 is defensive chrome — the pill
-    # shows the neutral glyph instead of raising.
+    # '' names reach the DB only via raw writes/seeds (actions reject
+    # them) — initial/1 is defensive shared chrome; the pill shows the
+    # neutral glyph instead of raising.
     assert html =~ ~r/>\s*\?\s*<\/span>/
   end
 
