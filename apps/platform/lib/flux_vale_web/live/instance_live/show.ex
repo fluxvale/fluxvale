@@ -49,8 +49,10 @@ defmodule FluxValeWeb.InstanceLive.Show do
           )
           # #273 §4.2: the exposure card's reachability copy reads the
           # pairing (route), the org's gateway, and the org's slug (the
-          # Access-tab link). None of the three moves with an instance
-          # broadcast, so mount-time is the whole truth this page needs.
+          # Access-tab link). Mount-time reads: they move via other
+          # writers, not instance broadcasts — navigation remounts, it
+          # does not self-heal live (no route notifier; see
+          # assign_access).
           |> assign_access(instance, user)
 
         {:ok, maybe_schedule_status_tick(socket)}
@@ -198,10 +200,17 @@ defmodule FluxValeWeb.InstanceLive.Show do
           <p class="text-sm text-ink-subtle" data-testid="exposure-copy">
             <%= if @instance.exposure == :private do %>
               <%= cond do %>
-                <% @route -> %>
+                <% @route && serving?(@gateway) -> %>
                   Private instances are unreachable from the internet — this app has no
                   public address. It is reachable from your own devices on your tailnet,
                   and a visit wakes it when it's asleep. Exposure never changes what you pay.
+                <% @route -> %>
+                  <%!-- Routes outlive serving (suspend keeps the rows; the
+                      gateway is scaled to zero) — the address is paused,
+                      not live, and no visit can arrive to wake anything. --%>
+                  Private instances are unreachable from the internet — this app has no
+                  public address. Its tailnet address is paused — {route_paused_reason(@gateway)}.
+                  Exposure never changes what you pay.
                 <% @gateway -> %>
                   Private instances are unreachable from the internet — this app has no
                   public address. You keep full control from this panel (deploy, stop,
@@ -224,9 +233,11 @@ defmodule FluxValeWeb.InstanceLive.Show do
             <% end %>
           </p>
 
-          <%!-- §4.2's reachability line: whenever a route exists — also
-              in the public+attached corner, honestly. --%>
-          <div :if={@route} class="space-y-1" data-testid="tailnet-reachability">
+          <%!-- §4.2's reachability line: whenever a route exists AND the
+              gateway is serving — also in the public+attached corner,
+              honestly. A paused route shows the paused copy instead
+              (never a dead address framed as reachable). --%>
+          <div :if={@route && serving?(@gateway)} class="space-y-1" data-testid="tailnet-reachability">
             <p class="text-sm text-ink">
               Reachable on your tailnet at
               <span class="font-mono" data-testid="tailnet-address">
@@ -809,6 +820,10 @@ defmodule FluxValeWeb.InstanceLive.Show do
   # line; the org's gateway decides the "attach it" vs "enable it"
   # wording; the org slug is the Access-tab link. Each read rides its
   # member policy with the actor; misses are the honest "not there".
+  # All three are mount-time only: they move via OTHER writers (another
+  # tab's attach, an exposure toggle, a suspension) — this page does not
+  # subscribe to route writes, so a long-lived mount can go stale until
+  # navigation remounts it. Honest staleness, not live truth.
   defp assign_access(socket, instance, user) do
     route = route_for(instance, user)
 
@@ -845,6 +860,30 @@ defmodule FluxValeWeb.InstanceLive.Show do
   # §4.2's shape: hostname + route_key (the provider-opaque port).
   defp tailnet_address(route) do
     "#{route.gateway.hostname}:#{route.route_key}"
+  end
+
+  # A route is only live while its gateway serves (suspend.ex: the rows
+  # survive, the pod is scaled to zero). @gateway is non-nil whenever
+  # @route is — the route's FK cascade deletes it first.
+  defp serving?(%AccessGateway{state: :active}), do: true
+  defp serving?(_not_serving_or_nil), do: false
+
+  # The paused-route copy names the way back, per state (the Access
+  # tab's paused lines are the sibling wording).
+  defp route_paused_reason(%AccessGateway{state: :suspended}) do
+    "resume private access in Settings → Access to bring it back"
+  end
+
+  defp route_paused_reason(%AccessGateway{state: :needs_attention}) do
+    "reconnect the gateway with a fresh key to bring it back"
+  end
+
+  defp route_paused_reason(%AccessGateway{state: :destroying}) do
+    "private access is being removed"
+  end
+
+  defp route_paused_reason(_provisioning) do
+    "the gateway is still starting up, usually under a minute"
   end
 
   # The panel's own refresh: pass the assigns it already reads. The run

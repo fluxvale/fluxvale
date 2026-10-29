@@ -1210,6 +1210,40 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       refute copy =~ "upcoming"
     end
 
+    # Routes outlive serving (suspend keeps the rows; the pod is scaled
+    # to zero) — the page must never frame a paused address as reachable
+    # or promise wake-on-visit while nothing can arrive (hostile
+    # review's P2). Each paused state names its way back.
+    test "a non-serving gateway with a route: the address is paused, never framed as reachable",
+         %{conn: conn, org: org, version: version, user: user} do
+      instance = running_private!(version, user)
+      gateway = AccessFixtures.gateway!(org)
+
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      for {state, way_back} <- [
+            {:suspended, "resume private access in Settings → Access"},
+            {:needs_attention, "reconnect the gateway with a fresh key"},
+            {:destroying, "private access is being removed"},
+            {:provisioning, "still starting up"}
+          ] do
+        gateway
+        |> Ash.Changeset.for_update(:update_state, %{state: state}, authorize?: false)
+        |> Ash.update!()
+
+        {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+        copy = render(element(view, "[data-testid=exposure-copy]"))
+        assert copy =~ "paused", "state #{state}: paused copy"
+        assert copy =~ way_back, "state #{state}: #{way_back}"
+        refute copy =~ "a visit wakes it", "state #{state}: no wake promise"
+        refute has_element?(view, "[data-testid=tailnet-reachability]"), "state #{state}"
+      end
+    end
+
     test "the public+attached corner still shows the reachability line", %{
       conn: conn,
       org: org,

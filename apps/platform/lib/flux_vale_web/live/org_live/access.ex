@@ -260,7 +260,9 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
   # The sections aren't rendered without a gateway (or on a gateway the
   # operation would refuse), so these guards are the crafted/stale-click
-  # arms — no-ops, never crashes (the remove family's stance).
+  # arms — no-ops, never crashes (the remove family's stance). The
+  # trailing catch-alls make that total over crafted payloads too: a
+  # phx event without an instance_id is a no-op, not a crash.
   def handle_event("attach", _params, %{assigns: %{gateway: nil}} = socket) do
     {:noreply, socket}
   end
@@ -279,6 +281,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         {:noreply, assign(socket, attach_error: :cluster)}
     end
   end
+
+  def handle_event("attach", _params, socket), do: {:noreply, socket}
 
   def handle_event("detach", _params, %{assigns: %{gateway: nil}} = socket) do
     {:noreply, socket}
@@ -304,6 +308,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         {:noreply, put_flash(socket, :error, "Couldn't detach — try again.")}
     end
   end
+
+  def handle_event("detach", _params, socket), do: {:noreply, socket}
 
   @impl Phoenix.LiveView
   # The per-org topic's catch-all: every gateway write lands here (the
@@ -999,10 +1005,13 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     "#{instance.name} detached — its public address still works."
   end
 
-  # Both lists refetch wholesale: the pairing table is small, and the
-  # reset converges every writer (this panel, another tab, the teardown)
-  # on the next refresh. The emptiness flags ride alongside — streams
-  # can't be counted in the template.
+  # Both lists refetch wholesale: the pairing table is small, and every
+  # refetch reads the rows fresh. What triggers a refetch is bounded —
+  # this panel's own actions and gateway state moves; AccessRoute has no
+  # notifier, so ANOTHER tab's attach or an exposure toggle elsewhere
+  # does not land here until then (a stale row's click converges through
+  # the operation's own guards). The emptiness flags ride alongside —
+  # streams can't be counted in the template.
   defp refresh_pairing(socket) do
     {attached, attachable} =
       pairing_lists(socket.assigns.gateway, socket.assigns.org, socket.assigns.current_user)

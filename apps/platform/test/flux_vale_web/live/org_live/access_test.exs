@@ -1145,6 +1145,21 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       assert has_element?(view, "[data-testid='access-empty']")
     end
 
+    # Crafted payloads (no instance_id at all) must be total no-ops — the
+    # handler family's stated stance (hostile review: these raised
+    # FunctionClauseError before the catch-alls).
+    test "crafted pairing events without an instance_id are no-ops, never crashes", %{
+      conn: conn,
+      org: org
+    } do
+      AccessFixtures.gateway!(org)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      assert render_click(view, "attach", %{}) =~ "Attached apps"
+      assert render_click(view, "detach", %{}) =~ "Attached apps"
+    end
+
     test "stale clicks on vanished instances land the copy, never a crash", %{
       conn: conn,
       org: org
