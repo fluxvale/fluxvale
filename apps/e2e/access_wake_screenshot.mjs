@@ -40,8 +40,9 @@ async function shot(path, url, colorScheme) {
 // status-light. The wake arm lands `:error` when the local cluster
 // can't scale the seeded instance (no real deployment behind the row),
 // so only the FIRST wake capture per :sleeping reset renders the true
-// sleeping-arm page — run one wake mode per reset.
-const modes = (process.env.FV_MODES ?? "wake-light,wake-dark,status-light").split(",");
+// sleeping-arm page — run one wake mode per reset. status-light is the
+// default: it needs no reset.
+const modes = (process.env.FV_MODES ?? "status-light").split(",");
 
 for (const mode of modes) {
   switch (mode.trim()) {

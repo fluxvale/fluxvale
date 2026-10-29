@@ -492,3 +492,32 @@ corrections, in opposite directions:
   logs it and returns `{:error, id}`, and the pass fails as a unit for
   Oban's retry. The retry is correct (nothing was slept, nothing leaked);
   the wording "instead of erroring" was wrong.
+
+## Amendment 2 (2026-10-29): `refresh_routes/1`, and §6's "in-cluster-only" posture
+
+Two corrections from the wake-intercept implementation (#273), with the
+decision text above left intact.
+
+**The callback.** §2's contract list pins
+`wake_intercept(gateway, instance) :: {:ok, :asleep | :awake} | {:error, term}`.
+As implemented the seam owns something else: regenerating the gateway's
+WHOLE serve config from its routes' current rows — which is what BOTH
+directions of the §6 flip need (the wake endpoint calls it on `:running`,
+the sleep path calls it after landing `:sleeping`), and which has no
+asleep/awake verdict to return. The callback is
+`refresh_routes(gateway) :: {:ok, term} | {:error, term}`; the
+asleep/awake verdict it originally promised is the caller's decision
+from the instance's own status, not the provider's.
+
+**The network posture.** §6 step 2 calls the endpoint "in-cluster-only,
+reachable by the gateway pod". In practice the platform answers
+`/internal/access/*` wherever it answers any path — the dev/staging
+ingress is Host-based and forwards the prefix from the public hostname —
+so the pairing row is the WHOLE gate, not a defense-in-depth layer
+behind a network boundary. That gate holds: the pair is an unguessable
+(gateway, instance) uuid pair, it grants exactly the start the org's own
+panel offers (funded gate included), and a forged pair can only start an
+instance its own org already pays for — §6's own blast-radius argument,
+which never actually depended on the network claim. Revisit trigger: a
+measured abuse of the path from outside the cluster (the flip and the
+wake are debounced and funded-gated, so the abuse shape is narrow).

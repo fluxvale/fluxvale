@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <%= if @status == :service_unavailable do %>
+    <%= if @refresh_seconds do %>
       <meta http-equiv="refresh" content={@refresh_seconds} />
     <% end %>
     <title>Unavailable</title>
@@ -49,7 +49,7 @@
       <%= if @body do %>
         <p data-testid="access-status-body">{@body}</p>
       <% end %>
-      <%= if @status == :service_unavailable do %>
+      <%= if @refresh_seconds do %>
         <small>This page keeps checking.</small>
       <% end %>
     </main>

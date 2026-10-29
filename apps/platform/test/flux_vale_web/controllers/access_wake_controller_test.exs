@@ -19,6 +19,7 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
   alias FluxVale.Clients.K8s.Resources.PersistentVolumeClaim
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Infrastructure
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.TestSupport.AccessFixtures
@@ -160,6 +161,11 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
 
       assert response(conn, 503) =~ "top-up"
 
+      # The unfunded sleep doesn't resolve on its own: no refresh, and
+      # no "keeps checking" copy that would be a lie.
+      refute response(conn, 503) =~ "keeps checking"
+      refute response(conn, 503) =~ "http-equiv"
+
       slept = Instance.get_by_id!(instance.id, authorize?: false)
       assert slept.status == :sleeping
     end
@@ -205,6 +211,59 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
       assert name =~ "serve-config"
       assert json =~ "app.#{instance.namespace}.svc.cluster.local:80"
       refute json =~ "/internal/access/"
+    end
+
+    test "a failed flip logs and still serves the waking page", %{
+      conn: conn,
+      org: org,
+      owner: owner
+    } do
+      {gateway, instance} = pair!(org, owner, :running)
+      drain()
+
+      stub(Tailscale, :refresh_routes, fn _gateway -> {:error, :cluster_down} end)
+
+      failed =
+        conn
+        |> browser()
+        |> get(wake_url(gateway, instance))
+
+      # The flip's failure changes nothing for the visitor: the config
+      # still targets here, the next window retries, and the log names
+      # why (the throttled/failed attempt keeps the waking page).
+      assert html_response(failed, 200) =~ "Waking"
+      assert Instance.get_by_id!(instance.id, authorize?: false).status == :running
+    end
+
+    test "a second :running GET inside the window throttles the flip, not the page", %{
+      conn: conn,
+      org: org,
+      owner: owner
+    } do
+      {gateway, instance} = pair!(org, owner, :running)
+      drain()
+
+      first =
+        conn
+        |> browser()
+        |> get(wake_url(gateway, instance))
+
+      assert html_response(first, 200) =~ "Waking"
+      assert_received {:secret_create, _ns, _name, %{"serve.json" => _json}}
+
+      # The window's one apply: the throttled refresh writes nothing —
+      # an unthrottled GET loop must not become unthrottled K8s writes —
+      # and the waking page holds either way.
+      fresh_conn = build_conn()
+
+      second =
+        fresh_conn
+        |> browser()
+        |> get(wake_url(gateway, instance))
+
+      assert html_response(second, 200) =~ "Waking"
+
+      refute_received {:secret_create, _ns, _name, %{"serve.json" => _json}}
     end
 
     test "a :restoring instance answers the restore copy and never wakes", %{
@@ -442,7 +501,6 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
     end
 
     test "every 404 arm is byte-identical — no posture or existence leak", %{
-      conn: conn,
       org: org,
       owner: owner
     } do

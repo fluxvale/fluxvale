@@ -34,6 +34,8 @@ defmodule FluxValeWeb.AccessWakeController do
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
 
+  require Logger
+
   @refresh_seconds 2
   # The status page polls slower than the wake page: those states resolve
   # in tens of seconds (a restore, a stop), not two.
@@ -192,8 +194,23 @@ defmodule FluxValeWeb.AccessWakeController do
   # window retries.
   defp debounced_flip(gateway, instance) do
     if Edge.Activity.claim_access_flip(instance.id) == :proceed do
-      _serve_config = AccessProvider.impl_for(gateway).refresh_routes(gateway)
-      :ok
+      case AccessProvider.impl_for(gateway).refresh_routes(gateway) do
+        {:ok, _serve_config} ->
+          :ok
+
+        # Silent would strand the visitor on a waking page that never
+        # converges and leave the operator nothing to find: the config
+        # still targets here, the next window retries, and the log names
+        # why. Contract-exhaustive on the behaviour's {:ok, _} |
+        # {:error, _} — an off-contract shape crashes loudly instead.
+        {:error, reason} ->
+          Logger.warning(
+            "Access wake: serve-config flip failed for instance #{instance.id}: " <>
+              "#{inspect(reason)}"
+          )
+
+          :error
+      end
     else
       :throttled
     end

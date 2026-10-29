@@ -42,9 +42,11 @@ defmodule FluxVale.Infrastructure.Operations.SleepInstance do
 
   @doc """
   Scales to zero, flips the edge, lands `:sleeping`. Returns `{:ok,
-  instance}` either way — the `status` attribute carries the outcome.
+  instance}` with the `status` attribute carrying the outcome — or
+  `{:error, reason}` when the `:sleeping` status write itself fails
+  (the sweep's retry owns the pass; nothing was slept).
   """
-  @spec call(Instance.t()) :: {:ok, Instance.t()}
+  @spec call(Instance.t()) :: {:ok, Instance.t()} | {:error, term()}
   def call(%{status: :running} = instance) do
     case InstanceK8s.kubeconfig_for(instance) do
       {:ok, kubeconfig} ->
@@ -98,14 +100,21 @@ defmodule FluxVale.Infrastructure.Operations.SleepInstance do
 
   # Only an ATTACHED instance rides the gateway: an unattached private
   # row's whole story is the edge posture above (no route, nothing to
-  # wake), and every non-sleeping status targets the app by design.
+  # wake), and every non-sleeping status targets the app by design. A
+  # read that FAILED is not "unattached" — treating it as one would land
+  # a silently unwakeable `:sleeping`, so it takes the honest
+  # `:stopped` arm too.
   defp rewrite_gateway_routing(sleeping) do
     case AccessRoute.get_by_instance(sleeping.id, authorize?: false) do
       {:ok, route} ->
         rewrite_route(sleeping, route)
 
-      {:error, _unattached} ->
-        {:ok, sleeping}
+      {:error, error} ->
+        if route_not_found?(error) do
+          {:ok, sleeping}
+        else
+          route_rewrite_failed(sleeping, error)
+        end
     end
   end
 
@@ -113,23 +122,36 @@ defmodule FluxVale.Infrastructure.Operations.SleepInstance do
     # The load returns the ROUTE with its gateway populated.
     with {:ok, route} <- Ash.load(route, :gateway, authorize?: false),
          gateway = route.gateway,
-         {:ok, _serve_config} <-
-           AccessProvider.impl_for(gateway).refresh_routes(gateway) do
+         {:ok, _serve_config} <- AccessProvider.impl_for(gateway).refresh_routes(gateway) do
       {:ok, sleeping}
     else
       {:error, error} ->
-        # The gateway's serve entry still targets the app Service, so a
-        # sleeping attached instance would serve 502 with nobody able to
-        # wake it through the gateway. Stopped is the honest pre-wake
-        # shape — owner Start works — the edge-flip clause's posture,
-        # gateway-flavored (#273).
-        InstanceK8s.update_status(
-          sleeping,
-          :stopped,
-          "Slept without gateway wake routing; owner can start it again (#{InstanceK8s.format_error(error)})"
-        )
+        route_rewrite_failed(sleeping, error)
     end
   end
+
+  # The gateway's serve entry still targets the app Service, so a
+  # sleeping attached instance would serve 502 with nobody able to wake
+  # it through the gateway. Stopped is the honest pre-wake shape —
+  # owner Start works — the edge-flip clause's posture, gateway-flavored
+  # (#273).
+  defp route_rewrite_failed(sleeping, error) do
+    InstanceK8s.update_status(
+      sleeping,
+      :stopped,
+      "Slept without gateway wake routing; owner can start it again (#{InstanceK8s.format_error(error)})"
+    )
+  end
+
+  defp route_not_found?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, &match?(%Ash.Error.Query.NotFound{}, &1))
+  end
+
+  # coveralls-ignore-start - defensive: get_by_instance returns Invalid
+  # shapes today; the catch-all is the guard if that ever widens (a
+  # non-NotFound error takes the honest landing either way).
+  defp route_not_found?(_other), do: false
+  # coveralls-ignore-stop
 
   defp sleep_failed(instance, error) do
     InstanceK8s.update_status(

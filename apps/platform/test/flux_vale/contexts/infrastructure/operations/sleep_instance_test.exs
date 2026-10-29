@@ -15,6 +15,7 @@ defmodule FluxVale.Infrastructure.Operations.SleepInstanceTest do
   alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
+  alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.SleepInstance
   alias FluxVale.TestSupport.AccessFixtures
@@ -222,6 +223,21 @@ defmodule FluxVale.Infrastructure.Operations.SleepInstanceTest do
       assert stopped.status == :stopped
       assert stopped.status_message =~ "Slept without gateway wake routing"
       assert stopped.status_message =~ "serve refused"
+    end
+
+    test "a failed pairing read lands :stopped, not a silently unwakeable :sleeping" do
+      stub_access()
+      stub(Deployment, :scale, fn _kc, _ns, _name, 0 -> {:ok, %{}} end)
+
+      # A read error is not "unattached" — the catch-all error shape
+      # takes the honest landing too.
+      stub(AccessRoute, :get_by_instance, fn _id, _opts -> {:error, :boom} end)
+
+      {_gateway, instance} = attached_pair!()
+
+      assert {:ok, stopped} = SleepInstance.call(instance)
+      assert stopped.status == :stopped
+      assert stopped.status_message =~ "Slept without gateway wake routing"
     end
 
     test "an unattached instance's sleep never writes to any gateway" do
