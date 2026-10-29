@@ -93,10 +93,9 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
   Called by `DeployInstance` (the deploy-time apply) and `SetExposure`
   (the toggle's re-apply) — the two writers of the same object.
   """
-  @spec network_policy_spec(map()) :: %{
-          required(:ingress_from_namespaces) => [String.t()],
-          optional(:ingress_from_sources) => [map()]
-        }
+  @spec network_policy_spec(map()) ::
+          %{required(:ingress_from_namespaces) => [String.t()]}
+          | %{required(:ingress_from_sources) => [map()]}
   def network_policy_spec(%{exposure: exposure} = instance) do
     case {exposure_peers(exposure), gateway_peers(instance)} do
       # No gateway attached: the plain exposure floor (the pre-#268 shape).
