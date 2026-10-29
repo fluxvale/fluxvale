@@ -514,6 +514,25 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
 
       assert {:error, _not_found} = AccessRoute.get_by_instance(instance.id, authorize?: false)
     end
+
+    # The detach-side 404 arm (namespace gone = posture already holding)
+    # must never reach here: on attach the namespace being gone means
+    # the deployment never existed, so a 404 is a real failure.
+    test "a 404 on the policy write fails attach — the asymmetry with detach", %{
+      org: org,
+      owner: owner
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      expect(NetworkPolicy, :create, fn _kc, _ns, _name, _spec ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      assert {:error, %Error{reason: :not_found}} = Tailscale.attach_instance(gateway, instance)
+
+      assert {:error, _not_found} = AccessRoute.get_by_instance(instance.id, authorize?: false)
+    end
   end
 
   describe "detach_instance/2" do
