@@ -665,7 +665,10 @@ defmodule FluxValeWeb.SettingsLiveTest do
     {:ok, verified}
   end
 
+  # The disabled ATTRIBUTE, not the substring — the button's class list
+  # always carries Tailwind's `disabled:` variants, so a bare =~ "disabled"
+  # matches enabled buttons too (the vacuous helper the teeth run caught).
   defp disabled?(view, selector) do
-    render(element(view, selector)) =~ "disabled"
+    Regex.match?(~r/ disabled[=>\s]/, render(element(view, selector)))
   end
 end
