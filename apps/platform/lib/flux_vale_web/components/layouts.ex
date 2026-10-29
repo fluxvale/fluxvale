@@ -40,11 +40,13 @@ defmodule FluxValeWeb.Layouts do
   # Set only by OrgNav's on_mount — the actor's memberships with the
   # org loaded, the org switcher's rows (#276), plus the two facts the
   # personal row needs: the owned org's id and the handle that labels
-  # it. LiveViews in the authenticated surface pass them through;
-  # everything else renders no switcher rows.
+  # it. Required: every app/1 caller states them explicitly — the
+  # authenticated surfaces pass OrgNav's assigns through, the anonymous
+  # sign-in shell passes nils — so a dropped assign fails the compile
+  # instead of silently blanking the personal row (#285 T6 review).
   attr(:actor_orgs, :list, default: [])
-  attr(:personal_org_id, :string, default: nil)
-  attr(:username, :string, default: nil)
+  attr(:personal_org_id, :string, required: true)
+  attr(:username, :string, required: true)
 
   # The active org context (nil = personal) — the closed switcher names
   # it. The org-scoped surfaces pass it; the org billing view (#276) is
