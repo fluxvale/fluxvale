@@ -80,11 +80,9 @@ defmodule FluxValeWeb.CatalogLive.Show do
               </div>
             </div>
             <p
-              :if={@app.description}
+              :if={String.trim(@app.description)}
               class="border-t border-line pt-4 leading-relaxed whitespace-pre-line text-ink-muted"
-            >
-              {@app.description}
-            </p>
+            >{String.trim(@app.description)}</p>
           </.card>
         </div>
 

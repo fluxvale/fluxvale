@@ -53,8 +53,9 @@ defmodule FluxValeWeb.CatalogLive.Index do
 
         <.empty_state :if={@categories == []} title="No apps in the catalog yet." />
 
-        <%!-- Container-query grid (#277 T4, spec §3) — see
-        catalog_html/index.html.heex. --%>
+        <%!-- Container-query grid (#277 T4) — see
+        catalog_html/index.html.heex for the auto-fit rationale and the
+        dark/reduced-motion hover-cue note. --%>
         <section
           :for={category <- @categories}
           id={"category-#{category.id}"}
@@ -65,7 +66,7 @@ defmodule FluxValeWeb.CatalogLive.Index do
             <p :if={category.description} class="text-sm text-ink-muted">{category.description}</p>
           </div>
 
-          <div class="grid grid-cols-1 gap-4 @lg:grid-cols-2 @2xl:grid-cols-3">
+          <div class="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(17rem,1fr))]">
             <.link
               :for={app <- sort_by_name(category.apps)}
               navigate={~p"/apps/#{app.slug}"}
@@ -85,12 +86,12 @@ defmodule FluxValeWeb.CatalogLive.Index do
                   />
                   <span :if={is_nil(app.icon_url)}>{String.first(app.name)}</span>
                 </div>
-                <h3 class="text-base font-medium text-ink transition-colors duration-(--motion-fast) group-hover:text-link">
+                <h3 class="min-w-0 flex-1 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
                   {app.name}
                 </h3>
                 <.icon
                   name="hero-chevron-right"
-                  class="ml-auto size-4 text-ink-subtle opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100"
+                  class="ml-auto size-4 shrink-0 text-ink-subtle opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100"
                 />
               </div>
               <p :if={app.tagline} class="mt-2.5 text-sm text-ink-muted">{app.tagline}</p>
