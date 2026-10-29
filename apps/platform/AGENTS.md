@@ -93,9 +93,12 @@ This is a web application written using the Phoenix web framework.
   and dark where the surface has both. Open the PR first, commit the
   images on the PR branch under `docs/screenshots/<pr-number>/`, and
   reference them with relative paths (GitHub renders those from the
-  head branch, so the body needs no hosting). Tool:
-  `apps/e2e/screenshot.mjs` (Playwright; `npm install` in
-  `apps/e2e`). Never capture a secret — mask key fields.
+  head branch, so the body needs no hosting). Tooling: adapt the
+  capture pattern in `apps/e2e/screenshot.mjs` or its #301 sibling
+  `access_wake_screenshot.mjs` — the route lists are per-surface,
+  never generic (Playwright; `npm install` + `npx playwright install
+  chromium` in `apps/e2e`, local dev server). Never capture a secret —
+  mask key fields.
 
 ## Toolchain recipes (session-tested — read before scaffolding)
 
