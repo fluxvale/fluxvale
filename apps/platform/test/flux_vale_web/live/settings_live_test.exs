@@ -598,6 +598,18 @@ defmodule FluxValeWeb.SettingsLiveTest do
     assert result =~ "was refused"
   end
 
+  test "an unexpected error shape also degrades to the generic copy", %{conn: conn, user: user} do
+    # no current op returns a non-:not_found atom — the arm is defensive;
+    # the stub is what proves the LiveView renders it as copy, not a crash
+    stub(Identity, :set_primary_email, fn _actor, _row_id -> {:error, :unexpected_shape} end)
+
+    {:ok, view, _html} = live(conn, ~p"/settings")
+
+    result = render_click(view, "set-primary", %{"row_id" => mirror_row_id(user)})
+
+    assert result =~ "was refused"
+  end
+
   # -- Non-owner denial (unreachable, not hidden) --------------------------
 
   test "another user's rows are unreachable: not rendered, and :not_found at the ops", %{
