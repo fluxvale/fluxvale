@@ -49,21 +49,33 @@ defmodule FluxVale.Identity.Operations.AddEmailTest do
       assert {:error, %Ash.Error.Invalid{}} = Identity.add_email(user, "not-an-email")
     end
 
-    test "an AccessRule denial refuses the code send, leaving the pending claim" do
+    test "an AccessRule denial refuses the code send and removes the pending claim" do
       AccessRule.create!(%{domain: "fluxvale.com"}, authorize?: false)
       user = user!()
       denied = "denied-#{System.unique_integer()}@example.com"
 
       assert {:error, :not_allowed} = Identity.add_email(user, denied)
 
-      # the claim stands (the future UI's retry is a remove + re-add
-      # after the throttle window); no mail went out
-      claim = row_for(user.id, denied)
-      refute is_nil(claim)
-      assert claim.verified_at == nil
-      refute claim.is_primary
+      # no claim left behind (round-2 P3): a refusal must not litter
+      # cap slots, and a repeated denial must not pin arbitrary
+      # addresses; no mail went out
+      refute row_for(user.id, denied)
 
       refute_received {:email, _email}
+    end
+
+    test "a throttled re-send also removes the fresh claim (a claim exists only while a code is outstanding)" do
+      user = user!()
+      address = "throttled-#{System.unique_integer()}@fluxvale.test"
+
+      assert {:ok, first} = Identity.add_email(user, address)
+      assert :ok = Identity.remove_email(user, first.id)
+
+      # the first send's code row is still recent, so the re-add's send
+      # throttles — and the fresh claim must not survive the refusal
+      assert {:error, :throttled} = Identity.add_email(user, address)
+
+      refute row_for(user.id, address)
     end
   end
 end
