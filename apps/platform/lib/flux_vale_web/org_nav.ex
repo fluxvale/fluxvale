@@ -110,10 +110,15 @@ defmodule FluxValeWeb.OrgNav do
 
   # The personal row's label. Rollout-window rows carry a NULL username
   # (the column is nullable until F1's contract migration) — degrade to
-  # the signup email's local part. F1 (#287) drops users.email: the
-  # fallback then reads the primary address from user_emails.
+  # the address's local part, the PRIMARY one (#285 T4): reading the
+  # frozen `users.email` mirror here showed the demoted signup address
+  # after a SetPrimaryEmail. The nil-primary arm (old-pod straggler)
+  # still lands on the mirror — see User.primary_email. The calc is
+  # loaded by UserAuth.resolve_user/1 before this hook runs (the
+  # sanctioned on_mount order — router-pinned); reading an unloaded
+  # struct would raise, and that is the miswiring's crash to own.
   defp display_handle(user) do
-    user.username || local_part(user.email)
+    user.username || local_part(user.primary_email || user.email)
   end
 
   # Emails are CiStrings at the Ash boundary; downcast before String

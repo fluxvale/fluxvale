@@ -13,6 +13,7 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
   use Mimic
 
   import Phoenix.LiveViewTest
+  import FluxVale.TestSupport.AuthCodeHelpers
 
   alias FluxVale.Billing
   alias FluxVale.Billing.Topup
@@ -47,6 +48,33 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       assert has_element?(view, "#topup-details-form")
       assert has_element?(view, "#topup-details-form input[name='details[email]']")
       assert has_element?(view, "[data-testid='topup-step-details']")
+    end
+
+    # #285 T4 teeth: after the REAL operations promote a verified
+    # secondary, the prefill shows the new primary — the frozen mirror
+    # (users.email) must not leak into the buyer evidence. Reverting
+    # topup.ex to `user.email` fails this test.
+    test "the prefill is the promoted primary, not the frozen mirror", %{
+      conn: conn,
+      user: user
+    } do
+      mirror = to_string(user.email)
+      promoted = "topup-promoted-#{System.unique_integer([:positive])}@fluxvale.test"
+
+      assert {:ok, row} = FluxVale.Identity.add_email(user, promoted)
+      code = mailbox_code()
+      assert {:ok, _verified} = FluxVale.Identity.verify_email(user, row.id, code)
+      assert {:ok, _promoted} = FluxVale.Identity.set_primary_email(user, row.id)
+
+      {:ok, view, _html} = live(conn, ~p"/billing/topup")
+
+      assert prefill =
+               view
+               |> element("#topup-details-form input[name='details[email]']")
+               |> render()
+
+      assert prefill =~ "value=\"#{promoted}\""
+      refute prefill =~ mirror
     end
 
     test "typing updates the details without advancing", %{conn: conn} do

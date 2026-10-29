@@ -18,6 +18,7 @@ defmodule FluxValeWeb.Storybook.StorySmokeTest do
     {"dav_snippet", "Dav Snippet"},
     {"readonly_field", "Readonly Field"},
     {"org_switcher", "Org Switcher"},
+    {"user_menu", "User Menu"},
     {"balance_header", "Balance Header"},
     {"ledger_history", "Ledger History"}
   ]

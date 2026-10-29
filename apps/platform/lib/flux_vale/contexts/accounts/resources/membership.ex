@@ -104,6 +104,21 @@ defmodule FluxVale.Accounts.Membership do
     # policy is the gate (any member of the org may read the roster's
     # emails, including through the domain); the LiveView's owner gate is
     # UI-only, not the column's protection.
-    calculate(:user_email, :string, expr(user.email))
+    #
+    # #285 T4: the column shows the member's PRIMARY address — not the
+    # frozen `users.email` mirror. A member with no verified primary row
+    # (old-pod straggler) renders their mirror address — showing nothing
+    # is wrong (see User.primary_email).
+    #
+    # The `if` is Ash.Query.Function.If inside the expr DSL — not
+    # Elixir's macro; the parenthesised call is the DSL's required
+    # shape, so the readability check is disabled for these lines.
+    #
+    # credo:disable-for-lines:4 Credo.Check.Readability.ParenthesesInCondition
+    calculate(
+      :user_email,
+      :string,
+      expr(if(is_nil(user.primary_email), user.email, user.primary_email))
+    )
   end
 end

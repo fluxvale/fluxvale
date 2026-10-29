@@ -29,7 +29,12 @@ gradient matting a product mock — the D2(a) visual anchor, decorative
           </.button>
         </li>
         <li :if={@current_user}>
-          <.user_menu email={@current_user.email} />
+          <%!-- #285 T4: handle + PRIMARY address, mirror fallback (see
+          User.primary_email) — same contract as the app chrome's menu. --%>
+          <.user_menu
+            username={@current_user.username}
+            email={@current_user.primary_email || @current_user.email}
+          />
         </li>
       </ul>
     </nav>
