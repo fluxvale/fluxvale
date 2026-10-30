@@ -164,6 +164,16 @@ body:has(.landing) {
   margin-top: var(--overlap-y);
 }
 
+/* The chip's `bottom: 0` must land on the panel, not on .hero-panel:
+ * the grid STRETCHES that box to the copy column's height, which parks
+ * the chip ~200px under the panel. .px-panel wraps .panel tightly, so
+ * anchoring here crosses the panel's bottom-left edge as designed — and
+ * keeps the chip glued to the panel through the parallax drift (a
+ * transformed ancestor becomes the containing block). */
+.landing .px-panel {
+  position: relative;
+}
+
 .landing .panel {
   background: var(--panel);
   border: 1px solid var(--line-strong);
