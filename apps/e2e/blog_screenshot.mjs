@@ -9,7 +9,7 @@ import { chromium } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 
 const BASE = process.env.FV_BASE ?? "http://127.0.0.1:4000";
-const outdir = process.argv[2] ?? "/tmp/opencode/fv323-shots";
+const outdir = process.argv[2] ?? "/tmp/opencode/blog-shots";
 mkdirSync(outdir, { recursive: true });
 
 const browser = await chromium.launch();
