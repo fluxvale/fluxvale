@@ -16,6 +16,7 @@
 @import "tailwindcss" source(none);
 @import "phoenix-colocated/flux_vale/colocated.css";
 @import "./landing.css";
+@import "./app_grammar.css";
 @source "../css";
 @source "../js";
 @source "../../lib/flux_vale_web";
@@ -320,6 +321,16 @@
 /* Use the data attribute for dark mode, plus the storybook color-mode
    toggle's markers (attribute on #psb-main, class on iframe bodies) */
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *, .dark, .dark *, [data-psb-color-mode=dark], [data-psb-color-mode=dark] *));
+
+/* The active nav mark survives forced-colors: the amber fill force-maps
+   to the canvas (white bar on a white header), so the underline paints
+   CanvasText instead — the mode's own high-contrast pair. */
+@media (forced-colors: active) {
+  .nav_link[aria-current="page"]::after {
+    background-color: CanvasText;
+    forced-color-adjust: none;
+  }
+}
 
 /* Make LiveView wrapper divs transparent for layout */
 [data-phx-session], [data-phx-teleported-src] { display: contents }

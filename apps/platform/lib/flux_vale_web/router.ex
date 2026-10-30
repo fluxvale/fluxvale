@@ -201,7 +201,8 @@ defmodule FluxValeWeb.Router do
     live_session :authenticated,
       on_mount: [
         {FluxValeWeb.UserAuth, :ensure_authenticated},
-        {FluxValeWeb.OrgNav, :assign_orgs}
+        {FluxValeWeb.OrgNav, :assign_orgs},
+        {FluxValeWeb.NavSection, :derive}
       ] do
       live("/apps", CatalogLive.Index)
       live("/apps/:slug", CatalogLive.Show)

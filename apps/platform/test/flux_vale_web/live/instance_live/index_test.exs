@@ -46,6 +46,41 @@ defmodule FluxValeWeb.InstanceLive.IndexTest do
     assert html =~ "No instances yet"
   end
 
+  # The chrome's active-nav mechanism, end to end: NavSection's on_mount
+  # (router-pinned on the authenticated live_session) resolves the
+  # section, the view passes it through, and exactly the section's link
+  # carries the round-3 amber underline.
+  test "the chrome marks Instances active and its siblings quiet", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/instances")
+
+    class_by_label =
+      html
+      |> LazyHTML.from_fragment()
+      # The header's own links: the user menu's folded rows hang deeper
+      # inside this nav (li > details), so the selector stays shallow.
+      |> LazyHTML.query("nav[aria-label='Primary'] > ul > li > a")
+      |> Enum.map(fn link ->
+        text =
+          link
+          |> LazyHTML.text()
+          |> String.trim()
+
+        class =
+          link
+          |> LazyHTML.attribute("class")
+          |> List.first()
+
+        {text, class}
+      end)
+      |> Map.new()
+
+    assert class_by_label["Instances"] =~ "after:bg-focus"
+    # Exact token, not a substring (text-ink ⊂ text-ink-muted).
+    assert "text-ink" in String.split(class_by_label["Instances"], " ")
+    refute class_by_label["Catalog"] =~ "after:bg-focus"
+    refute class_by_label["Billing"] =~ "after:bg-focus"
+  end
+
   test "a status broadcast updates the row in place — app name intact", %{
     conn: conn,
     user: user,

@@ -50,6 +50,7 @@ defmodule FluxValeWeb.CatalogLive.Index do
       actor_orgs={@actor_orgs}
       personal_org_id={@personal_org_id}
       username={@username}
+      nav_section={@nav_section}
     >
       <div class="space-y-10">
         <.header>

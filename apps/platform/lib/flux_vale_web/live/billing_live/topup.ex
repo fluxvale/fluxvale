@@ -275,6 +275,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
         actor_orgs={@actor_orgs}
         personal_org_id={@personal_org_id}
         username={@username}
+        nav_section={@nav_section}
       >
         <.confirmation topup={@topup} state={@confirmation_state} />
       </Layouts.app>
@@ -287,6 +288,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
         actor_orgs={@actor_orgs}
         personal_org_id={@personal_org_id}
         username={@username}
+        nav_section={@nav_section}
       >
         <div class="space-y-6">
           <.header>
