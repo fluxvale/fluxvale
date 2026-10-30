@@ -203,11 +203,13 @@ defmodule FluxValeWeb.Layouts do
               <%!-- #285 T4: the menu carries the handle + the PRIMARY
               address — the frozen mirror is the fallback for an
               old-pod straggler with no verified primary row (see
-              User.primary_email). --%>
+              User.primary_email). #319: nav_section rides along so the
+              below-sm folded rows can mark the section active. --%>
               <.user_menu
                 username={@current_user.username}
                 email={@current_user.primary_email || @current_user.email}
                 app_links={@apps}
+                nav_section={@nav_section}
               />
             </li>
             <li :if={is_nil(@current_user)} class="ml-1">

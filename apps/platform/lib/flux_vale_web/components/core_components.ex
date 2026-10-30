@@ -1082,7 +1082,8 @@ defmodule FluxValeWeb.CoreComponents do
   Active state is the round-3 chrome: ink text + the 2px amber
   underline (`--primary`) hanging to the nav's baseline — the header
   row's bottom edge. Inactive and hover keep the quiet muted
-  treatment in both chromes (app + public).
+  treatment in both chromes (app + public). The active state is also
+  exposed to assistive tech as `aria-current="page"`.
 
   ## Examples
 
@@ -1101,6 +1102,7 @@ defmodule FluxValeWeb.CoreComponents do
     below it. top-full + mt-2.5 (10px) + h-0.5 (2px) puts the 2px
     underline flush with the header's border-b: the nav's baseline. --%>
     <.link
+      aria-current={@active && "page"}
       class={[
         "relative rounded-control px-3 py-1.5 text-sm font-medium transition-colors",
         @active &&
@@ -1152,6 +1154,13 @@ defmodule FluxValeWeb.CoreComponents do
     doc: "surface Catalog/Instances below sm (app chrome, #255)"
   )
 
+  # The chrome's active-nav section (#319): below sm the header links
+  # hide and these folded rows replace them, so the section's row marks
+  # active — aria-current + ink/bold text, a menu-appropriate treatment
+  # (the header's hanging underline is a header-row idiom, not a
+  # dropdown-row one).
+  attr(:nav_section, :atom, default: nil)
+
   attr(:class, :any, default: nil)
   attr(:rest, :global)
 
@@ -1184,18 +1193,30 @@ defmodule FluxValeWeb.CoreComponents do
         <p class="truncate px-3 pb-2 text-xs text-ink-subtle" title={@email}>{@email}</p>
         <div class="my-1 border-t border-line" aria-hidden="true"></div>
         <%!-- #255: mobile-only surface rows — the header links these
-        replace are hidden below sm, so no width shows both copies. --%>
+        replace are hidden below sm, so no width shows both copies.
+        #319: the section's row carries the active state (aria-current +
+        ink/bold), the row idiom for what the header underlines. --%>
         <.link
           :if={@app_links}
           href={~p"/apps"}
-          class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink sm:hidden"
+          aria-current={@nav_section == :catalog && "page"}
+          class={[
+            "block rounded-control px-3 py-1.5 text-sm transition-colors sm:hidden",
+            @nav_section == :catalog && "font-semibold text-ink",
+            @nav_section != :catalog && "text-ink-muted hover:bg-panel-raised hover:text-ink"
+          ]}
         >
           Catalog
         </.link>
         <.link
           :if={@app_links}
           href={~p"/instances"}
-          class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink sm:hidden"
+          aria-current={@nav_section == :instances && "page"}
+          class={[
+            "block rounded-control px-3 py-1.5 text-sm transition-colors sm:hidden",
+            @nav_section == :instances && "font-semibold text-ink",
+            @nav_section != :instances && "text-ink-muted hover:bg-panel-raised hover:text-ink"
+          ]}
         >
           Instances
         </.link>
@@ -1203,7 +1224,12 @@ defmodule FluxValeWeb.CoreComponents do
         every surface — a live patch would strand it open (#205). --%>
         <.link
           href={~p"/billing"}
-          class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+          aria-current={@nav_section == :billing && "page"}
+          class={[
+            "block rounded-control px-3 py-1.5 text-sm transition-colors",
+            @nav_section == :billing && "font-semibold text-ink",
+            @nav_section != :billing && "text-ink-muted hover:bg-panel-raised hover:text-ink"
+          ]}
         >
           Billing
         </.link>

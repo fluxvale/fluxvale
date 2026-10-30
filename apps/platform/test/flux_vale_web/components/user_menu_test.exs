@@ -90,6 +90,82 @@ defmodule FluxValeWeb.Components.UserMenuTest do
     end
   end
 
+  describe "folded-row active state (#319)" do
+    # Below sm the header links hide and these rows replace them — the
+    # section's row carries the menu-appropriate active treatment:
+    # aria-current + ink/bold text, never the header's hanging underline.
+    defp row(html, label) do
+      html
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("[data-testid='user-menu-panel'] a")
+      |> Enum.find(fn link ->
+        text =
+          link
+          |> LazyHTML.text()
+          |> String.trim()
+
+        text == label
+      end)
+    end
+
+    defp class_of(link) do
+      link
+      |> LazyHTML.attribute("class")
+      |> List.first()
+    end
+
+    test "the section's row is ink + bold and aria-current" do
+      html =
+        render_component(&CoreComponents.user_menu/1,
+          username: "terence",
+          email: "inbox@fluxvale.test",
+          app_links: true,
+          nav_section: :instances
+        )
+
+      instances = row(html, "Instances")
+      assert LazyHTML.attribute(instances, "aria-current") == ["page"]
+
+      class = class_of(instances)
+      assert class =~ "font-semibold"
+      assert class =~ "text-ink"
+      refute class =~ "after:"
+    end
+
+    test "sibling rows keep the quiet treatment and no aria-current" do
+      html =
+        render_component(&CoreComponents.user_menu/1,
+          username: "terence",
+          email: "inbox@fluxvale.test",
+          app_links: true,
+          nav_section: :instances
+        )
+
+      for label <- ["Catalog", "Billing"] do
+        link = row(html, label)
+        assert LazyHTML.attribute(link, "aria-current") == []
+
+        class = class_of(link)
+        assert class =~ "text-ink-muted"
+        refute class =~ "font-semibold"
+      end
+    end
+
+    test "no section: every row stays quiet (the public chrome's posture)" do
+      html =
+        render_component(&CoreComponents.user_menu/1,
+          username: "terence",
+          email: "inbox@fluxvale.test"
+        )
+
+      billing = row(html, "Billing")
+      assert LazyHTML.attribute(billing, "aria-current") == []
+
+      class = class_of(billing)
+      assert class =~ "text-ink-muted"
+    end
+  end
+
   describe "web surfaces after the REAL SetPrimaryEmail" do
     # The one fixture all surface tests ride: a signed-in user whose
     # verified secondary was promoted through the real operations —

@@ -26,4 +26,23 @@ defmodule FluxVale.TestSupport.ChromeProbe do
     </FluxValeWeb.Layouts.app>
     """
   end
+
+  # Signed-in chrome: a plain map as current_user (chrome reads only
+  # username/primary_email/email and is_nil-guards around them) so the
+  # user_menu renders and the folded-row flow is testable without a DB.
+  attr(:nav_section, :atom, default: nil)
+
+  def signed_in(assigns) do
+    ~H"""
+    <FluxValeWeb.Layouts.app
+      flash={%{}}
+      personal_org_id="org_1"
+      username="terence"
+      current_user={%{username: "terence", primary_email: nil, email: "terence@fluxvale.test"}}
+      nav_section={@nav_section}
+    >
+      hello
+    </FluxValeWeb.Layouts.app>
+    """
+  end
 end
