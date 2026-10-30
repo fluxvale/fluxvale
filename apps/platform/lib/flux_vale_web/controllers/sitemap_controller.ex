@@ -10,10 +10,17 @@ defmodule FluxValeWeb.SitemapController do
 
   use FluxValeWeb, :controller
 
+  alias FluxVale.Blog
+  alias FluxVale.Blog
   alias FluxVale.Catalog.App
   alias FluxValeWeb.SitemapXML
 
   def show(conn, _params) do
+    # Dev hot reload rides here too (CodeRabbit + hostile review #326):
+    # without it a freshly authored post showed on /blog and the feed
+    # but not on the sitemap until another blog route was hit.
+    Blog.maybe_hot_reload()
+
     apps =
       App
       |> Ash.Query.for_read(:read, %{}, actor: nil)
@@ -22,6 +29,6 @@ defmodule FluxValeWeb.SitemapController do
 
     conn
     |> put_resp_content_type("application/xml")
-    |> send_resp(200, SitemapXML.build(apps, FluxVale.Blog.published()))
+    |> send_resp(200, SitemapXML.build(apps, Blog.published()))
   end
 end

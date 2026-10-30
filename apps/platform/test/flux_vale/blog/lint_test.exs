@@ -195,6 +195,14 @@ defmodule FluxVale.Blog.LintTest do
       assert error =~ ~s("og_image" does not resolve to a shipped static file)
     end
 
+    test "an og_image that escapes the static root is rejected", %{dir: dir} do
+      escaping = post_frontmatter("escaping", ["og_image: /images/../../mix.exs"])
+      write_post!(dir, "escaping", escaping)
+
+      assert {:error, [error]} = Lint.check(dir)
+      assert error =~ ~s("og_image" must resolve inside the static root)
+    end
+
     test "non-string tags are rejected", %{dir: dir} do
       tagged = post_frontmatter("tagged", ["tags:", "  - 1", "  - 2"])
       write_post!(dir, "tagged", tagged)

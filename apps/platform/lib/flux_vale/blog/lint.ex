@@ -199,12 +199,20 @@ defmodule FluxVale.Blog.Lint do
 
       path when is_binary(path) ->
         resolved = Path.join(static_root, path)
+        # Normalize before the existence check: a relative `..` walk
+        # (e.g. /images/../../etc/passwd) must not resolve outside the
+        # static root and pass (hostile review #326 — hygiene, the
+        # author is repo-committed anyway).
+        expanded = Path.expand(resolved)
 
         cond do
           not String.starts_with?(path, "/") ->
             ["\"og_image\" must be an app-absolute path like /images/x.png (#{path})"]
 
-          not File.exists?(resolved) ->
+          not String.starts_with?(expanded, Path.expand(static_root)) ->
+            ["\"og_image\" must resolve inside the static root (#{path})"]
+
+          not File.exists?(expanded) ->
             ["\"og_image\" does not resolve to a shipped static file (#{path})"]
 
           true ->
