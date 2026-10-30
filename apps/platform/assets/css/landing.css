@@ -753,6 +753,15 @@ body:has(.landing) {
   }
 }
 
+/* A filling scroll-reveal animation sits above `:hover` declarations in
+ * the cascade, so its held `transform: none` masks the hover lift on
+ * cells and app cards. Dropping the animation on hover lets the
+ * declared transform apply — the reveal has already completed whenever
+ * hover is possible. */
+.landing .reveal:hover {
+  animation: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .landing .rise,
   .landing .drop,
