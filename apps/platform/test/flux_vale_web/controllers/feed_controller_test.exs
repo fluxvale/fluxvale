@@ -54,7 +54,9 @@ defmodule FluxValeWeb.FeedControllerTest do
 
       assert xml =~ "<title>Post feed-post</title>"
       assert xml =~ "<id>https://fluxvale.com/blog/feed-post</id>"
-      assert xml =~ "<published>2026-10-31</published>"
+      # RFC 4287 date constructs are full date-times, never bare dates.
+      assert xml =~ "<published>2026-10-31T00:00:00Z</published>"
+      assert xml =~ "<updated>2026-10-31T00:00:00Z</updated>"
       assert xml =~ "<author><name>Tester</name></author>"
       assert xml =~ "<summary type=\"text\">A test post about feed-post.</summary>"
 
@@ -76,6 +78,15 @@ defmodule FluxValeWeb.FeedControllerTest do
       assert xml =~ "<updated>1970-01-01T00:00:00Z</updated>"
       refute xml =~ "<entry>"
     end
+  end
+
+  test "a feed reader's Accept header does not negotiate away the feed", %{conn: conn} do
+    conn =
+      conn
+      |> put_req_header("accept", "application/atom+xml")
+      |> get(~p"/blog/feed")
+
+    assert response(conn, 200) =~ "<feed"
   end
 
   describe "GET /feed.xml" do

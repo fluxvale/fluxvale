@@ -58,8 +58,11 @@ defmodule FluxValeWeb.AtomFeed do
     author = XML.escape(post.author)
     description = XML.escape(post.description)
     html = XML.escape(post.html)
-    iso_date = Date.to_iso8601(post.date)
-    published = XML.escape(iso_date)
+    # RFC 4287 date constructs are RFC 3339 date-TIMES — a bare date is
+    # invalid Atom (CodeRabbit #326), and strict readers drop the entry.
+    datetime = to_utc_datetime(post.date)
+    iso_datetime = DateTime.to_iso8601(datetime)
+    published = XML.escape(iso_datetime)
 
     [
       "<entry>",

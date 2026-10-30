@@ -1,10 +1,9 @@
 defmodule FluxValeWeb.FeedController do
   @moduledoc """
   The blog's feed routes (ADR-00025 §1 + Am. 1): Atom at `/blog/feed`
-  via the `:sitemap` pipeline (XML only, no session, no root layout),
-  and the ADR's original `/feed.xml` as a permanent 301 — deliberately
-  pipeline-less so any client (browser, reader, curl) gets the redirect
-  regardless of its Accept header.
+  and the ADR's original `/feed.xml` as a permanent 301. Both are
+  pipeline-less (see the router) — any client gets them regardless of
+  its Accept header; the feed action sets the Atom content type itself.
   """
 
   use FluxValeWeb, :controller

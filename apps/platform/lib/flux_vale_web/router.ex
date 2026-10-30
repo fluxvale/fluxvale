@@ -165,16 +165,17 @@ defmodule FluxValeWeb.Router do
     pipe_through(:sitemap)
 
     get("/sitemap.xml", SitemapController, :show)
-    # The blog's Atom feed (ADR-00025 §1 + Am. 1): XML only like the
-    # sitemap — no session, no root layout. Defined BEFORE the
-    # /blog/:slug browser route so "feed" is never captured as a slug.
-    get("/blog/feed", FeedController, :show)
   end
 
-  # ADR-00025 Am. 1: the ADR's original /feed.xml 301s to the canonical
-  # /blog/feed. Pipeline-less on purpose — any client (browser, feed
-  # reader, curl) gets the redirect regardless of its Accept header.
+  # The blog's feed + the ADR's original URL (ADR-00025 §1 + Am. 1):
+  # pipeline-less on purpose — plug :accepts on "xml" would 406 a feed
+  # reader's `Accept: application/atom+xml`, and any client (browser,
+  # reader, curl) should get the feed regardless of its Accept header
+  # (CodeRabbit #326). The controller sets the content type itself.
+  # Both stay BEFORE the /blog/:slug scope below so "feed" is never
+  # captured as a slug.
   scope "/", FluxValeWeb do
+    get("/blog/feed", FeedController, :show)
     get("/feed.xml", FeedController, :legacy)
   end
 
