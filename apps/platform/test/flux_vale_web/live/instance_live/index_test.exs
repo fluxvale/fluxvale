@@ -74,10 +74,11 @@ defmodule FluxValeWeb.InstanceLive.IndexTest do
       end)
       |> Map.new()
 
-    assert class_by_label["Instances"] =~ "after:bg-primary"
-    assert class_by_label["Instances"] =~ "text-ink"
-    refute class_by_label["Catalog"] =~ "after:bg-primary"
-    refute class_by_label["Billing"] =~ "after:bg-primary"
+    assert class_by_label["Instances"] =~ "after:bg-focus"
+    # Exact token, not a substring (text-ink ⊂ text-ink-muted).
+    assert "text-ink" in String.split(class_by_label["Instances"], " ")
+    refute class_by_label["Catalog"] =~ "after:bg-focus"
+    refute class_by_label["Billing"] =~ "after:bg-focus"
   end
 
   test "a status broadcast updates the row in place — app name intact", %{

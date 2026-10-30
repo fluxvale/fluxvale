@@ -40,8 +40,10 @@ defmodule FluxValeWeb.Components.LayoutsTest do
 
       classes = link_classes(doc)
 
-      assert classes["Instances"] =~ "text-ink"
-      assert classes["Instances"] =~ "after:bg-primary"
+      # Exact token, not a substring: "text-ink" also lives inside
+      # "text-ink-muted", which would make the positive assert unfaillable.
+      assert "text-ink" in String.split(classes["Instances"], " ")
+      assert classes["Instances"] =~ "after:bg-focus"
       assert classes["Instances"] =~ "after:top-full"
 
       for label <- ["Catalog", "Billing"] do
@@ -70,8 +72,9 @@ defmodule FluxValeWeb.Components.LayoutsTest do
 
       # The menu idiom: ink + bold, never the header's hanging underline.
       assert rows["Instances"] =~ "font-semibold"
-      assert rows["Instances"] =~ "text-ink"
-      refute rows["Instances"] =~ "after:bg-primary"
+      # Exact token, not a substring (text-ink ⊂ text-ink-muted).
+      assert "text-ink" in String.split(rows["Instances"], " ")
+      refute rows["Instances"] =~ "after:bg-focus"
 
       for label <- ["Catalog", "Billing"] do
         assert rows[label] =~ "text-ink-muted", "#{label} should stay quiet"
@@ -100,7 +103,7 @@ defmodule FluxValeWeb.Components.LayoutsTest do
         class = Map.get(classes, label)
 
         assert class =~ "text-ink-muted", "#{label} should stay quiet"
-        refute class =~ "after:bg-primary", "#{label} should carry no underline"
+        refute class =~ "after:bg-focus", "#{label} should carry no underline"
 
         current =
           aria_current(doc, "nav[aria-label='Primary'] > ul > li > a")

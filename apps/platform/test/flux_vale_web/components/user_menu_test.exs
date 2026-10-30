@@ -128,7 +128,8 @@ defmodule FluxValeWeb.Components.UserMenuTest do
 
       class = class_of(instances)
       assert class =~ "font-semibold"
-      assert class =~ "text-ink"
+      # Exact token, not a substring (text-ink ⊂ text-ink-muted).
+      assert "text-ink" in String.split(class, " ")
       refute class =~ "after:"
     end
 

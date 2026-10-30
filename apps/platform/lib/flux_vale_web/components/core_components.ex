@@ -1097,16 +1097,21 @@ defmodule FluxValeWeb.CoreComponents do
 
   def nav_link(assigns) do
     ~H"""
-    <%!-- The underline's hang: the header row is h-14 with items-center,
-    this pill box is 32px tall (text-sm + py-1.5) — 12px of clearance
-    below it. top-full + mt-2.5 (10px) + h-0.5 (2px) puts the 2px
-    underline flush with the header's border-b: the nav's baseline. --%>
+    <%!-- The underline's hang, on a stable box: inline-flex items-center
+    fixes the link at a 32px flex box (py-1.5 + text-sm) — `top-full`
+    resolves off THAT, not the font/DPR-dependent inline box. The header
+    row is h-14 (56px) with items-center → 12px of clearance below the
+    box; top-full + mt-2.5 (10px) + h-0.5 (2px) lands the underline flush
+    with the header's border-b (gap 0). The mark rides --focus, not
+    --primary: it carries state, so it clears the 1.4.11 3:1 non-text
+    floor in light mode too — the same call the focus ring made (#277
+    T2, app.css). --%>
     <.link
       aria-current={@active && "page"}
       class={[
-        "relative rounded-control px-3 py-1.5 text-sm font-medium transition-colors",
+        "nav_link relative inline-flex items-center rounded-control px-3 py-1.5 text-sm font-medium transition-colors",
         @active &&
-          "text-ink after:absolute after:inset-x-3 after:top-full after:mt-2.5 after:h-0.5 after:bg-primary after:content-['']",
+          "text-ink after:absolute after:inset-x-3 after:top-full after:mt-2.5 after:h-0.5 after:bg-focus after:content-['']",
         !@active && "text-ink-muted hover:bg-panel-raised hover:text-ink",
         @class
       ]}
@@ -1221,12 +1226,15 @@ defmodule FluxValeWeb.CoreComponents do
           Instances
         </.link>
         <%!-- href, not navigate: full page loads close the dropdown on
-        every surface — a live patch would strand it open (#205). --%>
+        every surface — a live patch would strand it open (#205).
+        sm:hidden like its siblings: on desktop the header link owns
+        Billing (and its active mark) — two simultaneous marks for one
+        section read as a bug (#319 hostile 12a). --%>
         <.link
           href={~p"/billing"}
           aria-current={@nav_section == :billing && "page"}
           class={[
-            "block rounded-control px-3 py-1.5 text-sm transition-colors",
+            "block rounded-control px-3 py-1.5 text-sm transition-colors sm:hidden",
             @nav_section == :billing && "font-semibold text-ink",
             @nav_section != :billing && "text-ink-muted hover:bg-panel-raised hover:text-ink"
           ]}

@@ -63,7 +63,9 @@ defmodule FluxValeWeb.Layouts do
   # Band-capable main: renders main unbounded (no max-width, no
   # padding) so a page can lay out full-bleed `.appgram` bands under
   # the sticky header. Default false — every existing caller renders
-  # byte-identical to the bounded main.
+  # byte-identical to the bounded main. A bare page owns ALL of main's
+  # rhythm: `py-10` goes with the rest, so vertical spacing above,
+  # between, and below sections is the page's to place.
   attr(:bare, :boolean, default: false)
 
   slot(:inner_block, required: true)
