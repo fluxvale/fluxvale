@@ -18,6 +18,7 @@ defmodule FluxVale.Identity.User do
   alias FluxVale.Identity.User.DeriveUsername
   alias FluxVale.Identity.User.MirrorSignupEmail
   alias FluxVale.Identity.User.ProvisionPersonalOrg
+  alias FluxVale.Identity.User.ValidUsername
 
   require Logger
 
@@ -68,6 +69,19 @@ defmodule FluxVale.Identity.User do
     policy action(:me) do
       description("Any authenticated user reads their own record")
       authorize_if(always())
+    end
+
+    # The settings rename (#285 T5): a user sets only their own username.
+    # The record-level expression is the owner gate (the :me read above is
+    # how the UI loads the record; this policy is what refuses the update).
+    # The admin grant lives INSIDE the policy on purpose — applicable
+    # policies AND together, so a separate admin policy would still
+    # require the owner expression on someone else's record (the
+    # UserEmail write-policy posture).
+    policy action(:set_username) do
+      description("Users rename their own account")
+      authorize_if(expr(id == ^actor(:id)))
+      authorize_if(FluxVale.Checks.ActorIsPlatformAdmin)
     end
   end
 
@@ -190,6 +204,25 @@ defmodule FluxVale.Identity.User do
     read :me do
       description("The current actor's own record")
       filter(expr(id == ^actor(:id)))
+    end
+
+    # The settings rename (#285 T5): the only :username writer past
+    # signup's derivation. require_atomic? false — ValidUsername is a
+    # plain function validation Ash cannot run atomically (the same
+    # trade Organization's update and the UserEmail guard actions make).
+    #
+    # No stale-form guard (the Organization.update posture checks
+    # StaleRecord in its settings UI): a username addresses nothing — no
+    # URL, no links, no redirect — and THIS action is the only rename
+    # surface, so a stale view can only lose the same uniqueness race it
+    # loses today (the unique_username index is the arbiter). Revisit
+    # trigger: a second rename surface (admin tooling, public profiles)
+    # — then an optimistic lock.
+    update :set_username do
+      description("Set the account's username (the settings rename)")
+      accept([:username])
+      require_atomic?(false)
+      validate(ValidUsername, where: changing(:username))
     end
 
     read :get_by_subject do

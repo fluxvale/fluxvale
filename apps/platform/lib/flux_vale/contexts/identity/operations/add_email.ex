@@ -30,6 +30,14 @@ defmodule FluxVale.Identity.Operations.AddEmail do
   """
   @spec call(term(), String.t() | Ash.CiString.t()) :: {:ok, UserEmail.t()} | {:error, term()}
   def call(actor, address) do
+    # The expiry story (#285 T5, T3-review P2-2): an EXPIRED pending
+    # claim no longer pins the address — supersede it before the add so
+    # a re-add (owner or stranger) just works. The atomic filter only
+    # matches expired pending rows, so a LIVE claim still blocks and the
+    # add below fails "has already been taken" (its code may be
+    # mid-verify).
+    :ok = UserEmail.supersede_expired_claims(address)
+
     with {:ok, row} <- UserEmail.add(address, %{user: actor}, actor: actor) do
       case Identity.request_auth_code(address) do
         :ok ->
