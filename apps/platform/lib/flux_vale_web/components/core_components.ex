@@ -1079,7 +1079,10 @@ defmodule FluxValeWeb.CoreComponents do
 
   @doc """
   Renders a nav bar link (app chrome, public chrome, landing header).
-  Active state highlights with the primary-muted wash.
+  Active state is the round-3 chrome: ink text + the 2px amber
+  underline (`--primary`) hanging to the nav's baseline — the header
+  row's bottom edge. Inactive and hover keep the quiet muted
+  treatment in both chromes (app + public).
 
   ## Examples
 
@@ -1093,10 +1096,15 @@ defmodule FluxValeWeb.CoreComponents do
 
   def nav_link(assigns) do
     ~H"""
+    <%!-- The underline's hang: the header row is h-14 with items-center,
+    this pill box is 32px tall (text-sm + py-1.5) — 12px of clearance
+    below it. top-full + mt-2.5 (10px) + h-0.5 (2px) puts the 2px
+    underline flush with the header's border-b: the nav's baseline. --%>
     <.link
       class={[
-        "rounded-control px-3 py-1.5 text-sm font-medium transition-colors",
-        @active && "bg-primary-muted text-link",
+        "relative rounded-control px-3 py-1.5 text-sm font-medium transition-colors",
+        @active &&
+          "text-ink after:absolute after:inset-x-3 after:top-full after:mt-2.5 after:h-0.5 after:bg-primary after:content-['']",
         !@active && "text-ink-muted hover:bg-panel-raised hover:text-ink",
         @class
       ]}

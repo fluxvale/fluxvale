@@ -51,6 +51,11 @@ defmodule FluxValeWeb.DashboardLive do
   # `live_render`, so it declares them itself.
   on_mount({FluxValeWeb.OrgNav, :assign_orgs})
 
+  # The chrome's active-nav section — same story: the live_session's
+  # routes get it from the router's on_mount list; this view declares it
+  # itself.
+  on_mount({FluxValeWeb.NavSection, :derive})
+
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
     user = socket.assigns.current_user
@@ -81,6 +86,7 @@ defmodule FluxValeWeb.DashboardLive do
       actor_orgs={@actor_orgs}
       personal_org_id={@personal_org_id}
       username={@username}
+      nav_section={@nav_section}
     >
       <div class="space-y-8">
         <.header>

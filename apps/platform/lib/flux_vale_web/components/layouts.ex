@@ -53,6 +53,19 @@ defmodule FluxValeWeb.Layouts do
   # the first caller.
   attr(:current_org, :map, default: nil)
 
+  # The chrome's active-nav section — `:catalog` / `:instances` /
+  # `:billing` / nil, assigned by NavSection's on_mount on every
+  # authenticated socket and passed through by the callers the same way
+  # OrgNav's assigns ride (sign-in, outside the live_session, passes
+  # nothing and marks nothing).
+  attr(:nav_section, :atom, default: nil)
+
+  # Band-capable main: renders main unbounded (no max-width, no
+  # padding) so a page can lay out full-bleed `.appgram` bands under
+  # the sticky header. Default false — every existing caller renders
+  # byte-identical to the bounded main.
+  attr(:bare, :boolean, default: false)
+
   slot(:inner_block, required: true)
 
   def app(assigns) do
@@ -64,6 +77,8 @@ defmodule FluxValeWeb.Layouts do
       personal_org_id={@personal_org_id}
       username={@username}
       current_org={@current_org}
+      nav_section={@nav_section}
+      bare={@bare}
       apps={true}
     >
       {render_slot(@inner_block)}
@@ -98,6 +113,8 @@ defmodule FluxValeWeb.Layouts do
   attr(:personal_org_id, :string, default: nil)
   attr(:username, :string, default: nil)
   attr(:current_org, :map, default: nil)
+  attr(:nav_section, :atom, default: nil, doc: "the active nav section (see app/1)")
+  attr(:bare, :boolean, default: false, doc: "render main unbounded (see app/1)")
   attr(:apps, :boolean, default: false, doc: "show the app-surface links (authenticated chrome)")
   attr(:footer, :boolean, default: false, doc: "render the marketing footer")
   slot(:inner_block, required: true)
@@ -161,13 +178,15 @@ defmodule FluxValeWeb.Layouts do
         <nav aria-label="Primary">
           <ul class="flex items-center gap-1">
             <li :if={@apps} class="hidden sm:block">
-              <.nav_link navigate={~p"/apps"}>Catalog</.nav_link>
+              <.nav_link navigate={~p"/apps"} active={@nav_section == :catalog}>Catalog</.nav_link>
             </li>
             <li :if={@apps} class="hidden sm:block">
-              <.nav_link navigate={~p"/instances"}>Instances</.nav_link>
+              <.nav_link navigate={~p"/instances"} active={@nav_section == :instances}>
+                Instances
+              </.nav_link>
             </li>
             <li :if={@apps} class="hidden sm:block">
-              <.nav_link navigate={~p"/billing"}>Billing</.nav_link>
+              <.nav_link navigate={~p"/billing"} active={@nav_section == :billing}>Billing</.nav_link>
             </li>
             <li :if={not @apps}>
               <.nav_link navigate={~p"/catalog"}>Apps</.nav_link>
@@ -204,7 +223,13 @@ defmodule FluxValeWeb.Layouts do
       </div>
     </header>
 
-    <main class="mx-auto w-full max-w-5xl flex-1 px-4 py-10 sm:px-6 lg:px-8">
+    <%!-- bare: the band-capable lane (app-wide grammar) — main renders
+    unbounded and the page wraps its own content in .appgram .wrap /
+    .band. The default is the historical bounded main, byte-identical.
+    --%>
+    <main class={
+      if(@bare, do: "flex-1", else: "mx-auto w-full max-w-5xl flex-1 px-4 py-10 sm:px-6 lg:px-8")
+    }>
       {render_slot(@inner_block)}
     </main>
 

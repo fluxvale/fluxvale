@@ -1,0 +1,200 @@
+/* App-wide grammar foundation — the "Offset" language for working pages
+ * (sibling of landing.css, S1 of the app-wide design lane).
+ *
+ * Every rule is scoped under `.appgram` — a page opts in by wrapping its
+ * whole content in <div class="appgram contents">, exactly the landing's
+ * `.landing.contents` posture: `display: contents` keeps the root
+ * layout's flex contract (sticky header, main's flex-1) while giving
+ * this file its scope hook. No page uses it yet in this slice — this is
+ * the library later slices consume; none of the class names below may
+ * leak app-wide.
+ *
+ * Tokens are the app's own (app.css): Grove surfaces, lines, radii,
+ * elevation, motion. No new colors, no @apply. The one local token is
+ * the straddle offset that tokenizes the band/card overlap.
+ *
+ * Type: the working-page scale (`.eyebrow`, `.page-title`) is a step
+ * above the app's `text-2xl` headers but far under the landing's
+ * display sizes — the app is a working surface. Weight 800 rides the
+ * vendored Inter 800 face landing.css declares (same bundle).
+ */
+
+.appgram {
+  display: contents;
+
+  /* The straddle discipline, one number: how far a raised card hangs
+   * over its band's bottom edge. Desktop-sized (~56-72px); zeroed below
+   * the 760px floor where overlaps could collide (see the straddle
+   * block) — the landing's rule: overlaps exist only at widths where
+   * they can't collide. */
+  --straddle-y: clamp(56px, 6vw, 72px);
+}
+
+/* ---- Shared layout: the chrome's own measure. Banded content sits in
+ * a .wrap with the same max-width + horizontal padding as the header
+ * row and the default main, so band content aligns with the nav above
+ * it (and with main content on every caller that stays bounded). ---- */
+.appgram .wrap {
+  max-width: 64rem;
+  margin-inline: auto;
+  padding-inline: 1rem;
+}
+
+@media (min-width: 640px) {
+  .appgram .wrap {
+    padding-inline: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .appgram .wrap {
+    padding-inline: 2rem;
+  }
+}
+
+/* ---- Band: a full-bleed sunken header band. The surface change is
+ * the edge — one hairline top and bottom in the line language, never a
+ * shadow (the chrome's border-first depth, #277 T3). Band content goes
+ * in a .wrap; the band itself only paints. ---- */
+.appgram .band {
+  background: var(--panel-sunken);
+  border-block: 1px solid var(--line);
+}
+
+/* ---- Straddle: a raised card pulled down over its band's bottom
+ * edge — the negative bottom margin moves the band's edge UP over the
+ * card's tail, so the card (bg-panel / border-line-strong / soft
+ * shadow, the later slices' pairing) straddles the seam. Geometry only:
+ * the raised-card surface rides Tailwind utilities in markup. ---- */
+.appgram .straddle {
+  position: relative;
+  z-index: 1;
+  margin-bottom: calc(-1 * var(--straddle-y));
+}
+
+/* Straddle OFF below 760px: the card stacks normally inside the band,
+ * and a band carrying a straddling child reserves bottom padding so
+ * the stacked card ends inside the band instead of covering band
+ * content or the next section. */
+@media (max-width: 759.98px) {
+  .appgram {
+    --straddle-y: 0px;
+  }
+
+  .appgram .band:has(.straddle) {
+    padding-bottom: 24px;
+  }
+}
+
+/* ---- Mono panel: the sunken technical panel admin/debug blocks live
+ * in (Concept-2's terminal-adjacent register). Mono stack, tight
+ * leading, strong hairline on the sunken surface. ---- */
+.appgram .mono-panel {
+  background: var(--panel-sunken);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-panel);
+  padding: 20px 24px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-muted);
+}
+
+/* The panel's small label — the same register as .eyebrow, scoped to
+ * the panel so it reads as hardware, not page copy. */
+.appgram .mono-panel-label {
+  display: block;
+  margin-bottom: 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-subtle);
+}
+
+/* ---- Working-page type scale. ---- */
+
+/* Mono uppercase eyebrow — the section label. ink-subtle, not the
+ * landing's amber: on a working page the eyebrow labels, it doesn't
+ * sell. */
+.appgram .eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-subtle);
+}
+
+/* The working-page H1: clearly bigger/tighter than today's text-2xl
+ * headers, nowhere near the landing's display sizes. */
+.appgram .page-title {
+  font-weight: 800;
+  font-size: clamp(28px, 3vw, 36px);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  text-wrap: balance;
+}
+
+/* ---- The grammar's card: raised surface + the one sanctioned hover
+ * motion (a small lift). Transition rides `translate` (not `transform`)
+ * so it composes with any transform-based reveal later slices add. ---- */
+.appgram .card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  transition:
+    translate var(--motion-base) var(--motion-ease-out),
+    box-shadow var(--motion-base) var(--motion-ease-out);
+}
+
+.appgram .card:hover {
+  translate: 0 -3px;
+  box-shadow: var(--elevation-md);
+}
+
+/* ---- Motion: a restrained page-load fade-up for the first section.
+ * Keyframe names are appgram-prefixed — keyframes can't be scoped by a
+ * selector, so the prefix is the namespace. ---- */
+@keyframes appgram-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.appgram .rise {
+  opacity: 0;
+  animation: appgram-rise var(--motion-slow) var(--motion-ease-out) forwards;
+}
+
+/* Zero-delta kill switch, the landing's shape: every animation and
+ * hover motion dies, and the rise can never hold content at opacity 0. */
+@media (prefers-reduced-motion: reduce) {
+  .appgram .rise,
+  .appgram .card {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    translate: none !important;
+    transition: none !important;
+  }
+}
+
+/* Print: paged media never runs a load animation — the same kill list,
+ * so nothing prints half-revealed. */
+@media print {
+  .appgram .rise,
+  .appgram .card {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    translate: none !important;
+    transition: none !important;
+  }
+}

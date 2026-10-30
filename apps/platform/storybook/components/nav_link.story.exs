@@ -10,7 +10,7 @@ defmodule FluxValeWeb.Storybook.Components.NavLink do
 
   def template do
     """
-    <div class="flex items-center gap-1 rounded-xl border border-line bg-panel px-3 py-2"><.psb-variation/></div>
+    <div class="flex items-start gap-1 rounded-xl border border-line bg-panel px-3 py-2 pb-7"><.psb-variation/></div>
     """
   end
 
@@ -18,7 +18,8 @@ defmodule FluxValeWeb.Storybook.Components.NavLink do
     [
       %VariationGroup{
         id: :states,
-        description: "Resting vs active",
+        description:
+          "Resting vs active — active is ink text + the 2px amber underline hanging to the header's baseline (round-3 chrome)",
         variations: [
           %Variation{id: :resting, attributes: %{href: "#"}, slots: ["Catalog"]},
           %Variation{id: :active, attributes: %{href: "#", active: true}, slots: ["Catalog"]}
