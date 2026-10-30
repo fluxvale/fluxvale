@@ -372,6 +372,32 @@ defmodule FluxValeWeb.SettingsLiveTest do
     refute_received {:email, %Swoosh.Email{}}
   end
 
+  test "the CAP refusal is named, not claimed (the catch-all's honest arm)", %{
+    conn: conn,
+    user: user
+  } do
+    # The signup mirror already holds one row — fill to the cap with
+    # real adds (each is a pending claim; the cap counts every row).
+    for n <- 1..(UserEmail.max_emails_per_user() - 1) do
+      {:ok, _claim} =
+        Identity.add_email(user, "cap-fill-#{n}-#{System.unique_integer()}@fluxvale.test")
+    end
+
+    address = "cap-attempt-#{System.unique_integer()}@fluxvale.test"
+
+    {:ok, view, _html} = live(conn, ~p"/settings")
+
+    result =
+      view
+      |> form("#add-email-form", address: address)
+      |> render_submit()
+
+    assert result =~ "reached the limit of #{UserEmail.max_emails_per_user()} email"
+    # the cap arm, not the claim-conflict copy
+    refute result =~ "already claimed"
+    assert [] == mine_rows(user, address)
+  end
+
   test "a LIVE claim still blocks the add, with a copy that names the loop", %{
     conn: conn,
     user: user

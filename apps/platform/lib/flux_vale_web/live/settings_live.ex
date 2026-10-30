@@ -125,17 +125,27 @@ defmodule FluxValeWeb.SettingsLive do
       {:error, :delivery_failed} ->
         error(socket, "We couldn't send the email — please wait a minute, then try again.")
 
-      # The resource refused the claim itself: a malformed address, or
-      # the global unique_address on a live claim / a verified row.
-      {:error, _refused} ->
-        if UserEmail.valid_address?(address) do
-          error(
-            socket,
-            "That address is already claimed — if it's yours and the code expired, " <>
-              "remove the pending claim and add it again."
-          )
-        else
-          error(socket, "That doesn't look like an email address — check it and try again.")
+      # The resource refused the claim itself: the cap (a distinct
+      # message from EnforceEmailCap), a malformed address, or the
+      # global unique_address on a live claim / a verified row.
+      {:error, refused} ->
+        cond do
+          cap_hit?(refused) ->
+            error(
+              socket,
+              "You've reached the limit of #{UserEmail.max_emails_per_user()} email " <>
+                "addresses — remove one first."
+            )
+
+          UserEmail.valid_address?(address) ->
+            error(
+              socket,
+              "That address is already claimed — if it's yours and the code expired, " <>
+                "remove the pending claim and add it again."
+            )
+
+          true ->
+            error(socket, "That doesn't look like an email address — check it and try again.")
         end
     end
   end
@@ -274,13 +284,27 @@ defmodule FluxValeWeb.SettingsLive do
     end
   end
 
+  # The cap refusal carries EnforceEmailCap's own message on the
+  # Invalid's members — matched by prefix so the wording and the value
+  # stay the domain's (single-sourced at max_emails_per_user/0).
+  defp cap_hit?(%Ash.Error.Invalid{} = invalid) do
+    Enum.any?(invalid.errors, fn member ->
+      message = message_of(member)
+      String.starts_with?(message, "too many email addresses")
+    end)
+  end
+
+  defp cap_hit?(_other), do: false
+
+  defp message_of(%{message: message}) when is_binary(message), do: message
+  defp message_of(_other), do: ""
+
   defp present(rows, user) do
     verified_count = Enum.count(rows, &(not is_nil(&1.verified_at)))
 
     Enum.map(rows, fn row ->
       %{
         row: row,
-        frozen?: to_string(row.address) == to_string(user.email),
         removable?: remove_allowed?(row, user, verified_count),
         promotable?: not is_nil(row.verified_at) and not row.is_primary
       }
