@@ -126,11 +126,17 @@ defmodule FluxValeWeb.InstanceLive.Show do
             the one primary status earns the one bold move. Straddle
             contract: this card is taller than --straddle-y (the copy
             guarantees it), and the section after the band carries its
-            own top padding. --%>
+            own top padding. The danger surface composes an opaque panel
+            base under the danger-muted tint (a background-image layer):
+            in dark the tint token is translucent, and an alpha fill over
+            the seam would let the band's hairline read through the
+            card — the straddle must hide the seam, not tint it. --%>
             <% family = status_family(@instance.status) %>
             <div class={[
-              "straddle card rise mt-7 flex items-start gap-4 border-line-strong p-5 shadow-md [animation-delay:100ms]",
-              family == :danger && "border-line-danger bg-danger-muted"
+              "straddle card rise mt-7 flex items-start gap-4 p-5 shadow-md [animation-delay:100ms]",
+              family == :danger &&
+                "border-line-danger bg-panel [background-image:linear-gradient(var(--danger-muted),var(--danger-muted))]",
+              family != :danger && "border-line-strong"
             ]}>
               <div
                 class={[
@@ -189,7 +195,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
               page lives here. --%>
               <div class="mono-panel space-y-3">
                 <div class="flex items-center gap-2">
-                  <span class="mono-panel-label mb-0">Technical details</span>
+                  <h2 class="mono-panel-label mb-0">Technical details</h2>
                   <.badge>admin</.badge>
                 </div>
                 <div class="grid gap-1.5" data-testid="admin-technical">
@@ -294,7 +300,11 @@ defmodule FluxValeWeb.InstanceLive.Show do
             <%!-- #203 (ADR-0036 Am. 2, #261): the idle posture — auto-sleep
         is the default economics; always-on is no premium tier, it just
         bills the running rate around the clock. --%>
-            <.card class="space-y-3" data-testid="availability-card">
+            <%!-- Grammar card opt-in (`card`): the shell joins the
+        grammar's hover-lift scope, which fires only on cards hosting
+        interactive controls — the affordance rule (PR #327 review F6).
+        Utilities keep winning over the grammar base. --%>
+            <.card class="card space-y-3" data-testid="availability-card">
               <div class="flex items-center justify-between gap-3">
                 <h2 class="text-sm font-semibold text-ink">Availability</h2>
                 <span
@@ -475,7 +485,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
           land only when there's a volume to serve (deploy-side gate). --%>
               <.card
                 :if={file_access_on?(@instance)}
-                class="space-y-4"
+                class="card space-y-4"
                 data-testid="file-access-panel"
               >
                 <h2 class="text-sm font-medium text-ink-muted">File access (WebDAV)</h2>
@@ -583,12 +593,14 @@ defmodule FluxValeWeb.InstanceLive.Show do
   # The status card's state families (S2): every state maps to one of
   # four treatments — progress (the spinning conic pie), settled
   # success, quiet rest, or danger (the loudest surface on the page).
-  # Presentation only: the state machine and the copy are
-  # InstanceStatus's; an unknown state reads as danger (attention
-  # demanded is the honest default).
+  # :deleting rides danger, not progress: the badge vocabulary already
+  # says danger (red Deleting pill), and a red pill over a calm amber
+  # card reads as two stories. Presentation only: the state machine and
+  # the copy are InstanceStatus's; an unknown state reads as danger
+  # (attention demanded is the honest default).
   defp status_family(status) do
     case status do
-      s when s in [:pending, :deploying, :starting, :restoring, :deleting] -> :progress
+      s when s in [:pending, :deploying, :starting, :restoring] -> :progress
       :running -> :success
       s when s in [:sleeping, :stopped] -> :quiet
       _failure -> :danger

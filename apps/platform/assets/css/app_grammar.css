@@ -78,7 +78,11 @@
    * in a .wrap; the band itself only paints. ---- */
   .appgram .band {
     background: var(--panel-sunken);
-    border-block: 1px solid var(--line);
+    /* Bottom edge only: a band sits directly under the chrome header,
+     * whose border-b already draws the top seam — a band border-top
+     * stacks a second hairline on it (the exact doubled-edge pattern the
+     * footer's T3 review retired). */
+    border-bottom: 1px solid var(--line);
   }
 
   /* ---- Straddle: a raised card pulled down over its band's bottom
@@ -164,21 +168,28 @@
     text-wrap: balance;
   }
 
-  /* ---- The grammar's card: raised surface + the one sanctioned hover
-   * motion (a small lift). Transition rides `translate` (not `transform`)
-   * so it composes with any transform-based reveal later slices add. ---- */
+  /* ---- The grammar's card: raised surface. Transition rides
+   * `translate` (not `transform`) so it composes with any transform-based
+   * reveal later slices add. ---- */
   .appgram .card {
     background: var(--panel);
     border: 1px solid var(--line);
     border-radius: var(--radius-panel);
-    transition:
-      translate var(--motion-base) var(--motion-ease-out),
-      box-shadow var(--motion-base) var(--motion-ease-out);
+    transition: translate var(--motion-base) var(--motion-ease-out);
   }
 
-  .appgram .card:hover {
+  /* The lift is an affordance, not decoration: it promises "this moves
+   * because you can act on it". It fires only on interactive cards — a
+   * card that is a link/button or hosts one — and never on inert
+   * displays (the straddling status card would slide off the band edge
+   * it exists to hold). No shadow change on hover: cards rest at
+   * different shadow steps, so a hover shadow would be a no-op or a
+   * step down depending on the rest composition. `:has()` is the same
+   * Baseline-newly-available gate the band reserve uses — older engines
+   * simply get no hover lift (progressive, never missing structure). */
+  .appgram
+    .card:has(:is(a, button, [role="button"]:not([disabled]))):not(.straddle):hover {
     translate: 0 -3px;
-    box-shadow: var(--elevation-md);
   }
 
   /* ---- Motion: a restrained page-load fade-up for the first section.
