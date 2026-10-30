@@ -77,110 +77,270 @@ defmodule FluxValeWeb.InstanceLive.Show do
       personal_org_id={@personal_org_id}
       username={@username}
       nav_section={@nav_section}
+      bare
     >
-      <div class="space-y-6">
-        <div>
-          <.button variant="ghost" size="sm" navigate={~p"/instances"} class="-ml-2 mb-4">
-            &larr; Instances
-          </.button>
+      <%!-- App-wide grammar page (S2): `bare` main + .appgram — the
+      page owns ALL of main's rhythm (no max-w, no padding). --%>
+      <div class="appgram contents">
+        <%!-- 1. The sunken full-bleed header band: breadcrumb, identity
+        (mono page title, status badge, public URL chip) and the
+        lifecycle actions (Deploy/Retry left of Delete — the concept
+        verdict; the state-gated set below is untouched). --%>
+        <section class="band">
+          <div class="wrap pt-8">
+            <div class="rise">
+              <.link
+                navigate={~p"/instances"}
+                class="inline-flex items-center gap-1.5 text-sm text-ink-muted transition-colors hover:text-ink"
+              >
+                <span aria-hidden="true">&larr;</span> Instances
+              </.link>
 
-          <%!-- Identity panel (#277 T5): the T4 poster-card pattern —
-          name, status, address, and the lifecycle controls in one
-          card, the page's panel band. --%>
-          <.card>
-            <div class="flex flex-wrap items-center justify-between gap-3">
-              <div class="min-w-0 space-y-1">
-                <div class="flex flex-wrap items-center gap-3">
-                  <h1 class="min-w-0 text-2xl font-semibold tracking-tight text-ink [overflow-wrap:anywhere]">
-                    {@instance.name}
-                  </h1>
-                  <.status_badge status={@instance.status} />
+              <div class="mt-3 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+                <div class="min-w-0 space-y-3">
+                  <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <h1 class="page-title min-w-0 font-mono [overflow-wrap:anywhere]">
+                      {@instance.name}
+                    </h1>
+                    <.status_badge status={@instance.status} />
+                  </div>
+
+                  <%!-- #265: the header URL is a public affordance too — a
+                  private instance has no address that answers, so it renders
+                  nothing (the Open-button gate, same reasoning: never show a
+                  link that cannot work). --%>
+                  <p :if={@instance.exposure == :public} class="min-w-0" data-testid="instance-url">
+                    <span class="inline-flex min-w-0 items-center gap-2 rounded-full border border-line bg-panel px-3 py-1 font-mono text-xs text-ink-muted [overflow-wrap:anywhere]">
+                      <span class="size-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true"></span>
+                      {instance_url(@instance)}
+                    </span>
+                  </p>
                 </div>
+                <div class="flex shrink-0 flex-wrap gap-2 pb-1">
+                  <.action_buttons instance={@instance} />
+                </div>
+              </div>
+            </div>
 
-                <%!-- #265: the header URL is a public affordance too — a
-                private instance has no address that answers, so it renders
-                nothing (the Open-button gate, same reasoning: never show a
-                link that cannot work). --%>
-                <p
-                  :if={@instance.exposure == :public}
-                  class="min-w-0 font-mono text-sm text-ink-subtle [overflow-wrap:anywhere]"
-                  data-testid="instance-url"
-                >
-                  {instance_url(@instance)}
+            <%!-- 2. The status card straddles the band's bottom edge —
+            the one primary status earns the one bold move. Straddle
+            contract: this card is taller than --straddle-y (the copy
+            guarantees it), and the section after the band carries its
+            own top padding. --%>
+            <% family = status_family(@instance.status) %>
+            <div class={[
+              "straddle card rise mt-7 flex items-start gap-4 border-line-strong p-5 shadow-md [animation-delay:100ms]",
+              family == :danger && "border-line-danger bg-danger-muted"
+            ]}>
+              <div
+                class={[
+                  "grid size-10 shrink-0 place-items-center rounded-panel border",
+                  status_tile(family)
+                ]}
+                aria-hidden="true"
+              >
+                <%= if family == :progress do %>
+                  <%!-- The concept's glyph fix: an indeterminate progress
+                  pie — a conic wedge, spinning only where motion is
+                  wanted (zero-delta under reduced motion). --%>
+                  <span class="size-5 rounded-full bg-[conic-gradient(var(--primary)_0_25%,var(--primary-muted)_0)] motion-safe:animate-spin"></span>
+                <% else %>
+                  <.icon
+                    name={status_icon(@instance.status)}
+                    class={["size-5", status_icon_tone(family)]}
+                  />
+                <% end %>
+              </div>
+
+              <div class="min-w-0 space-y-1">
+                <h2 class={["text-sm font-semibold", family == :danger && "text-danger"]}>
+                  Status
+                </h2>
+                <%!-- #179: user-facing copy derived from the state machine —
+                the raw status_message never renders to non-admins. --%>
+                <p class="text-sm text-ink" id="status-message" data-testid="status-message">
+                  {InstanceStatus.message(@instance)}
                 </p>
-              </div>
-              <div class="flex shrink-0 flex-wrap gap-2">
-                <.action_buttons instance={@instance} />
+
+                <%= if InstanceStatus.in_progress?(@instance.status) do %>
+                  <div class="flex items-center gap-2 text-sm text-ink-subtle">
+                    <.icon name="hero-arrow-path" class="size-4 motion-safe:animate-spin" />
+                    This page updates on its own.
+                  </div>
+                <% end %>
               </div>
             </div>
-          </.card>
-        </div>
+          </div>
+        </section>
 
-        <.card class="space-y-4">
-          <h2 class="text-sm font-medium text-ink-muted">Status</h2>
-          <%!-- #179: user-facing copy derived from the state machine —
-          the raw status_message never renders to non-admins. --%>
-          <p class="text-sm text-ink" id="status-message" data-testid="status-message">
-            {InstanceStatus.message(@instance)}
-          </p>
+        <%!-- 3. The overview: the admin technical block as the sunken
+        mono-panel beside the raised details card riding lower on
+        purpose — no fake symmetry. The section after a straddling band
+        carries its own top padding (the straddle contract). Non-admin:
+        the details card composes honestly alone. --%>
+        <section class="wrap pt-[calc(var(--straddle-y)_+_1.5rem)]">
+          <div class={[
+            "rise items-start gap-6 space-y-6 [animation-delay:170ms] lg:space-y-0",
+            @admin? && "lg:grid lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]"
+          ]}>
+            <%= if @admin? do %>
+              <%!-- #179's admin-only reveal: the full technical trail, in the
+              clear, for staff. Everything a non-admin must not see on this
+              page lives here. --%>
+              <div class="mono-panel space-y-3">
+                <div class="flex items-center gap-2">
+                  <span class="mono-panel-label mb-0">Technical details</span>
+                  <.badge>admin</.badge>
+                </div>
+                <div class="grid gap-1.5" data-testid="admin-technical">
+                  <p class="flex gap-4">
+                    <span class="w-36 shrink-0">status:</span>
+                    <span class="text-ink" data-testid="admin-status">{@instance.status}</span>
+                  </p>
+                  <p class="flex gap-4">
+                    <span class="w-36 shrink-0">failure_reason:</span>
+                    <span class="min-w-0 [overflow-wrap:anywhere]">{@instance.failure_reason || "—"}</span>
+                  </p>
+                  <p :if={@instance.status_message} class="flex gap-4">
+                    <span class="w-36 shrink-0">message:</span>
+                    <span class="min-w-0 [overflow-wrap:anywhere]">{@instance.status_message}</span>
+                  </p>
+                  <p
+                    :if={@instance.lost_detected_at}
+                    class="flex gap-4"
+                    data-testid="admin-lost-detected-at"
+                  >
+                    <span class="w-36 shrink-0">lost_detected_at:</span>
+                    <span class="min-w-0 [overflow-wrap:anywhere]">
+                      {DateTime.to_iso8601(@instance.lost_detected_at)}
+                    </span>
+                  </p>
+                  <p class="flex gap-4">
+                    <span class="w-36 shrink-0">namespace:</span>
+                    <span class="min-w-0 [overflow-wrap:anywhere]">{@instance.namespace || "—"}</span>
+                  </p>
+                  <p class="flex gap-4">
+                    <span class="w-36 shrink-0">image:</span>
+                    <span class="min-w-0 [overflow-wrap:anywhere]">{@instance.image}</span>
+                  </p>
+                </div>
+              </div>
+            <% end %>
 
-          <%= if InstanceStatus.in_progress?(@instance.status) do %>
-            <div class="flex items-center gap-2 text-sm text-ink-subtle">
-              <.icon name="hero-arrow-path" class="size-4 motion-safe:animate-spin" />
-              This page updates on its own.
-            </div>
-          <% end %>
-        </.card>
+            <.card class={["space-y-1", @admin? && "lg:mt-4"]}>
+              <h2 class="pb-2 text-sm font-semibold text-ink">Details</h2>
+              <div class="divide-y divide-line text-sm">
+                <div class="flex items-baseline justify-between gap-4 py-2.5">
+                  <span class="shrink-0 text-ink-subtle">App</span>
+                  <span class="min-w-0 text-right text-ink">{@instance.app_version.app.name}</span>
+                </div>
+                <div class="flex items-baseline justify-between gap-4 py-2.5">
+                  <span class="shrink-0 text-ink-subtle">Version</span>
+                  <span class="min-w-0 text-right font-mono text-ink">
+                    v{@instance.app_version.version}
+                  </span>
+                </div>
+                <%!-- #179: image + namespace rows moved to the admin-only
+                technical card — non-admins never see cluster-identifying
+                detail. --%>
+                <div class="flex items-baseline justify-between gap-4 py-2.5">
+                  <span class="shrink-0 text-ink-subtle">Resources</span>
+                  <span class="min-w-0 text-right text-ink">
+                    {@instance.cpu_cores} CPU · {@instance.memory_mb} MB · {@instance.storage_gb} GB
+                  </span>
+                </div>
+                <%= if size = @instance.app_version.recommended_size do %>
+                  <%!-- The version's recommended-size rate, not an
+                  accrual statement — settlement owns elapsed-time math
+                  (#121); :stopped swaps in the storage-only fee
+                  (ADR-0028 §2). KNOWN GAP (pre-existing shape, outside
+                  #206's scope; flagged as a follow-up in the closing
+                  PR's body): a custom-allocation instance bills its own
+                  formula snapshot (#186) while this row keeps showing
+                  the recommended size's cents. The label states
+                  monthly-equivalent · billed hourly on every surface
+                  (#206 — no monthly-billing ambiguity). --%>
+                  <div class="flex items-baseline justify-between gap-4 py-2.5">
+                    <span class="shrink-0 text-ink-subtle">Price</span>
+                    <span class="min-w-0 text-right text-ink" data-testid="instance-price">
+                      <%= if @instance.status in [:stopped, :sleeping] do %>
+                        {FluxVale.Pricing.format_usd(size.stopped_monthly_cents)}/mo while {if(
+                          @instance.status == :sleeping,
+                          do: "asleep",
+                          else: "stopped"
+                        )} · billed hourly
+                      <% else %>
+                        {FluxVale.Pricing.format_monthly_rate(size.monthly_cents)}
+                      <% end %>
+                    </span>
+                  </div>
+                <% end %>
+                <div class="flex items-baseline justify-between gap-4 py-2.5">
+                  <span class="shrink-0 text-ink-subtle">Created</span>
+                  <span class="min-w-0 text-right text-ink">
+                    {Calendar.strftime(@instance.created_at, "%b %d, %Y %H:%M UTC")}
+                  </span>
+                </div>
+              </div>
+            </.card>
+          </div>
+        </section>
 
-        <%!-- #203 (ADR-0036 Am. 2, #261): the idle posture — auto-sleep
+        <%!-- 4. The working flow below the frame: availability, the
+        first-run callout, and the S3-stranded panels (backups, WebDAV)
+        as plain cards — their shells are untouched until S3. --%>
+        <section class="wrap pb-12 pt-6">
+          <div class="rise space-y-6 [animation-delay:230ms]">
+            <%!-- #203 (ADR-0036 Am. 2, #261): the idle posture — auto-sleep
         is the default economics; always-on is no premium tier, it just
         bills the running rate around the clock. --%>
-        <.card class="space-y-3" data-testid="availability-card">
-          <div class="flex items-center justify-between gap-3">
-            <h2 class="text-sm font-medium text-ink-muted">Availability</h2>
-            <span
-              class={[
-                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
-                if(@instance.always_on,
-                  do: "border-line-success bg-success-muted text-success",
-                  else: "border-line bg-primary-muted text-link"
-                )
-              ]}
-              data-testid="availability-mode"
-            >
-              {if(@instance.always_on, do: "Always on", else: "Sleeps when idle")}
-            </span>
-          </div>
+            <.card class="space-y-3" data-testid="availability-card">
+              <div class="flex items-center justify-between gap-3">
+                <h2 class="text-sm font-semibold text-ink">Availability</h2>
+                <span
+                  class={[
+                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
+                    if(@instance.always_on,
+                      do: "border-line-success bg-success-muted text-success",
+                      else: "border-line bg-primary-muted text-link"
+                    )
+                  ]}
+                  data-testid="availability-mode"
+                >
+                  {if(@instance.always_on, do: "Always on", else: "Sleeps when idle")}
+                </span>
+              </div>
 
-          <p class="text-sm text-ink-subtle">
-            <%= if @instance.always_on do %>
-              Always-on instances never sleep, so they bill the full rate around the clock.
-            <% else %>
-              Apps sleep after an hour without visitors and wake on the next visit — you pay
-              only storage while one sleeps.
-            <% end %>
-          </p>
+              <p class="text-sm text-ink-subtle">
+                <%= if @instance.always_on do %>
+                  Always-on instances never sleep, so they bill the full rate around the clock.
+                <% else %>
+                  Apps sleep after an hour without visitors and wake on the next visit — you pay
+                  only storage while one sleeps.
+                <% end %>
+              </p>
 
-          <%!-- #261: enabling is the charge-raising direction — confirm
+              <%!-- #261: enabling is the charge-raising direction — confirm
           first (the destroy-flow data-confirm precedent), with the
           row's own settlement figures; the figure rides phx-value so
           the accept-time guard (below) can refuse a stale number.
           Disabling only saves money, so it rides bare. --%>
-          <.button
-            size="sm"
-            variant="ghost"
-            phx-click="toggle-always-on"
-            phx-value-always_on={to_string(not @instance.always_on)}
-            data-confirm={if(not @instance.always_on, do: @always_on_confirm.text)}
-            phx-value-shown_monthly_cents={
-              @always_on_confirm.monthly_cents && Integer.to_string(@always_on_confirm.monthly_cents)
-            }
-            data-testid="always-on-toggle"
-          >
-            {if(@instance.always_on, do: "Let it sleep when idle", else: "Keep always on")}
-          </.button>
+              <.button
+                size="sm"
+                variant="ghost"
+                phx-click="toggle-always-on"
+                phx-value-always_on={to_string(not @instance.always_on)}
+                data-confirm={if(not @instance.always_on, do: @always_on_confirm.text)}
+                phx-value-shown_monthly_cents={
+                  @always_on_confirm.monthly_cents &&
+                    Integer.to_string(@always_on_confirm.monthly_cents)
+                }
+                data-testid="always-on-toggle"
+              >
+                {if(@instance.always_on, do: "Let it sleep when idle", else: "Keep always on")}
+              </.button>
 
-          <%!-- #265: the reachability posture — private is the
+              <%!-- #265: the reachability posture — private is the
           network-isolation primitive (no public route, edge ingress
           denied). #273 §4.2: the access layer is no longer "upcoming" —
           the copy is state-aware. Route → reachable on the tailnet
@@ -188,312 +348,271 @@ defmodule FluxValeWeb.InstanceLive.Show do
           public+attached corner and displays it honestly). Gateway, no
           route → attach is the way in. No gateway → the Access tab is
           named plainly. Exposure bills nothing. --%>
-          <div class="flex items-center justify-between gap-3 border-t border-line pt-3">
-            <h3 class="text-sm font-medium text-ink-muted">Exposure</h3>
-            <span
-              class={[
-                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
-                if(@instance.exposure == :private,
-                  do: "border-line-warning bg-warning-muted text-warning",
-                  else: "border-line bg-primary-muted text-link"
-                )
-              ]}
-              data-testid="exposure-mode"
-            >
-              {if(@instance.exposure == :private, do: "Private", else: "Public")}
-            </span>
-          </div>
+              <div class="flex items-center justify-between gap-3 border-t border-line pt-3">
+                <h3 class="text-sm font-semibold text-ink">Exposure</h3>
+                <span
+                  class={[
+                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
+                    if(@instance.exposure == :private,
+                      do: "border-line-warning bg-warning-muted text-warning",
+                      else: "border-line bg-primary-muted text-link"
+                    )
+                  ]}
+                  data-testid="exposure-mode"
+                >
+                  {if(@instance.exposure == :private, do: "Private", else: "Public")}
+                </span>
+              </div>
 
-          <p class="text-sm text-ink-subtle" data-testid="exposure-copy">
-            <%= if @instance.exposure == :private do %>
-              <%= cond do %>
-                <% @route && serving?(@gateway) -> %>
-                  Private instances are unreachable from the internet — this app has no
-                  public address. It is reachable from your own devices on your tailnet,
-                  and a visit wakes it when it's asleep. Exposure never changes what you pay.
-                <% @route -> %>
-                  <%!-- Routes outlive serving (suspend keeps the rows; the
+              <p class="text-sm text-ink-subtle" data-testid="exposure-copy">
+                <%= if @instance.exposure == :private do %>
+                  <%= cond do %>
+                    <% @route && serving?(@gateway) -> %>
+                      Private instances are unreachable from the internet — this app has no
+                      public address. It is reachable from your own devices on your tailnet,
+                      and a visit wakes it when it's asleep. Exposure never changes what you pay.
+                    <% @route -> %>
+                      <%!-- Routes outlive serving (suspend keeps the rows; the
                       gateway is scaled to zero) — the address is paused,
                       not live, and no visit can arrive to wake anything. --%>
-                  Private instances are unreachable from the internet — this app has no
-                  public address. Its tailnet address is paused — {route_paused_reason(@gateway)}.
-                  Exposure never changes what you pay.
-                <% @gateway -> %>
-                  Private instances are unreachable from the internet — this app has no
-                  public address. You keep full control from this panel (deploy, stop,
-                  start, back up), and always-on still works — but
-                  nothing can wake a sleeping private instance: no traffic reaches it.
-                  To reach it from your own devices, attach it in Settings → Access.
-                  Exposure never changes what you pay.
-                <% true -> %>
-                  Private instances are unreachable from the internet — this app has no
-                  public address. You keep full control from this panel (deploy, stop,
-                  start, back up), and always-on still works — but
-                  nothing can wake a sleeping private instance: no traffic reaches it.
-                  Your organization's Settings → Access can put it on your own
-                  Tailscale network. Exposure never changes what you pay.
-              <% end %>
-            <% else %>
-              Anyone on the internet can reach this app at its address. Making it private removes
-              that address immediately — the panel keeps working either way, and exposure never
-              changes what you pay.
-            <% end %>
-          </p>
+                      Private instances are unreachable from the internet — this app has no
+                      public address. Its tailnet address is paused — {route_paused_reason(@gateway)}.
+                      Exposure never changes what you pay.
+                    <% @gateway -> %>
+                      Private instances are unreachable from the internet — this app has no
+                      public address. You keep full control from this panel (deploy, stop,
+                      start, back up), and always-on still works — but
+                      nothing can wake a sleeping private instance: no traffic reaches it.
+                      To reach it from your own devices, attach it in Settings → Access.
+                      Exposure never changes what you pay.
+                    <% true -> %>
+                      Private instances are unreachable from the internet — this app has no
+                      public address. You keep full control from this panel (deploy, stop,
+                      start, back up), and always-on still works — but
+                      nothing can wake a sleeping private instance: no traffic reaches it.
+                      Your organization's Settings → Access can put it on your own
+                      Tailscale network. Exposure never changes what you pay.
+                  <% end %>
+                <% else %>
+                  Anyone on the internet can reach this app at its address. Making it private removes
+                  that address immediately — the panel keeps working either way, and exposure never
+                  changes what you pay.
+                <% end %>
+              </p>
 
-          <%!-- §4.2's reachability line: whenever a route exists AND the
+              <%!-- §4.2's reachability line: whenever a route exists AND the
               gateway is serving — also in the public+attached corner,
               honestly. A paused route shows the paused copy instead
               (never a dead address framed as reachable). --%>
-          <div :if={@route && serving?(@gateway)} class="space-y-1" data-testid="tailnet-reachability">
-            <p class="text-sm text-ink">
-              Reachable on your tailnet at
-              <span class="font-mono" data-testid="tailnet-address">
-                {tailnet_address(@route)}
-              </span>
-              — manage this pairing in <.link
-                navigate={~p"/organizations/#{@org_slug}/settings/access"}
-                class="underline underline-offset-2 hover:text-ink"
-                data-testid="tailnet-access-link"
+              <div
+                :if={@route && serving?(@gateway)}
+                class="space-y-1"
+                data-testid="tailnet-reachability"
               >
+                <p class="text-sm text-ink">
+                  Reachable on your tailnet at
+                  <span class="font-mono" data-testid="tailnet-address">
+                    {tailnet_address(@route)}
+                  </span>
+                  — manage this pairing in <.link
+                    navigate={~p"/organizations/#{@org_slug}/settings/access"}
+                    class="underline underline-offset-2 hover:text-ink"
+                    data-testid="tailnet-access-link"
+                  >
                 Settings → Access
               </.link>.
-            </p>
-          </div>
+                </p>
+              </div>
 
-          <%!-- #261's gate logic, one card over: making private is the
+              <%!-- #261's gate logic, one card over: making private is the
           reachability-cutting direction — confirm first, in plain
           words, because the app goes dark at once (the instant
           kill-switch is the feature, so say it). Making public only
           restores service, so it rides bare. --%>
-          <.button
-            size="sm"
-            variant="ghost"
-            phx-click="toggle-exposure"
-            phx-value-exposure={if(@instance.exposure == :private, do: "public", else: "private")}
-            data-confirm={
-              if(@instance.exposure == :public,
-                do:
-                  "Make this instance private? Its public address stops working immediately — the app becomes unreachable from the internet until you make it public again. You keep full control from this panel."
-              )
-            }
-            data-testid="exposure-toggle"
-          >
-            {if(@instance.exposure == :private, do: "Make public", else: "Make private")}
-          </.button>
-        </.card>
+              <.button
+                size="sm"
+                variant="ghost"
+                phx-click="toggle-exposure"
+                phx-value-exposure={if(@instance.exposure == :private, do: "public", else: "private")}
+                data-confirm={
+                  if(@instance.exposure == :public,
+                    do:
+                      "Make this instance private? Its public address stops working immediately — the app becomes unreachable from the internet until you make it public again. You keep full control from this panel."
+                  )
+                }
+                data-testid="exposure-toggle"
+              >
+                {if(@instance.exposure == :private, do: "Make public", else: "Make private")}
+              </.button>
+            </.card>
 
-        <.callout
-          :if={@instance.app_version.first_run}
-          tone="info"
-          title="First open"
-          data-testid="first-run-guidance"
-        >
-          <p class="text-sm text-ink-muted">
-            {@instance.app_version.first_run.guidance}
-          </p>
-        </.callout>
+            <.callout
+              :if={@instance.app_version.first_run}
+              tone="info"
+              title="First open"
+              data-testid="first-run-guidance"
+            >
+              <p class="text-sm text-ink-muted">
+                {@instance.app_version.first_run.guidance}
+              </p>
+            </.callout>
 
-        <%!-- #222 (ADR-0037): the backups panel is a LiveComponent — it
+            <%!-- #222 (ADR-0037): the backups panel is a LiveComponent — it
         owns form/confirm/reveal state the page has no use for, and this
         page is shared hot ground. --%>
-        <.live_component
-          module={FluxValeWeb.InstanceLive.BackupsComponent}
-          id="backups"
-          instance={@instance}
-          current_user={@current_user}
-        />
+            <.live_component
+              module={FluxValeWeb.InstanceLive.BackupsComponent}
+              id="backups"
+              instance={@instance}
+              current_user={@current_user}
+            />
 
-        <%= if @instance.file_access do %>
-          <%!-- #190 (ADR-0035): the WebDAV sidecar's address book — URL
+            <%= if @instance.file_access do %>
+              <%!-- #190 (ADR-0035): the WebDAV sidecar's address book — URL
           and username are config-shaped (no cluster read to render);
           the password reveal is a live Secret read, the credential's
           only home. Gated on storage too: the sidecar and its route
           land only when there's a volume to serve (deploy-side gate). --%>
-          <.card
-            :if={file_access_on?(@instance)}
-            class="space-y-4"
-            data-testid="file-access-panel"
-          >
-            <h2 class="text-sm font-medium text-ink-muted">File access (WebDAV)</h2>
+              <.card
+                :if={file_access_on?(@instance)}
+                class="space-y-4"
+                data-testid="file-access-panel"
+              >
+                <h2 class="text-sm font-medium text-ink-muted">File access (WebDAV)</h2>
 
-            <%!-- #227: browsers GET, collections answer PROPFIND — a
+                <%!-- #227: browsers GET, collections answer PROPFIND — a
             plain visit 405s. Name the client move before every new
             user repeats the owner's live dogfood mistake. --%>
-            <p class="text-xs text-ink-subtle" data-testid="dav-client-hint">
-              Open with a WebDAV client — browsers can't browse this
-              endpoint (the "method not allowed" page is expected).
-              Recommended: Cyberduck (macOS/Windows) · rclone to mount
-              or script.
-            </p>
+                <p class="text-xs text-ink-subtle" data-testid="dav-client-hint">
+                  Open with a WebDAV client — browsers can't browse this
+                  endpoint (the "method not allowed" page is expected).
+                  Recommended: Cyberduck (macOS/Windows) · rclone to mount
+                  or script.
+                </p>
 
-            <%!-- #194: every credential value is a no-wrap code block with a
+                <%!-- #194: every credential value is a no-wrap code block with a
             copy button that carries the exact rendered string in a
             data-attribute. Selecting a wrapped 43-char password by hand
             (triple-click) catches the neighbouring label and the trailing
             newline, which is how a correct credential produced a 401. --%>
-            <div class="grid min-w-0 gap-4 text-sm">
-              <.dav_field
-                label="Address"
-                value={dav_url(@instance)}
-                testid="dav-url"
-                copy_label="Copy address"
-              />
+                <div class="grid min-w-0 gap-4 text-sm">
+                  <.dav_field
+                    label="Address"
+                    value={dav_url(@instance)}
+                    testid="dav-url"
+                    copy_label="Copy address"
+                  />
 
-              <div class="grid min-w-0 gap-4 sm:grid-cols-2">
-                <.dav_field
-                  label="Username"
-                  value={dav_username()}
-                  testid="dav-username"
-                  copy_label="Copy username"
-                />
+                  <div class="grid min-w-0 gap-4 sm:grid-cols-2">
+                    <.dav_field
+                      label="Username"
+                      value={dav_username()}
+                      testid="dav-username"
+                      copy_label="Copy username"
+                    />
 
-                <div class="grid min-w-0 gap-1.5">
-                  <span class="text-ink-subtle">Password</span>
-                  <%= if @dav_password do %>
-                    <div class="flex min-w-0 items-start gap-2">
-                      <code
-                        class="min-w-0 flex-1 overflow-x-auto rounded-control border border-line-strong bg-panel-raised px-2 py-1 font-mono text-xs whitespace-nowrap text-ink"
-                        data-testid="dav-password"
-                      >
-                        {@dav_password}
-                      </code>
-                      <.copy_button
-                        id="copy-dav-password"
-                        value={@dav_password}
-                        label="Copy password"
-                      />
+                    <div class="grid min-w-0 gap-1.5">
+                      <span class="text-ink-subtle">Password</span>
+                      <%= if @dav_password do %>
+                        <div class="flex min-w-0 items-start gap-2">
+                          <code
+                            class="min-w-0 flex-1 overflow-x-auto rounded-control border border-line-strong bg-panel-raised px-2 py-1 font-mono text-xs whitespace-nowrap text-ink"
+                            data-testid="dav-password"
+                          >
+                            {@dav_password}
+                          </code>
+                          <.copy_button
+                            id="copy-dav-password"
+                            value={@dav_password}
+                            label="Copy password"
+                          />
+                        </div>
+                      <% else %>
+                        <.button
+                          size="sm"
+                          phx-click="reveal-credentials"
+                          data-testid="reveal-credentials"
+                        >
+                          Show password
+                        </.button>
+                      <% end %>
                     </div>
-                  <% else %>
-                    <.button
-                      size="sm"
-                      phx-click="reveal-credentials"
-                      data-testid="reveal-credentials"
-                    >
-                      Show password
-                    </.button>
-                  <% end %>
+                  </div>
                 </div>
-              </div>
-            </div>
 
-            <p class="text-xs text-ink-subtle">
-              Mount it with rclone — parallel transfers, verified copies.
-              Each file uploads whole, so keep files under 100 MB through
-              this endpoint (larger library files are a coming phase):
-            </p>
+                <p class="text-xs text-ink-subtle">
+                  Mount it with rclone — parallel transfers, verified copies.
+                  Each file uploads whole, so keep files under 100 MB through
+                  this endpoint (larger library files are a coming phase):
+                </p>
 
-            <%!-- #253 (ADR-0035 Am. 3): the quick-start is per-platform —
+                <%!-- #253 (ADR-0035 Am. 3): the quick-start is per-platform —
             three tabs, five hand-held steps each, the instance's real
             values inline. The active tab is server state, so the
             password reveal's re-render can't snap the visitor back to
             the default platform mid-sequence. --%>
-            <DavSnippet.dav_snippet
-              id="dav"
-              platform={@dav_platform}
-              url={dav_url(@instance)}
-              username={dav_username()}
-              password={@dav_password}
-              remote={"fluxvale-#{@instance.slug}"}
-              on_select="set-dav-platform"
-              on_detect="detect-dav-platform"
-            />
+                <DavSnippet.dav_snippet
+                  id="dav"
+                  platform={@dav_platform}
+                  url={dav_url(@instance)}
+                  username={dav_username()}
+                  password={@dav_password}
+                  remote={"fluxvale-#{@instance.slug}"}
+                  on_select="set-dav-platform"
+                  on_detect="detect-dav-platform"
+                />
 
-            <p :if={@instance.status == :stopped} class="text-xs text-ink-subtle">
-              The endpoint is down while the instance is stopped — start it to
-              upload.
-            </p>
+                <p :if={@instance.status == :stopped} class="text-xs text-ink-subtle">
+                  The endpoint is down while the instance is stopped — start it to
+                  upload.
+                </p>
 
-            <p :if={@instance.status == :sleeping} class="text-xs text-ink-subtle">
-              The endpoint sleeps with the app — it wakes on the next upload
-              attempt (retrying clients pick it up in a few seconds).
-            </p>
-          </.card>
-        <% end %>
-
-        <%= if @admin? do %>
-          <%!-- #179's admin-only reveal: the full technical trail, in the
-          clear, for staff. Everything a non-admin must not see on this
-          page lives here. --%>
-          <.card class="space-y-3 border-dashed border-line-strong">
-            <h2 class="flex items-center gap-2 text-sm font-medium text-ink-muted">
-              Technical details
-              <.badge>admin</.badge>
-            </h2>
-            <div class="grid gap-1.5 font-mono text-xs text-ink-muted" data-testid="admin-technical">
-              <p>
-                status: <span class="text-ink" data-testid="admin-status">{@instance.status}</span>
-              </p>
-              <p>failure_reason: {@instance.failure_reason || "—"}</p>
-              <p :if={@instance.status_message} class="break-words">
-                message: {@instance.status_message}
-              </p>
-              <p :if={@instance.lost_detected_at} data-testid="admin-lost-detected-at">
-                lost_detected_at: {DateTime.to_iso8601(@instance.lost_detected_at)}
-              </p>
-              <p>namespace: {@instance.namespace || "—"}</p>
-              <p>image: {@instance.image}</p>
-            </div>
-          </.card>
-        <% end %>
-
-        <.card class="space-y-4">
-          <h2 class="text-sm font-medium text-ink-muted">Details</h2>
-          <div class="grid gap-4 text-sm sm:grid-cols-2">
-            <div class="flex justify-between gap-4 sm:block">
-              <span class="text-ink-subtle">App</span>
-              <span class="text-ink">{@instance.app_version.app.name}</span>
-            </div>
-            <div class="flex justify-between gap-4 sm:block">
-              <span class="text-ink-subtle">Version</span>
-              <span class="font-mono text-ink">v{@instance.app_version.version}</span>
-            </div>
-            <%!-- #179: image + namespace rows moved to the admin-only
-            technical card — non-admins never see cluster-identifying
-            detail. --%>
-            <div class="flex justify-between gap-4 sm:block">
-              <span class="text-ink-subtle">Resources</span>
-              <span class="text-ink">
-                {@instance.cpu_cores} CPU · {@instance.memory_mb} MB · {@instance.storage_gb} GB
-              </span>
-            </div>
-            <%= if size = @instance.app_version.recommended_size do %>
-              <%!-- The version's recommended-size rate, not an
-              accrual statement — settlement owns elapsed-time math
-              (#121); :stopped swaps in the storage-only fee
-              (ADR-0028 §2). KNOWN GAP (pre-existing shape, outside
-              #206's scope; flagged as a follow-up in the closing
-              PR's body): a custom-allocation instance bills its own
-              formula snapshot (#186) while this row keeps showing
-              the recommended size's cents. The label states
-              monthly-equivalent · billed hourly on every surface
-              (#206 — no monthly-billing ambiguity). --%>
-              <div class="flex justify-between gap-4 sm:block">
-                <span class="text-ink-subtle">Price</span>
-                <span class="text-ink" data-testid="instance-price">
-                  <%= if @instance.status in [:stopped, :sleeping] do %>
-                    {FluxVale.Pricing.format_usd(size.stopped_monthly_cents)}/mo while {if(
-                      @instance.status == :sleeping,
-                      do: "asleep",
-                      else: "stopped"
-                    )} · billed hourly
-                  <% else %>
-                    {FluxVale.Pricing.format_monthly_rate(size.monthly_cents)}
-                  <% end %>
-                </span>
-              </div>
+                <p :if={@instance.status == :sleeping} class="text-xs text-ink-subtle">
+                  The endpoint sleeps with the app — it wakes on the next upload
+                  attempt (retrying clients pick it up in a few seconds).
+                </p>
+              </.card>
             <% end %>
-            <div class="flex justify-between gap-4 sm:block">
-              <span class="text-ink-subtle">Created</span>
-              <span class="text-ink">
-                {Calendar.strftime(@instance.created_at, "%b %d, %Y %H:%M UTC")}
-              </span>
-            </div>
           </div>
-        </.card>
+        </section>
       </div>
     </Layouts.app>
     """
   end
+
+  # The status card's state families (S2): every state maps to one of
+  # four treatments — progress (the spinning conic pie), settled
+  # success, quiet rest, or danger (the loudest surface on the page).
+  # Presentation only: the state machine and the copy are
+  # InstanceStatus's; an unknown state reads as danger (attention
+  # demanded is the honest default).
+  defp status_family(status) do
+    case status do
+      s when s in [:pending, :deploying, :starting, :restoring, :deleting] -> :progress
+      :running -> :success
+      s when s in [:sleeping, :stopped] -> :quiet
+      _failure -> :danger
+    end
+  end
+
+  # The glyph tile's surface per family — sanctioned semantic tints,
+  # no new colors.
+  defp status_tile(:progress), do: "border-primary/25 bg-primary-muted"
+  defp status_tile(:success), do: "border-line-success bg-success-muted"
+  defp status_tile(:quiet), do: "border-line bg-panel-raised"
+  defp status_tile(:danger), do: "border-line-danger bg-danger-muted"
+
+  # The quiet family splits by state: asleep reads as the moon, the
+  # owner's manual pause as a pause. Progress states render the pie,
+  # never an icon.
+  defp status_icon(:running), do: "hero-check-circle"
+  defp status_icon(:sleeping), do: "hero-moon"
+  defp status_icon(:stopped), do: "hero-pause-circle"
+  defp status_icon(_failure), do: "hero-exclamation-triangle"
+
+  defp status_icon_tone(:success), do: "text-success"
+  defp status_icon_tone(:quiet), do: "text-ink-subtle"
+  defp status_icon_tone(:danger), do: "text-danger"
 
   # Lifecycle controls gated by the state machine's legal transitions —
   # the actions enforce the same, this is presentation.
