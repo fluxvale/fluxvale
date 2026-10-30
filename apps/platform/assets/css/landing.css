@@ -95,7 +95,7 @@ body:has(.landing) {
 }
 
 /* ---- Hero: four calm layers.
- * z0 the grove circle (sunken tone; parallax drifts slowest)
+ * z0 the sunken circle wash (parallax drifts slowest)
  * z1 the status panel (offset right+down; drifts less)
  * z1.5 the deploy chip, crossing the panel's bottom-left edge
  * z2 the display headline, over the panel's top-left corner.
