@@ -119,7 +119,15 @@ defmodule FluxValeWeb.Layouts do
         640-712px band); above lg the label truncates instead. --%>
         <div class="flex min-w-0 items-center gap-6">
           <.link href="/" class="flex w-fit items-center gap-2">
-            <img src={~p"/images/logo.svg"} width="26" height="26" alt="FluxVale" />
+            <img src={~p"/images/mark.svg"} width="26" height="26" alt="FluxVale" class="dark:hidden" />
+            <img
+              src={~p"/images/mark-dark.svg"}
+              width="26"
+              height="26"
+              alt=""
+              aria-hidden="true"
+              class="hidden dark:block"
+            />
             <%!-- Wordmark yields below 300px (T7): the anonymous nav
             cluster (theme trio + Sign in button) is a rigid ~186px, so
             at ≤280 the wordmark rode under the toggle (27px overlap;

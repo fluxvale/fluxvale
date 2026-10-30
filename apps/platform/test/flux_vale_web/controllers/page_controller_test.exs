@@ -42,6 +42,24 @@ defmodule FluxValeWeb.PageControllerTest do
     assert conn.assigns[:page_description] =~ "deploy"
   end
 
+  # Brand drop-in (#277): the nav carries the mark pair — the dark render
+  # is the hero treatment, flipped by the Tailwind `dark:` variant — and
+  # the root layout's head carries the favicon set (SVG pair + PNGs + ICO).
+  test "GET / carries the brand mark pair and the favicon links", %{conn: conn} do
+    conn = get(conn, ~p"/")
+    html = html_response(conn, 200)
+
+    assert html =~ ~s(src="/images/mark.svg")
+    assert html =~ ~s(src="/images/mark-dark.svg")
+    assert html =~ ~s(aria-hidden="true" class="hidden dark:block")
+
+    assert html =~ ~s(href="/images/favicon-dark.svg")
+    assert html =~ ~s(href="/images/favicon.svg")
+    assert html =~ ~s(href="/images/favicon-32.png")
+    assert html =~ ~s(href="/images/favicon-16.png")
+    assert html =~ ~s(href="/favicon.ico")
+  end
+
   # #205: GitHub-style session-aware root — a resolved session swaps the
   # landing for the dashboard LiveView, same URL, no redirect.
   test "GET / with a session renders the dashboard, not the landing", %{conn: conn} do

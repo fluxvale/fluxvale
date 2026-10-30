@@ -17,6 +17,23 @@
       canonical_path={assigns[:canonical_path]}
       robots_noindex={assigns[:robots_noindex] || false}
     />
+    <%!-- Brand favicon set — the dark render is the hero treatment; the
+    SVG pair follows the OS color scheme, PNG + ICO ride as fallbacks. --%>
+    <link rel="alternate icon" type="image/png" sizes="32x32" href={~p"/images/favicon-32.png"} />
+    <link rel="alternate icon" type="image/png" sizes="16x16" href={~p"/images/favicon-16.png"} />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      media="(prefers-color-scheme: light)"
+      href={~p"/images/favicon.svg"}
+    />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      media="(prefers-color-scheme: dark)"
+      href={~p"/images/favicon-dark.svg"}
+    />
+    <link rel="alternate icon" sizes="48x48" href="/favicon.ico" />
     <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
     <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js"}>
     </script>
