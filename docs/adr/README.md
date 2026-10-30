@@ -33,7 +33,7 @@ already ruled out.
 | [ADR-0022](00022-talos-linux.md) | Talos Linux: the OS *is* the cluster; Ansible exits; Omni deferred | Accepted (amended — see Amendment 1) |
 | [ADR-0023](00023-day-one-gates.md) | Day-one gates: AccessRule (staging/beta invites) + FeatureFlag design | Accepted (amended — see Amendments 1–6) |
 | [ADR-0024](00024-e2e-review-environments.md) | E2E + review environments: per-PR Playwright, fleet-repo-provisioned | Accepted (amended — see Amendments 1–2) |
-| [ADR-0025](00025-seo-content-architecture.md) | SEO: in-app blog at /blog, catalog as programmatic SEO, noindex non-prod | Accepted |
+| [ADR-0025](00025-seo-content-architecture.md) | SEO: in-app blog at /blog, catalog as programmatic SEO, noindex non-prod | Accepted (amended — Am. 1) |
 | [ADR-0026](00026-feedback-board.md) | Feedback board: in-app, public read, paying-customers-write | Accepted (amended — see Amendment 1) |
 | [ADR-0027](00027-admin-surface-ashadmin.md) | Admin surface: AshAdmin (generated CRUD through Ash actions) | Accepted (amended — see Amendment 1) |
 | [ADR-0028](00028-flat-rate-pricing.md) | Pricing: allocation-based flat monthly rates, not measured usage | Accepted (amended — see Amendments 1–2) |

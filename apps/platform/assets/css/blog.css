@@ -1,0 +1,275 @@
+/* Blog styles (ADR-00025 §1) — the reading surface on the Grove tokens.
+ *
+ * Two scopes, both under .blog:
+ *  - index + article chrome (.blog-head, .blog-row, .blog-article-head…)
+ *  - .blog-body: element-level prose for mdex output, which carries no
+ *    classes — every element is styled by tag, on the semantic tokens,
+ *    so light+dark flip for free.
+ *
+ * The measure is the design decision: long-form lines read at ~66ch
+ * (max-width in ch, capped by the layout's own width), 17px Inter at a
+ * 1.75 line-height. Grammar mirrors the Offset landing (eyebrow with
+ * the amber dash, display h2 on the index) at reading scale — no scroll
+ * reveals, no motion beyond the token-timed color transitions.
+ */
+
+/* ---- Index ---- */
+
+.blog .blog-head {
+  margin-bottom: clamp(2rem, 4vw, 3.5rem);
+  max-width: 640px;
+}
+
+.blog .eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--link);
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.blog .eyebrow::before {
+  content: "";
+  width: 34px;
+  height: 1px;
+  background: var(--border-primary);
+}
+
+.blog .display-h2 {
+  font-weight: 900;
+  font-size: clamp(32px, 4vw, 44px);
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  margin-top: 18px;
+}
+
+.blog .intro {
+  margin-top: 12px;
+  color: var(--ink-muted);
+  font-size: 1.0625rem;
+}
+
+.blog-row {
+  padding-block: 1.5rem;
+}
+
+.blog-row:first-child {
+  padding-top: 0;
+}
+
+.blog-row:last-child {
+  padding-bottom: 0;
+}
+
+/* The date column rides left of the copy from sm up; stacked under it
+ * below — an editorial index, not a card wall. */
+.row-grid {
+  display: grid;
+  gap: 0.375rem;
+}
+
+@media (min-width: 640px) {
+  .row-grid {
+    grid-template-columns: 9rem 1fr;
+    gap: 1.5rem;
+  }
+}
+
+.row-date {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--ink-subtle);
+  padding-top: 0.25rem;
+}
+
+.row-link {
+  color: var(--ink);
+  transition: color var(--motion-fast) var(--motion-ease-out);
+}
+
+.row-link:hover {
+  color: var(--link);
+}
+
+.row-description {
+  color: var(--ink-muted);
+}
+
+.row-meta {
+  font-size: 0.875rem;
+  color: var(--ink-subtle);
+}
+
+.blog .empty {
+  color: var(--ink-muted);
+}
+
+/* ---- Article ---- */
+
+.blog-article-head {
+  margin-block: 0.5rem 2.5rem;
+  max-width: 66ch;
+}
+
+.head-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--ink-subtle);
+}
+
+.blog-title {
+  margin-top: 1rem;
+  font-size: clamp(1.75rem, 3.2vw, 2.25rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  color: var(--ink);
+}
+
+.blog-standfirst {
+  margin-top: 0.875rem;
+  font-size: 1.1875rem;
+  line-height: 1.55;
+  color: var(--ink-muted);
+}
+
+.blog-byline {
+  margin-top: 0.875rem;
+  font-size: 0.9375rem;
+  color: var(--ink-subtle);
+}
+
+/* ---- Prose body (mdex output, element-level) ---- */
+
+.blog-body {
+  max-width: 66ch;
+  font-size: 1.0625rem;
+  line-height: 1.75;
+  color: var(--ink);
+}
+
+/* Paragraph rhythm: the space between siblings carries the reading
+ * pace — margins on the elements themselves would double at the top. */
+.blog-body > * + * {
+  margin-top: 1.25em;
+}
+
+.blog-body h2 {
+  font-size: 1.5rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  margin-top: 2.25em;
+}
+
+.blog-body h3 {
+  font-size: 1.1875rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin-top: 1.75em;
+}
+
+.blog-body a {
+  color: var(--link);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklab, var(--link) 45%, transparent);
+  text-underline-offset: 3px;
+  transition: color var(--motion-fast) var(--motion-ease-out);
+}
+
+.blog-body a:hover {
+  color: var(--link-hover);
+  text-decoration-color: currentColor;
+}
+
+.blog-body blockquote {
+  border-left: 3px solid var(--line-strong);
+  padding: 0.25rem 0 0.25rem 1.25rem;
+  color: var(--ink-muted);
+}
+
+.blog-body code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background: var(--panel-sunken);
+  border: 1px solid var(--line);
+  border-radius: 0.375rem;
+  padding: 0.1em 0.375em;
+}
+
+.blog-body pre {
+  background: var(--panel-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  line-height: 1.7;
+  font-size: 0.875rem;
+}
+
+/* The fence block's inner code resets the inline-chip styling — the
+ * panel is the chip. language-* classes stay on the element, dormant
+ * until server-side highlighting lands (parked, ADR-00025 lane). */
+.blog-body pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+}
+
+.blog-body ul {
+  list-style: disc;
+  padding-left: 1.5rem;
+}
+
+.blog-body ol {
+  list-style: decimal;
+  padding-left: 1.5rem;
+}
+
+.blog-body li + li {
+  margin-top: 0.375em;
+}
+
+/* GFM task items: comrak renders the checkbox input as the marker —
+ * suppress the bullet it would otherwise double. */
+.blog-body li:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-left: -1.375rem;
+}
+
+.blog-body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+.blog-body th,
+.blog-body td {
+  border-bottom: 1px solid var(--line);
+  padding: 0.5rem 0.75rem 0.5rem 0;
+  text-align: left;
+  vertical-align: top;
+}
+
+.blog-body th {
+  font-weight: 600;
+}
+
+.blog-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-panel);
+}
+
+.blog-body hr {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin-block: 2.25em;
+}

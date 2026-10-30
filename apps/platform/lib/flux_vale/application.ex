@@ -5,12 +5,21 @@ defmodule FluxVale.Application do
 
   use Application
 
+  alias FluxVale.Blog.Loader
+
   @impl Application
   def start(_type, _args) do
     # AshOban.config/2 scans the ash domains for triggers and registers
     # their cron schedules into the base Oban config (v1's wiring, kept).
     ash_domains = Application.fetch_env!(:flux_vale, :ash_domains)
     oban_opts = Application.fetch_env!(:flux_vale, Oban)
+
+    # Blog posts (ADR-00025 §1): lint + render markdown once and publish
+    # to :persistent_term BEFORE the tree starts — no request can beat
+    # the load (per-view cost is a term lookup) and a bad post stops the
+    # boot instead of serving half-parsed (mix blog.lint catches it in
+    # CI first; this is the deploy-time backstop).
+    Loader.load!()
 
     # Request/query tracing handlers attach before anything serves
     # traffic (#98, ADR-0012 Am. 1).

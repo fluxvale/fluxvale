@@ -167,6 +167,31 @@ defmodule FluxValeWeb.Router do
     get("/sitemap.xml", SitemapController, :show)
   end
 
+  # The blog's feed + the ADR's original URL (ADR-00025 §1 + Am. 1):
+  # pipeline-less on purpose — plug :accepts on "xml" would 406 a feed
+  # reader's `Accept: application/atom+xml`, and any client (browser,
+  # reader, curl) should get the feed regardless of its Accept header
+  # (CodeRabbit #326). The controller sets the content type itself.
+  # Both stay BEFORE the /blog/:slug scope below so "feed" is never
+  # captured as a slug.
+  scope "/", FluxValeWeb do
+    get("/blog/feed", FeedController, :show)
+    get("/feed.xml", FeedController, :legacy)
+  end
+
+  # The blog (ADR-00025 §1): markdown posts from priv/content/blog,
+  # SSR-only — crawlers get the full document with zero JS. Draft
+  # policy rides the controller (404 on the canonical host, preview
+  # everywhere else), keeping it next to the noindex plug's predicate.
+  # Lives AFTER the feed scopes above: /blog/feed must match the xml
+  # route before this :slug route could eat it.
+  scope "/", FluxValeWeb do
+    pipe_through([:browser, :public_seo])
+
+    get("/blog", BlogController, :index)
+    get("/blog/:slug", BlogController, :show)
+  end
+
   # #205: the session-aware root. `:public_seo`'s display-only
   # resolution feeds PageController's GitHub-style swap (anonymous ->
   # landing dead view, signed-in -> dashboard LiveView) and the

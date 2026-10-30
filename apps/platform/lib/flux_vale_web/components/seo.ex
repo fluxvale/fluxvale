@@ -28,6 +28,13 @@ defmodule FluxValeWeb.Seo do
   def canonical_origin, do: @canonical_origin
 
   @doc """
+  The fallback OG image path — every surface without a per-page image
+  (per-post `og_image` frontmatter resolves against this, ADR-00025 §1).
+  """
+  @spec default_og_image_path() :: String.t()
+  def default_og_image_path, do: @og_image_path
+
+  @doc """
   Head tags for every page. Every assign is optional — `nil` falls back
   to the site default. HEEx components receive only the attributes
   they're given, so the root layout forwards these from the conn
@@ -40,6 +47,11 @@ defmodule FluxValeWeb.Seo do
   ("App catalog · FluxVale") — the root layout's live_title has no
   suffix, so og:title rides the value through untouched. The nil
   default (landing) gets the brand appended to the plain description.
+  Blog posts (ADR-00025 §1) add three optional assigns: `:og_image_path`
+  (an app-absolute path overriding the default OG image), `:og_type`
+  ("article" on posts; "website" is the default), and
+  `:article_published_time` (the ISO publish date, emitted as og
+  article metadata).
   """
   @spec seo_tags(map()) :: Phoenix.LiveView.Rendered.t()
   def seo_tags(assigns) do
@@ -51,6 +63,9 @@ defmodule FluxValeWeb.Seo do
     description = assigns[:page_description] || @default_description
     canonical_path = assigns[:canonical_path]
     robots_noindex = assigns[:robots_noindex] || false
+    og_image_path = assigns[:og_image_path] || @og_image_path
+    og_type = assigns[:og_type] || "website"
+    article_published_time = assigns[:article_published_time]
 
     assigns =
       assign(assigns,
@@ -58,9 +73,11 @@ defmodule FluxValeWeb.Seo do
         description: description,
         canonical_path: canonical_path,
         robots_noindex: robots_noindex,
+        og_type: og_type,
+        article_published_time: article_published_time,
         site_name: @site_name,
         og_title: og_title(page_title),
-        og_image_url: @canonical_origin <> @og_image_path
+        og_image_url: @canonical_origin <> og_image_path
       )
 
     ~H"""
@@ -71,7 +88,12 @@ defmodule FluxValeWeb.Seo do
     <link :if={@canonical_path} rel="canonical" href={canonical_origin() <> @canonical_path} />
     <meta property="og:title" content={@og_title} />
     <meta property="og:description" content={@description} />
-    <meta property="og:type" content="website" />
+    <meta property="og:type" content={@og_type} />
+    <meta
+      :if={@article_published_time}
+      property="article:published_time"
+      content={@article_published_time}
+    />
     <meta :if={@canonical_path} property="og:url" content={canonical_origin() <> @canonical_path} />
     <meta property="og:site_name" content={@site_name} />
     <meta property="og:image" content={@og_image_url} />

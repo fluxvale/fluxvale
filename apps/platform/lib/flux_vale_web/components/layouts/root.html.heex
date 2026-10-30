@@ -16,6 +16,18 @@
       page_description={assigns[:page_description]}
       canonical_path={assigns[:canonical_path]}
       robots_noindex={assigns[:robots_noindex] || false}
+      og_image_path={assigns[:og_image_path]}
+      og_type={assigns[:og_type]}
+      article_published_time={assigns[:article_published_time]}
+    />
+    <%!-- Feed autodiscovery (ADR-00025 §1 + Am. 1): the Atom feed lives
+    at /blog/feed, absolute prod origin like every SEO URL — readers and
+    crawlers find it from any page. --%>
+    <link
+      rel="alternate"
+      type="application/atom+xml"
+      title="FluxVale Blog"
+      href={FluxValeWeb.Seo.canonical_origin() <> "/blog/feed"}
     />
     <%!-- Brand favicon set — the dark render is the hero treatment; the
     SVG pair follows the OS color scheme, PNG + ICO ride as fallbacks. --%>

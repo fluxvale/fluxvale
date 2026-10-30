@@ -1,0 +1,33 @@
+<%!-- Post page (ADR-00025 §1): the reading surface. The article column
+centers in the page at a measured ~66ch (blog.css owns the per-element
+caps) — the measure is the layout decision, not a restyled card. --%>
+<Layouts.public flash={@flash} current_user={@current_user}>
+  <article class="blog mx-auto w-full max-w-2xl">
+    <.button variant="ghost" size="sm" navigate={~p"/blog"} class="-ml-2 mb-4">
+      &larr; Blog
+    </.button>
+
+    <header class="blog-article-head">
+      <div class="head-meta">
+        <time datetime={Date.to_iso8601(@post.date)}>{Date.to_iso8601(@post.date)}</time>
+        <span aria-hidden="true">·</span>
+        <span>{@post.reading_minutes} min read</span>
+        <.badge :if={@post.draft}>Draft</.badge>
+      </div>
+      <h1 class="blog-title text-balance">{@post.title}</h1>
+      <p class="blog-standfirst">{@post.description}</p>
+      <p class="blog-byline">By {@post.author}</p>
+    </header>
+
+    <div class="blog-body" id={"blog-#{@post.slug}"}>
+      {raw(@post.html)}
+    </div>
+  </article>
+
+  <%!-- Structured data for crawlers (catalog's #164 pattern): rendered
+  server-side; the controller encodes with Jason's :html_safe mode, so
+  raw/1 cannot break out of the script block. --%>
+  <script type="application/ld+json" id="ld-json-blog-post">
+    <%= raw(@json_ld) %>
+  </script>
+</Layouts.public>

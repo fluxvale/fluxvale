@@ -17,12 +17,23 @@ defmodule FluxValeWeb.Plugs.SeoNoindex do
   @spec init(keyword()) :: keyword()
   def init(opts), do: opts
 
+  @doc """
+  Is the request served on the canonical prod host? Shared by the
+  noindex gate and the blog's draft visibility (ADR-00025 §1: drafts
+  render only on non-prod hosts) — one predicate, one notion of "prod
+  host"; the two rules can never fork.
+  """
+  @spec canonical_host?(Plug.Conn.t()) :: boolean()
+  def canonical_host?(%Plug.Conn{host: host}) do
+    String.downcase(host, :ascii) == @canonical_host
+  end
+
   @doc "Marks every response from a non-canonical host as noindex."
   @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   # Host headers are case-insensitive (RFC 9110 §7.2) and neither Bandit
-  # nor Plug downcases them — compare normalized.
-  def call(%Plug.Conn{host: host} = conn, _opts) do
-    if String.downcase(host, :ascii) == @canonical_host do
+  # nor Plug downcases them — canonical_host?/1 normalizes the compare.
+  def call(%Plug.Conn{} = conn, _opts) do
+    if canonical_host?(conn) do
       conn
     else
       conn

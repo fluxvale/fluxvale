@@ -19,7 +19,9 @@ config :flux_vale, FluxVale.Repo,
 config :flux_vale, FluxValeWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
-  http: [ip: {127, 0, 0, 1}],
+  # PORT override: concurrent lanes run dev servers side by side on one
+  # machine (capture scripts target FV_BASE); 4000 stays the default.
+  http: [ip: {127, 0, 0, 1}, port: System.get_env("PORT") || 4000],
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
@@ -94,3 +96,10 @@ config :flux_vale, :storybook_enabled, true
 # (ADR-0027 §2) behind the platform-admin sign-in — admin@fluxvale.com
 # is seeded (mix setup), its sign-in code lands in the TestInbox above.
 config :flux_vale, :admin_mount_key, "dev-only-literal"
+
+# Blog hot reload (ADR-00025 §1): priv/content/blog is not Elixir, so
+# code reloading doesn't watch it — with this flag the blog controllers
+# stat-check the content dir per request and recompile on change, so
+# writing a post locally needs no restart. Unset in test/prod (a no-op
+# there; FluxVale.Blog.maybe_hot_reload/0 reads it).
+config :flux_vale, :blog_hot_reload, true

@@ -57,3 +57,10 @@ subdomains split domain authority.
 `og_image`); drafts render only on non-prod hosts and are excluded from `sitemap.xml` and the RSS feed. Reading time computed at
 load. A mix task validates frontmatter so agent-authored posts fail CI
 loudly on missing fields.
+
+## Amendment 1 — feed URL (2026-10-31)
+
+§3's `/feed.xml` ships as a permanent 301 to `/blog/feed` (Atom):
+posts live under the `/blog` subdirectory and the feed rides the same
+prefix (owner direction, Oct 2026). The redirect keeps the ADR's
+original URL — and legacy/guessed feed URLs — resolving forever.

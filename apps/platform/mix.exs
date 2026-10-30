@@ -28,9 +28,12 @@ defmodule FluxVale.MixProject do
       # coveralls.json task writes cover/excoveralls.json — what CI
       # uploads to Codecov (flag: platform, root codecov.yml)
       test_coverage: [tool: ExCoveralls],
-      # v1 port: PLT in priv/plts (gitignored), exact-version CI cache key
+      # v1 port: PLT in priv/plts (gitignored), exact-version CI cache key.
+      # :mix joined with the blog lane — mix blog.lint is the app's
+      # first Mix task, and without :mix in the PLT dialyzer can't see
+      # Mix.shell/0 or the Mix.Task behaviour's callbacks.
       dialyzer: [
-        plt_add_apps: [:ex_unit],
+        plt_add_apps: [:ex_unit, :mix],
         plt_file: {:no_warn, "priv/plts/project.plt"},
         list_unused_filters: true
       ]
@@ -104,6 +107,12 @@ defmodule FluxVale.MixProject do
       # storybook.fluxvale.com (fleet-routed, internal-only). Exact pin,
       # same rule as every Hex dep.
       {:phoenix_storybook, "1.5.0"},
+      # Blog markdown -> HTML (ADR-00025 §1): CommonMark + GFM
+      # extensions, rendered once at boot into :persistent_term (no
+      # client JS, no per-request markdown work). Already in the lock
+      # via phoenix_storybook — direct now; the native tarball rides
+      # the same rustler_precompiled staging (#230).
+      {:mdex, "0.14.2"},
       {:phoenix_ecto, "4.7.0"},
       {:ecto_sql, "3.14.0"},
       {:postgrex, "0.22.4"},
@@ -217,6 +226,8 @@ defmodule FluxVale.MixProject do
         "format --check-formatted",
         "deps.unlock --check-unused",
         "compile --warnings-as-errors",
+        # ADR-00025 §1: invalid post frontmatter fails the build loudly
+        "blog.lint",
         "ash.codegen --check",
         "credo --strict",
         "dialyzer",

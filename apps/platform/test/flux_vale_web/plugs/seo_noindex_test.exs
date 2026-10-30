@@ -38,4 +38,13 @@ defmodule FluxValeWeb.Plugs.SeoNoindexTest do
       end
     end
   end
+
+  describe "canonical_host?/1" do
+    test "true only for the canonical prod host (case-insensitive)" do
+      assert SeoNoindex.canonical_host?(%{build_conn() | host: "fluxvale.com"})
+      assert SeoNoindex.canonical_host?(%{build_conn() | host: "FLUXVALE.COM"})
+      refute SeoNoindex.canonical_host?(%{build_conn() | host: "staging.fluxvale.com"})
+      refute SeoNoindex.canonical_host?(%{build_conn() | host: "localhost"})
+    end
+  end
 end
