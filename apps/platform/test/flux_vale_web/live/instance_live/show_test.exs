@@ -303,6 +303,9 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
     assert has_element?(view, "[data-testid=status-badge]", "Deleting")
     assert has_element?(view, "[data-testid='status-message']", "Cleaning up")
+    # The teardown card reads danger (PR #327 review F5): the badge
+    # vocabulary is danger, so the frame must tell the same story.
+    assert render(element(view, ".appgram .straddle")) =~ "border-line-danger"
     refute_k8s_terms(html)
     refute has_element?(view, "button[phx-click='delete']")
   end
@@ -598,6 +601,43 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     assert has_element?(owner_view, "[data-testid='status-message']", "We hit a snag")
     refute has_element?(owner_view, "[data-testid='admin-technical']")
     refute_k8s_terms(owner_html)
+  end
+
+  # The S2 frame, pinned structurally (hostile review of PR #327, F9):
+  # the testid suite pins content and behavior but never saw the
+  # grammar markup — a frame regression (a dropped band, a demoted
+  # heading) would pass 64/64. These selectors are the cheap pin.
+  test "the grammar frame: appgram, band, straddle; mono-panel with its h2 for admins only", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    instance = create_instance!(version, user)
+    {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+    assert has_element?(view, ".appgram")
+    assert has_element?(view, ".appgram .band")
+    assert has_element?(view, ".appgram .band .wrap .straddle")
+    # The straddle IS the status card — it carries the status message.
+    assert has_element?(view, ".appgram .straddle [data-testid=status-message]")
+
+    # Non-admin: no technical panel, no hole left for one.
+    refute has_element?(view, ".mono-panel")
+    refute has_element?(view, ".mono-panel h2")
+
+    admin =
+      User.create!(
+        "admin-#{System.unique_integer()}@fluxvale.com",
+        %{platform_role: :admin},
+        authorize?: false
+      )
+
+    admin_instance = create_instance!(version, admin)
+    admin_conn = SessionHelpers.sign_in(conn, admin)
+    {:ok, admin_view, _html} = live(admin_conn, ~p"/instances/#{admin_instance.id}")
+
+    assert has_element?(admin_view, ".mono-panel")
+    assert has_element?(admin_view, ".mono-panel h2", "Technical details")
   end
 
   # #179's status tick: the taking-longer copy is render-time derived
