@@ -74,6 +74,29 @@ defmodule FluxValeWeb.PageControllerTest do
     assert chrome_html =~ ~s(aria-label="FluxVale")
   end
 
+  # The Offset rebuild: the hero's status panel is a real element group
+  # (mock window + the floating deploy chip) — assert the structure, not
+  # the copy.
+  test "GET / renders the hero panel with its float chip", %{conn: conn} do
+    conn = get(conn, ~p"/")
+    html = html_response(conn, 200)
+
+    assert html =~ ~s(class="landing contents")
+    assert html =~ ~s(class="panel")
+    assert html =~ ~s(class="float-chip drop d5")
+    assert html =~ "wiki · rolling out v1.1"
+  end
+
+  # The catalog band carries the two app cards — the second rides the
+  # offset-down treatment.
+  test "GET / renders the catalog band's two app cards", %{conn: conn} do
+    conn = get(conn, ~p"/")
+    html = html_response(conn, 200)
+
+    assert html =~ ~s(class="app-card reveal")
+    assert html =~ ~s(class="app-card offset-down reveal")
+  end
+
   # #205: GitHub-style session-aware root — a resolved session swaps the
   # landing for the dashboard LiveView, same URL, no redirect.
   test "GET / with a session renders the dashboard, not the landing", %{conn: conn} do
