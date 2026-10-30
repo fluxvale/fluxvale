@@ -35,14 +35,6 @@ defmodule FluxVale.Infrastructure.AccessDomain.EnsureRegistrable do
       domain = Ash.Changeset.get_attribute(changeset, :domain)
 
       cond do
-        # coveralls-ignore-next-line - defensive: :domain is cast (or
-        # rejected "is required"/"is invalid") before changes run, so a
-        # before_action hook never sees a non-binary value on a valid
-        # changeset — the arm only guards a future writer force-setting
-        # junk past the cast.
-        not is_binary(domain) ->
-          changeset
-
         platform_domain?(domain) ->
           Ash.Changeset.add_error(
             changeset,
