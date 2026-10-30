@@ -45,19 +45,33 @@ defmodule FluxValeWeb.PageControllerTest do
   # Brand drop-in (#277): the nav carries the mark pair — the dark render
   # is the hero treatment, flipped by the Tailwind `dark:` variant — and
   # the root layout's head carries the favicon set (SVG pair + PNGs + ICO).
-  test "GET / carries the brand mark pair and the favicon links", %{conn: conn} do
+  # The chrome's home link is asserted on /catalog (the public chrome's
+  # render), the landing's own header on /: both name the link regardless
+  # of theme or width (aria-label on the chrome link; the landing's
+  # wordmark span is always visible).
+  test "GET / and /catalog carry the brand mark pair, favicon links, and a named home link", %{
+    conn: conn
+  } do
     conn = get(conn, ~p"/")
     html = html_response(conn, 200)
 
     assert html =~ ~s(src="/images/mark.svg")
     assert html =~ ~s(src="/images/mark-dark.svg")
-    assert html =~ ~s(aria-hidden="true" class="hidden dark:block")
-
     assert html =~ ~s(href="/images/favicon-dark.svg")
     assert html =~ ~s(href="/images/favicon.svg")
     assert html =~ ~s(href="/images/favicon-32.png")
     assert html =~ ~s(href="/images/favicon-16.png")
     assert html =~ ~s(href="/favicon.ico")
+
+    # The chrome (public surfaces like /catalog) hides the wordmark below
+    # 300px and the light mark in dark mode — the link's aria-label is the
+    # one name that survives every combination.
+    chrome = get(conn, ~p"/catalog")
+    chrome_html = html_response(chrome, 200)
+
+    assert chrome_html =~ ~s(src="/images/mark.svg")
+    assert chrome_html =~ ~s(src="/images/mark-dark.svg")
+    assert chrome_html =~ ~s(aria-label="FluxVale")
   end
 
   # #205: GitHub-style session-aware root — a resolved session swaps the
