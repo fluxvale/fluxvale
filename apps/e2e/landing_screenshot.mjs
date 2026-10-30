@@ -17,7 +17,7 @@
  * dev server must be on a non-default port)
  */
 import { chromium } from "@playwright/test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 
 const BASE = process.env.FV_BASE ?? "http://127.0.0.1:4172";
@@ -111,6 +111,7 @@ const record = async (mode, name, run) => {
     "fps=12,scale=720:-1:flags=lanczos",
     `${outdir}/${name}.gif`,
   ]);
+  unlinkSync(webm); // don't leave multi-MB .webm intermediates behind
   console.log(`captured ${name}.gif`);
 };
 

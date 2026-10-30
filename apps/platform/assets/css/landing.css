@@ -737,17 +737,20 @@ body:has(.landing) {
   }
 
   /* Two-speed parallax over the first 720px of scroll: the circle
-   * drifts slowest, the panel less. */
+   * drifts slowest, the panel less. The axis keyword is `block` —
+   * `blocking` is invalid and an invalid value silently kills the
+   * timeline (the declaration drops, the animation degenerates to a
+   * fixed-offset time fill). */
   .landing .px-slow {
     animation: landing-drift-up linear both;
-    animation-timeline: scroll(root blocking);
+    animation-timeline: scroll(root block);
     animation-range: 0px 720px;
     --drift: -22px;
   }
 
   .landing .px-panel {
     animation: landing-drift-up linear both;
-    animation-timeline: scroll(root blocking);
+    animation-timeline: scroll(root block);
     animation-range: 0px 720px;
     --drift: -10px;
   }
