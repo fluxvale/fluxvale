@@ -62,7 +62,7 @@ layout's flex contract while scoping the landing styles. --%>
   <main class="flex-1">
     <%!-- Hero: four calm layers — the sunken circle wash (z0, parallax
     slowest), the status panel (z1, offset right+down), the deploy chip
-    (z1.5, crossing the panel edge), the display headline (z2). The
+    (z1.5, below-left of the hero box), the display headline (z2). The
     panel is a decorative mock (aria-hidden); the float chip repeats the
     wiki row as visible mono text. The overlap exists only >=900px
     (landing.css). --%>
@@ -84,9 +84,14 @@ layout's flex contract while scoping the landing styles. --%>
               <.button href="/catalog" class="lift">
                 Browse apps
               </.button>
-              <a :if={is_nil(@current_user)} href={~p"/sign-in"} class="textlink">
+              <.button
+                :if={is_nil(@current_user)}
+                href={~p"/sign-in"}
+                variant="ghost"
+                size="lg"
+              >
                 Sign in
-              </a>
+              </.button>
               <.button
                 :if={@current_user}
                 href={~p"/"}
@@ -133,9 +138,11 @@ layout's flex contract while scoping the landing styles. --%>
                   </div>
                 </div>
               </div>
-              <div class="float-chip drop d5">
-                <span class="dot"></span>wiki · rolling out v1.1
-              </div>
+            </div>
+            <%!-- Outside .px-panel on purpose: its parallax transform
+            would trap the chip on the panel (see landing.css). --%>
+            <div class="float-chip drop d5">
+              <span class="dot"></span>wiki · rolling out v1.1
             </div>
           </div>
         </div>

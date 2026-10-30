@@ -7,7 +7,7 @@
  * class names below may leak app-wide.
  *
  * Tokens are the app's own (app.css): colors, radii, elevation, motion.
- * The only landing-local tokens are the three overlap offsets that
+ * The only landing-local tokens are the two overlap offsets that
  * tokenize the section seams. Display weights 800/900 ride the vendored
  * Inter set below; mono accents use the app's --font-mono stack.
  */
@@ -28,17 +28,19 @@
   src: url("/fonts/inter-latin-900-normal.woff2") format("woff2");
 }
 
-/* Overlap offsets — the discipline is these three numbers. */
+/* Overlap offsets — the discipline is these two numbers. */
 .landing {
-  --overlap-x: clamp(-64px, -4vw, -28px);
   --overlap-y: clamp(72px, 9vw, 150px);
   --straddle: -26px;
 }
 
-/* Layered hero offsets must never scroll; scoped to pages that render
- * the landing (the wrapper is display:contents, so body carries this). */
+/* Layered hero offsets must never pan the page; clipped on html + body
+ * for pages that render the landing (the wrapper is display:contents,
+ * so body carries this) — `clip`, not `hidden`, which would make body
+ * a scroll container. */
+html:has(.landing),
 body:has(.landing) {
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 /* ---- Shared layout: the landing's wide measure. ---- */
@@ -97,7 +99,8 @@ body:has(.landing) {
 /* ---- Hero: four calm layers.
  * z0 the sunken circle wash (parallax drifts slowest)
  * z1 the status panel (offset right+down; drifts less)
- * z1.5 the deploy chip, crossing the panel's bottom-left edge
+ * z1.5 the deploy chip, below-left of the hero box (the panel edge at
+ *   <=900px — see the chip note)
  * z2 the display headline, over the panel's top-left corner.
  * The overlap exists ONLY >=900px; below that everything stacks. ---- */
 .landing .hero {
@@ -145,17 +148,6 @@ body:has(.landing) {
   flex-wrap: wrap;
 }
 
-.landing .textlink {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--ink-muted);
-  transition: color var(--motion-fast) var(--motion-ease-out);
-}
-
-.landing .textlink:hover {
-  color: var(--ink);
-}
-
 .landing .hero-panel {
   grid-column: 7 / span 6;
   grid-row: 1;
@@ -164,15 +156,16 @@ body:has(.landing) {
   margin-top: var(--overlap-y);
 }
 
-/* The chip's `bottom: 0` must land on the panel, not on .hero-panel:
- * the grid STRETCHES that box to the copy column's height, which parks
- * the chip ~200px under the panel. .px-panel wraps .panel tightly, so
- * anchoring here crosses the panel's bottom-left edge as designed — and
- * keeps the chip glued to the panel through the parallax drift (a
- * transformed ancestor becomes the containing block). */
-.landing .px-panel {
-  position: relative;
-}
+/* The chip anchors to `.hero-panel`, not `.px-panel` — the parallax
+ * drift makes the latter a containing block (a transformed ancestor is
+ * one), which would glue the chip onto the panel. On desktop the grid
+ * stretches the hero box past the panel, so the chip sits below-left of
+ * the panel, matching the approved design renders: the grammar note's
+ * corner straddle collides with the headline's ink there — the chip's
+ * z-index is trapped in the panel's stacking context under the copy's
+ * z2, per this ladder. At <=900px the hero stacks as block, the hero
+ * box hugs the panel, and the straddle works (verified in the approved
+ * mobile renders). */
 
 .landing .panel {
   background: var(--panel);
@@ -311,9 +304,11 @@ body:has(.landing) {
   border: 1px solid var(--border-warning);
 }
 
-/* The one floating element: a deploy chip crossing the panel edge. The
- * straddle rides the `translate` property (not `transform`) so the
- * drop animation's transform composes with it instead of clearing it. */
+/* The one floating element: a deploy chip offset below-left of its
+ * anchor's corner (the hero box on desktop, the panel itself on the
+ * stacked <=900px layout — see the chip note at .hero-panel). The
+ * offset rides the `translate` property (not `transform`) so the drop
+ * animation's transform composes with it instead of clearing it. */
 .landing .float-chip {
   position: absolute;
   z-index: 3;
@@ -359,13 +354,13 @@ body:has(.landing) {
   padding: clamp(24px, 3vw, 40px);
   background: var(--panel);
   transition:
-    transform var(--motion-base) var(--motion-ease-out),
+    translate var(--motion-base) var(--motion-ease-out),
     box-shadow var(--motion-base) var(--motion-ease-out),
     border-color var(--motion-base) var(--motion-ease-out);
 }
 
 .landing .cell:hover {
-  transform: translateY(-3px);
+  translate: 0 -3px;
   box-shadow: var(--elevation-md);
   border-color: var(--line-strong);
 }
@@ -508,12 +503,12 @@ body:has(.landing) {
   border-radius: var(--radius-panel);
   padding: clamp(22px, 2.6vw, 34px);
   transition:
-    transform var(--motion-base) var(--motion-ease-out),
+    translate var(--motion-base) var(--motion-ease-out),
     box-shadow var(--motion-base) var(--motion-ease-out);
 }
 
 .landing .app-card:hover {
-  transform: translateY(-3px);
+  translate: 0 -3px;
   box-shadow: var(--elevation-md);
 }
 
@@ -657,9 +652,11 @@ body:has(.landing) {
 /* ---- Motion: load reveal (rise + chip drop on the delay ladder),
  * scroll-linked reveals + two-speed parallax where the platform
  * supports them (the static page stays fully visible without that
- * support), hover lifts above. prefers-reduced-motion disables all of
- * it. Keyframe names are landing-prefixed — keyframes can't be scoped
- * by a selector, so the prefix is the namespace. ---- */
+ * support), hover lifts above — those ride `translate` on reveal
+ * elements so they compose with the scroll fill instead of being
+ * masked by it. prefers-reduced-motion and print kill every animation
+ * and hover motion. Keyframe names are landing-prefixed — keyframes
+ * can't be scoped by a selector, so the prefix is the namespace. ---- */
 @keyframes landing-rise {
   from {
     opacity: 0;
@@ -756,15 +753,10 @@ body:has(.landing) {
   }
 }
 
-/* A filling scroll-reveal animation sits above `:hover` declarations in
- * the cascade, so its held `transform: none` masks the hover lift on
- * cells and app cards. Dropping the animation on hover lets the
- * declared transform apply — the reveal has already completed whenever
- * hover is possible. */
-.landing .reveal:hover {
-  animation: none;
-}
-
+/* The reveal fill holds `transform: none` above the cascade, so the
+ * hover lifts ride `translate` on reveal elements — the fill doesn't
+ * touch that property, so lift and fill compose. Reduced motion and
+ * print (both below) kill every animation and every hover motion. */
 @media (prefers-reduced-motion: reduce) {
   .landing .rise,
   .landing .drop,
@@ -774,6 +766,39 @@ body:has(.landing) {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
+  }
+
+  .landing .panel:hover,
+  .landing .cell:hover,
+  .landing .app-card:hover,
+  .landing .lift:hover,
+  .landing .arrowlink:hover .arrow {
+    transform: none !important;
+    translate: none !important;
+  }
+}
+
+/* Print: paged media never advances a view()/scroll() timeline, so a
+ * filling reveal would hold every element at opacity 0 — the same kill
+ * list as reduced-motion, hover motions included. */
+@media print {
+  .landing .rise,
+  .landing .drop,
+  .landing .reveal,
+  .landing .px-slow,
+  .landing .px-panel {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .landing .panel:hover,
+  .landing .cell:hover,
+  .landing .app-card:hover,
+  .landing .lift:hover,
+  .landing .arrowlink:hover .arrow {
+    transform: none !important;
+    translate: none !important;
   }
 }
 

@@ -1,6 +1,7 @@
 /* Landing captures: anonymous landing stills (1440x900 + 375x700, light
  * + dark, fullPage), a reduced-motion still, and motion GIFs (load
- * reveal, scroll, hover) for the landing's CSS motion. Theme-flip
+ * reveal, scroll — hover GIFs live in hover_gif.mjs) for the landing's
+ * CSS motion. Theme-flip
  * pattern from brand_screenshot.mjs: localStorage `phx:theme` +
  * `data-theme` evaluate + 300ms settle. GIF contexts set the theme via
  * addInitScript so a fresh navigation records the load reveal in the
@@ -13,8 +14,9 @@
  * with no injection. GIFs record the live motion; they are skipped
  * when the page has no `.landing` scope (pre-rebuild captures).
  *
- * Usage: node landing_screenshot.mjs <outdir>   (FV_BASE optional; the
- * dev server must be on a non-default port)
+ * Usage: node landing_screenshot.mjs <outdir>   (FV_BASE optional;
+ * default http://127.0.0.1:4172 — a lane convention, sibling lanes
+ * share the machine)
  */
 import { chromium } from "@playwright/test";
 import { mkdirSync, writeFileSync, unlinkSync } from "node:fs";
@@ -133,21 +135,6 @@ const scrollRun = async (page) => {
 };
 await record("dark", "landing-scroll-dark", scrollRun);
 await record("light", "landing-scroll-light", scrollRun);
-
-// 3) hover — hero panel, then a bento cell, then an app card
-await record("dark", "landing-hover-dark", async (page) => {
-  await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
-  await page.waitForTimeout(2000);
-  for (const sel of [".landing .panel", ".landing .cell", ".landing .app-card"]) {
-    const el = page.locator(sel).first();
-    if ((await el.count()) === 0) {
-      console.log(`skip hover: ${sel} not found`);
-      continue;
-    }
-    await el.hover();
-    await page.waitForTimeout(900);
-  }
-});
 
 await browser.close();
 writeFileSync(`${outdir}/done`, new Date().toISOString());

@@ -75,26 +75,35 @@ defmodule FluxValeWeb.PageControllerTest do
   end
 
   # The Offset rebuild: the hero's status panel is a real element group
-  # (mock window + the floating deploy chip) — assert the structure, not
-  # the copy.
+  # (mock window + the floating deploy chip) — assert the content, not
+  # class strings.
   test "GET / renders the hero panel with its float chip", %{conn: conn} do
     conn = get(conn, ~p"/")
     html = html_response(conn, 200)
 
-    assert html =~ ~s(class="landing contents")
-    assert html =~ ~s(class="panel")
-    assert html =~ ~s(class="float-chip drop d5")
+    # The chip's mono text is a lowercase echo of the wiki row.
     assert html =~ "wiki · rolling out v1.1"
+    assert html =~ "app.fluxvale.app"
+    assert html =~ "ghostboard"
+    assert html =~ "Update to v3.0 ready"
   end
 
-  # The catalog band carries the two app cards — the second rides the
-  # offset-down treatment.
+  # The catalog band carries the two app cards — assert the content,
+  # not class strings. The split anchors past the band's heading id, so
+  # the identical mini-preview copy in the steps can't satisfy these.
   test "GET / renders the catalog band's two app cards", %{conn: conn} do
     conn = get(conn, ~p"/")
     html = html_response(conn, 200)
 
-    assert html =~ ~s(class="app-card reveal")
-    assert html =~ ~s(class="app-card offset-down reveal")
+    band =
+      html
+      |> String.split("catalog-title")
+      |> List.last()
+
+    assert band =~ "Developer Tools"
+    assert band =~ "Forgejo"
+    assert band =~ "Media &amp; Entertainment"
+    assert band =~ "Kavita"
   end
 
   # #205: GitHub-style session-aware root — a resolved session swaps the
