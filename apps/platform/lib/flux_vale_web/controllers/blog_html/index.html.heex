@@ -1,0 +1,43 @@
+<%!-- Blog index (ADR-00025 §1): editorial list on the public chrome —
+date + linked title + description per row, not a card wall. Draft rows
+(when listed) carry the badge; the post body styles live in blog.css
+scoped under .blog. --%>
+<Layouts.public flash={@flash} current_user={@current_user}>
+  <div class="blog">
+    <header class="blog-head">
+      <p class="eyebrow">FluxVale</p>
+      <h1 class="display-h2">Blog</h1>
+      <p class="intro">
+        {@page_description}
+      </p>
+    </header>
+
+    <div class="divide-y divide-line">
+      <article :for={post <- @posts} class="blog-row">
+        <div class="row-grid">
+          <time datetime={Date.to_iso8601(post.date)} class="row-date">
+            {Date.to_iso8601(post.date)}
+          </time>
+          <div class="space-y-1.5">
+            <h2 class="row-title">
+              <a href={~p"/blog/#{post.slug}"} class="row-link">
+                {post.title}
+              </a>
+              <.badge :if={post.draft} class="ml-2 align-middle">
+                Draft
+              </.badge>
+            </h2>
+            <p class="row-description">{post.description}</p>
+            <p class="row-meta">
+              {post.author} · {post.reading_minutes} min read
+            </p>
+          </div>
+        </div>
+      </article>
+    </div>
+
+    <p :if={@posts == []} class="empty">
+      Nothing published yet — posts land here soon.
+    </p>
+  </div>
+</Layouts.public>

@@ -17,6 +17,7 @@
 @import "phoenix-colocated/flux_vale/colocated.css";
 @import "./landing.css";
 @import "./app_grammar.css";
+@import "./blog.css";
 @source "../css";
 @source "../js";
 @source "../../lib/flux_vale_web";
