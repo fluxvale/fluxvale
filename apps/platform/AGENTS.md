@@ -91,9 +91,14 @@ This is a web application written using the Phoenix web framework.
 - **A user-visible PR carries screenshots** (owner convention, Oct 29
   2026): captures in the PR body — before/after where feasible, light
   and dark where the surface has both. Open the PR first, commit the
-  images on the PR branch under `docs/screenshots/<pr-number>/`, and
-  reference them with relative paths (GitHub renders those from the
-  head branch, so the body needs no hosting). Tooling: adapt the
+  images on the PR branch under `docs/screenshots/<pr-number>/`, then
+  embed them with ABSOLUTE raw URLs pinned to the head branch:
+  `![caption](https://github.com/fluxvale/fluxvale/raw/refs/heads/<branch>/docs/screenshots/<pr>/file.png)`
+  — relative paths do not render in PR bodies at all (learned on #316).
+  The embeds must RENDER in the description; captures committed to the
+  branch but not embedded do not satisfy the rule. Post-merge the PA's
+  audit flips the URLs to `raw/main` so they survive branch deletion.
+  Tooling: adapt the
   capture pattern in `apps/e2e/screenshot.mjs` or its #301 sibling
   `access_wake_screenshot.mjs` — the route lists are per-surface,
   never generic (Playwright; `npm install` + `npx playwright install

@@ -15,6 +15,7 @@
 
 @import "tailwindcss" source(none);
 @import "phoenix-colocated/flux_vale/colocated.css";
+@import "./landing.css";
 @source "../css";
 @source "../js";
 @source "../../lib/flux_vale_web";
