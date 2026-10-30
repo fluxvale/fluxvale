@@ -258,6 +258,21 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
       assert get_row!(domain.id).state == :verified
     end
 
+    test ":needs_attention under a transient read failure stands", %{owner: owner} do
+      domain = register!(owner)
+      promote_to_verified!(domain)
+      demote!(domain)
+
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:error, :transport_oops}
+      end)
+
+      assert {:ok, %{verified: 0, failed: 0, needs_attention: 0}} =
+               Infrastructure.verify_access_domains()
+
+      assert get_row!(domain.id).state == :needs_attention
+    end
+
     test "Ready=True with no secretName is treated as not-ready — no promotion", %{owner: owner} do
       domain = register!(owner)
 

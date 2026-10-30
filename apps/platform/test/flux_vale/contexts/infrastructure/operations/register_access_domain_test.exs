@@ -105,6 +105,43 @@ defmodule FluxVale.Infrastructure.Operations.RegisterAccessDomainTest do
       refute exists?("apps.customer.com")
     end
 
+    test "a rollback cleanup finding nothing (404) is tolerated", %{owner: owner} do
+      expect(Kubereq, :apply, fn _req, _manifest, _fm ->
+        {:ok, %{status: 500, body: %{}}}
+      end)
+
+      # The attempt's object never landed — the cleanup's 404 is the
+      # "gone is the goal" arm.
+      expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 404, body: %{}}} end)
+
+      assert {:error, _reason} =
+               Infrastructure.register_access_domain(%{domain: "apps.customer.com"},
+                 actor: owner
+               )
+
+      refute exists?("apps.customer.com")
+    end
+
+    test "a missing domain errors without reaching the registrability probe", %{owner: owner} do
+      assert {:error, _changeset} =
+               Infrastructure.register_access_domain(%{}, actor: owner)
+    end
+
+    test "the system path (no actor) cannot register — the tenancy change leaves the org unset",
+         %{
+           owner: _owner
+         } do
+      # authorize?: false skips policies entirely, so this is the only
+      # way to reach the change's no-actor clause: the org stays unset
+      # and the insert refuses (organization_id is required).
+      assert {:error, _changeset} =
+               Infrastructure.register_access_domain(%{domain: "system.example.com"},
+                 authorize?: false
+               )
+
+      refute exists?("system.example.com")
+    end
+
     test "an unreachable cluster fails the registration with nothing to clean", %{owner: owner} do
       stub(K8s, :kubeconfig, fn -> {:error, "no in-cluster kubeconfig"} end)
 
