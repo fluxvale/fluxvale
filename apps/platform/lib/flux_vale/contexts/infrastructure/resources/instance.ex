@@ -521,6 +521,10 @@ defmodule FluxVale.Infrastructure.Instance do
       change(ResolveCluster)
       change(DeriveFromAppVersion)
       change(GenerateSlug)
+
+      # ADR-0040 S1: the default hostname rides the slug — after
+      # GenerateSlug, because the label IS the slug.
+      change(FluxVale.Infrastructure.Instance.MintDefaultHostname)
     end
 
     read :get_by_id do

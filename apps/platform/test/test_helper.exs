@@ -45,6 +45,9 @@ if Mix.env() == :test do
   # the unique index while another attempt's row is committed.
   Mimic.copy(FluxVale.Infrastructure.AccessRoute)
   Mimic.copy(FluxVale.Infrastructure.AccessProvider)
+  # The verify pass's failure tally (review round 1): a test must be able
+  # to force a transition-write failure at the AccessDomain seam.
+  Mimic.copy(FluxVale.Infrastructure.AccessDomain)
 
   Ecto.Adapters.SQL.Sandbox.mode(FluxVale.Repo, :manual)
 end

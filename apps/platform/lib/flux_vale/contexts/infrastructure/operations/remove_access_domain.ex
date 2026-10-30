@@ -1,0 +1,100 @@
+defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomain do
+  @moduledoc """
+  Removes a custom access domain (ADR-0040 S1). The order is the
+  safety property: **the row goes first** — its `instance_hostnames`
+  FK is `on_delete: :restrict`, so Postgres itself refuses while any
+  hostname still references the domain (the guard IS the constraint;
+  there is no pre-check read to race a hostname mint) — and only once
+  the row is gone is the Certificate safe-deleted (404 tolerated, the
+  safe-delete stance used across teardowns). Never the reverse: live
+  TLS state must not be deleted while the row still stands.
+
+  The reverse residue is accepted: if the Certificate delete fails
+  after the row is gone, an orphaned wildcard object can survive — it
+  references a domain nobody holds a row for, and S3's API-client lane
+  owns a namespace sweep.
+
+  The `:platform` kind is refused before anything is touched (and again
+  by the `:remove` action's own guard — the two entry points have
+  different callers, and the platform row is load-bearing).
+
+  Ownership is enforced by the authorized re-read (the Instance
+  `:delete` stance): the actor passes in opts, the read filters to
+  their org, and a non-member gets Forbidden before any cluster call.
+  """
+
+  alias FluxVale.Clients.K8s
+  alias FluxVale.Clients.K8s.Error
+  alias FluxVale.Clients.K8s.Resources.Certificate
+  alias FluxVale.Infrastructure.AccessDomain
+
+  @doc """
+  `:ok` or `{:error, reason}` — `reason` being `:platform_kind |
+  :hostnames_present | Forbidden | term()`. `opts` carry `actor:` /
+  `authorize?:`.
+  """
+  @spec call(AccessDomain.t(), keyword()) :: :ok | {:error, term()}
+  def call(%AccessDomain{} = domain, opts \\ []) do
+    actor = opts[:actor]
+    authorize? = Keyword.get(opts, :authorize?, true)
+
+    with {:ok, domain} <- AccessDomain.get_by_id(domain.id, actor: actor, authorize?: authorize?),
+         :ok <- ensure_custom(domain),
+         :ok <- destroy_row(domain, actor, authorize?) do
+      safe_delete_certificate(domain)
+    end
+  end
+
+  defp ensure_custom(%AccessDomain{kind: :custom}), do: :ok
+  defp ensure_custom(%AccessDomain{kind: :platform}), do: {:error, :platform_kind}
+
+  # The row's own FK is the hostname guard: a destroy with live
+  # hostnames fails at the constraint (a hostname minted between the
+  # authorized read and this destroy loses here — the race a pre-check
+  # read could not close). Mapped to the guard's error shape so callers
+  # see one reason.
+  defp destroy_row(domain, actor, authorize?) do
+    case AccessDomain.remove(domain, actor: actor, authorize?: authorize?) do
+      :ok -> :ok
+      {:error, error} -> map_destroy_error(error)
+    end
+  end
+
+  defp map_destroy_error(error) do
+    if hostname_restrict?(error) do
+      {:error, :hostnames_present}
+    else
+      {:error, error}
+    end
+  end
+
+  # The restrict constraint the reference declares on
+  # instance_hostnames.access_domain_id — matched on the constraint
+  # name, the one stable identity Postgres reports through every error
+  # wrapper.
+  @restrict_constraint "instance_hostnames_access_domain_id_fkey"
+
+  defp hostname_restrict?(error) do
+    error
+    |> inspect()
+    |> String.contains?(@restrict_constraint)
+  end
+
+  defp safe_delete_certificate(domain) do
+    config = Application.fetch_env!(:flux_vale, :access_domains)
+
+    with {:ok, kubeconfig} <- K8s.kubeconfig() do
+      case Certificate.delete(
+             kubeconfig,
+             Keyword.fetch!(config, :certificate_namespace),
+             AccessDomain.certificate_name(domain)
+           ) do
+        :ok -> :ok
+        # Already gone (a prior attempt died mid-removal, or the object
+        # was never landed): "gone" is the goal.
+        {:error, %Error{reason: :not_found}} -> :ok
+        {:error, _reason} = error -> error
+      end
+    end
+  end
+end

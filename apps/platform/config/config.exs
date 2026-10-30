@@ -185,6 +185,22 @@ config :flux_vale,
     # setting this false never unmounts the route.
     wake_intercept_enabled: true
   ],
+  # Custom access domains (ADR-0040 S1): the owner registers their own
+  # domain and the platform proves control by issuing a wildcard cert
+  # through the delegated _acme-challenge record (verify-by-issuance).
+  # `issuer` names the DNS-01 ClusterIssuer the fleet side owns (the
+  # fleet PR creates it; this code only names it from here — staging's
+  # Let's Encrypt endpoint is the dev-safe default, no rate limits).
+  # `certificate_namespace` is the platform's own access namespace (the
+  # gateway's). `issuance_deadline_hours` bounds the verify-by-issuance
+  # wait: a :pending row with no Ready Certificate past it is :failed.
+  # Runtime overrides wait for the fleet's env-var names (the
+  # instances_base_domain wiring in runtime.exs is the pattern).
+  access_domains: [
+    issuer: "letsencrypt-staging",
+    certificate_namespace: "fluxvale-access",
+    issuance_deadline_hours: 72
+  ],
   # One active payment provider (ADR-0029); per-provider webhook routes
   # and config blocks make the gateway a one-module swap. HitPay is the
   # first implementation (Am. 2) — test mode first: base_url defaults
@@ -308,7 +324,12 @@ config :flux_vale, Oban,
        # watch passes are a fifth of the cadence's slack, and the offset
        # keeps it off the idle sweep's slots and the reconciler's tick
        # (#113's stance: nothing at the top of the hour).
-       {"6-59/5 * * * *", FluxVale.Workers.BackupSweep}
+       {"6-59/5 * * * *", FluxVale.Workers.BackupSweep},
+       # ADR-0040 S1's verify-by-issuance pass, every 15 minutes at
+       # :01/:16/:31/:46 — the top-of-hour :00 slot is deliberately
+       # avoided by the neighbouring entries (#113's stance: nothing at
+       # the top of the hour).
+       {"1-59/15 * * * *", FluxVale.Janitor.VerifyAccessDomains}
      ]},
     # Retention for finished jobs (completed/cancelled/discarded) — v1
     # never pruned oban_jobs; adopted on review (#39). 7d keeps a

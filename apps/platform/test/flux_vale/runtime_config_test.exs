@@ -71,7 +71,8 @@ defmodule FluxVale.RuntimeConfigTest do
         assert {"7 * * * *", FluxVale.Workers.ZeroBalanceSweep} in crontab
         assert {"13 * * * *", FluxVale.Workers.StrandedInstanceSweep} in crontab
         assert {"6-59/5 * * * *", FluxVale.Workers.BackupSweep} in crontab
-        assert length(crontab) == 5
+        assert {"1-59/15 * * * *", FluxVale.Janitor.VerifyAccessDomains} in crontab
+        assert length(crontab) == 6
       end)
     end
 
