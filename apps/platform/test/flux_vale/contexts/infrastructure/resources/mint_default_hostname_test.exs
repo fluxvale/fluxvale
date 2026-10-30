@@ -94,6 +94,51 @@ defmodule FluxVale.Infrastructure.Instance.MintDefaultHostnameTest do
              )
   end
 
+  test "the base domain as platform rows in OTHER orgs never blocks this org's mint", %{
+    org: org,
+    owner: owner
+  } do
+    # Per-org :platform rows are same-domain by design — only :custom
+    # rows are platform-wide unique (the partial index). authorize?:
+    # false — the platform row is system-minted.
+    {other_org, _other_owner} = BillingFixtures.grant_free_org!()
+
+    AccessDomain.mint_platform!(
+      %{
+        domain: Application.fetch_env!(:flux_vale, :instances_base_domain),
+        organization_id: other_org.id
+      },
+      authorize?: false
+    )
+
+    version = InstanceFixtures.app_version!()
+
+    instance =
+      Instance.create!(
+        %{name: "App #{System.unique_integer()}", app_version_id: version.id, env_vars: %{}},
+        actor: owner
+      )
+
+    platform = platform_row!(org)
+    assert platform.organization_id == org.id
+    assert hostname!(instance.id).access_domain_id == platform.id
+    assert count_platform_rows!(org) == 1
+  end
+
+  test "the label grammar is lowercase-only — uppercase is refused", _context do
+    # Attribute constraints run before any insert, so unsaved ids are
+    # enough to reach the grammar check.
+    assert {:error, _changeset} =
+             InstanceHostname.mint(
+               %{
+                 instance_id: Ash.UUID.generate(),
+                 access_domain_id: Ash.UUID.generate(),
+                 label: "Web"
+               },
+               authorize?: false
+             )
+  end
+
   defp platform_row!(org) do
     AccessDomain
     |> Ash.Query.filter(organization_id == ^org.id and kind == :platform)

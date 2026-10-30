@@ -78,6 +78,40 @@ defmodule FluxVale.Infrastructure.Operations.RegisterAccessDomainTest do
         {:ok, %{status: 500, body: %{"message" => "apiserver down"}}}
       end)
 
+      # The rollback cleanup: one best-effort delete of what the attempt
+      # may have landed.
+      expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 200}} end)
+
+      assert {:error, _reason} =
+               Infrastructure.register_access_domain(%{domain: "apps.customer.com"},
+                 actor: owner
+               )
+
+      refute exists?("apps.customer.com")
+    end
+
+    test "a failed rollback cleanup still returns the original error", %{owner: owner} do
+      expect(Kubereq, :apply, fn _req, _manifest, _fm ->
+        {:ok, %{status: 500, body: %{}}}
+      end)
+
+      expect(Kubereq, :delete, fn _req, _ns, _name -> {:error, :transport_oops} end)
+
+      assert {:error, _reason} =
+               Infrastructure.register_access_domain(%{domain: "apps.customer.com"},
+                 actor: owner
+               )
+
+      refute exists?("apps.customer.com")
+    end
+
+    test "an unreachable cluster fails the registration with nothing to clean", %{owner: owner} do
+      stub(K8s, :kubeconfig, fn -> {:error, "no in-cluster kubeconfig"} end)
+
+      stub(Kubereq, :apply, fn _req, _manifest, _fm ->
+        flunk("no cluster call expected without a kubeconfig")
+      end)
+
       assert {:error, _reason} =
                Infrastructure.register_access_domain(%{domain: "apps.customer.com"},
                  actor: owner
@@ -89,6 +123,101 @@ defmodule FluxVale.Infrastructure.Operations.RegisterAccessDomainTest do
     test "a malformed domain is rejected before any cluster call", %{owner: owner} do
       assert {:error, _changeset} =
                Infrastructure.register_access_domain(%{domain: "not a domain!"}, actor: owner)
+    end
+
+    test "a domain over RFC 253's bound minus the wildcard star is rejected", %{owner: owner} do
+      # 252 chars of well-shaped labels: one past the 251 max_length
+      # (RFC 253's 253-octet printable name minus the "*." the
+      # Certificate's dnsName adds).
+      too_long = String.duplicate("ab.", 83) <> "abc"
+      assert String.length(too_long) == 252
+
+      assert {:error, _changeset} =
+               Infrastructure.register_access_domain(%{domain: too_long}, actor: owner)
+    end
+
+    test "the platform base domain is refused", %{owner: owner} do
+      base = Application.fetch_env!(:flux_vale, :instances_base_domain)
+
+      stub(Kubereq, :apply, fn _req, _manifest, _fm ->
+        flunk("no cluster call expected for the platform domain")
+      end)
+
+      assert {:error, _changeset} =
+               Infrastructure.register_access_domain(%{domain: base}, actor: owner)
+
+      refute exists?(base)
+    end
+
+    test "a custom domain already held by ANOTHER org is refused", %{owner: owner} do
+      register_domain!(owner)
+      {_other_org, other_owner} = BillingFixtures.grant_free_org!()
+
+      stub(Kubereq, :apply, fn _req, _manifest, _fm ->
+        flunk("no cluster call expected for a taken domain")
+      end)
+
+      assert {:error, _changeset} =
+               Infrastructure.register_access_domain(%{domain: "apps.customer.com"},
+                 actor: other_owner
+               )
+
+      assert {:error, _changeset} =
+               Infrastructure.register_access_domain(%{domain: "apps.customer.com"},
+                 actor: owner
+               )
+    end
+
+    test "org A cannot take a domain org B registered first", %{owner: owner} do
+      {_other_org, other_owner} = BillingFixtures.grant_free_org!()
+
+      # org B registers first — exactly one apply is expected; a buggy
+      # refusal that still reaches the cluster would fire a second call
+      # and fail the expectation.
+      expect(Kubereq, :apply, fn _req, manifest, _fm ->
+        {:ok, %{status: 201, body: manifest}}
+      end)
+
+      assert {:ok, _domain} =
+               Infrastructure.register_access_domain(%{domain: "taken.example.com"},
+                 actor: other_owner
+               )
+
+      assert {:error, _changeset} =
+               Infrastructure.register_access_domain(%{domain: "taken.example.com"},
+                 actor: owner
+               )
+    end
+
+    test "the partial unique index is the race backstop — a double-mint cannot commit", %{
+      org: org
+    } do
+      # Ash.seed!, not actions: the race this pins is two registers
+      # passing the read probe together — only the constraint sees them.
+      # authorize?: false — system precondition (the same seed stance as
+      # the aged-pending rows).
+      Ash.Seed.seed!(AccessDomain, %{
+        organization_id: org.id,
+        domain: "raced.example.com",
+        kind: :custom,
+        state: :pending,
+        registered_at: DateTime.utc_now()
+      })
+
+      {other_org, _owner} = BillingFixtures.grant_free_org!()
+
+      # ash_postgres maps the unique violation to a field error — the
+      # message names the domain (the per-org identity could not fire:
+      # different orgs).
+      assert_raise Ash.Error.Invalid, ~r/already been taken/, fn ->
+        Ash.Seed.seed!(AccessDomain, %{
+          organization_id: other_org.id,
+          domain: "raced.example.com",
+          kind: :custom,
+          state: :pending,
+          registered_at: DateTime.utc_now()
+        })
+      end
     end
   end
 

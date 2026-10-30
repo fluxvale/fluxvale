@@ -110,7 +110,9 @@ defmodule FluxVale.Repo.Migrations.AddAccessDomains do
     # the compile-time value and miss a runtime.exs override (a staging
     # env with INSTANCES_BASE_DOMAIN set must backfill the staging
     # domain). Interpolating a config value into SQL is safe: it is
-    # ops-controlled input, never user data.
+    # ops-controlled input, never user data. Timestamps use the same
+    # (now() AT TIME ZONE 'utc') cast the column defaults use — a
+    # non-UTC session must not shift backfilled timestamps.
     #
     # ids are uuidv7() — PG18 native, the "non-Ash writer" source
     # ADR-00032 rule 3 reserves for exactly this case.
@@ -120,7 +122,8 @@ defmodule FluxVale.Repo.Migrations.AddAccessDomains do
     execute("""
     INSERT INTO access_domains
       (id, organization_id, domain, kind, state, registered_at, created_at, updated_at)
-    SELECT uuidv7(), o.id, '#{base_domain}', 'platform', 'verified', now(), now(), now()
+    SELECT uuidv7(), o.id, '#{base_domain}', 'platform', 'verified',
+      (now() AT TIME ZONE 'utc'), (now() AT TIME ZONE 'utc'), (now() AT TIME ZONE 'utc')
     FROM organizations o
     WHERE NOT EXISTS (
       SELECT 1 FROM access_domains d
@@ -134,7 +137,7 @@ defmodule FluxVale.Repo.Migrations.AddAccessDomains do
     execute("""
     INSERT INTO instance_hostnames
       (id, instance_id, access_domain_id, label, created_at)
-    SELECT uuidv7(), i.id, d.id, i.slug, now()
+    SELECT uuidv7(), i.id, d.id, i.slug, (now() AT TIME ZONE 'utc')
     FROM instances i
     JOIN access_domains d
       ON d.organization_id = i.organization_id

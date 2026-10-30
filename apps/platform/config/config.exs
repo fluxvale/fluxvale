@@ -325,10 +325,11 @@ config :flux_vale, Oban,
        # keeps it off the idle sweep's slots and the reconciler's tick
        # (#113's stance: nothing at the top of the hour).
        {"6-59/5 * * * *", FluxVale.Workers.BackupSweep},
-       # ADR-0040 S1's verify-by-issuance pass, every 15 minutes —
-       # issuance is slow (minutes), so the cadence bounds how long a
-       # verified domain waits to be noticed at one interval.
-       {"*/15 * * * *", FluxVale.Janitor.VerifyAccessDomains}
+       # ADR-0040 S1's verify-by-issuance pass, every 15 minutes at
+       # :01/:16/:31/:46 — the top-of-hour :00 slot is deliberately
+       # avoided by the neighbouring entries (#113's stance: nothing at
+       # the top of the hour).
+       {"1-59/15 * * * *", FluxVale.Janitor.VerifyAccessDomains}
      ]},
     # Retention for finished jobs (completed/cancelled/discarded) — v1
     # never pruned oban_jobs; adopted on review (#39). 7d keeps a

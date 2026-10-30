@@ -80,7 +80,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
       assert get_row!(domain.id).state == :failed
     end
 
-    test "a missing Certificate inside the window is drift a retry covers — left :pending", %{
+    test "a missing Certificate inside the window is re-applied — the row stays :pending", %{
       owner: owner
     } do
       domain = register!(owner)
@@ -89,13 +89,22 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
         {:ok, %{status: 404, body: %{}}}
       end)
 
+      # The reconcile limb: same name, same spec shape.
+      expect(Kubereq, :apply, fn _req, manifest, _fm ->
+        assert manifest["spec"]["dnsNames"] == ["*.apps.customer.com"]
+        assert manifest["spec"]["secretName"] == AccessDomain.certificate_name(domain)
+        {:ok, %{status: 201, body: manifest}}
+      end)
+
       assert {:ok, %{verified: 0, failed: 0, needs_attention: 0}} =
                Infrastructure.verify_access_domains()
 
       assert get_row!(domain.id).state == :pending
     end
 
-    test "a missing Certificate past the deadline -> :failed", %{org: org} do
+    test "a missing Certificate past the deadline is NOT re-applied — the window is closed", %{
+      org: org
+    } do
       Ash.Seed.seed!(AccessDomain, %{
         organization_id: org.id,
         domain: "vanished.example.com",
@@ -106,6 +115,10 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
 
       expect(Kubereq, :get, fn _req, _ns, _name ->
         {:ok, %{status: 404, body: %{}}}
+      end)
+
+      stub(Kubereq, :apply, fn _req, _manifest, _fm ->
+        flunk("no re-apply expected past the deadline")
       end)
 
       assert {:ok, %{failed: 1}} = Infrastructure.verify_access_domains()
@@ -150,6 +163,71 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
       assert row.cert_secret_ref == "access-domain-tls"
     end
 
+    test "cert loss self-heals: :verified + 404 re-applies the Certificate, demotes, and recovers",
+         %{owner: owner} do
+      domain = register!(owner)
+      promote_to_verified!(domain)
+
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 404, body: %{}}}
+      end)
+
+      # The reconcile limb: same name, same spec shape.
+      expect(Kubereq, :apply, fn _req, manifest, _fm ->
+        assert manifest["spec"]["dnsNames"] == ["*.apps.customer.com"]
+        assert manifest["spec"]["secretName"] == AccessDomain.certificate_name(domain)
+        {:ok, %{status: 201, body: manifest}}
+      end)
+
+      assert {:ok, %{needs_attention: 1}} = Infrastructure.verify_access_domains()
+      assert get_row!(domain.id).state == :needs_attention
+
+      # The re-applied Certificate comes Ready — the row recovers.
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: cert_body("True")}}
+      end)
+
+      assert {:ok, %{verified: 1}} = Infrastructure.verify_access_domains()
+      assert get_row!(domain.id).state == :verified
+    end
+
+    test ":needs_attention whose Certificate is missing gets re-applied and stays put", %{
+      owner: owner
+    } do
+      domain = register!(owner)
+      promote_to_verified!(domain)
+      demote!(domain)
+
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 404, body: %{}}}
+      end)
+
+      expect(Kubereq, :apply, fn _req, _manifest, _fm ->
+        {:ok, %{status: 201, body: %{}}}
+      end)
+
+      assert {:ok, %{verified: 0, failed: 0, needs_attention: 0}} =
+               Infrastructure.verify_access_domains()
+
+      assert get_row!(domain.id).state == :needs_attention
+    end
+
+    test "a reconcile re-apply that fails is logged and left for the next tick", %{owner: owner} do
+      domain = register!(owner)
+      promote_to_verified!(domain)
+
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 404, body: %{}}}
+      end)
+
+      expect(Kubereq, :apply, fn _req, _manifest, _fm ->
+        {:error, :transport_oops}
+      end)
+
+      assert {:ok, %{needs_attention: 1}} = Infrastructure.verify_access_domains()
+      assert get_row!(domain.id).state == :needs_attention
+    end
+
     test ":verified with Ready absent (reconciling) does not flap", %{owner: owner} do
       domain = register!(owner)
       promote_to_verified!(domain)
@@ -162,18 +240,6 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
                Infrastructure.verify_access_domains()
 
       assert get_row!(domain.id).state == :verified
-    end
-
-    test ":verified whose Certificate vanished lands :needs_attention", %{owner: owner} do
-      domain = register!(owner)
-      promote_to_verified!(domain)
-
-      expect(Kubereq, :get, fn _req, _ns, _name ->
-        {:ok, %{status: 404, body: %{}}}
-      end)
-
-      assert {:ok, %{needs_attention: 1}} = Infrastructure.verify_access_domains()
-      assert get_row!(domain.id).state == :needs_attention
     end
 
     test ":verified under a transient read failure stands (no flap on a flaky read)", %{
@@ -192,22 +258,83 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
       assert get_row!(domain.id).state == :verified
     end
 
-    test ":needs_attention with no Ready=True yet stands", %{owner: owner} do
+    test "Ready=True with no secretName is treated as not-ready — no promotion", %{owner: owner} do
+      domain = register!(owner)
+
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok,
+         %{
+           status: 200,
+           body: %{"status" => %{"conditions" => [%{"type" => "Ready", "status" => "True"}]}}
+         }}
+      end)
+
+      assert {:ok, %{verified: 0}} = Infrastructure.verify_access_domains()
+
+      row = get_row!(domain.id)
+      assert row.state == :pending
+      assert row.cert_secret_ref == nil
+    end
+  end
+
+  describe "stale-write guards" do
+    test "a row whose state moved mid-pass is skipped — no stale demotion", %{owner: owner} do
       domain = register!(owner)
       promote_to_verified!(domain)
+
+      # Another writer moves the row between the pass's read and the
+      # land: the fresh re-read inside the funnel sees a different state
+      # and must skip (stubbed at the code-interface seam).
+      moved = %{get_row!(domain.id) | state: :suspended}
+      stub(AccessDomain, :get_by_id, fn _id, _opts -> {:ok, moved} end)
+
+      stub(AccessDomain, :mark_needs_attention, fn _domain, _params, _opts ->
+        flunk("a moved row must not be written")
+      end)
 
       expect(Kubereq, :get, fn _req, _ns, _name ->
         {:ok, %{status: 200, body: cert_body("False")}}
       end)
 
-      assert {:ok, _counts} = Infrastructure.verify_access_domains()
+      assert {:ok, %{verified: 0, failed: 0, needs_attention: 0}} =
+               Infrastructure.verify_access_domains()
 
-      expect(Kubereq, :get, fn _req, _ns, _name ->
-        {:ok, %{status: 404, body: %{}}}
+      assert get_row!(domain.id).state == :verified
+    end
+
+    test "a row removed mid-pass is skipped — nothing to write", %{owner: owner} do
+      domain = register!(owner)
+      promote_to_verified!(domain)
+
+      stub(AccessDomain, :get_by_id, fn _id, _opts -> {:error, :gone} end)
+
+      stub(AccessDomain, :mark_needs_attention, fn _domain, _params, _opts ->
+        flunk("a removed row must not be written")
       end)
 
-      assert {:ok, %{verified: 0, needs_attention: 0}} = Infrastructure.verify_access_domains()
-      assert get_row!(domain.id).state == :needs_attention
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: cert_body("False")}}
+      end)
+
+      assert {:ok, %{verified: 0, failed: 0, needs_attention: 0}} =
+               Infrastructure.verify_access_domains()
+    end
+
+    test "a failed transition write surfaces {:error, {:land_failed, n}} — Oban retries", %{
+      owner: owner
+    } do
+      domain = register!(owner)
+      promote_to_verified!(domain)
+
+      stub(AccessDomain, :mark_needs_attention, fn _domain, _params, _opts ->
+        {:error, :forced_failure}
+      end)
+
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: cert_body("False")}}
+      end)
+
+      assert {:error, {:land_failed, 1}} = Infrastructure.verify_access_domains()
     end
   end
 
@@ -287,6 +414,15 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
 
     assert {:ok, _counts} = Infrastructure.verify_access_domains()
     assert get_row!(domain.id).state == :verified
+  end
+
+  defp demote!(domain) do
+    expect(Kubereq, :get, fn _req, _ns, _name ->
+      {:ok, %{status: 200, body: cert_body("False")}}
+    end)
+
+    assert {:ok, _counts} = Infrastructure.verify_access_domains()
+    assert get_row!(domain.id).state == :needs_attention
   end
 
   defp get_row!(id) do

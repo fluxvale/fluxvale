@@ -7,23 +7,30 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
 
   Transitions, all idempotent and one funnel per transition:
 
-  - `:pending` + Ready=True → `:verified`, `cert_secret_ref` from the
-    observed Certificate's `spec.secretName` (never guessed);
+  - `:pending` + Ready=True (with a Secret ref) → `:verified`;
+    Ready=True without a ref is treated as not-ready — the row would
+    claim verified with nowhere to point TLS;
   - `:pending` past `issuance_deadline_hours` without Ready=True
     (or with no Certificate object at all) → `:failed` — the owner
-    re-registers;
-  - `:pending`, still inside the window, Certificate missing → left
-    `:pending` (cert-manager creates the object on its own clock; the
-    drift is a retry's), logged;
-  - `:verified` + Ready=False (or the object gone) →
-    `:needs_attention`;
+    removes the row, then re-registers;
+  - `:verified` + Ready=False → `:needs_attention`; the object gone →
+    re-applied AND `:needs_attention` (it claimed verified on a cert
+    that no longer exists);
   - `:needs_attention` + Ready=True → `:verified` again — observed
-    states self-heal.
+    states self-heal;
+  - **Reconcile limb:** a missing Certificate on a `:pending` (inside
+    the window) or `:needs_attention` row is RE-APPLIED — same name,
+    same Secret, same issuer (`AccessDomain.certificate_spec/1`, the
+    one owner register and reconcile share) — and the row is left
+    un-flapped until Ready returns. Cert loss self-heals instead of
+    sticking forever.
 
   Everything else (platform rows, `:failed`, `:suspended`, transient
   cluster errors) is left alone: a suspension is the billing ladder's
   (S6) authority, and a flaky read must not flap a row — the next tick
-  re-decides.
+  re-decides. A transition write that re-reads a row whose state moved
+  since the pass read it is skipped (a stale demotion must not
+  overwrite a newer promotion).
 
   Runs authorize?-free by construction — the platform's read of the
   cluster, system context like every observer.
@@ -37,12 +44,13 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   require Ash.Query
   require Logger
 
-  @zero_counts %{verified: 0, failed: 0, needs_attention: 0}
+  @zero_counts %{verified: 0, failed: 0, needs_attention: 0, land_errors: 0}
 
   @doc """
   `{:ok, counts}` — how many rows landed in each non-idle transition —
-  or `{:error, reason}` when the platform cluster itself is unreachable
-  (the janitor job fails and Oban retries).
+  or `{:error, term()}`: the platform cluster unreachable, or
+  `{:land_failed, count}` when transition writes failed (the janitor
+  job fails and Oban retries, instead of reporting idle success).
   """
   @spec call(keyword()) ::
           {:ok,
@@ -62,12 +70,21 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
           tally(observe(domain, kubeconfig), acc)
         end)
 
-      {:ok, counts}
+      if counts.land_errors > 0 do
+        {:error, {:land_failed, counts.land_errors}}
+      else
+        {:ok, Map.delete(counts, :land_errors)}
+      end
     end
   end
 
   defp tally(:unchanged, acc), do: acc
-  defp tally(transition, acc), do: Map.update!(acc, transition, &(&1 + 1))
+
+  defp tally(transition, acc) when transition in [:verified, :failed, :needs_attention] do
+    Map.update!(acc, transition, &(&1 + 1))
+  end
+
+  defp tally({:land_error, _funnel}, acc), do: Map.update!(acc, :land_errors, &(&1 + 1))
 
   # ------------------------------------------------------------------
   # Per-state observation
@@ -76,9 +93,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   defp observe(%AccessDomain{state: :pending} = domain, kubeconfig) do
     case get_certificate(domain, kubeconfig) do
       {:ok, body} -> decide_pending(domain, ready(body), body)
-      # cert-manager has not landed the object yet — drift a retry
-      # covers, unless the wait is over.
-      {:error, %Error{reason: :not_found}} -> pending_certificate_missing(domain)
+      {:error, %Error{reason: :not_found}} -> pending_certificate_missing(domain, kubeconfig)
       {:error, reason} -> log_read_failure(domain, reason)
     end
   end
@@ -93,8 +108,12 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
           :unchanged
         end
 
-      # The object is gone — an observed fact, not a transient read.
+      # The object is gone: re-apply AND demote — the row claimed
+      # verified on a cert that no longer exists; until Ready returns,
+      # needs_attention is the honest state (the reconcile limb
+      # re-applies underneath).
       {:error, %Error{reason: :not_found}} ->
+        reapply_certificate(domain, kubeconfig)
         land(domain, :mark_needs_attention)
 
       {:error, reason} ->
@@ -111,8 +130,12 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
           :unchanged
         end
 
-      # Missing or unreadable while attention already stands: attention
-      # is still the honest state.
+      # Missing while attention already stands: re-apply, attention
+      # stays until Ready returns.
+      {:error, %Error{reason: :not_found}} ->
+        reapply_certificate(domain, kubeconfig)
+        :unchanged
+
       {:error, reason} ->
         log_read_failure(domain, reason)
     end
@@ -132,14 +155,14 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
     end
   end
 
-  defp pending_certificate_missing(domain) do
+  # The Certificate object is missing: inside the window it is
+  # re-applied (the reconcile limb) and the row waits; past the
+  # deadline the window is closed — no churn for a row about to fail.
+  defp pending_certificate_missing(domain, kubeconfig) do
     if deadline_lapsed?(domain) do
       land(domain, :mark_failed)
     else
-      Logger.warning(
-        "Access domain #{domain.domain}: Certificate not found yet — leaving :pending"
-      )
-
+      reapply_certificate(domain, kubeconfig)
       :unchanged
     end
   end
@@ -149,52 +172,125 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   # ------------------------------------------------------------------
 
   defp promote_to_verified(domain, body) do
-    case AccessDomain.mark_verified(
-           domain,
-           %{cert_secret_ref: secret_ref(body)},
-           authorize?: false
-         ) do
-      {:ok, _updated} ->
-        :verified
-
-      # coveralls-ignore-start - defensive: a lost write race or DB
-      # failure lands here; the next tick re-reads and re-decides, and
-      # the sandbox cannot kill the DB
-      {:error, reason} ->
-        Logger.warning("Access domain #{domain.domain}: verify write failed: #{inspect(reason)}")
+    case secret_ref(body) do
+      nil ->
+        # Ready=True with no Secret ref is not a promotion — treat as
+        # not-ready; the next tick re-decides.
+        Logger.warning(
+          "Access domain #{domain.domain}: Ready=True but no secretName — not promoting"
+        )
 
         :unchanged
 
-        # coveralls-ignore-stop
+      secret_name ->
+        case AccessDomain.mark_verified(
+               domain,
+               %{cert_secret_ref: secret_name},
+               authorize?: false
+             ) do
+          {:ok, _updated} ->
+            :verified
+
+          # coveralls-ignore-start - defensive: a lost write race or DB
+          # failure lands here; the pass reports it so Oban retries,
+          # and the sandbox cannot kill the DB
+          {:error, reason} ->
+            Logger.warning(
+              "Access domain #{domain.domain}: verify write failed: #{inspect(reason)}"
+            )
+
+            {:land_error, :mark_verified}
+
+            # coveralls-ignore-stop
+        end
     end
   end
 
+  # A funnel decision is only valid against the state the pass read:
+  # re-read the row fresh, and if another writer moved it in between (a
+  # concurrent promotion, an S6 suspension), skip — a stale demotion
+  # must not overwrite a newer write. The next tick re-decides against
+  # the committed row.
   defp land(domain, funnel) do
-    case domain
-         |> Ash.Changeset.for_update(funnel, %{}, authorize?: false)
-         |> Ash.update() do
+    case AccessDomain.get_by_id(domain.id, authorize?: false) do
+      {:ok, fresh} ->
+        if fresh.state == expected_state(funnel) do
+          write_funnel(fresh, funnel)
+        else
+          Logger.warning(
+            "Access domain #{domain.domain}: state moved to #{fresh.state} mid-pass — " <>
+              "skipping #{funnel}"
+          )
+
+          :unchanged
+        end
+
+      # The row was removed mid-pass (removal won) — nothing to write.
+      {:error, _gone} ->
+        Logger.warning("Access domain #{domain.domain}: removed mid-pass — skipping #{funnel}")
+
+        :unchanged
+    end
+  end
+
+  # The state each funnel's decision was made against.
+  defp expected_state(:mark_failed), do: :pending
+  defp expected_state(:mark_needs_attention), do: :verified
+
+  defp write_funnel(domain, funnel) do
+    case apply_funnel(domain, funnel) do
       {:ok, _updated} ->
         funnel_transition(funnel)
 
-      # coveralls-ignore-start - defensive: same stance as the verify
-      # write above — the next tick is the retry
+      # Tested at the seam (Mimic): a forced funnel error must surface
+      # as {:error, {:land_failed, n}} so Oban retries.
       {:error, reason} ->
         Logger.warning(
           "Access domain #{domain.domain}: #{funnel} write failed: #{inspect(reason)}"
         )
 
-        :unchanged
-
-        # coveralls-ignore-stop
+        {:land_error, funnel}
     end
+  end
+
+  defp apply_funnel(domain, :mark_failed) do
+    AccessDomain.mark_failed(domain, %{}, authorize?: false)
+  end
+
+  defp apply_funnel(domain, :mark_needs_attention) do
+    AccessDomain.mark_needs_attention(domain, %{}, authorize?: false)
   end
 
   defp funnel_transition(:mark_failed), do: :failed
   defp funnel_transition(:mark_needs_attention), do: :needs_attention
 
   # ------------------------------------------------------------------
-  # Reads
+  # Cluster calls
   # ------------------------------------------------------------------
+
+  # The reconcile limb: a missing Certificate is re-applied — same name,
+  # same Secret, same issuer as registration (the shared spec owner), so
+  # the SSA converges on the object registration would have made.
+  # Idempotent; a failure is logged and left for the next tick (the row
+  # does not flap on it).
+  defp reapply_certificate(domain, kubeconfig) do
+    config = Application.fetch_env!(:flux_vale, :access_domains)
+
+    case Certificate.create(
+           kubeconfig,
+           Keyword.fetch!(config, :certificate_namespace),
+           AccessDomain.certificate_name(domain),
+           AccessDomain.certificate_spec(domain)
+         ) do
+      {:ok, _body} ->
+        Logger.warning("Access domain #{domain.domain}: Certificate missing — re-applied")
+
+      {:error, reason} ->
+        Logger.warning(
+          "Access domain #{domain.domain}: Certificate re-apply failed: #{inspect(reason)}"
+        )
+    end
+  end
 
   defp get_certificate(domain, kubeconfig) do
     config = Application.fetch_env!(:flux_vale, :access_domains)
@@ -206,6 +302,10 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
     )
   end
 
+  # ------------------------------------------------------------------
+  # Extractions
+  # ------------------------------------------------------------------
+
   # The Certificate's Ready condition — "True"/"False"/nil (absent or
   # malformed). Same extraction Certificate.ready_status/3 does, on a
   # body this pass already holds (one GET, not two).
@@ -216,8 +316,6 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   defp ready(_no_status_block), do: nil
 
   defp secret_ref(%{"spec" => %{"secretName" => name}}) when is_binary(name), do: name
-
-  # coveralls-ignore-next-line - defensive: cert-manager always sets spec.secretName when Ready=True
   defp secret_ref(_body), do: nil
 
   defp deadline_lapsed?(domain) do

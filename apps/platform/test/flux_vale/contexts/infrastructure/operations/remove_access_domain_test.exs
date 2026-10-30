@@ -29,23 +29,24 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomainTest do
   end
 
   describe "remove/2" do
-    test "refuses while a hostname references the domain, then succeeds without one", %{
-      org: org,
-      owner: owner
-    } do
+    test "refuses while a hostname references the domain (the FK is the guard), then succeeds without one",
+         %{org: org, owner: owner} do
       domain = register_custom_domain!(owner)
       instance = instance!(org, owner)
 
       # authorize?: false — the precondition is a hostname the S2 lanes
       # will re-home; minting here is system posture (the resource's own
-      # :mint is system-only).
+      # :mint is system-only). Minted AFTER the operation's authorized
+      # read can have seen the row — the race a pre-check read could
+      # never close; the FK restrict catches it.
       hostname =
         InstanceHostname.mint!(
           %{instance_id: instance.id, access_domain_id: domain.id, label: "app"},
           authorize?: false
         )
 
-      # No cluster call may happen while the guard stands.
+      # No cluster call may happen while the row stands — the Certificate
+      # is only ever deleted after a successful destroy.
       stub(Kubereq, :delete, fn _req, _ns, _name -> flunk("no cluster call expected") end)
 
       assert {:error, :hostnames_present} =
@@ -65,6 +66,18 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomainTest do
       refute still_there?(domain.id)
     end
 
+    test "a non-FK destroy failure passes through unmapped", %{owner: owner} do
+      domain = register_custom_domain!(owner)
+
+      stub(Kubereq, :delete, fn _req, _ns, _name -> flunk("no cluster call expected") end)
+      stub(AccessDomain, :remove, fn _domain, _opts -> {:error, :forced_other_failure} end)
+
+      assert {:error, :forced_other_failure} =
+               Infrastructure.remove_access_domain(domain, actor: owner)
+
+      assert still_there?(domain.id)
+    end
+
     test "a 404 on the Certificate delete is tolerated (safe-delete)", %{owner: owner} do
       domain = register_custom_domain!(owner)
 
@@ -76,15 +89,19 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomainTest do
       refute still_there?(domain.id)
     end
 
-    test "a cluster delete failure keeps the row (the caller retries)", %{owner: owner} do
+    test "a cluster delete failure after the row is gone is the accepted residue", %{owner: owner} do
       domain = register_custom_domain!(owner)
 
       expect(Kubereq, :delete, fn _req, _ns, _name ->
         {:error, :transport_oops}
       end)
 
+      # The row goes first (P1-3's order): a failing Certificate delete
+      # afterwards leaves the row REMOVED and returns the error — the
+      # orphaned object is the documented residue (S3's sweep owns it),
+      # never live TLS state deleted under a standing row.
       assert {:error, _reason} = Infrastructure.remove_access_domain(domain, actor: owner)
-      assert still_there?(domain.id)
+      refute still_there?(domain.id)
     end
 
     test "the platform kind is refused before anything is touched", %{org: org, owner: owner} do

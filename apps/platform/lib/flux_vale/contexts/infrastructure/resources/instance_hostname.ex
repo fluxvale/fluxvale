@@ -31,6 +31,13 @@ defmodule FluxVale.Infrastructure.InstanceHostname do
 
     migration_defaults(id: "nil")
 
+    custom_indexes do
+      # Every instance delete cascades here (the reference below is
+      # on_delete: :delete) — the child-side index keeps that scan a
+      # lookup instead of a table walk.
+      index([:instance_id])
+    end
+
     references do
       # The hostname's only reason to exist is its instance — AccessRoute's
       # pairing stance: teardown of the instance takes the row with it, no
@@ -38,8 +45,9 @@ defmodule FluxVale.Infrastructure.InstanceHostname do
       reference(:instance, on_delete: :delete)
 
       # Restrict, not cascade — the AccessGateway stance: removing a
-      # domain with live hostnames must refuse loudly
-      # (Operations.RemoveAccessDomain's guard); a DB cascade would be a
+      # domain with live hostnames must refuse loudly (this constraint
+      # IS RemoveAccessDomain's hostname guard — the operation maps its
+      # refusal to `:hostnames_present`); a DB cascade would be a
       # silent lie that unroutes serving instances.
       reference(:access_domain, on_delete: :restrict)
     end
@@ -65,14 +73,17 @@ defmodule FluxVale.Infrastructure.InstanceHostname do
     uuid_v7_primary_key(:id)
 
     # DNS label below the domain: lowercase alnum + inner hyphens, 1-63
-    # chars — ingress.ex's @dns_label grammar, byte for byte (a label
-    # here becomes part of edge route hosts and resolver answers, so the
-    # same injection posture applies). \z (not $): a trailing newline
-    # must not slip through.
+    # chars — ingress.ex's @dns_label grammar NARROWED to the canon we
+    # mint: slugs are haikunate-lowercase and every writer downcases
+    # first, so uppercase is not a shape this table produces — accepting
+    # it would mint rows the S2 edge routes and S4 resolver views must
+    # then special-case. The same injection posture as ingress.ex (a
+    # label here becomes part of edge route hosts and resolver
+    # answers). \z (not $): a trailing newline must not slip through.
     attribute :label, :string do
       allow_nil?(false)
       public?(true)
-      constraints(match: ~r/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\z/)
+      constraints(match: ~r/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\z/)
     end
 
     create_timestamp(:created_at)
@@ -101,12 +112,6 @@ defmodule FluxVale.Infrastructure.InstanceHostname do
     destroy :destroy do
       description("System-only: re-homing/deleting a hostname (later slices' re-home path).")
     end
-
-    read :list_for_domain do
-      description("The domain's hostnames — RemoveAccessDomain's guard input")
-      argument(:access_domain_id, :uuid, allow_nil?: false)
-      filter(expr(access_domain_id == ^arg(:access_domain_id)))
-    end
   end
 
   code_interface do
@@ -114,7 +119,6 @@ defmodule FluxVale.Infrastructure.InstanceHostname do
 
     define(:mint)
     define(:destroy)
-    define(:list_for_domain, args: [:access_domain_id])
   end
 
   identities do

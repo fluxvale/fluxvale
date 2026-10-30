@@ -1,18 +1,21 @@
 defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomain do
   @moduledoc """
-  Removes a custom access domain (ADR-0040 S1): safe-deletes the
-  Certificate (404 tolerated — the safe-delete stance used across
-  teardowns: the goal is "gone", not "witnessed dying"), then destroys
-  the row.
+  Removes a custom access domain (ADR-0040 S1). The order is the
+  safety property: **the row goes first** — its `instance_hostnames`
+  FK is `on_delete: :restrict`, so Postgres itself refuses while any
+  hostname still references the domain (the guard IS the constraint;
+  there is no pre-check read to race a hostname mint) — and only once
+  the row is gone is the Certificate safe-deleted (404 tolerated, the
+  safe-delete stance used across teardowns). Never the reverse: live
+  TLS state must not be deleted while the row still stands.
 
-  Refuses while any `InstanceHostname` still references the domain —
-  the org's default-platform hostnames included. That is the whole
-  rule, deliberately simple and honest: the caller re-homes or deletes
-  the hostnames first, and a removal never silently unroutes serving
-  instances as a side effect (the hostname FK is `on_delete: :restrict`
-  — the DB backstop to this guard, not a replacement for it). The
-  `:platform` kind is refused before anything is touched (and again by
-  the `:remove` action's own guard — the two entry points have
+  The reverse residue is accepted: if the Certificate delete fails
+  after the row is gone, an orphaned wildcard object can survive — it
+  references a domain nobody holds a row for, and S3's API-client lane
+  owns a namespace sweep.
+
+  The `:platform` kind is refused before anything is touched (and again
+  by the `:remove` action's own guard — the two entry points have
   different callers, and the platform row is load-bearing).
 
   Ownership is enforced by the authorized re-read (the Instance
@@ -24,7 +27,6 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomain do
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Certificate
   alias FluxVale.Infrastructure.AccessDomain
-  alias FluxVale.Infrastructure.InstanceHostname
 
   @doc """
   `:ok` or `{:error, reason}` — `reason` being `:platform_kind |
@@ -38,33 +40,44 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomain do
 
     with {:ok, domain} <- AccessDomain.get_by_id(domain.id, actor: actor, authorize?: authorize?),
          :ok <- ensure_custom(domain),
-         :ok <- ensure_no_hostnames(domain) do
-      delete_certificate_then_row(domain, actor, authorize?)
+         :ok <- destroy_row(domain, actor, authorize?) do
+      safe_delete_certificate(domain)
     end
   end
 
   defp ensure_custom(%AccessDomain{kind: :custom}), do: :ok
   defp ensure_custom(%AccessDomain{kind: :platform}), do: {:error, :platform_kind}
 
-  # The write concern is the caller's (the authorized read above already
-  # proved membership), so the guard itself reads authorize?: false.
-  defp ensure_no_hostnames(domain) do
-    case InstanceHostname.list_for_domain(domain.id, authorize?: false) do
-      {:ok, []} -> :ok
-      {:ok, _hostnames} -> {:error, :hostnames_present}
-      # coveralls-ignore-next-line - defensive: DB read failure, not simulatable under the sandbox
-      {:error, _reason} = error -> error
+  # The row's own FK is the hostname guard: a destroy with live
+  # hostnames fails at the constraint (a hostname minted between the
+  # authorized read and this destroy loses here — the race a pre-check
+  # read could not close). Mapped to the guard's error shape so callers
+  # see one reason.
+  defp destroy_row(domain, actor, authorize?) do
+    case AccessDomain.remove(domain, actor: actor, authorize?: authorize?) do
+      :ok -> :ok
+      {:error, error} -> map_destroy_error(error)
     end
   end
 
-  defp delete_certificate_then_row(domain, actor, authorize?) do
-    with :ok <- safe_delete_certificate(domain) do
-      case AccessDomain.remove(domain, actor: actor, authorize?: authorize?) do
-        :ok -> :ok
-        # coveralls-ignore-next-line - defensive: the row passed the authorized read above; a failure here is a DB fault
-        {:error, _reason} = error -> error
-      end
+  defp map_destroy_error(error) do
+    if hostname_restrict?(error) do
+      {:error, :hostnames_present}
+    else
+      {:error, error}
     end
+  end
+
+  # The restrict constraint the reference declares on
+  # instance_hostnames.access_domain_id — matched on the constraint
+  # name, the one stable identity Postgres reports through every error
+  # wrapper.
+  @restrict_constraint "instance_hostnames_access_domain_id_fkey"
+
+  defp hostname_restrict?(error) do
+    error
+    |> inspect()
+    |> String.contains?(@restrict_constraint)
   end
 
   defp safe_delete_certificate(domain) do

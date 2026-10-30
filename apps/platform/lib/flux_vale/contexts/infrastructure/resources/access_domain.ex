@@ -31,6 +31,7 @@ defmodule FluxVale.Infrastructure.AccessDomain do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias FluxVale.Infrastructure.AccessDomain.EnsureRegistrable
   alias FluxVale.Infrastructure.InstanceHostname
 
   postgres do
@@ -39,6 +40,18 @@ defmodule FluxVale.Infrastructure.AccessDomain do
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
     migration_defaults(id: "nil")
+
+    custom_indexes do
+      # Platform-wide :custom ownership backstop (see the identities'
+      # comment): two orgs must never hold Certificates for the same
+      # dnsName. Partial — per-org :platform rows are same-domain by
+      # design; only :custom rows are globally unique.
+      index([:domain],
+        unique: true,
+        name: "access_domains_custom_domain_unique",
+        where: "kind = 'custom'"
+      )
+    end
 
     # Restrict, not cascade — the AccessGateway stance: the org delete
     # flow (when it lands) must go through removals that also delete the
@@ -98,7 +111,11 @@ defmodule FluxVale.Infrastructure.AccessDomain do
 
       constraints(
         match:
-          ~r/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+\z/
+          ~r/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+\z/,
+        # 251 = RFC 253's 253-octet printable name minus the "*." our
+        # wildcard dnsName ("*.#{domain}") adds — the row stores the
+        # bare domain, the Certificate carries the star.
+        max_length: 251
       )
     end
 
@@ -156,7 +173,11 @@ defmodule FluxVale.Infrastructure.AccessDomain do
 
       accept([:domain])
 
-      change({FluxVale.Infrastructure.Instance.SetOrganizationFromActor, []})
+      change(FluxVale.Infrastructure.AccessDomain.SetOrganizationFromActor)
+
+      # The registration boundaries (platform domain, platform-wide
+      # custom uniqueness) — checked here so no caller can bypass them.
+      change(EnsureRegistrable)
 
       # Normalize before validation: trimmed + downcased, so
       # "Apps.Customer.COM." -style input lands canonical and the
@@ -234,7 +255,9 @@ defmodule FluxVale.Infrastructure.AccessDomain do
     update :mark_failed do
       description("""
       System-only: the issuance window lapsed without Ready=True. The
-      owner re-registers (a fresh row and Certificate).
+      owner removes the failed row, THEN re-registers — the platform-
+      wide custom-domain uniqueness refuses a same-name re-register
+      while the row stands.
       """)
 
       accept([])
@@ -309,8 +332,13 @@ defmodule FluxVale.Infrastructure.AccessDomain do
   end
 
   identities do
-    # One org registers a given domain once (and the platform row and a
-    # custom row can never collide on the same name either).
+    # Per-org scoping only: one org holds one row per domain (and an
+    # org's platform row and custom row can't share a name either).
+    # Platform-WIDE custom-domain ownership is not expressible as a
+    # per-org identity — it is the register validation
+    # (EnsureRegistrable) plus the `access_domains_custom_domain_unique`
+    # partial index: a race between two orgs loses on the constraint,
+    # loudly.
     identity(:unique_org_domain, [:organization_id, :domain])
   end
 
@@ -335,5 +363,27 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       |> String.slice(-10, 10)
 
     "access-domain-#{short_id}"
+  end
+
+  # The Certificate spec register applies and the verify pass RE-applies
+  # (the reconcile limb) — one owner for the whole identity (wildcard
+  # dnsName, Secret name, issuer), so a reconcile can never converge on
+  # a differently-shaped object than registration made. The issuer is
+  # the DNS-01 ClusterIssuer named from config (the fleet side owns the
+  # object; see config.exs).
+  @doc false
+  @spec certificate_spec(t()) :: %{
+          domain: String.t(),
+          secret_name: String.t(),
+          issuer: String.t()
+        }
+  def certificate_spec(%__MODULE__{} = domain) do
+    config = Application.fetch_env!(:flux_vale, :access_domains)
+
+    %{
+      domain: "*.#{domain.domain}",
+      secret_name: certificate_name(domain),
+      issuer: Keyword.fetch!(config, :issuer)
+    }
   end
 end
