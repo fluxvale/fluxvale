@@ -118,13 +118,32 @@ defmodule FluxValeWeb.Layouts do
         org_switcher: at sm the label occluded the first nav link in the
         640-712px band); above lg the label truncates instead. --%>
         <div class="flex min-w-0 items-center gap-6">
-          <.link href="/" class="flex w-fit items-center gap-2">
-            <img src={~p"/images/logo.svg"} width="26" height="26" alt="FluxVale" />
+          <%!-- The link's aria-label carries the name — both imgs are
+          decorative and the wordmark yields below 300px (T7), so no
+          child of this link can be relied on to name it in every
+          theme at every width. --%>
+          <.link href="/" class="flex w-fit items-center gap-2" aria-label="FluxVale">
+            <img
+              src={~p"/images/mark.svg"}
+              width="26"
+              height="26"
+              alt=""
+              aria-hidden="true"
+              class="dark:hidden"
+            />
+            <img
+              src={~p"/images/mark-dark.svg"}
+              width="26"
+              height="26"
+              alt=""
+              aria-hidden="true"
+              class="hidden dark:block"
+            />
             <%!-- Wordmark yields below 300px (T7): the anonymous nav
             cluster (theme trio + Sign in button) is a rigid ~186px, so
             at ≤280 the wordmark rode under the toggle (27px overlap;
             the scrollWidth absorbs it because this side carries
-            min-w-0). The mark's alt carries the name. --%>
+            min-w-0). --%>
             <span class="hidden min-[300px]:inline text-sm font-semibold tracking-tight text-ink">
               FluxVale
             </span>

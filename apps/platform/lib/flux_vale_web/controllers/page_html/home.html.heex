@@ -17,7 +17,15 @@ gradient matting a product mock — the D2(a) visual anchor, decorative
 <header class="sticky top-0 z-40 border-b border-line bg-canvas/80 backdrop-blur dark:border-line-strong">
   <div class="mx-auto flex h-14 max-w-5xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
     <a href={~p"/"} class="flex w-fit items-center gap-2">
-      <img src={~p"/images/logo.svg"} width="26" height="26" alt="" />
+      <img src={~p"/images/mark.svg"} width="26" height="26" alt="" class="dark:hidden" />
+      <img
+        src={~p"/images/mark-dark.svg"}
+        width="26"
+        height="26"
+        alt=""
+        aria-hidden="true"
+        class="hidden dark:block"
+      />
       <span class="text-sm font-semibold tracking-tight text-ink">FluxVale</span>
     </a>
     <nav aria-label="Primary">
