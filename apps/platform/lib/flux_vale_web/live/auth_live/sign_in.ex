@@ -12,6 +12,11 @@ defmodule FluxValeWeb.AuthLive.SignIn do
 
   alias FluxVale.Identity
 
+  # Outside any live_session (anonymous surface), so the locale hook is
+  # declared here — the router's :authenticated list doesn't cover this
+  # route.
+  on_mount({FluxValeWeb.Locale, :set_locale})
+
   def render(assigns) do
     # The anonymous shell: no actor, so no org facts — these explicit
     # nils are the decision required: true demands (a default would let

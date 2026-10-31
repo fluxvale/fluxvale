@@ -43,6 +43,12 @@ defmodule FluxValeWeb.DashboardLive do
   @seconds_per_month 2_629_746
   @micro_per_cent 10_000
 
+  # Locale first — it must apply in this process before any rendering.
+  # Same story as the pair below: the authenticated live_session
+  # carries it for its own routes; this view renders through
+  # `live_render`, so it declares it itself.
+  on_mount({FluxValeWeb.Locale, :set_locale})
+
   on_mount({FluxValeWeb.UserAuth, :ensure_authenticated})
 
   # #276: the chrome's org data — OrgNav rides after the auth gate so

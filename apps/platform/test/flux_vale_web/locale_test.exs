@@ -2,16 +2,18 @@ defmodule FluxValeWeb.LocaleTest do
   @moduledoc false
 
   # The locale plumbing: session → plug → Gettext → rendered HEEx, plus
-  # the on_mount arm. The swap proof (locale "xx") rides the root
-  # layout's error banner title, which renders on every page. The
-  # router's live_session wiring itself is declarative — reviewed, not
-  # tested — so the probe LiveView mounts the hook directly.
+  # the on_mount arms. The swap proof (locale "xx") rides the app
+  # layout's error-flash title ("Something went wrong!"), which renders
+  # on every page; the root layout carries the matching lang attribute.
+  # The router's live_session wiring itself is declarative — reviewed,
+  # not tested — so the probe LiveView mounts the hook directly.
 
   use FluxValeWeb.ConnCase, async: true
 
   import Phoenix.LiveViewTest
 
   alias FluxVale.TestSupport.LocaleProbeLive
+  alias FluxVale.TestSupport.SessionHelpers
   alias FluxValeWeb.Locale
 
   test "init/1 passes opts through", _context do
@@ -82,5 +84,17 @@ defmodule FluxValeWeb.LocaleTest do
     {:ok, view, _html} = live_isolated(conn, LocaleProbeLive, session: %{})
 
     assert has_element?(view, "#locale-probe", "en")
+  end
+
+  # The live_session bypass: the signed-in `/` dashboard renders through
+  # `live_render`, so DashboardLive declares the locale hook itself
+  # (mirroring its sibling hooks). This asserts the LiveView process's
+  # own render — the fork the isolated probe cannot see.
+  test "signed-in / dashboard renders the session locale in the LiveView process", %{conn: conn} do
+    {_user, session_conn} = SessionHelpers.user_with_session(conn)
+    conn = Plug.Conn.put_session(session_conn, "locale", "xx")
+
+    {:ok, view, _html} = live(conn, ~p"/")
+    assert render(view) =~ "xx: Something went wrong!"
   end
 end

@@ -1,5 +1,11 @@
 ## "msgid"s in this file come from POT (.pot) files.
 ###
+### TEST FIXTURE, never a real language: "xx" exists only so tests can
+### prove the session→plug→Gettext→HEEx chain. It is never negotiated
+### from a browser — reachable only when a test or a signed session
+### sets locale "xx" (FluxValeWeb.Locale resolves session["locale"]
+### against Gettext.known_locales/1).
+###
 ### Do not add, change, or remove "msgid"s manually here as
 ### they're tied to the ones in the corresponding POT file
 ### (with the same domain).

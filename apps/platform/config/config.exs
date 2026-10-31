@@ -235,7 +235,7 @@ config :phoenix_live_view,
   root_tag_attribute: "phx-r"
 
 # Gettext default locale for the web backend: config, not library
-# default — adding a locale later is this config + PO files
+# default — switching the default later is this config + PO files
 # (FluxValeWeb.Locale resolves against the same backend).
 config :flux_vale, FluxValeWeb.Gettext, default_locale: "en"
 
