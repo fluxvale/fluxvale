@@ -162,6 +162,90 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfigTest do
     end
   end
 
+  # ------------------------------------------------------------------
+  # The tunnel limb (ADR-0040 §1): raw 443/80 → the access edge,
+  # config-gated. Local stacks (no :access_edge) must produce a config
+  # byte-identical to the pre-ADR shape — the S2 lesson, pinned here.
+  # ------------------------------------------------------------------
+
+  describe "build/3 — the tunnel limb" do
+    # async: false (see disable_wake_intercept/0): the config tests
+    # mutate node-global application env.
+
+    defp set_access_edge do
+      previous = Application.get_env(:flux_vale, :access_edge)
+
+      Application.put_env(:flux_vale, :access_edge,
+        service: "traefik.traefik.svc.cluster.local",
+        https_port: 443,
+        http_port: 80
+      )
+
+      on_exit(fn -> Application.put_env(:flux_vale, :access_edge, previous) end)
+    end
+
+    defp clear_access_edge do
+      previous = Application.get_env(:flux_vale, :access_edge)
+      Application.delete_env(:flux_vale, :access_edge)
+
+      on_exit(fn -> Application.put_env(:flux_vale, :access_edge, previous) end)
+    end
+
+    test "with an access edge the TCP arm gains the raw 443/80 forwards" do
+      set_access_edge()
+
+      config =
+        ServeConfig.build(@hostname, @domain, [
+          {"8443", "http://app.ns.svc.cluster.local:80"}
+        ])
+
+      assert config["TCP"]["443"] == %{
+               "TCPForward" => "traefik.traefik.svc.cluster.local:443"
+             }
+
+      assert config["TCP"]["80"] == %{"TCPForward" => "traefik.traefik.svc.cluster.local:80"}
+
+      # The per-app HTTPS entry rides beside the forwards, untouched.
+      assert config["TCP"]["8443"] == %{"HTTPS" => true}
+
+      # The Web arm never gains a tunnel entry — the forwards are
+      # hostname-agnostic; Traefik routes by Host past the tunnel.
+      refute Map.has_key?(config["Web"], "443")
+      refute Map.has_key?(config["Web"], "80")
+    end
+
+    test "without an access edge the config is BYTE-IDENTICAL to the pre-ADR shape" do
+      clear_access_edge()
+
+      config =
+        ServeConfig.build(@hostname, @domain, [
+          {"8443", "http://app.ns.svc.cluster.local:80"}
+        ])
+
+      # Exact-shape equality: this map is what ADR-0039 shipped, so a
+      # stray tunnel key (or a reshaped arm) fails here before a fleet
+      # of gateways mounts a changed routing table.
+      assert config == %{
+               "TCP" => %{"8443" => %{"HTTPS" => true}},
+               "Web" => %{
+                 "#{@hostname}.#{@domain}:8443" => %{
+                   "Handlers" => %{
+                     "/" => %{"Proxy" => "http://app.ns.svc.cluster.local:80"}
+                   }
+                 }
+               },
+               "AllowFunnel" => %{}
+             }
+
+      # The empty config too — the provision-time posture.
+      assert ServeConfig.build(@hostname, @domain, []) == %{
+               "TCP" => %{},
+               "Web" => %{},
+               "AllowFunnel" => %{}
+             }
+    end
+  end
+
   describe "target_for/2" do
     test "a sleeping instance targets the platform's access endpoint" do
       gateway_id = "0192f000-0000-7000-8000-000000000001"

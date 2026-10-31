@@ -37,10 +37,17 @@ if Mix.env() == :test do
   Mimic.copy(FluxVale.Infrastructure.Operations.InstanceK8s)
   # #238: the deploy's RBAC-propagation wait probes SelfSubjectAccessReview
   Mimic.copy(FluxVale.Clients.K8s.SelfAccessReview)
+  # ADR-0040 S3: a test must be able to force the gateway row's system
+  # funnel writes (:set_api_token_ref / :update_claims) to fail at the
+  # seam (the AccessDomain copy's reason).
+  Mimic.copy(FluxVale.Infrastructure.AccessGateway)
   # #268 (ADR-0039): the access provider boundary. Operation tests stub the
   # provider (and keep the cluster out of the DB suite); provider tests stub
   # the K8s resource modules beneath it.
   Mimic.copy(FluxVale.Infrastructure.AccessProviders.Tailscale)
+  # ADR-0040 S3: the claiming tests exercise the REAL provider against a
+  # stubbed API client (the HitPay Req-stub stance one level down).
+  Mimic.copy(FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient)
   # The attach race (P3-3): a test must be able to make `create_route` lose
   # the unique index while another attempt's row is committed.
   Mimic.copy(FluxVale.Infrastructure.AccessRoute)

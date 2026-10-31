@@ -18,6 +18,15 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomain do
   by the `:remove` action's own guard — the two entry points have
   different callers, and the platform row is load-bearing).
 
+  **The unclaim limb (ADR-0040 S3):** before the destroy, the domain is
+  un-claimed on the org's gateway if the gateway holds it — split-DNS
+  route and subnet route revert, the gateway's `dns_claims` loses the
+  entry. A failure FAILS the remove (the row stands, the owner retries):
+  destroying first would strand tailnet state no row records anymore —
+  the dangling-route shape nothing can converge. Membership was already
+  proven by the authorized read above, so the limb runs system-side
+  (authorize?: false).
+
   Ownership is enforced by the authorized re-read (the Instance
   `:delete` stance): the actor passes in opts, the read filters to
   their org, and a non-member gets Forbidden before any cluster call.
@@ -27,11 +36,13 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomain do
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Certificate
   alias FluxVale.Infrastructure.AccessDomain
+  alias FluxVale.Infrastructure.AccessGateway
+  alias FluxVale.Infrastructure.AccessProvider
 
   @doc """
   `:ok` or `{:error, reason}` — `reason` being `:platform_kind |
-  :hostnames_present | Forbidden | term()`. `opts` carry `actor:` /
-  `authorize?:`.
+  :hostnames_present | {:unclaim_failed, term()} | Forbidden | term()`.
+  `opts` carry `actor:` / `authorize?:`.
   """
   @spec call(AccessDomain.t(), keyword()) :: :ok | {:error, term()}
   def call(%AccessDomain{} = domain, opts \\ []) do
@@ -40,6 +51,7 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomain do
 
     with {:ok, domain} <- AccessDomain.get_by_id(domain.id, actor: actor, authorize?: authorize?),
          :ok <- ensure_custom(domain),
+         :ok <- unclaim_tailnet_state(domain),
          :ok <- destroy_row(domain, actor, authorize?) do
       safe_delete_certificate(domain)
     end
@@ -47,6 +59,42 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomain do
 
   defp ensure_custom(%AccessDomain{kind: :custom}), do: :ok
   defp ensure_custom(%AccessDomain{kind: :platform}), do: {:error, :platform_kind}
+
+  # ------------------------------------------------------------------
+  # The unclaim limb (ADR-0040 S3) — before the destroy, see moduledoc
+  # ------------------------------------------------------------------
+
+  defp unclaim_tailnet_state(domain) do
+    found = AccessGateway.get_for_organization(domain.organization_id, authorize?: false)
+
+    case found do
+      {:ok, %AccessGateway{} = gateway} -> unclaim_on(gateway, domain)
+      # No gateway — no claims anywhere; nothing to un-claim.
+      {:error, _no_gateway} -> :ok
+    end
+  end
+
+  defp unclaim_on(gateway, domain) do
+    if Map.has_key?(gateway.dns_claims || %{}, domain.domain) do
+      case unclaim_limb(gateway, domain) do
+        :ok -> :ok
+        # The remove FAILS (row stands, retry converges) — never a
+        # dangling tailnet route no row records anymore.
+        {:error, reason} -> {:error, {:unclaim_failed, reason}}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp unclaim_limb(gateway, domain) do
+    with :ok <- AccessProvider.impl_for(gateway).unclaim_domain(gateway, domain.domain),
+         claims = Map.delete(gateway.dns_claims || %{}, domain.domain),
+         {:ok, _row} <-
+           AccessGateway.update_claims(gateway, %{dns_claims: claims}, authorize?: false) do
+      :ok
+    end
+  end
 
   # The row's own FK is the hostname guard: a destroy with live
   # hostnames fails at the constraint (a hostname minted between the

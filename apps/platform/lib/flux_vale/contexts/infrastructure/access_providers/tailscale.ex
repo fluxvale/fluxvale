@@ -23,6 +23,13 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   state lives on a small PVC, so a restart rejoins as the same node
   (tagged, non-ephemeral — the key is join-time, not runtime).
 
+  The **API token is the second credential** (ADR-0040 §5): the
+  tailnet-claiming writes — subnet-route approval and split-DNS — go
+  through it, under the same Secret discipline. API keys expire
+  ≤90 days by design, so the drift observer lands a rejection
+  (`:unauthorized`) honestly instead of leaving the panel saying
+  Connected.
+
   All cluster access resolves through the gateway's own cluster (the
   platform's single cluster today — `Cluster` is the placement seam).
   """
@@ -36,6 +43,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   alias FluxVale.Clients.K8s.Resources.PersistentVolumeClaim
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Infrastructure.AccessGateway
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient
   alias FluxVale.Infrastructure.AccessProviders.Tailscale.Ports
   alias FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfig
   alias FluxVale.Infrastructure.AccessRoute
@@ -71,6 +79,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   defp deployment_name(gateway), do: object_name("gateway", gateway)
   defp state_claim_name(gateway), do: object_name("state", gateway)
   defp credential_secret_name(gateway), do: object_name("credential", gateway)
+  defp api_credential_secret_name(gateway), do: object_name("api-credential", gateway)
   defp serve_secret_name(gateway), do: object_name("serve-config", gateway)
 
   defp image, do: Application.fetch_env!(:flux_vale, :access_gateway)[:image]
@@ -227,6 +236,222 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   def gateway_status(%AccessGateway{} = gateway) do
     with {:ok, kubeconfig} <- kubeconfig() do
       observe(kubeconfig, gateway)
+    end
+  end
+
+  # ------------------------------------------------------------------
+  # claim_domain/3 and unclaim_domain/2 (ADR-0040 §3)
+  # ------------------------------------------------------------------
+
+  # The org's tailnet must RESOLVE the claimed hostname through
+  # FluxVale: two one-time API writes per (tailnet, domain) — approve
+  # the gateway's advertised resolver /32 (subnet routes) and add the
+  # domain's split-DNS route pointing at the resolver. The token is a
+  # NEW trust surface (§5): read from the Secret, used here, never
+  # logged.
+  @impl FluxVale.Infrastructure.AccessProvider
+  def claim_domain(%AccessGateway{} = gateway, domain, resolver_ip) do
+    with {:ok, token} <- read_api_credential(gateway),
+         {:ok, device} <- tailnet_node(token, gateway),
+         :ok <- ensure_subnet_route(token, device.id, resolver_ip),
+         :ok <- ensure_split_dns(token, domain, resolver_ip) do
+      {:ok, %{device_id: device.id, route: route_cidr(resolver_ip)}}
+    end
+  end
+
+  # The mirror. The split-DNS route is tailnet-global and SHARED — it is
+  # unset only when no OTHER gateway on this tailnet still claims the
+  # domain (one route per tailnet+domain serves all of them, §3: claims
+  # are per-gateway rows, the route is one). The /32 is per-node
+  # plumbing serving ALL of this gateway's claimed domains, so it comes
+  # off only when this gateway's LAST claim goes. Idempotent: an
+  # unclaimed domain still unsets (a no-op patch) and skips the route.
+  @impl FluxVale.Infrastructure.AccessProvider
+  def unclaim_domain(%AccessGateway{} = gateway, domain) do
+    with {:ok, token} <- read_api_credential(gateway),
+         :ok <- maybe_unset_split_dns(token, gateway, domain) do
+      maybe_disable_route(token, gateway, domain)
+    end
+  end
+
+  defp tailnet_node(token, gateway) do
+    case ApiClient.devices_lookup(token, gateway.hostname) do
+      {:ok, device} ->
+        {:ok, device}
+
+      {:error, :not_found} ->
+        {:error, :node_not_found}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  # Read → union → set: the POST REPLACES the enabled list, so ours is
+  # unioned with what is already enabled — and enabled even though the
+  # node may not advertise it yet (documented API capability; the node
+  # picks the route up when it starts advertising). A re-claim whose
+  # route is already enabled makes NO write.
+  defp ensure_subnet_route(token, device_id, resolver_ip) do
+    ours = route_cidr(resolver_ip)
+
+    case ApiClient.routes_get(token, device_id) do
+      {:ok, routes} ->
+        if ours in routes.enabled do
+          :ok
+        else
+          ApiClient.routes_set(token, device_id, Enum.uniq([ours | routes.enabled]))
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  # The PATCH is a native per-domain upsert: a re-claim whose value
+  # already matches makes NO write; any other state (absent, stale IP)
+  # converges with one patch.
+  defp ensure_split_dns(token, domain, resolver_ip) do
+    case ApiClient.split_dns_get(token) do
+      {:ok, current} ->
+        if Map.get(current, domain) == [resolver_ip] do
+          :ok
+        else
+          ApiClient.split_dns_patch(token, %{domain => [resolver_ip]})
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  # The claims are gateway-scoped rows on a SHARED tailnet (the owner's
+  # own two-org case, §10), so "still claimed" is checked over the
+  # same-suffix gateways — one route per tailnet+domain serves all of
+  # them.
+  defp maybe_unset_split_dns(token, gateway, domain) do
+    if other_claimant?(gateway, domain) do
+      :ok
+    else
+      ApiClient.split_dns_patch(token, %{domain => nil})
+    end
+  end
+
+  defp other_claimant?(gateway, domain) do
+    gateway_id = gateway.id
+    suffix = gateway.tailnet_domain
+
+    AccessGateway
+    |> Ash.Query.filter(tailnet_domain == ^suffix and id != ^gateway_id)
+    |> Ash.read!(authorize?: false)
+    |> Enum.any?(fn other -> Map.has_key?(other.dns_claims || %{}, domain) end)
+  end
+
+  defp maybe_disable_route(token, gateway, domain) do
+    remaining = Map.delete(gateway.dns_claims || %{}, domain)
+
+    if map_size(remaining) > 0 do
+      :ok
+    else
+      drop_subnet_route(token, gateway, domain)
+    end
+  end
+
+  defp drop_subnet_route(token, gateway, domain) do
+    ours = claimed_route(gateway, domain)
+
+    case tailnet_node(token, gateway) do
+      {:ok, %{id: device_id}} when is_binary(ours) ->
+        disable_route(token, device_id, ours)
+
+      # No route of ours identifiable (never claimed here, no resolver
+      # configured): nothing to disable.
+      {:ok, _device} ->
+        :ok
+
+      # The node already left the tailnet: its routes died with it —
+      # the DNS unset above was the dangling state.
+      {:error, :node_not_found} ->
+        :ok
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  # The /32 this gateway claimed with: the row's claim entry (what we
+  # actually enabled), falling back to the configured resolver. Nothing
+  # identifiable means nothing to remove.
+  defp claimed_route(gateway, domain) do
+    case Map.get(gateway.dns_claims || %{}, domain) do
+      ip when is_binary(ip) ->
+        route_cidr(ip)
+
+      _never_claimed ->
+        resolver_route()
+    end
+  end
+
+  defp disable_route(token, device_id, ours) do
+    case ApiClient.routes_get(token, device_id) do
+      {:ok, routes} ->
+        if ours in routes.enabled do
+          ApiClient.routes_set(token, device_id, List.delete(routes.enabled, ours))
+        else
+          :ok
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp route_cidr(resolver_ip), do: "#{resolver_ip}/32"
+
+  # ------------------------------------------------------------------
+  # The API token credential (ADR-0040 §5)
+  # ------------------------------------------------------------------
+
+  @doc """
+  Writes the org's Tailscale API token to the gateway's api-credential
+  Secret and returns its ref (§5's intake — `SetAccessApiToken`'s
+  cluster leg). Same discipline as the authkey pair: the row stores the
+  Secret's NAME, the token never reaches Postgres, no user surface
+  reads it back.
+  """
+  @spec write_api_credential(AccessGateway.t(), String.t()) ::
+          {:ok, %{api_token_secret_ref: String.t()}} | {:error, term()}
+  def write_api_credential(%AccessGateway{} = gateway, token) do
+    with {:ok, kubeconfig} <- kubeconfig() do
+      name = api_credential_secret_name(gateway)
+
+      case Secret.create(kubeconfig, access_namespace(), name, %{"TS_API_TOKEN" => token}) do
+        {:ok, _secret} -> {:ok, %{api_token_secret_ref: name}}
+        {:error, _reason} = error -> error
+      end
+    end
+  end
+
+  @doc """
+  Reads the API token back — internal only (claiming needs it for the
+  Tailscale API calls). No user surface returns it (§5).
+  """
+  @spec read_api_credential(AccessGateway.t()) :: {:ok, String.t()} | {:error, term()}
+  def read_api_credential(%AccessGateway{} = gateway) do
+    with {:ok, kubeconfig} <- kubeconfig() do
+      case Secret.get_data(kubeconfig, access_namespace(), api_credential_secret_name(gateway)) do
+        {:ok, %{"TS_API_TOKEN" => token}} when is_binary(token) and token != "" ->
+          {:ok, token}
+
+        {:ok, _malformed} ->
+          {:error, :api_token_malformed}
+
+        {:error, %Error{reason: :not_found}} ->
+          {:error, :no_api_token}
+
+        {:error, _reason} = error ->
+          error
+      end
     end
   end
 
@@ -629,7 +854,8 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
       # bare comparison would report "Connected" and keep billing for a
       # gateway that is mid-restart.
       {:ok, status} when is_map(status) ->
-        classify(status, gateway)
+        observed = classify(status, gateway)
+        reconcile_claim_credential(observed, gateway)
 
       # No Deployment. A row still in :provisioning has simply not had its
       # apply land yet; a row past that (:active/:needs_attention) has
@@ -671,6 +897,77 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
       {:ok,
        %{state: :needs_attention, message: "Not connected — check the access key and reconnect"}}
     end
+  end
+
+  # ------------------------------------------------------------------
+  # The claims drift limb (ADR-0040 §5)
+  # ------------------------------------------------------------------
+
+  # The copy that names the API token. Expired and revoked present
+  # identically (§5 — a key expires ≤90 days by design, so this WILL
+  # happen); "rejected" is the one honest word for both. The same copy
+  # is pinned in ClaimAccessDomain's drift write — keep the two in sync.
+  @token_rejected_message "Your Tailscale API key was rejected — paste a fresh one"
+
+  # Only a claimed, tokened gateway whose POD is fine reaches the
+  # token check: when the pod is down (or still landing), that failure
+  # is the one the panel must show. One token probe per observation
+  # pass — no retry loop (the honest one-shot; the next tick
+  # re-decides). A live 401 lands :needs_attention with the re-paste
+  # copy; any OTHER check failure (network, secret read) is logged and
+  # the pod-level observation stands — a flaky read must not flap a
+  # row.
+  defp reconcile_claim_credential({:ok, %{state: :active}} = observed, gateway) do
+    if claims_to_verify?(gateway) do
+      case verify_api_token(gateway) do
+        :ok ->
+          observed
+
+        {:error, :unauthorized} ->
+          {:ok, %{state: :needs_attention, message: @token_rejected_message}}
+
+        {:error, reason} ->
+          Logger.warning(
+            "Access gateway #{gateway.id} API token check failed (no drift): #{inspect(reason)}"
+          )
+
+          observed
+      end
+    else
+      observed
+    end
+  end
+
+  defp reconcile_claim_credential(observed, _gateway), do: observed
+
+  # Claims without a readable token cannot be verified either way — the
+  # pod-level observation stands (nothing was rejected).
+  defp verify_api_token(gateway) do
+    case read_api_credential(gateway) do
+      {:ok, token} ->
+        check_token(token, gateway)
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  # The cheapest scoped read (devices:core:read) doubles as the probe.
+  defp check_token(token, gateway) do
+    case ApiClient.devices_lookup(token, gateway.hostname) do
+      {:ok, _device} ->
+        :ok
+
+      {:error, :unauthorized} = error ->
+        error
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp claims_to_verify?(%AccessGateway{} = gateway) do
+    gateway.api_token_secret_ref != nil and map_size(gateway.dns_claims || %{}) > 0
   end
 
   # ==================================================================
@@ -716,25 +1013,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
     %{
       "name" => "tailscale",
       "image" => image(),
-      "env" => [
-        %{"name" => "TS_USERSPACE", "value" => "true"},
-        %{"name" => "TS_AUTH_ONCE", "value" => "true"},
-        %{"name" => "TS_HOSTNAME", "value" => gateway.hostname},
-        %{"name" => "TS_STATE_DIR", "value" => "/state"},
-        %{"name" => "TS_SERVE_CONFIG", "value" => "/serve/#{@serve_file}"},
-        %{"name" => "TS_ENABLE_HEALTH_CHECK", "value" => "true"},
-        %{"name" => "TS_KUBE_SECRET", "value" => ""},
-        %{"name" => "POD_IP", "valueFrom" => %{"fieldRef" => %{"fieldPath" => "status.podIP"}}},
-        %{
-          "name" => "TS_AUTHKEY",
-          "valueFrom" => %{
-            "secretKeyRef" => %{
-              "name" => credential_secret_name(gateway),
-              "key" => "TS_AUTHKEY"
-            }
-          }
-        }
-      ],
+      "env" => env(gateway),
       "ports" => [%{"containerPort" => 41_641, "protocol" => "UDP"}],
       "volumeMounts" => [
         %{"name" => "state", "mountPath" => "/state"},
@@ -757,6 +1036,58 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
         "failureThreshold" => 5
       }
     }
+  end
+
+  defp env(gateway) do
+    base = [
+      %{"name" => "TS_USERSPACE", "value" => "true"},
+      %{"name" => "TS_AUTH_ONCE", "value" => "true"},
+      %{"name" => "TS_HOSTNAME", "value" => gateway.hostname},
+      %{"name" => "TS_STATE_DIR", "value" => "/state"},
+      %{"name" => "TS_SERVE_CONFIG", "value" => "/serve/#{@serve_file}"},
+      %{"name" => "TS_ENABLE_HEALTH_CHECK", "value" => "true"},
+      %{"name" => "TS_KUBE_SECRET", "value" => ""},
+      %{"name" => "POD_IP", "valueFrom" => %{"fieldRef" => %{"fieldPath" => "status.podIP"}}},
+      %{
+        "name" => "TS_AUTHKEY",
+        "valueFrom" => %{
+          "secretKeyRef" => %{
+            "name" => credential_secret_name(gateway),
+            "key" => "TS_AUTHKEY"
+          }
+        }
+      }
+    ]
+
+    base ++ resolver_route_env()
+  end
+
+  # ADR-0040 §3: the gateway advertises the shared access-DNS
+  # resolver's /32, so tailnet devices can route to the resolver once
+  # the claim approves the route on the node. Config-gated like the
+  # tunnel limb — local stacks (no `:access_dns`) omit the env and the
+  # manifest is exactly what ADR-0039 shipped.
+  defp resolver_route_env do
+    case resolver_route() do
+      nil ->
+        []
+
+      cidr ->
+        [%{"name" => "TS_ROUTES", "value" => cidr}]
+    end
+  end
+
+  # The advertised /32 — one Service ClusterIP, never a wider slice
+  # (§12's subnet-route rule). Shared by the manifest and the unclaim's
+  # route fallback, so the two can never disagree.
+  defp resolver_route do
+    case Application.get_env(:flux_vale, :access_dns) do
+      config when is_list(config) ->
+        route_cidr(Keyword.fetch!(config, :resolver_ip))
+
+      _unset ->
+        nil
+    end
   end
 
   defp volumes(gateway) do

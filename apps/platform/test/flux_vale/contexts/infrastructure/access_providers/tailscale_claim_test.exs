@@ -1,0 +1,547 @@
+defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
+  @moduledoc """
+  The provider's tailnet-claiming half (ADR-0040 §3/§5) against stubbed
+  K8s Secrets and a stubbed API client: the idempotent claim
+  (read→union→set, no needless writes), the shared-tailnet unclaim rule
+  (one route per tailnet+domain; the /32 comes off with the gateway's
+  LAST claim), the observer's 401 drift limb, the api-credential Secret
+  pair, and the TS_ROUTES manifest limb.
+  """
+
+  # async: false — the TS_ROUTES/unclaim-fallback tests mutate the
+  # node-global :access_dns app env.
+  use FluxVale.DataCase, async: false
+  use Mimic
+
+  alias FluxVale.Clients.K8s
+  alias FluxVale.Clients.K8s.Error
+  alias FluxVale.Clients.K8s.Resources.Deployment
+  alias FluxVale.Clients.K8s.Resources.Secret
+  alias FluxVale.Infrastructure.AccessGateway
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient
+  alias FluxVale.TestSupport.BillingFixtures
+  alias FluxVale.TestSupport.InstanceFixtures
+
+  @domain "apps.customer.com"
+  @resolver_ip "10.43.0.20"
+  @ours @resolver_ip <> "/32"
+  @token "tskey-api-xyz"
+
+  @token_rejected_copy "Your Tailscale API key was rejected — paste a fresh one"
+
+  setup do
+    InstanceFixtures.local_cluster!()
+    parent = self()
+
+    stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+
+    stub(Secret, :create, fn _kc, ns, name, data ->
+      send(parent, {:secret_create, ns, name, data})
+      {:ok, %{}}
+    end)
+
+    stub(Secret, :get_data, fn _kc, _ns, _name -> {:ok, %{"TS_API_TOKEN" => @token}} end)
+
+    stub(Deployment, :apply_manifest, fn _kc, manifest ->
+      send(parent, {:deployment_apply, manifest})
+      {:ok, %{}}
+    end)
+
+    stub(FluxVale.Clients.K8s.Resources.PersistentVolumeClaim, :create, fn _kc,
+                                                                           _ns,
+                                                                           _name,
+                                                                           _spec ->
+      {:ok, %{}}
+    end)
+
+    stub(FluxVale.Clients.K8s.Resources.NetworkPolicy, :create, fn _kc, _ns, _name, _spec ->
+      {:ok, %{}}
+    end)
+
+    stub(Deployment, :restart, fn _kc, _ns, _name -> {:ok, %{}} end)
+
+    stub(Deployment, :status, fn _kc, _ns, _name ->
+      {:ok,
+       %{
+         ready: 1,
+         replicas: 1,
+         actual_replicas: 1,
+         updated: 1,
+         generation: 1,
+         observed_generation: 1
+       }}
+    end)
+
+    stub(ApiClient, :devices_lookup, fn _token, hostname ->
+      send(parent, {:devices_lookup, hostname})
+      {:ok, %{id: "dev-777"}}
+    end)
+
+    stub(ApiClient, :routes_get, fn _token, id ->
+      send(parent, {:routes_get, id})
+      {:ok, %{advertised: [], enabled: []}}
+    end)
+
+    stub(ApiClient, :routes_set, fn _token, id, routes ->
+      send(parent, {:routes_set, id, routes})
+      :ok
+    end)
+
+    stub(ApiClient, :split_dns_get, fn _token ->
+      send(parent, :split_dns_get)
+      {:ok, %{}}
+    end)
+
+    stub(ApiClient, :split_dns_patch, fn _token, patch ->
+      send(parent, {:split_dns_patch, patch})
+      :ok
+    end)
+
+    {org, _owner} = BillingFixtures.grant_free_org!()
+    {:ok, wallet} = FluxVale.Billing.ensure_wallet(org)
+    {:ok, _grant} = FluxVale.Billing.grant_credits(wallet, 10_000, reason: :adjustment)
+
+    {:ok, org: org}
+  end
+
+  describe "claim_domain/3" do
+    test "approves the /32 and adds the split-DNS route", %{org: org} do
+      gateway = gateway_row!(org)
+
+      assert {:ok, %{device_id: "dev-777", route: @ours}} =
+               Tailscale.claim_domain(gateway, @domain, @resolver_ip)
+
+      assert_received {:devices_lookup, hostname}
+      assert hostname == gateway.hostname
+
+      # Pre-enable: our /32 goes on even though the node advertised
+      # nothing yet (documented API capability — §3).
+      assert_received {:routes_set, "dev-777", [@ours]}
+      assert_received {:split_dns_patch, %{@domain => [@resolver_ip]}}
+    end
+
+    test "a re-claim whose route and route-value already hold makes NO write", %{org: org} do
+      gateway = gateway_row!(org)
+
+      stub(ApiClient, :routes_get, fn _token, _id ->
+        {:ok, %{advertised: [@ours], enabled: [@ours]}}
+      end)
+
+      stub(ApiClient, :split_dns_get, fn _token ->
+        {:ok, %{@domain => [@resolver_ip]}}
+      end)
+
+      reject(ApiClient, :routes_set, 3)
+      reject(ApiClient, :split_dns_patch, 2)
+
+      assert {:ok, %{device_id: "dev-777"}} =
+               Tailscale.claim_domain(gateway, @domain, @resolver_ip)
+    end
+
+    test "unions with what is already enabled — the POST replaces", %{org: org} do
+      gateway = gateway_row!(org)
+      claim_with_enabled(gateway, ["10.0.0.1/32"])
+    end
+
+    test "the DNS value converges even when the route is already enabled", %{org: org} do
+      gateway = gateway_row!(org)
+
+      stub(ApiClient, :routes_get, fn _token, _id ->
+        {:ok, %{advertised: [], enabled: [@ours]}}
+      end)
+
+      reject(ApiClient, :routes_set, 3)
+
+      assert {:ok, _claimed} = Tailscale.claim_domain(gateway, @domain, @resolver_ip)
+
+      # Stale IP on the tailnet: one patch, not two writes.
+      assert_received {:split_dns_patch, %{@domain => [@resolver_ip]}}
+      refute_received {:routes_set, _id, _routes}
+    end
+
+    test "no token is :no_api_token, before any API call", %{org: org} do
+      gateway = gateway_row!(org)
+
+      stub(Secret, :get_data, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub(ApiClient, :devices_lookup, fn _t, _h -> flunk("no API call without a token") end)
+
+      assert {:error, :no_api_token} = Tailscale.claim_domain(gateway, @domain, @resolver_ip)
+    end
+
+    test "an unknown node is :node_not_found", %{org: org} do
+      gateway = gateway_row!(org)
+
+      stub(ApiClient, :devices_lookup, fn _token, _hostname -> {:error, :not_found} end)
+      reject(ApiClient, :routes_get, 2)
+
+      assert {:error, :node_not_found} = Tailscale.claim_domain(gateway, @domain, @resolver_ip)
+    end
+
+    test "a rejected token propagates :unauthorized", %{org: org} do
+      gateway = gateway_row!(org)
+
+      stub(ApiClient, :devices_lookup, fn _token, _hostname -> {:error, :unauthorized} end)
+
+      assert {:error, :unauthorized} = Tailscale.claim_domain(gateway, @domain, @resolver_ip)
+    end
+  end
+
+  describe "unclaim_domain/2" do
+    test "the gateway's LAST claim unsets the DNS route and disables the /32", %{org: org} do
+      gateway = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+
+      stub(ApiClient, :routes_get, fn _token, _id ->
+        {:ok, %{advertised: [@ours], enabled: [@ours, "10.0.0.1/32"]}}
+      end)
+
+      assert :ok = Tailscale.unclaim_domain(gateway, @domain)
+
+      assert_received {:split_dns_patch, %{@domain => nil}}
+
+      # Read → difference → set: only OURS leaves; the stranger's route
+      # must survive the POST's replace semantics.
+      assert_received {:routes_set, "dev-777", ["10.0.0.1/32"]}
+    end
+
+    test "a shared tailnet keeps the DNS route (another gateway claims it)", %{org: org} do
+      gateway = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+
+      # The owner's own case: a second org's gateway on the SAME tailnet
+      # still claims the domain — one route serves all of them (§3).
+      _other =
+        Ash.Seed.seed!(AccessGateway, %{
+          organization_id: other_org!().id,
+          hostname: "fv-00000009",
+          monthly_cents: 200,
+          state: :active,
+          tailnet_domain: "example.ts.net",
+          dns_claims: %{@domain => @resolver_ip}
+        })
+
+      stub(ApiClient, :routes_get, fn _token, _id ->
+        {:ok, %{advertised: [@ours], enabled: [@ours]}}
+      end)
+
+      assert :ok = Tailscale.unclaim_domain(gateway, @domain)
+
+      # The DNS route STAYS; this gateway's (now claim-less) node route
+      # still goes — it is per-node plumbing.
+      refute_received {:split_dns_patch, _patch}
+      assert_received {:routes_set, "dev-777", []}
+    end
+
+    test "remaining claims keep the /32 — it serves all claimed domains", %{org: org} do
+      gateway =
+        with_claims(gateway_row!(org), %{
+          @domain => @resolver_ip,
+          "other.example.com" => @resolver_ip
+        })
+
+      assert :ok = Tailscale.unclaim_domain(gateway, @domain)
+
+      # The domain's route is unset; the /32 stays for the OTHER claim.
+      assert_received {:split_dns_patch, %{@domain => nil}}
+      refute_received {:routes_set, _id, _routes}
+    end
+
+    test "an already-disabled route makes no write", %{org: org} do
+      gateway = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+
+      stub(ApiClient, :routes_get, fn _token, _id ->
+        {:ok, %{advertised: [], enabled: []}}
+      end)
+
+      assert :ok = Tailscale.unclaim_domain(gateway, @domain)
+
+      assert_received {:split_dns_patch, %{@domain => nil}}
+      refute_received {:routes_set, _id, _routes}
+    end
+
+    test "a vanished node unclaims as DNS-only — its routes died with it", %{org: org} do
+      gateway = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+
+      stub(ApiClient, :devices_lookup, fn _token, _hostname -> {:error, :not_found} end)
+      reject(ApiClient, :routes_get, 2)
+
+      assert :ok = Tailscale.unclaim_domain(gateway, @domain)
+
+      assert_received {:split_dns_patch, %{@domain => nil}}
+      refute_received {:routes_set, _id, _routes}
+    end
+
+    test "no token is :no_api_token", %{org: org} do
+      gateway = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+
+      stub(Secret, :get_data, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub(ApiClient, :split_dns_patch, fn _t, _p -> flunk("no API call without a token") end)
+
+      assert {:error, :no_api_token} = Tailscale.unclaim_domain(gateway, @domain)
+    end
+
+    test "no claim entry and no resolver configured: the DNS unset lands, nothing else", %{
+      org: org
+    } do
+      previous = Application.get_env(:flux_vale, :access_dns)
+      Application.put_env(:flux_vale, :access_dns, nil)
+
+      gateway = gateway_row!(org)
+
+      assert :ok = Tailscale.unclaim_domain(gateway, @domain)
+
+      assert_received {:split_dns_patch, %{@domain => nil}}
+      refute_received {:routes_set, _id, _routes}
+
+      on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
+    end
+  end
+
+  describe "gateway_status/1 — the claims drift limb" do
+    test "a valid token leaves the pod-level observation standing", %{org: org} do
+      claimed = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+      gateway = with_token_ref(claimed, "api-credential-x")
+
+      stub(ApiClient, :devices_lookup, fn _token, _hostname -> {:ok, %{id: "dev-777"}} end)
+
+      assert {:ok, %{state: :active, message: "Connected to your tailnet"}} =
+               Tailscale.gateway_status(gateway)
+    end
+
+    test "a 401 lands :needs_attention with the re-paste copy", %{org: org} do
+      claimed = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+      gateway = with_token_ref(claimed, "api-credential-x")
+
+      stub(ApiClient, :devices_lookup, fn _token, _hostname -> {:error, :unauthorized} end)
+
+      assert {:ok, %{state: :needs_attention, message: @token_rejected_copy}} =
+               Tailscale.gateway_status(gateway)
+    end
+
+    test "an unclaimed gateway makes no API call", %{org: org} do
+      gateway = with_token_ref(gateway_row!(org), "api-credential-x")
+
+      stub(ApiClient, :devices_lookup, fn _t, _h ->
+        flunk("nothing claimed, nothing to verify")
+      end)
+
+      assert {:ok, %{state: :active}} = Tailscale.gateway_status(gateway)
+    end
+
+    test "claims without a token ref make no API call", %{org: org} do
+      gateway = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+
+      stub(ApiClient, :devices_lookup, fn _t, _h -> flunk("no token, nothing to verify") end)
+
+      assert {:ok, %{state: :active}} = Tailscale.gateway_status(gateway)
+    end
+
+    test "a flaky token check must not flap the row", %{org: org} do
+      claimed = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+      gateway = with_token_ref(claimed, "api-credential-x")
+
+      stub(ApiClient, :devices_lookup, fn _token, _hostname -> {:error, :network_error} end)
+
+      assert {:ok, %{state: :active}} = Tailscale.gateway_status(gateway)
+    end
+
+    test "an unreadable token stands down — nothing provable either way", %{org: org} do
+      claimed = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+      gateway = with_token_ref(claimed, "api-credential-x")
+
+      stub(Secret, :get_data, fn _kc, _ns, _name -> {:ok, %{}} end)
+      stub(ApiClient, :devices_lookup, fn _t, _h -> flunk("no token was read") end)
+
+      assert {:ok, %{state: :active}} = Tailscale.gateway_status(gateway)
+    end
+
+    test "a pod problem dominates — the token is not even asked", %{org: org} do
+      claimed = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+      gateway = with_token_ref(claimed, "api-credential-x")
+
+      stub(Deployment, :status, fn _kc, _ns, _name ->
+        {:ok,
+         %{
+           ready: 0,
+           replicas: 1,
+           actual_replicas: 1,
+           updated: 1,
+           generation: 1,
+           observed_generation: 1
+         }}
+      end)
+
+      stub(ApiClient, :devices_lookup, fn _t, _h -> flunk("pod failure dominates") end)
+
+      assert {:ok, %{state: :needs_attention, message: message}} =
+               Tailscale.gateway_status(gateway)
+
+      refute message == @token_rejected_copy
+    end
+  end
+
+  describe "the api-credential Secret pair" do
+    test "write_api_credential stores TS_API_TOKEN and returns the ref", %{org: org} do
+      gateway = gateway_row!(org)
+
+      assert {:ok, %{api_token_secret_ref: ref}} =
+               Tailscale.write_api_credential(gateway, "tskey-api-new")
+
+      assert ref == "api-credential-" <> short_id(gateway)
+      assert_received {:secret_create, ns, ^ref, %{"TS_API_TOKEN" => "tskey-api-new"}}
+      assert ns == "fluxvale-access"
+    end
+
+    test "read_api_credential returns the token — internal only", %{org: org} do
+      gateway = gateway_row!(org)
+
+      assert {:ok, @token} = Tailscale.read_api_credential(gateway)
+    end
+
+    test "a malformed Secret is explicit", %{org: org} do
+      gateway = gateway_row!(org)
+
+      stub(Secret, :get_data, fn _kc, _ns, _name -> {:ok, %{}} end)
+
+      assert {:error, :api_token_malformed} = Tailscale.read_api_credential(gateway)
+    end
+
+    test "an absent Secret is :no_api_token", %{org: org} do
+      gateway = gateway_row!(org)
+
+      stub(Secret, :get_data, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      assert {:error, :no_api_token} = Tailscale.read_api_credential(gateway)
+    end
+  end
+
+  describe "the TS_ROUTES manifest limb" do
+    test "a configured resolver advertises its /32", %{org: org} do
+      previous = put_access_dns()
+
+      gateway = gateway_row!(org)
+      then_assert_env(gateway, "TS_ROUTES", @ours)
+
+      on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
+    end
+
+    test "no resolver configured: no TS_ROUTES, the manifest is the ADR-0039 shape", %{org: org} do
+      previous = Application.get_env(:flux_vale, :access_dns)
+      Application.put_env(:flux_vale, :access_dns, nil)
+
+      gateway = gateway_row!(org)
+      then_refute_env(gateway, "TS_ROUTES")
+
+      on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
+    end
+  end
+
+  # ------------------------------------------------------------------
+  # Helpers
+  # ------------------------------------------------------------------
+
+  defp other_org! do
+    {org, _owner} = BillingFixtures.grant_free_org!()
+    org
+  end
+
+  # A real row through the create action — the provider's own provision
+  # leg runs against the setup's capturing stubs (tailscale_test's
+  # stance: these tests ARE the provider).
+  defp gateway_row!(org) do
+    gateway =
+      AccessGateway.create!(
+        %{
+          organization_id: org.id,
+          monthly_cents: 200,
+          tailnet_domain: "example.ts.net",
+          auth_key: "tskey"
+        },
+        authorize?: false
+      )
+
+    gateway
+    |> Ash.Changeset.for_update(
+      :update_state,
+      %{state: :active, status_message: "Connected"},
+      authorize?: false
+    )
+    |> Ash.update!()
+  end
+
+  defp with_claims(gateway, claims) do
+    Ash.update!(gateway, %{dns_claims: claims},
+      action: :update_claims,
+      authorize?: false
+    )
+  end
+
+  defp with_token_ref(gateway, ref) do
+    Ash.update!(gateway, %{api_token_secret_ref: ref},
+      action: :set_api_token_ref,
+      authorize?: false
+    )
+  end
+
+  defp claim_with_enabled(gateway, enabled) do
+    stub(ApiClient, :routes_get, fn _token, _id ->
+      {:ok, %{advertised: [], enabled: enabled}}
+    end)
+
+    assert {:ok, _claimed} = Tailscale.claim_domain(gateway, @domain, @resolver_ip)
+
+    # Union, not replace: the stranger's route rides along (§12's rule).
+    assert_received {:routes_set, "dev-777", [@ours | ^enabled]}
+  end
+
+  defp short_id(gateway) do
+    gateway.id
+    |> to_string()
+    |> String.replace("-", "")
+    |> String.slice(-10, 10)
+  end
+
+  defp put_access_dns do
+    previous = Application.get_env(:flux_vale, :access_dns)
+    Application.put_env(:flux_vale, :access_dns, resolver_ip: @resolver_ip)
+    previous
+  end
+
+  defp then_assert_env(gateway, env_name, value) do
+    manifest = deployment_manifest!()
+
+    env =
+      manifest["spec"]["template"]["spec"]["containers"]
+      |> hd()
+      |> Map.fetch!("env")
+      |> Map.new(&{&1["name"], &1})
+
+    assert env[env_name]["value"] == value
+    gateway
+  end
+
+  defp then_refute_env(gateway, env_name) do
+    manifest = deployment_manifest!()
+
+    names =
+      manifest["spec"]["template"]["spec"]["containers"]
+      |> hd()
+      |> Map.fetch!("env")
+      |> Enum.map(& &1["name"])
+
+    refute env_name in names
+    gateway
+  end
+
+  defp deployment_manifest! do
+    assert_received {:deployment_apply, manifest}
+    manifest
+  end
+end

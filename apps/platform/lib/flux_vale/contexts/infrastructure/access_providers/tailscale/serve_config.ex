@@ -32,6 +32,15 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfig do
   "nothing is funneled", so a config that somehow carried a Funnel entry
   would not be produced here at all. Private access must never become
   public access.
+
+  **The tunnel limb (ADR-0040 §1):** when app config `:flux_vale,
+  :access_edge` is set, the TCP arm gains raw forwards — `"443"` (and
+  `"80"` for redirects) → the access edge, uninterpreted (TLS included:
+  Traefik terminates, routes by hostname). The limb is config-gated so
+  local stacks — no access edge — produce a config byte-identical to
+  the pre-ADR shape (pinned by test — S2's byte-identical lesson). The
+  per-app `Web` entries are untouched in both states: the ts.net port
+  address remains the fallback that works with nothing claimed.
   """
 
   @doc """
@@ -44,8 +53,12 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfig do
   """
   @spec build(String.t(), String.t() | nil, [{String.t(), String.t()}]) :: map()
   def build(hostname, tailnet_domain, entries) do
+    per_app = tcp_arm(entries)
+    tunnel = tunnel_arm()
+    tcp = Map.merge(per_app, tunnel)
+
     %{
-      "TCP" => tcp_arm(entries),
+      "TCP" => tcp,
       "Web" => web_arm(hostname, tailnet_domain, entries),
       "AllowFunnel" => %{}
     }
@@ -63,6 +76,30 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfig do
   # cert is what makes the app's absolute-URL generation work).
   defp tcp_arm(entries) do
     Map.new(entries, fn {port, _target} -> {port, %{"HTTPS" => true}} end)
+  end
+
+  # The strong form's raw forwards (ADR-0040 §1): the gateway tunnels
+  # uninterpreted bytes to the access edge, where Traefik routes by
+  # Host and terminates TLS from the platform's cert Secrets. The
+  # per-app ports never collide with these: the pool starts at 8443
+  # (`Ports`), deliberately above serve's common 443/80.
+  defp tunnel_arm do
+    case Application.get_env(:flux_vale, :access_edge) do
+      config when is_list(config) ->
+        service = Keyword.fetch!(config, :service)
+        https_port = Keyword.fetch!(config, :https_port)
+        http_port = Keyword.fetch!(config, :http_port)
+
+        %{
+          "443" => %{"TCPForward" => "#{service}:#{https_port}"},
+          "80" => %{"TCPForward" => "#{service}:#{http_port}"}
+        }
+
+      # Local stacks have no access edge: the limb is OMITTED and the
+      # config is byte-identical to the pre-ADR shape (pinned by test).
+      _unset ->
+        %{}
+    end
   end
 
   defp web_arm(_hostname, _tailnet_domain, []), do: %{}

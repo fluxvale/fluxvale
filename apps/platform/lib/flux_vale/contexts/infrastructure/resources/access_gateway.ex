@@ -172,6 +172,14 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       forbid_if(always())
     end
 
+    # The claims/token-ref writes are the claiming system's (the
+    # claim/unclaim operations and RemoveAccessDomain's unclaim limb run
+    # them authorize?: false — the ops seam).
+    policy action([:set_api_token_ref, :update_claims]) do
+      description("System-only: the API-token ref and tailnet-claims writes (authorize?: false)")
+      forbid_if(always())
+    end
+
     policy action_type(:destroy) do
       description("Members tear their org's gateway down (opt-out)")
       authorize_if(relates_to_actor_via([:organization, :members]))
@@ -261,6 +269,24 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     # The Secret's NAME in the access namespace. Never the key. Opaque
     # to everything outside the provider implementation (ADR-0039 §2).
     attribute :credential_secret_ref, :string do
+      public?(false)
+    end
+
+    # The Secret's NAME holding the org's Tailscale API token (ADR-0040
+    # §5 — the tailnet-claiming trust surface, dns + routes scopes).
+    # Same discipline as `credential_secret_ref`: the token itself never
+    # reaches Postgres and no user surface reads it back. Nullable: a
+    # gateway that never claimed needs no token.
+    attribute :api_token_secret_ref, :string do
+      public?(false)
+    end
+
+    # The tailnet claims this gateway holds (ADR-0040 §3): domain =>
+    # resolver IP, one entry per claimed domain. The claim registry the
+    # unclaim's shared-tailnet rule reads (one split-DNS route per
+    # tailnet+domain serves all gateways). Written only through the
+    # claim/unclaim funnels (system seams).
+    attribute :dns_claims, :map do
       public?(false)
     end
 
@@ -397,6 +423,18 @@ defmodule FluxVale.Infrastructure.AccessGateway do
         :provisioned_at,
         :credential_secret_ref
       ])
+    end
+
+    update :set_api_token_ref do
+      description("System-only: the API-token Secret's ref on the row (authorize?: false).")
+      accept([:api_token_secret_ref])
+      require_atomic?(false)
+    end
+
+    update :update_claims do
+      description("System-only: the gateway's tailnet claims map (authorize?: false).")
+      accept([:dns_claims])
+      require_atomic?(false)
     end
 
     # The observer's body — the trigger below drives it every minute.
@@ -577,6 +615,8 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     define(:list_all)
     define(:update_credential)
     define(:update_state)
+    define(:set_api_token_ref)
+    define(:update_claims)
     define(:suspend)
     define(:resume)
     define(:delete, args: [:id])

@@ -11,8 +11,11 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomainTest do
   alias FluxVale.Clients.K8s
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessDomain
+  alias FluxVale.Infrastructure.AccessGateway
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.InstanceHostname
+  alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
@@ -152,8 +155,96 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomainTest do
   end
 
   # ------------------------------------------------------------------
+  # The unclaim limb (ADR-0040 S3): before the destroy, the org's
+  # gateway loses the domain's tailnet claim. Failure FAILS the remove.
+  # ------------------------------------------------------------------
+
+  describe "remove/2 — the unclaim limb" do
+    setup do
+      stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
+
+      :ok
+    end
+
+    test "a claimed domain is un-claimed BEFORE the row goes", %{org: org, owner: owner} do
+      domain = register_custom_domain!(owner)
+
+      gateway =
+        update_claims!(
+          AccessFixtures.gateway!(org),
+          %{domain.domain => "10.43.0.20"}
+        )
+
+      stub(Tailscale, :unclaim_domain, fn gw, domain_name ->
+        assert gw.id == gateway.id
+        assert domain_name == domain.domain
+        :ok
+      end)
+
+      expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 200, body: %{}}} end)
+
+      assert :ok = Infrastructure.remove_access_domain(domain, actor: owner)
+      refute still_there?(domain.id)
+
+      row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+      assert row.dns_claims == %{}
+    end
+
+    test "an unclaim failure fails the remove — no dangling tailnet state", %{
+      org: org,
+      owner: owner
+    } do
+      domain = register_custom_domain!(owner)
+
+      gateway =
+        update_claims!(
+          AccessFixtures.gateway!(org),
+          %{domain.domain => "10.43.0.20"}
+        )
+
+      stub(Tailscale, :unclaim_domain, fn _gw, _d -> {:error, :unauthorized} end)
+
+      stub(Kubereq, :delete, fn _req, _ns, _name ->
+        flunk("the row must stand while unclaim fails")
+      end)
+
+      assert {:error, {:unclaim_failed, :unauthorized}} =
+               Infrastructure.remove_access_domain(domain, actor: owner)
+
+      assert still_there?(domain.id)
+
+      # The row's claims are untouched too — the retry re-runs the limb.
+      row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+      assert row.dns_claims == %{domain.domain => "10.43.0.20"}
+    end
+
+    test "a gateway without a claim removes with no provider call", %{org: org, owner: owner} do
+      domain = register_custom_domain!(owner)
+      AccessFixtures.gateway!(org)
+
+      reject(Tailscale, :unclaim_domain, 2)
+
+      expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 200, body: %{}}} end)
+
+      assert :ok = Infrastructure.remove_access_domain(domain, actor: owner)
+      refute still_there?(domain.id)
+    end
+  end
+
+  # ------------------------------------------------------------------
   # Helpers
   # ------------------------------------------------------------------
+
+  # The system funnel for the claims map (never a raw write — the same
+  # seam the claiming ops land through).
+  defp update_claims!(gateway, claims) do
+    Ash.update!(gateway, %{dns_claims: claims},
+      action: :update_claims,
+      authorize?: false
+    )
+  end
 
   defp register_custom_domain!(owner) do
     expect(Kubereq, :apply, fn _req, manifest, _fm ->

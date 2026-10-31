@@ -201,6 +201,23 @@ config :flux_vale,
     certificate_namespace: "fluxvale-access",
     issuance_deadline_hours: 72
   ],
+  # Strong private access (ADR-0040 S3): the tunnel + resolution halves
+  # of the gateway's tailnet work. Both nil here = dev-safe: the serve
+  # config has NO tunnel limb (byte-identical to the pre-ADR shape,
+  # pinned by test), the pod advertises no TS_ROUTES, and claiming
+  # refuses honestly (`:resolver_unconfigured`). The fleet overlays set
+  # both from env (runtime.exs — the instances_base_domain pattern).
+  # `access_edge` names the Traefik access entrypoint the gateway's raw
+  # 443/80 forward to (service = the fully-qualified in-cluster DNS
+  # name); `access_dns` names the shared resolver's ClusterIP (a
+  # fleet-reserved /32 — one Service IP, never a wider slice, §12).
+  # `tailscale_api` is the API surface claims are written through
+  # (§5's token arrives pasted through SetAccessApiToken, never env).
+  access_edge: nil,
+  access_dns: nil,
+  tailscale_api: [
+    base_url: "https://api.tailscale.com"
+  ],
   # One active payment provider (ADR-0029); per-provider webhook routes
   # and config blocks make the gateway a one-module swap. HitPay is the
   # first implementation (Am. 2) — test mode first: base_url defaults

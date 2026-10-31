@@ -50,6 +50,70 @@ case System.get_env("INSTANCES_BASE_DOMAIN") do
   domain -> config :flux_vale, :instances_base_domain, domain
 end
 
+# ADR-0040 S3's runtime wiring (the INSTANCES_BASE_DOMAIN pattern): the
+# fleet overlays set the access edge (the gateway tunnel's target) and
+# the shared resolver IP (the advertised /32 + claim target). Unset — or
+# "" — keeps config.exs's dev-safe defaults (both limbs off). Invalid
+# values raise at boot: a typo'd port or resolver IP would otherwise
+# poison every claim silently. Edge ports default to 443/80 (the access
+# entrypoint's shape, ADR-0040 §1) and are overridden only when the
+# entrypoint differs.
+parse_port = fn var_name, default ->
+  case System.get_env(var_name) do
+    value when value in [nil, ""] ->
+      default
+
+    value ->
+      case Integer.parse(value) do
+        {port, ""} when port > 0 ->
+          port
+
+        _invalid ->
+          raise ArgumentError, "#{var_name}=#{inspect(value)} is not a positive integer"
+      end
+  end
+end
+
+# Dotted-quad with octets in range — loose enough for any private
+# service CIDR the fleet reserves from, strict enough that garbage
+# cannot become a route.
+valid_ipv4? = fn ip ->
+  octets = String.split(ip, ".")
+
+  Enum.count(octets) == 4 and
+    Enum.all?(octets, fn octet ->
+      Regex.match?(~r/\A\d{1,3}\z/, octet) and String.to_integer(octet) <= 255
+    end)
+end
+
+case System.get_env("ACCESS_EDGE_SERVICE") do
+  service when service in [nil, ""] ->
+    :ok
+
+  service ->
+    config :flux_vale, :access_edge,
+      service: service,
+      https_port: parse_port.("ACCESS_EDGE_HTTPS_PORT", 443),
+      http_port: parse_port.("ACCESS_EDGE_HTTP_PORT", 80)
+end
+
+case System.get_env("ACCESS_DNS_RESOLVER_IP") do
+  ip when ip in [nil, ""] ->
+    :ok
+
+  ip ->
+    unless valid_ipv4?.(ip) do
+      raise ArgumentError, "ACCESS_DNS_RESOLVER_IP=#{inspect(ip)} is not an IPv4 address"
+    end
+
+    config :flux_vale, :access_dns, resolver_ip: ip
+end
+
+case System.get_env("TAILSCALE_API_URL") do
+  url when url in [nil, ""] -> :ok
+  url -> config :flux_vale, :tailscale_api, base_url: url
+end
+
 # #203: the idle-sleep threshold (ADR-0036's settled 1h default lives in
 # config.exs). The E2E stack shortens it via the bootstrap — a real
 # 1-hour wait would blow the suite's budget; the same override is the
