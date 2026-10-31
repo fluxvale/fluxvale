@@ -15,6 +15,7 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomainTest do
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.InstanceHostname
+  alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -22,6 +23,18 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomainTest do
   setup do
     stub(K8s, :kubeconfig, fn -> {:ok, %{}} end)
     stub(Kubereq, :attach, fn req, _opts -> req end)
+
+    # The S4 hook tests build a gateway (the claims' owner); its create
+    # runs the provider's provision leg — stubbed like the claim tests'.
+    stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+      {:ok, %{credential_secret_ref: "credential-stub"}}
+    end)
+
+    # The S4 hook: a successful remove (claims gone) re-renders the
+    # resolver view best-effort. Default success; expect-ed where a
+    # test cares.
+    stub(RenderAccessDNS, :call, fn -> :ok end)
+    stub(RenderAccessDNS, :call, fn _opts -> :ok end)
 
     {org, owner} = BillingFixtures.grant_free_org!()
     # Instance create resolves the platform's cluster (ResolveCluster);
@@ -325,5 +338,41 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomainTest do
 
   defp still_there?(id) do
     match?({:ok, %AccessDomain{}}, AccessDomain.get_by_id(id, authorize?: false))
+  end
+
+  describe "the S4 render hook (ADR-0040 §4)" do
+    test "a successful remove re-renders the resolver view (the claims moved)", %{
+      org: org,
+      owner: owner
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      domain = register_custom_domain!(owner)
+
+      stub(Tailscale, :unclaim_domain, fn _gw, _name -> :ok end)
+
+      # The cert safe-delete (the remove's last limb).
+      stub(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 200}} end)
+
+      expect(RenderAccessDNS, :call, fn -> :ok end)
+
+      assert :ok = Infrastructure.remove_access_domain(domain, actor: owner)
+      refute still_there?(domain.id)
+      assert gateway.id
+    end
+
+    test "a failed unclaim never re-renders (the row stands)", %{org: org, owner: owner} do
+      _gateway = AccessFixtures.gateway!(org)
+      domain = register_custom_domain!(owner)
+
+      stub(Tailscale, :unclaim_domain, fn _gw, _name -> {:error, :unauthorized} end)
+
+      stub(RenderAccessDNS, :call, fn -> flunk("no render on a failed primary") end)
+      stub(RenderAccessDNS, :call, fn _opts -> flunk("no render on a failed primary") end)
+
+      assert {:error, {:unclaim_failed, :unauthorized}} =
+               Infrastructure.remove_access_domain(domain, actor: owner)
+
+      assert still_there?(domain.id)
+    end
   end
 end

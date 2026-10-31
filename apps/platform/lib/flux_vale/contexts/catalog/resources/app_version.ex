@@ -93,6 +93,18 @@ defmodule FluxVale.Catalog.AppVersion do
       constraints(match: ~r/^[A-Za-z_][A-Za-z0-9_]*$/)
     end
 
+    # Env var the deploy fills with the instance's hostname when the app
+    # validates Host headers (Django-class ALLOWED_HOSTS): the app would
+    # otherwise 400 every request from its real name. Filled when the
+    # default hostname is LIVE on a claimed domain — public rows always,
+    # private rows per ADR-0040 §7's designed exception to ADR-0038 §4's
+    # omission rule. nil = not wanted. No seed sets it yet — opt-in per
+    # catalog app; the first consumer app sets it in its blueprint.
+    attribute :host_allowlist_env, :string do
+      public?(true)
+      constraints(match: ~r/^[A-Za-z_][A-Za-z0-9_]*$/)
+    end
+
     # Always-shipped env (operator-owned; deployer stringifies values).
     attribute :default_env_vars, :map do
       allow_nil?(false)
@@ -174,6 +186,7 @@ defmodule FluxVale.Catalog.AppVersion do
         :healthcheck_path,
         :storage_mount_path,
         :instance_url_env,
+        :host_allowlist_env,
         :default_env_vars,
         :configurable_env_vars,
         :first_run,
@@ -203,6 +216,7 @@ defmodule FluxVale.Catalog.AppVersion do
         :healthcheck_path,
         :storage_mount_path,
         :instance_url_env,
+        :host_allowlist_env,
         :default_env_vars,
         :configurable_env_vars,
         :first_run,

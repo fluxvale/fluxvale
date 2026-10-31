@@ -27,6 +27,7 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.InstanceHostname
+  alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
@@ -826,6 +827,81 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
 
       assert {:ok, private} = Instance.set_exposure(lost, %{exposure: :private}, actor: owner)
       assert private.exposure == :private
+    end
+  end
+
+  describe "the S4 render hook (ADR-0040 §8 — exposure IS a resolution flip)" do
+    test "going private re-renders the view after the posture commits" do
+      stub_kubeconfig()
+      {owner, instance, _gateway} = attached_deployed_instance!(:running, :public)
+      ns = "fluxvale-app-#{instance.id}"
+
+      stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Ingress, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Ingress, :delete, fn _kc, _ns, _name -> :ok end)
+      stub(Middleware, :delete, fn _kc, _ns, _name -> :ok end)
+
+      expect(RenderAccessDNS, :call, fn -> :ok end)
+
+      assert {:ok, _private} =
+               Instance.set_exposure(instance, %{exposure: :private}, actor: owner)
+    end
+
+    test "going public re-renders the view after the posture commits" do
+      stub_kubeconfig()
+      {owner, instance, _gateway} = attached_deployed_instance!(:running, :private)
+      ns = "fluxvale-app-#{instance.id}"
+
+      stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Ingress, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      stub(Ingress, :delete, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub(Middleware, :delete, fn _kc, _ns, _name -> :ok end)
+
+      expect(RenderAccessDNS, :call, fn -> :ok end)
+
+      assert {:ok, _public} = Instance.set_exposure(instance, %{exposure: :public}, actor: owner)
+    end
+
+    test "a failed toggle never re-renders (the row rolls back)" do
+      stub_kubeconfig()
+      {owner, instance, _gateway} = attached_deployed_instance!(:running, :public)
+      ns = "fluxvale-app-#{instance.id}"
+
+      stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      # The access mint fails; the compensating restore re-mints the
+      # public posture (and tolerates its deletes' 404s).
+      stub(Ingress, :create, fn
+        _kc, ^ns, "app-ingress", _spec ->
+          {:ok, %{}}
+
+        _kc, ^ns, "access-" <> _tail, _spec ->
+          {:error, Error.from_response({:ok, %{status: 403, body: %{}}})}
+      end)
+
+      stub(Ingress, :delete, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub(Middleware, :delete, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub(RenderAccessDNS, :call, fn -> flunk("no render on a failed toggle") end)
+      stub(RenderAccessDNS, :call, fn _opts -> flunk("no render on a failed toggle") end)
+
+      assert {:error, _reason} =
+               Instance.set_exposure(instance, %{exposure: :private}, actor: owner)
     end
   end
 end

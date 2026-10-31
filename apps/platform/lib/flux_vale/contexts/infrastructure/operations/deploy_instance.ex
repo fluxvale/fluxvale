@@ -39,6 +39,8 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Clients.K8s.SelfAccessReview
+  alias FluxVale.Infrastructure.AccessDomain
+  alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Instance
@@ -260,20 +262,138 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   defp maybe_access_serving(_kubeconfig, _public), do: :ok
 
   # The merged env (catalog defaults under user values) plus the
-  # instance's public URL when the AppVersion asks for it
-  # (`instance_url_env` — Forgejo's ROOT_URL; the URL isn't catalog
-  # data). Private rows get NO URL (PR #267 review round 2): the
-  # address never serves, and an app seeded with a dead ROOT_URL
-  # mints dead links of its own. The env lands on the first deploy
-  # that finds the row public (toggling later doesn't rewrite a
-  # running app's env Secret — the next deploy does).
+  # instance's URL when the AppVersion asks for it (`instance_url_env` —
+  # Forgejo's ROOT_URL; the URL isn't catalog data).
+  #
+  # **ADR-0038 §4's omission rule, with its designed exception**
+  # (ADR-0040 §7): a private row gets NO URL env — a dead ROOT_URL mints
+  # dead links — EXCEPT when the row's default hostname is LIVE on a
+  # CLAIMED domain (`:verified` + claimed on the org's gateway): the
+  # hostname genuinely answers on the tailnet, so the URL and the
+  # host-allowlist entry (`host_allowlist_env`, Django-class
+  # ALLOWED_HOSTS) are real. Custom-hostname URL selection is S5's UI
+  # problem — only the default hostname is modeled here. The env lands
+  # on the first deploy that finds the conditions true (toggling later
+  # doesn't rewrite a running app's env Secret — the next deploy does).
   defp deploy_env(instance) do
-    with {:ok, instance} <- Ash.load(instance, :app_version, authorize?: false),
-         env_name when not is_nil(env_name) <- instance.app_version.instance_url_env,
-         :public <- instance.exposure do
-      Map.put(instance.env_vars, env_name, instance_url(instance))
+    loaded = Ash.load(instance, :app_version, authorize?: false)
+
+    case loaded do
+      {:ok, instance} ->
+        app_version = instance.app_version
+
+        env =
+          case url_value(instance, app_version) do
+            nil ->
+              instance.env_vars
+
+            url ->
+              env_name = url_env_name(app_version)
+              Map.put(instance.env_vars, env_name, url)
+          end
+
+        maybe_allowlist_entry(env, instance, app_version)
+
+      # coveralls-ignore-start - defensive: a load failure is the DB
+      # outage class ExUnit cannot stage (DBConnection reconnects by
+      # design). Degrade to the bare env, never a crash: the deploy's
+      # own error arms own real failures; env-seeding is derived sugar
+      # on top of them.
+      _load_failed ->
+        instance.env_vars
+        # coveralls-ignore-stop
+    end
+  end
+
+  # Public rows: the URL as before. Private rows: only the claimed-
+  # domain exception above. The env NAME may itself be nil — folded into
+  # the same nil outcome (no URL wanted at all).
+  defp url_value(instance, app_version) do
+    cond do
+      url_env_name(app_version) == nil -> nil
+      instance.exposure == :public -> instance_url(instance)
+      default_hostname_live?(instance) -> instance_url(instance)
+      true -> nil
+    end
+  end
+
+  defp url_env_name(app_version), do: app_version.instance_url_env
+
+  # The allowlist entry rides the same claimed-domain condition: the
+  # hostname APPENDS to whatever the catalog/user already set (Django
+  # ALLOWED_HOSTS is a comma-separated list and the app's own defaults —
+  # localhost et al — must survive us).
+  defp maybe_allowlist_entry(env, instance, app_version) do
+    env_name = app_version.host_allowlist_env
+
+    if is_binary(env_name) and (instance.exposure == :public or default_hostname_live?(instance)) do
+      hostname = "#{instance.slug}.#{Application.fetch_env!(:flux_vale, :instances_base_domain)}"
+      Map.put(env, env_name, append_host(Map.get(env, env_name), hostname))
     else
-      _no_public_url -> instance.env_vars
+      env
+    end
+  end
+
+  defp append_host(nil, host), do: host
+  defp append_host(existing, host) when is_binary(existing), do: "#{existing},#{host}"
+
+  # LIVE on a claimed domain: the instance is ATTACHED (a live pairing —
+  # the same record attach/detach read; an unattached private instance
+  # answers nowhere, so the ADR-0038 §4 omission holds), the org's
+  # gateway holds the claim for the base domain, AND the platform-domain
+  # row is in a routable state (`:verified`/`:needs_attention` — the
+  # same mirror the TLS clause routes). No gateway, no pairing, no
+  # claim → no URL.
+  #
+  # ENV-SNAPSHOT STANCE: the env lands on the first deploy that finds
+  # these conditions true. A later unclaim/detach does NOT rewrite a
+  # running app's env Secret — the seeded URL goes stale by design
+  # until the next deploy re-decides (the same stance as an exposure
+  # toggle: toggling later doesn't rewrite a running app's env).
+  defp default_hostname_live?(instance) do
+    base_domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
+
+    case AccessRoute.get_by_instance(instance.id, authorize?: false) do
+      {:ok, _live_pairing} ->
+        claimed_on_gateway?(instance, base_domain)
+
+      # Unattached: the pairing row simply isn't there.
+      {:error, _no_pairing} ->
+        false
+    end
+  end
+
+  defp claimed_on_gateway?(instance, base_domain) do
+    case AccessGateway.get_for_organization(instance.organization_id, authorize?: false) do
+      {:ok, %{dns_claims: claims}} when is_map(claims) ->
+        Map.has_key?(claims, base_domain) and platform_domain_live?(instance, base_domain)
+
+      _no_gateway_or_claims ->
+        false
+    end
+  end
+
+  defp platform_domain_live?(instance, base_domain) do
+    query =
+      Ash.Query.filter(
+        AccessDomain,
+        organization_id == ^instance.organization_id and
+          kind == :platform and
+          domain == ^base_domain
+      )
+
+    case Ash.read_one(query, authorize?: false) do
+      {:ok, %{state: state}} ->
+        state in [:verified, :needs_attention]
+
+      # coveralls-ignore-start - defensive: the row cannot be missing
+      # while this instance exists (its own default hostname FK-restricts
+      # the platform row — the remove path refuses first), and a read
+      # failure is the DB-outage class ExUnit cannot stage. Fail closed:
+      # no URL.
+      _no_row_or_read_failure ->
+        false
+        # coveralls-ignore-stop
     end
   end
 

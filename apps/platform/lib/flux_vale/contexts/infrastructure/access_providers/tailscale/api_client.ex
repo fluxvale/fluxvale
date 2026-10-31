@@ -61,6 +61,12 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient do
   gateway's opaque `fv-…` name; the API returns full MagicDNS FQDNs).
   Routes are not part of this payload — `routes_get/2` is the next call.
 
+  The device's Tailscale IPs ride along (`tailscale_ips` — the payload's
+  `addresses`; the node's 100.x/fd7a:: addresses): the resolver views
+  (ADR-0040 §4) answer a claimed hostname with the CLAIMING gateway's
+  tailnet IP, and the tailnet API is the only place the platform can
+  read one.
+
   Duplicate matches (two nodes reusing one name — a rejoin that went
   stale, a hostname collision) resolve deterministically: prefer an
   ONLINE device, then the most recent `lastSeen`. More than one match
@@ -69,7 +75,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient do
   at a ghost.
   """
   @spec devices_lookup(String.t(), String.t()) ::
-          {:ok, %{id: String.t()}} | {:error, error()}
+          {:ok, %{id: String.t(), tailscale_ips: [String.t()]}} | {:error, error()}
   def devices_lookup(token, hostname) when is_binary(token) and is_binary(hostname) do
     req = new_req(token)
 
@@ -219,11 +225,20 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient do
     end
   end
 
-  defp device_result(%{"id" => id}) when is_binary(id), do: {:ok, %{id: id}}
+  defp device_result(%{"id" => id} = device) when is_binary(id),
+    do: {:ok, %{id: id, tailscale_ips: addresses(device)}}
 
   # A row that matched by name but carries no usable id cannot be
   # claimed against — refused, and the caller surfaces :node_not_found.
   defp device_result(_malformed), do: {:error, :not_found}
+
+  # The node's Tailscale IPs (spike: the local API's TailscaleIPs; the
+  # tailnet API names them `addresses`). Missing or malformed → [] —
+  # the id remains claimable, only the view-building skips such a node.
+  defp addresses(%{"addresses" => ips}) when is_list(ips),
+    do: Enum.filter(ips, &is_binary/1)
+
+  defp addresses(_missing), do: []
 
   defp name_matches?(%{"name" => name}, hostname) when is_binary(name) do
     [first_label | _rest] = String.split(name, ".", parts: 2)

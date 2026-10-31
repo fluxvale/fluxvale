@@ -40,6 +40,7 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstance do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.Infrastructure.Operations.RenderAccessDNS
 
   # The same object name EdgeRoutes / SetExposure / the provider use.
   @policy "default-deny-ingress"
@@ -92,6 +93,7 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstance do
     with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance),
          :ok <- apply_access_edge(gateway, kubeconfig, instance) do
       reapply_if_status_moved(kubeconfig, gateway, instance)
+      after_commit_render()
       {:ok, route}
     else
       {:error, reason} ->
@@ -99,6 +101,14 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstance do
           do: {:error, reason},
           else: unwind_failed_attach(instance, route, reason)
     end
+  end
+
+  # The view is derived state (ADR-0040 §4): attach just changed WHICH
+  # hostnames answer (the org gained an attached private instance), so
+  # the Corefile re-renders best-effort AFTER the pairing commits — a
+  # failed render never fails the attach, and the 15-min pass converges.
+  defp after_commit_render do
+    RenderAccessDNS.call()
   end
 
   defp pairing_row_existed?(instance) do
