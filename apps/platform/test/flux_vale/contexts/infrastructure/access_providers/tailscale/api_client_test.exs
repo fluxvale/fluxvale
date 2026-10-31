@@ -83,6 +83,25 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
       assert {:ok, %{id: "55"}} = ApiClient.devices_lookup(@token, "fv-abcdef00")
     end
 
+    # A device row without a usable name is skipped, not matched — the
+    # lookup keeps scanning the rest of the tailnet's devices.
+    test "a malformed device row is skipped, not matched" do
+      expect_request(:get, "/api/v2/tailnet/-/devices", fn _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{
+             "devices" => [
+               %{"id" => "66"},
+               %{"id" => "88", "name" => "fv-1a2b3c4d.example.ts.net"}
+             ]
+           }
+         }}
+      end)
+
+      assert {:ok, %{id: "88"}} = ApiClient.devices_lookup(@token, "fv-1a2b3c4d")
+    end
+
     test "an unrecognized envelope or an absent node is :not_found" do
       expect_request(:get, "/api/v2/tailnet/-/devices", fn _opts ->
         {:ok, %Req.Response{status: 200, body: %{"unexpected" => true}}}
@@ -192,6 +211,15 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
       end)
 
       assert {:ok, %{"apps.customer.com" => ["10.43.0.20"]}} = ApiClient.split_dns_get(@token)
+    end
+
+    test "non-2xx surfaces the status+snippet error like every other read" do
+      expect_request(:get, "/api/v2/tailnet/-/dns/split-dns", fn _opts ->
+        {:ok, %Req.Response{status: 500, body: %{"error" => "dns oops"}}}
+      end)
+
+      assert {:error, %{status: 500, body: body}} = ApiClient.split_dns_get(@token)
+      assert body =~ "dns oops"
     end
   end
 

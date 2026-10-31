@@ -188,6 +188,27 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
 
       assert {:error, :unauthorized} = Tailscale.claim_domain(gateway, @domain, @resolver_ip)
     end
+
+    test "a routes read failure surfaces from the claim, before any write", %{org: org} do
+      gateway = gateway_row!(org)
+
+      stub(ApiClient, :routes_get, fn _token, _id ->
+        {:error, %{status: 500, body: "boom"}}
+      end)
+
+      reject(ApiClient, :routes_set, 3)
+
+      assert {:error, %{status: 500}} = Tailscale.claim_domain(gateway, @domain, @resolver_ip)
+    end
+
+    test "a split-DNS read failure surfaces from the claim, before any patch", %{org: org} do
+      gateway = gateway_row!(org)
+
+      stub(ApiClient, :split_dns_get, fn _token -> {:error, :network_error} end)
+      reject(ApiClient, :split_dns_patch, 2)
+
+      assert {:error, :network_error} = Tailscale.claim_domain(gateway, @domain, @resolver_ip)
+    end
   end
 
   describe "unclaim_domain/2" do
@@ -274,7 +295,8 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
     end
 
     test "no token is :no_api_token", %{org: org} do
-      gateway = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+      gateway =
+        with_claims(gateway_row!(org), %{@domain => @resolver_ip})
 
       stub(Secret, :get_data, fn _kc, _ns, _name ->
         {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
@@ -283,6 +305,31 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
       stub(ApiClient, :split_dns_patch, fn _t, _p -> flunk("no API call without a token") end)
 
       assert {:error, :no_api_token} = Tailscale.unclaim_domain(gateway, @domain)
+    end
+
+    test "a non-404 node lookup failure fails the unclaim (only a vanished node is tolerated)",
+         %{org: org} do
+      gateway =
+        with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+
+      # The DNS unset lands (no other claimant), then the node lookup
+      # fails for a REAL reason — that error must surface, not vanish.
+      stub(ApiClient, :devices_lookup, fn _token, _hostname -> {:error, :unauthorized} end)
+
+      assert {:error, :unauthorized} = Tailscale.unclaim_domain(gateway, @domain)
+
+      assert_received {:split_dns_patch, %{@domain => nil}}
+    end
+
+    test "a routes read failure during the disable surfaces", %{org: org} do
+      gateway =
+        with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+
+      stub(ApiClient, :routes_get, fn _token, _id -> {:error, :network_error} end)
+
+      assert {:error, :network_error} = Tailscale.unclaim_domain(gateway, @domain)
+
+      refute_received {:routes_set, _id, _routes}
     end
 
     test "no claim entry and no resolver configured: the DNS unset lands, nothing else", %{
@@ -397,10 +444,31 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
       assert ns == "fluxvale-access"
     end
 
+    test "a Secret write failure surfaces from write_api_credential", %{org: org} do
+      gateway = gateway_row!(org)
+
+      expect(Secret, :create, fn _kc, _ns, _name, _data ->
+        {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
+      end)
+
+      assert {:error, %Error{}} = Tailscale.write_api_credential(gateway, "tskey-api-new")
+    end
+
     test "read_api_credential returns the token — internal only", %{org: org} do
       gateway = gateway_row!(org)
 
       assert {:ok, @token} = Tailscale.read_api_credential(gateway)
+    end
+
+    test "a non-404 Secret read failure surfaces (the caller decides, not the provider)",
+         %{org: org} do
+      gateway = gateway_row!(org)
+
+      expect(Secret, :get_data, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
+      end)
+
+      assert {:error, %Error{}} = Tailscale.read_api_credential(gateway)
     end
 
     test "a malformed Secret is explicit", %{org: org} do

@@ -66,6 +66,26 @@ defmodule FluxVale.Infrastructure.Operations.UnclaimAccessDomainTest do
     assert row.dns_claims == %{@domain_name => @resolver_ip}
   end
 
+  test "a claims-write failure after a successful unclaim surfaces honestly", %{
+    org: org,
+    owner: owner
+  } do
+    gateway = claimed_gateway!(org)
+    domain = custom_domain!(owner)
+
+    stub(Tailscale, :unclaim_domain, fn _gw, _d -> :ok end)
+    stub(AccessGateway, :update_claims, fn _gw, _attrs, _opts -> {:error, :forced_db} end)
+
+    assert {:error, :forced_db} =
+             Infrastructure.unclaim_access_domain(gateway, domain, actor: owner)
+
+    # The route went on the tailnet but the row still holds the entry —
+    # the failure surfaces and the retry converges (a second unclaim
+    # makes the same no-op writes).
+    row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+    assert row.dns_claims == %{@domain_name => @resolver_ip}
+  end
+
   test "unclaiming a domain this gateway never claimed is a converging no-op", %{
     org: org,
     owner: owner

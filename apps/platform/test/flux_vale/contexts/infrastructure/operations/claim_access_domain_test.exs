@@ -134,6 +134,25 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomainTest do
     assert row.dns_claims == nil
   end
 
+  test "a claims-write failure after a successful claim surfaces honestly", %{
+    org: org,
+    owner: owner
+  } do
+    gateway = AccessFixtures.gateway!(org)
+    domain = verified_domain!(owner)
+
+    stub(Tailscale, :claim_domain, fn _gw, _d, _ip -> {:ok, %{device_id: "dev-777"}} end)
+    stub(AccessGateway, :update_claims, fn _gw, _attrs, _opts -> {:error, :forced_db} end)
+
+    assert {:error, :forced_db} =
+             Infrastructure.claim_access_domain(gateway, domain, actor: owner)
+
+    # The claim LANDED on the tailnet but the row says nothing yet —
+    # the failure surfaces (the idempotent re-claim is the convergence).
+    row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+    assert row.dns_claims == nil
+  end
+
   test "any other provider failure passes through with no drift", %{org: org, owner: owner} do
     gateway = AccessFixtures.gateway!(org)
     domain = verified_domain!(owner)
