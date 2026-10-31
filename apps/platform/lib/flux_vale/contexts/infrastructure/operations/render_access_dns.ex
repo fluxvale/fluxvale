@@ -151,6 +151,9 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
             |> Map.new(&gateway_data(kubeconfig, namespace, &1))
             |> drop_omitted()
 
+          # No cluster to read pods from: gather nothing rather than
+          # half-guess — the previous view stands until the next pass.
+          # Tested at the seam (the kubeconfig stub's error tuple).
           {:error, reason} ->
             Logger.warning(
               "Access DNS: no cluster kubeconfig — gathering nothing this pass: #{inspect(reason)}"
@@ -290,7 +293,9 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
 
         nil
 
-      # coveralls-ignore-next-line - defensive: DB outage, ExUnit cannot stage it
+      # coveralls-ignore-start - defensive: a DB read failure (the outage
+      # ExUnit cannot stage — DBConnection reconnects by design) — the
+      # arm answers nothing this pass and the next tick re-decides.
       {:error, reason} ->
         Logger.warning(
           "Access DNS: domain read for #{name} failed (answering nothing this pass): " <>
@@ -298,6 +303,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
         )
 
         nil
+        # coveralls-ignore-stop
     end
   end
 
@@ -406,17 +412,18 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
     end
   end
 
-  defp valid_ipv4?(ip) when is_binary(ip) do
-    ip
-    |> String.to_charlist()
-    |> :inet.parse_address()
-    |> ipv4?()
+  # All-binaries by construction: the client's own addresses extraction
+  # filters non-strings before the list gets here, so a non-binary
+  # clause would be dead code.
+  defp valid_ipv4?(ip) do
+    charlist = String.to_charlist(ip)
+    parsed = :inet.parse_address(charlist)
+
+    case parsed do
+      {:ok, {_a, _b, _c, _d}} -> true
+      _not_an_ipv4 -> false
+    end
   end
-
-  defp valid_ipv4?(_non_binary), do: false
-
-  defp ipv4?({:ok, {_a, _b, _c, _d}}), do: true
-  defp ipv4?(_not_an_ipv4), do: false
 
   defp drop_omitted(data) do
     data
@@ -467,8 +474,9 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
   # file ends with exactly one newline. No views → the empty Corefile
   # (nothing claimed, nothing answered — the fleet deployment's problem
   # how to boot on that, not ours).
-  defp join_blocks([]), do: ""
-
+  # No empty-list clause: the zero-claims case returns the placeholder
+  # before the join, and any claims imply at least one default block —
+  # an empty join input is unreachable.
   defp join_blocks(blocks) do
     Enum.map_join(blocks, "\n\n", &String.trim_trailing(&1, "\n")) <> "\n"
   end

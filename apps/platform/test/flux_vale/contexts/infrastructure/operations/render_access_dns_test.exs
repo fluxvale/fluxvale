@@ -428,6 +428,25 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
 
       assert RenderAccessDNS.gather() == %{}
     end
+
+    test "a cluster-less gather gathers NOTHING (the previous view stands)", %{org: org} do
+      claimed_gateway!(org)
+
+      stub(K8s, :kubeconfig, fn -> {:error, Error.connection_error("no in-cluster config")} end)
+
+      assert RenderAccessDNS.gather() == %{}
+    end
+
+    test "a failed pods list omits the gateway (error tuple, not a guess)", %{org: org} do
+      gateway = claimed_gateway!(org)
+
+      stub(Pod, :list_by_labels, fn _kc, _ns, _labels ->
+        {:error, Error.connection_error("apiserver unreachable")}
+      end)
+
+      assert RenderAccessDNS.gather() == %{}
+      assert gateway.id
+    end
   end
 
   # ------------------------------------------------------------------

@@ -294,11 +294,14 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
 
         maybe_allowlist_entry(env, instance, app_version)
 
-      # A load failure degrades to the bare env, never a crash: the
-      # deploy's own error arms own real failures; env-seeding is
-      # derived sugar on top of them.
+      # coveralls-ignore-start - defensive: a load failure is the DB
+      # outage class ExUnit cannot stage (DBConnection reconnects by
+      # design). Degrade to the bare env, never a crash: the deploy's
+      # own error arms own real failures; env-seeding is derived sugar
+      # on top of them.
       _load_failed ->
         instance.env_vars
+        # coveralls-ignore-stop
     end
   end
 
@@ -380,8 +383,17 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
       )
 
     case Ash.read_one(query, authorize?: false) do
-      {:ok, %{state: state}} -> state in [:verified, :needs_attention]
-      _no_row_or_read_failure -> false
+      {:ok, %{state: state}} ->
+        state in [:verified, :needs_attention]
+
+      # coveralls-ignore-start - defensive: the row cannot be missing
+      # while this instance exists (its own default hostname FK-restricts
+      # the platform row — the remove path refuses first), and a read
+      # failure is the DB-outage class ExUnit cannot stage. Fail closed:
+      # no URL.
+      _no_row_or_read_failure ->
+        false
+        # coveralls-ignore-stop
     end
   end
 
