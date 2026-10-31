@@ -1259,14 +1259,6 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       conn: conn,
       user: user
     } do
-      # The link's detection compares the instance's org to OrgNav's
-      # personal_org_id — the canonical op's pick for a two-owner user is
-      # unordered (T7). Pin the premise: the pick names the personal org,
-      # so the team org below is a REAL org to this page.
-      personal = AccountsFixtures.personal_org!(user)
-      {:ok, pick} = FluxVale.Accounts.personal_org_for_user(user.id, actor: user)
-      assert pick.id == personal.id
-
       org = AccountsFixtures.owned_org!(user)
       gateway = AccessFixtures.gateway!(org)
       # Private + running, pinned to the org (the create action pins the

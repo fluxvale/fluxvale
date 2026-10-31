@@ -11,9 +11,13 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   (membership, funded wallet) are what actually forbid a call.
 
   S5: the personal org's access panel moved INTO user settings —
-  `/settings/access` mounts this same LiveView WITHOUT a slug and
-  serves the actor's personal org, so the slug-keyed route for a
-  personal slug redirects there. The org chrome (header, tabs) renders
+  `/settings/access` mounts this same LiveView under the named
+  `:personal` action and serves the actor's personal org, so the
+  slug-keyed route for a personal slug redirects there. The two heads
+  are kept apart by the route's action: a `?slug=` query param on the
+  personal route is refused as not-found (LiveView merges query params
+  into mount params — without the named head it would mount the org
+  frame on the personal page). The org chrome (header, tabs) renders
   for real orgs only; the personal page carries the user-settings
   frame.
 
@@ -40,6 +44,22 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   alias FluxValeWeb.PersonalOrg
 
   @impl Phoenix.LiveView
+  # The :personal route's contract is NO slug — but LiveView merges query
+  # params into mount params, so `/settings/access?slug=…` lands in mount
+  # with one and would take the slug-keyed head below, mounting the org
+  # frame (header, tabs, the URL org's gateway and its PubSub topic) on
+  # the personal route — a page whose enable form mints into the personal
+  # org while the frame shows the other org, and that the created row's
+  # own topic can never update. So on this route the param is refused
+  # outright: not-found, the codebase's posture for a hand-typed path.
+  # (First clause: it must win over the slug-keyed head for this action.)
+  def mount(%{"slug" => _refused}, _session, %{assigns: %{live_action: :personal}} = socket) do
+    {:ok,
+     socket
+     |> put_flash(:error, "Organization not found.")
+     |> push_navigate(to: ~p"/")}
+  end
+
   def mount(%{"slug" => slug}, _session, socket) do
     user = socket.assigns.current_user
 
@@ -57,7 +77,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           # non-owner call. This only spares a member a settings surface
           # that is owners-only by design — same posture as Settings.
           ActorIsOrganizationOwner.owner?(user, org) ->
-            {:ok, mount_panel(socket, org, user, false)}
+            {:ok, mount_panel(socket, org, user)}
 
           true ->
             {:ok,
@@ -74,16 +94,16 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     end
   end
 
-  # /settings/access (S5): the personal account's access panel. The org
-  # is the actor's personal org through the canonical resolver — its
-  # :owner-membership filter IS the owner gate here, so no separate
-  # check. No slug in play, nothing to enumerate.
-  def mount(_params, _session, socket) do
+  # /settings/access (:personal, S5): the personal account's access
+  # panel. The org is the actor's personal org through the canonical
+  # resolver — its :owner-membership filter IS the owner gate here, so
+  # no separate check. No slug in the contract, nothing to enumerate.
+  def mount(_params, _session, %{assigns: %{live_action: :personal}} = socket) do
     user = socket.assigns.current_user
 
     case PersonalOrg.org_for(user) do
       {:ok, org} ->
-        {:ok, mount_panel(socket, org, user, true)}
+        {:ok, mount_panel(socket, org, user)}
 
       # Seeded/legacy no-personal-org shape (OrgNav's stance) — the
       # surface isn't here; the sibling not-found arm's answer.
@@ -107,10 +127,18 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   end
 
   # The panel setup both routes share — one gateway per org, whatever
-  # resolved it (URL slug or the actor's personal org). `personal?`
-  # picks the chrome: the org frame (header, tabs, org billing links)
-  # for a real org, the user-settings frame for the personal org.
-  defp mount_panel(socket, org, user, personal?) do
+  # resolved it (URL slug or the actor's personal org). The route's own
+  # action picks the chrome: the org frame (header, tabs, org billing
+  # links) for the slug route, the user-settings frame for :personal.
+  defp mount_panel(%{assigns: %{live_action: :personal}} = socket, org, user) do
+    mount_panel_for(socket, org, user, true)
+  end
+
+  defp mount_panel(socket, org, user) do
+    mount_panel_for(socket, org, user, false)
+  end
+
+  defp mount_panel_for(socket, org, user, personal?) do
     # The per-org topic, never a global one: every gateway write
     # broadcasts here, so only this org's open panels refetch.
     Phoenix.PubSub.subscribe(FluxVale.PubSub, "access_gateways:#{org.id}")
@@ -507,6 +535,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           />
         <% else %>
           <.access_empty_state
+            personal?={@personal?}
             form={@form}
             funded?={@funded?}
             billing_path={@billing_path}
@@ -520,7 +549,11 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
   # The no-gateway surface: what private access is, the three tailnet
   # prerequisites the panel cannot do for the owner (ADR-0039 §8 — it
-  # only names them), the price, and the key intake.
+  # only names them), the price, and the key intake. `personal?` picks
+  # the explainer's noun — the account on the personal frame, the
+  # organization on the org frame (S5: the personal org never presents
+  # as one, copy included).
+  attr(:personal?, :boolean, required: true)
   attr(:billing_path, :string, required: true)
   attr(:form, :any, required: true)
   attr(:funded?, :boolean, required: true)
@@ -534,8 +567,14 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           <h3 class="text-sm font-medium text-ink-muted">Private access</h3>
           <p class="mt-2 text-sm text-ink" data-testid="access-explainer">
             Put your private apps on your own Tailscale network — reachable from your own
-            devices, never the public internet. One gateway serves the whole organization
-            and each app gets its own address on it.
+            devices, never the public internet.
+            <%= if @personal? do %>
+              One gateway serves every app on your account and each app gets its own address
+              on it.
+            <% else %>
+              One gateway serves the whole organization and each app gets its own address on
+              it.
+            <% end %>
           </p>
         </div>
 

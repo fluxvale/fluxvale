@@ -11,7 +11,7 @@
       "who": "walker",
       "url": "/organizations/s5-walker-5125",
       "finalUrl": "/",
-      "marker": "instance-row",
+      "marker": "dashboard-balance",
       "rendered": true
     },
     {
@@ -39,14 +39,14 @@
       "who": "walker",
       "url": "/organizations/s5-walker-5125/settings/access",
       "finalUrl": "/settings/access",
-      "marker": "access-empty",
-      "rendered": false
+      "marker": "settings-title",
+      "rendered": true
     },
     {
       "who": "walker",
       "url": "/settings/access",
       "finalUrl": "/settings/access",
-      "marker": "access-gateway-card",
+      "marker": "settings-access-back",
       "rendered": true
     },
     {
@@ -89,6 +89,13 @@
       "url": "/organizations/acme-5125/settings/access",
       "finalUrl": "/organizations/acme-5125/settings/access",
       "marker": "org-settings-tabs",
+      "rendered": true
+    },
+    {
+      "who": "acme",
+      "url": "/settings/access?slug=acme-5125",
+      "finalUrl": "/",
+      "marker": "dashboard-balance",
       "rendered": true
     },
     {

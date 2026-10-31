@@ -525,8 +525,10 @@ defmodule FluxValeWeb.SettingsLive do
 
         <%!-- S5: the personal org's access panel lives in user settings —
         this row is the way there (the instance page's Settings → Access
-        link lands on /settings/access for personal-org instances). --%>
-        <.card id="settings-access-card" class="space-y-4">
+        link lands on /settings/access for personal-org instances).
+        Hidden without a personal org (OrgNav's degradation stance): a
+        member-only actor's target would be a dead-end not-found. --%>
+        <.card :if={@personal_org_id} id="settings-access-card" class="space-y-4">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 class="text-base font-medium text-ink">Access</h2>

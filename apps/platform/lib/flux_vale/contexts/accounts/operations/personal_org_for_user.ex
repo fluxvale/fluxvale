@@ -21,6 +21,16 @@ defmodule FluxVale.Accounts.Operations.PersonalOrgForUser do
       Organization
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.filter(memberships.user_id == ^user_id and memberships.role == :owner)
+      # S5 made this pick load-bearing ROUTING — the personal org's
+      # org-scoped URLs redirect on it — so the pick must be
+      # deterministic and every caller must read the same answer: the
+      # EARLIEST-CREATED org the user owns. For every action-created
+      # user that is the signup JIT org (provisioned at user creation,
+      # before any org they own membership in later); the seeded
+      # two-owner shapes are the only place the answer can differ from
+      # "the org named personal at signup", and there the earliest
+      # rule is still one deterministic, shared answer.
+      |> Ash.Query.sort(created_at: :asc, id: :asc)
       |> Ash.Query.limit(1)
 
     case Ash.read(query,

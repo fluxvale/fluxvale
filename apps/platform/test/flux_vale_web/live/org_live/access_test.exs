@@ -13,7 +13,6 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
 
   alias Ash.Error.Changes.StaleRecord
   alias Ash.Error.Invalid
-  alias FluxVale.Accounts
   alias FluxVale.Accounts.Membership
   alias FluxVale.Clients.K8s
   alias FluxVale.Infrastructure
@@ -44,15 +43,6 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
     # org); the unfunded tests drain whichever their gate reads.
     BillingFixtures.funded_wallet!(org: org)
     BillingFixtures.funded_wallet!(org: personal)
-
-    # The redirect branch keys off OrgNav's personal_org_id — the
-    # canonical op's pick for a two-owner user is unordered (T7's open
-    # question). Every panel test below needs that pick to name the
-    # PERSONAL org (else the team URL would redirect): pin the premise
-    # once, here, so a tie-break flip fails with THIS message instead of
-    # forty cryptic redirect failures.
-    {:ok, pick} = Accounts.personal_org_for_user(owner.id, actor: owner)
-    assert pick.id == personal.id
 
     {:ok, conn: SessionHelpers.sign_in(conn, owner), owner: owner, org: org, personal: personal}
   end

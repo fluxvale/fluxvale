@@ -77,16 +77,14 @@ async function probe(page, who, url, marker, { required = true } = {}) {
 
 const p = walker.page;
 await probe(p, "walker", "/settings", "settings-title");
-await probe(p, "walker", `/organizations/${WALKER.personalSlug}`, "instance-row", {
-  required: false,
-});
+// After the redirect the dashboard is the landing page; its balance is
+// always on (the JIT welcome grant funds every action-created user).
+await probe(p, "walker", `/organizations/${WALKER.personalSlug}`, "dashboard-balance");
 await probe(p, "walker", `/organizations/${WALKER.personalSlug}/settings`, "settings-title");
 await probe(p, "walker", `/organizations/${WALKER.personalSlug}/settings/members`, "settings-title");
 await probe(p, "walker", `/organizations/${WALKER.personalSlug}/billing`, "wallet-balance");
-await probe(p, "walker", `/organizations/${WALKER.personalSlug}/settings/access`, "access-empty", {
-  required: false,
-});
-await probe(p, "walker", "/settings/access", "access-gateway-card", { required: false });
+await probe(p, "walker", `/organizations/${WALKER.personalSlug}/settings/access`, "settings-title");
+await probe(p, "walker", "/settings/access", "settings-access-back");
 await probe(p, "walker", `/instances/${WALKER.instance}`, "tailnet-access-link");
 
 const a = acme.page;
@@ -95,6 +93,10 @@ await probe(a, "acme", `/organizations/${ACME.orgSlug}/settings`, "org-general-f
 await probe(a, "acme", `/organizations/${ACME.orgSlug}/settings/members`, "org-members-table");
 await probe(a, "acme", `/organizations/${ACME.orgSlug}/billing`, "wallet-balance");
 await probe(a, "acme", `/organizations/${ACME.orgSlug}/settings/access`, "org-settings-tabs");
+// F1's crafted param, permanently probed: the personal route refuses
+// ?slug= — the final URL must be / (the not-found redirect), never the
+// org frame on the personal route.
+await probe(a, "acme", `/settings/access?slug=${ACME.orgSlug}`, "dashboard-balance");
 await probe(a, "acme", `/instances/${ACME.instance}`, "tailnet-access-link");
 
 // The switcher rows' hrefs + labels, per actor: the panel is inside a

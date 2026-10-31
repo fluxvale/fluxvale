@@ -20,6 +20,12 @@ defmodule FluxValeWeb.PersonalOrg do
 
   `personal_org_id` itself is resolved by the `FluxValeWeb.OrgNav`
   on_mount, which runs before any of these mounts.
+
+  The guard lives in `mount/3` only. A same-module `live_patch` with
+  differing params runs `handle_params/3` — undefined on every org
+  LiveView today (the socket dies; pre-existing shape, and no patch
+  affordance ships) — so if these pages ever gain patching, the guard
+  needs a `handle_params` twin.
   """
 
   alias FluxVale.Accounts

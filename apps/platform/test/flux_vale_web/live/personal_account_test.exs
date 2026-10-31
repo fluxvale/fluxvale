@@ -92,14 +92,6 @@ defmodule FluxValeWeb.PersonalAccountTest do
   # -- Real orgs render every surface, unchanged ------------------------
 
   test "a real org's five surfaces render exactly as before", %{conn: conn, owner: owner} do
-    # The redirect branch keys off OrgNav's personal_org_id — the
-    # canonical op's pick for a two-owner user is unordered (T7). Pin the
-    # premise: the pick names the personal org, so the real org's URLs
-    # below are real-org URLs.
-    personal = AccountsFixtures.personal_org!(owner)
-    {:ok, pick} = FluxVale.Accounts.personal_org_for_user(owner.id, actor: owner)
-    assert pick.id == personal.id
-
     org = AccountsFixtures.owned_org!(owner)
 
     {:ok, home_view, _html} = live(conn, ~p"/organizations/#{org.slug}")
@@ -117,6 +109,14 @@ defmodule FluxValeWeb.PersonalAccountTest do
     {:ok, access_view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
     assert has_element?(access_view, "[data-testid='org-settings-tabs']")
     assert has_element?(access_view, "[data-testid='access-empty']")
+
+    # The org frame keeps the org noun (S5/F5: the personal frame says
+    # "account"; this one must not).
+    assert has_element?(
+             access_view,
+             "[data-testid='access-explainer']",
+             "the whole organization"
+           )
   end
 
   # -- /settings/access: the personal org's panel in the user frame -----
@@ -142,6 +142,13 @@ defmodule FluxValeWeb.PersonalAccountTest do
 
     # The chrome's pill claims the personal context (no current_org).
     assert has_element?(view, "[data-testid='org-switcher-button'] span", "Personal")
+
+    # The frame's copy names the account, not the organization (S5/F5).
+    assert has_element?(
+             view,
+             "[data-testid='access-explainer']",
+             "every app on your account"
+           )
 
     # The panel bills the personal org: the prefund hint (drained below)
     # points at /billing, never an org billing URL.
@@ -180,12 +187,52 @@ defmodule FluxValeWeb.PersonalAccountTest do
     assert flash["error"] == "Organization not found."
   end
 
+  # The :personal route's contract is NO slug — but LiveView merges query
+  # params into mount params, so a crafted `?slug=` used to take the
+  # slug-keyed head and mount the org frame (header, tabs, the URL org's
+  # gateway and topic) on the personal page. The named action refuses it:
+  # not-found, exactly like a hand-typed bad path.
+  test "/settings/access refuses a ?slug= query param — the org frame is unreachable there", %{
+    conn: conn,
+    owner: owner
+  } do
+    org = AccountsFixtures.owned_org!(owner)
+
+    assert {:error, {:live_redirect, %{to: "/", flash: flash}}} =
+             live(conn, "/settings/access?slug=#{org.slug}")
+
+    assert flash["error"] == "Organization not found."
+  end
+
   # -- The settings surface carries the way in --------------------------
 
   test "/settings links the access panel", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/settings")
 
     assert has_element?(view, "[data-testid='settings-access-link'][href='/settings/access']")
+  end
+
+  # F6: without a personal org the card is a dead end (its target reads
+  # as not-found), so it hides — OrgNav's degradation stance mirrored.
+  # The member-only shape is unreachable through actions (nothing makes
+  # :member rows yet); destroying the owner membership is the sanctioned
+  # posture (OrgSwitcherTest's).
+  test "/settings hides the access card for an actor with no personal org", %{
+    conn: conn,
+    owner: owner
+  } do
+    membership =
+      Membership
+      |> Ash.Query.for_read(:read, %{}, authorize?: false)
+      |> Ash.Query.filter(user_id == ^owner.id and role == :owner)
+      |> Ash.read_one!(authorize?: false)
+
+    Ash.destroy!(membership, authorize?: false)
+
+    {:ok, view, _html} = live(conn, ~p"/settings")
+
+    refute has_element?(view, "[data-testid='settings-access-link']")
+    refute has_element?(view, "#settings-access-card")
   end
 
   # Mount-time push_navigate surfaces either as a completed redirect off

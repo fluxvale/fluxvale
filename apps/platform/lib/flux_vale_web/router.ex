@@ -262,9 +262,11 @@ defmodule FluxValeWeb.Router do
       live("/settings", SettingsLive)
       # S5: the personal account's access panel — OrganizationLive.Access
       # mounted WITHOUT a slug serves the actor's personal org (the
-      # slug-keyed org route redirects here). Instance show links it for
-      # personal-org instances.
-      live("/settings/access", OrganizationLive.Access)
+      # slug-keyed org route redirects here). Named action (:personal) so
+      # the mount can refuse a ?slug= query param — LiveView merges
+      # query params into mount params, and an unnamed head would let a
+      # crafted query string mount the org frame on this route.
+      live("/settings/access", OrganizationLive.Access, :personal)
     end
   end
 

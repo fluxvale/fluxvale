@@ -399,14 +399,14 @@ defmodule FluxValeWeb.OrgSwitcherTest do
   # The #285 T6 divergence probe, permanent: a user owning TWO orgs —
   # their signup-provisioned personal org plus an org that already
   # existed when they signed up (the reviewer's shape: the legacy org
-  # row predates the user, so the canonical op's unordered pick and the
-  # old min-membership-id derivation name different orgs). The
-  # switcher's "Personal" label must resolve the same org the billing
-  # mount (and the dashboard wallet) resolve — the canonical
-  # `Accounts.personal_org_for_user/2`. Whether the canonical op's own
-  # tie-break for two-owned-orgs users is the right answer is a T7
-  # (identity spec) question — out of scope here; pinned is that every
-  # consumer agrees on ONE answer.
+  # row predates the user). The canonical op sorts EARLIEST-CREATED
+  # first (S5: the pick is load-bearing routing, so it must be
+  # deterministic and every consumer must read the same answer) — which
+  # here names the LEGACY org: deliberately neither the min-membership-id
+  # derivation the op replaced (that named the signup org) nor "the org
+  # named personal at signup". Pinned is the agreement itself: the
+  # switcher's label, the redirect branch, and the billing mount all
+  # read this one org.
   test "two-owner user: the switcher's Personal label resolves the canonical org", %{
     conn: conn
   } do
@@ -425,11 +425,12 @@ defmodule FluxValeWeb.OrgSwitcherTest do
 
     {:ok, canonical} = Accounts.personal_org_for_user(user.id, actor: user)
 
-    # The fixture stays load-bearing: the canonical pick must differ
-    # from the old min-:owner-membership-id derivation this resolver
-    # replaced. If the shape ever collapses (the op gains a sort
-    # aligned with the old rule), the agreement assert below would
-    # pass vacuously — this fails first, at fixture time.
+    # Deterministic, and deliberately not the old min-membership-id
+    # derivation: the sort keys on the ORG's created_at (the legacy row
+    # predates the user), not on the membership that links them. If the
+    # semantic ever moves to earliest-OWNED, this fails loudly — the
+    # pick would flip to the signup org and the billing leg below would
+    # show its welcome-grant ledger.
     owners =
       Membership
       |> Ash.Query.for_read(:read, %{})
@@ -438,6 +439,7 @@ defmodule FluxValeWeb.OrgSwitcherTest do
 
     min_id_pick = Enum.min_by(owners, & &1.id)
     refute canonical.id == min_id_pick.organization_id
+    assert canonical.id == legacy.id
 
     conn = SessionHelpers.sign_in(conn, user)
 
