@@ -14,6 +14,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
   alias Ash.Error.Changes.StaleRecord
   alias Ash.Error.Invalid
   alias FluxVale.Accounts.Membership
+  alias FluxVale.Clients.K8s
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
@@ -1330,6 +1331,27 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
     stub(Tailscale, :refresh_routes, fn _gateway -> {:ok, %{}} end)
     stub(Tailscale, :scale_gateway, fn _gateway, _replicas -> :ok end)
     stub(Tailscale, :teardown_gateway, fn _gateway -> :ok end)
+
+    # The attach/detach operations' access-edge limbs (ADR-0040 S2):
+    # the panel tests stub the provider, so the operations' own cluster
+    # work — the kubeconfig resolution, the access arms, and the policy
+    # apply — is stubbed here the same way.
+    stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+
+    stub(FluxVale.Clients.K8s.Resources.Ingress, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+    stub(FluxVale.Clients.K8s.Resources.Middleware, :create, fn _kc, _ns, _n, _spec ->
+      {:ok, %{}}
+    end)
+
+    stub(FluxVale.Clients.K8s.Resources.Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+    stub(FluxVale.Clients.K8s.Resources.NetworkPolicy, :create, fn _kc, _ns, _n, _spec ->
+      {:ok, %{}}
+    end)
+
+    stub(FluxVale.Clients.K8s.Resources.Ingress, :delete, fn _kc, _ns, _n -> :ok end)
+    stub(FluxVale.Clients.K8s.Resources.Middleware, :delete, fn _kc, _ns, _n -> :ok end)
 
     :ok
   end

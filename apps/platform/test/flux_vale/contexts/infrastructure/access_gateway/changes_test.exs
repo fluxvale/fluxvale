@@ -9,10 +9,15 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
   use FluxVale.DataCase, async: true
   use Mimic
 
+  alias FluxVale.Clients.K8s
+  alias FluxVale.Clients.K8s.Error
+  alias FluxVale.Clients.K8s.Resources.Ingress
+  alias FluxVale.Clients.K8s.Resources.Middleware
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
+  alias FluxVale.Infrastructure.Instance
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
@@ -484,6 +489,99 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       fresh = AccessGateway.get_by_id!(gateway.id, authorize?: false)
       assert fresh.id == gateway.id
     end
+
+    # The access edge's arms go FIRST (ADR-0040 §7): the host-keyed
+    # routes live in the instance namespaces, outside the provider's
+    # reach — no hostname keeps answering through a dying tunnel.
+    test "teardown removes the access arms before the provider runs", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      parent = self()
+
+      stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+
+      stub(Ingress, :delete, fn _kc, _ns, "access-" <> _tail ->
+        send(parent, {:access_arm_removed})
+        :ok
+      end)
+
+      stub(Middleware, :delete, fn _kc, _ns, "fluxvale-access-wake" ->
+        send(parent, {:access_middleware_removed})
+        :ok
+      end)
+
+      expect(Tailscale, :teardown_gateway, fn _gateway ->
+        send(parent, {:provider_ran})
+        :ok
+      end)
+
+      assert {:ok, _gone} = AccessGateway.perform_teardown(gateway, %{}, authorize?: false)
+
+      # The mailbox order is the design: arms first, provider second.
+      assert_received {:access_arm_removed}
+      assert_received {:access_middleware_removed}
+      assert_received {:provider_ran}
+    end
+
+    test "an access-arm delete failure fails the teardown before the provider runs", %{
+      org: org,
+      owner: owner
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+
+      stub(Ingress, :delete, fn _kc, _ns, "access-" <> _tail ->
+        {:error, Error.connection_error("arm delete refused")}
+      end)
+
+      # The provider must not run: the arms' failure is retried whole.
+      stub(Tailscale, :teardown_gateway, fn _gateway ->
+        flunk("the provider must not tear down past a failed arm removal")
+      end)
+
+      assert {:error, _reason} =
+               AccessGateway.perform_teardown(gateway, %{}, authorize?: false)
+
+      # The row survives for the retry (the teardown posture).
+      assert AccessGateway.get_by_id!(gateway.id, authorize?: false).id == gateway.id
+    end
+
+    test "an unreachable cluster during the arm removal fails the teardown too", %{
+      org: org,
+      owner: owner
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      stub(K8s, :kubeconfig, fn _ref -> {:error, Error.connection_error("cluster down")} end)
+
+      stub(Tailscale, :teardown_gateway, fn _gateway ->
+        flunk("the provider must not tear down past a failed arm removal")
+      end)
+
+      assert {:error, _reason} =
+               AccessGateway.perform_teardown(gateway, %{}, authorize?: false)
+
+      assert AccessGateway.get_by_id!(gateway.id, authorize?: false).id == gateway.id
+    end
   end
 
   describe "the domain's attach/detach seam" do
@@ -495,6 +593,29 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
 
       stub(Tailscale, :attach_instance, fn _g, _i -> {:ok, :route} end)
       stub(Tailscale, :detach_instance, fn _g, _i -> :ok end)
+
+      # The operations' access-edge limbs (ADR-0040 S2) ride the same
+      # round-trip, stubbed like every other cluster call here.
+      stub(FluxVale.Clients.K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+
+      stub(FluxVale.Clients.K8s.Resources.Ingress, :create, fn _kc, _ns, _n, _spec ->
+        {:ok, %{}}
+      end)
+
+      stub(FluxVale.Clients.K8s.Resources.Middleware, :create, fn _kc, _ns, _n, _spec ->
+        {:ok, %{}}
+      end)
+
+      stub(FluxVale.Clients.K8s.Resources.Service, :create, fn _kc, _ns, _n, _spec ->
+        {:ok, %{}}
+      end)
+
+      stub(FluxVale.Clients.K8s.Resources.NetworkPolicy, :create, fn _kc, _ns, _n, _spec ->
+        {:ok, %{}}
+      end)
+
+      stub(FluxVale.Clients.K8s.Resources.Ingress, :delete, fn _kc, _ns, _n -> :ok end)
+      stub(FluxVale.Clients.K8s.Resources.Middleware, :delete, fn _kc, _ns, _n -> :ok end)
 
       assert {:ok, :route} = Infrastructure.attach_instance(gateway, instance)
       assert :ok = Infrastructure.detach_instance(gateway, instance)

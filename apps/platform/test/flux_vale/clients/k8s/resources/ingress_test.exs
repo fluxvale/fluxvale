@@ -114,6 +114,27 @@ defmodule FluxVale.Clients.K8s.Resources.IngressTest do
     end
   end
 
+  describe "build_manifest/3 — explicit :entrypoint (the access edge, ADR-0040)" do
+    test "an explicit entrypoint wins over the tls-chosen default" do
+      spec =
+        base_spec()
+        |> Map.put(:tls, true)
+        |> Map.put(:entrypoint, "access")
+
+      manifest = Ingress.build_manifest("ns", "app-access", spec)
+
+      assert get_in(manifest, ["spec", "entryPoints"]) == ["access"]
+    end
+
+    test "absent :entrypoint keeps the tls-chosen default exactly" do
+      plain = Ingress.build_manifest("ns", "app", base_spec())
+      secure = Ingress.build_manifest("ns", "app", Map.put(base_spec(), :tls, true))
+
+      assert get_in(plain, ["spec", "entryPoints"]) == ["web"]
+      assert get_in(secure, ["spec", "entryPoints"]) == ["websecure"]
+    end
+  end
+
   describe "build_manifest/3 — path-prefix routing (#190)" do
     test "narrows the subdomain match with PathPrefix for the sidecar route" do
       spec =
@@ -136,6 +157,32 @@ defmodule FluxVale.Clients.K8s.Resources.IngressTest do
       manifest = Ingress.build_manifest("ns", "app-dav", spec)
 
       assert route_match(manifest) == "Host(`myapp.example.com`) && PathPrefix(`/dav`)"
+    end
+  end
+
+  describe "build_manifest/3 — ownership labels (the access arms, ADR-0040)" do
+    test "extra labels merge over the defaults; absent is today's shape" do
+      manifest =
+        Ingress.build_manifest("ns", "access-abc123def4", %{
+          host: "wiki.apps.customer.example",
+          service_name: "app",
+          service_port: 80,
+          labels: %{"fluxvale.io/gateway" => "gw", "fluxvale.io/access-domain" => "dom"}
+        })
+
+      assert manifest["metadata"]["labels"] == %{
+               "app.kubernetes.io/managed-by" => "fluxvale",
+               "app.kubernetes.io/name" => "access-abc123def4",
+               "fluxvale.io/gateway" => "gw",
+               "fluxvale.io/access-domain" => "dom"
+             }
+
+      plain = Ingress.build_manifest("ns", "app-ingress", base_spec())
+
+      assert plain["metadata"]["labels"] == %{
+               "app.kubernetes.io/managed-by" => "fluxvale",
+               "app.kubernetes.io/name" => "app-ingress"
+             }
     end
   end
 

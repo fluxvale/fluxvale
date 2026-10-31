@@ -39,6 +39,7 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Clients.K8s.SelfAccessReview
+  alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
@@ -211,7 +212,8 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   # converges on no routes, and wake targets without a route are
   # unreachable by design (nothing wakes a private instance).
   defp deploy_edge(kubeconfig, instance) do
-    with :ok <- EdgeRoutes.apply_serving(kubeconfig, instance) do
+    with :ok <- EdgeRoutes.apply_serving(kubeconfig, instance),
+         :ok <- maybe_access_serving(kubeconfig, instance) do
       maybe_wake_targets(kubeconfig, instance)
     end
   end
@@ -220,6 +222,42 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
 
   defp maybe_wake_targets(kubeconfig, instance),
     do: EdgeRoutes.ensure_wake_targets(kubeconfig, instance)
+
+  # S2 (ADR-0040 §7): an attached private instance's deploy mints its
+  # access arms alongside the (empty) public posture — the dispatch
+  # lives inside the exposure branches so callers stay exposure-blind.
+  # The arm follows the row's CURRENT status via the one owner (a
+  # redeploy of a sleeping instance lands wake, not a stale serving
+  # set); the dormant targets ride along either way.
+  defp maybe_access_serving(kubeconfig, %{exposure: :private} = instance) do
+    instance_id = instance.id
+
+    # The pairing row is the durable record of "attached" (the policy
+    # spec's own source). A read that fails is an error tuple — the
+    # deploy_failed arm owns those; a DB blip is not "unattached".
+    case AccessRoute
+         |> Ash.Query.filter(instance_id == ^instance_id)
+         |> Ash.read_one(authorize?: false) do
+      {:ok, nil} ->
+        # Unattached private is panel-only (#265): no hostnames serve
+        # anywhere, nothing to mint.
+        :ok
+
+      {:ok, route} ->
+        with {:ok, route} <- Ash.load(route, :gateway, authorize?: false) do
+          EdgeRoutes.apply_access_for_status(kubeconfig, route.gateway, instance)
+        end
+
+      {:error, _reason} = error ->
+        # coveralls-ignore-start - defensive: a DB read failure (the
+        # outage ExUnit cannot stage — DBConnection reconnects) is an
+        # error tuple for deploy_failed, never a silent "unattached".
+        error
+        # coveralls-ignore-stop
+    end
+  end
+
+  defp maybe_access_serving(_kubeconfig, _public), do: :ok
 
   # The merged env (catalog defaults under user values) plus the
   # instance's public URL when the AppVersion asks for it

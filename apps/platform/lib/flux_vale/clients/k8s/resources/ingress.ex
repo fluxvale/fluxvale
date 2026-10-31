@@ -31,11 +31,15 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
       }
 
   When `:host` is present, the route matches `Host(\`<host>\`)` directly and
-  `:subdomain`/`:domain` are ignored. The entryPoint is chosen by the `:tls`
-  flag alone — `web` (plain HTTP) without it, `websecure` with it — nothing
-  here is environment-aware. The local stack has no cert-manager, so
-  `tls: true` (with its resolver or secret) is a production-only
-  combination; locally the Traefik default cert terminates TLS at the edge.
+  `:subdomain`/`:domain` are ignored. An explicit `:entrypoint` overrides
+  the `:tls`-chosen default — the access edge's Host-keyed routes ride
+  Traefik's `access` entrypoint (ADR-0040 §1: the gateway tunnels raw 443
+  to it; the platform NAMES the entrypoint, never a port). Absent, the
+  entryPoint is chosen by the `:tls` flag alone — `web` (plain HTTP)
+  without it, `websecure` with it — nothing here is environment-aware. The
+  local stack has no cert-manager, so `tls: true` (with its resolver or
+  secret) is a production-only combination; locally the Traefik default
+  cert terminates TLS at the edge.
 
   **Wildcard distribution — resolved with #116**: the fleet issues
   `*.fluxvale.app` into the traefik namespace and wires a Traefik
@@ -61,6 +65,8 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
           optional(:tls_secret_name) => String.t(),
           optional(:cert_resolver) => String.t(),
           optional(:path_prefix) => String.t(),
+          optional(:entrypoint) => String.t(),
+          optional(:labels) => %{optional(String.t()) => String.t()},
           optional(:middlewares) => [String.t()]
         }
 
@@ -191,7 +197,9 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
   end
 
   @doc """
-  Builds the IngressRoute manifest from the simplified spec.
+  Builds the IngressRoute manifest from the simplified spec. Optional
+  `:labels` merge into the metadata labels (the access arms' ownership
+  labels — gateway + domain — so a future orphan is discoverable).
   """
   @spec build_manifest(String.t(), String.t(), spec()) :: map()
   def build_manifest(namespace, name, spec) do
@@ -200,7 +208,9 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
     tls_secret_name = Map.get(spec, :tls_secret_name)
     # Local dev's default; production passes an explicit :domain
     domain = Map.get(spec, :domain, "localhost")
-    entry_point = if tls_enabled, do: "websecure", else: "web"
+    # An explicit :entrypoint (the access edge, ADR-0040) wins; absent,
+    # the :tls flag picks web/websecure exactly as before.
+    entry_point = Map.get(spec, :entrypoint) || if(tls_enabled, do: "websecure", else: "web")
 
     # #203: optional per-route Traefik Middlewares (the activity beacon
     # on serving routes, the wake marker on wake-mode ones) — attached
@@ -244,10 +254,14 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
       "metadata" => %{
         "name" => name,
         "namespace" => namespace,
-        "labels" => %{
-          "app.kubernetes.io/managed-by" => "fluxvale",
-          "app.kubernetes.io/name" => name
-        }
+        "labels" =>
+          Map.merge(
+            %{
+              "app.kubernetes.io/managed-by" => "fluxvale",
+              "app.kubernetes.io/name" => name
+            },
+            Map.get(spec, :labels, %{})
+          )
       },
       "spec" => spec_with_tls
     }

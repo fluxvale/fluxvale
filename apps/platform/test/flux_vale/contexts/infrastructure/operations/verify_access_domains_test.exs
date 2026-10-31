@@ -10,9 +10,18 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
   use Mimic
 
   alias FluxVale.Clients.K8s
+  alias FluxVale.Clients.K8s.Resources.Ingress
+  alias FluxVale.Clients.K8s.Resources.Middleware
+  alias FluxVale.Clients.K8s.Resources.Secret
+  alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessDomain
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale
+  alias FluxVale.Infrastructure.AccessRoute
+  alias FluxVale.Infrastructure.InstanceHostname
+  alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
+  alias FluxVale.TestSupport.InstanceFixtures
 
   @deadline_hours 72
 
@@ -411,6 +420,193 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
   # Helpers
   # ------------------------------------------------------------------
 
+  # ----------------------------------------------------------------
+  # ADR-0040 Am. 1 as built: the arms follow the domain, and the cert
+  # replica syncs on the pass's cadence.
+  # ----------------------------------------------------------------
+  describe "the arms follow the domain (ADR-0040 Am. 1)" do
+    test "promotion mints the arms for the domain's attached private instances", %{
+      org: org,
+      owner: owner
+    } do
+      domain = register!(owner)
+      {instance, _gateway} = attached_hostname!(org, owner, domain)
+
+      stub_arm_creates(instance.namespace)
+      stub_cert_replica()
+
+      expect(Ingress, :create, 2, fn _kc, ns, "access-" <> _tail, spec ->
+        assert ns == instance.namespace
+
+        case spec.host do
+          "wiki.apps.customer.com" ->
+            # The custom domain's route references the LOCAL replica name.
+            assert spec.tls_secret_name =~ ~r/^access-domain-cert-[0-9a-f]{10}$/
+
+          _platform_hostname ->
+            # The platform domain rides the default TLSStore — no secret.
+            refute Map.has_key?(spec, :tls_secret_name)
+        end
+
+        {:ok, %{}}
+      end)
+
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: cert_body("True")}}
+      end)
+
+      assert {:ok, %{verified: 1}} = Infrastructure.verify_access_domains()
+      assert get_row!(domain.id).state == :verified
+    end
+
+    test "an arm-mint failure on promotion logs and still lands the promotion", %{
+      org: org,
+      owner: owner
+    } do
+      domain = register!(owner)
+      {instance, _gateway} = attached_hostname!(org, owner, domain)
+
+      stub_arm_creates(instance.namespace)
+      stub_cert_replica()
+
+      stub(Ingress, :create, fn _kc, _ns, _name, _spec ->
+        {:error, :routes_refused}
+      end)
+
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: cert_body("True")}}
+      end)
+
+      assert {:ok, %{verified: 1}} = Infrastructure.verify_access_domains()
+      assert get_row!(domain.id).state == :verified
+    end
+
+    test ":failed demotes nothing — a failed domain never routed", %{org: org, owner: owner} do
+      # The aged :pending row is a state actions cannot produce — the
+      # Ash.seed! case.
+      domain =
+        Ash.Seed.seed!(AccessDomain, %{
+          organization_id: org.id,
+          domain: "late.example.com",
+          kind: :custom,
+          state: :pending,
+          registered_at: hours_ago(@deadline_hours + 1)
+        })
+
+      {_instance, _gateway} = attached_hostname!(org, owner, domain)
+
+      # The instance's OTHER hostnames keep serving: a failed domain
+      # never had routes of its own (unverified rows are skipped at
+      # mint), so the failure removes nothing.
+      reject(Ingress, :delete, 3)
+      reject(Middleware, :delete, 3)
+
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: cert_body("False")}}
+      end)
+
+      assert {:ok, %{failed: 1}} = Infrastructure.verify_access_domains()
+      assert get_row!(domain.id).state == :failed
+    end
+
+    test ":needs_attention keeps serving — no arm removal on the healing state", %{
+      org: org,
+      owner: owner
+    } do
+      # A :verified row is a state the pass alone produces — seed it the
+      # way a past pass left it.
+      domain =
+        Ash.Seed.seed!(AccessDomain, %{
+          organization_id: org.id,
+          domain: "wobbly.example.com",
+          kind: :custom,
+          state: :verified,
+          cert_secret_ref: "access-domain-tls",
+          registered_at: hours_ago(1)
+        })
+
+      {_instance, _gateway} = attached_hostname!(org, owner, domain)
+
+      stub_arm_deletes(org)
+
+      # The cert replica still syncs on the pass (the cert is still
+      # valid and the arms keep serving through it).
+      stub(Secret, :get_data, fn _kc, "fluxvale-access", "access-domain-tls" ->
+        {:ok, %{"tls.crt" => "CERT", "tls.key" => "KEY"}}
+      end)
+
+      stub(Secret, :create, fn _kc, _ns, "access-domain-cert-" <> _tail, _data, _labels ->
+        {:ok, %{}}
+      end)
+
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: cert_body("False")}}
+      end)
+
+      assert {:ok, %{needs_attention: 1}} = Infrastructure.verify_access_domains()
+      assert get_row!(domain.id).state == :needs_attention
+
+      # The cert is still valid and the reconcile limb is healing: the
+      # arms must still be standing.
+      refute_received {:access_route_removed}
+      refute_received {:access_middleware_removed}
+    end
+
+    test "the sync limb re-ensures each :verified domain's cert replica per serving namespace", %{
+      org: org,
+      owner: owner
+    } do
+      domain =
+        Ash.Seed.seed!(AccessDomain, %{
+          organization_id: org.id,
+          domain: "steady.example.com",
+          kind: :custom,
+          state: :verified,
+          cert_secret_ref: "access-domain-tls",
+          registered_at: hours_ago(1)
+        })
+
+      {instance, _gateway} = attached_hostname!(org, owner, domain)
+
+      # Non-serving instances with hostnames under the domain are
+      # skipped by the sync's join: an unattached private row and an
+      # attached-none public row hold no access arms.
+      unattached = AccessFixtures.private_instance!(org, owner)
+
+      InstanceHostname.mint!(
+        %{instance_id: unattached.id, access_domain_id: domain.id, label: "dark"},
+        authorize?: false
+      )
+
+      public = AccessFixtures.public_instance!(org, owner)
+
+      InstanceHostname.mint!(
+        %{instance_id: public.id, access_domain_id: domain.id, label: "also-dark"},
+        authorize?: false
+      )
+
+      stub_arm_creates(instance.namespace)
+
+      expect(Secret, :get_data, fn _kc, "fluxvale-access", "access-domain-tls" ->
+        {:ok, %{"tls.crt" => "CERT", "tls.key" => "KEY"}}
+      end)
+
+      # The replica apply FAILS: the sync logs it and moves on — the
+      # next tick converges (SSA).
+      stub(Secret, :create, fn _kc, _ns, "access-domain-cert-" <> _tail, _data, _labels ->
+        {:error, :replica_refused}
+      end)
+
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: cert_body("True")}}
+      end)
+
+      # Unchanged observation — the SYNC is the work this pass does.
+      assert {:ok, %{verified: 0, failed: 0, needs_attention: 0}} =
+               Infrastructure.verify_access_domains()
+    end
+  end
+
   defp register!(owner) do
     expect(Kubereq, :apply, fn _req, manifest, _fm ->
       {:ok, %{status: 201, body: manifest}}
@@ -453,5 +649,75 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
 
   defp hours_ago(hours) do
     DateTime.add(DateTime.utc_now(), -hours * 3600, :second)
+  end
+
+  # The attached-private-instance shape the arms serve, with a hostname
+  # row under `domain` (the row is created directly — attach itself is
+  # the operation tests' subject).
+  defp attached_hostname!(org, owner, domain) do
+    InstanceFixtures.local_cluster!()
+
+    stub(K8s, :kubeconfig, fn -> {:ok, %{}} end)
+    stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+
+    # Instance create's funded-wallet gate (#124).
+    {_org, _wallet} = BillingFixtures.funded_wallet!(org: org)
+
+    # The gateway create runs the provider's provision leg.
+    stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+      {:ok, %{credential_secret_ref: "credential-stub"}}
+    end)
+
+    gateway = AccessFixtures.gateway!(org)
+    instance = AccessFixtures.private_instance!(org, owner)
+
+    # The hostname row under THIS domain (the default slug row rides the
+    # org's platform domain).
+    InstanceHostname.mint!(
+      %{instance_id: instance.id, access_domain_id: domain.id, label: "wiki"},
+      authorize?: false
+    )
+
+    {:ok, _route} =
+      AccessRoute.create(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+    {instance, gateway}
+  end
+
+  defp stub_arm_creates(ns) do
+    stub(Service, :create, fn _kc, ^ns, _name, _spec -> {:ok, %{}} end)
+    stub(Middleware, :create, fn _kc, ^ns, _name, _spec -> {:ok, %{}} end)
+
+    stub(Ingress, :create, fn _kc, _ns, _name, _spec -> {:ok, %{}} end)
+  end
+
+  defp stub_arm_deletes(_org) do
+    parent = self()
+
+    stub(K8s, :kubeconfig, fn -> {:ok, %{}} end)
+    stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+
+    stub(Ingress, :delete, fn _kc, _ns, "access-" <> _tail ->
+      send(parent, {:access_route_removed})
+      :ok
+    end)
+
+    stub(Middleware, :delete, fn _kc, _ns, "fluxvale-access-wake" ->
+      send(parent, {:access_middleware_removed})
+      :ok
+    end)
+  end
+
+  defp stub_cert_replica do
+    stub(Secret, :get_data, fn _kc, "fluxvale-access", "access-domain-tls" ->
+      {:ok, %{"tls.crt" => "CERT", "tls.key" => "KEY"}}
+    end)
+
+    stub(Secret, :create, fn _kc, _ns, "access-domain-cert-" <> _tail, _data, _labels ->
+      {:ok, %{}}
+    end)
   end
 end

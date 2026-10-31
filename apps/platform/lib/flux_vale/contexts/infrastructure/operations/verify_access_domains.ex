@@ -25,7 +25,23 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
     un-flapped until Ready returns. Cert loss self-heals instead of
     sticking forever.
 
-  Everything else (platform rows, `:failed`, `:suspended`, transient
+  **The arms follow the domain (ADR-0040 Am. 1 as built):** promotion
+  to `:verified` mints the access arms for the domain's attached
+  private instances (a fresh domain answers now, not at the next
+  unrelated flip). `:failed` demotes NOTHING — a failed domain never
+  routed (unverified rows are skipped at mint, and `:failed` only ever
+  comes from `:pending`), so its hostnames' routes are the OTHER
+  domains' routes, still standing. `:needs_attention` KEEPS serving —
+  the reconcile limb is healing and the cert is still valid (the TLS
+  clause routes needs_attention rows that carry a ref). The one
+  honest-dark demotion is a SUSPENDED verified domain's — domain-scoped,
+  via `EdgeRoutes.apply_access_none_for_domain/3` — and that is the
+  limb S6's ladder calls when its writer lands. And every pass
+  re-ensures the cert REPLICA of each `:verified` domain into each
+  serving namespace (SSA no-op when unchanged; a renewal rotation
+  converges within one cadence).
+
+  Everything else (platform rows, `:suspended`, transient
   cluster errors) is left alone: a suspension is the billing ladder's
   (S6) authority, and a flaky read must not flap a row — the next tick
   re-decides. A transition write that re-reads a row whose state moved
@@ -40,6 +56,10 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Certificate
   alias FluxVale.Infrastructure.AccessDomain
+  alias FluxVale.Infrastructure.AccessRoute
+  alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.InstanceHostname
+  alias FluxVale.Infrastructure.Operations.EdgeRoutes
 
   require Ash.Query
   require Logger
@@ -62,13 +82,20 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
           | {:error, term()}
   def call(_opts \\ []) do
     with {:ok, kubeconfig} <- K8s.kubeconfig() do
-      counts =
+      domains =
         AccessDomain
         |> Ash.Query.filter(kind == :custom)
         |> Ash.read!(authorize?: false)
-        |> Enum.reduce(@zero_counts, fn domain, acc ->
+
+      counts =
+        Enum.reduce(domains, @zero_counts, fn domain, acc ->
           tally(observe(domain, kubeconfig), acc)
         end)
+
+      # The cert-replica sync limb: every :verified domain's replica is
+      # re-ensured into each serving namespace — SSA no-ops when
+      # unchanged, so renewal rotations converge within one cadence.
+      sync_replicas(domains, kubeconfig)
 
       if counts.land_errors > 0 do
         {:error, {:land_failed, counts.land_errors}}
@@ -92,7 +119,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
 
   defp observe(%AccessDomain{state: :pending} = domain, kubeconfig) do
     case get_certificate(domain, kubeconfig) do
-      {:ok, body} -> decide_pending(domain, ready(body), body)
+      {:ok, body} -> decide_pending(domain, kubeconfig, ready(body), body)
       {:error, %Error{reason: :not_found}} -> pending_certificate_missing(domain, kubeconfig)
       {:error, reason} -> log_read_failure(domain, reason)
     end
@@ -102,6 +129,10 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
     case get_certificate(domain, kubeconfig) do
       {:ok, body} ->
         if ready(body) == "False" do
+          # The arms KEEP SERVING here: needs_attention is the healing
+          # state (the reconcile limb re-applies underneath) and the
+          # issued cert is still valid — demoting now would take honest
+          # hostnames dark for a row that is about to recover.
           land(domain, :mark_needs_attention)
         else
           # True (healthy) or nil (reconciling): no flap.
@@ -125,7 +156,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
     case get_certificate(domain, kubeconfig) do
       {:ok, body} ->
         if ready(body) == "True" do
-          promote_to_verified(domain, body)
+          promote_to_verified(domain, kubeconfig, body)
         else
           :unchanged
         end
@@ -145,10 +176,16 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   # ladder's authority (S6) — the observer writes over neither.
   defp observe(%AccessDomain{}, _kubeconfig), do: :unchanged
 
-  defp decide_pending(domain, "True", body), do: promote_to_verified(domain, body)
+  defp decide_pending(domain, kubeconfig, "True", body),
+    do: promote_to_verified(domain, kubeconfig, body)
 
-  defp decide_pending(domain, _not_ready_yet, _body) do
+  defp decide_pending(domain, _kubeconfig, _not_ready_yet, _body) do
     if deadline_lapsed?(domain) do
+      # No demotion on :failed: a failed domain never routed (unverified
+      # rows are skipped at mint, and :failed only ever comes from
+      # :pending), so its hostnames' routes are the OTHER domains'
+      # routes — removing them would take honest hostnames dark for a
+      # domain that never had any.
       land(domain, :mark_failed)
     else
       :unchanged
@@ -160,6 +197,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   # deadline the window is closed — no churn for a row about to fail.
   defp pending_certificate_missing(domain, kubeconfig) do
     if deadline_lapsed?(domain) do
+      # Same no-demotion stance as decide_pending.
       land(domain, :mark_failed)
     else
       reapply_certificate(domain, kubeconfig)
@@ -171,7 +209,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   # Writes — system funnels, authorize?: false (the ops seam)
   # ------------------------------------------------------------------
 
-  defp promote_to_verified(domain, body) do
+  defp promote_to_verified(domain, kubeconfig, body) do
     case secret_ref(body) do
       nil ->
         # Ready=True with no Secret ref is not a promotion — treat as
@@ -188,7 +226,11 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
                %{cert_secret_ref: secret_name},
                authorize?: false
              ) do
-          {:ok, _updated} ->
+          {:ok, updated} ->
+            # Promotion drives the arms (Am. 1 as built): the domain's
+            # attached private instances' hostnames must start
+            # ANSWERING now, not at the next unrelated flip.
+            mint_domain_arms(updated, kubeconfig)
             :verified
 
           # coveralls-ignore-start - defensive: a lost write race or DB
@@ -332,5 +374,83 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   defp log_read_failure(domain, reason) do
     Logger.warning("Access domain #{domain.domain}: Certificate read failed: #{inspect(reason)}")
     :unchanged
+  end
+
+  # ------------------------------------------------------------------
+  # The domain's arms (ADR-0040 Am. 1 as built)
+  # ------------------------------------------------------------------
+
+  # The instances that actually serve this domain through the access
+  # edge: the domain's hostnames' instances that are private (an
+  # attached public row holds no access arms — the toggle removed them)
+  # and attached (a pairing row — without one nothing can deliver, and
+  # apply_access_none's own read drives removal).
+  defp serving_instances(domain) do
+    InstanceHostname
+    |> Ash.Query.filter(access_domain_id == ^domain.id)
+    |> Ash.read!(authorize?: false)
+    |> Enum.uniq_by(& &1.instance_id)
+    |> Enum.flat_map(fn hostname ->
+      case Ash.get(Instance, hostname.instance_id, authorize?: false) do
+        {:ok, %{exposure: :private} = instance} ->
+          case AccessRoute.get_by_instance(instance.id, authorize?: false) do
+            {:ok, _pairing} -> [instance]
+            {:error, _unattached} -> []
+          end
+
+        _not_private_or_gone ->
+          []
+      end
+    end)
+  end
+
+  defp mint_domain_arms(domain, kubeconfig) do
+    domain
+    |> serving_instances()
+    |> Enum.each(&mint_instance_arms(&1, kubeconfig))
+
+    :ok
+  end
+
+  defp mint_instance_arms(instance, kubeconfig) do
+    with {:ok, route} <- AccessRoute.get_by_instance(instance.id, authorize?: false),
+         {:ok, route} <- Ash.load(route, :gateway, authorize?: false) do
+      case EdgeRoutes.apply_access_for_status(kubeconfig, route.gateway, instance) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning(
+            "Access domain arms: mint failed for instance #{instance.id}: #{inspect(reason)}"
+          )
+      end
+    end
+  end
+
+  defp sync_replicas(domains, kubeconfig) do
+    domains
+    |> Enum.filter(&(&1.state == :verified))
+    |> Enum.each(&sync_domain_replicas(&1, kubeconfig))
+
+    :ok
+  end
+
+  defp sync_domain_replicas(domain, kubeconfig) do
+    domain
+    |> serving_instances()
+    |> Enum.each(&ensure_replica(&1, domain, kubeconfig))
+  end
+
+  defp ensure_replica(instance, domain, kubeconfig) do
+    case EdgeRoutes.ensure_access_cert_secret(kubeconfig, domain, instance.namespace) do
+      {:ok, _local} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Access domain #{domain.domain}: cert replica sync into #{instance.namespace} " <>
+            "failed: #{inspect(reason)}"
+        )
+    end
   end
 end

@@ -9,8 +9,12 @@ defmodule FluxVale.Infrastructure.Operations.RestoreServingEdgeTest do
   alias FluxVale.Clients.K8s.Resources.Ingress
   alias FluxVale.Clients.K8s.Resources.Middleware
   alias FluxVale.Identity.User
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale
+  alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.RestoreServingEdge
+  alias FluxVale.TestSupport.AccessFixtures
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   defp user do
@@ -66,5 +70,38 @@ defmodule FluxVale.Infrastructure.Operations.RestoreServingEdgeTest do
     reject(Ingress, :create, 4)
 
     assert :ok = RestoreServingEdge.call(private)
+  end
+
+  # ADR-0040 S2: the restore is the PUBLIC edge's self-healing flip. A
+  # private+attached instance's access arms are NOT its business — the
+  # wake endpoint's own flip owns them — so a restore must not
+  # resurrect them (the private no-op stance, access-flavored).
+  test "a private attached instance's restore resurrects no access arms" do
+    stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+      {:ok, %{credential_secret_ref: "credential-stub"}}
+    end)
+
+    InstanceFixtures.local_cluster!()
+
+    {org, owner} = BillingFixtures.grant_free_org!()
+    {:ok, wallet} = FluxVale.Billing.ensure_wallet(org)
+    {:ok, _grant} = FluxVale.Billing.grant_credits(wallet, 10_000, reason: :adjustment)
+
+    gateway = AccessFixtures.gateway!(org)
+    instance = AccessFixtures.private_instance!(org, owner)
+
+    AccessRoute.create!(
+      %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+      authorize?: false
+    )
+
+    # The private no-op stands even with a pairing row: no kubeconfig,
+    # no route of any entrypoint (the wake endpoint's flip owns the
+    # access arms — this call must stay a no-op).
+    reject(K8s, :kubeconfig, 1)
+    reject(Ingress, :create, 4)
+    reject(Middleware, :create, 4)
+
+    assert :ok = RestoreServingEdge.call(instance)
   end
 end

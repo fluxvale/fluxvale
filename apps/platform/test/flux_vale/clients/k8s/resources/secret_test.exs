@@ -20,6 +20,25 @@ defmodule FluxVale.Clients.K8s.Resources.SecretTest do
     end
   end
 
+  describe "build_manifest/4 — extra labels" do
+    test "merges the ownership labels over the defaults; absent is today's shape" do
+      manifest =
+        Secret.build_manifest("ns", "access-domain-cert-abc123", %{"tls.crt" => "c"}, %{
+          "fluxvale.io/access-domain" => "domain-id"
+        })
+
+      assert manifest["metadata"]["labels"] == %{
+               "app.kubernetes.io/managed-by" => "fluxvale",
+               "app.kubernetes.io/name" => "access-domain-cert-abc123",
+               "fluxvale.io/access-domain" => "domain-id"
+             }
+
+      plain = Secret.build_manifest("ns", "app-env", %{"API_KEY" => "s3cr3t"})
+      assert plain["metadata"]["labels"]["app.kubernetes.io/managed-by"] == "fluxvale"
+      refute Map.has_key?(plain["metadata"]["labels"], "fluxvale.io/access-domain")
+    end
+  end
+
   describe "decode_data/1" do
     test "decodes base64 values — the get_data payload path" do
       encoded = %{"API_KEY" => Base.encode64("s3cr3t")}
@@ -116,6 +135,35 @@ defmodule FluxVale.Clients.K8s.Resources.SecretTest do
       expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 404, body: %{}}} end)
 
       assert {:error, %Error{reason: :not_found}} = Secret.delete(%{}, "ns", "missing")
+    end
+  end
+
+  describe "create/5 — extra labels (the cert replica)" do
+    test "applies the Secret with the merged labels" do
+      expect(Kubereq, :apply, fn _req, manifest, _fm ->
+        assert manifest["metadata"]["labels"]["fluxvale.io/access-domain"] == "domain-id"
+        assert manifest["data"]["tls.crt"] == Base.encode64("CERT")
+        {:ok, %{status: 201, body: manifest}}
+      end)
+
+      assert {:ok, _body} =
+               Secret.create(%{}, "ns", "access-domain-cert-abc", %{"tls.crt" => "CERT"}, %{
+                 "fluxvale.io/access-domain" => "domain-id"
+               })
+    end
+  end
+
+  describe "upsert/5" do
+    test "delegates to create with the labels" do
+      expect(Kubereq, :apply, fn _req, manifest, _fm ->
+        assert manifest["metadata"]["labels"]["fluxvale.io/access-domain"] == "domain-id"
+        {:ok, %{status: 200, body: manifest}}
+      end)
+
+      assert {:ok, _body} =
+               Secret.upsert(%{}, "ns", "access-domain-cert-abc", %{"tls.crt" => "CERT"}, %{
+                 "fluxvale.io/access-domain" => "domain-id"
+               })
     end
   end
 

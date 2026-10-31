@@ -54,6 +54,48 @@ defmodule FluxVale.Clients.K8s.Resources.MiddlewareTest do
     end
   end
 
+  describe "build_manifest/3 — replace_path_regex (the access wake rewrite, ADR-0040 §7)" do
+    test "lands as replacePathRegex with the regex and replacement verbatim" do
+      spec = %{replace_path_regex: %{regex: "^/(.*)", replacement: "/internal/access/gw/inst/$1"}}
+
+      manifest = Middleware.build_manifest("ns", "fluxvale-access-wake", spec)
+
+      assert manifest["spec"] == %{
+               "replacePathRegex" => %{
+                 "regex" => "^/(.*)",
+                 "replacement" => "/internal/access/gw/inst/$1"
+               }
+             }
+    end
+
+    test "a missing or empty regex is rejected before any cluster call" do
+      for bad <- [%{replacement: "/x/$1"}, %{regex: "", replacement: "/x/$1"}] do
+        assert {:error, %Error{reason: :invalid_spec, message: msg}} =
+                 Middleware.create(nil, "ns", "bad", %{replace_path_regex: bad})
+
+        assert msg =~ "non-empty regex"
+      end
+    end
+
+    test "a missing or empty replacement is rejected before any cluster call" do
+      for bad <- [%{regex: "^/(.*)"}, %{regex: "^/(.*)", replacement: ""}] do
+        assert {:error, %Error{reason: :invalid_spec, message: msg}} =
+                 Middleware.create(nil, "ns", "bad", %{replace_path_regex: bad})
+
+        assert msg =~ "non-empty replacement"
+      end
+    end
+
+    test "a regex that does not COMPILE is rejected — a bad pattern must die here, not in Traefik's reload" do
+      spec = %{replace_path_regex: %{regex: "^/(.*[", replacement: "/x/$1"}}
+
+      assert {:error, %Error{reason: :invalid_spec, message: msg}} =
+               Middleware.create(nil, "ns", "bad", spec)
+
+      assert msg =~ "does not compile"
+    end
+  end
+
   describe "create/4 — fail-loudly validation" do
     test "a non-http address is rejected before any cluster call" do
       spec = %{forward_auth: %{address: "gopher://nope"}}
@@ -115,7 +157,7 @@ defmodule FluxVale.Clients.K8s.Resources.MiddlewareTest do
       assert {:error, %Error{reason: :invalid_spec, message: msg}} =
                Middleware.create(nil, "ns", "empty", %{})
 
-      assert msg =~ "forward_auth or request_headers"
+      assert msg =~ "forward_auth"
     end
 
     test "a valid beacon spec applies" do
@@ -134,6 +176,40 @@ defmodule FluxVale.Clients.K8s.Resources.MiddlewareTest do
       stub(Kubereq, :apply, fn _req, _manifest, _manager -> {:ok, %{status: 201, body: %{}}} end)
 
       assert {:ok, _body} = Middleware.create(%{}, "ns", "fluxvale-wake", spec)
+    end
+
+    test "a valid replace_path_regex spec applies" do
+      spec = %{replace_path_regex: %{regex: "^/(.*)", replacement: "/internal/access/g/i/$1"}}
+
+      stub(Kubereq, :apply, fn _req, _manifest, _manager -> {:ok, %{status: 201, body: %{}}} end)
+
+      assert {:ok, _body} = Middleware.create(%{}, "ns", "fluxvale-access-wake", spec)
+    end
+  end
+
+  describe "delete/3" do
+    test "200 deletes synchronously" do
+      expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 200}} end)
+
+      assert :ok = Middleware.delete(%{}, "ns", "fluxvale-access-wake")
+    end
+
+    test "202 accepts asynchronous deletion" do
+      expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 202}} end)
+
+      assert :ok = Middleware.delete(%{}, "ns", "fluxvale-access-wake")
+    end
+
+    test "404 is :not_found" do
+      expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 404, body: %{}}} end)
+
+      assert {:error, %Error{reason: :not_found}} = Middleware.delete(%{}, "ns", "missing")
+    end
+
+    test "transport failure maps to a connection error" do
+      expect(Kubereq, :delete, fn _req, _ns, _name -> {:error, :transport_oops} end)
+
+      assert {:error, %Error{reason: :connection_error}} = Middleware.delete(%{}, "ns", "x")
     end
   end
 end

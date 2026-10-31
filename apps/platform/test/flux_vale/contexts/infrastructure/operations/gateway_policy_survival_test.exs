@@ -61,7 +61,7 @@ defmodule FluxVale.Infrastructure.Operations.GatewayPolicySurvivalTest do
   end
 
   describe "the spec itself" do
-    test "an attached private instance admits its gateway, pod-narrowed", %{
+    test "an attached private instance admits its gateway pod-narrowed AND the access edge", %{
       org: org,
       owner: owner
     } do
@@ -70,10 +70,49 @@ defmodule FluxVale.Infrastructure.Operations.GatewayPolicySurvivalTest do
 
       spec = InstanceK8s.network_policy_spec(instance)
 
-      # Private: no edge entry. The gateway entry is the whole point.
-      assert [peer] = spec.ingress_from_sources
-      assert peer.namespace == access_namespace()
-      assert peer.match_labels == InstanceK8s.gateway_pod_labels(gateway.id)
+      # Two entries, two shapes: the access edge (ADR-0040 Am. 1 — the
+      # tunnel terminates at Traefik's access entrypoint, which dials
+      # the app Service) stays whole-namespace (Traefik's pods are not
+      # ours to label), the gateway entry is pod-narrowed.
+      assert [edge_peer, gateway_peer] = spec.ingress_from_sources
+      assert edge_peer.namespace == edge_namespace()
+      refute Map.has_key?(edge_peer, :match_labels)
+
+      assert gateway_peer.namespace == access_namespace()
+      assert gateway_peer.match_labels == InstanceK8s.gateway_pod_labels(gateway.id)
+    end
+
+    test "the widening is absent for a private UNATTACHED instance — the plain floor", %{
+      org: _org,
+      owner: owner
+    } do
+      instance = unattached_instance!(owner, :private)
+
+      # Panel-only: no edge entry, no sources — the pre-S2 shape intact.
+      assert InstanceK8s.network_policy_spec(instance) == %{ingress_from_namespaces: []}
+    end
+
+    test "the widening never fires for a PUBLIC instance — the exposure floor owns the edge", %{
+      org: org,
+      owner: owner
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      attached = attached_instance!(org, owner, gateway, :public)
+
+      spec = InstanceK8s.network_policy_spec(attached)
+
+      # The edge entry exists exactly once — the exposure floor's own,
+      # unchanged by attachment (the widening is a private-only branch).
+      namespaces = Enum.map(spec.ingress_from_sources, & &1.namespace)
+      assert Enum.count(namespaces, &(&1 == edge_namespace())) == 1
+      assert access_namespace() in namespaces
+
+      # And unattached public is the plain floor, byte-identical to S1.
+      unattached = unattached_instance!(owner, :public)
+
+      assert InstanceK8s.network_policy_spec(unattached) == %{
+               ingress_from_namespaces: [edge_namespace()]
+             }
     end
 
     test "an attached PUBLIC instance keeps the edge whole-namespace", %{org: org, owner: owner} do
@@ -248,8 +287,11 @@ defmodule FluxVale.Infrastructure.Operations.GatewayPolicySurvivalTest do
       assert gateway_peer.match_labels == InstanceK8s.gateway_pod_labels(gateway.id)
 
       case exposure do
+        # ADR-0040 Am. 1: the access edge dials the app Service, so the
+        # private+attached policy admits the edge namespace (the tunnel
+        # terminates at Traefik's access entrypoint).
         :private ->
-          refute Enum.any?(spec.ingress_from_sources, &(&1.namespace == edge_namespace()))
+          assert Enum.any?(spec.ingress_from_sources, &(&1.namespace == edge_namespace()))
 
         :public ->
           assert Enum.any?(spec.ingress_from_sources, &(&1.namespace == edge_namespace()))
@@ -263,13 +305,33 @@ defmodule FluxVale.Infrastructure.Operations.GatewayPolicySurvivalTest do
 
   defp stub_route_deletes do
     stub(Ingress, :delete, fn _kc, _ns, _name -> :ok end)
-    reject(Ingress, :create, 4)
-    reject(Middleware, :create, 4)
+
+    # The PUBLIC edge stays dark going private: only access-arm routes
+    # (entrypoint "access", ADR-0040 §7) may be minted by the toggle's
+    # private limb — anything else reaching create fails the test.
+    stub(Ingress, :create, fn _kc, _ns, _n, spec ->
+      assert spec.entrypoint == "access"
+      {:ok, %{}}
+    end)
+
+    stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+    stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
   end
 
   defp stub_route_creates do
     stub(Ingress, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
     stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+    stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+    # Going public removes the access arms (the toggle's public limb):
+    # nothing exists to remove in these fixtures — tolerated 404s.
+    stub(Ingress, :delete, fn _kc, _ns, _name ->
+      {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+    end)
+
+    stub(Middleware, :delete, fn _kc, _ns, _name ->
+      {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+    end)
   end
 
   defp stub_deploy_operands do
@@ -280,6 +342,9 @@ defmodule FluxVale.Infrastructure.Operations.GatewayPolicySurvivalTest do
     stub(Secret, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
     stub(Deployment, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
     stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+    # The attached private deploy mints its access arms (ADR-0040 §7).
+    stub(Ingress, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+    stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
 
     stub(Ingress, :delete, fn _kc, _ns, _name ->
       {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}

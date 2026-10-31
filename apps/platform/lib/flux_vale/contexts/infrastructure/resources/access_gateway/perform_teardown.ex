@@ -23,7 +23,10 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformTeardown do
 
   use Ash.Resource.Change
 
+  alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProvider
+  alias FluxVale.Infrastructure.Operations.EdgeRoutes
+  alias FluxVale.Infrastructure.Operations.InstanceK8s
 
   require Logger
 
@@ -41,9 +44,37 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformTeardown do
   defp teardown(gateway) do
     provider = AccessProvider.impl_for(gateway)
 
+    # The access edge's arms go FIRST (ADR-0040 §7's caller list): the
+    # host-keyed routes live in the INSTANCE namespaces, outside the
+    # provider's own teardown reach — removing them before the gateway
+    # dies means no hostname keeps answering through a tunnel that is
+    # being torn down. Idempotent, so a retry converges a partial pass.
+    with :ok <- remove_access_arms(gateway) do
+      run_provider_teardown(provider, gateway)
+    end
+  end
+
+  defp run_provider_teardown(provider, gateway) do
     case provider.teardown_gateway(gateway) do
       :ok -> destroy_row(gateway)
       {:error, reason} = error -> fail(gateway, reason, error)
+    end
+  end
+
+  defp remove_access_arms(gateway) do
+    gateway
+    |> AccessGateway.attached_instances()
+    |> Enum.reduce_while(:ok, fn instance, :ok ->
+      case remove_instance_arms(instance) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp remove_instance_arms(instance) do
+    with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance) do
+      EdgeRoutes.apply_access_none(kubeconfig, instance)
     end
   end
 

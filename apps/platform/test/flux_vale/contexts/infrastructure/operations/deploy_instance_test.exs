@@ -18,9 +18,13 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
   alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Clients.K8s.SelfAccessReview
   alias FluxVale.Identity.User
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale
+  alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.DeployInstance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.TestSupport.AccessFixtures
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   defp user do
@@ -214,6 +218,73 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
       end)
 
       assert {:ok, updated} = DeployInstance.call(private)
+      assert updated.status == :starting
+    end
+
+    test "an attached private instance's deploy mints its access serving arms (ADR-0040 §7)" do
+      stub_kubeconfig()
+
+      stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
+
+      deploying = deploying!()
+      # The attached-private shape: exposure pinned like the row would
+      # carry (deploying! leaves the create default).
+      instance = InstanceFixtures.pin!(deploying, exposure: :private)
+      ns = "fluxvale-app-#{instance.id}"
+
+      # The pairing row (attach's durable record) for the instance's own
+      # org — the gateway create bills, so the wallet is funded first.
+      org = Ash.get!(FluxVale.Accounts.Organization, instance.organization_id, authorize?: false)
+
+      {_org, _wallet} = BillingFixtures.funded_wallet!(org: org)
+
+      gateway = AccessFixtures.gateway!(org)
+
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      stub(Namespace, :create, fn _kc, _ns, _spec -> {:ok, %{}} end)
+      stub(RoleBinding, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(ResourceQuota, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(PersistentVolumeClaim, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Secret, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Deployment, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      stub(Service, :create, fn
+        _kc, _ns, "app", _spec -> {:ok, %{}}
+        _kc, _ns, "wake", _spec -> {:ok, %{}}
+      end)
+
+      stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      stub(Ingress, :delete, fn _kc, _ns, _name ->
+        # The public posture: nothing to delete (404 tolerated).
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      expect(Ingress, :create, fn _kc, ^ns, "access-" <> _tail, spec ->
+        # The status is :deploying, so the arm follows the row's current
+        # status via the one owner (wake now; the first visit flips it
+        # to serving through the wake endpoint).
+        assert spec.entrypoint == "access"
+        assert spec.service_name == "wake"
+        assert spec.middlewares == ["fluxvale-access-wake"]
+        {:ok, %{}}
+      end)
+
+      expect(NetworkPolicy, :create, fn _kc, ^ns, "default-deny-ingress", spec ->
+        # The widened private+attached floor rides the same deploy.
+        namespaces = Enum.map(spec.ingress_from_sources, & &1.namespace)
+        assert "traefik" in namespaces
+        assert "fluxvale-access" in namespaces
+        {:ok, %{}}
+      end)
+
+      assert {:ok, updated} = DeployInstance.call(instance)
       assert updated.status == :starting
     end
 
