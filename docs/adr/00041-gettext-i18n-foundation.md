@@ -28,7 +28,7 @@ config + PO files, never a refactor.
   `session["locale"]` when it names a known locale, else the app
   default. It lands as a `:browser`-pipeline plug for dead views and
   an `on_mount` on the authenticated `live_session` for LiveViews.
-- The root layout's `lang` attribute will track the resolved locale.
+- The root layout's `lang` attribute tracks the resolved locale.
 - Extension points, documented but unwired: a signed-in user
   preference (a future sign-in writes the same session key) and
   Accept-Language negotiation (a future source ahead of the default).
@@ -37,7 +37,7 @@ config + PO files, never a refactor.
 
 - **Phase 1 (this decision)**: infrastructure + reference extraction
   on stable surfaces only — the public landing
-  (`page_html/home.html.heex`) and the already-gettext'd chrome
+  (`page_html/home.html.heex`) and the already-extracted chrome
   strings (`layouts.ex`, `core_components.ex`). Authed surfaces are
   deliberately NOT extracted: the app-wide redesign lane is rebuilding
   every authed surface, and phase 2 extracts against the redesign's
@@ -58,7 +58,10 @@ config + PO files, never a refactor.
   dev), or a gettext call in test/support leaves dev- and test-env
   extractions diverged. Templates with no gettext calls
   are invisible to the check — which is why authed templates cannot
-  trip it pre-extraction.
+  trip it pre-extraction. And the gate compares POT contents only: a
+  deleted `.po`, a deleted `errors.pot`, or a dropped msgid in
+  `en/*.po` leaves it green — it proves POT/code sync (msgids +
+  locations), not PO presence or translation completeness.
 
 ## Adding a locale (runbook, not implementation)
 
