@@ -1,8 +1,8 @@
 # ADR-0041: Gettext i18n foundation — en-only, future-ready
 
 **Status**: Accepted (the wiring — config pin, `FluxValeWeb.Locale`
-seam, ci gate — ships with the in-flight i18n-infrastructure change;
-this ADR is the decision's record)
+seam, ci gate — shipped with the gettext-plumbing change; this ADR is
+the decision's record)
 **Date**: 2026-10-31
 
 ## Context
