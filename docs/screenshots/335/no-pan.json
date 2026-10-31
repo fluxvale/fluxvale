@@ -1,0 +1,42 @@
+[
+  {
+    "width": 375,
+    "surface": "settings",
+    "overflow": 0
+  },
+  {
+    "width": 375,
+    "surface": "settings-access",
+    "overflow": 0
+  },
+  {
+    "width": 640,
+    "surface": "settings",
+    "overflow": 0
+  },
+  {
+    "width": 640,
+    "surface": "settings-access",
+    "overflow": 0
+  },
+  {
+    "width": 768,
+    "surface": "settings",
+    "overflow": 0
+  },
+  {
+    "width": 768,
+    "surface": "settings-access",
+    "overflow": 0
+  },
+  {
+    "width": 1280,
+    "surface": "settings",
+    "overflow": 0
+  },
+  {
+    "width": 1280,
+    "surface": "settings-access",
+    "overflow": 0
+  }
+]
