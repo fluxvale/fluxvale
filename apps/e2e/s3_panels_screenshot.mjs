@@ -48,21 +48,47 @@ async function setMode(mode) {
 async function openInstance() {
   await page.goto(`${BASE}${INSTANCE_PATH}`, { waitUntil: "networkidle" });
   await page.waitForTimeout(500);
+
+  // The session POST can silently fail — a /sign-in redirect here would
+  // capture the wrong surface under the right filename. Refuse loudly.
+  const url = page.url();
+  if (url.includes("/sign-in")) {
+    throw new Error(`session failed — landed on ${url} instead of the instance page`);
+  }
+  await page
+    .locator("[data-testid='backups-panel']")
+    .waitFor({ state: "visible", timeout: 10_000 });
 }
 
 async function fullShot(name) {
+  // The header is sticky: scroll to top first so it renders at the
+  // page's top edge instead of covering mid-page content.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(200);
   await page.screenshot({ path: `${outdir}/${name}.png`, fullPage: true });
   console.log(`captured ${name}.png`);
 }
 
 async function panelsShot(name) {
   // Both panels region: from the availability card's top through the
-  // page bottom — the flow section the panels live in.
-  const first = page.locator("[data-testid='availability-card']");
-  const box = await first.boundingBox();
+  // page bottom — the flow section the panels live in. boundingBox is
+  // viewport-relative; the clip wants document coordinates, so adjust
+  // for scroll. Scroll to top first so the sticky header paints at the
+  // page's top edge (outside this clip) instead of over the panels.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(200);
+  const [box, scrollY] = await Promise.all([
+    page.locator("[data-testid='availability-card']").boundingBox(),
+    page.evaluate(() => window.scrollY),
+  ]);
   await page.screenshot({
     path: `${outdir}/${name}.png`,
-    clip: { x: 0, y: box.y - 12, width: 1440, height: 20000 },
+    clip: {
+      x: 0,
+      y: Math.max(0, box.y + scrollY - 12),
+      width: 1440,
+      height: 20000,
+    },
     fullPage: true,
   });
   console.log(`captured ${name}.png`);
@@ -92,6 +118,10 @@ if (phase === "configured") {
   }
 
   // Dav quick-start on every platform tab (server-held active tab).
+  // The light/dark loop above leaves dark selected — set light EXPLICITLY
+  // or these "-light" files capture dark pixels (the evidence bug the
+  // #328 re-review caught).
+  await setMode("light");
   for (const key of ["windows", "macos", "linux"]) {
     await page.locator(`[data-testid='dav-tab-${key}']`).click();
     await page.waitForTimeout(400);

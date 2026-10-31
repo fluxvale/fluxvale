@@ -1,17 +1,25 @@
 /* S3 DOM measurements — raw numbers for the PR body.
- * 1. no horizontal pan (scrollWidth vs clientWidth) at 1440/1000/920/375
- * 2. mono panels' computed font-family (the mono stack)
- * 3. tab active states: exactly one platform tab carries the amber
- *    underline (2px, --focus token), per tablist
- * 4. flow-panel alignment: backups/dav cards share the availability
- *    card's left edge
- * 5. reduced-motion: no animation/transition on the panels' new shells
+ * Hardened per the #328 re-review:
+ * - refuses to measure a /sign-in redirect (session failure)
+ * - tolerates the no-runs state (the tone-word sections key off rows
+ *   existing and report their absence instead of throwing)
+ * - the motion section really emulates prefers-reduced-motion and counts
+ *   animation/transition STARTS during a tab switch (names alone can
+ *   hide a running animation)
+ * - measures the .mono-panel SHELLS, not children found through them
+ *
+ * 1. no horizontal pan at 1440/1000/920/375
+ * 2. mono-panel shells' computed font-family
+ * 3. tab active states: exactly one amber underline per tablist
+ * 4. flow-panel alignment with the availability card
+ * 5. motion: starts observed during a tab switch, reduce vs no-preference
  */
 
 import { chromium } from "@playwright/test";
 
 const BASE = process.env.FV_BASE ?? "http://127.0.0.1:4184";
-const INSTANCE_PATH = process.env.FV_INSTANCE ?? "/instances/01a18f45-9fab-7862-9e8d-d2430c92e188";
+const INSTANCE_PATH =
+  process.env.FV_INSTANCE ?? "/instances/01a18f45-9fab-7862-9e8d-d2430c92e188";
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -26,6 +34,15 @@ await page.request.post(`${BASE}/auth/session`, {
 
 await page.goto(`${BASE}${INSTANCE_PATH}`, { waitUntil: "networkidle" });
 await page.waitForTimeout(500);
+
+// Session + surface guard: never measure the wrong page.
+if (page.url().includes("/sign-in")) {
+  console.error(`session failed — landed on ${page.url()}`);
+  process.exit(1);
+}
+await page
+  .locator("[data-testid='backups-panel']")
+  .waitFor({ state: "visible", timeout: 10_000 });
 
 console.log("=== 1. horizontal pan (document scrollWidth - clientWidth; 0 = no pan) ===");
 for (const width of [1440, 1000, 920, 375]) {
@@ -43,22 +60,15 @@ for (const width of [1440, 1000, 920, 375]) {
 await page.setViewportSize({ width: 1440, height: 900 });
 await page.waitForTimeout(300);
 
-console.log("\n=== 2. mono panels' computed font-family ===");
-const fonts = await page.evaluate(() => {
-  const pick = (sel) => {
-    const el = document.querySelector(sel);
-    return el ? getComputedStyle(el).fontFamily : "NOT FOUND";
-  };
-  return {
-    backupsRunsPanel: pick("[data-testid='backup-runs']") === "NOT FOUND"
-      ? getComputedStyle(document.querySelector(".mono-panel")).fontFamily
-      : getComputedStyle(document.querySelector("[data-testid='backup-runs']").closest(".mono-panel")).fontFamily,
-    davSnippet: getComputedStyle(document.querySelector("[data-testid='dav-platform-tabs']").closest(".mono-panel")).fontFamily,
-    davTabLabel: getComputedStyle(document.querySelector("[data-testid='dav-tab-linux']")).fontFamily,
-    runRow: getComputedStyle(document.querySelector("[data-testid='backup-run']")).fontFamily,
-  };
-});
-for (const [k, v] of Object.entries(fonts)) console.log(`${k}: ${v}`);
+console.log("\n=== 2. mono-panel SHELLS' computed font-family ===");
+const shells = await page.evaluate(() =>
+  [...document.querySelectorAll(".mono-panel")].map((el) => ({
+    label: el.querySelector(".mono-panel-label")?.textContent.trim() ?? "(no label)",
+    font: getComputedStyle(el).fontFamily,
+  }))
+);
+if (shells.length === 0) console.log("  no .mono-panel shells on the page");
+for (const s of shells) console.log(`  [${s.label}]: ${s.font}`);
 
 console.log("\n=== 3. tab underline states (exactly one active per tablist) ===");
 for (const key of ["linux", "windows", "macos"]) {
@@ -87,7 +97,7 @@ for (const key of ["linux", "windows", "macos"]) {
 
 console.log("\n=== 4. flow-panel left edges (px; must match the availability card) ===");
 const edges = await page.evaluate(() => {
-  const left = (sel) => document.querySelector(sel).getBoundingClientRect().left;
+  const left = (sel) => document.querySelector(sel)?.getBoundingClientRect().left ?? null;
   return {
     availabilityCard: left("[data-testid='availability-card']"),
     backupsPanel: left("[data-testid='backups-panel']"),
@@ -96,22 +106,43 @@ const edges = await page.evaluate(() => {
 });
 console.log(JSON.stringify(edges));
 
-console.log("\n=== 5. motion on the panels' shells (reduced-motion zero-delta: no new animation) ===");
-const motion = await page.evaluate(() => {
-  const info = (sel) => {
-    const el = document.querySelector(sel);
-    if (!el) return "NOT FOUND";
-    const cs = getComputedStyle(el);
-    return `animation=${cs.animationName} transition=${cs.transitionProperty}`;
-  };
-  return {
-    backupsShellCard: info("[data-testid='backups-panel'] > .card"),
-    davShellCard: info("[data-testid='file-access-panel']"),
-    runsMonoPanel: info("[data-testid='backup-runs']"),
-    davMonoPanel: info("[data-testid='dav-platform-tabs']"),
-  };
-});
-for (const [k, v] of Object.entries(motion)) console.log(`${k}: ${v}`);
+console.log("\n=== 5. motion: animation/transition STARTS during a tab switch ===");
+async function startsDuringSwitch(reduced) {
+  await page.emulateMedia({ reducedMotion: reduced ? "reduce" : "no-preference" });
+  await page.waitForTimeout(300);
+  return page.evaluate(async () => {
+    const rail = document.querySelector("[data-testid='dav-platform-tabs']");
+    const shells = [...document.querySelectorAll(".mono-panel")];
+    const watched = [rail, ...shells];
+    let starts = 0;
+    const onStart = () => starts++;
+    // transitionrun/start + animationstart on the rail and both shells
+    for (const el of watched) {
+      el.addEventListener("transitionrun", onStart, true);
+      el.addEventListener("transitionstart", onStart, true);
+      el.addEventListener("animationstart", onStart, true);
+    }
+    const reduceNote = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // switch to windows and back (two state changes = the fade's moment)
+    const win = document.querySelector("[data-testid='dav-tab-windows']");
+    const nix = document.querySelector("[data-testid='dav-tab-linux']");
+    win.click();
+    await new Promise((r) => setTimeout(r, 400));
+    nix.click();
+    await new Promise((r) => setTimeout(r, 400));
+    for (const el of watched) {
+      el.removeEventListener("transitionrun", onStart, true);
+      el.removeEventListener("transitionstart", onStart, true);
+      el.removeEventListener("animationstart", onStart, true);
+    }
+    return { starts, reduceNote, railTransition: getComputedStyle(rail).transitionDuration };
+  });
+}
+const active = await startsDuringSwitch(false);
+console.log(`no-preference: starts=${active.starts} (rail transition ${active.railTransition})`);
+const reduced = await startsDuringSwitch(true);
+console.log(`reduce:        starts=${reduced.starts} (media reported reduce=${reduced.reduceNote})`);
+await page.emulateMedia({ reducedMotion: null });
 
 await browser.close();
 console.log("\nmeasurements done");
