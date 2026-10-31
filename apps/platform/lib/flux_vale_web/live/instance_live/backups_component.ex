@@ -207,7 +207,10 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   def render(assigns) do
     ~H"""
     <div id={@id} class="space-y-3" data-testid="backups-panel">
-      <.card class="space-y-4">
+      <%!-- S3: the shell joins the grammar's card scope — the same
+      opt-in the availability and file-access cards above carry
+      (hover-lift only fires on interactive cards). --%>
+      <.card class="card space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <h2 class="text-sm font-medium text-ink-muted">Backups</h2>
           <.health_badge :if={@setting} health={@health} />
@@ -621,9 +624,13 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
       </p>
     </div>
 
-    <div class="space-y-2">
-      <p class="text-xs font-medium text-ink-muted">Recent runs</p>
-      <div id="backup-runs" class="space-y-1.5" data-testid="backup-runs">
+    <%!-- S3: the run history is technical content — outcomes, sizes,
+    times — so it reads in the mono-panel register (the admin panel's
+    sunken treatment). The setup/restore interactions above stay form
+    surfaces; the shell stays a regular card. --%>
+    <div class="mono-panel space-y-2">
+      <p class="mono-panel-label">Recent runs</p>
+      <div id="backup-runs" class="space-y-2" data-testid="backup-runs">
         <.backup_run_row :for={run <- @runs} run={run} now={@now} />
       </div>
       <p :if={@runs == []} class="text-xs text-ink-subtle" data-testid="backups-no-runs">
@@ -1021,6 +1028,10 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   failure — the plain-words reason in body color. The snapshot hash stays
   on the run but never renders: it's restic's identifier, not the
   owner's.
+
+  S3: the row reads in the mono register — a quiet row inside the
+  mono-panel, no pill chrome; the status word alone carries the tone
+  color (red marks the state, never the reason text).
   """
   attr(:run, :any, required: true)
   attr(:now, :any, default: nil)
@@ -1032,7 +1043,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
     assigns =
       assign(assigns,
         now: now,
-        tone: status_tone(run.status),
+        tone: status_class(run.status),
         status_label: status_label(run.status),
         kind_label: kind_label(run.kind),
         size: run_size(run),
@@ -1042,13 +1053,13 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
 
     ~H"""
     <div
-      class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-control border border-line bg-panel px-3 py-2 text-xs"
+      class="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 font-mono text-xs"
       data-testid="backup-run"
       data-run-kind={@run.kind}
       data-run-status={@run.status}
     >
-      <.badge tone={@tone}>{@status_label}</.badge>
-      <span class="text-ink">{@kind_label}</span>
+      <span class={["w-24 shrink-0 font-medium", @tone]}>{@status_label}</span>
+      <span class="text-ink-muted">{@kind_label}</span>
       <span :if={@size} class="text-ink-subtle">{@size}</span>
       <span class="ml-auto text-ink-subtle">{@occurred}</span>
       <p :if={@failure} class="w-full break-words text-ink-muted">
@@ -1063,10 +1074,13 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   defp status_label(:succeeded), do: "Finished"
   defp status_label(:failed), do: "Failed"
 
-  defp status_tone(:pending), do: "neutral"
-  defp status_tone(:running), do: "primary"
-  defp status_tone(:succeeded), do: "success"
-  defp status_tone(:failed), do: "danger"
+  # The status word's tone in the mono register: text color, not a pill.
+  # `text-link` is the amber family's readable-on-light member — the same
+  # mapping the badge's primary tone made.
+  defp status_class(:pending), do: "text-ink-subtle"
+  defp status_class(:running), do: "text-link"
+  defp status_class(:succeeded), do: "text-success"
+  defp status_class(:failed), do: "text-danger"
 
   defp kind_label(:scheduled), do: "Scheduled backup"
   defp kind_label(:manual), do: "Manual backup"
