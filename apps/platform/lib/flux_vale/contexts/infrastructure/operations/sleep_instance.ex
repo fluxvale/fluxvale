@@ -26,6 +26,9 @@ defmodule FluxVale.Infrastructure.Operations.SleepInstance do
     still targets the app Service, so a sleeping ATTACHED instance
     would serve 502 with nobody able to wake it through the gateway.
     Same honest shape — owner Start works.
+  - the access arms' wake flip fails (ADR-0040 §7) → `:stopped`: the
+    hostnames still target the app Service at zero replicas — same
+    honest shape, startable.
 
   The rewrite runs only for an attached instance (an `access_routes`
   row): the gateway's config must point the instance's port at the
@@ -72,7 +75,10 @@ defmodule FluxVale.Infrastructure.Operations.SleepInstance do
   defp flip_edge(kubeconfig, instance) do
     case EdgeRoutes.apply_wake(kubeconfig, instance) do
       :ok ->
-        land_sleeping(instance)
+        case maybe_access_wake(kubeconfig, instance) do
+          :ok -> land_sleeping(instance)
+          {:error, error} -> access_wake_failed(instance, error)
+        end
 
       {:error, error} ->
         # Routes still point at the app Service: traffic would 503 with
@@ -85,6 +91,38 @@ defmodule FluxVale.Infrastructure.Operations.SleepInstance do
           "Slept without wake routing; owner can start it again (#{InstanceK8s.format_error(error)})"
         )
     end
+  end
+
+  # The access arms flip with the public ones (ADR-0040 §7): an attached
+  # private instance's hostnames must land on the wake endpoint, not a
+  # connectionless app Service. The dispatch is exposure-gated — a public
+  # instance has no access arms (the toggle removes them going public).
+  defp maybe_access_wake(kubeconfig, %{exposure: :private} = instance) do
+    case AccessRoute.get_by_instance(instance.id, authorize?: false) do
+      {:ok, route} ->
+        with {:ok, route} <- Ash.load(route, :gateway, authorize?: false) do
+          EdgeRoutes.apply_access_wake(kubeconfig, route.gateway, instance)
+        end
+
+      {:error, error} ->
+        # A read FAILURE is not "unattached" — treating it as one would
+        # land a silently unwakeable :sleeping (the gateway-rewrite
+        # clause's split, below, is the precedent).
+        if route_not_found?(error), do: :ok, else: {:error, error}
+    end
+  end
+
+  defp maybe_access_wake(_kubeconfig, _public), do: :ok
+
+  # The access hostnames still target the app Service, which just went
+  # to zero replicas: the same honest shape as the public clause —
+  # stopped, startable, nothing silently unwakeable.
+  defp access_wake_failed(instance, error) do
+    InstanceK8s.update_status(
+      instance,
+      :stopped,
+      "Slept without access wake routing; owner can start it again (#{InstanceK8s.format_error(error)})"
+    )
   end
 
   # The status write lands :sleeping FIRST, deliberately (ADR-0039 §6's
@@ -113,7 +151,13 @@ defmodule FluxVale.Infrastructure.Operations.SleepInstance do
         if route_not_found?(error) do
           {:ok, sleeping}
         else
+          # coveralls-ignore-start - race only: this read succeeded
+          # moments ago in maybe_access_wake (the attached-private
+          # path), so a non-not-found failure here is the pairing read
+          # decaying between two adjacent reads — a window ExUnit
+          # cannot stage.
           route_rewrite_failed(sleeping, error)
+          # coveralls-ignore-stop
         end
     end
   end

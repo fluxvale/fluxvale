@@ -92,31 +92,49 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
 
   Called by `DeployInstance` (the deploy-time apply) and `SetExposure`
   (the toggle's re-apply) — the two writers of the same object.
+
+  **The private+attached edge admission (ADR-0040 Am. 1)**: the access
+  gateway tunnels raw 443 to the SAME Traefik deployment, whose `access`
+  entrypoint terminates the tunnel and dials the app Service — so while
+  an instance is private AND attached, the policy admits the edge
+  namespace alongside the gateway peer. Deliberate and test-pinned: the
+  widening exists only in that one state (an unattached private instance
+  stays panel-only; a public instance's edge admission is the exposure
+  floor's, unchanged by attachment). Public darkness is untouched — no
+  public route exists for a private instance; resolution still decides.
   """
   @spec network_policy_spec(map()) ::
           %{required(:ingress_from_namespaces) => [String.t()]}
           | %{required(:ingress_from_sources) => [map()]}
   def network_policy_spec(%{exposure: exposure} = instance) do
-    case {exposure_peers(exposure), gateway_peers(instance)} do
+    gateways = gateway_peers(instance)
+    peers = exposure_peers(exposure, gateways)
+
+    case gateways do
       # No gateway attached: the plain exposure floor (the pre-#268 shape).
-      {peers, []} ->
+      [] ->
         %{ingress_from_namespaces: peers}
 
       # Attached: the edge entry stays whole-namespace (Traefik pods are
       # not ours to label), the gateway entry is narrowed to the gateway's
       # own pods — otherwise org B's gateway would reach org A's app.
-      {peers, gateways} ->
+      _attached ->
         %{ingress_from_sources: Enum.map(peers, &%{namespace: &1}) ++ gateways}
     end
   end
 
-  defp exposure_peers(:public) do
+  defp exposure_peers(:public, _gateways) do
     [Application.fetch_env!(:flux_vale, :instance_ingress_namespace)]
   end
 
-  # No edge entry: the empty list is the denial (same-namespace only) —
-  # not a removed policy, which would re-admit everything.
-  defp exposure_peers(:private), do: []
+  # Private: no edge entry for the unattached (the empty list IS the
+  # denial — not a removed policy, which would re-admit everything).
+  # Attached, the access edge's own dial joins (Amendment 1, above).
+  defp exposure_peers(:private, []), do: []
+
+  defp exposure_peers(:private, _gateways) do
+    [Application.fetch_env!(:flux_vale, :instance_ingress_namespace)]
+  end
 
   # Every attached gateway, as a namespace + pod-selector peer. The
   # labels mirror the provider's Deployment selector; they are the one

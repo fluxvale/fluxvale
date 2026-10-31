@@ -618,6 +618,24 @@ Per ADR-0039 §5's model, additive:
   dismissed in the smoke feedback: leaks existence, drops the session
   (cookie scope), worse than the tailnet link.
 
+## Amendment 1 (2026-10-31): the access edge's namespace admission, and the arms as built
+
+As built, the gateway's raw-443 tunnel terminates on the SAME Traefik
+deployment's `access` entrypoint, and Traefik then dials the app Service —
+so while an instance is private AND attached, its default-deny policy
+admits the edge namespace alongside the pod-narrowed gateway peer. This is
+deliberate and test-pinned: the widening exists only in the private+attached
+state (an unattached private instance stays panel-only; a public instance's
+edge admission remains the exposure floor's, unchanged by attachment), and
+public darkness is untouched — no public route exists for a private
+instance; resolution still decides reachability (§8). The arms are as
+designed in §7: Host-keyed IngressRoutes on the `access` entrypoint (one
+per `InstanceHostname` row, named `access-<short-random-tail>`), TLS from
+the default TLSStore for platform domains and `cert_secret_ref` for
+verified custom ones, with the wake arm rewriting the visitor's path to
+`/internal/access/<gateway-id>/<instance-id>/…` — the pair-in-the-path
+authorization, verbatim.
+
 ## References
 
 - Source-pinned facts: `tailscale/tailscale` `ipn/ipnlocal/serve.go`

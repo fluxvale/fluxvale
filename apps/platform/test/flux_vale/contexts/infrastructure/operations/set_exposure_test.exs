@@ -22,7 +22,10 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Identity.User
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale
+  alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   defp owner do
@@ -85,6 +88,45 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
     stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
   end
 
+  # An instance with a real AccessRoute row at the given status — the
+  # shape an attached toggle meets (the row is the durable record the
+  # private limb's access mint reads). `exposure` is the pre-toggle row.
+  defp attached_deployed_instance!(status, exposure \\ :private) do
+    # The gateway create runs the provider's provision leg.
+    stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+      {:ok, %{credential_secret_ref: "credential-stub"}}
+    end)
+
+    owner = owner()
+    instance = deployed_instance!(owner, exposure, status)
+
+    org = Ash.get!(FluxVale.Accounts.Organization, instance.organization_id, authorize?: false)
+    {:ok, wallet} = FluxVale.Billing.ensure_wallet(org)
+    {:ok, _grant} = FluxVale.Billing.grant_credits(wallet, 10_000, reason: :adjustment)
+
+    gateway = AccessFixtures.gateway!(org)
+
+    {:ok, _route} =
+      AccessRoute.create(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+    {owner, instance, gateway}
+  end
+
+  defp not_found do
+    {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+  end
+
+  defp edge_namespace, do: Application.fetch_env!(:flux_vale, :instance_ingress_namespace)
+
+  defp access_gateway_namespace do
+    Application.fetch_env!(:flux_vale, :access_gateway)[:namespace]
+  end
+
+  defp base_domain, do: Application.fetch_env!(:flux_vale, :instances_base_domain)
+
   describe "going private (the kill-switch)" do
     test "deletes the public routes, then tightens the policy to same-namespace only" do
       stub_kubeconfig()
@@ -115,8 +157,17 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
       instance = deployed_instance!(owner, :public, :running)
       ns = "fluxvale-app-#{instance.id}"
 
-      expect(Ingress, :delete, fn _kc, ^ns, "app-ingress" ->
-        {:error, Error.connection_error("delete refused")}
+      stub(Ingress, :delete, fn
+        _kc, ^ns, "app-ingress" ->
+          {:error, Error.connection_error("delete refused")}
+
+        _kc, _ns, "access-" <> _tail ->
+          # The compensating restore's access-none: nothing to remove.
+          {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub(Middleware, :delete, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
       end)
 
       # Fail-closed order: the policy tightens only after the routes
@@ -140,7 +191,12 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
       instance = deployed_instance!(owner, :public, :running)
       ns = "fluxvale-app-#{instance.id}"
 
-      expect(Ingress, :delete, fn _kc, ^ns, "app-ingress" -> :ok end)
+      stub(Ingress, :delete, fn
+        _kc, ^ns, "app-ingress" -> :ok
+        _kc, _ns, "access-" <> _tail -> not_found()
+      end)
+
+      stub(Middleware, :delete, fn _kc, _ns, _name -> not_found() end)
 
       expect(NetworkPolicy, :create, fn _kc, ^ns, "default-deny-ingress", _spec ->
         {:error, Error.connection_error("policy refused")}
@@ -174,7 +230,12 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
       instance = deployed_instance!(owner, :public, :running)
       ns = "fluxvale-app-#{instance.id}"
 
-      expect(Ingress, :delete, fn _kc, ^ns, "app-ingress" -> :ok end)
+      stub(Ingress, :delete, fn
+        _kc, ^ns, "app-ingress" -> :ok
+        _kc, _ns, "access-" <> _tail -> not_found()
+      end)
+
+      stub(Middleware, :delete, fn _kc, _ns, _name -> not_found() end)
 
       expect(NetworkPolicy, :create, fn _kc, ^ns, "default-deny-ingress", _spec ->
         {:error, Error.connection_error("policy refused")}
@@ -205,7 +266,12 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
       instance = deployed_instance!(owner, :public, :sleeping)
       ns = "fluxvale-app-#{instance.id}"
 
-      expect(Ingress, :delete, fn _kc, ^ns, "app-ingress" -> :ok end)
+      stub(Ingress, :delete, fn
+        _kc, ^ns, "app-ingress" -> :ok
+        _kc, _ns, "access-" <> _tail -> not_found()
+      end)
+
+      stub(Middleware, :delete, fn _kc, _ns, _name -> not_found() end)
 
       expect(NetworkPolicy, :create, fn _kc, ^ns, "default-deny-ingress", _spec ->
         {:error, Error.connection_error("policy refused")}
@@ -221,6 +287,112 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
 
       assert {:error, _error} =
                Instance.set_exposure(instance, %{exposure: :private}, actor: owner)
+
+      assert Instance.get_by_id!(instance.id, authorize?: false).exposure == :public
+    end
+
+    # The access limbs (ADR-0040 §8): an ATTACHED instance going private
+    # mints its access arms BEFORE the public route goes dark — no
+    # neither-works window — and a failed mint compensates back off.
+    test "an attached instance going private mints its access arms first, serving mode" do
+      stub_kubeconfig()
+      {owner, instance, gateway} = attached_deployed_instance!(:running, :public)
+      ns = "fluxvale-app-#{instance.id}"
+
+      parent = self()
+
+      stub(Ingress, :create, fn _kc, ^ns, "access-" <> _tail, spec ->
+        send(parent, {:access_route, spec})
+        {:ok, %{}}
+      end)
+
+      stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      stub(Ingress, :delete, fn _kc, _ns, "app-ingress" ->
+        send(parent, {:public_removed})
+        :ok
+      end)
+
+      stub(Middleware, :delete, fn _kc, _ns, _name -> :ok end)
+
+      expect(NetworkPolicy, :create, fn _kc, ^ns, "default-deny-ingress", spec ->
+        # The widened private+attached floor rides the same toggle.
+        namespaces = Enum.map(spec.ingress_from_sources, & &1.namespace)
+        assert edge_namespace() in namespaces
+        assert access_gateway_namespace() in namespaces
+        {:ok, %{}}
+      end)
+
+      assert {:ok, private} = Instance.set_exposure(instance, %{exposure: :private}, actor: owner)
+      assert private.exposure == :private
+
+      # The mailbox order IS the ADR's ordering: the access arms exist
+      # before the public route goes dark — no neither-works window.
+      assert_received {:access_route, spec}
+      assert spec.entrypoint == "access"
+      assert spec.service_name == "app"
+      assert spec.host == "#{instance.slug}.#{base_domain()}"
+      refute spec.host =~ gateway.hostname
+
+      assert_received {:public_removed}
+    end
+
+    test "an attached SLEEPING instance going private mints the wake arm" do
+      stub_kubeconfig()
+      {owner, instance, _gateway} = attached_deployed_instance!(:sleeping)
+      ns = "fluxvale-app-#{instance.id}"
+
+      parent = self()
+
+      stub(Ingress, :create, fn _kc, ^ns, "access-" <> _tail, spec ->
+        send(parent, {:access_route, spec})
+        {:ok, %{}}
+      end)
+
+      stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Ingress, :delete, fn _kc, _ns, _name -> :ok end)
+      stub(Middleware, :delete, fn _kc, _ns, _name -> :ok end)
+      stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      assert {:ok, private} = Instance.set_exposure(instance, %{exposure: :private}, actor: owner)
+      assert private.exposure == :private
+
+      assert_received {:access_route, spec}
+      assert spec.service_name == "wake"
+      assert spec.middlewares == ["fluxvale-access-wake"]
+    end
+
+    test "a failed access mint compensates: the arms come off, the public routes are restored" do
+      stub_kubeconfig()
+      {owner, instance, _gateway} = attached_deployed_instance!(:running, :public)
+      ns = "fluxvale-app-#{instance.id}"
+
+      stub(Ingress, :create, fn
+        _kc, ^ns, "access-" <> _tail, _spec ->
+          {:error, Error.connection_error("access mint refused")}
+
+        _kc, ^ns, "app-ingress", _spec ->
+          {:ok, %{}}
+      end)
+
+      stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      # The compensation: the access arms off (nothing landed — 404s),
+      # then the public routes re-minted, before the error returns.
+      stub(Ingress, :delete, fn
+        _kc, _ns, "access-" <> _tail -> not_found()
+        _kc, ^ns, "app-ingress" -> not_found()
+      end)
+
+      stub(Middleware, :delete, fn _kc, _ns, _name -> not_found() end)
+
+      assert {:error, error} =
+               Instance.set_exposure(instance, %{exposure: :private}, actor: owner)
+
+      assert inspect(error) =~ "access mint refused"
 
       assert Instance.get_by_id!(instance.id, authorize?: false).exposure == :public
     end
@@ -245,6 +417,11 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
         {:ok, %{}}
       end)
 
+      # The public posture holds NO access arms: the limb's access-none
+      # finds none on this unattached row — tolerated 404s.
+      stub(Ingress, :delete, fn _kc, _ns, "access-" <> _tail -> not_found() end)
+      stub(Middleware, :delete, fn _kc, _ns, _name -> not_found() end)
+
       assert {:ok, public} = Instance.set_exposure(instance, %{exposure: :public}, actor: owner)
       assert public.exposure == :public
     end
@@ -267,9 +444,49 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
       end)
 
       stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Ingress, :delete, fn _kc, _ns, "access-" <> _tail -> not_found() end)
+      stub(Middleware, :delete, fn _kc, _ns, _name -> not_found() end)
 
       assert {:ok, public} = Instance.set_exposure(instance, %{exposure: :public}, actor: owner)
       assert public.exposure == :public
+    end
+
+    # Going public removes an ATTACHED instance's access arms: the
+    # public posture holds none (ADR-0040 §8's toggle limbs).
+    test "an attached instance going public loses its access arms" do
+      stub_kubeconfig()
+      {owner, instance, _gateway} = attached_deployed_instance!(:running, :private)
+      ns = "fluxvale-app-#{instance.id}"
+
+      parent = self()
+
+      stub(Ingress, :create, fn _kc, ^ns, "app-ingress", _spec ->
+        send(parent, {:public_minted})
+        {:ok, %{}}
+      end)
+
+      stub(Ingress, :delete, fn
+        _kc, ^ns, "access-" <> _tail ->
+          send(parent, {:access_removed})
+          :ok
+
+        _kc, ^ns, "app-ingress" ->
+          not_found()
+      end)
+
+      stub(Middleware, :delete, fn _kc, _ns, _name -> :ok end)
+      stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      assert {:ok, public} = Instance.set_exposure(instance, %{exposure: :public}, actor: owner)
+      assert public.exposure == :public
+
+      # The public mint landed BEFORE the access arms came off (the
+      # ADR's ordering: public mints first, then the un-flip) — the
+      # mailbox order is the proof.
+      assert_received {:public_minted}
+      assert_received {:access_removed}
     end
 
     # The mirror of finding 3: the row rolls back to :private, so a

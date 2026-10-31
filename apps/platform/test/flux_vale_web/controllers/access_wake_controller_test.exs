@@ -17,9 +17,11 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Ingress
+  alias FluxVale.Clients.K8s.Resources.Middleware
   alias FluxVale.Clients.K8s.Resources.NetworkPolicy
   alias FluxVale.Clients.K8s.Resources.PersistentVolumeClaim
   alias FluxVale.Clients.K8s.Resources.Secret
+  alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
@@ -51,6 +53,17 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
     stub(Deployment, :apply_manifest, fn _kc, _manifest -> {:ok, %{}} end)
     # The wake's start lane scales the instance Deployment back up.
     stub(Deployment, :scale, fn _kc, _ns, _name, _replicas -> {:ok, %{}} end)
+
+    # The attach's access-edge limbs and the flip's access arm
+    # (ADR-0040 §7) — captured like the secret writes so flip tests can
+    # assert on both writes.
+    stub(Middleware, :create, fn _kc, _ns, _name, _spec -> {:ok, %{}} end)
+    stub(Service, :create, fn _kc, _ns, _name, _spec -> {:ok, %{}} end)
+
+    stub(Ingress, :create, fn _kc, _ns, name, spec ->
+      send(parent, {:ingress_create, name, spec})
+      {:ok, %{}}
+    end)
 
     # The private sleep posture (irrelevant here, but the attach's own
     # converge path tolerates it).
@@ -262,6 +275,49 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
       assert name =~ "serve-config"
       assert json =~ "app.#{instance.namespace}.svc.cluster.local:80"
       refute json =~ "/internal/access/"
+
+      # ADR-0040 §7: the hostname arm flipped too — serving mode on the
+      # access entrypoint, one route per hostname row.
+      access_routes = drain_access_routes()
+      assert access_routes != []
+
+      assert Enum.all?(access_routes, fn spec ->
+               spec.entrypoint == "access" and
+                 spec.service_name == "app" and
+                 spec.middlewares == ["fluxvale-activity"]
+             end)
+    end
+
+    test "the flip is ONE claim window for BOTH writes — a throttled second GET writes neither",
+         %{
+           conn: conn,
+           org: org,
+           owner: owner
+         } do
+      {gateway, instance} = pair!(org, owner, :running)
+      drain()
+
+      first =
+        conn
+        |> browser()
+        |> get(wake_url(gateway, instance))
+
+      assert html_response(first, 200) =~ "Waking"
+      assert_received {:secret_create, _ns, _name, %{"serve.json" => _json}}
+      assert drain_access_routes() != []
+
+      # The window's one apply-set: the throttled refresh writes neither
+      # the serve config nor the access arm — an unthrottled GET loop
+      # must not become unthrottled K8s writes. The waking page holds.
+      second =
+        build_conn()
+        |> browser()
+        |> get(wake_url(gateway, instance))
+
+      assert html_response(second, 200) =~ "Waking"
+
+      refute_received {:secret_create, _ns, _name, %{"serve.json" => _json}}
+      assert drain_access_routes() == []
     end
 
     test "a failed flip logs and still serves the waking page", %{
@@ -290,6 +346,61 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
       assert log =~ "serve-config flip failed"
       assert log =~ instance.id
       assert Instance.get_by_id!(instance.id, authorize?: false).status == :running
+    end
+
+    test "an access-arm failure logs and still serves the waking page", %{
+      conn: conn,
+      org: org,
+      owner: owner
+    } do
+      {gateway, instance} = pair!(org, owner, :running)
+      drain()
+
+      stub(Ingress, :create, fn _kc, _ns, "access-" <> _tail, _spec ->
+        {:error, Error.connection_error("access routes refused")}
+      end)
+
+      log =
+        capture_log(fn ->
+          failed =
+            conn
+            |> browser()
+            |> get(wake_url(gateway, instance))
+
+          # The arm's failure changes nothing for the visitor: the
+          # waking page holds, and the next window retries.
+          assert html_response(failed, 200) =~ "Waking"
+        end)
+
+      assert log =~ "access-route flip failed"
+      assert log =~ instance.id
+    end
+
+    test "a kubeconfig failure logs the skip and still serves the waking page", %{
+      conn: conn,
+      org: org,
+      owner: owner
+    } do
+      {gateway, instance} = pair!(org, owner, :running)
+      drain()
+
+      # The serve-config leg succeeds (its kubeconfig already resolved);
+      # the cluster dies before the access arm's own resolution.
+      stub(Tailscale, :refresh_routes, fn _gateway -> {:ok, %{}} end)
+      stub(K8s, :kubeconfig, fn _ref -> {:error, Error.connection_error("cluster down")} end)
+
+      log =
+        capture_log(fn ->
+          skipped =
+            conn
+            |> browser()
+            |> get(wake_url(gateway, instance))
+
+          assert html_response(skipped, 200) =~ "Waking"
+        end)
+
+      assert log =~ "access-route flip skipped"
+      assert log =~ instance.id
     end
 
     test "a second :running GET inside the window throttles the flip, not the page", %{
@@ -389,6 +500,13 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
       assert_received {:flip, :read_running}
       assert_received {:flip, :read_sleeping}
       assert Instance.get_by_id!(instance.id, authorize?: false).status == :sleeping
+
+      # The bounded retry covered BOTH writes (ADR-0040 §7): the access
+      # arm re-decided from the fresh row and landed wake mode, not the
+      # stale serving one this GET started with.
+      access = drain_access_routes()
+      assert access != []
+      assert Enum.all?(access, &(&1.service_name == "wake"))
     end
 
     test "a :restoring instance answers the restore copy and never wakes", %{
@@ -678,8 +796,20 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
 
       {:policy_create, _ns, _name, _spec} = msg ->
         drain([msg | acc])
+
+      {:ingress_create, _name, _spec} = msg ->
+        drain([msg | acc])
     after
       0 -> Enum.reverse(acc)
     end
+  end
+
+  # The access-arm routes (the "access-" prefixed IngressRoutes) the
+  # capturing stub saw, in arrival order.
+  defp drain_access_routes do
+    Enum.flat_map(drain(), fn
+      {:ingress_create, "access-" <> _tail, spec} -> [spec]
+      _other -> []
+    end)
   end
 end

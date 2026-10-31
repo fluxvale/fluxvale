@@ -11,6 +11,20 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
     (→ the platform), with the wake-marker Middleware attached (a
     request header naming the instance — no hostname parsing).
 
+  The **access arms** (ADR-0040 §7) are the same two modes on the
+  private path: one Host-keyed IngressRoute per `InstanceHostname` row
+  of the instance, on Traefik's `access` entrypoint (the gateway's
+  raw-443 tunnel terminates there; the platform names the entrypoint,
+  never a port). Serving targets the app Service with the beacon
+  attached; wake targets the platform through the same `wake`
+  ExternalName pattern with the path rewritten to
+  `/internal/access/<gateway>/<instance>/…` — the PAIR IN THE PATH is
+  the whole authorization (#301's contract, carried verbatim through
+  the Traefik hop). TLS comes from the default TLSStore for platform
+  domains (the fleet wildcard, #116) and the domain's issued-wildcard
+  Secret for verified custom ones — an unverified custom domain never
+  routes.
+
   Deploys land serving; `SleepInstance` flips both routes to wake; the
   first request after `:running` flips them back (the wake endpoint's
   restore — the visitor's reload lands on the app). All applies are
@@ -19,8 +33,10 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   #203 converge on their first sleep or restore.
 
   Consumed by DeployInstance (initial serving set), SleepInstance
-  (wake flip), and the wake endpoint (restore flip) — the specs are the
-  shared boundary, so they live here rather than being copied three
+  (wake flip), and the wake endpoint (restore flip); on the private
+  path by AttachInstance/DetachInstance (mint/remove per the pairing
+  row) and SetExposure's toggle limbs — the specs are the
+  shared boundary, so they live here rather than being copied many
   ways (the operations-own-their-constants rule's sanctioned exception:
   this IS the one owner).
   """
@@ -30,13 +46,25 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   alias FluxVale.Clients.K8s.Resources.Middleware
   alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.InstanceHostname
+
+  require Ash.Query
+  require Logger
 
   @app_ingress "app-ingress"
   @dav_ingress "app-dav"
   @beacon_middleware "fluxvale-activity"
   @wake_middleware "fluxvale-wake"
   @wake_service "wake"
-  # The wake marker: names the instance for the wake endpoint. Custom
+  # The access edge (ADR-0040 §7): the entrypoint is a NAME we mint into
+  # the IngressRoute spec — the fleet frames the entrypoint itself; this
+  # module never knows a port.
+  @access_entrypoint "access"
+  # The access-wake rewrite middleware: one per instance namespace (the
+  # namespace IS the instance), carrying the pair-in-the-path rewrite
+  # the wake route references by name.
+  @access_wake_middleware "fluxvale-access-wake"
+  # The instance wake marker: names the instance for the wake endpoint. Custom
   # header names are invisible to apps (Traefik strips nothing, but the
   # app Service never sees wake-mode traffic) and unguessable together
   # with the UUID value.
@@ -114,6 +142,236 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
 
     with :ok <- safe_delete_route(kubeconfig, namespace, @app_ingress) do
       maybe_delete_dav(kubeconfig, instance)
+    end
+  end
+
+  @doc """
+  The access edge's serving set (ADR-0040 §7): one Host-keyed
+  IngressRoute per `InstanceHostname` row of the instance — `Host(
+  <label>.<domain>)` on the `access` entrypoint, the app Service behind
+  it, the beacon attached (the idle clock works on the private path;
+  the beacon is hostname-agnostic). TLS rides the default TLSStore for
+  a platform domain (the fleet wildcard, #116 — no secretName) and the
+  domain's issued-wildcard Secret for a verified custom one; an
+  unverified custom domain never routes (skip + log).
+
+  The dormant access-wake targets ride along (#203's lesson: the first
+  sleep's flip must only rewrite a route Traefik already watches — a
+  first flip that minted them too would leave a window where the
+  rewritten route references unobserved objects), and the beacon
+  Middleware lands first (the public serving arm's own order: routes
+  reference it by name, so it must exist before they do). Idempotent
+  (SSA); `:ok` or the first `{:error, Error.t()}`.
+  """
+  @spec apply_access_serving(Kubereq.Kubeconfig.t(), map(), Instance.t()) ::
+          :ok | {:error, term()}
+  def apply_access_serving(kubeconfig, gateway, instance) do
+    with {:ok, _beacon} <-
+           Middleware.create(
+             kubeconfig,
+             instance.namespace,
+             @beacon_middleware,
+             beacon_spec(instance)
+           ),
+         :ok <- ensure_access_wake_targets(kubeconfig, gateway, instance) do
+      apply_hostname_routes(kubeconfig, instance, :serving)
+    end
+  end
+
+  @doc """
+  The access edge's wake set: the same hostnames, retargeted at the
+  platform through the SAME ExternalName `wake` Service the public wake
+  mode uses, with the per-instance rewrite middleware in front —
+  `^/(.*)` → `/internal/access/<gateway>/<instance>/$1`. The pair in the
+  path is the whole authorization (the #301 contract): the wake route
+  grants nothing the pairing row doesn't, and the endpoint's identical-404
+  miss posture answers everything else. The beacon is NOT attached in
+  wake mode (mirror the public wake arm — nothing is being forwarded).
+  Idempotent (SSA); `:ok` or the first `{:error, Error.t()}`.
+  """
+  @spec apply_access_wake(Kubereq.Kubeconfig.t(), map(), Instance.t()) ::
+          :ok | {:error, term()}
+  def apply_access_wake(kubeconfig, gateway, instance) do
+    with :ok <- ensure_access_wake_targets(kubeconfig, gateway, instance) do
+      apply_hostname_routes(kubeconfig, instance, :wake)
+    end
+  end
+
+  @doc """
+  Removes the instance's access edge: every access IngressRoute (by
+  hostname row — the rows ARE the record of what was minted) plus the
+  access-wake Middleware. 404s tolerated — a missing object is the
+  posture already holding (the safe_delete stance), so the call is
+  idempotent. `:ok` or the first `{:error, Error.t()}`.
+  """
+  @spec apply_access_none(Kubereq.Kubeconfig.t(), Instance.t()) :: :ok | {:error, term()}
+  def apply_access_none(kubeconfig, instance) do
+    with :ok <- delete_access_routes(kubeconfig, instance) do
+      safe_delete_middleware(kubeconfig, instance.namespace, @access_wake_middleware)
+    end
+  end
+
+  # The dormant access-wake targets: the `wake` ExternalName Service
+  # (shared with the public wake mode — one pattern, one platform
+  # address) and the rewrite middleware carrying THIS pairing's path.
+  # Applied at serving-time too, so a deploy pre-creates everything the
+  # first sleep's flip references (#203).
+  defp ensure_access_wake_targets(kubeconfig, gateway, instance) do
+    with {:ok, _service} <-
+           Service.create(kubeconfig, instance.namespace, @wake_service, wake_service_spec()),
+         {:ok, _rewrite} <-
+           Middleware.create(
+             kubeconfig,
+             instance.namespace,
+             @access_wake_middleware,
+             access_wake_rewrite_spec(gateway, instance)
+           ) do
+      :ok
+    end
+  end
+
+  # The rewrite IS the authorization's carrier: the visitor's path is
+  # re-pointed at the platform's access prefix with the (gateway,
+  # instance) pair spliced in — exactly the pair the AccessWake
+  # controller gates on (serve's asleep target, Traefik-flavored).
+  defp access_wake_rewrite_spec(gateway, instance) do
+    %{
+      replace_path_regex: %{
+        regex: "^/(.*)",
+        replacement: "/internal/access/#{gateway.id}/#{instance.id}/$1"
+      }
+    }
+  end
+
+  # One route per hostname row; the first failure stops the walk (a
+  # half-minted set is the caller's compensation problem, never a
+  # silent partial posture).
+  defp apply_hostname_routes(kubeconfig, instance, mode) do
+    instance.id
+    |> hostname_rows()
+    |> Enum.reduce_while(:ok, fn hostname, :ok ->
+      case apply_hostname_route(kubeconfig, instance, hostname, mode) do
+        :ok -> {:cont, :ok}
+        {:error, _error} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp apply_hostname_route(kubeconfig, instance, hostname, mode) do
+    case access_tls_secret(hostname.access_domain) do
+      :skip ->
+        :ok
+
+      {:ok, tls_secret} ->
+        spec = access_route_spec(hostname, mode, tls_secret)
+
+        case Ingress.create(
+               kubeconfig,
+               instance.namespace,
+               access_route_name(hostname),
+               spec
+             ) do
+          {:ok, _route} -> :ok
+          {:error, _error} = error -> error
+        end
+    end
+  end
+
+  # The rows drive the routes (InstanceHostname is the one source of
+  # truth for "which hostnames exist", S1): query, never a parallel
+  # naming scheme. System seam — the edge runs actorless, so the read
+  # is `authorize?: false` (the provider's routes_for posture).
+  defp hostname_rows(instance_id) do
+    InstanceHostname
+    |> Ash.Query.filter(instance_id == ^instance_id)
+    |> Ash.Query.load(:access_domain)
+    |> Ash.read!(authorize?: false)
+  end
+
+  defp access_route_spec(hostname, mode, tls_secret) do
+    domain = hostname.access_domain
+
+    base = %{
+      host: "#{hostname.label}.#{domain.domain}",
+      entrypoint: @access_entrypoint,
+      tls: true,
+      middlewares: access_middlewares(mode)
+    }
+
+    base
+    |> put_access_service(mode)
+    |> put_access_tls_secret(tls_secret)
+  end
+
+  # Serving dials the app (beacon attached); wake dials the platform via
+  # the same ExternalName `wake` Service the public wake mode uses — and
+  # the beacon is NOT attached there (nothing is being forwarded).
+  defp access_middlewares(:serving), do: [@beacon_middleware]
+  defp access_middlewares(:wake), do: [@access_wake_middleware]
+
+  defp put_access_service(spec, :serving),
+    do: Map.merge(spec, %{service_name: "app", service_port: 80})
+
+  defp put_access_service(spec, :wake),
+    do: Map.merge(spec, %{service_name: @wake_service, service_port: beacon_config()[:port]})
+
+  defp put_access_tls_secret(spec, nil), do: spec
+  defp put_access_tls_secret(spec, secret), do: Map.put(spec, :tls_secret_name, secret)
+
+  # Platform domain: the fleet wildcard (#116) rides the default
+  # TLSStore — `tls: true` alone, NO secretName. Custom: the verify
+  # pass's issued-wildcard Secret, and only from a :verified row with a
+  # ref recorded — an unverified domain must never route, so the row is
+  # skipped (logged: dark hostnames are the posture, not a fault).
+  defp access_tls_secret(%{kind: :platform}), do: {:ok, nil}
+
+  defp access_tls_secret(%{kind: :custom, state: :verified, cert_secret_ref: ref})
+       when is_binary(ref) do
+    {:ok, ref}
+  end
+
+  defp access_tls_secret(%{kind: :custom, state: state, domain: domain}) do
+    Logger.warning(
+      "Access edge: skipping hostnames under custom domain #{domain} — not servable " <>
+        "(state: #{inspect(state)}, no certificate secret recorded)"
+    )
+
+    :skip
+  end
+
+  # The object_name short_id discipline (AccessDomain.certificate_name,
+  # the provider's object_name): the RANDOM TAIL of the row id, never
+  # the uuid head — a uuid v7's leading hex is a millisecond timestamp,
+  # identical for every row minted in the same window, so the head would
+  # collide two instances' routes.
+  defp access_route_name(hostname) do
+    short_id =
+      hostname.id
+      |> to_string()
+      |> String.replace("-", "")
+      |> String.slice(-10, 10)
+
+    "access-#{short_id}"
+  end
+
+  defp delete_access_routes(kubeconfig, instance) do
+    instance.id
+    |> hostname_rows()
+    |> Enum.reduce_while(:ok, fn hostname, :ok ->
+      case safe_delete_route(kubeconfig, instance.namespace, access_route_name(hostname)) do
+        :ok -> {:cont, :ok}
+        {:error, _error} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  # 404 is the posture already holding — the access none is idempotent
+  # (the safe_delete stance above).
+  defp safe_delete_middleware(kubeconfig, namespace, name) do
+    case Middleware.delete(kubeconfig, namespace, name) do
+      :ok -> :ok
+      {:error, %Error{reason: :not_found}} -> :ok
+      {:error, _error} = error -> error
     end
   end
 

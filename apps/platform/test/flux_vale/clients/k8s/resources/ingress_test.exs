@@ -114,6 +114,27 @@ defmodule FluxVale.Clients.K8s.Resources.IngressTest do
     end
   end
 
+  describe "build_manifest/3 — explicit :entrypoint (the access edge, ADR-0040)" do
+    test "an explicit entrypoint wins over the tls-chosen default" do
+      spec =
+        base_spec()
+        |> Map.put(:tls, true)
+        |> Map.put(:entrypoint, "access")
+
+      manifest = Ingress.build_manifest("ns", "app-access", spec)
+
+      assert get_in(manifest, ["spec", "entryPoints"]) == ["access"]
+    end
+
+    test "absent :entrypoint keeps the tls-chosen default exactly" do
+      plain = Ingress.build_manifest("ns", "app", base_spec())
+      secure = Ingress.build_manifest("ns", "app", Map.put(base_spec(), :tls, true))
+
+      assert get_in(plain, ["spec", "entryPoints"]) == ["web"]
+      assert get_in(secure, ["spec", "entryPoints"]) == ["websecure"]
+    end
+  end
+
   describe "build_manifest/3 — path-prefix routing (#190)" do
     test "narrows the subdomain match with PathPrefix for the sidecar route" do
       spec =

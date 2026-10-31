@@ -174,6 +174,16 @@ defmodule FluxVale.Infrastructure.Operations.SleepInstanceTest do
       stub(NetworkPolicy, :create, fn _kc, _ns, _name, _spec -> {:ok, %{}} end)
       stub(Deployment, :apply_manifest, fn _kc, _manifest -> {:ok, %{}} end)
 
+      # The attach's access-edge limbs and the sleep's access-wake flip
+      # (ADR-0040 §7) — the flip captured so tests can assert on it.
+      stub(Middleware, :create, fn _kc, _ns, _name, _spec -> {:ok, %{}} end)
+      stub(Service, :create, fn _kc, _ns, _name, _spec -> {:ok, %{}} end)
+
+      stub(Ingress, :create, fn _kc, _ns, name, spec ->
+        send(parent, {:ingress_create, name, spec})
+        {:ok, %{}}
+      end)
+
       stub(Ingress, :delete, fn _kc, _ns, _name ->
         {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
       end)
@@ -209,6 +219,48 @@ defmodule FluxVale.Infrastructure.Operations.SleepInstanceTest do
       refute config =~ "app.#{instance.namespace}.svc.cluster.local:80"
     end
 
+    test "the sleep flips the access hostnames to the wake arm too (ADR-0040 §7)" do
+      stub_access()
+      stub(Deployment, :scale, fn _kc, _ns, _name, 0 -> {:ok, %{}} end)
+      {_gateway, instance} = attached_pair!()
+      drain_secrets()
+
+      assert {:ok, sleeping} = SleepInstance.call(instance)
+      assert sleeping.status == :sleeping
+
+      # The access arm flipped: host-keyed routes on the access
+      # entrypoint now target the platform (via the wake Service), not
+      # the app Service at zero replicas.
+      access_routes =
+        Enum.flat_map(drain_ingress(), fn
+          {:ingress_create, "access-" <> _tail, spec} -> [spec]
+          _other -> []
+        end)
+
+      assert access_routes != []
+
+      assert Enum.all?(access_routes, fn spec ->
+               spec.entrypoint == "access" and spec.service_name == "wake"
+             end)
+    end
+
+    test "a failed access-wake flip lands :stopped — the hostnames must not outlive the app" do
+      stub_access()
+      stub(Deployment, :scale, fn _kc, _ns, _name, 0 -> {:ok, %{}} end)
+      {_gateway, instance} = attached_pair!()
+      drain_secrets()
+
+      # The attach succeeded; the SLEEP's access flip is what fails.
+      stub(Ingress, :create, fn _kc, _ns, "access-" <> _tail, _spec ->
+        {:error, Error.connection_error("access routes refused")}
+      end)
+
+      assert {:ok, stopped} = SleepInstance.call(instance)
+      assert stopped.status == :stopped
+      assert stopped.status_message =~ "Slept without access wake routing"
+      assert stopped.status_message =~ "access routes refused"
+    end
+
     test "a failed gateway rewrite lands :stopped with the honest message" do
       stub_access()
       stub(Deployment, :scale, fn _kc, _ns, _name, 0 -> {:ok, %{}} end)
@@ -230,14 +282,17 @@ defmodule FluxVale.Infrastructure.Operations.SleepInstanceTest do
       stub(Deployment, :scale, fn _kc, _ns, _name, 0 -> {:ok, %{}} end)
 
       # A read error is not "unattached" — the catch-all error shape
-      # takes the honest landing too.
+      # takes the honest landing too. The read now guards the access
+      # arm first (ADR-0040 §7), so the message names that limb; the
+      # landing is the point: :stopped, startable, honest.
       stub(AccessRoute, :get_by_instance, fn _id, _opts -> {:error, :boom} end)
 
       {_gateway, instance} = attached_pair!()
 
       assert {:ok, stopped} = SleepInstance.call(instance)
       assert stopped.status == :stopped
-      assert stopped.status_message =~ "Slept without gateway wake routing"
+      assert stopped.status_message =~ "Slept without"
+      assert stopped.status_message =~ ":boom"
     end
 
     test "an unattached instance's sleep never writes to any gateway" do
@@ -257,10 +312,21 @@ defmodule FluxVale.Infrastructure.Operations.SleepInstanceTest do
 
     defp drain_secrets(acc \\ []) do
       receive do
-        {:secret_create, _ns, _name, _data} = msg -> drain_secrets([msg | acc])
+        {:secret_create, _ns, _name, _data} = msg ->
+          drain_secrets([msg | acc])
+
+        {:ingress_create, _name, _spec} = msg ->
+          drain_secrets([msg | acc])
       after
         0 -> Enum.reverse(acc)
       end
+    end
+
+    defp drain_ingress do
+      Enum.filter(drain_secrets(), fn
+        {:ingress_create, _name, _spec} -> true
+        _other -> false
+      end)
     end
 
     # The most recent serve config the provider wrote.

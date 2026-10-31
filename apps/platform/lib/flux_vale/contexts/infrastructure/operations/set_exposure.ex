@@ -3,16 +3,19 @@ defmodule FluxVale.Infrastructure.Operations.SetExposure do
   Applies an exposure change to the cluster (#265) — the instant
   kill-switch half of the primitive:
 
-  - **→ private**: delete the public routes first, then tighten the
-    namespace NetworkPolicy to same-namespace-only ingress. Routes
-    first is fail-closed: with no route, no traffic reaches the
-    namespace whatever the policy admits. A failed step compensates
-    toward the row's rolled-back (public) posture before returning —
-    see `apply_exposure/2`.
+  - **→ private**: mint the attached pairing's access arms (ADR-0040
+    §8) first — an attached instance must be reachable on its hostnames
+    before the public route goes dark — then delete the public routes,
+    then tighten the namespace NetworkPolicy. Routes first is
+    fail-closed: with no route, no traffic reaches the namespace
+    whatever the policy admits. A failed step compensates toward the
+    row's rolled-back (public) posture before returning — see
+    `apply_exposure/2`.
   - **→ public**: mint the routes in the row's current mode — wake
     mode for a sleeping instance (so a visitor can wake it), serving
-    otherwise — then re-admit the edge in the policy. Failure
-    compensates the same way (any minted route is removed again).
+    otherwise — then re-admit the edge in the policy, then remove the
+    access arms (a public posture holds none). Failure compensates the
+    same way (any minted route is removed again).
 
   In-cluster paths never notice either direction: panel operations,
   sweeps, backups, and health ride the API server and in-namespace
@@ -96,8 +99,17 @@ defmodule FluxVale.Infrastructure.Operations.SetExposure do
   # fails leaves drift the original error already owns: the action's
   # error return surfaces to the panel, and the owner's retry (or the
   # next deploy) re-converges — there is no silent success here.
+  #
+  # The access limbs (ADR-0040 §8): going private mints the access arms
+  # FIRST (an attached instance must be reachable on its hostnames
+  # before the public route goes dark — no neither-works window), then
+  # the existing public deletes; going public removes them after the
+  # public mint lands (the public posture has no access arms). A failed
+  # access mint compensates like any failed limb: the arms come back
+  # off in the restore before the error returns.
   defp apply_exposure(kubeconfig, %{exposure: :private} = instance) do
-    with :ok <- EdgeRoutes.apply_private(kubeconfig, instance),
+    with :ok <- maybe_access_mint(kubeconfig, instance),
+         :ok <- EdgeRoutes.apply_private(kubeconfig, instance),
          :ok <- apply_policy(kubeconfig, instance, :private) do
       :ok
     else
@@ -109,21 +121,61 @@ defmodule FluxVale.Infrastructure.Operations.SetExposure do
     mode = if(status == :sleeping, do: :wake, else: :serving)
 
     with :ok <- apply_routes(kubeconfig, instance, mode),
-         :ok <- apply_policy(kubeconfig, instance, :public) do
+         :ok <- apply_policy(kubeconfig, instance, :public),
+         :ok <- EdgeRoutes.apply_access_none(kubeconfig, instance) do
       :ok
     else
       {:error, reason} -> restore_private_edge(kubeconfig, instance, reason)
     end
   end
 
+  # Attached rows mint their access arms per current status (:running
+  # serves; anything else points at the wake endpoint — the
+  # ServeConfig.target_for decision shape). Unattached private is
+  # panel-only: nothing to mint, no cluster calls.
+  defp maybe_access_mint(kubeconfig, instance) do
+    case AccessRoute.get_by_instance(instance.id, authorize?: false) do
+      {:ok, route} ->
+        with {:ok, route} <- Ash.load(route, :gateway, authorize?: false) do
+          apply_access_arm(kubeconfig, route.gateway, instance)
+        end
+
+      {:error, error} ->
+        # A read FAILURE is not "unattached" (the sleep-path split):
+        # fail the toggle rather than strand the row dark-by-accident.
+        if access_route_missing?(error), do: :ok, else: {:error, error}
+    end
+  end
+
+  defp apply_access_arm(kubeconfig, gateway, %{status: :running} = instance) do
+    EdgeRoutes.apply_access_serving(kubeconfig, gateway, instance)
+  end
+
+  defp apply_access_arm(kubeconfig, gateway, instance) do
+    EdgeRoutes.apply_access_wake(kubeconfig, gateway, instance)
+  end
+
+  defp access_route_missing?(%Invalid{errors: errors}) do
+    Enum.any?(errors, &match?(%NotFound{}, &1))
+  end
+
+  # coveralls-ignore-start - defensive: the catch-all keeps a widened
+  # read-error shape from being read as "unattached" (the toggle would
+  # then strand a paired instance panel-only).
+  defp access_route_missing?(_other), do: false
+  # coveralls-ignore-stop
+
   # The row rolls back to :public with its routes deleted — publicly
   # persisted and unreachable, and nothing self-heals it (the
   # reconciler never re-applies routes). Re-mint them (mode by status,
   # the public arm's own rule; apply_public — the record still names
   # :private mid-rollback, so the dispatch must not re-route it). The
-  # policy needs no restore: its failed apply left the old,
-  # edge-admitting object in place.
+  # access arms minted before the failure come back OFF first: a public
+  # row holds none. The policy needs no restore: its failed apply left
+  # the old, edge-admitting object in place.
   defp restore_public_edge(kubeconfig, instance, reason) do
+    _removed = EdgeRoutes.apply_access_none(kubeconfig, instance)
+
     mode = if(instance.status == :sleeping, do: :wake, else: :serving)
     _restored = EdgeRoutes.apply_public(kubeconfig, instance, mode)
     {:error, reason}

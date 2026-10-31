@@ -496,6 +496,29 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       stub(Tailscale, :attach_instance, fn _g, _i -> {:ok, :route} end)
       stub(Tailscale, :detach_instance, fn _g, _i -> :ok end)
 
+      # The operations' access-edge limbs (ADR-0040 S2) ride the same
+      # round-trip, stubbed like every other cluster call here.
+      stub(FluxVale.Clients.K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+
+      stub(FluxVale.Clients.K8s.Resources.Ingress, :create, fn _kc, _ns, _n, _spec ->
+        {:ok, %{}}
+      end)
+
+      stub(FluxVale.Clients.K8s.Resources.Middleware, :create, fn _kc, _ns, _n, _spec ->
+        {:ok, %{}}
+      end)
+
+      stub(FluxVale.Clients.K8s.Resources.Service, :create, fn _kc, _ns, _n, _spec ->
+        {:ok, %{}}
+      end)
+
+      stub(FluxVale.Clients.K8s.Resources.NetworkPolicy, :create, fn _kc, _ns, _n, _spec ->
+        {:ok, %{}}
+      end)
+
+      stub(FluxVale.Clients.K8s.Resources.Ingress, :delete, fn _kc, _ns, _n -> :ok end)
+      stub(FluxVale.Clients.K8s.Resources.Middleware, :delete, fn _kc, _ns, _n -> :ok end)
+
       assert {:ok, :route} = Infrastructure.attach_instance(gateway, instance)
       assert :ok = Infrastructure.detach_instance(gateway, instance)
     end

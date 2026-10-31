@@ -4,6 +4,8 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
   use FluxVale.DataCase, async: true
   use Mimic
 
+  import ExUnit.CaptureLog
+
   # Pure manifest-shape tests (#203, ADR-0036): the two modes are the
   # sleep/wake contract — what Traefik routes to decides whether a
   # sleeping instance wakes and a woken one serves. The k8s applies
@@ -15,22 +17,26 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
   alias FluxVale.Clients.K8s.Resources.Middleware
   alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Identity.User
+  alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.TestSupport.InstanceFixtures
+
+  require Ash.Query
 
   defp user do
     User.create!("edge-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
   end
 
-  defp instance!(version_opts, create_opts \\ %{}) do
+  defp instance!(version_opts, create_opts \\ %{}, actor \\ nil) do
     version = InstanceFixtures.app_version!(version_opts)
     InstanceFixtures.local_cluster!()
 
     defaults = %{name: "App", app_version_id: version.id, env_vars: %{}, storage_gb: 10}
     params = Map.merge(defaults, Map.new(create_opts))
 
-    instance = Instance.create!(params, actor: user())
+    instance = Instance.create!(params, actor: actor || user())
 
     InstanceFixtures.pin!(instance,
       namespace: "fluxvale-app-#{instance.id}",
@@ -40,6 +46,327 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
 
   defp stub_kubeconfig do
     stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+  end
+
+  # -----------------------------------------------------------------
+  # The access arms (ADR-0040 §7). The gateway is passed as a bare map:
+  # the arms read only its id (the pair in the wake path).
+  # -----------------------------------------------------------------
+
+  defp gateway_stub, do: %{id: Ash.UUID.generate()}
+
+  defp hostname!(instance_id) do
+    InstanceHostname
+    |> Ash.Query.filter(instance_id == ^instance_id)
+    |> Ash.read_one!(authorize?: false)
+  end
+
+  defp hostname_host!(instance_id) do
+    hostname = hostname!(instance_id)
+
+    %{
+      hostname
+      | access_domain: Ash.load!(hostname, :access_domain, authorize?: false).access_domain
+    }
+  end
+
+  defp custom_hostname!(owner, instance, label, opts \\ []) do
+    {:ok, registered} =
+      AccessDomain.register(
+        %{domain: "apps.customer-#{System.unique_integer()}.example"},
+        actor: owner
+      )
+
+    domain =
+      if Keyword.get(opts, :verified?, false) do
+        registered
+        |> Ash.Changeset.for_update(:mark_verified, %{cert_secret_ref: "custom-wildcard-tls"},
+          authorize?: false
+        )
+        |> Ash.update!()
+      else
+        registered
+      end
+
+    # S1's system-only mint (the edge arms read rows, never mint them).
+    InstanceHostname.mint!(
+      %{instance_id: instance.id, access_domain_id: domain.id, label: label},
+      authorize?: false
+    )
+  end
+
+  defp stub_access_targets(ns) do
+    stub(Service, :create, fn _kc, ^ns, "wake", _spec -> {:ok, %{}} end)
+
+    stub(Middleware, :create, fn
+      _kc, ^ns, "fluxvale-access-wake", _spec -> {:ok, %{}}
+      _kc, ^ns, "fluxvale-activity", _spec -> {:ok, %{}}
+    end)
+  end
+
+  defp stub_middleware_delete(ns) do
+    stub(Middleware, :delete, fn _kc, ^ns, "fluxvale-access-wake" ->
+      {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+    end)
+  end
+
+  describe "apply_access_serving/3 (ADR-0040 §7)" do
+    test "one host-keyed route per hostname row — access entrypoint, app target, beacon" do
+      stub_kubeconfig()
+      instance = instance!(%{})
+      ns = "fluxvale-app-#{instance.id}"
+      hostname = hostname_host!(instance.id)
+
+      # The dormant wake targets ride along (#203: pre-created, so the
+      # first sleep only rewrites routes Traefik already watches) — and
+      # the beacon lands first (the public serving arm's order).
+      expect(Service, :create, fn _kc, ^ns, "wake", spec ->
+        assert spec.external_name == "fluxvale-platform.fluxvale-dev.svc.cluster.local"
+        {:ok, %{}}
+      end)
+
+      expect(Middleware, :create, 2, fn
+        _kc, ^ns, "fluxvale-access-wake", _spec -> {:ok, %{}}
+        _kc, ^ns, "fluxvale-activity", _spec -> {:ok, %{}}
+      end)
+
+      expect(Ingress, :create, fn _kc, ^ns, "access-" <> _tail, spec ->
+        assert spec.host == "#{hostname.label}.#{hostname.access_domain.domain}"
+        # The entrypoint is a NAME — the platform never knows a port.
+        assert spec.entrypoint == "access"
+        assert spec.service_name == "app"
+        assert spec.service_port == 80
+        assert spec.middlewares == ["fluxvale-activity"]
+        {:ok, %{}}
+      end)
+
+      assert :ok = EdgeRoutes.apply_access_serving(%{}, gateway_stub(), instance)
+    end
+
+    test "a platform domain rides the default TLSStore — tls: true, NO secretName" do
+      stub_kubeconfig()
+      instance = instance!(%{})
+      stub_access_targets("fluxvale-app-#{instance.id}")
+
+      expect(Ingress, :create, fn _kc, _ns, _name, spec ->
+        assert spec.tls
+        refute Map.has_key?(spec, :tls_secret_name)
+        {:ok, %{}}
+      end)
+
+      assert :ok = EdgeRoutes.apply_access_serving(%{}, gateway_stub(), instance)
+    end
+
+    test "a verified custom domain routes with its cert secret; an unverified one never routes" do
+      stub_kubeconfig()
+      owner = user()
+      instance = instance!(%{}, %{}, owner)
+      ns = "fluxvale-app-#{instance.id}"
+
+      custom_hostname!(owner, instance, "wiki", verified?: true)
+      custom_hostname!(owner, instance, "dark")
+
+      stub_access_targets(ns)
+
+      parent = self()
+
+      stub(Ingress, :create, fn
+        _kc, ^ns, _name, %{host: "wiki." <> _tail} = spec ->
+          send(parent, {:custom_route, spec})
+          {:ok, %{}}
+
+        _kc, ^ns, _name, %{host: "dark." <> _tail} ->
+          send(parent, {:dark_route, "routed!"})
+          {:ok, %{}}
+
+        _kc, ^ns, _name, _spec ->
+          # The default platform hostname — an ordinary mint.
+          {:ok, %{}}
+      end)
+
+      log =
+        capture_log(fn ->
+          assert :ok = EdgeRoutes.apply_access_serving(%{}, gateway_stub(), instance)
+        end)
+
+      assert_received {:custom_route, spec}
+      assert spec.tls
+      assert spec.tls_secret_name == "custom-wildcard-tls"
+
+      # The unverified row was skipped with the reason logged — an
+      # unverified domain must never route.
+      refute_received {:dark_route, _}
+      assert log =~ "custom domain apps.customer-"
+      assert log =~ "not servable"
+    end
+
+    test "a route apply failure propagates — never a half-minted posture" do
+      stub_kubeconfig()
+      instance = instance!(%{})
+      stub_access_targets("fluxvale-app-#{instance.id}")
+
+      stub(Ingress, :create, fn _kc, _ns, _name, _spec ->
+        {:error, Error.connection_error("routes refused")}
+      end)
+
+      assert {:error, _error} = EdgeRoutes.apply_access_serving(%{}, gateway_stub(), instance)
+    end
+
+    test "idempotent — SSA re-apply converges on the same object set" do
+      stub_kubeconfig()
+      instance = instance!(%{})
+      ns = "fluxvale-app-#{instance.id}"
+
+      expect(Service, :create, 2, fn _kc, ^ns, "wake", _spec -> {:ok, %{}} end)
+      expect(Middleware, :create, 4, fn _kc, ^ns, _name, _spec -> {:ok, %{}} end)
+      expect(Ingress, :create, 2, fn _kc, ^ns, "access-" <> _tail, _spec -> {:ok, %{}} end)
+
+      assert :ok = EdgeRoutes.apply_access_serving(%{}, gateway_stub(), instance)
+      assert :ok = EdgeRoutes.apply_access_serving(%{}, gateway_stub(), instance)
+    end
+  end
+
+  describe "apply_access_wake/3 (ADR-0040 §7)" do
+    test "the same hostnames target the platform through the wake Service, pair in the path" do
+      stub_kubeconfig()
+      gateway = gateway_stub()
+      instance = instance!(%{})
+      ns = "fluxvale-app-#{instance.id}"
+      hostname = hostname_host!(instance.id)
+
+      expect(Service, :create, fn _kc, ^ns, "wake", spec ->
+        assert spec.external_name == "fluxvale-platform.fluxvale-dev.svc.cluster.local"
+        assert spec.port == 4000
+        {:ok, %{}}
+      end)
+
+      # The rewrite IS the authorization's carrier (#301's contract,
+      # verbatim through the Traefik hop).
+      expect(Middleware, :create, fn _kc, ^ns, "fluxvale-access-wake", spec ->
+        assert spec.replace_path_regex == %{
+                 regex: "^/(.*)",
+                 replacement: "/internal/access/#{gateway.id}/#{instance.id}/$1"
+               }
+
+        {:ok, %{}}
+      end)
+
+      expect(Ingress, :create, fn _kc, ^ns, "access-" <> _tail, spec ->
+        assert spec.host == "#{hostname.label}.#{hostname.access_domain.domain}"
+        assert spec.entrypoint == "access"
+        # The platform via the same ExternalName `wake` pattern...
+        assert spec.service_name == "wake"
+        assert spec.service_port == 4000
+        # ...with the rewrite in front and NO beacon (mirror the public
+        # wake arm — nothing is being forwarded).
+        assert spec.middlewares == ["fluxvale-access-wake"]
+        {:ok, %{}}
+      end)
+
+      assert :ok = EdgeRoutes.apply_access_wake(%{}, gateway, instance)
+    end
+
+    test "an unverified custom domain is skipped in wake mode too" do
+      stub_kubeconfig()
+      owner = user()
+      instance = instance!(%{}, %{}, owner)
+      ns = "fluxvale-app-#{instance.id}"
+
+      custom_hostname!(owner, instance, "dark")
+
+      stub(Service, :create, fn _kc, ^ns, _n, _spec -> {:ok, %{}} end)
+      stub(Middleware, :create, fn _kc, ^ns, _n, _spec -> {:ok, %{}} end)
+
+      stub(Ingress, :create, fn
+        _kc, _ns, _name, %{host: "dark." <> _tail} ->
+          flunk("an unverified custom domain must never route")
+
+        _kc, _ns, _name, _spec ->
+          # The default platform hostname — an ordinary mint.
+          {:ok, %{}}
+      end)
+
+      log =
+        capture_log(fn ->
+          assert :ok = EdgeRoutes.apply_access_wake(%{}, gateway_stub(), instance)
+        end)
+
+      assert log =~ "not servable"
+    end
+
+    test "idempotent — the wake flip re-applies its full object set" do
+      stub_kubeconfig()
+      instance = instance!(%{})
+      ns = "fluxvale-app-#{instance.id}"
+
+      expect(Service, :create, 2, fn _kc, ^ns, "wake", _spec -> {:ok, %{}} end)
+      # Wake mode mints only the rewrite middleware — no beacon (mirror
+      # the public wake arm).
+      expect(Middleware, :create, 2, fn _kc, ^ns, _name, _spec -> {:ok, %{}} end)
+      expect(Ingress, :create, 2, fn _kc, ^ns, "access-" <> _tail, _spec -> {:ok, %{}} end)
+
+      assert :ok = EdgeRoutes.apply_access_wake(%{}, gateway_stub(), instance)
+      assert :ok = EdgeRoutes.apply_access_wake(%{}, gateway_stub(), instance)
+    end
+  end
+
+  describe "apply_access_none/2 (ADR-0040 §7)" do
+    test "safe-deletes every hostname's access route plus the wake middleware" do
+      stub_kubeconfig()
+      owner = user()
+      instance = instance!(%{}, %{}, owner)
+      ns = "fluxvale-app-#{instance.id}"
+
+      custom_hostname!(owner, instance, "wiki", verified?: true)
+
+      # Two hostname rows (the default slug + the custom one), two
+      # routes; plus the middleware.
+      expect(Ingress, :delete, 2, fn _kc, ^ns, "access-" <> _tail -> :ok end)
+      expect(Middleware, :delete, fn _kc, ^ns, "fluxvale-access-wake" -> :ok end)
+
+      assert :ok = EdgeRoutes.apply_access_none(%{}, instance)
+    end
+
+    test "404s tolerated — the posture already holding, so the call is idempotent" do
+      stub_kubeconfig()
+      instance = instance!(%{})
+      ns = "fluxvale-app-#{instance.id}"
+
+      stub(Ingress, :delete, fn _kc, ^ns, "access-" <> _tail ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub_middleware_delete(ns)
+
+      assert :ok = EdgeRoutes.apply_access_none(%{}, instance)
+      assert :ok = EdgeRoutes.apply_access_none(%{}, instance)
+    end
+
+    test "a delete failure propagates" do
+      stub_kubeconfig()
+      instance = instance!(%{})
+      ns = "fluxvale-app-#{instance.id}"
+
+      stub(Ingress, :delete, fn _kc, ^ns, _name ->
+        {:error, Error.connection_error("delete refused")}
+      end)
+
+      assert {:error, _error} = EdgeRoutes.apply_access_none(%{}, instance)
+    end
+
+    test "a middleware-delete failure propagates too — never a half-removed posture" do
+      stub_kubeconfig()
+      instance = instance!(%{})
+      ns = "fluxvale-app-#{instance.id}"
+
+      stub(Ingress, :delete, fn _kc, ^ns, "access-" <> _tail -> :ok end)
+
+      stub(Middleware, :delete, fn _kc, ^ns, "fluxvale-access-wake" ->
+        {:error, Error.connection_error("middleware delete refused")}
+      end)
+
+      assert {:error, _error} = EdgeRoutes.apply_access_none(%{}, instance)
+    end
   end
 
   describe "apply_serving/2" do
