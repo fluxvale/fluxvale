@@ -176,14 +176,14 @@ defmodule FluxVale.Blog.LoaderTest do
 
       assert :ok = Blog.maybe_hot_reload()
       all = Blog.all()
-      assert Enum.any?(all, &(&1.slug == "example-post"))
+      assert Enum.any?(all, &(&1.slug == "introducing-fluxvale"))
     end
 
     test "maybe_hot_reload/0 is a no-op while the flag is unset" do
       assert :ok = Blog.maybe_hot_reload()
       # The fixture set is untouched — the flag short-circuits first.
       all = Blog.all()
-      refute Enum.any?(all, &(&1.slug == "example-post"))
+      refute Enum.any?(all, &(&1.slug == "introducing-fluxvale"))
     end
   end
 end
