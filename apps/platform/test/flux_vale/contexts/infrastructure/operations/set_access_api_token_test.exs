@@ -90,6 +90,20 @@ defmodule FluxVale.Infrastructure.Operations.SetAccessApiTokenTest do
     assert row.api_token_secret_ref == nil
   end
 
+  # The system path (authorize?: false, no actor) cannot paste a
+  # token: there is no owner to vouch for it.
+  test "a nil actor is refused as not-an-owner even authorize?-free", %{org: org} do
+    gateway = AccessFixtures.gateway!(org)
+
+    stub(Tailscale, :write_api_credential, fn _gw, _t -> flunk("nil actor, no cluster call") end)
+
+    assert {:error, :not_org_owner} =
+             Infrastructure.set_access_api_token(gateway, @token, authorize?: false)
+
+    row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+    assert row.api_token_secret_ref == nil
+  end
+
   test "a Secret write failure leaves the row untouched (the retry converges)", %{
     org: org,
     owner: owner

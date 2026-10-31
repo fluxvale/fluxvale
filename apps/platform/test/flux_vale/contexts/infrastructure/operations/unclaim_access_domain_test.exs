@@ -132,6 +132,31 @@ defmodule FluxVale.Infrastructure.Operations.UnclaimAccessDomainTest do
     assert Map.has_key?(claims, "other.example.com")
   end
 
+  test "a gateway torn down between the stale write and the retry stands failed", %{
+    org: org,
+    owner: owner
+  } do
+    gateway = claimed_gateway!(org)
+    domain = custom_domain!(owner)
+
+    stub(Tailscale, :unclaim_domain, fn _gw, _d -> :ok end)
+    stale = %Ash.Error.Invalid{errors: [%Ash.Error.Changes.StaleRecord{}]}
+
+    stub(AccessGateway, :update_claims, fn _gw, _attrs, _opts -> {:error, stale} end)
+    # Only the RETRY's re-read (authorize?: false) finds the row gone;
+    # the op's authorized first read passes through to the real row.
+    stub(AccessGateway, :get_by_id, fn _id, opts ->
+      if opts[:authorize?] == false do
+        {:error, :torn_down}
+      else
+        {:ok, gateway}
+      end
+    end)
+
+    assert {:error, %Ash.Error.Invalid{}} =
+             Infrastructure.unclaim_access_domain(gateway, domain, actor: owner)
+  end
+
   test "unclaiming a domain this gateway never claimed is a converging no-op", %{
     org: org,
     owner: owner
