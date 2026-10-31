@@ -93,122 +93,184 @@ defmodule FluxValeWeb.DashboardLive do
       personal_org_id={@personal_org_id}
       username={@username}
       nav_section={@nav_section}
+      bare
     >
-      <div class="space-y-8">
-        <.header>
-          Dashboard
-          <:subtitle>Your apps, balance, and runway at a glance.</:subtitle>
-          <:actions>
-            <div class="flex items-center gap-2">
-              <.button navigate={~p"/billing/topup"} variant="secondary" size="sm">
-                Add credits
-              </.button>
-              <.button navigate={~p"/apps"} size="sm">
-                Deploy an app
-              </.button>
-            </div>
-          </:actions>
-        </.header>
-
-        <div class="space-y-4">
-          <%!-- Defensive-only (#124): action-created users always have a
-          JIT-provisioned org. A seeded/legacy row without one keeps the
-          rest of the dashboard — push_navigate isn't available to a
-          live_render'd view, so this is a link, not a redirect. --%>
-          <.callout :if={@wallet == :none} tone="warning" title="Billing unavailable">
-            We couldn't load billing for this account. Try the <.link
-              navigate={~p"/billing"}
-              class="font-medium text-ink underline"
-            >Billing page</.link>.
-          </.callout>
-
-          <div :if={@wallet != :none} class="grid gap-4 sm:grid-cols-2">
-            <.metric_card
-              label="Balance"
-              value={format_usd(@wallet.balance_cents)}
-              hint="Credits never expire."
-              data-testid="dashboard-balance"
-            />
-            <.metric_card
-              label="Runway"
-              value={format_runway(@wallet)}
-              hint={burn_hint(@wallet, @instance_count)}
-              data-testid="dashboard-runway"
-            />
-          </div>
-        </div>
-
-        <section aria-labelledby="dashboard-instances-title" class="space-y-3">
-          <div class="flex items-center justify-between gap-4">
-            <h2 id="dashboard-instances-title" class="text-lg font-semibold tracking-tight text-ink">
-              Instances
-            </h2>
-            <.link
-              navigate={~p"/instances"}
-              class="text-sm font-medium text-ink-muted transition-colors hover:text-ink"
-            >
-              View all <span aria-hidden="true">&rarr;</span>
-            </.link>
-          </div>
-
-          <.empty_state :if={@instance_count == 0} title="No instances yet">
-            Deploy your first app from the catalog.
-          </.empty_state>
-          <%!-- The fresh-account onboarding nudge (#205): a welcome
-          grant on the balance is exactly the "your first deploy is
-          free" moment — only meaningful while nothing's deployed. --%>
-          <.callout
-            :if={@instance_count == 0 and @wallet != :none and @wallet.balance_cents > 0}
-            tone="info"
-            title="Welcome credits ready"
-          >
-            You have {format_usd(@wallet.balance_cents)} in credits — your first deploy is on us.
-          </.callout>
-
-          <%!-- Same card language as the index rows (#277 T5a/T7) — see
-          instance_live/index.ex for the lift note (shadow on the link,
-          motion-safe translate on the wrapper + chevron). --%>
-          <div id="dashboard-instances" phx-update="stream" class="space-y-3">
-            <.link
-              :for={{dom_id, instance} <- @streams.instances}
-              navigate={~p"/instances/#{instance.id}"}
-              id={dom_id}
-              data-testid="instance-row"
-              class="group relative block rounded-panel border border-line-strong bg-panel p-5 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md"
-            >
-              <div class="space-y-2 transition-[translate] duration-(--motion-base) ease-(--motion-ease-out) motion-safe:group-hover:-translate-y-1">
-                <div class="flex flex-wrap items-center justify-between gap-3">
-                  <div class="flex min-w-0 items-center gap-3">
-                    <h3 class="min-w-0 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
-                      {instance.name}
-                    </h3>
-                    <span class="font-mono text-xs text-ink-subtle shrink-0">{instance.slug}</span>
-                  </div>
-                  <div class="flex items-center gap-3">
-                    <span class="text-sm text-ink-muted">
-                      {instance.app_version.app.name}
-                      <span class="ml-1 font-mono text-xs text-ink-subtle">
-                        v{instance.app_version.version}
-                      </span>
-                    </span>
-                    <.status_badge status={instance.status} />
-                  </div>
-                </div>
-                <%!-- #179 friendly copy only; quiet on settled states —
-                see the moduledoc's #203 note. --%>
-                <p
-                  :if={noisy?(instance.status)}
-                  class="truncate text-xs text-ink-subtle"
-                  data-testid="instance-status-message"
-                >
-                  {InstanceStatus.message(instance)}
+      <%!-- App-wide grammar page (S4): `bare` main + .appgram — the page
+      owns ALL of main's rhythm (no max-w, no padding), same posture as
+      the instance show. The band is concept-1's ONE sanctioned
+      page-specific composition: the round-3 verdict keeps Balance/
+      runway as this page's layout — the header and the runway read
+      high inside a sunken band, the Balance card straddles its bottom
+      edge, and the whole band reads as a diagonal, not a stripe. --%>
+      <div class="appgram contents">
+        <section class="band">
+          <div class="wrap pt-8">
+            <%!-- 1. The page header + the two quick actions, and the
+            runway metric riding the header's right column below them.
+            Why the runway is NOT a sibling of the Balance card: the
+            straddle pulls the band's flow edge up by --straddle-y, so
+            the straddling row's height is the card minus the token —
+            any in-flow sibling taller than that (the runway block is)
+            would grow the row and shrink the hang. The column keeps the
+            metric out of that row and pins it high-right: the diagonal
+            the concept asks for. --%>
+            <div class="rise flex flex-wrap items-start justify-between gap-x-6 gap-y-5">
+              <div class="min-w-0">
+                <h1 class="page-title">Dashboard</h1>
+                <p class="mt-2 text-base text-ink-muted">
+                  Your apps, balance, and runway at a glance.
                 </p>
               </div>
-              <.icon
-                name="hero-chevron-right"
-                class="absolute right-1 top-5 size-4 text-ink-subtle opacity-0 transition-[opacity,translate] duration-(--motion-base) ease-(--motion-ease-out) group-hover:opacity-100 group-focus-visible:opacity-100 motion-safe:group-hover:-translate-y-1"
-              />
-            </.link>
+
+              <div class="flex shrink-0 flex-col items-start gap-6 sm:items-end">
+                <div class="flex flex-wrap gap-2">
+                  <.button navigate={~p"/billing/topup"} variant="secondary">
+                    Add credits
+                  </.button>
+                  <.button navigate={~p"/apps"}>
+                    Deploy an app
+                  </.button>
+                </div>
+
+                <%!-- The runway keeps the exact formatter/testid shape of
+                the old metric_card — value and hint inside the testid
+                element (the tests read both through it). --%>
+                <div
+                  :if={@wallet != :none}
+                  data-testid="dashboard-runway"
+                  class="rise [animation-delay:100ms]"
+                >
+                  <p class="eyebrow">Runway</p>
+                  <p class="mt-1.5 text-4xl font-bold tracking-tight text-ink sm:text-5xl">
+                    {format_runway(@wallet)}
+                  </p>
+                  <p class="mt-1 text-xs text-ink-subtle">{burn_hint(@wallet, @instance_count)}</p>
+                </div>
+              </div>
+            </div>
+
+            <%!-- 2. The Balance card straddles the band's bottom edge —
+            the one bold move. Straddle contract: this card is taller
+            than --straddle-y (eyebrow + value + hint guarantee it), and
+            the section after the band carries its own top padding.
+            Billing-down (#124, defensive-only: action-created users
+            always have a JIT-provisioned org) swaps the metric for the
+            callout with NO straddle — the hang is Balance's move, not a
+            warning's — so its wrapper carries the band's bottom padding. --%>
+            <div
+              :if={@wallet != :none}
+              data-testid="dashboard-balance"
+              class="straddle card rise mt-7 w-full max-w-md p-5 shadow-md [animation-delay:100ms] sm:p-6"
+            >
+              <p class="eyebrow">Balance</p>
+              <p class="mt-1.5 text-4xl font-bold tracking-tight text-ink sm:text-5xl">
+                {format_usd(@wallet.balance_cents)}
+              </p>
+              <p class="mt-1 text-xs text-ink-subtle">Credits never expire.</p>
+            </div>
+
+            <div :if={@wallet == :none} class="rise mt-7 pb-8 [animation-delay:100ms]">
+              <.callout tone="warning" title="Billing unavailable">
+                We couldn't load billing for this account. Try the <.link
+                  navigate={~p"/billing"}
+                  class="font-medium text-ink underline"
+                >Billing page</.link>.
+              </.callout>
+            </div>
+          </div>
+        </section>
+
+        <%!-- 3. The instances overview. The section after a straddling
+        band carries its own top padding (the straddle contract). The
+        .rise wraps the SECTION container, never the rows: stream
+        patches rewrite rows in place, and a rise on patched nodes
+        would replay the reveal on every broadcast (the S2/S3 lesson) —
+        node identity is what the rise rides. --%>
+        <section
+          aria-labelledby="dashboard-instances-title"
+          class="wrap pt-[calc(var(--straddle-y)_+_1.5rem)] pb-12"
+        >
+          <div class="rise space-y-4 [animation-delay:170ms]">
+            <div class="flex items-center justify-between gap-4">
+              <h2 id="dashboard-instances-title" class="text-lg font-semibold tracking-tight text-ink">
+                Instances
+              </h2>
+              <.link
+                navigate={~p"/instances"}
+                class="text-sm font-medium text-link transition-colors hover:text-ink"
+              >
+                View all <span aria-hidden="true">&rarr;</span>
+              </.link>
+            </div>
+
+            <.empty_state :if={@instance_count == 0} title="No instances yet">
+              Deploy your first app from the catalog.
+            </.empty_state>
+            <%!-- The fresh-account onboarding nudge (#205): a welcome
+            grant on the balance is exactly the "your first deploy is
+            free" moment — only meaningful while nothing's deployed. --%>
+            <.callout
+              :if={@instance_count == 0 and @wallet != :none and @wallet.balance_cents > 0}
+              tone="info"
+              title="Welcome credits ready"
+            >
+              You have {format_usd(@wallet.balance_cents)} in credits — your first deploy is on us.
+            </.callout>
+
+            <%!-- The concept's row language: monogram chip, name + mono
+            hostname, app/version, status badge. These are LINK cards —
+            the one place the grammar's hover lift (`a.card`) belongs;
+            the lift and its motion kill switch are the grammar's, no
+            per-row translate/shadow machinery like the index rows keep.
+            Grid: mobile drops app/version under the name at the name's
+            left edge (the reference's indent); sm+ reads one line. --%>
+            <div id="dashboard-instances" phx-update="stream" class="space-y-3">
+              <.link
+                :for={{dom_id, instance} <- @streams.instances}
+                navigate={~p"/instances/#{instance.id}"}
+                id={dom_id}
+                data-testid="instance-row"
+                class="card group grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-2 p-4 outline-offset-2 outline-focus focus-visible:outline-2 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto] sm:p-5"
+              >
+                <span
+                  aria-hidden="true"
+                  class="grid size-9 place-items-center rounded-panel border border-primary/25 bg-primary-muted font-mono text-xs font-semibold text-link"
+                >
+                  {monogram(instance.name)}
+                </span>
+
+                <div class="min-w-0 space-y-0.5">
+                  <h3 class="min-w-0 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
+                    {instance.name}
+                  </h3>
+                  <p class="truncate font-mono text-xs text-ink-subtle">{instance.slug}</p>
+                  <%!-- #179 friendly copy only; quiet on settled states —
+                  see the moduledoc's #203 note. --%>
+                  <p
+                    :if={noisy?(instance.status)}
+                    class="truncate text-xs text-ink-subtle"
+                    data-testid="instance-status-message"
+                  >
+                    {InstanceStatus.message(instance)}
+                  </p>
+                </div>
+
+                <div class="col-start-2 row-start-2 flex items-center gap-3 sm:col-start-3 sm:row-start-1">
+                  <span class="text-sm text-ink-muted">
+                    {instance.app_version.app.name}
+                    <span class="ml-1 font-mono text-xs text-ink-subtle">
+                      v{instance.app_version.version}
+                    </span>
+                  </span>
+                  <.status_badge status={instance.status} />
+                </div>
+
+                <.icon
+                  name="hero-chevron-right"
+                  class="hidden size-4 text-ink-subtle opacity-0 transition-[opacity] duration-(--motion-base) ease-(--motion-ease-out) group-hover:opacity-100 group-focus-visible:opacity-100 sm:col-start-4 sm:row-start-1 sm:block"
+                />
+              </.link>
+            </div>
           </div>
         </section>
       </div>
@@ -259,6 +321,14 @@ defmodule FluxValeWeb.DashboardLive do
   # (running/sleeping/stopped — the list rows' quiet rule) are the
   # badge's business; everything else earns the friendly message line.
   defp noisy?(status), do: status not in [:running, :sleeping, :stopped]
+
+  # The row chip's mark (S4's reference rows): the name's first two
+  # graphemes, uppercased — a stable two-letter read of any name.
+  defp monogram(name) do
+    name
+    |> String.slice(0, 2)
+    |> String.upcase()
+  end
 
   defp subscribe(socket, instances) do
     Enum.reduce(instances, socket, fn instance, socket ->
