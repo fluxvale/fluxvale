@@ -30,10 +30,11 @@ const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
 const page = await ctx.newPage();
 await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
 const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
-await page.request.post(`${BASE}/auth/session`, {
+const session = await page.request.post(`${BASE}/auth/session`, {
   form: { token },
   headers: { "x-csrf-token": csrf },
 });
+if (!session.ok()) throw new Error(`session POST failed: ${session.status()}`);
 
 // count appgram-rise starts across navigations
 await page.addInitScript(() => {
@@ -167,10 +168,11 @@ const rctx = await browser.newContext({
 const rpage = await rctx.newPage();
 await rpage.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
 const rcsrf = await rpage.locator('meta[name="csrf-token"]').getAttribute("content");
-await rpage.request.post(`${BASE}/auth/session`, {
+const rsession = await rpage.request.post(`${BASE}/auth/session`, {
   form: { token },
   headers: { "x-csrf-token": rcsrf },
 });
+if (!rsession.ok()) throw new Error(`session POST failed: ${rsession.status()}`);
 await rpage.goto(`${BASE}/apps`, { waitUntil: "networkidle" });
 await rpage.waitForTimeout(300);
 const rm = await rpage.evaluate(() => {

@@ -39,7 +39,8 @@ await page.request.post(`${BASE}/auth/session`, {
 
 // The reveal: navigate and screenshot in a tight burst — the rise runs
 // --motion-slow with a 170ms stagger, so ~14 shots at ~70ms cover it.
-const nav = page.goto(`${BASE}/apps`, { waitUntil: "commit" }).catch(() => {});
+// A failed navigation must stop the script, not shoot stale frames.
+const nav = page.goto(`${BASE}/apps`, { waitUntil: "commit" });
 await nav;
 let n = 0;
 const burst = async (prefix, times) => {

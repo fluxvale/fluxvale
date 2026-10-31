@@ -30,10 +30,15 @@ const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
 const page = await ctx.newPage();
 await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
 const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
-await page.request.post(`${BASE}/auth/session`, {
+const session = await page.request.post(`${BASE}/auth/session`, {
   form: { token },
   headers: { "x-csrf-token": csrf },
 });
+if (!session.ok()) throw new Error(`session POST failed: ${session.status()}`);
+// A silently-dead session renders /sign-in under catalog filenames —
+// verify the app actually knows us before the first shot.
+await page.goto(`${BASE}/apps`, { waitUntil: "networkidle" });
+if (page.url().includes("/sign-in")) throw new Error("session did not take — check FV_TOKEN");
 
 const shots = [
   ["catalog", "/apps", 1440, 900],
