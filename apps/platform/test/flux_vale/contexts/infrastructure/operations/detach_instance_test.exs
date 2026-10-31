@@ -17,6 +17,7 @@ defmodule FluxVale.Infrastructure.Operations.DetachInstanceTest do
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Operations.DetachInstance
+  alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -29,6 +30,11 @@ defmodule FluxVale.Infrastructure.Operations.DetachInstanceTest do
     stub(Tailscale, :provision_gateway, fn _gateway, _key ->
       {:ok, %{credential_secret_ref: "credential-stub"}}
     end)
+
+    # The S4 hook: a committed detach re-renders the resolver view
+    # best-effort. Default success; expect-ed where a test cares.
+    stub(RenderAccessDNS, :call, fn -> :ok end)
+    stub(RenderAccessDNS, :call, fn _opts -> :ok end)
 
     {org, owner} = BillingFixtures.grant_free_org!()
     {:ok, wallet} = FluxVale.Billing.ensure_wallet(org)
@@ -126,5 +132,54 @@ defmodule FluxVale.Infrastructure.Operations.DetachInstanceTest do
     reject(K8s, :kubeconfig, 1)
 
     assert {:error, :different_organization} = DetachInstance.call(gateway, instance)
+  end
+
+  describe "the S4 render hook (ADR-0040 §4)" do
+    test "a committed detach re-renders the resolver view", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      stub(Tailscale, :detach_instance, fn _gateway, _instance -> :ok end)
+
+      # The access edge's removal: no hostname route / wake middleware
+      # exists in this bare shape — the posture already holds.
+      stub(Ingress, :delete, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub(Middleware, :delete, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      expect(RenderAccessDNS, :call, fn -> :ok end)
+
+      assert :ok = DetachInstance.call(gateway, instance)
+    end
+
+    test "a failed edge removal never re-renders", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      stub(Tailscale, :detach_instance, fn _gateway, _instance -> :ok end)
+
+      stub(Ingress, :delete, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
+      end)
+
+      stub(RenderAccessDNS, :call, fn -> flunk("no render on a failed primary") end)
+      stub(RenderAccessDNS, :call, fn _opts -> flunk("no render on a failed primary") end)
+
+      assert {:error, _reason} = DetachInstance.call(gateway, instance)
+    end
   end
 end

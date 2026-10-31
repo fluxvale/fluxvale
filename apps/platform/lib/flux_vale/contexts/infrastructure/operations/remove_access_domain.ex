@@ -46,6 +46,7 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomain do
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProvider
   alias FluxVale.Infrastructure.InstanceHostname
+  alias FluxVale.Infrastructure.Operations.RenderAccessDNS
 
   require Ash.Query
 
@@ -66,6 +67,12 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomain do
          :ok <- ensure_no_hostnames(domain),
          :ok <- unclaim_tailnet_state(domain),
          :ok <- destroy_row(domain, actor, authorize?) do
+      # The claims are gone (the view's source of truth moved), so the
+      # Corefile re-renders BEFORE the result returns — best-effort, the
+      # derived-state stance (ADR-0040 §4): the hostnames must stop
+      # answering even if the cert cleanup below failed.
+      RenderAccessDNS.call()
+
       safe_delete_certificate(domain)
     end
   end

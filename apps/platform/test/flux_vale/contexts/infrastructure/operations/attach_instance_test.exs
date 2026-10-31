@@ -20,6 +20,7 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Operations.AttachInstance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -52,6 +53,11 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
     stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
     stub(Ingress, :delete, fn _kc, _ns, _n -> not_found() end)
     stub(Middleware, :delete, fn _kc, _ns, _n -> not_found() end)
+
+    # The S4 hook: a committed attach re-renders the resolver view
+    # best-effort. Default success; expect-ed where a test cares.
+    stub(RenderAccessDNS, :call, fn -> :ok end)
+    stub(RenderAccessDNS, :call, fn _opts -> :ok end)
 
     {org, owner} = BillingFixtures.grant_free_org!()
     {:ok, wallet} = FluxVale.Billing.ensure_wallet(org)
@@ -242,6 +248,33 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
       {:access_route, spec} -> drain_access_specs([spec | acc])
     after
       0 -> Enum.reverse(acc)
+    end
+  end
+
+  describe "the S4 render hook (ADR-0040 §4)" do
+    test "a committed attach re-renders the resolver view", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      expect(RenderAccessDNS, :call, fn -> :ok end)
+
+      assert {:ok, _route} = AttachInstance.call(gateway, instance)
+    end
+
+    test "a failed access edge never re-renders (the row unwinds)", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      # The access mint fails mid-flight: no view render may ride a
+      # failed primary — the 15-min pass is the convergence owner.
+      stub(Ingress, :create, fn _kc, _ns, _n, _spec ->
+        {:error, Error.from_response({:ok, %{status: 403, body: %{}}})}
+      end)
+
+      stub(RenderAccessDNS, :call, fn -> flunk("no render on a failed primary") end)
+      stub(RenderAccessDNS, :call, fn _opts -> flunk("no render on a failed primary") end)
+
+      assert {:error, _reason} = AttachInstance.call(gateway, instance)
     end
   end
 

@@ -49,6 +49,11 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfigTest do
     @domain "example.ts.net"
 
     test "one app at root on its own port, under the CONCRETE tailnet FQDN" do
+      # The tunnel limb is its own concern (the describe below); the
+      # no-edge state is a deliberate Application-env deletion now —
+      # the boot default is the fleet edge (infra #119).
+      clear_access_edge()
+
       config =
         ServeConfig.build(@hostname, @domain, [
           {"8443", "http://app.fluxvale-app-x.svc.cluster.local:80"}
@@ -88,6 +93,11 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfigTest do
     end
 
     test "two apps get two ports, each at root — the B1 compromise" do
+      # The tunnel limb is its own concern (the describe below); the
+      # no-edge state is a deliberate Application-env deletion now —
+      # the boot default is the fleet edge (infra #119).
+      clear_access_edge()
+
       config =
         ServeConfig.build(@hostname, @domain, [
           {"8443", "http://app.ns-a.svc.cluster.local:80"},
@@ -114,6 +124,11 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfigTest do
     end
 
     test "an empty gateway serves nothing yet — valid, not broken" do
+      # The tunnel limb is its own concern (the describe below); the
+      # no-edge state is a deliberate Application-env deletion now —
+      # the boot default is the fleet edge (infra #119).
+      clear_access_edge()
+
       config = ServeConfig.build(@hostname, @domain, [])
 
       assert config["TCP"] == %{}
@@ -124,6 +139,11 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfigTest do
     # through the empty config (nothing attached, nothing to key on the
     # domain); the provider refuses the non-empty case separately.
     test "an empty config builds without a domain — the nothing-served-yet row" do
+      # The tunnel limb is its own concern (the describe below); the
+      # no-edge state is a deliberate Application-env deletion now —
+      # the boot default is the fleet edge (infra #119).
+      clear_access_edge()
+
       config = ServeConfig.build(@hostname, nil, [])
 
       assert config["TCP"] == %{}
@@ -212,6 +232,31 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfigTest do
       # hostname-agnostic; Traefik routes by Host past the tunnel.
       refute Map.has_key?(config["Web"], "443")
       refute Map.has_key?(config["Web"], "80")
+    end
+
+    test "the runtime default parses to the fleet's access edge (infra #119)" do
+      # runtime.exs runs at boot: with ACCESS_EDGE_SERVICE unset it
+      # defaults the config to the fleet entrypoint (env override wins,
+      # so CI never sets it). This pins the parsed DEFAULT the release
+      # and the local Tilt stack boot with — the rider of ADR-0040 S4.
+      config = Application.get_env(:flux_vale, :access_edge)
+
+      assert config[:service] == "traefik.traefik.svc.cluster.local"
+      assert config[:https_port] == 8444
+      assert config[:http_port] == 8080
+
+      # And it DRIVES the tunnel arm end to end — the address is read
+      # from config everywhere, never hardcoded.
+      built =
+        ServeConfig.build(@hostname, @domain, [
+          {"8443", "http://app.ns.svc.cluster.local:80"}
+        ])
+
+      assert built["TCP"]["443"] == %{
+               "TCPForward" => "traefik.traefik.svc.cluster.local:8444"
+             }
+
+      assert built["TCP"]["80"] == %{"TCPForward" => "traefik.traefik.svc.cluster.local:8080"}
     end
 
     test "without an access edge the config is BYTE-IDENTICAL to the pre-ADR shape" do

@@ -18,6 +18,8 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
   alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Clients.K8s.SelfAccessReview
   alias FluxVale.Identity.User
+  alias FluxVale.Infrastructure.AccessDomain
+  alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
@@ -26,6 +28,8 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
+
+  require Ash.Query
 
   defp user do
     User.create!("deployer-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
@@ -684,6 +688,172 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
 
       assert {:ok, returned} = DeployInstance.call(starting)
       assert returned.id == starting.id
+    end
+  end
+
+  describe "the deploy env seam on a claimed domain (ADR-0040 §7, ADR-0038 §4's exception)" do
+    # The claimed-domain precondition: the org's gateway whose
+    # dns_claims carry the base domain (the platform row is minted by
+    # the instance create itself, born :verified).
+    defp claimed_org!(attrs) do
+      stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
+
+      stub_kubeconfig()
+      InstanceFixtures.local_cluster!()
+
+      {org, owner} = BillingFixtures.grant_free_org!()
+
+      # The instance create's funded-wallet gate (#124).
+      {:ok, wallet} = FluxVale.Billing.ensure_wallet(org)
+      {:ok, _grant} = FluxVale.Billing.grant_credits(wallet, 10_000, reason: :adjustment)
+
+      # The create resolves the actor's earliest-owned org — the fixture
+      # org (created before the user's JIT personal org) — so the row is
+      # born in the gateway's org, hostname minted with it.
+      instance = deploying_for_org!(owner, attrs)
+      gateway = AccessFixtures.gateway!(org)
+
+      base_domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
+
+      {:ok, _gateway} =
+        AccessGateway.update_claims(
+          gateway,
+          %{dns_claims: %{base_domain => %{"ip" => "10.43.0.20", "tailnet" => "example.ts.net"}}},
+          authorize?: false
+        )
+
+      {instance, base_domain}
+    end
+
+    defp deploying_for_org!(owner, version_attrs) do
+      version = InstanceFixtures.app_version!(version_attrs)
+
+      instance =
+        Instance.create!(
+          %{name: "Claimed App", app_version_id: version.id, env_vars: %{}},
+          actor: owner
+        )
+
+      {:ok, deploying} = InstanceK8s.update_status(instance, :deploying, nil)
+
+      InstanceFixtures.pin!(deploying,
+        namespace: "fluxvale-app-#{instance.id}",
+        deployed_at: DateTime.utc_now(),
+        exposure: :private
+      )
+    end
+
+    defp stub_private_operands(ns) do
+      stub(Namespace, :create, fn _kc, _ns, _spec -> {:ok, %{}} end)
+      stub(RoleBinding, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(ResourceQuota, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(PersistentVolumeClaim, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Deployment, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Service, :create, fn _kc, ^ns, "app", _spec -> {:ok, %{}} end)
+      stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      stub(Ingress, :delete, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub(Middleware, :delete, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+    end
+
+    test "a private instance on a CLAIMED default hostname seeds the URL and the allowlist entry" do
+      {instance, base_domain} =
+        claimed_org!(
+          instance_url_env: "FORGEJO__server__ROOT_URL",
+          host_allowlist_env: "FORGEJO__server__DOMAIN"
+        )
+
+      ns = "fluxvale-app-#{instance.id}"
+      stub_private_operands(ns)
+
+      expect(Secret, :create, fn _kc, ^ns, "app-env", data ->
+        # ADR-0038 §4's designed exception: the hostname LIVE on a
+        # claimed domain is real, so the URL env is set after all.
+        assert data["FORGEJO__server__ROOT_URL"] == "https://#{instance.slug}.#{base_domain}/"
+        assert data["FORGEJO__server__DOMAIN"] == "#{instance.slug}.#{base_domain}"
+
+        {:ok, %{}}
+      end)
+
+      assert {:ok, _starting} = DeployInstance.call(instance)
+    end
+
+    test "a preexisting allowlist value is APPENDED to, not clobbered" do
+      {instance, base_domain} =
+        claimed_org!(
+          instance_url_env: nil,
+          host_allowlist_env: "ALLOWED_HOSTS",
+          default_env_vars: %{"ALLOWED_HOSTS" => "localhost,127.0.0.1"}
+        )
+
+      ns = "fluxvale-app-#{instance.id}"
+      stub_private_operands(ns)
+
+      expect(Secret, :create, fn _kc, ^ns, "app-env", data ->
+        # No URL env wanted (nil); only the allowlist entry rides.
+        assert data["ALLOWED_HOSTS"] ==
+                 "localhost,127.0.0.1,#{instance.slug}.#{base_domain}"
+
+        {:ok, %{}}
+      end)
+
+      assert {:ok, _starting} = DeployInstance.call(instance)
+    end
+
+    test "an UNCLAIMED private instance gets neither the URL nor the allowlist entry" do
+      # No gateway claims at all — the ADR-0038 §4 omission holds even
+      # with both env names declared.
+      stub_kubeconfig()
+      InstanceFixtures.local_cluster!()
+
+      user = user()
+
+      version =
+        InstanceFixtures.app_version!(
+          instance_url_env: "FORGEJO__server__ROOT_URL",
+          host_allowlist_env: "ALLOWED_HOSTS"
+        )
+
+      instance =
+        Instance.create!(
+          %{
+            name: "App",
+            app_version_id: version.id,
+            # A non-empty base env keeps the app-env Secret landing, so
+            # the assertion below reads its contents (an empty merged env
+            # skips the Secret entirely — the deploy's own gate).
+            env_vars: %{"FORGEJO__mailer__SMTP_PORT" => "2525"}
+          },
+          actor: user
+        )
+
+      {:ok, deploying} = InstanceK8s.update_status(instance, :deploying, nil)
+
+      private =
+        InstanceFixtures.pin!(deploying,
+          namespace: "fluxvale-app-#{instance.id}",
+          deployed_at: DateTime.utc_now(),
+          exposure: :private
+        )
+
+      ns = "fluxvale-app-#{instance.id}"
+      stub_private_operands(ns)
+
+      expect(Secret, :create, fn _kc, ^ns, "app-env", data ->
+        refute Map.has_key?(data, "FORGEJO__server__ROOT_URL")
+        refute Map.has_key?(data, "ALLOWED_HOSTS")
+
+        {:ok, %{}}
+      end)
+
+      assert {:ok, _starting} = DeployInstance.call(private)
     end
   end
 end

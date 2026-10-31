@@ -16,6 +16,7 @@ defmodule FluxVale.Infrastructure.Operations.UnclaimAccessDomain do
   alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProvider
+  alias FluxVale.Infrastructure.Operations.RenderAccessDNS
 
   @doc """
   `{:ok, gateway}` (the row with its updated `dns_claims`) or
@@ -48,10 +49,21 @@ defmodule FluxVale.Infrastructure.Operations.UnclaimAccessDomain do
   # authorize?: false — the operation's authorization already happened
   # on the reads above. The claims update reads the STALE struct's map
   # (the provider's shared-tailnet decision used the same view), so the
-  # two halves decide against one state.
+  # two halves decide against one state. The claims write committed =
+  # the view's source of truth moved, so the Corefile re-renders
+  # best-effort after it (ADR-0040 §4) — a failed render never fails
+  # the unclaim.
   defp update_claims(gateway, domain) do
     claims = Map.delete(gateway.dns_claims || %{}, domain)
-    put_claims(gateway, domain, claims, 1)
+
+    case put_claims(gateway, domain, claims, 1) do
+      {:ok, row} ->
+        RenderAccessDNS.call()
+        {:ok, row}
+
+      {:error, _reason} = failure ->
+        failure
+    end
   end
 
   # One retry on StaleRecord (update_claims' optimistic lock, P2-3):

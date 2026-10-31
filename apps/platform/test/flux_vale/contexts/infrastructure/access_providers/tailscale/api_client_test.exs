@@ -40,6 +40,40 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
   end
 
   describe "devices_lookup/2" do
+    test "the device's Tailscale IPs ride along (ADR-0040 §4's view answer)" do
+      expect_request(:get, "/api/v2/tailnet/-/devices", fn _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{
+             "devices" => [
+               %{
+                 "id" => "777",
+                 "name" => "fv-1a2b3c4d.example.ts.net",
+                 "addresses" => ["100.64.0.1", "fd7a::1234"]
+               }
+             ]
+           }
+         }}
+      end)
+
+      assert {:ok, %{id: "777", tailscale_ips: ["100.64.0.1", "fd7a::1234"]}} =
+               ApiClient.devices_lookup(@token, "fv-1a2b3c4d")
+    end
+
+    test "a device without addresses is still found — with an empty IP list" do
+      expect_request(:get, "/api/v2/tailnet/-/devices", fn _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{"devices" => [%{"id" => "5", "name" => "fv-1a2b3c4d.example.ts.net"}]}
+         }}
+      end)
+
+      assert {:ok, %{id: "5", tailscale_ips: []}} =
+               ApiClient.devices_lookup(@token, "fv-1a2b3c4d")
+    end
+
     test "finds the device whose name's FIRST label is the hostname" do
       expect_request(:get, "/api/v2/tailnet/-/devices", fn _opts ->
         {:ok,
