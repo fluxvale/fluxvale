@@ -53,7 +53,10 @@ config + PO files, never a refactor.
   Operational note: a PR that shifts lines in files carrying gettext
   calls (`core_components.ex`, `layouts.ex`) must re-run
   `mix gettext.extract` and commit the POT churn (location references
-  change even when strings do not). Templates with no gettext calls
+  change even when strings do not). Extraction is MIX_ENV-dependent —
+  re-run it in the same env as the failing gate (`mix ci` gates in
+  dev), or a gettext call in test/support leaves dev- and test-env
+  extractions diverged. Templates with no gettext calls
   are invisible to the check — which is why authed templates cannot
   trip it pre-extraction.
 
