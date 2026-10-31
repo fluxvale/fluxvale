@@ -207,10 +207,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   def render(assigns) do
     ~H"""
     <div id={@id} class="space-y-3" data-testid="backups-panel">
-      <%!-- S3: the shell joins the grammar's card scope — the same
-      opt-in the availability and file-access cards above carry
-      (hover-lift only fires on interactive cards). --%>
-      <.card class="card space-y-4">
+      <.card class="space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <h2 class="text-sm font-medium text-ink-muted">Backups</h2>
           <.health_badge :if={@setting} health={@health} />
@@ -627,9 +624,12 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
     <%!-- S3: the run history is technical content — outcomes, sizes,
     times — so it reads in the mono-panel register (the admin panel's
     sunken treatment). The setup/restore interactions above stay form
-    surfaces; the shell stays a regular card. --%>
-    <div class="mono-panel space-y-2">
-      <p class="mono-panel-label">Recent runs</p>
+    surfaces; the shell stays a regular card. Label rides mb-0 +
+    space-y-3, the dav panel's explicit rhythm — space-y on the wrapper
+    would otherwise halve the grammar's 12px label gap (#328 hostile
+    F7). --%>
+    <div class="mono-panel space-y-3">
+      <p class="mono-panel-label mb-0">Recent runs</p>
       <div id="backup-runs" class="space-y-2" data-testid="backup-runs">
         <.backup_run_row :for={run <- @runs} run={run} now={@now} />
       </div>
@@ -1074,13 +1074,16 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   defp status_label(:succeeded), do: "Finished"
   defp status_label(:failed), do: "Failed"
 
-  # The status word's tone in the mono register: text color, not a pill.
-  # `text-link` is the amber family's readable-on-light member — the same
-  # mapping the badge's primary tone made.
+  # The status words' tones in the mono register: text color, not a
+  # pill. The deep steps are the sunken-surface tokens (PR #328's
+  # hostile F1: the base success/danger fall under 4.5:1 on
+  # --panel-sunken in light; the deep steps clear it with margin and
+  # alias the same values in dark). `text-link` for "running" is the
+  # badge's primary tone's readable member, unchanged.
   defp status_class(:pending), do: "text-ink-subtle"
   defp status_class(:running), do: "text-link"
-  defp status_class(:succeeded), do: "text-success"
-  defp status_class(:failed), do: "text-danger"
+  defp status_class(:succeeded), do: "text-success-deep"
+  defp status_class(:failed), do: "text-danger-deep"
 
   defp kind_label(:scheduled), do: "Scheduled backup"
   defp kind_label(:manual), do: "Manual backup"

@@ -301,9 +301,10 @@ defmodule FluxValeWeb.InstanceLive.Show do
         is the default economics; always-on is no premium tier, it just
         bills the running rate around the clock. --%>
             <%!-- Grammar card opt-in (`card`): the shell joins the
-        grammar's hover-lift scope, which fires only on cards hosting
-        interactive controls — the affordance rule (PR #327 review F6).
-        Utilities keep winning over the grammar base. --%>
+        grammar's card scope. The hover lift fires only on link-cards
+        (`a.card`) — the #328 hostile review's F3 narrowed it from the
+        old hosts-a-control heuristic after a parked-pointer click
+        missed a control on a lifting form panel. --%>
             <.card class="card space-y-3" data-testid="availability-card">
               <div class="flex items-center justify-between gap-3">
                 <h2 class="text-sm font-semibold text-ink">Availability</h2>

@@ -228,12 +228,20 @@ defmodule FluxValeWeb.InstanceLive.DavSnippet do
       <%!-- The tab chrome (S3): eyebrow-register labels on a hairline
       rail, the active tab marked with the nav's amber underline motif —
       2px on the mode-aware --focus token (border-focus), seated on the
-      rail by the 1px overlap (-mb-px). Inactive tabs stay quiet (a
-      muted-ink hover, no wash). Plain buttons (no roving tabindex):
-      every tab stays keyboard-reachable — detection assists, never
-      traps. --%>
+      rail by the 1px overlap (-mb-px). The rail wraps (flex-wrap) so
+      the labels always stay inside the hairline — at 320px and at text
+      zoom the underline must never hang past its rail (#328 hostile
+      F4); below sm the labels trade tracking for width (rem breakpoints
+      scale with text zoom, which is exactly when the rail squeezes). 
+      Inactive tabs stay quiet (a muted-ink hover, no wash). The
+      fade rides motion-safe — the reduced-motion kill list covers the
+      grammar's motion, and this transition joins it by never existing
+      there (#328 hostile F6). Focus ring is the app's (.button's
+      pattern), not the UA default (#328 hostile F10). Plain buttons
+      (no roving tabindex): every tab stays keyboard-reachable —
+      detection assists, never traps. --%>
       <div
-        class="flex gap-4 border-b border-line"
+        class="flex flex-wrap gap-4 border-b border-line-strong"
         role="tablist"
         aria-label="Operating system"
         data-testid={"#{@id}-platform-tabs"}
@@ -248,7 +256,7 @@ defmodule FluxValeWeb.InstanceLive.DavSnippet do
           phx-click={@on_select}
           phx-value-platform={platform.key}
           class={[
-            "-mb-px border-b-2 px-1 pb-2 pt-1.5 font-mono text-xs font-medium uppercase tracking-[0.18em] transition-colors duration-(--motion-fast)",
+            "-mb-px border-b-2 px-1 pb-2 pt-1.5 font-mono text-xs font-medium uppercase tracking-[0.18em] outline-offset-2 outline-focus focus-visible:outline-2 motion-safe:transition-colors motion-safe:duration-(--motion-fast) max-sm:px-0.5 max-sm:tracking-[0.04em]",
             platform.key == @platform && "border-focus text-ink",
             platform.key != @platform && "border-transparent text-ink-subtle hover:text-ink-muted"
           ]}

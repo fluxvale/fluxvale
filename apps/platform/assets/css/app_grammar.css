@@ -179,16 +179,19 @@
   }
 
   /* The lift is an affordance, not decoration: it promises "this moves
-   * because you can act on it". It fires only on interactive cards — a
-   * card that is a link/button or hosts one — and never on inert
-   * displays (the straddling status card would slide off the band edge
-   * it exists to hold). No shadow change on hover: cards rest at
-   * different shadow steps, so a hover shadow would be a no-op or a
-   * step down depending on the rest composition. `:has()` is the same
-   * Baseline-newly-available gate the band reserve uses — older engines
-   * simply get no hover lift (progressive, never missing structure). */
-  .appgram
-    .card:has(:is(a, button, [role="button"]:not([disabled]))):not(.straddle):hover {
+   * because you can act on it". It fires only when the card itself IS
+   * the link (`a.card`) — a card that renders as one clickable unit.
+   * Never on inert displays (the straddling status card would slide off
+   * the band edge it exists to hold) and never on form-hosting panels:
+   * PR #328's hostile review reproduced a stationary-pointer click
+   * missing a control when a ~700px panel lifted 3px under the cursor,
+   * and the earlier `:has(:is(a, button))` heuristic put every
+   * interactive host in that position (the same parked-pointer flap was
+   * measurable on the availability card's own bottom edge). No shadow
+   * change on hover: cards rest at different shadow steps, so a hover
+   * shadow would be a no-op or a step down depending on the rest
+   * composition. */
+  .appgram a.card:not(.straddle):hover {
     translate: 0 -3px;
   }
 
