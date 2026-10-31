@@ -227,7 +227,9 @@ defmodule FluxVale.MixProject do
         "deps.unlock --check-unused",
         "compile --warnings-as-errors",
         # Extraction hygiene: POT files must match the gettext calls in
-        # the tree — `mix gettext.extract` is the fix when this reds.
+        # the tree — the fix must run in the SAME MIX_ENV as the failing
+        # gate (extraction sees test/support only under :test; plain
+        # `mix ci` gates in dev).
         "gettext.extract --check-up-to-date",
         # ADR-00025 §1: invalid post frontmatter fails the build loudly
         "blog.lint",

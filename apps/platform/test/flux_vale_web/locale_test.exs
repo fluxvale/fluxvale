@@ -5,8 +5,10 @@ defmodule FluxValeWeb.LocaleTest do
   # the on_mount arms. The swap proof (locale "xx") rides the app
   # layout's error-flash title ("Something went wrong!"), which renders
   # on every page; the root layout carries the matching lang attribute.
-  # The router's live_session wiring itself is declarative — reviewed,
-  # not tested — so the probe LiveView mounts the hook directly.
+  # Every wiring point is tested: the :authenticated live_session via
+  # the signed-in dashboard and /apps, the sign-in module hook via
+  # /sign-in. The probe LiveView mounts the hook directly for the
+  # arm-level checks.
 
   use FluxValeWeb.ConnCase, async: true
 
@@ -58,7 +60,8 @@ defmodule FluxValeWeb.LocaleTest do
   end
 
   # The landing's extracted copy rides the same chain: the page's own
-  # headline swaps, not just the layout chrome around it.
+  # headline swaps, not just the layout chrome around it — and the
+  # root layout's <title> swaps with it (:page_title is gettext'd).
   test "session locale xx swaps the landing copy", %{conn: conn} do
     conn =
       conn
@@ -71,6 +74,7 @@ defmodule FluxValeWeb.LocaleTest do
       |> html_response(200)
 
     assert body =~ "xx: Managed hosting for open source applications"
+    assert body =~ "xx: FluxVale — Managed hosting for open source applications"
     assert body =~ ~s(lang="xx")
   end
 
@@ -112,6 +116,30 @@ defmodule FluxValeWeb.LocaleTest do
     conn = Plug.Conn.put_session(session_conn, "locale", "xx")
 
     {:ok, view, _html} = live(conn, ~p"/")
+    assert render(view) =~ "xx: Something went wrong!"
+  end
+
+  # The other half of the live_session wiring: the router applies the
+  # hook to every :authenticated route — deleting the tuple from the
+  # router's on_mount list fails this test.
+  test "signed-in /apps renders the session locale in the LiveView process", %{conn: conn} do
+    {_user, session_conn} = SessionHelpers.user_with_session(conn)
+    conn = Plug.Conn.put_session(session_conn, "locale", "xx")
+
+    {:ok, view, _html} = live(conn, ~p"/apps")
+    assert render(view) =~ "xx: Something went wrong!"
+  end
+
+  # The anonymous surface: /sign-in sits outside any live_session, so
+  # SignIn declares the hook at module level — deleting that on_mount
+  # fails this test.
+  test "/sign-in renders the session locale in the LiveView process", %{conn: conn} do
+    conn =
+      conn
+      |> Plug.Test.init_test_session(%{})
+      |> Plug.Conn.put_session("locale", "xx")
+
+    {:ok, view, _html} = live(conn, ~p"/sign-in")
     assert render(view) =~ "xx: Something went wrong!"
   end
 end

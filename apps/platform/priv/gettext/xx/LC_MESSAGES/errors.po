@@ -6,6 +6,10 @@
 ### sets locale "xx" (FluxValeWeb.Locale resolves session["locale"]
 ### against Gettext.known_locales/1).
 ###
+### Regenerate via a one-off `mix run` script defining a custom
+### Gettext.Plural for xx ("xx" is unknown to Expo.PluralForms — a plain
+### `mix gettext.merge priv/gettext --locale xx` crashes, writing
+### nothing), then complete the Plural-Forms header by hand.
 ### Do not add, change, or remove "msgid"s manually here as
 ### they're tied to the ones in the corresponding POT file
 ### (with the same domain).
