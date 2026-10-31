@@ -60,6 +60,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
+  alias FluxVale.Infrastructure.Operations.RenderAccessDNS
 
   require Ash.Query
   require Logger
@@ -96,6 +97,13 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
       # re-ensured into each serving namespace — SSA no-ops when
       # unchanged, so renewal rotations converge within one cadence.
       sync_replicas(domains, kubeconfig)
+
+      # The resolution plane's refresh (ADR-0040 §4), same cadence: the
+      # Corefile re-renders from the current claims + pod IPs — the
+      # pod-move refresher and the drift healer. Best-effort like every
+      # render call: a failure leaves the previous view standing until
+      # the next tick, never fails the pass.
+      RenderAccessDNS.call()
 
       if counts.land_errors > 0 do
         {:error, {:land_failed, counts.land_errors}}

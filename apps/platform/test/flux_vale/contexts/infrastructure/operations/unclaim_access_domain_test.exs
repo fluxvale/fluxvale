@@ -16,6 +16,7 @@ defmodule FluxVale.Infrastructure.Operations.UnclaimAccessDomainTest do
   alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
+  alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
 
@@ -28,6 +29,11 @@ defmodule FluxVale.Infrastructure.Operations.UnclaimAccessDomainTest do
     # remove tests').
     stub(K8s, :kubeconfig, fn -> {:ok, %{}} end)
     stub(Kubereq, :attach, fn req, _opts -> req end)
+
+    # The S4 hook: a committed unclaim re-renders the resolver view
+    # best-effort. Default success; expect-ed where a test cares.
+    stub(RenderAccessDNS, :call, fn -> :ok end)
+    stub(RenderAccessDNS, :call, fn _opts -> :ok end)
 
     stub(Tailscale, :provision_gateway, fn _gateway, _key ->
       {:ok, %{credential_secret_ref: "credential-stub"}}
@@ -237,6 +243,41 @@ defmodule FluxVale.Infrastructure.Operations.UnclaimAccessDomainTest do
         domain: Application.fetch_env!(:flux_vale, :instances_base_domain),
         organization_id: org.id
       },
+      authorize?: false
+    )
+  end
+
+  describe "the S4 render hook (ADR-0040 §4)" do
+    test "a committed unclaim re-renders the resolver view", %{org: org, owner: owner} do
+      gateway = claimed_gateway!(org)
+      domain = custom_domain!(owner)
+
+      stub(Tailscale, :unclaim_domain, fn _gw, _name -> :ok end)
+      expect(RenderAccessDNS, :call, fn -> :ok end)
+
+      assert {:ok, _row} = Infrastructure.unclaim_access_domain(gateway, domain, actor: owner)
+    end
+
+    test "a failed unclaim never re-renders", %{org: org, owner: owner} do
+      gateway = claimed_gateway!(org)
+      domain = custom_domain!(owner)
+
+      stub(Tailscale, :unclaim_domain, fn _gw, _name -> {:error, :unauthorized} end)
+
+      stub(RenderAccessDNS, :call, fn -> flunk("no render on a failed primary") end)
+      stub(RenderAccessDNS, :call, fn _opts -> flunk("no render on a failed primary") end)
+
+      assert {:error, :unauthorized} =
+               Infrastructure.unclaim_access_domain(gateway, domain, actor: owner)
+    end
+  end
+
+  # A gateway row already holding the claim (through the system funnel).
+  defp claimed_gateway!(org) do
+    gateway = AccessFixtures.gateway!(org)
+
+    Ash.update!(gateway, %{dns_claims: %{@domain_name => %{"ip" => @resolver_ip}}},
+      action: :update_claims,
       authorize?: false
     )
   end

@@ -23,6 +23,7 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
   alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProvider
+  alias FluxVale.Infrastructure.Operations.RenderAccessDNS
 
   require Logger
 
@@ -60,6 +61,9 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
   # (P2-14): the recorded value, not a live re-read of the row, is what
   # the shared-tailnet matching uses forever after. authorize?: false —
   # this operation's authorization already happened on the reads above.
+  # The claims write committed = the view's source of truth moved, so the
+  # Corefile re-renders best-effort after it (ADR-0040 §4's derived-state
+  # stance) — a failed render never fails the claim.
   defp land({:ok, _claimed}, gateway, domain, resolver_ip) do
     claims =
       Map.put(gateway.dns_claims || %{}, domain.domain, %{
@@ -67,7 +71,14 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
         "tailnet" => gateway.tailnet_domain
       })
 
-    put_claims(gateway, domain.domain, claims, 1)
+    case put_claims(gateway, domain.domain, claims, 1) do
+      {:ok, row} ->
+        RenderAccessDNS.call()
+        {:ok, row}
+
+      {:error, _reason} = failure ->
+        failure
+    end
   end
 
   defp land({:error, kind} = error, gateway, _domain, _resolver_ip)

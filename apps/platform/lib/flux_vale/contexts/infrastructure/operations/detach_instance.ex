@@ -29,15 +29,27 @@ defmodule FluxVale.Infrastructure.Operations.DetachInstance do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.Infrastructure.Operations.RenderAccessDNS
 
   @spec call(AccessGateway.t(), Instance.t(), keyword()) :: :ok | {:error, term()}
   def call(%AccessGateway{} = gateway, %Instance{} = instance, _opts \\ []) do
     if instance.organization_id == gateway.organization_id do
-      with :ok <- AccessProvider.impl_for(gateway).detach_instance(gateway, instance) do
-        remove_access_edge(instance)
-      end
+      detach(gateway, instance)
     else
       {:error, :different_organization}
+    end
+  end
+
+  # The provider lands its order (policy → row → configs), then the
+  # access edge goes, then the view re-renders after the primary write
+  # commits (the org lost an attached private instance) — best-effort,
+  # the derived-state stance (ADR-0040 §4); a failure never fails the
+  # detach.
+  defp detach(gateway, instance) do
+    with :ok <- AccessProvider.impl_for(gateway).detach_instance(gateway, instance),
+         :ok <- remove_access_edge(instance) do
+      RenderAccessDNS.call()
+      :ok
     end
   end
 

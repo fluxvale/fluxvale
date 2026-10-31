@@ -19,6 +19,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.InstanceHostname
+  alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -28,6 +29,11 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
   setup do
     stub(K8s, :kubeconfig, fn -> {:ok, %{}} end)
     stub(Kubereq, :attach, fn req, _opts -> req end)
+
+    # The S4 hook: the pass ends with the resolver-view re-render
+    # (best-effort). Default success; expect-ed where a test cares.
+    stub(FluxVale.Infrastructure.Operations.RenderAccessDNS, :call, fn -> :ok end)
+    stub(FluxVale.Infrastructure.Operations.RenderAccessDNS, :call, fn _opts -> :ok end)
 
     {org, owner} = BillingFixtures.grant_free_org!()
 
@@ -719,5 +725,24 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
     stub(Secret, :create, fn _kc, _ns, "access-domain-cert-" <> _tail, _data, _labels ->
       {:ok, %{}}
     end)
+  end
+
+  describe "the S4 render hook (ADR-0040 §4)" do
+    test "the pass ends with the resolver-view re-render — the pod-move refresher", %{
+      owner: owner
+    } do
+      # A :pending domain inside the window: the pass reads its
+      # Certificate, lands nothing, and STILL ends with the render.
+      register!(owner)
+
+      expect(RenderAccessDNS, :call, fn -> :ok end)
+
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: cert_body("False")}}
+      end)
+
+      assert {:ok, %{verified: 0, failed: 0, needs_attention: 0}} =
+               Infrastructure.verify_access_domains()
+    end
   end
 end

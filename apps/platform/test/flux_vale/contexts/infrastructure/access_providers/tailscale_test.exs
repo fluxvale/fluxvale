@@ -803,6 +803,13 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       org: org,
       owner: owner
     } do
+      # The per-app ports are this test's subject; the fleet-default
+      # tunnel limb (runtime default, ports 8444/8080) must not pollute
+      # the port refutes — no-edge is the deliberate env state here.
+      previous_edge = Application.get_env(:flux_vale, :access_edge)
+      Application.delete_env(:flux_vale, :access_edge)
+      on_exit(fn -> Application.put_env(:flux_vale, :access_edge, previous_edge) end)
+
       gateway = AccessFixtures.gateway!(org)
       instance_a = AccessFixtures.private_instance!(org, owner)
       instance_b = AccessFixtures.private_instance!(org, owner)
