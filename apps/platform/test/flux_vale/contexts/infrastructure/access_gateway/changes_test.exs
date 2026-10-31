@@ -699,6 +699,49 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
     end
   end
 
+  describe "update_claims' optimistic lock (P2-3)" do
+    # Two tabs claiming two domains on one gateway: the slower write
+    # must FAIL CLEANLY (StaleRecord) instead of clobbering the first
+    # domain's entry — the claim/unclaim ops retry once against the
+    # committed map, which merges.
+    test "the second write on a stale row is refused, the fresh one lands", %{org: org} do
+      gateway = AccessFixtures.gateway!(org)
+
+      entry = %{"ip" => "10.43.0.20", "tailnet" => "example.ts.net"}
+
+      # Tab B writes the committed map first (this bumps :version).
+      fresh = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+      tab_b = %{dns_claims: %{"b.example.com" => entry}}
+
+      {:ok, _tab_b} = AccessGateway.update_claims(fresh, tab_b, authorize?: false)
+
+      # Tab A's write still carries the PRE-B version — refused.
+      stale_write =
+        AccessGateway.update_claims(
+          gateway,
+          %{dns_claims: %{"a.example.com" => entry}},
+          authorize?: false
+        )
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} = stale_write
+      assert Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
+
+      # A retry against the COMMITTED row (what the ops do) converges
+      # with both entries.
+      committed = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+
+      {:ok, row} =
+        AccessGateway.update_claims(
+          committed,
+          %{dns_claims: Map.put(committed.dns_claims, "a.example.com", entry)},
+          authorize?: false
+        )
+
+      assert Map.has_key?(row.dns_claims, "a.example.com")
+      assert Map.has_key?(row.dns_claims, "b.example.com")
+    end
+  end
+
   # A row that has its cluster objects but has not been observed yet —
   # the retry trigger's subject.
   defp provisioned_row!(org) do

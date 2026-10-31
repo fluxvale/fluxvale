@@ -117,6 +117,31 @@ defmodule FluxVale.Infrastructure.AccessProvider do
   @callback cleanup_failed_provision(AccessGateway.t()) :: :ok | {:error, term()}
 
   @doc """
+  Claims `domain` on the gateway's tailnet (ADR-0040 §3): approves the
+  gateway's resolver /32 subnet route and adds the domain's split-DNS
+  route pointing at the FluxVale resolver. `resolver_ip` is the shared
+  access-DNS ClusterIP (config `:access_dns`). Idempotent — a re-claim
+  whose route and route-value already hold makes no API write.
+
+  `{:error, :unauthorized}` is the DRIFT signal (§5): the API token was
+  rejected — expired and revoked present identically. The caller lands
+  the row `:needs_attention` with the re-paste copy; the operation fails
+  honestly. `{:error, :no_api_token}` / `{:error, :node_not_found}`
+  mean the claim cannot start (no credential / no such tailnet node).
+  """
+  @callback claim_domain(AccessGateway.t(), String.t(), String.t()) ::
+              {:ok, term()} | {:error, term()}
+
+  @doc """
+  The mirror: removes the domain's split-DNS route — but only when no
+  OTHER gateway on the same tailnet still claims it (one route per
+  tailnet+domain serves all of them, ADR-0040 §3) — and disables the
+  gateway's /32 once its LAST claim is gone (read→difference→set: the
+  route POST replaces). Idempotent.
+  """
+  @callback unclaim_domain(AccessGateway.t(), String.t()) :: :ok | {:error, term()}
+
+  @doc """
   The provider implementation for a gateway — the one dispatch point.
   """
   @spec impl_for(AccessGateway.t()) :: module()

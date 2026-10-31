@@ -172,6 +172,14 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       forbid_if(always())
     end
 
+    # The claims/token-ref writes are the claiming system's (the
+    # claim/unclaim operations and RemoveAccessDomain's unclaim limb run
+    # them authorize?: false — the ops seam).
+    policy action([:set_api_token_ref, :update_claims]) do
+      description("System-only: the API-token ref and tailnet-claims writes (authorize?: false)")
+      forbid_if(always())
+    end
+
     policy action_type(:destroy) do
       description("Members tear their org's gateway down (opt-out)")
       authorize_if(relates_to_actor_via([:organization, :members]))
@@ -264,10 +272,47 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       public?(false)
     end
 
+    # The Secret's NAME holding the org's Tailscale API token (ADR-0040
+    # §5 — the tailnet-claiming trust surface, dns + routes scopes).
+    # Same discipline as `credential_secret_ref`: the token itself never
+    # reaches Postgres and no user surface reads it back. Nullable: a
+    # gateway that never claimed needs no token.
+    attribute :api_token_secret_ref, :string do
+      public?(false)
+    end
+
+    # The tailnet claims this gateway holds (ADR-0040 §3): domain =>
+    # resolver IP, one entry per claimed domain. The claim registry the
+    # unclaim's shared-tailnet rule reads (one split-DNS route per
+    # tailnet+domain serves all gateways). Written only through the
+    # claim/unclaim funnels (system seams).
+    attribute :dns_claims, :map do
+      public?(false)
+    end
+
     # #232's must-fix sibling (ADR-0039 §5): the settlement cursor. The
     # FIRST settle opens it; a suspend parks it exactly like an
     # instance's running anchor folds at a stop. Internal.
     attribute :metering_since, :utc_datetime_usec do
+      public?(false)
+    end
+
+    # The claims-write serialisation (P2-3, the set_exposure pattern):
+    # `update_claims` carries `optimistic_lock(:version)` so the slower
+    # of two racing claim writes fails cleanly instead of clobbering —
+    # two tabs claiming two domains on one gateway would otherwise lose
+    # the first entry to the second write. The ops retry once on the
+    # StaleRecord, recomputing from the committed map (which converges).
+    attribute :version, :integer do
+      allow_nil?(false)
+      default(1)
+      public?(false)
+    end
+
+    # When the API token was last set (P3-12) — §5's rotation story:
+    # keys expire ≤90 days by design, so the panel's key-age display
+    # (S5) reads this instead of needing a later migration.
+    attribute :token_set_at, :utc_datetime_usec do
       public?(false)
     end
 
@@ -397,6 +442,30 @@ defmodule FluxVale.Infrastructure.AccessGateway do
         :provisioned_at,
         :credential_secret_ref
       ])
+    end
+
+    update :set_api_token_ref do
+      description("System-only: the API-token Secret's ref on the row (authorize?: false).")
+      accept([:api_token_secret_ref])
+      require_atomic?(false)
+
+      # §5's rotation clock: stamped at every ref write, so the key-age
+      # display (S5) needs no separate write path.
+      change(fn changeset, _context ->
+        Ash.Changeset.force_change_attribute(changeset, :token_set_at, DateTime.utc_now())
+      end)
+    end
+
+    update :update_claims do
+      description("System-only: the gateway's tailnet claims map (authorize?: false).")
+      accept([:dns_claims])
+      require_atomic?(false)
+
+      # P2-3: racing claim writers converge — the slower one fails
+      # StaleRecord and its op retries against the committed map, so a
+      # two-tabs-two-domains race cannot silently drop the first
+      # domain's entry (the lost-update this lock exists for).
+      change(optimistic_lock(:version))
     end
 
     # The observer's body — the trigger below drives it every minute.
@@ -577,6 +646,8 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     define(:list_all)
     define(:update_credential)
     define(:update_state)
+    define(:set_api_token_ref)
+    define(:update_claims)
     define(:suspend)
     define(:resume)
     define(:delete, args: [:id])

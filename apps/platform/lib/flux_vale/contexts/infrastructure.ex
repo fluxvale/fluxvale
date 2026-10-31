@@ -15,6 +15,7 @@ defmodule FluxVale.Infrastructure do
 
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Operations.AttachInstance
+  alias FluxVale.Infrastructure.Operations.ClaimAccessDomain
   alias FluxVale.Infrastructure.Operations.ConfigureBackups
   alias FluxVale.Infrastructure.Operations.DetachInstance
   alias FluxVale.Infrastructure.Operations.ObserveAccessGateway
@@ -25,9 +26,11 @@ defmodule FluxVale.Infrastructure do
   alias FluxVale.Infrastructure.Operations.RestoreInstanceBackup
   alias FluxVale.Infrastructure.Operations.RestoreServingEdge
   alias FluxVale.Infrastructure.Operations.RunInstanceBackup
+  alias FluxVale.Infrastructure.Operations.SetAccessApiToken
   alias FluxVale.Infrastructure.Operations.SweepBackups
   alias FluxVale.Infrastructure.Operations.SweepIdleInstances
   alias FluxVale.Infrastructure.Operations.SweepStrandedInstances
+  alias FluxVale.Infrastructure.Operations.UnclaimAccessDomain
   alias FluxVale.Infrastructure.Operations.VerifyAccessDomains
   alias FluxVale.Infrastructure.Operations.WakeInstance
 
@@ -75,6 +78,23 @@ defmodule FluxVale.Infrastructure do
   defdelegate verify_access_domains(opts \\ []), to: VerifyAccessDomains, as: :call
 
   defdelegate remove_access_domain(domain, opts \\ []), to: RemoveAccessDomain, as: :call
+
+  # ADR-0040 S3: the tailnet-claiming seam — store the API token (the
+  # §5 intake; the form is a later slice), claim a verified domain on
+  # the gateway's tailnet, and the mirror. All three carry the caller's
+  # actor/authorize? (membership enforced by the authorized reads
+  # inside).
+  defdelegate set_access_api_token(gateway, token, opts \\ []),
+    to: SetAccessApiToken,
+    as: :call
+
+  defdelegate claim_access_domain(gateway, domain, opts \\ []),
+    to: ClaimAccessDomain,
+    as: :call
+
+  defdelegate unclaim_access_domain(gateway, domain, opts \\ []),
+    to: UnclaimAccessDomain,
+    as: :call
 
   # Opt-out (#268): the async teardown entry. The action flips
   # :destroying and enqueues the trigger; the resource owns both.
