@@ -7,7 +7,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfig do
   --json`, spike E2.3):
 
       %{"TCP" => %{"8443" => %{"HTTPS" => true}},
-        "Web" => %{"<hostname>.${TS_CERT_DOMAIN}" => %{"Handlers" => %{"/" => %{"Proxy" => url}}}},
+        "Web" => %{"<hostname>.<tailnet-domain>:8443" => %{"Handlers" => %{"/" => %{"Proxy" => url}}}},
         "AllowFunnel" => %{}}
 
   One node, one MagicDNS name, **per-app ports at root path** — the B1
@@ -15,10 +15,18 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfig do
   header is a 404, E2.1), so a second app cannot be a second name on one
   node; a second *port* is the mechanism.
 
-  The `Web` key carries `${TS_CERT_DOMAIN}` rather than a concrete
-  `.ts.net` name: the platform does not know the tailnet's MagicDNS
-  suffix (it is the owner's), and `containerboot` substitutes the real
-  FQDN. The hostname prefix (`fv-xxxxxxxx`) is ours and stays.
+  The `Web` key is the CONCRETE FQDN (`fv-xxxxxxxx` — ours — joined to
+  the tailnet's MagicDNS suffix — the owner's, carried on the row).
+  The first cut wrote the literal `"<hostname>.${TS_CERT_DOMAIN}"` on
+  the theory that `containerboot` substitutes it; on the pinned image
+  (v1.90.6, `cmd/containerboot/serve.go`) that substitution runs only
+  when the node can issue certs, substitutes `CertDomains[0]` — the
+  SUFFIX, not this node's FQDN — and silently declines to apply the
+  config at all when the tailnet has no cert domain (`ValueNoHTTPS`).
+  The live staging gateway never served a request because of it. A
+  concrete key is what the daemon would apply verbatim, and what the
+  Secret shows: no hidden expansion step between what we write and what
+  serves.
 
   `AllowFunnel %{}` is deliberate and load-bearing: an empty map is
   "nothing is funneled", so a config that somehow carried a Funnel entry
@@ -31,13 +39,14 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfig do
 
   An empty entry list produces a config with no `Web`/`TCP` arms — a
   valid "nothing served yet" config (the owner opted in but attached no
-  instance). `containerboot` applies it harmlessly.
+  instance); the domain is unused there, so a gateway provisioned
+  before its domain is known still gets its empty config.
   """
-  @spec build(String.t(), [{String.t(), String.t()}]) :: map()
-  def build(hostname, entries) do
+  @spec build(String.t(), String.t() | nil, [{String.t(), String.t()}]) :: map()
+  def build(hostname, tailnet_domain, entries) do
     %{
       "TCP" => tcp_arm(entries),
-      "Web" => web_arm(hostname, entries),
+      "Web" => web_arm(hostname, tailnet_domain, entries),
       "AllowFunnel" => %{}
     }
   end
@@ -56,11 +65,11 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfig do
     Map.new(entries, fn {port, _target} -> {port, %{"HTTPS" => true}} end)
   end
 
-  defp web_arm(_hostname, []), do: %{}
+  defp web_arm(_hostname, _tailnet_domain, []), do: %{}
 
-  defp web_arm(hostname, entries) do
+  defp web_arm(hostname, tailnet_domain, entries) do
     Map.new(entries, fn {port, target} ->
-      {"#{hostname}.${TS_CERT_DOMAIN}:#{port}", %{"Handlers" => %{"/" => %{"Proxy" => target}}}}
+      {"#{hostname}.#{tailnet_domain}:#{port}", %{"Handlers" => %{"/" => %{"Proxy" => target}}}}
     end)
   end
 

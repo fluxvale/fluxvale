@@ -22,15 +22,22 @@ defmodule FluxVale.TestSupport.AccessFixtures do
   action with the cluster work Mimic-stubbed by the caller.
 
   Pass `state:` to reach a non-default state through the action's own
-  `:update_state` funnel (never a raw write).
+  `:update_state` funnel (never a raw write). Pass `tailnet_domain:`
+  to exercise a different suffix (it defaults to the test tailnet).
   """
   @spec gateway!(map(), keyword()) :: AccessGateway.t()
   def gateway!(org, opts \\ []) do
     monthly_cents = Keyword.get(opts, :monthly_cents, 200)
+    tailnet_domain = Keyword.get(opts, :tailnet_domain, "example.ts.net")
 
     gateway =
       AccessGateway.create!(
-        %{organization_id: org.id, monthly_cents: monthly_cents, auth_key: "tskey-test"},
+        %{
+          organization_id: org.id,
+          monthly_cents: monthly_cents,
+          tailnet_domain: tailnet_domain,
+          auth_key: "tskey-test"
+        },
         authorize?: false
       )
 

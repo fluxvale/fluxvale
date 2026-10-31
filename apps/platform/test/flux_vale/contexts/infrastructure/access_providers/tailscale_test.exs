@@ -86,9 +86,19 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
 
       assert {name("credential", gateway), %{"TS_AUTHKEY" => "tskey"}} in secrets
 
-      assert Enum.any?(secrets, fn {secret_name, data} ->
-               secret_name == name("serve-config", gateway) and is_binary(data["serve.json"])
-             end)
+      # The P1 contract on the provision-time config: valid JSON, and no
+      # unexpanded placeholder anywhere in what we write. Provision has
+      # no routes yet, so the Web arm is empty — the concrete-FQDN keys
+      # are pinned by the attach tests below.
+      serve_json =
+        Enum.find_value(secrets, fn {secret_name, data} ->
+          if secret_name == name("serve-config", gateway), do: data["serve.json"]
+        end)
+
+      assert is_binary(serve_json)
+      assert serve_json =~ "\"TCP\""
+      refute serve_json =~ "${"
+      refute serve_json =~ "TS_CERT_DOMAIN"
 
       assert Enum.any?(calls, fn
                {:pvc_create, _ns, claim, %{size: "64Mi"}} ->
@@ -175,6 +185,45 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
 
       assert route.route_key == "8443"
       assert route.instance_id == instance.id
+
+      # THE OTHER LOAD-BEARING LINE (the P1 fix): the written serve
+      # config keys the port under the CONCRETE FQDN — hostname joined
+      # to the row's owner-provided tailnet domain — so real SNI
+      # matches. The first cut wrote "<hostname>.${TS_CERT_DOMAIN}"
+      # and the gateway answered every handshake with "no webserver
+      # configured for name/port".
+      config = latest_serve_config()
+
+      assert config =~
+               ~s("#{gateway.hostname}.#{gateway.tailnet_domain}:#{route.route_key}")
+
+      refute config =~ "${"
+    end
+
+    test "a pre-column row with no tailnet domain is refused, not written broken", %{
+      org: org,
+      owner: owner
+    } do
+      # The migration-window shape: the live staging gateway predates
+      # the column, so no action can build it — seed! is the one
+      # sanctioned route to a state actions can't produce.
+      gateway =
+        Ash.Seed.seed!(AccessGateway, %{
+          organization_id: org.id,
+          hostname: "fv-00000001",
+          monthly_cents: 200,
+          state: :active,
+          tailnet_domain: nil
+        })
+
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      assert {:error, :tailnet_domain_missing} = Tailscale.attach_instance(gateway, instance)
+
+      # The cleanup arm ran: no route row survives a refused attach (a
+      # leftover would read as the owner's consent for a wake it never
+      # got service for — the provider's own stance).
+      assert {:error, _not_found} = AccessRoute.get_by_instance(instance.id, authorize?: false)
     end
 
     test "a second attach takes the next port", %{org: org, owner: owner} do
@@ -999,12 +1048,19 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
   defp gateway_row!(org, state \\ :active) do
     gateway =
       AccessGateway.create!(
-        %{organization_id: org.id, monthly_cents: 200, auth_key: "tskey"},
+        %{
+          organization_id: org.id,
+          monthly_cents: 200,
+          tailnet_domain: "example.ts.net",
+          auth_key: "tskey"
+        },
         authorize?: false
       )
 
     gateway
-    |> Ash.Changeset.for_update(:update_state, %{state: state}, authorize?: false)
+    |> Ash.Changeset.for_update(:update_state, %{state: state, status_message: "Connected"},
+      authorize?: false
+    )
     |> Ash.update!()
   end
 

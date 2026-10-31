@@ -368,6 +368,13 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # `containerboot` watches. A route whose instance has vanished between
   # the read and this build is skipped (its row is the source of truth
   # elsewhere; the next detach converges it).
+  #
+  # The Web keys need the tailnet's MagicDNS suffix; a gateway row that
+  # predates the column (nil domain) with an attached route is refused
+  # loudly — writing the old `"<hostname>.${TS_CERT_DOMAIN}"` literal
+  # back would resurrect the bug this shape fixed. An EMPTY route list
+  # still writes: the config carries no Web key, so the domain is
+  # unused and the nothing-served-yet posture keeps converging.
   defp write_serve_config(kubeconfig, namespace, gateway) do
     entries =
       gateway
@@ -387,15 +394,25 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
         end
       end)
 
-    config = ServeConfig.build(gateway.hostname, entries)
+    with :ok <- ensure_tailnet_domain(gateway, entries) do
+      config = ServeConfig.build(gateway.hostname, gateway.tailnet_domain, entries)
 
-    case Secret.create(kubeconfig, namespace, serve_secret_name(gateway), %{
-           @serve_file => ServeConfig.encode(config)
-         }) do
-      {:ok, secret} -> {:ok, secret}
-      {:error, _reason} = error -> error
+      case Secret.create(kubeconfig, namespace, serve_secret_name(gateway), %{
+             @serve_file => ServeConfig.encode(config)
+           }) do
+        {:ok, secret} -> {:ok, secret}
+        {:error, _reason} = error -> error
+      end
     end
   end
+
+  # Only the migration-window row can be here: the attribute is required
+  # on create, so every row made after the column lands carries a
+  # domain (the re-paste form backfills the pre-existing one).
+  defp ensure_tailnet_domain(%{tailnet_domain: nil}, [_route | _more]),
+    do: {:error, :tailnet_domain_missing}
+
+  defp ensure_tailnet_domain(_gateway, _entries), do: :ok
 
   defp apply_routes(kubeconfig, gateway) do
     case write_serve_config(kubeconfig, access_namespace(), gateway) do
