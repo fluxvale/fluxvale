@@ -297,6 +297,25 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       public?(false)
     end
 
+    # The claims-write serialisation (P2-3, the set_exposure pattern):
+    # `update_claims` carries `optimistic_lock(:version)` so the slower
+    # of two racing claim writes fails cleanly instead of clobbering —
+    # two tabs claiming two domains on one gateway would otherwise lose
+    # the first entry to the second write. The ops retry once on the
+    # StaleRecord, recomputing from the committed map (which converges).
+    attribute :version, :integer do
+      allow_nil?(false)
+      default(1)
+      public?(false)
+    end
+
+    # When the API token was last set (P3-12) — §5's rotation story:
+    # keys expire ≤90 days by design, so the panel's key-age display
+    # (S5) reads this instead of needing a later migration.
+    attribute :token_set_at, :utc_datetime_usec do
+      public?(false)
+    end
+
     # The live monthly rate this gateway bills at (cents). A snapshot by
     # design: the price the owner opted in at is the price they keep —
     # the instance grandfathered-* stance's simpler cousin, because a
@@ -429,12 +448,24 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       description("System-only: the API-token Secret's ref on the row (authorize?: false).")
       accept([:api_token_secret_ref])
       require_atomic?(false)
+
+      # §5's rotation clock: stamped at every ref write, so the key-age
+      # display (S5) needs no separate write path.
+      change(fn changeset, _context ->
+        Ash.Changeset.force_change_attribute(changeset, :token_set_at, DateTime.utc_now())
+      end)
     end
 
     update :update_claims do
       description("System-only: the gateway's tailnet claims map (authorize?: false).")
       accept([:dns_claims])
       require_atomic?(false)
+
+      # P2-3: racing claim writers converge — the slower one fails
+      # StaleRecord and its op retries against the committed map, so a
+      # two-tabs-two-domains race cannot silently drop the first
+      # domain's entry (the lost-update this lock exists for).
+      change(optimistic_lock(:version))
     end
 
     # The observer's body — the trigger below drives it every minute.

@@ -26,18 +26,13 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
 
   require Logger
 
-  # The copy that names the API token; expired and revoked present
-  # identically (§5). The same copy is pinned in the Tailscale
-  # provider's observer drift — keep the two in sync.
-  @token_rejected_copy "Your Tailscale API key was rejected — paste a fresh one"
-
   @doc """
   `{:ok, gateway}` (the row with its updated `dns_claims`) or
   `{:error, reason}` — `reason` being Forbidden, `:gateway_not_serving`,
   `:org_mismatch`, `:domain_not_verified`, `:resolver_unconfigured`, the
   provider's claim reason (`:no_api_token`, `:node_not_found`,
-  `:unauthorized`, …) or the claims-write failure. `opts` carry
-  `actor:` / `authorize?:`.
+  `:node_ambiguous`, `:unauthorized`, `:forbidden`, …) or the
+  claims-write failure. `opts` carry `actor:` / `authorize?:`.
   """
   @spec call(AccessGateway.t(), AccessDomain.t(), keyword()) ::
           {:ok, AccessGateway.t()} | {:error, term()}
@@ -55,38 +50,83 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
          {:ok, resolver_ip} <- resolver_ip(),
          result <-
            AccessProvider.impl_for(gateway).claim_domain(gateway, domain.domain, resolver_ip) do
-      land(result, gateway, domain.domain, resolver_ip)
+      land(result, gateway, domain, resolver_ip)
     end
   end
 
   # Success: the row's claims gain (or update) the entry — the registry
-  # the unclaim's shared-tailnet rule reads. authorize?: false: this
-  # operation's authorization already happened on the reads above.
+  # the unclaim's shared-tailnet rule reads. The entry records WHAT was
+  # claimed AND the tailnet suffix the owner had typed at claim time
+  # (P2-14): the recorded value, not a live re-read of the row, is what
+  # the shared-tailnet matching uses forever after. authorize?: false —
+  # this operation's authorization already happened on the reads above.
   defp land({:ok, _claimed}, gateway, domain, resolver_ip) do
-    claims = Map.put(gateway.dns_claims || %{}, domain, resolver_ip)
+    claims =
+      Map.put(gateway.dns_claims || %{}, domain.domain, %{
+        "ip" => resolver_ip,
+        "tailnet" => gateway.tailnet_domain
+      })
 
-    case AccessGateway.update_claims(gateway, %{dns_claims: claims}, authorize?: false) do
-      {:ok, row} -> {:ok, row}
-      {:error, _reason} = error -> error
-    end
+    put_claims(gateway, domain.domain, claims, 1)
   end
 
-  # The drift: row first (best-effort — the observer's next pass is the
-  # backstop if this write fails), then the honest failure. The row's
-  # claims are untouched: nothing was claimed.
-  defp land({:error, :unauthorized} = error, gateway, _domain, _resolver_ip) do
-    drift_to_needs_attention(gateway)
+  defp land({:error, kind} = error, gateway, _domain, _resolver_ip)
+       when kind in [:unauthorized, :forbidden] do
+    drift_to_needs_attention(gateway, kind)
     error
   end
 
   defp land({:error, _reason} = error, _gateway, _domain, _resolver_ip), do: error
 
-  defp drift_to_needs_attention(gateway) do
+  # A racing claims write (two tabs, two domains) fails StaleRecord
+  # under update_claims' optimistic lock — the retry re-reads the
+  # committed map and recomputes, so the second write MERGES instead of
+  # clobbering (P2-3's lost-update). One retry: the second read is the
+  # committed row; a second stale means the row is genuinely contended
+  # and the owner's retry owns it.
+  defp put_claims(gateway, domain, claims, effort) do
+    case AccessGateway.update_claims(gateway, %{dns_claims: claims}, authorize?: false) do
+      {:ok, row} ->
+        {:ok, row}
+
+      {:error, error} = failure ->
+        maybe_retry(gateway, domain, claims, effort, error, failure)
+    end
+  end
+
+  # One retry on StaleRecord; a second stale (or a torn-down row)
+  # leaves the failure standing — the owner's retry owns it.
+  defp maybe_retry(gateway, domain, claims, effort, error, failure) do
+    if effort > 0 and stale_record?(error) do
+      retry_on_fresh(gateway, domain, claims, effort, failure)
+    else
+      failure
+    end
+  end
+
+  defp retry_on_fresh(gateway, domain, claims, effort, failure) do
+    case AccessGateway.get_by_id(gateway.id, authorize?: false) do
+      {:ok, fresh} ->
+        merged = Map.put(fresh.dns_claims || %{}, domain, Map.get(claims, domain))
+        put_claims(fresh, domain, merged, effort - 1)
+
+      {:error, _gone} ->
+        failure
+    end
+  end
+
+  defp stale_record?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
+  end
+
+  defp stale_record?(_other), do: false
+
+  defp drift_to_needs_attention(gateway, kind) do
     case AccessGateway.update_state(
            gateway,
            %{
              state: :needs_attention,
-             status_message: @token_rejected_copy,
+             status_message: AccessProvider.impl_for(gateway).token_drift_message(kind),
              needs_attention_since: DateTime.utc_now()
            },
            authorize?: false

@@ -63,7 +63,10 @@ defmodule FluxVale.Infrastructure.Operations.UnclaimAccessDomainTest do
              Infrastructure.unclaim_access_domain(gateway, domain, actor: owner)
 
     row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
-    assert row.dns_claims == %{@domain_name => @resolver_ip}
+
+    assert row.dns_claims == %{
+             @domain_name => %{"ip" => @resolver_ip, "tailnet" => "example.ts.net"}
+           }
   end
 
   test "a claims-write failure after a successful unclaim surfaces honestly", %{
@@ -83,7 +86,50 @@ defmodule FluxVale.Infrastructure.Operations.UnclaimAccessDomainTest do
     # the failure surfaces and the retry converges (a second unclaim
     # makes the same no-op writes).
     row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
-    assert row.dns_claims == %{@domain_name => @resolver_ip}
+
+    assert row.dns_claims == %{
+             @domain_name => %{"ip" => @resolver_ip, "tailnet" => "example.ts.net"}
+           }
+  end
+
+  test "a stale claims write retries once against the committed map (P2-3)", %{
+    org: org,
+    owner: owner
+  } do
+    gateway = claimed_gateway!(org)
+    domain = custom_domain!(owner)
+
+    stub(Tailscale, :unclaim_domain, fn _gw, _d -> :ok end)
+
+    stale = %Ash.Error.Invalid{errors: [%Ash.Error.Changes.StaleRecord{}]}
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+
+    stub(AccessGateway, :update_claims, fn gw, %{dns_claims: claims}, _opts ->
+      n = Agent.get_and_update(attempts, fn c -> {c, c + 1} end)
+
+      if n == 0 do
+        # First attempt: stale — the other tab wrote a second domain
+        # first.
+        {:error, stale}
+      else
+        # The retry recomputes from the committed map: the other tab's
+        # entry survives this unclaim.
+        merged =
+          Map.put(claims, "other.example.com", %{
+            "ip" => @resolver_ip,
+            "tailnet" => "example.ts.net"
+          })
+
+        send(self(), {:claims_write, gw.id, merged})
+        {:ok, %{gw | dns_claims: merged, version: 2}}
+      end
+    end)
+
+    assert {:ok, _row} = Infrastructure.unclaim_access_domain(gateway, domain, actor: owner)
+
+    assert_received {:claims_write, _id, claims}
+    refute Map.has_key?(claims, @domain_name)
+    assert Map.has_key?(claims, "other.example.com")
   end
 
   test "unclaiming a domain this gateway never claimed is a converging no-op", %{
@@ -141,7 +187,9 @@ defmodule FluxVale.Infrastructure.Operations.UnclaimAccessDomainTest do
   defp claimed_gateway!(org) do
     gateway = AccessFixtures.gateway!(org)
 
-    Ash.update!(gateway, %{dns_claims: %{@domain_name => @resolver_ip}},
+    Ash.update!(
+      gateway,
+      %{dns_claims: %{@domain_name => %{"ip" => @resolver_ip, "tailnet" => "example.ts.net"}}},
       action: :update_claims,
       authorize?: false
     )

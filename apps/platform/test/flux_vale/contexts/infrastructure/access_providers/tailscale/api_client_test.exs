@@ -110,18 +110,105 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
       assert {:error, :not_found} = ApiClient.devices_lookup(@token, "fv-1a2b3c4d")
     end
 
-    test "401 and 403 are the :unauthorized drift signal" do
+    test "401 is :unauthorized — the expired-or-revoked drift signal" do
       expect_request(:get, "/api/v2/tailnet/-/devices", fn _opts ->
         {:ok, %Req.Response{status: 401, body: %{"error" => "expired"}}}
       end)
 
       assert {:error, :unauthorized} = ApiClient.devices_lookup(@token, "fv-1a2b3c4d")
+    end
 
+    test "403 is :forbidden — a scope verdict, never folded into 401 (P2-7)" do
       expect_request(:get, "/api/v2/tailnet/-/devices", fn _opts ->
         {:ok, %Req.Response{status: 403, body: %{"error" => "denied"}}}
       end)
 
-      assert {:error, :unauthorized} = ApiClient.devices_lookup(@token, "fv-1a2b3c4d")
+      assert {:error, :forbidden} = ApiClient.devices_lookup(@token, "fv-1a2b3c4d")
+    end
+
+    test "a scalar 2xx body is a bad payload, not an empty tailnet" do
+      expect_request(:get, "/api/v2/tailnet/-/devices", fn _opts ->
+        {:ok, %Req.Response{status: 200, body: "gateway hiccup"}}
+      end)
+
+      assert {:error, {:bad_payload, 200}} = ApiClient.devices_lookup(@token, "fv-1a2b3c4d")
+    end
+
+    test "duplicate name matches pick the ONLINE one (P2-5)" do
+      expect_request(:get, "/api/v2/tailnet/-/devices", fn _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{
+             "devices" => [
+               %{"id" => "dead", "name" => "fv-1a2b3c4d.example.ts.net", "online" => false},
+               %{"id" => "live", "name" => "fv-1a2b3c4d.example.ts.net", "online" => true}
+             ]
+           }
+         }}
+      end)
+
+      assert {:ok, %{id: "live"}} = ApiClient.devices_lookup(@token, "fv-1a2b3c4d")
+    end
+
+    test "two online matches pick the freshest lastSeen (P2-5)" do
+      expect_request(:get, "/api/v2/tailnet/-/devices", fn _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{
+             "devices" => [
+               %{
+                 "id" => "older",
+                 "name" => "fv-1a2b3c4d.example.ts.net",
+                 "online" => true,
+                 "lastSeen" => "2026-10-01T00:00:00Z"
+               },
+               %{
+                 "id" => "newest",
+                 "name" => "fv-1a2b3c4d.example.ts.net",
+                 "online" => true,
+                 "lastSeen" => "2026-10-30T00:00:00Z"
+               }
+             ]
+           }
+         }}
+      end)
+
+      assert {:ok, %{id: "newest"}} = ApiClient.devices_lookup(@token, "fv-1a2b3c4d")
+    end
+
+    test "a single offline match is returned — it exists (P2-5)" do
+      expect_request(:get, "/api/v2/tailnet/-/devices", fn _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{
+             "devices" => [
+               %{"id" => "lone", "name" => "fv-1a2b3c4d.example.ts.net", "online" => false}
+             ]
+           }
+         }}
+      end)
+
+      assert {:ok, %{id: "lone"}} = ApiClient.devices_lookup(@token, "fv-1a2b3c4d")
+    end
+
+    test "multiple offline matches are :node_ambiguous — never a claim against a ghost" do
+      expect_request(:get, "/api/v2/tailnet/-/devices", fn _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{
+             "devices" => [
+               %{"id" => "dead-1", "name" => "fv-1a2b3c4d.example.ts.net", "online" => false},
+               %{"id" => "dead-2", "name" => "fv-1a2b3c4d.example.ts.net", "online" => false}
+             ]
+           }
+         }}
+      end)
+
+      assert {:error, :node_ambiguous} = ApiClient.devices_lookup(@token, "fv-1a2b3c4d")
     end
 
     test "another non-2xx is a status+snippet error, body bounded" do
@@ -176,6 +263,14 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
 
       assert {:error, :unauthorized} = ApiClient.routes_get(@token, "777")
     end
+
+    test "a scalar 2xx body is a bad payload (the bracket access would crash the tick)" do
+      expect_request(:get, "/api/v2/device/777/routes", fn _opts ->
+        {:ok, %Req.Response{status: 200, body: []}}
+      end)
+
+      assert {:error, {:bad_payload, 200}} = ApiClient.routes_get(@token, "777")
+    end
   end
 
   describe "routes_set/3" do
@@ -221,6 +316,14 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
       assert {:error, %{status: 500, body: body}} = ApiClient.split_dns_get(@token)
       assert body =~ "dns oops"
     end
+
+    test "a scalar 2xx body is a bad payload — Map.get could never survive it" do
+      expect_request(:get, "/api/v2/tailnet/-/dns/split-dns", fn _opts ->
+        {:ok, %Req.Response{status: 200, body: "not-a-map"}}
+      end)
+
+      assert {:error, {:bad_payload, 200}} = ApiClient.split_dns_get(@token)
+    end
   end
 
   describe "split_dns_patch/2" do
@@ -246,12 +349,20 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
       assert :ok = ApiClient.split_dns_patch(@token, %{"apps.customer.com" => nil})
     end
 
-    test "401 maps to :unauthorized" do
+    test "401 maps to :unauthorized (the write path hears the same verdict)" do
+      expect_request(:patch, "/api/v2/tailnet/-/dns/split-dns", fn _opts ->
+        {:ok, %Req.Response{status: 401, body: %{"error" => "expired"}}}
+      end)
+
+      assert {:error, :unauthorized} = ApiClient.split_dns_patch(@token, %{"d" => nil})
+    end
+
+    test "403 maps to :forbidden on the write path too" do
       expect_request(:patch, "/api/v2/tailnet/-/dns/split-dns", fn _opts ->
         {:ok, %Req.Response{status: 403, body: %{"error" => "denied"}}}
       end)
 
-      assert {:error, :unauthorized} = ApiClient.split_dns_patch(@token, %{"d" => nil})
+      assert {:error, :forbidden} = ApiClient.split_dns_patch(@token, %{"d" => nil})
     end
   end
 end

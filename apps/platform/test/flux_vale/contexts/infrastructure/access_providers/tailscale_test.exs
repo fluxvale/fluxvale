@@ -432,8 +432,13 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
     test "removes the key, the serve config and the PVC", %{org: org} do
       gateway = gateway_row!(org)
 
-      expect(Secret, :delete, 2, fn _kc, _ns, secret_name ->
-        assert secret_name in [name("credential", gateway), name("serve-config", gateway)]
+      expect(Secret, :delete, 3, fn _kc, _ns, secret_name ->
+        assert secret_name in [
+                 name("credential", gateway),
+                 name("api-credential", gateway),
+                 name("serve-config", gateway)
+               ]
+
         :ok
       end)
 
@@ -965,7 +970,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       {:ok, _route} = Tailscale.attach_instance(gateway, instance)
 
       expect(Deployment, :delete, fn _kc, _ns, _n -> :ok end)
-      expect(Secret, :delete, 2, fn _kc, _ns, _n -> :ok end)
+      expect(Secret, :delete, 3, fn _kc, _ns, _n -> :ok end)
       expect(PersistentVolumeClaim, :delete, fn _kc, _ns, _n -> :ok end)
 
       assert :ok = Tailscale.teardown_gateway(gateway)
@@ -983,10 +988,12 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
         :ok
       end)
 
-      expect(Secret, :delete, 2, fn _kc, _ns, secret_name ->
-        # Both the credential and the serve config, both per-gateway.
+      expect(Secret, :delete, 3, fn _kc, _ns, secret_name ->
+        # The credential, the api-credential and the serve config — all
+        # per-gateway (P1-1: no orphaned API key from any exit).
         assert secret_name in [
                  name("credential", gateway),
+                 name("api-credential", gateway),
                  name("serve-config", gateway)
                ]
 
@@ -1010,7 +1017,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       not_found = Error.from_response({:ok, %{status: 404, body: %{}}})
 
       expect(Deployment, :delete, fn _kc, _ns, _n -> {:error, not_found} end)
-      expect(Secret, :delete, 2, fn _kc, _ns, _n -> {:error, not_found} end)
+      expect(Secret, :delete, 3, fn _kc, _ns, _n -> {:error, not_found} end)
       expect(PersistentVolumeClaim, :delete, fn _kc, _ns, _n -> {:error, not_found} end)
 
       assert :ok = Tailscale.teardown_gateway(gateway)

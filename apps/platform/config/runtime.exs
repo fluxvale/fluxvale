@@ -65,11 +65,12 @@ parse_port = fn var_name, default ->
 
     value ->
       case Integer.parse(value) do
-        {port, ""} when port > 0 ->
+        {port, ""} when port in 1..65_535 ->
           port
 
         _invalid ->
-          raise ArgumentError, "#{var_name}=#{inspect(value)} is not a positive integer"
+          raise ArgumentError,
+                "#{var_name}=#{inspect(value)} is not an integer in 1..65535"
       end
   end
 end
@@ -84,6 +85,29 @@ valid_ipv4? = fn ip ->
     Enum.all?(octets, fn octet ->
       Regex.match?(~r/\A\d{1,3}\z/, octet) and String.to_integer(octet) <= 255
     end)
+end
+
+# P3-11: the API base URL must be https and must carry no userinfo —
+# every claims call rides a Bearer token in the Authorization header,
+# and plain http would ship it in cleartext while a user:pass@host
+# URL would confuse which credential authenticates what. Fail at boot;
+# these are config typos, not runtime conditions.
+valid_api_url? = fn url ->
+  uri = URI.parse(url)
+  uri.scheme == "https" and is_binary(uri.host) and uri.host != "" and uri.userinfo == nil
+end
+
+case System.get_env("TAILSCALE_API_URL") do
+  url when url in [nil, ""] ->
+    :ok
+
+  url ->
+    if valid_api_url?.(url) do
+      config :flux_vale, :tailscale_api, base_url: url
+    else
+      raise ArgumentError,
+            "TAILSCALE_API_URL=#{inspect(url)} must be an https:// URL with no userinfo"
+    end
 end
 
 case System.get_env("ACCESS_EDGE_SERVICE") do
@@ -107,11 +131,6 @@ case System.get_env("ACCESS_DNS_RESOLVER_IP") do
     end
 
     config :flux_vale, :access_dns, resolver_ip: ip
-end
-
-case System.get_env("TAILSCALE_API_URL") do
-  url when url in [nil, ""] -> :ok
-  url -> config :flux_vale, :tailscale_api, base_url: url
 end
 
 # #203: the idle-sleep threshold (ADR-0036's settled 1h default lives in

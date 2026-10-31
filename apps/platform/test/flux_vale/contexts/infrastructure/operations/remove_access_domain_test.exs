@@ -220,16 +220,66 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomainTest do
       assert row.dns_claims == %{domain.domain => "10.43.0.20"}
     end
 
-    test "a gateway without a claim removes with no provider call", %{org: org, owner: owner} do
+    # P1-2: the unset is UNCONDITIONAL — a claims map without the entry
+    # does not mean the tailnet is clean (the entry can have been lost
+    # to a racing write while the routes stood). The PATCH nil is
+    # idempotent; the retry re-attempts regardless.
+    test "a gateway without a claim entry still un-claims (the unset is idempotent)", %{
+      org: org,
+      owner: owner
+    } do
       domain = register_custom_domain!(owner)
-      AccessFixtures.gateway!(org)
+      gateway = AccessFixtures.gateway!(org)
 
-      reject(Tailscale, :unclaim_domain, 2)
+      stub(Tailscale, :unclaim_domain, fn gw, domain_name ->
+        assert gw.id == gateway.id
+        assert domain_name == domain.domain
+        :ok
+      end)
 
       expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 200, body: %{}}} end)
 
       assert :ok = Infrastructure.remove_access_domain(domain, actor: owner)
       refute still_there?(domain.id)
+    end
+
+    # P1-2's step (1): the hostname guard runs BEFORE the tailnet
+    # write — a refused remove never touches the owner's tailnet.
+    test "a hostname-guarded remove makes no tailnet call at all", %{org: org, owner: owner} do
+      domain = register_custom_domain!(owner)
+      instance = instance!(org, owner)
+      gateway = AccessFixtures.gateway!(org)
+
+      InstanceHostname.mint!(
+        %{instance_id: instance.id, access_domain_id: domain.id, label: "app"},
+        authorize?: false
+      )
+
+      stub(Tailscale, :unclaim_domain, fn _gw, _d ->
+        flunk("the hostname guard precedes any tailnet write")
+      end)
+
+      assert {:error, :hostnames_present} =
+               Infrastructure.remove_access_domain(domain, actor: owner)
+
+      assert still_there?(domain.id)
+      assert gateway.id
+    end
+
+    # P3-9: only the not-found shape means "no gateway, nothing to
+    # un-claim" — any other gateway-lookup failure propagates and fails
+    # the remove instead of silently skipping the tailnet half.
+    test "a non-not-found gateway lookup failure fails the remove", %{owner: owner} do
+      domain = register_custom_domain!(owner)
+
+      stub(AccessGateway, :get_for_organization, fn _org_id, _opts ->
+        {:error, :db_oops}
+      end)
+
+      stub(Kubereq, :delete, fn _req, _ns, _name -> flunk("the row must stand") end)
+
+      assert {:error, :db_oops} = Infrastructure.remove_access_domain(domain, actor: owner)
+      assert still_there?(domain.id)
     end
   end
 

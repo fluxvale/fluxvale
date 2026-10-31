@@ -30,28 +30,64 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient do
 
   @base_url "https://api.tailscale.com"
 
-  # The drift signal (ADR-0040 §5): the key was rejected — expired and
-  # revoked present identically (API keys expire ≤90 days by design).
-  @unauthorized_statuses [401, 403]
+  # 401 — the drift signal (ADR-0040 §5): the key was rejected —
+  # expired and revoked present identically (API keys expire ≤90 days
+  # by design).
+  @unauthorized_status 401
+  # 403 — authenticated but NOT permitted: the key lacks the scopes
+  # this write needs (§5: dns + devices:routes + devices:core:read).
+  # A different copy and a different fix than a 401 — never fold them.
+  @forbidden_status 403
 
   @typedoc "A non-2xx other than 401/403: the status plus a body snippet."
   @type api_error :: %{status: pos_integer(), body: String.t()}
 
-  @type error :: :unauthorized | :not_found | :network_error | api_error()
+  # A 2xx whose body is not the shape the endpoint documents — a
+  # contract break, not a missing record. Surfaced (never silently
+  # mapped to not_found/empty) so a tick cannot converge on garbage.
+  @type bad_payload :: {:bad_payload, pos_integer()}
+
+  @type error ::
+          :unauthorized
+          | :forbidden
+          | :not_found
+          | :node_ambiguous
+          | :network_error
+          | api_error()
+          | bad_payload()
 
   @doc """
   Finds the tailnet device whose name's FIRST label is `hostname` (the
   gateway's opaque `fv-…` name; the API returns full MagicDNS FQDNs).
   Routes are not part of this payload — `routes_get/2` is the next call.
+
+  Duplicate matches (two nodes reusing one name — a rejoin that went
+  stale, a hostname collision) resolve deterministically: prefer an
+  ONLINE device, then the most recent `lastSeen`. More than one match
+  with NO online candidate is `{:error, :node_ambiguous}` — claiming
+  against a picked-from-a-hat dead node would route the tailnet's DNS
+  at a ghost.
   """
   @spec devices_lookup(String.t(), String.t()) ::
           {:ok, %{id: String.t()}} | {:error, error()}
   def devices_lookup(token, hostname) when is_binary(token) and is_binary(hostname) do
     req = new_req(token)
 
-    req
-    |> Req.get(url: "/api/v2/tailnet/-/devices")
-    |> devices_result(hostname)
+    case Req.get(req, url: "/api/v2/tailnet/-/devices") do
+      # Both documented envelopes (the object wrapper and the bare
+      # array); a scalar body is a contract break, not an empty list.
+      {:ok, %Req.Response{status: status, body: body}} when status in 200..299 and is_list(body) ->
+        find_device(body, hostname)
+
+      {:ok, %Req.Response{status: status, body: body}} when status in 200..299 and is_map(body) ->
+        find_device(devices_from(body), hostname)
+
+      {:ok, %Req.Response{status: status}} when status in 200..299 ->
+        {:error, {:bad_payload, status}}
+
+      other ->
+        error_result(other)
+    end
   end
 
   @doc """
@@ -62,9 +98,23 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient do
   def routes_get(token, device_id) when is_binary(token) and is_binary(device_id) do
     req = new_req(token)
 
-    req
-    |> Req.get(url: "/api/v2/device/#{device_id}/routes")
-    |> routes_result()
+    case Req.get(req, url: "/api/v2/device/#{device_id}/routes") do
+      {:ok, %Req.Response{status: status, body: body}} when status in 200..299 and is_map(body) ->
+        {:ok,
+         %{
+           advertised: routes_list(body["advertisedRoutes"]),
+           enabled: routes_list(body["enabledRoutes"])
+         }}
+
+      {:ok, %Req.Response{status: status}} when status in 200..299 ->
+        {:error, {:bad_payload, status}}
+
+      {:ok, response} ->
+        error_result({:ok, response})
+
+      {:error, _reason} = error ->
+        error_result(error)
+    end
   end
 
   @doc """
@@ -87,9 +137,19 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient do
   def split_dns_get(token) when is_binary(token) do
     req = new_req(token)
 
-    req
-    |> Req.get(url: "/api/v2/tailnet/-/dns/split-dns")
-    |> split_dns_result()
+    case Req.get(req, url: "/api/v2/tailnet/-/dns/split-dns") do
+      {:ok, %Req.Response{status: status, body: body}} when status in 200..299 and is_map(body) ->
+        {:ok, body}
+
+      {:ok, %Req.Response{status: status}} when status in 200..299 ->
+        {:error, {:bad_payload, status}}
+
+      {:ok, response} ->
+        error_result({:ok, response})
+
+      {:error, _reason} = error ->
+        error_result(error)
+    end
   end
 
   @doc """
@@ -124,28 +184,45 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient do
     |> Keyword.get(:base_url, @base_url)
   end
 
-  defp devices_result({:ok, %Req.Response{status: status, body: body}}, hostname)
-       when status in 200..299 do
-    find_device(devices_from(body), hostname)
-  end
-
-  defp devices_result(other, _hostname), do: error_result(other)
-
-  # Liberal on the envelope (the SDK exposes both the bare array and the
-  # `{"devices": [...]}` wrapper across v2 generations), strict on the
-  # match: the first label of a device's name must equal the hostname.
-  defp devices_from(devices) when is_list(devices), do: devices
+  # The object wrapper's devices list; a map without one means the node
+  # is simply not in the payload (the bare-array envelope is handled at
+  # the call site).
   defp devices_from(%{"devices" => devices}) when is_list(devices), do: devices
-  defp devices_from(_unrecognized), do: []
+  defp devices_from(_no_devices_key), do: []
 
   defp find_device(devices, hostname) do
-    device = Enum.find(devices, &name_matches?(&1, hostname))
+    matches = Enum.filter(devices, &name_matches?(&1, hostname))
 
-    case device do
-      %{"id" => id} when is_binary(id) -> {:ok, %{id: id}}
-      _none_or_malformed -> {:error, :not_found}
+    case matches do
+      [] ->
+        {:error, :not_found}
+
+      [only] ->
+        device_result(only)
+
+      _many ->
+        # Same name on two nodes: prefer a live one, then the freshest
+        # lastSeen. A split vote among DEAD nodes is refused — the
+        # route would point at a ghost (P2-5).
+        online = Enum.filter(matches, &(&1["online"] == true))
+
+        case online do
+          [] ->
+            {:error, :node_ambiguous}
+
+          [only] ->
+            device_result(only)
+
+          _several_online ->
+            device_result(Enum.max_by(online, &seen_at/1))
+        end
     end
   end
+
+  defp device_result(%{"id" => id}) when is_binary(id), do: {:ok, %{id: id}}
+  # coveralls-ignore-next-line defensive: the API documents string ids; a
+  # nameless/idless row cannot be matched anyway
+  defp device_result(_malformed), do: {:error, :not_found}
 
   defp name_matches?(%{"name" => name}, hostname) when is_binary(name) do
     [first_label | _rest] = String.split(name, ".", parts: 2)
@@ -154,25 +231,19 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient do
 
   defp name_matches?(_malformed, _hostname), do: false
 
-  defp routes_result({:ok, %Req.Response{status: status, body: body}}) when status in 200..299 do
-    {:ok,
-     %{
-       advertised: routes_list(body["advertisedRoutes"]),
-       enabled: routes_list(body["enabledRoutes"])
-     }}
+  # RFC3339 strings from the API; unparseable timestamps sort oldest so
+  # a live-looking node with a broken clock never wins on garbage.
+  defp seen_at(%{"lastSeen" => seen}) when is_binary(seen) do
+    case DateTime.from_iso8601(seen) do
+      {:ok, dt, _offset} -> dt
+      _unparseable -> ~U[1970-01-01 00:00:00Z]
+    end
   end
 
-  defp routes_result(other), do: error_result(other)
+  defp seen_at(_missing), do: ~U[1970-01-01 00:00:00Z]
 
   defp routes_list(routes) when is_list(routes), do: routes
   defp routes_list(_missing), do: []
-
-  defp split_dns_result({:ok, %Req.Response{status: status, body: body}})
-       when status in 200..299 do
-    {:ok, body}
-  end
-
-  defp split_dns_result(other), do: error_result(other)
 
   defp write_result({:ok, %Req.Response{status: status}}) when status in 200..299 do
     :ok
@@ -180,9 +251,12 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient do
 
   defp write_result(other), do: error_result(other)
 
-  defp error_result({:ok, %Req.Response{status: status, body: _body}})
-       when status in @unauthorized_statuses do
+  defp error_result({:ok, %Req.Response{status: @unauthorized_status, body: _body}}) do
     {:error, :unauthorized}
+  end
+
+  defp error_result({:ok, %Req.Response{status: @forbidden_status, body: _body}}) do
+    {:error, :forbidden}
   end
 
   defp error_result({:ok, %Req.Response{status: status, body: body}}) do

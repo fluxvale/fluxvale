@@ -8,10 +8,12 @@ defmodule FluxVale.Infrastructure.Operations.SetAccessApiTokenTest do
   use FluxVale.DataCase, async: true
   use Mimic
 
+  alias FluxVale.Accounts.Membership
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.TestSupport.AccessFixtures
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
 
   @token "tskey-api-secret-value"
@@ -41,6 +43,10 @@ defmodule FluxVale.Infrastructure.Operations.SetAccessApiTokenTest do
     row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
     assert row.api_token_secret_ref == "api-credential-abc"
     refute "#{inspect(row)}" =~ @token
+
+    # §5's rotation clock: stamped on the ref write (P3-12), so S5's
+    # key-age display ships without a later migration.
+    assert %DateTime{} = row.token_set_at
   end
 
   test "a non-member is Forbidden before any cluster call", %{org: org} do
@@ -53,6 +59,32 @@ defmodule FluxVale.Infrastructure.Operations.SetAccessApiTokenTest do
 
     assert {:error, _forbidden} =
              Infrastructure.set_access_api_token(gateway, @token, actor: other_owner)
+
+    row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+    assert row.api_token_secret_ref == nil
+  end
+
+  # P2-8: the crown is owner-only (ADR-0040 §12 — with the key
+  # FluxVale can rewrite the customer's whole tailnet DNS). A plain
+  # :member of the SAME org passes the read policy but is refused
+  # here; the gate bites at team features.
+  test "a member of the org (not an owner) is refused before any cluster call", %{
+    org: org
+  } do
+    gateway = AccessFixtures.gateway!(org)
+
+    member = AccountsFixtures.user!()
+
+    Membership.create!(%{organization_id: org.id, user_id: member.id, role: :member},
+      authorize?: false
+    )
+
+    stub(Tailscale, :write_api_credential, fn _gw, _t ->
+      flunk("the crown is the owner's to paste")
+    end)
+
+    assert {:error, :not_org_owner} =
+             Infrastructure.set_access_api_token(gateway, @token, actor: member)
 
     row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
     assert row.api_token_secret_ref == nil

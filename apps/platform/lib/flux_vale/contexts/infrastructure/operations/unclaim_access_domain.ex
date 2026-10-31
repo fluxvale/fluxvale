@@ -51,10 +51,47 @@ defmodule FluxVale.Infrastructure.Operations.UnclaimAccessDomain do
   # two halves decide against one state.
   defp update_claims(gateway, domain) do
     claims = Map.delete(gateway.dns_claims || %{}, domain)
+    put_claims(gateway, domain, claims, 1)
+  end
 
+  # One retry on StaleRecord (update_claims' optimistic lock, P2-3):
+  # two tabs unclaiming two domains race, and the slower writer
+  # recomputes from the committed map instead of clobbering the other's
+  # entry. A second stale means the row is genuinely contended — the
+  # caller's retry owns it.
+  defp put_claims(gateway, domain, claims, effort) do
     case AccessGateway.update_claims(gateway, %{dns_claims: claims}, authorize?: false) do
-      {:ok, row} -> {:ok, row}
-      {:error, _reason} = error -> error
+      {:ok, row} ->
+        {:ok, row}
+
+      {:error, error} = failure ->
+        maybe_retry(gateway, domain, effort, error, failure)
     end
   end
+
+  # One retry on StaleRecord; a second stale (or a torn-down row)
+  # leaves the failure standing — the caller's retry owns it.
+  defp maybe_retry(gateway, domain, effort, error, failure) do
+    if effort > 0 and stale_record?(error) do
+      retry_on_fresh(gateway, domain, effort, failure)
+    else
+      failure
+    end
+  end
+
+  defp retry_on_fresh(gateway, domain, effort, failure) do
+    case AccessGateway.get_by_id(gateway.id, authorize?: false) do
+      {:ok, fresh} ->
+        put_claims(fresh, domain, Map.delete(fresh.dns_claims || %{}, domain), effort - 1)
+
+      {:error, _gone} ->
+        failure
+    end
+  end
+
+  defp stale_record?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
+  end
+
+  defp stale_record?(_other), do: false
 end

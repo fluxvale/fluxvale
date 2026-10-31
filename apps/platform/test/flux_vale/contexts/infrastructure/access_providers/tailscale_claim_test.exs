@@ -17,6 +17,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Secret
+  alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient
@@ -28,7 +29,13 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
   @ours @resolver_ip <> "/32"
   @token "tskey-api-xyz"
 
-  @token_rejected_copy "Your Tailscale API key was rejected — paste a fresh one"
+  # The claim entry shape (P2-14): string keys — the dns_claims map
+  # round-trips through jsonb, so atom keys would come back as strings
+  # and fork the readers. `tailnet` is the RECORDED suffix (what the
+  # owner had typed at claim time), not a live re-read.
+  defp claim_entry(ip, tailnet \\ "example.ts.net") do
+    %{"ip" => ip, "tailnet" => tailnet}
+  end
 
   setup do
     InstanceFixtures.local_cluster!()
@@ -213,7 +220,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
 
   describe "unclaim_domain/2" do
     test "the gateway's LAST claim unsets the DNS route and disables the /32", %{org: org} do
-      gateway = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+      gateway = with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
 
       stub(ApiClient, :routes_get, fn _token, _id ->
         {:ok, %{advertised: [@ours], enabled: [@ours, "10.0.0.1/32"]}}
@@ -229,7 +236,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
     end
 
     test "a shared tailnet keeps the DNS route (another gateway claims it)", %{org: org} do
-      gateway = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+      gateway = with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
 
       # The owner's own case: a second org's gateway on the SAME tailnet
       # still claims the domain — one route serves all of them (§3).
@@ -240,7 +247,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
           monthly_cents: 200,
           state: :active,
           tailnet_domain: "example.ts.net",
-          dns_claims: %{@domain => @resolver_ip}
+          dns_claims: %{@domain => claim_entry(@resolver_ip)}
         })
 
       stub(ApiClient, :routes_get, fn _token, _id ->
@@ -258,8 +265,8 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
     test "remaining claims keep the /32 — it serves all claimed domains", %{org: org} do
       gateway =
         with_claims(gateway_row!(org), %{
-          @domain => @resolver_ip,
-          "other.example.com" => @resolver_ip
+          @domain => claim_entry(@resolver_ip),
+          "other.example.com" => claim_entry(@resolver_ip)
         })
 
       assert :ok = Tailscale.unclaim_domain(gateway, @domain)
@@ -270,7 +277,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
     end
 
     test "an already-disabled route makes no write", %{org: org} do
-      gateway = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+      gateway = with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
 
       stub(ApiClient, :routes_get, fn _token, _id ->
         {:ok, %{advertised: [], enabled: []}}
@@ -283,7 +290,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
     end
 
     test "a vanished node unclaims as DNS-only — its routes died with it", %{org: org} do
-      gateway = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+      gateway = with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
 
       stub(ApiClient, :devices_lookup, fn _token, _hostname -> {:error, :not_found} end)
       reject(ApiClient, :routes_get, 2)
@@ -296,7 +303,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
 
     test "no token is :no_api_token", %{org: org} do
       gateway =
-        with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+        with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
 
       stub(Secret, :get_data, fn _kc, _ns, _name ->
         {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
@@ -310,7 +317,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
     test "a non-404 node lookup failure fails the unclaim (only a vanished node is tolerated)",
          %{org: org} do
       gateway =
-        with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+        with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
 
       # The DNS unset lands (no other claimant), then the node lookup
       # fails for a REAL reason — that error must surface, not vanish.
@@ -323,7 +330,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
 
     test "a routes read failure during the disable surfaces", %{org: org} do
       gateway =
-        with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+        with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
 
       stub(ApiClient, :routes_get, fn _token, _id -> {:error, :network_error} end)
 
@@ -351,7 +358,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
 
   describe "gateway_status/1 — the claims drift limb" do
     test "a valid token leaves the pod-level observation standing", %{org: org} do
-      claimed = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+      claimed = with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
       gateway = with_token_ref(claimed, "api-credential-x")
 
       stub(ApiClient, :devices_lookup, fn _token, _hostname -> {:ok, %{id: "dev-777"}} end)
@@ -361,27 +368,152 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
     end
 
     test "a 401 lands :needs_attention with the re-paste copy", %{org: org} do
-      claimed = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+      claimed = with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
       gateway = with_token_ref(claimed, "api-credential-x")
 
       stub(ApiClient, :devices_lookup, fn _token, _hostname -> {:error, :unauthorized} end)
 
-      assert {:ok, %{state: :needs_attention, message: @token_rejected_copy}} =
+      # P3-13's equality pin: the drift copy IS the provider's — the op
+      # reads the same function, so two sentences for one rejection
+      # cannot exist.
+      assert {:ok, %{state: :needs_attention, message: message}} =
                Tailscale.gateway_status(gateway)
+
+      assert message == Tailscale.token_drift_message(:unauthorized)
+      assert message =~ "rejected"
     end
 
-    test "an unclaimed gateway makes no API call", %{org: org} do
+    test "a 403 lands the SCOPE copy — a different verdict, a different sentence", %{org: org} do
+      claimed = with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
+      gateway = with_token_ref(claimed, "api-credential-x")
+
+      stub(ApiClient, :devices_lookup, fn _token, _hostname -> {:error, :forbidden} end)
+
+      assert {:ok, %{state: :needs_attention, message: message}} =
+               Tailscale.gateway_status(gateway)
+
+      assert message == Tailscale.token_drift_message(:forbidden)
+      assert message =~ "devices:routes"
+      refute message == Tailscale.token_drift_message(:unauthorized)
+    end
+
+    test "a drifted claim IP converges within the pass (P2-4)", %{org: org} do
+      previous = put_access_dns()
+
+      # The entry predates a fleet-side resolver move: recorded 9.9.9.9,
+      # config now points at @resolver_ip.
+      claimed =
+        with_claims(gateway_row!(org), %{@domain => claim_entry("9.9.9.9")})
+
+      gateway = with_token_ref(claimed, "api-credential-x")
+
+      assert {:ok, %{state: :active}} = Tailscale.gateway_status(gateway)
+
+      # One per-domain PATCH converges the record...
+      assert_received {:split_dns_patch, %{@domain => [@resolver_ip]}}
+      # ...and ONE Deployment re-apply — a TS_ROUTES diff is a
+      # pod-template change; the restart is how the new /32 reaches the
+      # node (P2-4).
+      assert_received {:deployment_apply, _manifest}
+
+      # The stored entry now carries the converged IP (a real funnel
+      # write, optimistic-locked).
+      row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+      assert row.dns_claims[@domain]["ip"] == @resolver_ip
+
+      on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
+    end
+
+    test "a lost /32 is re-united within the pass (P2-6)", %{org: org} do
+      previous = put_access_dns()
+
+      claimed = with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
+      gateway = with_token_ref(claimed, "api-credential-x")
+
+      # A racing writer's POST replaced the enabled list without ours
+      # (the API's replace semantics are exactly why this limb exists).
+      stub(ApiClient, :routes_get, fn _token, _id ->
+        {:ok, %{advertised: [], enabled: ["10.0.0.1/32"]}}
+      end)
+
+      assert {:ok, %{state: :active}} = Tailscale.gateway_status(gateway)
+
+      # Union, never replace: the stranger's route rides along.
+      assert_received {:routes_set, "dev-777", [@ours, "10.0.0.1/32"]}
+
+      on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
+    end
+
+    test "the RULED default-on claim: an active tokened gateway claims the platform domain",
+         %{org: org} do
+      previous = put_access_dns()
+      base = Application.fetch_env!(:flux_vale, :instances_base_domain)
+
+      AccessDomain.mint_platform!(
+        %{domain: base, organization_id: org.id},
+        authorize?: false
+      )
+
       gateway = with_token_ref(gateway_row!(org), "api-credential-x")
 
-      stub(ApiClient, :devices_lookup, fn _t, _h ->
-        flunk("nothing claimed, nothing to verify")
+      assert {:ok, %{state: :active}} = Tailscale.gateway_status(gateway)
+
+      # The claim's two writes happened...
+      assert_received {:routes_set, "dev-777", [@ours]}
+      assert_received {:split_dns_patch, %{^base => [@resolver_ip]}}
+
+      # ...and the row records the entry, with the RECORDED tailnet.
+      row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+      assert row.dns_claims[base] == claim_entry(@resolver_ip)
+
+      on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
+    end
+
+    test "an already-claimed platform domain is not re-claimed (converges, no writes)", %{
+      org: org
+    } do
+      previous = put_access_dns()
+      base = Application.fetch_env!(:flux_vale, :instances_base_domain)
+
+      AccessDomain.mint_platform!(%{domain: base, organization_id: org.id}, authorize?: false)
+
+      claimed =
+        with_claims(gateway_row!(org), %{
+          base => claim_entry(@resolver_ip),
+          @domain => claim_entry(@resolver_ip)
+        })
+
+      gateway = with_token_ref(claimed, "api-credential-x")
+
+      stub(ApiClient, :split_dns_get, fn _token -> {:ok, %{base => [@resolver_ip]}} end)
+
+      # Routes already hold ours; the /32 is present; the entry matches
+      # config: the pass makes NO tailnet write and NO row write.
+      stub(ApiClient, :routes_get, fn _token, _id ->
+        {:ok, %{advertised: [@ours], enabled: [@ours]}}
       end)
+
+      reject(ApiClient, :routes_set, 3)
+      reject(ApiClient, :split_dns_patch, 2)
+
+      assert {:ok, %{state: :active}} = Tailscale.gateway_status(gateway)
+
+      on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
+    end
+
+    test "an unclaimed gateway with a token still verifies (the default-on claim's gate)",
+         %{org: org} do
+      gateway = with_token_ref(gateway_row!(org), "api-credential-x")
+
+      # No platform row for the org, so the default-on claim has nothing
+      # to claim — but the token verify (its gate) still runs.
+      stub(ApiClient, :devices_lookup, fn _t, _h -> {:ok, %{id: "dev-777"}} end)
 
       assert {:ok, %{state: :active}} = Tailscale.gateway_status(gateway)
     end
 
     test "claims without a token ref make no API call", %{org: org} do
-      gateway = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+      gateway = with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
 
       stub(ApiClient, :devices_lookup, fn _t, _h -> flunk("no token, nothing to verify") end)
 
@@ -389,7 +521,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
     end
 
     test "a flaky token check must not flap the row", %{org: org} do
-      claimed = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+      claimed = with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
       gateway = with_token_ref(claimed, "api-credential-x")
 
       stub(ApiClient, :devices_lookup, fn _token, _hostname -> {:error, :network_error} end)
@@ -398,7 +530,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
     end
 
     test "an unreadable token stands down — nothing provable either way", %{org: org} do
-      claimed = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+      claimed = with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
       gateway = with_token_ref(claimed, "api-credential-x")
 
       stub(Secret, :get_data, fn _kc, _ns, _name -> {:ok, %{}} end)
@@ -408,7 +540,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
     end
 
     test "a pod problem dominates — the token is not even asked", %{org: org} do
-      claimed = with_claims(gateway_row!(org), %{@domain => @resolver_ip})
+      claimed = with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
       gateway = with_token_ref(claimed, "api-credential-x")
 
       stub(Deployment, :status, fn _kc, _ns, _name ->
@@ -428,7 +560,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
       assert {:ok, %{state: :needs_attention, message: message}} =
                Tailscale.gateway_status(gateway)
 
-      refute message == @token_rejected_copy
+      refute message == Tailscale.token_drift_message(:unauthorized)
     end
   end
 
@@ -487,6 +619,103 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
       end)
 
       assert {:error, :no_api_token} = Tailscale.read_api_credential(gateway)
+    end
+  end
+
+  describe "teardown_gateway/1 — the unclaim-all limb (P1-1)" do
+    # P1-1's rule: no dangling tailnet state and no orphaned API key,
+    # from EVERY exit.
+    test "reverts every claim, drops the /32 with the last claim, then deletes the objects",
+         %{org: org} do
+      gateway =
+        with_claims(gateway_row!(org), %{
+          @domain => claim_entry(@resolver_ip),
+          "other.example.com" => claim_entry(@resolver_ip)
+        })
+
+      stub(ApiClient, :routes_get, fn _token, _id ->
+        {:ok, %{advertised: [@ours], enabled: [@ours]}}
+      end)
+
+      expect(Deployment, :delete, fn _kc, _ns, _n -> :ok end)
+
+      expect(Secret, :delete, 3, fn _kc, _ns, secret_name ->
+        assert secret_name in [
+                 name_prefix(gateway, "serve-config"),
+                 name_prefix(gateway, "credential"),
+                 name_prefix(gateway, "api-credential")
+               ]
+
+        :ok
+      end)
+
+      expect(FluxVale.Clients.K8s.Resources.PersistentVolumeClaim, :delete, fn _kc, _ns, _claim ->
+        :ok
+      end)
+
+      assert :ok = Tailscale.teardown_gateway(gateway)
+
+      # Both domains unset (no other claimant on the tailnet)...
+      assert_received {:split_dns_patch, %{@domain => nil}}
+      assert_received {:split_dns_patch, %{"other.example.com" => nil}}
+
+      # ...and the /32 dropped exactly once — with the LAST claim (the
+      # first unclaim still has the other entry remaining).
+      assert_received {:routes_set, "dev-777", []}
+      refute_received {:routes_set, _id, _other}
+    end
+
+    test "an unclaim failure FAILS the teardown — nothing is deleted", %{org: org} do
+      gateway = with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
+
+      # The DNS unset lands; the node lookup then fails for a REAL
+      # reason — the teardown must refuse, not strand the route.
+      stub(ApiClient, :devices_lookup, fn _token, _hostname -> {:error, :unauthorized} end)
+
+      reject(Deployment, :delete, 3)
+      reject(Secret, :delete, 3)
+      reject(FluxVale.Clients.K8s.Resources.PersistentVolumeClaim, :delete, 3)
+
+      assert {:error, {:unclaim_failed, @domain, :unauthorized}} =
+               Tailscale.teardown_gateway(gateway)
+    end
+
+    test "claims without a readable token fail the teardown honestly", %{org: org} do
+      gateway = with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
+
+      stub(Secret, :get_data, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub(ApiClient, :split_dns_patch, fn _t, _p -> flunk("no API call without a token") end)
+      reject(Deployment, :delete, 3)
+
+      assert {:error, {:unclaim_failed, @domain, :no_api_token}} =
+               Tailscale.teardown_gateway(gateway)
+    end
+  end
+
+  describe "cleanup_failed_provision/1 — the api-credential delete (P1-1)" do
+    test "deletes the api-credential alongside the credential (keys first)", %{org: org} do
+      gateway = gateway_row!(org)
+      parent = self()
+
+      stub(Secret, :delete, fn _kc, _ns, secret_name ->
+        send(parent, {:deleted, secret_name})
+        :ok
+      end)
+
+      stub(FluxVale.Clients.K8s.Resources.PersistentVolumeClaim, :delete, fn _kc, _ns, _claim ->
+        :ok
+      end)
+
+      assert :ok = Tailscale.cleanup_failed_provision(gateway)
+
+      assert_received {:deleted, first}
+      assert first == name_prefix(gateway, "credential")
+
+      assert_received {:deleted, second}
+      assert second == name_prefix(gateway, "api-credential")
     end
   end
 
@@ -575,6 +804,10 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
     |> String.replace("-", "")
     |> String.slice(-10, 10)
   end
+
+  # The provider's per-gateway object names — the same rule the
+  # assertions pin (a local mirror of the provider's private helper).
+  defp name_prefix(gateway, prefix), do: "#{prefix}-#{short_id(gateway)}"
 
   defp put_access_dns do
     previous = Application.get_env(:flux_vale, :access_dns)

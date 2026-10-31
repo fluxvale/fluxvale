@@ -11,7 +11,6 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomainTest do
   use Mimic
 
   alias FluxVale.Accounts.Membership
-  alias FluxVale.Accounts.Membership
   alias FluxVale.Clients.K8s
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessDomain
@@ -22,8 +21,6 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomainTest do
 
   @domain_name "apps.customer.com"
   @resolver_ip "10.43.0.20"
-
-  @token_rejected_copy "Your Tailscale API key was rejected — paste a fresh one"
 
   setup do
     # Domain registration issues the verification Certificate — the
@@ -59,7 +56,10 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomainTest do
 
     assert {:ok, row} = Infrastructure.claim_access_domain(gateway, domain, actor: owner)
 
-    assert row.dns_claims == %{@domain_name => @resolver_ip}
+    # The entry records WHAT was claimed and the RECORDED tailnet (P2-14).
+    assert row.dns_claims == %{
+             @domain_name => %{"ip" => @resolver_ip, "tailnet" => "example.ts.net"}
+           }
   end
 
   test "a re-claim converges — the entry is updated, not duplicated", %{org: org, owner: owner} do
@@ -77,7 +77,9 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomainTest do
 
     assert {:ok, row} = Infrastructure.claim_access_domain(gateway, domain, actor: owner)
 
-    assert row.dns_claims == %{@domain_name => @resolver_ip}
+    assert row.dns_claims == %{
+             @domain_name => %{"ip" => @resolver_ip, "tailnet" => "example.ts.net"}
+           }
   end
 
   test "a parked gateway claims nothing", %{org: org, owner: owner} do
@@ -128,10 +130,71 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomainTest do
     row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
 
     assert row.state == :needs_attention
-    assert row.status_message == @token_rejected_copy
+
+    # P3-13's equality pin: the op drifts with the PROVIDER's copy —
+    # one source, two surfaces.
+    assert row.status_message == Tailscale.token_drift_message(:unauthorized)
     assert row.needs_attention_since
     # Nothing was claimed — the claims registry is untouched.
     assert row.dns_claims == nil
+  end
+
+  test "a scope-less token (403) drifts with the scope copy", %{org: org, owner: owner} do
+    gateway = AccessFixtures.gateway!(org)
+    domain = verified_domain!(owner)
+
+    stub(Tailscale, :claim_domain, fn _gw, _d, _ip -> {:error, :forbidden} end)
+
+    assert {:error, :forbidden} =
+             Infrastructure.claim_access_domain(gateway, domain, actor: owner)
+
+    row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+    assert row.state == :needs_attention
+    assert row.status_message == Tailscale.token_drift_message(:forbidden)
+    assert row.status_message =~ "devices:routes"
+  end
+
+  test "a stale claims write retries once against the committed map (P2-3)", %{
+    org: org,
+    owner: owner
+  } do
+    gateway = AccessFixtures.gateway!(org)
+    domain = verified_domain!(owner)
+
+    # Two tabs, two domains: this tab's write races a concurrent claim
+    # of "other.example.com". The lock refuses the slower write
+    # (StaleRecord); the retry re-reads the committed map and MERGES —
+    # the other tab's entry survives alongside this one.
+    stub(Tailscale, :claim_domain, fn _gw, _d, _ip -> {:ok, %{device_id: "dev-777"}} end)
+
+    stale = %Ash.Error.Invalid{errors: [%Ash.Error.Changes.StaleRecord{}]}
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+
+    stub(AccessGateway, :update_claims, fn gw, %{dns_claims: claims}, _opts ->
+      n = Agent.get_and_update(attempts, fn c -> {c, c + 1} end)
+
+      if n == 0 do
+        # First attempt: refused as stale (the other tab wrote first).
+        {:error, stale}
+      else
+        # The retry recomputed from the committed map: merge the other
+        # tab's entry in, keep BOTH.
+        merged =
+          Map.put(claims, "other.example.com", %{
+            "ip" => @resolver_ip,
+            "tailnet" => "example.ts.net"
+          })
+
+        send(self(), {:claims_write, gw.id, merged})
+        {:ok, %{gw | dns_claims: merged, version: 2}}
+      end
+    end)
+
+    assert {:ok, _row} = Infrastructure.claim_access_domain(gateway, domain, actor: owner)
+
+    assert_received {:claims_write, _id, claims}
+    assert Map.has_key?(claims, @domain_name)
+    assert claims["other.example.com"] == %{"ip" => @resolver_ip, "tailnet" => "example.ts.net"}
   end
 
   test "a claims-write failure after a successful claim surfaces honestly", %{
