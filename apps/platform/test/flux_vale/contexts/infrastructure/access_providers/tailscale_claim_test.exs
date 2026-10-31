@@ -343,6 +343,9 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
       org: org
     } do
       previous = Application.get_env(:flux_vale, :access_dns)
+
+      on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
+
       Application.put_env(:flux_vale, :access_dns, nil)
 
       gateway = gateway_row!(org)
@@ -351,8 +354,6 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
 
       assert_received {:split_dns_patch, %{@domain => nil}}
       refute_received {:routes_set, _id, _routes}
-
-      on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
     end
   end
 
@@ -398,7 +399,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
     end
 
     test "a drifted claim IP converges within the pass (P2-4)", %{org: org} do
-      previous = put_access_dns()
+      put_access_dns()
 
       # The entry predates a fleet-side resolver move: recorded 9.9.9.9,
       # config now points at @resolver_ip.
@@ -420,12 +421,10 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
       # write, optimistic-locked).
       row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
       assert row.dns_claims[@domain]["ip"] == @resolver_ip
-
-      on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
     end
 
     test "a lost /32 is re-united within the pass (P2-6)", %{org: org} do
-      previous = put_access_dns()
+      put_access_dns()
 
       claimed = with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
       gateway = with_token_ref(claimed, "api-credential-x")
@@ -440,13 +439,11 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
 
       # Union, never replace: the stranger's route rides along.
       assert_received {:routes_set, "dev-777", [@ours, "10.0.0.1/32"]}
-
-      on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
     end
 
     test "the RULED default-on claim: an active tokened gateway claims the platform domain",
          %{org: org} do
-      previous = put_access_dns()
+      put_access_dns()
       base = Application.fetch_env!(:flux_vale, :instances_base_domain)
 
       AccessDomain.mint_platform!(
@@ -465,14 +462,12 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
       # ...and the row records the entry, with the RECORDED tailnet.
       row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
       assert row.dns_claims[base] == claim_entry(@resolver_ip)
-
-      on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
     end
 
     test "an already-claimed platform domain is not re-claimed (converges, no writes)", %{
       org: org
     } do
-      previous = put_access_dns()
+      put_access_dns()
       base = Application.fetch_env!(:flux_vale, :instances_base_domain)
 
       AccessDomain.mint_platform!(%{domain: base, organization_id: org.id}, authorize?: false)
@@ -497,8 +492,6 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
       reject(ApiClient, :split_dns_patch, 2)
 
       assert {:ok, %{state: :active}} = Tailscale.gateway_status(gateway)
-
-      on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
     end
 
     test "an unclaimed gateway with a token still verifies (the default-on claim's gate)",
@@ -721,22 +714,21 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
 
   describe "the TS_ROUTES manifest limb" do
     test "a configured resolver advertises its /32", %{org: org} do
-      previous = put_access_dns()
+      put_access_dns()
 
       gateway = gateway_row!(org)
       then_assert_env(gateway, "TS_ROUTES", @ours)
-
-      on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
     end
 
     test "no resolver configured: no TS_ROUTES, the manifest is the ADR-0039 shape", %{org: org} do
       previous = Application.get_env(:flux_vale, :access_dns)
+
+      on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
+
       Application.put_env(:flux_vale, :access_dns, nil)
 
       gateway = gateway_row!(org)
       then_refute_env(gateway, "TS_ROUTES")
-
-      on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
     end
   end
 
@@ -811,6 +803,11 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
 
   defp put_access_dns do
     previous = Application.get_env(:flux_vale, :access_dns)
+
+    # Registered BEFORE the mutation (CodeRabbit's leak nit): a failure
+    # mid-test still restores the file's config.
+    on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
+
     Application.put_env(:flux_vale, :access_dns, resolver_ip: @resolver_ip)
     previous
   end
