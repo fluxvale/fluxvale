@@ -202,15 +202,19 @@ config :flux_vale,
     issuance_deadline_hours: 72
   ],
   # Strong private access (ADR-0040 S3): the tunnel + resolution halves
-  # of the gateway's tailnet work. Both nil here = dev-safe: the serve
-  # config has NO tunnel limb (byte-identical to the pre-ADR shape,
-  # pinned by test), the pod advertises no TS_ROUTES, and claiming
-  # refuses honestly (`:resolver_unconfigured`). The fleet overlays set
-  # both from env (runtime.exs — the instances_base_domain pattern).
-  # `access_edge` names the Traefik access entrypoint the gateway's raw
-  # 443/80 forward to (service = the fully-qualified in-cluster DNS
-  # name); `access_dns` names the shared resolver's ClusterIP (a
-  # fleet-reserved /32 — one Service IP, never a wider slice, §12).
+  # of the gateway's tailnet work. `access_edge` is DEFAULTED at runtime
+  # to the fleet's access entrypoint (infra #119 — runtime.exs; env
+  # override wins), so nil here is only the pre-runtime value: the serve
+  # config's tunnel limb is omitted when the key is ABSENT (pinned by
+  # test), which is now only a deliberate Application-env deletion.
+  # `access_dns` stays nil-for-dev: without a resolver IP nothing
+  # claims (`:resolver_unconfigured`), so the tunnel limb is inert on a
+  # local stack. The fleet sets the resolver IP from env (runtime.exs —
+  # the instances_base_domain pattern). `access_edge` names the Traefik
+  # access entrypoint the gateway's raw 443/80 forward to (service = the
+  # fully-qualified in-cluster DNS name); `access_dns` names the shared
+  # resolver's ClusterIP (a fleet-reserved /32 — one Service IP, never a
+  # wider slice, §12) and the zones ConfigMap the S4 renderer writes.
   # `tailscale_api` is the API surface claims are written through
   # (§5's token arrives pasted through SetAccessApiToken, never env).
   access_edge: nil,

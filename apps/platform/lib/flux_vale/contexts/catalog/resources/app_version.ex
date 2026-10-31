@@ -16,11 +16,11 @@ defmodule FluxVale.Catalog.AppVersion do
     authorizers: [Ash.Policy.Authorizer]
 
   postgres do
-    table "app_versions"
-    repo FluxVale.Repo
+    table("app_versions")
+    repo(FluxVale.Repo)
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
-    migration_defaults id: "nil"
+    migration_defaults(id: "nil")
   end
 
   policies do
@@ -29,12 +29,15 @@ defmodule FluxVale.Catalog.AppVersion do
       # healthcheck) — catalog data is upstream-shaped and public. Never
       # put a secret in default_env_vars; a secret-carrying app version
       # needs a secret ref, which revisits this policy.
-      description "Public browse — the catalog is a public marketing surface (#164, ADR-00025); writes stay admin-only"
+      description(
+        "Public browse — the catalog is a public marketing surface (#164, ADR-00025); writes stay admin-only"
+      )
+
       authorize_if(always())
     end
 
     policy FluxVale.Checks.ActorIsPlatformAdmin do
-      description "Platform admins manage catalog app versions (ADR-0027, ADR-0030)"
+      description("Platform admins manage catalog app versions (ADR-0027, ADR-0030)")
       authorize_if(always())
     end
   end
@@ -89,6 +92,17 @@ defmodule FluxVale.Catalog.AppVersion do
     # data, but apps like Forgejo need it (FORGEJO__server__ROOT_URL) to
     # generate correct absolute links behind the proxy. nil = not wanted.
     attribute :instance_url_env, :string do
+      public?(true)
+      constraints(match: ~r/^[A-Za-z_][A-Za-z0-9_]*$/)
+    end
+
+    # Env var the deploy fills with the instance's hostname when the app
+    # validates Host headers (Django-class ALLOWED_HOSTS): the app would
+    # otherwise 400 every request from its real name. Filled when the
+    # default hostname is LIVE on a claimed domain — public rows always,
+    # private rows per ADR-0040 §7's designed exception to ADR-0038 §4's
+    # omission rule. nil = not wanted.
+    attribute :host_allowlist_env, :string do
       public?(true)
       constraints(match: ~r/^[A-Za-z_][A-Za-z0-9_]*$/)
     end
@@ -165,7 +179,7 @@ defmodule FluxVale.Catalog.AppVersion do
     defaults([:read, :destroy])
 
     create :create do
-      primary? true
+      primary?(true)
 
       accept([
         :version,
@@ -174,6 +188,7 @@ defmodule FluxVale.Catalog.AppVersion do
         :healthcheck_path,
         :storage_mount_path,
         :instance_url_env,
+        :host_allowlist_env,
         :default_env_vars,
         :configurable_env_vars,
         :first_run,
@@ -192,7 +207,7 @@ defmodule FluxVale.Catalog.AppVersion do
     end
 
     update :update do
-      primary? true
+      primary?(true)
       # version is the seed's lookup key (with app_id) — immutable after
       # create, same as Category/App slug; an edited version would orphan
       # the row from seed convergence. Seeds converge drifted rows through
@@ -203,6 +218,7 @@ defmodule FluxVale.Catalog.AppVersion do
         :healthcheck_path,
         :storage_mount_path,
         :instance_url_env,
+        :host_allowlist_env,
         :default_env_vars,
         :configurable_env_vars,
         :first_run,
@@ -225,7 +241,7 @@ defmodule FluxVale.Catalog.AppVersion do
   end
 
   code_interface do
-    domain FluxVale.Catalog
+    domain(FluxVale.Catalog)
 
     define(:create)
     define(:update)

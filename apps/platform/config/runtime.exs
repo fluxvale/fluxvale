@@ -51,13 +51,18 @@ case System.get_env("INSTANCES_BASE_DOMAIN") do
 end
 
 # ADR-0040 S3's runtime wiring (the INSTANCES_BASE_DOMAIN pattern): the
-# fleet overlays set the access edge (the gateway tunnel's target) and
-# the shared resolver IP (the advertised /32 + claim target). Unset — or
-# "" — keeps config.exs's dev-safe defaults (both limbs off). Invalid
-# values raise at boot: a typo'd port or resolver IP would otherwise
-# poison every claim silently. Edge ports default to 443/80 (the access
-# entrypoint's shape, ADR-0040 §1) and are overridden only when the
-# entrypoint differs.
+# fleet overlays may still set the access edge (the gateway tunnel's
+# target) and the shared resolver IP (the advertised /32 + claim target)
+# from env — the env override wins in every branch. Invalid values raise
+# at boot: a typo'd port or resolver IP would otherwise poison every
+# claim silently.
+#
+# The access-edge DEFAULTS are the fleet's landed shape (infra #119):
+# the `access` entrypoint on the fleet Traefik, ports 8444/8080. Inert
+# on a local stack — without `:access_dns` nothing claims, and without
+# a claim nothing rides the tunnel limb (the ts.net port config is
+# byte-identical, pinned by test) — so a plain `mix phx.server` still
+# needs no env.
 parse_port = fn var_name, default ->
   case System.get_env(var_name) do
     value when value in [nil, ""] ->
@@ -73,6 +78,20 @@ parse_port = fn var_name, default ->
                 "#{var_name}=#{inspect(value)} is not an integer in 1..65535"
       end
   end
+end
+
+case System.get_env("ACCESS_EDGE_SERVICE") do
+  service when service in [nil, ""] ->
+    config :flux_vale, :access_edge,
+      service: "traefik.traefik.svc.cluster.local",
+      https_port: parse_port.("ACCESS_EDGE_HTTPS_PORT", 8444),
+      http_port: parse_port.("ACCESS_EDGE_HTTP_PORT", 8080)
+
+  service ->
+    config :flux_vale, :access_edge,
+      service: service,
+      https_port: parse_port.("ACCESS_EDGE_HTTPS_PORT", 8444),
+      http_port: parse_port.("ACCESS_EDGE_HTTP_PORT", 8080)
 end
 
 # Dotted-quad with octets in range — loose enough for any private
@@ -108,17 +127,6 @@ case System.get_env("TAILSCALE_API_URL") do
       raise ArgumentError,
             "TAILSCALE_API_URL=#{inspect(url)} must be an https:// URL with no userinfo"
     end
-end
-
-case System.get_env("ACCESS_EDGE_SERVICE") do
-  service when service in [nil, ""] ->
-    :ok
-
-  service ->
-    config :flux_vale, :access_edge,
-      service: service,
-      https_port: parse_port.("ACCESS_EDGE_HTTPS_PORT", 443),
-      http_port: parse_port.("ACCESS_EDGE_HTTP_PORT", 80)
 end
 
 case System.get_env("ACCESS_DNS_RESOLVER_IP") do
