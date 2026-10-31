@@ -216,6 +216,45 @@ defmodule FluxValeWeb.OrganizationLive.HomeTest do
     assert has_element?(view, "[data-testid='instances-empty']")
   end
 
+  # The exact interleaving the re-read exists for: an update_status
+  # notification for a teardown already deleted. The destroy clause
+  # handles the page exit; this arm must not raise (the index's mirror).
+  test "a trailing update broadcast for a deleted org row is a no-op", %{
+    conn: conn,
+    org: org,
+    user: user
+  } do
+    version = InstanceFixtures.app_version!()
+
+    instance =
+      Ash.Seed.seed!(Instance, %{
+        name: "Ghost Inst #{System.unique_integer([:positive])}",
+        slug: "inst-#{System.unique_integer([:positive])}",
+        image: "registry.example.com/org:1",
+        port: 3000,
+        healthcheck_path: "/",
+        status: :pending,
+        env_vars: %{},
+        app_version_id: version.id,
+        organization_id: org.id
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}")
+
+    Instance.delete(instance.id, actor: user)
+
+    notification = %Ash.Notifier.Notification{
+      resource: Instance,
+      action: %{name: :update_status},
+      data: instance
+    }
+
+    Phoenix.PubSub.broadcast(FluxVale.PubSub, "instances:#{instance.id}", notification)
+
+    refute has_element?(view, "#instances-#{instance.id}")
+    assert has_element?(view, "[data-testid='instances-empty']")
+  end
+
   test "the wallet summary shows the org balance", %{conn: conn, org: org} do
     {:ok, wallet} = Billing.ensure_wallet(org)
 
