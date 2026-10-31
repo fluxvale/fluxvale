@@ -42,9 +42,18 @@ await page.request.post(`${BASE}/auth/session`, {
   headers: { "x-csrf-token": csrf },
 });
 
-// The reveal: navigation to / records the .rise stagger.
-await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
-await page.waitForTimeout(2500);
+// The reveal: navigation starts with the video already rolling and we
+// DON'T settle first — `commit` returns at navigation commit, so the
+// unrevealed first paint (rise at opacity ~0) lands IN the video
+// (hostile F3: the old capture waited for networkidle + 2.5s, so frame
+// 0 was the settled page — it showed no motion at all).
+const navPromise = page
+  .goto(`${BASE}/`, { waitUntil: "commit" })
+  .catch(() => {});
+
+// give the page time to paint the reveal into the video
+await navPromise;
+await page.waitForTimeout(3000);
 
 if (page.url().includes("/sign-in")) throw new Error("session failed");
 

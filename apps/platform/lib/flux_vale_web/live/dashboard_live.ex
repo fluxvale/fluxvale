@@ -132,45 +132,49 @@ defmodule FluxValeWeb.DashboardLive do
         <%!-- 2. The metrics band. Mid-page here (the header is above it
         on the page background), so it carries its own top hairline via
         utility — the grammar's .band supplies the sunken fill + the
-        bottom hairline. Render insets: the card tops the band (~6px in,
-        ~96px of band below it), the runway is the band's vertical
-        center at the content's right edge (~82px top inset — the
-        min-[760px] margin below IS that offset); below 760px the cards
-        stack inside the band (render's mobile insets ~22px top / ~43px
-        bottom). The runway keeps the exact formatter/testid shape of
-        the old metric_card — value and hint inside the testid element
-        (the tests read both through it). Billing-down (#124,
-        defensive-only: action-created users always have a
-        JIT-provisioned org) swaps the metric for the callout, same
-        card-width column, no special placement. --%>
+        bottom hairline. Render insets, real numbers (page first, render
+        second): the card tops the band 7px / 7px in, with 123px / 97px
+        of band below it; the runway is the band's vertical center at
+        the content's right edge, top inset 83px / 82px — the
+        min-[760px] margin below IS that offset. Below 760px the cards
+        stack inside the band (render's mobile insets 21px / 45px on the
+        page). The metric values are whitespace-nowrap and step down
+        below 900px (text-4xl, card capped max-w-sm there): "No active
+        burn" and "under an hour" must never break mid-phrase — a wrap
+        would grow the band 48px off a string (hostile F1). The values
+        carry border-line-strong: the render's card edge is --line-strong
+        in BOTH themes, and app.css's dark rule says raised panels carry
+        depth with border emphasis (hostile F6). The runway carries no
+        .rise of its own — the band's rise already carries it; a nested
+        rise double-fades and double-travels (hostile F2, and now a
+        grammar kill rule). Billing-down (#124, defensive-only:
+        action-created users always have a JIT-provisioned org) swaps
+        the metric for the callout, same card-width column, no special
+        placement. --%>
         <section class="band border-t border-line">
           <div class="wrap pt-5 pb-11 min-[760px]:pt-1.5 min-[760px]:pb-24">
             <div class="rise flex flex-col gap-6 min-[760px]:flex-row min-[760px]:items-start min-[760px]:justify-between">
               <div
                 :if={@wallet != :none}
                 data-testid="dashboard-balance"
-                class="card w-full max-w-md p-5 shadow-md sm:p-6"
+                class="card w-full max-w-sm min-[900px]:max-w-md border-line-strong p-5 shadow-md sm:p-6"
               >
                 <p class="eyebrow">Balance</p>
-                <p class="mt-1.5 text-4xl font-bold tracking-tight text-ink sm:text-5xl">
+                <p class="mt-1.5 whitespace-nowrap text-4xl font-bold tracking-tight text-ink min-[900px]:text-5xl">
                   {format_usd(@wallet.balance_cents)}
                 </p>
                 <p class="mt-1 text-xs text-ink-subtle">Credits never expire.</p>
               </div>
 
-              <div
-                :if={@wallet != :none}
-                data-testid="dashboard-runway"
-                class="rise min-[760px]:mt-[76px]"
-              >
+              <div :if={@wallet != :none} data-testid="dashboard-runway" class="min-[760px]:mt-[76px]">
                 <p class="eyebrow">Runway</p>
-                <p class="mt-1.5 text-4xl font-bold tracking-tight text-ink sm:text-5xl">
+                <p class="mt-1.5 whitespace-nowrap text-4xl font-bold tracking-tight text-ink min-[900px]:text-5xl">
                   {format_runway(@wallet)}
                 </p>
                 <p class="mt-1 text-xs text-ink-subtle">{burn_hint(@wallet, @instance_count)}</p>
               </div>
 
-              <div :if={@wallet == :none} class="rise w-full max-w-md">
+              <div :if={@wallet == :none} class="w-full max-w-sm min-[900px]:max-w-md">
                 <.callout tone="warning" title="Billing unavailable">
                   We couldn't load billing for this account. Try the <.link
                     navigate={~p"/billing"}
@@ -217,57 +221,65 @@ defmodule FluxValeWeb.DashboardLive do
             </.callout>
 
             <%!-- The concept's row language: monogram chip, name + mono
-            hostname, app/version, status badge. These are LINK cards —
-            the one place the grammar's hover lift (`a.card`) belongs;
-            the lift and its motion kill switch are the grammar's, no
-            per-row translate/shadow machinery like the index rows keep.
-            Grid: mobile drops app/version under the name at the name's
-            left edge (the reference's indent); sm+ reads one line. --%>
+            hostname, app/version, status badge. Same card language as
+            the index rows (#277 T5a/T7) — and the same hit-box split
+            (hostile F5): the link's own box stays put and an inner
+            wrapper lifts motion-safe, so a pointer parked at the row's
+            bottom 1px still lands inside the link and navigates (the
+            grammar's a.card lift moves the box itself and opens a 3px
+            dead band). border-line-strong + shadow-sm is the index
+            rows' rest step — app.css's dark rule gives raised panels
+            border emphasis, and the sibling row surface must not read
+            flatter than this one (hostile F6). Grid: mobile drops
+            app/version under the name at the name's left edge (the
+            reference's indent); sm+ reads one line. --%>
             <div id="dashboard-instances" phx-update="stream" class="space-y-3">
               <.link
                 :for={{dom_id, instance} <- @streams.instances}
                 navigate={~p"/instances/#{instance.id}"}
                 id={dom_id}
                 data-testid="instance-row"
-                class="card group grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-2 p-4 outline-offset-2 outline-focus focus-visible:outline-2 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto] sm:p-5"
+                class="group relative block rounded-panel border border-line-strong bg-panel p-4 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md sm:p-5"
               >
-                <span
-                  aria-hidden="true"
-                  class="grid size-9 place-items-center rounded-panel border border-primary/25 bg-primary-muted font-mono text-xs font-semibold text-link"
-                >
-                  {monogram(instance.name)}
-                </span>
-
-                <div class="min-w-0 space-y-0.5">
-                  <h3 class="min-w-0 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
-                    {instance.name}
-                  </h3>
-                  <p class="truncate font-mono text-xs text-ink-subtle">{instance.slug}</p>
-                  <%!-- #179 friendly copy only; quiet on settled states —
-                  see the moduledoc's #203 note. --%>
-                  <p
-                    :if={noisy?(instance.status)}
-                    class="truncate text-xs text-ink-subtle"
-                    data-testid="instance-status-message"
+                <div class="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-2 transition-[translate] duration-(--motion-base) ease-(--motion-ease-out) motion-safe:group-hover:-translate-y-1 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
+                  <span
+                    aria-hidden="true"
+                    class="grid size-9 place-items-center rounded-panel border border-primary/25 bg-primary-muted font-mono text-xs font-semibold text-link"
                   >
-                    {InstanceStatus.message(instance)}
-                  </p>
-                </div>
-
-                <div class="col-start-2 row-start-2 flex items-center gap-3 sm:col-start-3 sm:row-start-1">
-                  <span class="text-sm text-ink-muted">
-                    {instance.app_version.app.name}
-                    <span class="ml-1 font-mono text-xs text-ink-subtle">
-                      v{instance.app_version.version}
-                    </span>
+                    {monogram(instance.name)}
                   </span>
-                  <.status_badge status={instance.status} />
-                </div>
 
-                <.icon
-                  name="hero-chevron-right"
-                  class="hidden size-4 text-ink-subtle opacity-0 transition-[opacity] duration-(--motion-base) ease-(--motion-ease-out) group-hover:opacity-100 group-focus-visible:opacity-100 sm:col-start-4 sm:row-start-1 sm:block"
-                />
+                  <div class="min-w-0 space-y-0.5">
+                    <h3 class="min-w-0 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
+                      {instance.name}
+                    </h3>
+                    <p class="truncate font-mono text-xs text-ink-subtle">{instance.slug}</p>
+                    <%!-- #179 friendly copy only; quiet on settled states —
+                    see the moduledoc's #203 note. --%>
+                    <p
+                      :if={noisy?(instance.status)}
+                      class="truncate text-xs text-ink-subtle"
+                      data-testid="instance-status-message"
+                    >
+                      {InstanceStatus.message(instance)}
+                    </p>
+                  </div>
+
+                  <div class="col-start-2 row-start-2 flex items-center gap-3 sm:col-start-3 sm:row-start-1">
+                    <span class="text-sm text-ink-muted">
+                      {instance.app_version.app.name}
+                      <span class="ml-1 font-mono text-xs text-ink-subtle">
+                        v{instance.app_version.version}
+                      </span>
+                    </span>
+                    <.status_badge status={instance.status} />
+                  </div>
+
+                  <.icon
+                    name="hero-chevron-right"
+                    class="hidden size-4 text-ink-subtle opacity-0 transition-[opacity] duration-(--motion-base) ease-(--motion-ease-out) group-hover:opacity-100 group-focus-visible:opacity-100 sm:col-start-4 sm:row-start-1 sm:block"
+                  />
+                </div>
               </.link>
             </div>
           </div>
@@ -322,10 +334,13 @@ defmodule FluxValeWeb.DashboardLive do
   defp noisy?(status), do: status not in [:running, :sleeping, :stopped]
 
   # The row chip's mark (S4's reference rows): the name's first two
-  # graphemes, uppercased — a stable two-letter read of any name.
+  # GRAPHEMES, uppercased — String.graphemes, not String.slice, so a
+  # multi-codepoint glyph (emoji, combining accent) is never split.
   defp monogram(name) do
     name
-    |> String.slice(0, 2)
+    |> String.graphemes()
+    |> Enum.take(2)
+    |> Enum.join()
     |> String.upcase()
   end
 

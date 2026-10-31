@@ -19,6 +19,8 @@ import { chromium } from "@playwright/test";
 const BASE = process.argv[2] ?? "http://127.0.0.1:4186";
 const TOKEN = process.env.FV_TOKEN ?? "";
 const INSTANCE = process.env.FV_INSTANCE ?? "";
+const SHAPE = process.env.FV_SHAPE ?? "";
+const LAYOUT_ONLY = process.env.FV_LAYOUT_ONLY === "1";
 
 if (!TOKEN || !INSTANCE) {
   console.error("FV_TOKEN and FV_INSTANCE required");
@@ -50,10 +52,12 @@ async function layoutAt(browser, width, height) {
     const band = document.querySelector(".appgram .band");
     const balance = document.querySelector("[data-testid='dashboard-balance']");
     const runway = document.querySelector("[data-testid='dashboard-runway']");
-    const rowsSection = document.querySelector("section.wrap");
+    const rowsSection = document.querySelector(
+      "section[aria-labelledby='dashboard-instances-title']"
+    );
     const bandWrap = band?.querySelector(".wrap");
     const firstRow = document.querySelector("[data-testid='instance-row']");
-    const appgram = document.querySelector(".appgram");
+    const runwayValue = runway?.querySelector("p:nth-of-type(2)");
 
     const r = (el) => {
       if (!el) return null;
@@ -61,11 +65,19 @@ async function layoutAt(browser, width, height) {
       return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, width: b.width };
     };
 
+    // Line count of the runway value: wrapped text paints >1 client
+    // rect. The band's height must never depend on this being >1 (F1).
+    const valueLines = runwayValue
+      ? runwayValue.getClientRects().length
+      : null;
+    const valueRect = runwayValue ? r(runwayValue) : null;
+
     return {
       viewport: { w: window.innerWidth, h: window.innerHeight },
       noPan: document.documentElement.scrollWidth <= window.innerWidth,
       scrollWidth: document.documentElement.scrollWidth,
       band: r(band),
+      bandH: band ? Math.round(band.getBoundingClientRect().height * 10) / 10 : null,
       bandIsFullBleed: band ? band.getBoundingClientRect().left === 0 &&
         Math.abs(band.getBoundingClientRect().width - window.innerWidth) < 1 : null,
       balance: r(balance),
@@ -82,6 +94,11 @@ async function layoutAt(browser, width, height) {
         ? band.getBoundingClientRect().bottom - balance.getBoundingClientRect().bottom
         : null,
       runway: r(runway),
+      runwayValueLines: valueLines,
+      runwayValueNoWrap: valueRect && runwayValue
+        ? runwayValue.scrollHeight <= Math.ceil(parseFloat(getComputedStyle(runwayValue).fontSize) * 1.3)
+        : null,
+      runwayValueText: runwayValue?.textContent.trim(),
       runwayAboveBandBottom: band && runway
         ? runway.getBoundingClientRect().bottom < band.getBoundingClientRect().bottom
         : null,
@@ -107,23 +124,82 @@ async function layoutAt(browser, width, height) {
   return { viewport: `${width}x${height}`, ...data };
 }
 
-// ---- 1. layout at the spec's widths --------------------------------------
+// ---- 1. layout at the sweep widths (includes the 846→760 window the
+// first harness stepped over — hostile F1) -------------------------------
 
 const widths = [
   [1440, 900],
   [1000, 900],
   [920, 900],
+  [900, 900],
+  [899, 900],
+  [845, 900],
+  [844, 390],
+  [820, 900],
+  [768, 1024],
+  [760, 900],
   [375, 800],
 ];
 
 for (const [w, h] of widths) {
   const m = await layoutAt(browser, w, h);
-  console.log("MEASURE layout " + JSON.stringify(m));
+  console.log(
+    "MEASURE layout " +
+      (SHAPE ? `shape=${SHAPE} ` : "") +
+      JSON.stringify(m)
+  );
+}
+
+// ---- 1b. hover-lift dead band: the link's own box must stay put ----
+// (hostile F5) The grammar's a.card lift moves the link's own box,
+// opening a 3px dead band at the row's bottom edge (#277 T5a/T7 exists
+// because of exactly this). These rows lift an inner wrapper; a click
+// 1px inside the link's bottom edge must NAVIGATE — hovered+settled
+// and cold. (Skipped in FV_LAYOUT_ONLY mode — the wallet-shape sweep
+// runs only section 1 per shape.)
+if (!LAYOUT_ONLY) {
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await ctx.newPage();
+
+  for (const hoverFirst of [true, false]) {
+    await signIn(page);
+    await page.locator("[data-testid='instance-row']").first().scrollIntoViewIfNeeded();
+    await page.waitForTimeout(300);
+
+    const row = page.locator("[data-testid='instance-row']").first();
+    const box = await row.boundingBox();
+    const px = box.x + box.width / 2;
+    const py = box.y + box.height - 1; // 1px inside the link's bottom edge
+
+    if (hoverFirst) {
+      await page.mouse.move(px, py);
+      await page.waitForTimeout(400); // let the lift settle
+    }
+
+    await page.mouse.down();
+    await page.mouse.up();
+    await page.waitForTimeout(800);
+
+    const navigated = !page.url().match(/\/$/);
+    console.log(
+      "MEASURE clickdeadband " +
+        JSON.stringify({ hoverFirst, clickY: "bottom-1px", navigated })
+    );
+
+    if (!navigated) {
+      console.log("ERROR clickdeadband: bottom-1px click did not navigate");
+      process.exit(1);
+    }
+  }
+
+  await ctx.close();
+}
 }
 
 // ---- 2. reduced motion: the kill switch, zero delta -----------------------
 
-{
+if (!LAYOUT_ONLY) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
   const page = await ctx.newPage();
   await signIn(page);
@@ -171,7 +247,7 @@ for (const [w, h] of widths) {
 
 // ---- 3. live update: broadcast must not replay the rise -------------------
 
-{
+if (!LAYOUT_ONLY) {
   const browser2 = await chromium.launch();
   const ctx = await browser2.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await ctx.newPage();
