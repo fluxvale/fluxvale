@@ -72,7 +72,12 @@ defmodule FluxValeWeb.CatalogLive.Show do
                 </div>
 
                 <div class="flex shrink-0 gap-2">
-                  <.button navigate={~p"/apps/#{@app.slug}/deploy"}>Deploy</.button>
+                  <%!-- No versions, no stepper: the wizard's step 1 would
+                    list nothing (an app can exist before its first
+                    version; #341 review). --%>
+                  <.button :if={@versions != []} navigate={~p"/apps/#{@app.slug}/deploy"}>
+                    Deploy
+                  </.button>
                 </div>
               </div>
 

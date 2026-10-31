@@ -6,6 +6,7 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
   import Phoenix.LiveViewTest
 
   alias FluxVale.Catalog.App
+  alias FluxVale.Catalog.Category
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
@@ -85,6 +86,26 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
       {:error, {:live_redirect, %{to: to}}} ->
         assert to == ~p"/apps"
     end
+  end
+
+  # An app can exist before its first version — the band Deploy would
+  # open a stepper with nothing to pick (#341 review).
+  test "an app with no versions hides the band Deploy", %{conn: conn} do
+    n = System.unique_integer()
+
+    category =
+      Category.create!(%{name: "Empty #{n}", slug: "empty-#{n}"}, authorize?: false)
+
+    app =
+      App.create!(
+        %{name: "Bare #{n}", slug: "bare-#{n}", category_id: category.id},
+        authorize?: false
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/apps/bare-#{n}")
+
+    assert has_element?(view, "h1", "Bare #{n}")
+    refute has_element?(view, "a[href='/apps/bare-#{n}/deploy']")
   end
 
   # #190: the catalog-declared file-access flag surfaces as a badge —

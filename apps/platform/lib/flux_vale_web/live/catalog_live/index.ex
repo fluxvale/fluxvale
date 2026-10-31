@@ -19,7 +19,16 @@ defmodule FluxValeWeb.CatalogLive.Index do
       |> Ash.Query.load(:apps)
       |> Ash.read!()
 
-    {:ok, assign(socket, categories: categories, wake_estimates: safe_wake_estimates())}
+    {:ok,
+     assign(
+       socket,
+       categories: categories,
+       # The mosaic's flat stream, computed once — the empty state keys
+       # on it, not on @categories (categories can exist with zero apps;
+       # #341 review).
+       catalog_apps: catalog_apps(categories),
+       wake_estimates: safe_wake_estimates()
+     )}
   end
 
   # The badge must never take the catalog down: the named WakeStats
@@ -80,11 +89,11 @@ defmodule FluxValeWeb.CatalogLive.Index do
         wrapper lifts (a bottom-1px click still lands in the link). --%>
         <section class="wrap pt-14 pb-16">
           <div class="rise space-y-4 [animation-delay:170ms]">
-            <.empty_state :if={@categories == []} title="No apps in the catalog yet." />
+            <.empty_state :if={@catalog_apps == []} title="No apps in the catalog yet." />
 
             <div id="catalog-mosaic" class="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2">
               <.link
-                :for={{app, category} <- catalog_apps(@categories)}
+                :for={{app, category} <- @catalog_apps}
                 navigate={~p"/apps/#{app.slug}"}
                 id={"app-#{app.id}"}
                 data-testid={"app-#{app.slug}"}

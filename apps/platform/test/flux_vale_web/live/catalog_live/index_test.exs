@@ -61,4 +61,16 @@ defmodule FluxValeWeb.CatalogLive.IndexTest do
     assert html =~ "No apps in the catalog yet"
     refute has_element?(view, "#catalog-mosaic a")
   end
+
+  # Categories can exist with zero apps — the mosaic keys its empty
+  # state on the flattened app list, not on @categories (#341 review).
+  test "categories without apps still render the empty state", %{conn: conn} do
+    n = System.unique_integer()
+    Category.create!(%{name: "Empty #{n}", slug: "empty-#{n}"}, authorize?: false)
+
+    {:ok, view, html} = live(conn, ~p"/apps")
+
+    assert html =~ "No apps in the catalog yet"
+    refute has_element?(view, "#catalog-mosaic a")
+  end
 end
