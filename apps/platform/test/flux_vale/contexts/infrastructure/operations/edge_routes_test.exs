@@ -353,6 +353,75 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
                EdgeRoutes.ensure_access_cert_secret(%{}, domain, "ns")
     end
 
+    test "a :needs_attention custom domain WITH a cert ref keeps routing (the healing state)" do
+      stub_kubeconfig()
+      owner = user()
+      instance = instance!(%{}, %{}, owner)
+      ns = "fluxvale-app-#{instance.id}"
+
+      domain = custom_domain!(owner, verified?: true)
+
+      domain
+      |> Ash.Changeset.for_update(:mark_needs_attention, %{}, authorize?: false)
+      |> Ash.update!()
+
+      InstanceHostname.mint!(
+        %{instance_id: instance.id, access_domain_id: domain.id, label: "wiki"},
+        authorize?: false
+      )
+
+      stub_access_targets(ns)
+      stub_cert_source()
+
+      expect(Ingress, :create, 2, fn
+        _kc, ^ns, "access-" <> _tail, %{host: "wiki." <> _tail} = spec ->
+          # The cert is still valid while the reconcile limb heals — the
+          # wake-flip must not take the hostnames dark mid-renewal-trouble.
+          assert spec.tls_secret_name =~ ~r/^access-domain-cert-[0-9a-f]{10}$/
+          {:ok, %{}}
+
+        _kc, ^ns, _name, _spec ->
+          # The default platform hostname — an ordinary mint.
+          {:ok, %{}}
+      end)
+
+      assert :ok = EdgeRoutes.apply_access_wake(%{}, gateway_stub(), instance)
+    end
+
+    test "a :needs_attention custom domain with NO cert ref is skipped" do
+      stub_kubeconfig()
+      owner = user()
+      instance = instance!(%{}, %{}, owner)
+
+      domain = custom_domain!(owner)
+
+      domain
+      |> Ash.Changeset.for_update(:mark_needs_attention, %{}, authorize?: false)
+      |> Ash.update!()
+
+      InstanceHostname.mint!(
+        %{instance_id: instance.id, access_domain_id: domain.id, label: "dark"},
+        authorize?: false
+      )
+
+      stub_access_targets("fluxvale-app-#{instance.id}")
+
+      stub(Ingress, :create, fn
+        _kc, _ns, _name, %{host: "dark." <> _tail} ->
+          flunk("a needs_attention domain with no ref must never route")
+
+        _kc, _ns, _name, _spec ->
+          {:ok, %{}}
+      end)
+
+      log =
+        capture_log(fn ->
+          assert :ok = EdgeRoutes.apply_access_wake(%{}, gateway_stub(), instance)
+        end)
+
+      assert log =~ "not servable"
+    end
+
     test "a route apply failure propagates — never a half-minted posture" do
       stub_kubeconfig()
       instance = instance!(%{})
@@ -519,6 +588,91 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
       end)
 
       assert {:error, _error} = EdgeRoutes.apply_access_none(%{}, instance)
+    end
+  end
+
+  describe "apply_access_none_for_domain/3 (the S6 ladder's honest-dark limb)" do
+    test "removes ONLY that domain's routes — other hostnames and the middleware stand" do
+      stub_kubeconfig()
+      owner = user()
+      instance = instance!(%{}, %{}, owner)
+      ns = "fluxvale-app-#{instance.id}"
+
+      domain_a = custom_domain!(owner, verified?: true)
+      domain_b = custom_domain!(owner, verified?: true)
+
+      row_a =
+        InstanceHostname.mint!(
+          %{instance_id: instance.id, access_domain_id: domain_a.id, label: "wiki"},
+          authorize?: false
+        )
+
+      InstanceHostname.mint!(
+        %{instance_id: instance.id, access_domain_id: domain_b.id, label: "other"},
+        authorize?: false
+      )
+
+      # Exactly domain A's route goes — computed by the object_name
+      # discipline (the random tail of the hostname row's id).
+      tail =
+        row_a.id
+        |> to_string()
+        |> String.replace("-", "")
+        |> String.slice(-10, 10)
+
+      expected = "access-" <> tail
+
+      expect(Ingress, :delete, fn _kc, ^ns, ^expected -> :ok end)
+
+      # Domain B's route and the wake middleware stay: honest dark is
+      # domain-scoped, not instance-scoped.
+      stub(Ingress, :delete, fn _kc, ^ns, "access-" <> _tail ->
+        flunk("another domain's route must not be removed by a domain-scoped none")
+      end)
+
+      reject(Middleware, :delete, 3)
+
+      assert :ok = EdgeRoutes.apply_access_none_for_domain(%{}, instance, domain_a)
+    end
+
+    test "404s tolerated — idempotent like the instance-scoped none" do
+      stub_kubeconfig()
+      owner = user()
+      instance = instance!(%{}, %{}, owner)
+
+      domain = custom_domain!(owner, verified?: true)
+
+      InstanceHostname.mint!(
+        %{instance_id: instance.id, access_domain_id: domain.id, label: "wiki"},
+        authorize?: false
+      )
+
+      stub(Ingress, :delete, fn _kc, _ns, "access-" <> _tail ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      assert :ok = EdgeRoutes.apply_access_none_for_domain(%{}, instance, domain)
+      assert :ok = EdgeRoutes.apply_access_none_for_domain(%{}, instance, domain)
+    end
+
+    test "a delete failure propagates" do
+      stub_kubeconfig()
+      owner = user()
+      instance = instance!(%{}, %{}, owner)
+
+      domain = custom_domain!(owner, verified?: true)
+
+      InstanceHostname.mint!(
+        %{instance_id: instance.id, access_domain_id: domain.id, label: "wiki"},
+        authorize?: false
+      )
+
+      stub(Ingress, :delete, fn _kc, _ns, "access-" <> _tail ->
+        {:error, Error.connection_error("delete refused")}
+      end)
+
+      assert {:error, _error} =
+               EdgeRoutes.apply_access_none_for_domain(%{}, instance, domain)
     end
   end
 

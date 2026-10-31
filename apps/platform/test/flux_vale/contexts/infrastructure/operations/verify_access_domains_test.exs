@@ -481,7 +481,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
       assert get_row!(domain.id).state == :verified
     end
 
-    test ":failed demotes — the domain's hostnames' access routes go", %{org: org, owner: owner} do
+    test ":failed demotes nothing — a failed domain never routed", %{org: org, owner: owner} do
       # The aged :pending row is a state actions cannot produce — the
       # Ash.seed! case.
       domain =
@@ -495,7 +495,11 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
 
       {_instance, _gateway} = attached_hostname!(org, owner, domain)
 
-      stub_arm_deletes(org)
+      # The instance's OTHER hostnames keep serving: a failed domain
+      # never had routes of its own (unverified rows are skipped at
+      # mint), so the failure removes nothing.
+      reject(Ingress, :delete, 3)
+      reject(Middleware, :delete, 3)
 
       expect(Kubereq, :get, fn _req, _ns, _name ->
         {:ok, %{status: 200, body: cert_body("False")}}
@@ -503,80 +507,6 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
 
       assert {:ok, %{failed: 1}} = Infrastructure.verify_access_domains()
       assert get_row!(domain.id).state == :failed
-
-      assert_received {:access_route_removed}
-      assert_received {:access_middleware_removed}
-    end
-
-    test "a failed arm removal during the demote logs and moves on", %{org: org, owner: owner} do
-      domain =
-        Ash.Seed.seed!(AccessDomain, %{
-          organization_id: org.id,
-          domain: "late-stubborn.example.com",
-          kind: :custom,
-          state: :pending,
-          registered_at: hours_ago(@deadline_hours + 1)
-        })
-
-      {_instance, _gateway} = attached_hostname!(org, owner, domain)
-
-      stub_arm_deletes(org)
-
-      # The middleware delete FAILS: the demote logs it and moves on —
-      # the next tick's demote converges (the routes are already gone;
-      # honest dark either way).
-      stub(Middleware, :delete, fn _kc, _ns, "fluxvale-access-wake" ->
-        {:error, :mw_refused}
-      end)
-
-      expect(Kubereq, :get, fn _req, _ns, _name ->
-        {:ok, %{status: 200, body: cert_body("False")}}
-      end)
-
-      assert {:ok, %{failed: 1}} = Infrastructure.verify_access_domains()
-      assert get_row!(domain.id).state == :failed
-    end
-
-    test "a :pending row whose state moved mid-pass is skipped — no failed demotion", %{org: org} do
-      domain =
-        Ash.Seed.seed!(AccessDomain, %{
-          organization_id: org.id,
-          domain: "moved.example.com",
-          kind: :custom,
-          state: :pending,
-          registered_at: hours_ago(@deadline_hours + 1)
-        })
-
-      # The funnel's fresh re-read finds the row moved (a concurrent
-      # promotion won): the stale demotion is skipped — the `other` arm.
-      stub(AccessDomain, :get_by_id, fn _id, _opts -> {:error, :gone} end)
-
-      expect(Kubereq, :get, fn _req, _ns, _name ->
-        {:ok, %{status: 200, body: cert_body("False")}}
-      end)
-
-      assert {:ok, %{failed: 0}} = Infrastructure.verify_access_domains()
-    end
-
-    test "a vanished Certificate past the deadline: the same skip guards the closed window", %{
-      org: org
-    } do
-      Ash.Seed.seed!(AccessDomain, %{
-        organization_id: org.id,
-        domain: "vanished-late.example.com",
-        kind: :custom,
-        state: :pending,
-        registered_at: hours_ago(@deadline_hours + 1)
-      })
-
-      # Same guard, other call site: the land's fresh re-read skips.
-      stub(AccessDomain, :get_by_id, fn _id, _opts -> {:error, :gone} end)
-
-      expect(Kubereq, :get, fn _req, _ns, _name ->
-        {:ok, %{status: 404, body: %{}}}
-      end)
-
-      assert {:ok, %{failed: 0}} = Infrastructure.verify_access_domains()
     end
 
     test ":needs_attention keeps serving — no arm removal on the healing state", %{

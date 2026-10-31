@@ -28,13 +28,18 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   **The arms follow the domain (ADR-0040 Am. 1 as built):** promotion
   to `:verified` mints the access arms for the domain's attached
   private instances (a fresh domain answers now, not at the next
-  unrelated flip); `:failed` demotes (its cert will never be valid —
-  the hostnames' access routes go, honest dark; `:suspended` is the S6
-  ladder's demote and must call the same limb when its writer lands);
-  `:needs_attention` KEEPS serving — the reconcile limb is healing and
-  the cert is still valid. And every pass re-ensures the cert REPLICA
-  of each `:verified` domain into each serving namespace (SSA no-op
-  when unchanged; a renewal rotation converges within one cadence).
+  unrelated flip). `:failed` demotes NOTHING — a failed domain never
+  routed (unverified rows are skipped at mint, and `:failed` only ever
+  comes from `:pending`), so its hostnames' routes are the OTHER
+  domains' routes, still standing. `:needs_attention` KEEPS serving —
+  the reconcile limb is healing and the cert is still valid (the TLS
+  clause routes needs_attention rows that carry a ref). The one
+  honest-dark demotion is a SUSPENDED verified domain's — domain-scoped,
+  via `EdgeRoutes.apply_access_none_for_domain/3` — and that is the
+  limb S6's ladder calls when its writer lands. And every pass
+  re-ensures the cert REPLICA of each `:verified` domain into each
+  serving namespace (SSA no-op when unchanged; a renewal rotation
+  converges within one cadence).
 
   Everything else (platform rows, `:suspended`, transient
   cluster errors) is left alone: a suspension is the billing ladder's
@@ -174,20 +179,14 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   defp decide_pending(domain, kubeconfig, "True", body),
     do: promote_to_verified(domain, kubeconfig, body)
 
-  defp decide_pending(domain, kubeconfig, _not_ready_yet, _body) do
+  defp decide_pending(domain, _kubeconfig, _not_ready_yet, _body) do
     if deadline_lapsed?(domain) do
-      case land(domain, :mark_failed) do
-        :failed ->
-          # Honest dark (Am. 1 as built): a failed domain's cert will
-          # never be valid, so its hostnames' access routes go. (The S6
-          # ladder's future :suspended writer must call this same limb —
-          # a suspended domain is dark the same way.)
-          demote_domain_arms(domain, kubeconfig)
-          :failed
-
-        other ->
-          other
-      end
+      # No demotion on :failed: a failed domain never routed (unverified
+      # rows are skipped at mint, and :failed only ever comes from
+      # :pending), so its hostnames' routes are the OTHER domains'
+      # routes — removing them would take honest hostnames dark for a
+      # domain that never had any.
+      land(domain, :mark_failed)
     else
       :unchanged
     end
@@ -198,14 +197,8 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   # deadline the window is closed — no churn for a row about to fail.
   defp pending_certificate_missing(domain, kubeconfig) do
     if deadline_lapsed?(domain) do
-      case land(domain, :mark_failed) do
-        :failed ->
-          demote_domain_arms(domain, kubeconfig)
-          :failed
-
-        other ->
-          other
-      end
+      # Same no-demotion stance as decide_pending.
+      land(domain, :mark_failed)
     else
       reapply_certificate(domain, kubeconfig)
       :unchanged
@@ -431,26 +424,6 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
             "Access domain arms: mint failed for instance #{instance.id}: #{inspect(reason)}"
           )
       end
-    end
-  end
-
-  defp demote_domain_arms(domain, kubeconfig) do
-    domain
-    |> serving_instances()
-    |> Enum.each(&remove_instance_arms(&1, kubeconfig))
-
-    :ok
-  end
-
-  defp remove_instance_arms(instance, kubeconfig) do
-    case EdgeRoutes.apply_access_none(kubeconfig, instance) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning(
-          "Access domain arms: removal failed for instance #{instance.id}: #{inspect(reason)}"
-        )
     end
   end
 

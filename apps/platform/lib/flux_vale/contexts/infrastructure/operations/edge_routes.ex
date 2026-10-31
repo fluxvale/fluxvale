@@ -230,6 +230,34 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
     end
   end
 
+  @doc """
+  The DOMAIN-SCOPED access none: removes only the access routes minted
+  for `access_domain`'s hostname rows on this instance — honest dark
+  for one domain without touching the instance's other hostnames, and
+  leaving the wake middleware in place (it serves the other domains'
+  wake arm). Same safe-delete stance as `apply_access_none/2` — 404
+  tolerated, idempotent.
+
+  Built for the SUSPENDED verified domain: a suspension is the one
+  demotion that had routes to remove (a `:failed` domain never routed —
+  unverified rows are skipped at mint), and honest dark is domain-scoped,
+  not instance-scoped. The billing ladder's (S6) suspension writer calls
+  this.
+  """
+  @spec apply_access_none_for_domain(Kubereq.Kubeconfig.t(), Instance.t(), AccessDomain.t()) ::
+          :ok | {:error, term()}
+  def apply_access_none_for_domain(kubeconfig, instance, access_domain) do
+    instance.id
+    |> hostname_rows()
+    |> Enum.filter(&(&1.access_domain_id == access_domain.id))
+    |> Enum.reduce_while(:ok, fn hostname, :ok ->
+      case safe_delete_route(kubeconfig, instance.namespace, access_route_name(hostname)) do
+        :ok -> {:cont, :ok}
+        {:error, _error} = error -> {:halt, error}
+      end
+    end)
+  end
+
   # The dormant access-wake targets: the `wake` ExternalName Service
   # (shared with the public wake mode — one pattern, one platform
   # address) and the rewrite middleware carrying THIS pairing's path.
@@ -362,21 +390,24 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
 
   # Platform domain: the fleet wildcard (#116) rides the default
   # TLSStore — `tls: true` alone, NO secretName. Custom: the domain's
-  # cert is REPLICAATED into this namespace first (Traefik's CRD
+  # cert is REPLICATED into this namespace first (Traefik's CRD
   # provider reads tls.secretName only in the route's namespace — a
-  # bare cross-namespace ref can never serve), and only from a
-  # :verified row with a ref recorded. An unverified domain must never
-  # route, and a source Secret that is missing or unreadable is a dead
-  # cert — either way the row's hostnames are skipped (logged: dark is
-  # the posture, not a fault).
+  # bare cross-namespace ref can never serve). `:verified` and
+  # `:needs_attention`-with-a-ref both route: needs_attention is the
+  # healing state (the reconcile limb re-applies underneath) and the
+  # issued cert is still VALID — a wake-flip re-applying arms mid-
+  # renewal-trouble must not take the hostnames dark. Anything a custom
+  # domain has not earned yet — :pending, or needs_attention with no
+  # ref recorded — never routes: the row's hostnames are skipped
+  # (logged: dark is the posture, not a fault).
   defp access_tls_secret(_kubeconfig, %{kind: :platform}, _instance), do: {:ok, nil}
 
   defp access_tls_secret(
          kubeconfig,
-         %{kind: :custom, state: :verified, cert_secret_ref: ref} = domain,
+         %{kind: :custom, state: state, cert_secret_ref: ref} = domain,
          instance
        )
-       when is_binary(ref) do
+       when state in [:verified, :needs_attention] and is_binary(ref) do
     case ensure_access_cert_secret(kubeconfig, domain, instance.namespace) do
       {:ok, local_name} ->
         {:ok, local_name}

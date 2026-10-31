@@ -631,8 +631,12 @@ public darkness is untouched — no public route exists for a private
 instance; resolution still decides reachability (§8). The arms are as
 designed in §7: Host-keyed IngressRoutes on the `access` entrypoint (one
 per `InstanceHostname` row, named `access-<short-random-tail>`), TLS from
-the default TLSStore for platform domains and `cert_secret_ref` for
-verified custom ones, with the wake arm rewriting the visitor's path to
+the default TLSStore for platform domains and — for verified custom ones —
+from a per-namespace replica of the issued Secret
+(`EdgeRoutes.ensure_access_cert_secret` copies it in; the route references
+the replica's LOCAL name, since Traefik's CRD provider reads
+`tls.secretName` only in the route's own namespace), with the wake arm
+rewriting the visitor's path to
 `/internal/access/<gateway-id>/<instance-id>/…` — the pair-in-the-path
 authorization, verbatim.
 
