@@ -715,6 +715,15 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
       instance = deploying_for_org!(owner, attrs)
       gateway = AccessFixtures.gateway!(org)
 
+      # The env gate requires ATTACHMENT (a live pairing — the same
+      # record attach/detach read): an unattached private instance
+      # answers nowhere, so its default hostname is not LIVE.
+      {:ok, _route} =
+        AccessRoute.create(
+          %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+          authorize?: false
+        )
+
       base_domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
 
       {:ok, _gateway} =
@@ -751,7 +760,17 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
       stub(ResourceQuota, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
       stub(PersistentVolumeClaim, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
       stub(Deployment, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
-      stub(Service, :create, fn _kc, ^ns, "app", _spec -> {:ok, %{}} end)
+
+      # The attached private deploy also mints its access arms (ADR-0040
+      # §7): the wake ExternalName Service beside the app Service, the
+      # access-wake Middleware, and one access-<tail> route per hostname.
+      stub(Service, :create, fn _kc, ^ns, name, _spec when name in ["app", "wake"] ->
+        {:ok, %{}}
+      end)
+
+      stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Ingress, :create, fn _kc, _ns, "access-" <> _tail, _spec -> {:ok, %{}} end)
+
       stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
 
       stub(Ingress, :delete, fn _kc, _ns, _name ->

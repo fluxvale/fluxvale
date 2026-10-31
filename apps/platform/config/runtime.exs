@@ -82,10 +82,18 @@ end
 
 case System.get_env("ACCESS_EDGE_SERVICE") do
   service when service in [nil, ""] ->
-    config :flux_vale, :access_edge,
-      service: "traefik.traefik.svc.cluster.local",
-      https_port: parse_port.("ACCESS_EDGE_HTTPS_PORT", 8444),
-      http_port: parse_port.("ACCESS_EDGE_HTTP_PORT", 8080)
+    # The fleet default is deliberately NOT applied in dev: a plain
+    # local stack has no access entrypoint to forward to, so it carries
+    # NO access_edge at all — the serve config is byte-identical to the
+    # pre-ADR shape with no env gymnastics (the file's own prod/dev
+    # branching stance). Test keeps the default: the suite pins the
+    # parsed fleet shape.
+    if config_env() != :dev do
+      config :flux_vale, :access_edge,
+        service: "traefik.traefik.svc.cluster.local",
+        https_port: parse_port.("ACCESS_EDGE_HTTPS_PORT", 8444),
+        http_port: parse_port.("ACCESS_EDGE_HTTP_PORT", 8080)
+    end
 
   service ->
     config :flux_vale, :access_edge,

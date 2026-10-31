@@ -276,20 +276,29 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   # on the first deploy that finds the conditions true (toggling later
   # doesn't rewrite a running app's env Secret — the next deploy does).
   defp deploy_env(instance) do
-    with {:ok, instance} <- Ash.load(instance, :app_version, authorize?: false) do
-      app_version = instance.app_version
+    loaded = Ash.load(instance, :app_version, authorize?: false)
 
-      env =
-        case url_value(instance, app_version) do
-          nil ->
-            instance.env_vars
+    case loaded do
+      {:ok, instance} ->
+        app_version = instance.app_version
 
-          url ->
-            env_name = url_env_name(app_version)
-            Map.put(instance.env_vars, env_name, url)
-        end
+        env =
+          case url_value(instance, app_version) do
+            nil ->
+              instance.env_vars
 
-      maybe_allowlist_entry(env, instance, app_version)
+            url ->
+              env_name = url_env_name(app_version)
+              Map.put(instance.env_vars, env_name, url)
+          end
+
+        maybe_allowlist_entry(env, instance, app_version)
+
+      # A load failure degrades to the bare env, never a crash: the
+      # deploy's own error arms own real failures; env-seeding is
+      # derived sugar on top of them.
+      _load_failed ->
+        instance.env_vars
     end
   end
 
@@ -325,14 +334,33 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   defp append_host(nil, host), do: host
   defp append_host(existing, host) when is_binary(existing), do: "#{existing},#{host}"
 
-  # LIVE on a claimed domain: the org's platform-domain row (`:verified`
-  # or `:needs_attention` — the healing state, the same mirror the TLS
-  # clause routes) AND the gateway's claims map carrying it (the claim
-  # list is the record). No gateway, no row, no claim → the ADR-0038 §4
-  # omission stands.
+  # LIVE on a claimed domain: the instance is ATTACHED (a live pairing —
+  # the same record attach/detach read; an unattached private instance
+  # answers nowhere, so the ADR-0038 §4 omission holds), the org's
+  # gateway holds the claim for the base domain, AND the platform-domain
+  # row is in a routable state (`:verified`/`:needs_attention` — the
+  # same mirror the TLS clause routes). No gateway, no pairing, no
+  # claim → no URL.
+  #
+  # ENV-SNAPSHOT STANCE: the env lands on the first deploy that finds
+  # these conditions true. A later unclaim/detach does NOT rewrite a
+  # running app's env Secret — the seeded URL goes stale by design
+  # until the next deploy re-decides (the same stance as an exposure
+  # toggle: toggling later doesn't rewrite a running app's env).
   defp default_hostname_live?(instance) do
     base_domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
 
+    case AccessRoute.get_by_instance(instance.id, authorize?: false) do
+      {:ok, _live_pairing} ->
+        claimed_on_gateway?(instance, base_domain)
+
+      # Unattached: the pairing row simply isn't there.
+      {:error, _no_pairing} ->
+        false
+    end
+  end
+
+  defp claimed_on_gateway?(instance, base_domain) do
     case AccessGateway.get_for_organization(instance.organization_id, authorize?: false) do
       {:ok, %{dns_claims: claims}} when is_map(claims) ->
         Map.has_key?(claims, base_domain) and platform_domain_live?(instance, base_domain)

@@ -50,6 +50,34 @@ defmodule FluxVale.Clients.K8s.Resources.Pod do
     end
   end
 
+  @doc """
+  True while the pod is terminating (`deletionTimestamp` set) — its IP
+  is a reuse window (the address may already belong to the
+  replacement), never a routing source.
+  """
+  @spec terminating?(map()) :: boolean()
+  def terminating?(pod) do
+    get_in(pod, ["metadata", "deletionTimestamp"]) != nil
+  end
+
+  @doc """
+  The pod's `creationTimestamp` as a DateTime — the newest-survivor
+  ordering key. Unparseable sorts oldest so a broken clock never wins.
+  """
+  @spec started_at(map()) :: DateTime.t()
+  def started_at(pod) do
+    case get_in(pod, ["metadata", "creationTimestamp"]) do
+      stamp when is_binary(stamp) ->
+        case DateTime.from_iso8601(stamp) do
+          {:ok, dt, _offset} -> dt
+          _unparseable -> ~U[1970-01-01 00:00:00Z]
+        end
+
+      _missing ->
+        ~U[1970-01-01 00:00:00Z]
+    end
+  end
+
   defp labeled?(pod, labels) do
     pod_labels = get_in(pod, ["metadata", "labels"]) || %{}
     Map.to_list(labels) -- Map.to_list(pod_labels) == []

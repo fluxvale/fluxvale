@@ -86,7 +86,10 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
       ]
 
       # Blocks are domain-sorted; every gateway view precedes every
-      # default (first match wins).
+      # default (first match wins). Each hosts block pins `ttl 5` (a
+      # moved gateway IP converges client-side in seconds) and
+      # `fallthrough` (an in-zone miss reaches the block's forward —
+      # without it the hosts plugin owns the zone and misses SERVFAIL).
       assert RenderAccessDNS.corefile(views, [@base_domain, "terence.dev"]) == """
              #{@base_domain}:53 {
                  view aaaaaaaaaa {
@@ -94,6 +97,8 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
                  }
                  hosts {
                      100.64.0.1 wiki.#{@base_domain}
+                     ttl 5
+                     fallthrough
                  }
                  forward . 1.1.1.1 8.8.8.8
              }
@@ -105,6 +110,8 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
                  hosts {
                      100.64.0.1 blog.terence.dev
                      100.64.0.1 git.terence.dev
+                     ttl 5
+                     fallthrough
                  }
                  forward . 1.1.1.1 8.8.8.8
              }
@@ -149,6 +156,8 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
                  }
                  hosts {
                      100.64.0.1 wiki.#{@base_domain}
+                     ttl 5
+                     fallthrough
                  }
                  forward . 1.1.1.1 8.8.8.8
              }
@@ -159,6 +168,8 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
                  }
                  hosts {
                      100.64.0.2 forge.#{@base_domain}
+                     ttl 5
+                     fallthrough
                  }
                  forward . 1.1.1.1 8.8.8.8
              }
@@ -194,8 +205,13 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
              """
     end
 
-    test "no views at all → the empty Corefile" do
-      assert RenderAccessDNS.corefile([], []) == ""
+    test "no claims at all → the valid placeholder (never an unloadable Corefile)" do
+      assert RenderAccessDNS.corefile([], []) == """
+             # no claims
+             .:53 {
+                 forward . 1.1.1.1 8.8.8.8
+             }
+             """
     end
 
     test "the output is order-independent (the fleet mounts it verbatim)" do
@@ -289,6 +305,20 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
       # The claim's zone still gets its default (public-recursion) block.
       assert corefile =~ @base_domain
     end
+
+    test "a claim whose domain ROW is gone answers nothing — and the default still stands", %{
+      org: org
+    } do
+      # The claims map outlived its row (a remove that lost the claims
+      # write): the answerable-domain lookup misses, the view is skipped,
+      # and the zone keeps its public-recursion fallback.
+      gateway = claimed_gateway!(org)
+
+      corefile = RenderAccessDNS.render(%{gateway.id => resolver_entry()})
+
+      refute corefile =~ "view "
+      assert corefile =~ ~s{#{@base_domain}:53 {\n    forward . 1.1.1.1 8.8.8.8}
+    end
   end
 
   # ------------------------------------------------------------------
@@ -332,6 +362,55 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
       gateway = claimed_gateway!(org)
 
       stub(ApiClient, :devices_lookup, fn _token, _hostname -> {:error, :unauthorized} end)
+
+      assert RenderAccessDNS.gather() == %{}
+    end
+
+    test "a v6-only node is omitted — an A record needs a real IPv4", %{org: org} do
+      gateway = claimed_gateway!(org)
+
+      stub(ApiClient, :devices_lookup, fn _token, _hostname ->
+        {:ok, %{id: "dev-1", tailscale_ips: ["fd7a::1", "fd7a::2"]}}
+      end)
+
+      assert RenderAccessDNS.gather() == %{}
+    end
+
+    test "a malformed address payload is omitted — validated, never sniffed", %{org: org} do
+      gateway = claimed_gateway!(org)
+
+      stub(ApiClient, :devices_lookup, fn _token, _hostname ->
+        {:ok, %{id: "dev-1", tailscale_ips: ["not-an-ip", "999.1.2.3", "10.0.0.x"]}}
+      end)
+
+      assert RenderAccessDNS.gather() == %{}
+    end
+
+    test "pod selection: terminating pods excluded, the NEWEST survivor wins", %{org: org} do
+      gateway = claimed_gateway!(org)
+
+      expect(Pod, :list_by_labels, fn _kc, _ns, _labels ->
+        {:ok,
+         [
+           pod("10.0.0.1", "2026-11-01T01:00:00Z"),
+           terminating_pod("10.0.0.2", "2026-11-01T03:00:00Z"),
+           pod("10.0.0.9", "2026-11-01T02:00:00Z")
+         ]}
+      end)
+
+      # The newest survivor (02:00) wins; the newer-but-terminating pod
+      # (03:00) is a reuse window, never a source.
+      assert RenderAccessDNS.gather() == %{
+               gateway.id => %{pod_ip: "10.0.0.9", tailnet_ip: "100.64.0.1"}
+             }
+    end
+
+    test "a gateway with only TERMINATING pods takes the no-pod omission path", %{org: org} do
+      claimed_gateway!(org)
+
+      stub(Pod, :list_by_labels, fn _kc, _ns, _labels ->
+        {:ok, [terminating_pod("10.0.0.2", "2026-11-01T03:00:00Z")]}
+      end)
 
       assert RenderAccessDNS.gather() == %{}
     end
@@ -427,6 +506,21 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
 
       assert RenderAccessDNS.call(resolver_data: %{gateway.id => resolver_entry()}) == :ok
     end
+
+    test "zero claims write the PLACEHOLDER (a valid reloadable Corefile, never empty)" do
+      expect(ConfigMap, :create, fn _kc, _ns, _name, %{"Corefile" => corefile} ->
+        assert corefile == """
+               # no claims
+               .:53 {
+                   forward . 1.1.1.1 8.8.8.8
+               }
+               """
+
+        {:ok, %{}}
+      end)
+
+      assert RenderAccessDNS.call() == :ok
+    end
   end
 
   # ------------------------------------------------------------------
@@ -446,6 +540,19 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
 
   defp running_pod(ip) do
     %{"status" => %{"phase" => "Running", "podIP" => ip}}
+  end
+
+  # A live pod with a creation stamp (the newest-survivor ordering key).
+  defp pod(ip, created_at) do
+    %{
+      "metadata" => %{"creationTimestamp" => created_at},
+      "status" => %{"phase" => "Running", "podIP" => ip}
+    }
+  end
+
+  defp terminating_pod(ip, created_at) do
+    pod = pod(ip, created_at)
+    put_in(pod, ["metadata", "deletionTimestamp"], "2026-11-01T03:30:00Z")
   end
 
   defp pending_pod do

@@ -35,7 +35,6 @@ defmodule FluxVale.Infrastructure.Operations.SetExposure do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.InstanceK8s
-  alias FluxVale.Infrastructure.Operations.RenderAccessDNS
 
   @policy "default-deny-ingress"
 
@@ -114,7 +113,6 @@ defmodule FluxVale.Infrastructure.Operations.SetExposure do
     with :ok <- maybe_access_mint(kubeconfig, instance),
          :ok <- EdgeRoutes.apply_private(kubeconfig, instance),
          :ok <- apply_policy(kubeconfig, instance, :private) do
-      after_commit_render()
       :ok
     else
       {:error, reason} -> restore_public_edge(kubeconfig, instance, reason)
@@ -127,19 +125,10 @@ defmodule FluxVale.Infrastructure.Operations.SetExposure do
     with :ok <- apply_routes(kubeconfig, instance, mode),
          :ok <- apply_policy(kubeconfig, instance, :public),
          :ok <- EdgeRoutes.apply_access_none(kubeconfig, instance) do
-      after_commit_render()
       :ok
     else
       {:error, reason} -> restore_private_edge(kubeconfig, instance, reason)
     end
-  end
-
-  # ADR-0040 §8: exposure IS a resolution flip — going private moves the
-  # org's hostnames INTO the view (when attached), going public moves
-  # them OUT. The re-render rides the toggle's success best-effort, after
-  # the primary write commits (the derived-state stance, ADR-0040 §4).
-  defp after_commit_render do
-    RenderAccessDNS.call()
   end
 
   # Attached rows mint their access arms per current status via the one

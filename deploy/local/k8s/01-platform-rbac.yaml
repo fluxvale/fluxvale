@@ -100,3 +100,46 @@ subjects:
   - kind: ServiceAccount
     name: fluxvale-platform
     namespace: fluxvale-dev
+---
+# ADR-0040 S4's local delta: the access namespace. The platform SA lists
+# the gateway pods (the resolver views' source key) and SSA-applies the
+# zones ConfigMap the fleet resolver mounts. Namespaced on purpose — the
+# cluster-wide role must not grow for it. The namespace rides here so
+# the Role's apply never races a gateway create (the provider assumes
+# the namespace exists).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fluxvale-access
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fluxvale-platform-access
+  namespace: fluxvale-access
+rules:
+  # The resolver views' gather: pods listed by the gateway labels.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+  # The rendered Corefile: SSA apply rides create (new object) + patch
+  # (apply-on-existing) — the same empirical split as every operand
+  # above. Staging/prod equivalents are the fleet PRs' (#122/#123), not
+  # this file.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fluxvale-platform-access
+  namespace: fluxvale-access
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: fluxvale-platform-access
+subjects:
+  - kind: ServiceAccount
+    name: fluxvale-platform
+    namespace: fluxvale-dev

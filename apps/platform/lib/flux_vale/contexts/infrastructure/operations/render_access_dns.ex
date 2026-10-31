@@ -58,6 +58,14 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
   # strangers' business. Same pair in every block — one constant.
   @public_forwarders "1.1.1.1 8.8.8.8"
 
+  # The hosts plugin answers its entries in-process; `ttl 5` keeps a
+  # moved gateway IP converging client-side in seconds (the resolver's
+  # own zero-cache posture — the plugin's 3600 default would freeze a
+  # pod move for an hour). `fallthrough` hands an in-zone MISS to the
+  # block's forward: without it the hosts plugin answers the zone and
+  # the fallback is dead code.
+  @hosts_ttl 5
+
   # The ConfigMap key the fleet deployment mounts (the WHOLE Corefile in
   # one key — the contract the deployment follows).
   @corefile_key "Corefile"
@@ -90,8 +98,27 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
   The defaults are keyed on the CLAIMED domains (which queries can
   arrive for), never on which views happened to render — a dark
   gateway must not take its domain's default block down with it.
+
+  The renderer may NEVER emit an unloadable file: the zero-claims case
+  is a valid placeholder (below), not an empty string.
   """
   @spec corefile([view()], [String.t()]) :: String.t()
+  def corefile(views, claimed_domains)
+
+  def corefile([], []) do
+    # An EMPTY Corefile is not a config CoreDNS can load, so the
+    # zero-claims render emits an inert root recursor instead: while no
+    # split-DNS route points here, nothing resolves through it (the
+    # tailnet's own DNS answers everything); the file reloads cleanly
+    # the day a claim lands.
+    """
+    # no claims
+    .:53 {
+        forward . #{@public_forwarders}
+    }
+    """
+  end
+
   def corefile(views, claimed_domains) do
     view_blocks =
       views
@@ -332,16 +359,25 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
 
   # The gateway's CURRENT pod IP — a pod move is invisible to the claims,
   # so the gather re-reads every pass (the 15-min refresher's reason to
-  # exist). First Running pod wins; none is `:no_running_pod` (the
-  # between-restarts window).
+  # exist). Terminating pods are excluded (their IP is a REUSE window —
+  # the address may already belong to the replacement); among survivors
+  # the NEWEST wins. Only-Terminating = the no-pod omission path (dark
+  # until the next pass, the documented window). Residual: a survivor
+  # can still predate a just-landed replacement for one render cadence —
+  # shrunk from unbounded to 15 minutes, and the pass heals it.
   defp pod_ip(kubeconfig, namespace, gateway) do
     labels = InstanceK8s.gateway_pod_labels(gateway.id)
 
     case Pod.list_by_labels(kubeconfig, namespace, labels) do
       {:ok, pods} ->
-        case Enum.find_value(pods, &Pod.running_ip/1) do
-          nil -> {:error, :no_running_pod}
-          ip -> {:ok, ip}
+        survivors =
+          Enum.filter(pods, fn pod ->
+            not Pod.terminating?(pod) and Pod.running_ip(pod) != nil
+          end)
+
+        case Enum.sort_by(survivors, &Pod.started_at/1, {:desc, DateTime}) do
+          [] -> {:error, :no_running_pod}
+          [newest | _rest] -> {:ok, Pod.running_ip(newest)}
         end
 
       {:error, _reason} = error ->
@@ -359,15 +395,28 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
     end
   end
 
-  # The A record needs the IPv4 form (100.x.y.z); the fd7a::/16 pair is
-  # skipped — a gateway advertising only v6 has no renderable answer
-  # here (warned, omitted, next pass re-decides).
+  # The A record needs a REAL IPv4 (100.x.y.z) — validated, not
+  # sniffed: `:inet.parse_address` is the verdict, so a v6-only node or
+  # a malformed payload omits the gateway (warned, next pass re-decides)
+  # instead of freezing an unloadable answer into the hosts block.
   defp first_ipv4(ips) do
-    case Enum.find(ips, fn ip -> String.contains?(ip, ".") end) do
+    case Enum.find(ips, &valid_ipv4?/1) do
       nil -> {:error, :no_tailnet_ipv4}
       ip -> {:ok, ip}
     end
   end
+
+  defp valid_ipv4?(ip) when is_binary(ip) do
+    ip
+    |> String.to_charlist()
+    |> :inet.parse_address()
+    |> ipv4?()
+  end
+
+  defp valid_ipv4?(_non_binary), do: false
+
+  defp ipv4?({:ok, {_a, _b, _c, _d}}), do: true
+  defp ipv4?(_not_an_ipv4), do: false
 
   defp drop_omitted(data) do
     data
@@ -387,16 +436,17 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
     header <> expr <> hosts <> "    forward . #{@public_forwarders}\n}\n"
   end
 
-  # No hostnames under the claim (the gateway claims the domain, nothing
-  # is attached+private yet): NO hosts plugin at all — the view still
-  # scopes the source and forwards everything, which is exactly the
-  # nothing-attached posture.
+  # The hosts plugin answers its entries and — via `fallthrough` —
+  # hands an in-zone miss to the block's forward (without it a miss
+  # would SERVFAIL: the hosts plugin owns the zone it loaded). `ttl 5`
+  # keeps a moved gateway IP converging client-side in seconds.
   defp hosts_block([], _tailnet_ip), do: ""
 
   defp hosts_block(hostnames, tailnet_ip) do
     entries = Enum.map_join(hostnames, "\n", &"        #{tailnet_ip} #{&1}")
 
-    "    hosts {\n" <> entries <> "\n    }\n"
+    "    hosts {\n" <>
+      entries <> "\n        ttl #{@hosts_ttl}\n        fallthrough\n    }\n"
   end
 
   # The DEFAULT (un-viewed) blocks — one per claimed domain, any source

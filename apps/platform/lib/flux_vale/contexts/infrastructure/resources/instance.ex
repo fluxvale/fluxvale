@@ -76,6 +76,7 @@ defmodule FluxVale.Infrastructure.Instance do
   alias FluxVale.Infrastructure.Instance.ValidateEnvVars
   alias FluxVale.Infrastructure.Instance.WakeMarkers
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.Infrastructure.Operations.SetExposure
   alias FluxVale.Infrastructure.Operations.SleepInstance
   alias FluxVale.Infrastructure.Operations.StartInstance
@@ -764,10 +765,32 @@ defmodule FluxVale.Infrastructure.Instance do
         instance = changeset.data
 
         if cluster_managed?(instance) do
-          Ash.Changeset.after_action(changeset, fn _changeset, updated ->
-            case SetExposure.call(updated) do
-              :ok -> {:ok, updated}
-              {:error, _reason} = error -> error
+          # The cluster apply stays in after_action (the row may not
+          # claim a posture the cluster hasn't reached — the contract
+          # above). The RESOLUTION re-render (ADR-0040 §8: exposure is
+          # a resolution flip) deliberately does NOT ride it: after_
+          # action runs INSIDE the instance row-lock transaction, and
+          # §7's lock discipline puts no cluster I/O in the serialized
+          # section. The render rides `after_transaction`'s SUCCESS
+          # branch instead — after the transaction has committed,
+          # before the caller sees the row; a failed (rolled-back)
+          # transaction never renders.
+          changeset =
+            Ash.Changeset.after_action(changeset, fn _changeset, updated ->
+              case SetExposure.call(updated) do
+                :ok -> {:ok, updated}
+                {:error, _reason} = error -> error
+              end
+            end)
+
+          Ash.Changeset.after_transaction(changeset, fn _changeset, result ->
+            case result do
+              {:ok, _updated} ->
+                RenderAccessDNS.call()
+                result
+
+              {:error, _reason} = error ->
+                error
             end
           end)
         else
