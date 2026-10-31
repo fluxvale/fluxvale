@@ -1013,6 +1013,10 @@ defmodule FluxValeWeb.InstanceLive.Show do
     ~p"/organizations/#{slug}/settings/access"
   end
 
+  # Unreachable for the same reason as instance_org's error arm above —
+  # the org read passes wherever the instance read did. The clause exists
+  # so a future shape's bare nil drops the link instead of crashing.
+  # coveralls-ignore-next-line
   defp access_href(nil, _personal_org_id), do: nil
 
   # §4.2's shape: hostname + route_key (the provider-opaque port).
