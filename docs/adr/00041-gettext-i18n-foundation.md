@@ -1,6 +1,8 @@
 # ADR-0041: Gettext i18n foundation — en-only, future-ready
 
-**Status**: Accepted
+**Status**: Accepted (the wiring — config pin, `FluxValeWeb.Locale`
+seam, ci gate — ships with the in-flight i18n-infrastructure change;
+this ADR is the decision's record)
 **Date**: 2026-10-31
 
 ## Context
@@ -24,9 +26,9 @@ config + PO files, never a refactor.
   domain under `priv/gettext/`.
 - Locale resolution owns one seam, `FluxValeWeb.Locale`:
   `session["locale"]` when it names a known locale, else the app
-  default. Applied as a `:browser`-pipeline plug for dead views and an
-  `on_mount` on the authenticated `live_session` for LiveViews.
-- The root layout's `lang` attribute tracks the resolved locale.
+  default. It lands as a `:browser`-pipeline plug for dead views and
+  an `on_mount` on the authenticated `live_session` for LiveViews.
+- The root layout's `lang` attribute will track the resolved locale.
 - Extension points, documented but unwired: a signed-in user
   preference (a future sign-in writes the same session key) and
   Accept-Language negotiation (a future source ahead of the default).
@@ -57,13 +59,15 @@ config + PO files, never a refactor.
 
 ## Adding a locale (runbook, not implementation)
 
-1. `mix gettext.merge priv/gettext <locale>` — PO files per domain.
-2. The `FluxValeWeb.Locale` known-locales guard already accepts it.
+1. `mix gettext.merge priv/gettext --locale <locale>` — PO files per
+   domain.
+2. The `FluxValeWeb.Locale` known-locales guard accepts it as-is — no
+   guard change.
 3. Translation sourcing decision (human/vendor — separate decision).
 4. Wire the new resolution sources: user preference persisted and
    written to the session at sign-in; Accept-Language negotiation
    ahead of the default.
-5. `lang` attribute — already wired.
+5. `lang` attribute — covered by the wiring above; nothing per-locale.
 6. PO plural-forms headers per locale.
 7. Date/number/currency formatting is NOT gettext — a CLDR decision
    (`ex_cldr` or equivalent) is its own future ADR.
