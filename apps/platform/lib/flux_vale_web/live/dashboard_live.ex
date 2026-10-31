@@ -93,98 +93,179 @@ defmodule FluxValeWeb.DashboardLive do
       personal_org_id={@personal_org_id}
       username={@username}
       nav_section={@nav_section}
+      bare
     >
-      <div class="space-y-8">
-        <.header>
-          Dashboard
-          <:subtitle>Your apps, balance, and runway at a glance.</:subtitle>
-          <:actions>
-            <div class="flex items-center gap-2">
-              <.button navigate={~p"/billing/topup"} variant="secondary" size="sm">
+      <%!-- App-wide grammar page (S4): `bare` main + .appgram — the page
+      owns ALL of main's rhythm (no max-w, no padding), same posture as
+      the instance show. The metrics band is concept-1's sanctioned
+      composition, RENDER-EXACT (architect call on this PR: the
+      verdict'd renders beat the teardown prose — the lane's
+      artifact-pixels-beat-prose precedent): the page header sits on the
+      page background ABOVE the band, the Balance card tops the band's
+      inside-left, and the runway floats mid-band end-anchored right —
+      the diagonal is the page's bold move. NO straddle: concept-2 gives
+      the ONE straddle to the instance show's status card. --%>
+      <div class="appgram contents">
+        <%!-- 1. The page header on the page background (above the band,
+        as the render shows): title + subtitle left, quick actions
+        right, bottoms flush. --%>
+        <section class="wrap pt-8 pb-11">
+          <div class="rise flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+            <div class="min-w-0">
+              <h1 class="page-title">Dashboard</h1>
+              <p class="mt-2 text-base text-ink-muted">
+                Your apps, balance, and runway at a glance.
+              </p>
+            </div>
+
+            <div class="flex shrink-0 flex-wrap gap-2">
+              <.button navigate={~p"/billing/topup"} variant="secondary">
                 Add credits
               </.button>
-              <.button navigate={~p"/apps"} size="sm">
+              <.button navigate={~p"/apps"}>
                 Deploy an app
               </.button>
             </div>
-          </:actions>
-        </.header>
-
-        <div class="space-y-4">
-          <%!-- Defensive-only (#124): action-created users always have a
-          JIT-provisioned org. A seeded/legacy row without one keeps the
-          rest of the dashboard — push_navigate isn't available to a
-          live_render'd view, so this is a link, not a redirect. --%>
-          <.callout :if={@wallet == :none} tone="warning" title="Billing unavailable">
-            We couldn't load billing for this account. Try the <.link
-              navigate={~p"/billing"}
-              class="font-medium text-ink underline"
-            >Billing page</.link>.
-          </.callout>
-
-          <div :if={@wallet != :none} class="grid gap-4 sm:grid-cols-2">
-            <.metric_card
-              label="Balance"
-              value={format_usd(@wallet.balance_cents)}
-              hint="Credits never expire."
-              data-testid="dashboard-balance"
-            />
-            <.metric_card
-              label="Runway"
-              value={format_runway(@wallet)}
-              hint={burn_hint(@wallet, @instance_count)}
-              data-testid="dashboard-runway"
-            />
           </div>
-        </div>
+        </section>
 
-        <section aria-labelledby="dashboard-instances-title" class="space-y-3">
-          <div class="flex items-center justify-between gap-4">
-            <h2 id="dashboard-instances-title" class="text-lg font-semibold tracking-tight text-ink">
-              Instances
-            </h2>
-            <.link
-              navigate={~p"/instances"}
-              class="text-sm font-medium text-ink-muted transition-colors hover:text-ink"
-            >
-              View all <span aria-hidden="true">&rarr;</span>
-            </.link>
+        <%!-- 2. The metrics band. Mid-page here (the header is above it
+        on the page background), so it carries its own top hairline via
+        utility — the grammar's .band supplies the sunken fill + the
+        bottom hairline. Render insets, real numbers (page first, render
+        second): the card tops the band 7px / 7px in, with 123px / 97px
+        of band below it; the runway is the band's vertical center at
+        the content's right edge, top inset 83px / 82px — the
+        min-[760px] margin below IS that offset. Below 760px the cards
+        stack inside the band (render's mobile insets 21px / 45px on the
+        page). The metric values are whitespace-nowrap and step down
+        below 900px (text-4xl, card capped max-w-sm there): "No active
+        burn" and "under an hour" must never break mid-phrase — a wrap
+        would grow the band 48px off a string (hostile F1). The values
+        carry border-line-strong: the render's card edge is --line-strong
+        in BOTH themes, and app.css's dark rule says raised panels carry
+        depth with border emphasis (hostile F6). The runway carries no
+        .rise of its own — the band's rise already carries it; a nested
+        rise double-fades and double-travels (hostile F2, and now a
+        grammar kill rule). Billing-down (#124, defensive-only:
+        action-created users always have a JIT-provisioned org) swaps
+        the metric for the callout, same card-width column, no special
+        placement. --%>
+        <section class="band border-t border-line">
+          <div class="wrap pt-5 pb-11 min-[760px]:pt-1.5 min-[760px]:pb-24">
+            <div class="rise flex flex-col gap-6 min-[760px]:flex-row min-[760px]:items-start min-[760px]:justify-between">
+              <div
+                :if={@wallet != :none}
+                data-testid="dashboard-balance"
+                class="card w-full max-w-sm min-[900px]:max-w-md border-line-strong p-5 shadow-md sm:p-6"
+              >
+                <p class="eyebrow">Balance</p>
+                <p class="mt-1.5 whitespace-nowrap text-4xl font-bold tracking-tight text-ink min-[900px]:text-5xl">
+                  {format_usd(@wallet.balance_cents)}
+                </p>
+                <p class="mt-1 text-xs text-ink-subtle">Credits never expire.</p>
+              </div>
+
+              <div :if={@wallet != :none} data-testid="dashboard-runway" class="min-[760px]:mt-[76px]">
+                <p class="eyebrow">Runway</p>
+                <p class="mt-1.5 whitespace-nowrap text-4xl font-bold tracking-tight text-ink min-[900px]:text-5xl">
+                  {format_runway(@wallet)}
+                </p>
+                <p class="mt-1 text-xs text-ink-subtle">{burn_hint(@wallet, @instance_count)}</p>
+              </div>
+
+              <div :if={@wallet == :none} class="w-full max-w-sm min-[900px]:max-w-md">
+                <.callout tone="warning" title="Billing unavailable">
+                  We couldn't load billing for this account. Try the <.link
+                    navigate={~p"/billing"}
+                    class="font-medium text-ink underline"
+                  >Billing page</.link>.
+                </.callout>
+              </div>
+            </div>
           </div>
+        </section>
 
-          <.empty_state :if={@instance_count == 0} title="No instances yet">
-            Deploy your first app from the catalog.
-          </.empty_state>
-          <%!-- The fresh-account onboarding nudge (#205): a welcome
-          grant on the balance is exactly the "your first deploy is
-          free" moment — only meaningful while nothing's deployed. --%>
-          <.callout
-            :if={@instance_count == 0 and @wallet != :none and @wallet.balance_cents > 0}
-            tone="info"
-            title="Welcome credits ready"
-          >
-            You have {format_usd(@wallet.balance_cents)} in credits — your first deploy is on us.
-          </.callout>
+        <%!-- 3. The instances overview — the render's ~80px drop from
+        the band to the section heading. The .rise wraps the SECTION
+        container, never the rows: stream patches rewrite rows in place,
+        and a rise on patched nodes would replay the reveal on every
+        broadcast (the S2/S3 lesson) — node identity is what the rise
+        rides. --%>
+        <section aria-labelledby="dashboard-instances-title" class="wrap pt-20 pb-12">
+          <div class="rise space-y-4 [animation-delay:170ms]">
+            <div class="flex items-center justify-between gap-4">
+              <h2 id="dashboard-instances-title" class="text-lg font-semibold tracking-tight text-ink">
+                Instances
+              </h2>
+              <.link
+                navigate={~p"/instances"}
+                class="text-sm font-medium text-link transition-colors hover:text-ink"
+              >
+                View all <span aria-hidden="true">&rarr;</span>
+              </.link>
+            </div>
 
-          <%!-- Same card language as the index rows (#277 T5a/T7) — see
-          instance_live/index.ex for the lift note (shadow on the link,
-          motion-safe translate on the wrapper + chevron). --%>
-          <div id="dashboard-instances" phx-update="stream" class="space-y-3">
-            <.link
-              :for={{dom_id, instance} <- @streams.instances}
-              navigate={~p"/instances/#{instance.id}"}
-              id={dom_id}
-              data-testid="instance-row"
-              class="group relative block rounded-panel border border-line-strong bg-panel p-5 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md"
+            <.empty_state :if={@instance_count == 0} title="No instances yet">
+              Deploy your first app from the catalog.
+            </.empty_state>
+            <%!-- The fresh-account onboarding nudge (#205): a welcome
+            grant on the balance is exactly the "your first deploy is
+            free" moment — only meaningful while nothing's deployed. --%>
+            <.callout
+              :if={@instance_count == 0 and @wallet != :none and @wallet.balance_cents > 0}
+              tone="info"
+              title="Welcome credits ready"
             >
-              <div class="space-y-2 transition-[translate] duration-(--motion-base) ease-(--motion-ease-out) motion-safe:group-hover:-translate-y-1">
-                <div class="flex flex-wrap items-center justify-between gap-3">
-                  <div class="flex min-w-0 items-center gap-3">
+              You have {format_usd(@wallet.balance_cents)} in credits — your first deploy is on us.
+            </.callout>
+
+            <%!-- The concept's row language: monogram chip, name + mono
+            hostname, app/version, status badge. Same card language as
+            the index rows (#277 T5a/T7) — and the same hit-box split
+            (hostile F5): the link's own box stays put and an inner
+            wrapper lifts motion-safe, so a pointer parked at the row's
+            bottom 1px still lands inside the link and navigates (the
+            grammar's a.card lift moves the box itself and opens a 3px
+            dead band). border-line-strong + shadow-sm is the index
+            rows' rest step — app.css's dark rule gives raised panels
+            border emphasis, and the sibling row surface must not read
+            flatter than this one (hostile F6). Grid: mobile drops
+            app/version under the name at the name's left edge (the
+            reference's indent); sm+ reads one line. --%>
+            <div id="dashboard-instances" phx-update="stream" class="space-y-3">
+              <.link
+                :for={{dom_id, instance} <- @streams.instances}
+                navigate={~p"/instances/#{instance.id}"}
+                id={dom_id}
+                data-testid="instance-row"
+                class="group relative block rounded-panel border border-line-strong bg-panel p-4 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md sm:p-5"
+              >
+                <div class="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-2 transition-[translate] duration-(--motion-base) ease-(--motion-ease-out) motion-safe:group-hover:-translate-y-1 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
+                  <span
+                    aria-hidden="true"
+                    class="grid size-9 place-items-center rounded-panel border border-primary/25 bg-primary-muted font-mono text-xs font-semibold text-link"
+                  >
+                    {monogram(instance.name)}
+                  </span>
+
+                  <div class="min-w-0 space-y-0.5">
                     <h3 class="min-w-0 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
                       {instance.name}
                     </h3>
-                    <span class="font-mono text-xs text-ink-subtle shrink-0">{instance.slug}</span>
+                    <p class="truncate font-mono text-xs text-ink-subtle">{instance.slug}</p>
+                    <%!-- #179 friendly copy only; quiet on settled states —
+                    see the moduledoc's #203 note. --%>
+                    <p
+                      :if={noisy?(instance.status)}
+                      class="truncate text-xs text-ink-subtle"
+                      data-testid="instance-status-message"
+                    >
+                      {InstanceStatus.message(instance)}
+                    </p>
                   </div>
-                  <div class="flex items-center gap-3">
+
+                  <div class="col-start-2 row-start-2 flex items-center gap-3 sm:col-start-3 sm:row-start-1">
                     <span class="text-sm text-ink-muted">
                       {instance.app_version.app.name}
                       <span class="ml-1 font-mono text-xs text-ink-subtle">
@@ -193,22 +274,14 @@ defmodule FluxValeWeb.DashboardLive do
                     </span>
                     <.status_badge status={instance.status} />
                   </div>
+
+                  <.icon
+                    name="hero-chevron-right"
+                    class="hidden size-4 text-ink-subtle opacity-0 transition-[opacity] duration-(--motion-base) ease-(--motion-ease-out) group-hover:opacity-100 group-focus-visible:opacity-100 sm:col-start-4 sm:row-start-1 sm:block"
+                  />
                 </div>
-                <%!-- #179 friendly copy only; quiet on settled states —
-                see the moduledoc's #203 note. --%>
-                <p
-                  :if={noisy?(instance.status)}
-                  class="truncate text-xs text-ink-subtle"
-                  data-testid="instance-status-message"
-                >
-                  {InstanceStatus.message(instance)}
-                </p>
-              </div>
-              <.icon
-                name="hero-chevron-right"
-                class="absolute right-1 top-5 size-4 text-ink-subtle opacity-0 transition-[opacity,translate] duration-(--motion-base) ease-(--motion-ease-out) group-hover:opacity-100 group-focus-visible:opacity-100 motion-safe:group-hover:-translate-y-1"
-              />
-            </.link>
+              </.link>
+            </div>
           </div>
         </section>
       </div>
@@ -259,6 +332,17 @@ defmodule FluxValeWeb.DashboardLive do
   # (running/sleeping/stopped — the list rows' quiet rule) are the
   # badge's business; everything else earns the friendly message line.
   defp noisy?(status), do: status not in [:running, :sleeping, :stopped]
+
+  # The row chip's mark (S4's reference rows): the name's first two
+  # GRAPHEMES, uppercased — String.graphemes, not String.slice, so a
+  # multi-codepoint glyph (emoji, combining accent) is never split.
+  defp monogram(name) do
+    name
+    |> String.graphemes()
+    |> Enum.take(2)
+    |> Enum.join()
+    |> String.upcase()
+  end
 
   defp subscribe(socket, instances) do
     Enum.reduce(instances, socket, fn instance, socket ->

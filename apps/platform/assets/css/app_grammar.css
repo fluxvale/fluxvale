@@ -33,6 +33,9 @@
  *   2. The section AFTER a straddling band carries its own top padding
  *      (e.g. `py-10` utilities) — the hang overlaps into it by
  *      construction.
+ * Reveal contract: `.rise` never nests inside `.rise` — the parent
+ * carries the reveal, staggering is for siblings (the kill rule below
+ * enforces it; found by #330's hostile review).
  * `:has()` (the reserve below targets only bands that straddle) is
  * Baseline-newly-available (Dec 2023); the `@supports not` arm keeps the
  * reserve real on older engines by reserving on every band.
@@ -197,10 +200,23 @@
 
   /* ---- Motion: a restrained page-load fade-up for the first section.
    * Keyframe names are appgram-prefixed — keyframes can't be scoped by a
-   * selector, so the prefix is the namespace. ---- */
+   * selector, so the prefix is the namespace. .rise must never NEST
+   * inside .rise: the kill rule below makes a nested one inert (a
+   * nested rise is always a bug — the parent carries the reveal, and
+   * staggering is for siblings), because CSS compounds opacity and
+   * transforms down the tree, so a nested rise double-fades and
+   * double-travels. Stagger SIBLINGS with animation-delay, like S2. --*/
   .appgram .rise {
     opacity: 0;
     animation: appgram-rise var(--motion-slow) var(--motion-ease-out) forwards;
+  }
+
+  /* The nested-rise kill: the base rule's opacity: 0 would otherwise
+   * hold the nested node at 0 with no animation running (animation:
+   * none), so opacity: 1 is load-bearing here, not cosmetic. */
+  .appgram .rise .rise {
+    animation: none;
+    opacity: 1;
   }
 
   /* Zero-delta kill switch, the landing's shape: every animation and
