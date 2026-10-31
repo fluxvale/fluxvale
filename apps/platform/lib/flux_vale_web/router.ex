@@ -11,6 +11,8 @@ defmodule FluxValeWeb.Router do
     plug(:put_root_layout, html: {FluxValeWeb.Layouts, :root})
     plug(:protect_from_forgery)
     plug(:put_secure_browser_headers)
+    # Locale rides the fetched session — applies before any rendering.
+    plug(FluxValeWeb.Locale)
     # #138: the edge geo header rides the session as checkout location
     # evidence (the wizard reads it in mount).
     plug(FluxValeWeb.Plugs.CaptureIpCountry)
@@ -225,6 +227,8 @@ defmodule FluxValeWeb.Router do
     # only, never a gate.
     live_session :authenticated,
       on_mount: [
+        # Locale first: applies in the LiveView process before any rendering.
+        {FluxValeWeb.Locale, :set_locale},
         {FluxValeWeb.UserAuth, :ensure_authenticated},
         {FluxValeWeb.OrgNav, :assign_orgs},
         {FluxValeWeb.NavSection, :derive}
