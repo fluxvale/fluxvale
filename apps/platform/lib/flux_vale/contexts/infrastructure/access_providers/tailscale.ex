@@ -1043,7 +1043,9 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   end
 
   defp land_reconciled(gateway, claims) do
-    if claims == gateway.dns_claims do
+    # nil and %{} are the same posture — an empty reconcile must not
+    # turn into a write that merely normalizes the column.
+    if claims == (gateway.dns_claims || %{}) do
       :ok
     else
       write_reconciled(gateway, claims)
@@ -1244,8 +1246,16 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
            organization_id == ^organization_id and kind == :platform and state == :verified
          )
          |> Ash.read_one(authorize?: false) do
-      {:ok, domain} -> domain
-      {:error, _reason} -> nil
+      {:ok, domain} ->
+        domain
+
+      # DB-down: a real read failure cannot be exercised in the
+      # sandbox; standing down (nil = no platform row this tick) is the
+      # honest answer, and the observe pass's outer error handling owns
+      # genuine DB outages via Oban retries.
+      # coveralls-ignore-next-line
+      {:error, _reason} ->
+        nil
     end
   end
 

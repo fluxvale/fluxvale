@@ -220,8 +220,9 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient do
   end
 
   defp device_result(%{"id" => id}) when is_binary(id), do: {:ok, %{id: id}}
-  # coveralls-ignore-next-line defensive: the API documents string ids; a
-  # nameless/idless row cannot be matched anyway
+
+  # A row that matched by name but carries no usable id cannot be
+  # claimed against — refused, and the caller surfaces :node_not_found.
   defp device_result(_malformed), do: {:error, :not_found}
 
   defp name_matches?(%{"name" => name}, hostname) when is_binary(name) do

@@ -712,6 +712,151 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
     end
   end
 
+  describe "the reconcile limb's stand-downs (one-shot per pass, no flapping)" do
+    # Every arm below is the same stance: the limb's API/funnel work
+    # failed, the pass LOGS and stands down, the pod-level observation
+    # stands, and the next tick re-decides. Pinned once per arm so a
+    # refactor cannot turn a stand-down into a crash or a flap.
+    test "a failed claims write is skipped — the drift side effects landed anyway", %{org: org} do
+      put_access_dns()
+
+      claimed = with_claims(gateway_row!(org), %{@domain => claim_entry("9.9.9.9")})
+      gateway = with_token_ref(claimed, "api-credential-x")
+
+      stub(AccessGateway, :update_claims, fn _gw, _attrs, _opts -> {:error, :forced_db} end)
+
+      assert {:ok, %{state: :active}} = Tailscale.gateway_status(gateway)
+
+      # The tailnet-side convergence happened; only the row write skipped.
+      assert_received {:split_dns_patch, %{@domain => [@resolver_ip]}}
+      row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+      assert row.dns_claims[@domain]["ip"] == "9.9.9.9"
+    end
+
+    test "a failed convergence PATCH stands down without re-applying the Deployment", %{
+      org: org
+    } do
+      put_access_dns()
+
+      claimed = with_claims(gateway_row!(org), %{@domain => claim_entry("9.9.9.9")})
+      gateway = with_token_ref(claimed, "api-credential-x")
+
+      # The provision leg's own apply is not under observation.
+      drain_provision()
+
+      stub(ApiClient, :split_dns_patch, fn _token, _patch -> {:error, :network_error} end)
+
+      assert {:ok, %{state: :active}} = Tailscale.gateway_status(gateway)
+
+      # No convergence, no restart — the next tick re-decides.
+      refute_received {:deployment_apply, _manifest}
+      row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+      assert row.dns_claims[@domain]["ip"] == "9.9.9.9"
+    end
+
+    test "a node lookup failure during the route re-union stands down", %{org: org} do
+      put_access_dns()
+
+      claimed = with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
+      gateway = with_token_ref(claimed, "api-credential-x")
+
+      # First devices_lookup serves the token verify; the re-union's
+      # own lookup fails for a real reason.
+      {:ok, calls} = Agent.start_link(fn -> 0 end)
+
+      stub(ApiClient, :devices_lookup, fn _token, _hostname ->
+        n = Agent.get_and_update(calls, fn c -> {c, c + 1} end)
+        if n == 0, do: {:ok, %{id: "dev-777"}}, else: {:error, :network_error}
+      end)
+
+      assert {:ok, %{state: :active}} = Tailscale.gateway_status(gateway)
+
+      row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+      assert row.dns_claims[@domain]["ip"] == @resolver_ip
+    end
+
+    test "a routes read failure during the re-union stands down", %{org: org} do
+      put_access_dns()
+
+      claimed = with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
+      gateway = with_token_ref(claimed, "api-credential-x")
+
+      stub(ApiClient, :routes_get, fn _token, _id -> {:error, :network_error} end)
+      reject(ApiClient, :routes_set, 3)
+
+      assert {:ok, %{state: :active}} = Tailscale.gateway_status(gateway)
+    end
+
+    test "a failed /32 re-union stands down", %{org: org} do
+      put_access_dns()
+
+      claimed = with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
+      gateway = with_token_ref(claimed, "api-credential-x")
+
+      stub(ApiClient, :routes_get, fn _token, _id ->
+        {:ok, %{advertised: [], enabled: ["10.0.0.1/32"]}}
+      end)
+
+      stub(ApiClient, :routes_set, fn _token, _id, _routes -> {:error, :quota} end)
+
+      assert {:ok, %{state: :active}} = Tailscale.gateway_status(gateway)
+    end
+
+    test "a failed Deployment re-apply stands down", %{org: org} do
+      previous = put_access_dns()
+
+      claimed = with_claims(gateway_row!(org), %{@domain => claim_entry("9.9.9.9")})
+      gateway = with_token_ref(claimed, "api-credential-x")
+
+      stub(Deployment, :apply_manifest, fn _kc, _manifest ->
+        {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
+      end)
+
+      assert {:ok, %{state: :active}} = Tailscale.gateway_status(gateway)
+
+      on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
+    end
+
+    test "no cluster for the Deployment re-apply stands down", %{org: org} do
+      previous = put_access_dns()
+
+      claimed = with_claims(gateway_row!(org), %{@domain => claim_entry("9.9.9.9")})
+      gateway = with_token_ref(claimed, "api-credential-x")
+
+      # The kubeconfig resolves for the pod read and the token read,
+      # then the cluster goes away before the re-apply.
+      {:ok, calls} = Agent.start_link(fn -> 0 end)
+
+      stub(K8s, :kubeconfig, fn _ref ->
+        n = Agent.get_and_update(calls, fn c -> {c, c + 1} end)
+        if n < 2, do: {:ok, %{}}, else: {:error, :db_down}
+      end)
+
+      assert {:ok, %{state: :active}} = Tailscale.gateway_status(gateway)
+
+      on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
+    end
+
+    test "a failed default-on claim stands down with the row unchanged", %{org: org} do
+      put_access_dns()
+      base = Application.fetch_env!(:flux_vale, :instances_base_domain)
+
+      AccessDomain.mint_platform!(%{domain: base, organization_id: org.id}, authorize?: false)
+
+      gateway = with_token_ref(gateway_row!(org), "api-credential-x")
+
+      # claim_domain's own split-DNS read fails — the default claim
+      # stands down, nothing is recorded, the next tick re-decides.
+      stub(ApiClient, :split_dns_get, fn _token -> {:error, :network_error} end)
+      reject(ApiClient, :split_dns_patch, 2)
+
+      assert {:ok, %{state: :active}} = Tailscale.gateway_status(gateway)
+
+      row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+      assert row.dns_claims == nil
+    end
+  end
+
   describe "the TS_ROUTES manifest limb" do
     test "a configured resolver advertises its /32", %{org: org} do
       put_access_dns()
@@ -800,6 +945,18 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
   # The provider's per-gateway object names — the same rule the
   # assertions pin (a local mirror of the provider's private helper).
   defp name_prefix(gateway, prefix), do: "#{prefix}-#{short_id(gateway)}"
+
+  # Consume the create leg's captures so later refutes only see what
+  # the code under observation sent.
+  defp drain_provision do
+    receive do
+      {:secret_create, _ns, _name, _data} -> drain_provision()
+      {:deployment_apply, _manifest} -> drain_provision()
+      _other -> drain_provision()
+    after
+      0 -> :ok
+    end
+  end
 
   defp put_access_dns do
     previous = Application.get_env(:flux_vale, :access_dns)

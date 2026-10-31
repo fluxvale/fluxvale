@@ -211,6 +211,64 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
       assert {:error, :node_ambiguous} = ApiClient.devices_lookup(@token, "fv-1a2b3c4d")
     end
 
+    test "a name-matched row without a usable id is refused, not claimed against" do
+      expect_request(:get, "/api/v2/tailnet/-/devices", fn _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{"devices" => [%{"name" => "fv-1a2b3c4d.example.ts.net"}]}
+         }}
+      end)
+
+      assert {:error, :not_found} = ApiClient.devices_lookup(@token, "fv-1a2b3c4d")
+    end
+
+    test "an unparseable lastSeen loses to a parseable one (P2-5's tie-break is honest)" do
+      expect_request(:get, "/api/v2/tailnet/-/devices", fn _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{
+             "devices" => [
+               %{
+                 "id" => "garbage-clock",
+                 "name" => "fv-1a2b3c4d.example.ts.net",
+                 "online" => true,
+                 "lastSeen" => "not-a-timestamp"
+               },
+               %{
+                 "id" => "honest",
+                 "name" => "fv-1a2b3c4d.example.ts.net",
+                 "online" => true,
+                 "lastSeen" => "2026-10-30T00:00:00Z"
+               }
+             ]
+           }
+         }}
+      end)
+
+      assert {:ok, %{id: "honest"}} = ApiClient.devices_lookup(@token, "fv-1a2b3c4d")
+    end
+
+    test "two online matches with no lastSeen at all still resolve deterministically" do
+      expect_request(:get, "/api/v2/tailnet/-/devices", fn _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{
+             "devices" => [
+               %{"id" => "first", "name" => "fv-1a2b3c4d.example.ts.net", "online" => true},
+               %{"id" => "second", "name" => "fv-1a2b3c4d.example.ts.net", "online" => true}
+             ]
+           }
+         }}
+      end)
+
+      # Both epoch-ranked: the FIRST maximal wins (Enum.max_by is
+      # stable) — deterministic, never a raise.
+      assert {:ok, %{id: "first"}} = ApiClient.devices_lookup(@token, "fv-1a2b3c4d")
+    end
+
     test "another non-2xx is a status+snippet error, body bounded" do
       expect_request(:get, "/api/v2/tailnet/-/devices", fn _opts ->
         {:ok,
@@ -262,6 +320,14 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
       end)
 
       assert {:error, :unauthorized} = ApiClient.routes_get(@token, "777")
+    end
+
+    test "a transport failure is :network_error" do
+      expect_request(:get, "/api/v2/device/777/routes", fn _opts ->
+        {:error, %Req.TransportError{reason: :econnrefused}}
+      end)
+
+      assert {:error, :network_error} = ApiClient.routes_get(@token, "777")
     end
 
     test "a scalar 2xx body is a bad payload (the bracket access would crash the tick)" do
@@ -323,6 +389,14 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
       end)
 
       assert {:error, {:bad_payload, 200}} = ApiClient.split_dns_get(@token)
+    end
+
+    test "a transport failure is :network_error" do
+      expect_request(:get, "/api/v2/tailnet/-/dns/split-dns", fn _opts ->
+        {:error, %Req.TransportError{reason: :timeout}}
+      end)
+
+      assert {:error, :network_error} = ApiClient.split_dns_get(@token)
     end
   end
 
