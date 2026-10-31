@@ -4,7 +4,10 @@ display-only (#205): the template branches on @current_user for the chrome
 (user menu, dashboard CTA) but the anonymous render is unchanged. The landing
 is also mounted at /about — canonical to / — so signed-in sessions keep a
 path to it once / becomes the dashboard.
-Copy lives inline on purpose; the wording is reviewed at merge (#164).
+Copy lives in gettext — the msgid is the source of truth; the wording is
+reviewed at merge (#164). Not extracted: standalone proper nouns
+(FluxVale, Forgejo, Kavita), and the aria-hidden mock status panel
+(.panel) — decorative, never read, so its contents stay literal.
 /catalog hrefs can move to ~p now that the route registers (router.ex)
 — left literal here pending that slice's cleanup.
 The Offset grammar (#277): four-layer offset hero (sunken circle wash, status
@@ -38,12 +41,12 @@ layout's flex contract while scoping the landing styles. --%>
         />
         <span class="text-sm font-semibold tracking-tight text-ink">FluxVale</span>
       </a>
-      <nav aria-label="Primary">
+      <nav aria-label={gettext("Primary")}>
         <ul class="flex items-center gap-2">
-          <li><.nav_link href="/catalog">Apps</.nav_link></li>
+          <li><.nav_link href="/catalog">{gettext("Apps")}</.nav_link></li>
           <li :if={is_nil(@current_user)}>
             <.button href={~p"/sign-in"} size="sm">
-              Sign in <span aria-hidden="true">&rarr;</span>
+              {gettext("Sign in")} <span aria-hidden="true">&rarr;</span>
             </.button>
           </li>
           <li :if={@current_user}>
@@ -72,17 +75,18 @@ layout's flex contract while scoping the landing styles. --%>
           <div class="hero-circle px-slow" aria-hidden="true"></div>
 
           <div class="hero-copy">
-            <p class="eyebrow rise">Managed hosting</p>
+            <p class="eyebrow rise">{gettext("Managed hosting")}</p>
             <h1 class="display rise d1">
-              Managed hosting for open source applications
+              {gettext("Managed hosting for open source applications")}
             </h1>
             <p class="hero-sub rise d2">
-              Pick an open source app, deploy it in minutes, and FluxVale keeps it
-              running — updates and monitoring included.
+              {gettext(
+                "Pick an open source app, deploy it in minutes, and FluxVale keeps it running — updates and monitoring included."
+              )}
             </p>
             <div class="hero-ctas rise d3">
               <.button href="/catalog" class="lift">
-                Browse apps
+                {gettext("Browse apps")}
               </.button>
               <.button
                 :if={is_nil(@current_user)}
@@ -90,7 +94,7 @@ layout's flex contract while scoping the landing styles. --%>
                 variant="ghost"
                 size="lg"
               >
-                Sign in
+                {gettext("Sign in")}
               </.button>
               <.button
                 :if={@current_user}
@@ -98,7 +102,7 @@ layout's flex contract while scoping the landing styles. --%>
                 variant="ghost"
                 size="lg"
               >
-                Your dashboard
+                {gettext("Your dashboard")}
               </.button>
             </div>
           </div>
@@ -142,7 +146,7 @@ layout's flex contract while scoping the landing styles. --%>
             <%!-- Outside .px-panel on purpose: its parallax transform
             would trap the chip on the panel (see landing.css). --%>
             <div class="float-chip drop d5">
-              <span class="dot"></span>wiki · rolling out v1.1
+              <span class="dot"></span>{gettext("wiki · rolling out v1.1")}
             </div>
           </div>
         </div>
@@ -154,55 +158,59 @@ layout's flex contract while scoping the landing styles. --%>
     <section aria-labelledby="how-it-works-title" class="steps">
       <div class="wrap">
         <div class="band-head">
-          <p class="eyebrow reveal">How it works</p>
+          <p class="eyebrow reveal">{gettext("How it works")}</p>
           <h2 id="how-it-works-title" class="display-h2 reveal">
-            Three steps to a running app
+            {gettext("Three steps to a running app")}
           </h2>
         </div>
         <div class="bento">
           <div class="cell tall reveal">
             <span class="n">01</span>
-            <h3>Pick an app</h3>
+            <h3>{gettext("Pick an app")}</h3>
             <p>
-              Choose from a curated catalog of open source applications, ready to run.
+              {gettext("Choose from a curated catalog of open source applications, ready to run.")}
             </p>
             <div class="mini">
-              <span class="cat">Developer Tools</span>
+              <span class="cat">{gettext("Developer Tools")}</span>
               <div class="m">
                 <span class="chip">FJ</span>
                 <span>
                   <b>Forgejo</b>
-                  <span class="d">Self-hosted Git forge with issues, pull requests, and Actions CI</span>
+                  <span class="d">{gettext(
+                    "Self-hosted Git forge with issues, pull requests, and Actions CI"
+                  )}</span>
                 </span>
               </div>
-              <span class="cat">Media &amp; Entertainment</span>
+              <span class="cat">{gettext("Media & Entertainment")}</span>
               <div class="m">
                 <span class="chip">KV</span>
                 <span>
                   <b>Kavita</b>
-                  <span class="d">Self-hosted digital library for comics, manga, and ebooks</span>
+                  <span class="d">{gettext(
+                    "Self-hosted digital library for comics, manga, and ebooks"
+                  )}</span>
                 </span>
               </div>
               <div class="foot">
-                <span class="more">…and more in the catalog</span>
+                <span class="more">{gettext("…and more in the catalog")}</span>
                 <a href="/catalog" class="arrowlink">
-                  Browse apps <span class="arrow" aria-hidden="true">&rarr;</span>
+                  {gettext("Browse apps")} <span class="arrow" aria-hidden="true">&rarr;</span>
                 </a>
               </div>
             </div>
           </div>
           <div class="cell raised reveal">
             <span class="n">02</span>
-            <h3>Deploy</h3>
+            <h3>{gettext("Deploy")}</h3>
             <p>
-              One guided flow from app to live URL — no YAML, no servers to babysit.
+              {gettext("One guided flow from app to live URL — no YAML, no servers to babysit.")}
             </p>
           </div>
           <div class="cell raised reveal">
             <span class="n">03</span>
-            <h3>We run it</h3>
+            <h3>{gettext("We run it")}</h3>
             <p>
-              Updates and monitoring are on us. Your data stays yours.
+              {gettext("Updates and monitoring are on us. Your data stays yours.")}
             </p>
           </div>
         </div>
@@ -214,32 +222,32 @@ layout's flex contract while scoping the landing styles. --%>
     <section aria-labelledby="catalog-title" class="catalog-band">
       <div class="wrap catalog-in">
         <div class="band-head reveal">
-          <p class="eyebrow">App catalog</p>
+          <p class="eyebrow">{gettext("App catalog")}</p>
           <h2 id="catalog-title" class="display-h2">
-            One click from browse to a running instance
+            {gettext("One click from browse to a running instance")}
           </h2>
         </div>
         <div class="catalog-cards">
           <div class="app-card reveal">
-            <p class="cat">Developer Tools</p>
+            <p class="cat">{gettext("Developer Tools")}</p>
             <div class="app">
               <span class="chip">FJ</span>
               <b>Forgejo</b>
             </div>
-            <p>Self-hosted Git forge with issues, pull requests, and Actions CI</p>
+            <p>{gettext("Self-hosted Git forge with issues, pull requests, and Actions CI")}</p>
           </div>
           <div class="app-card offset-down reveal">
-            <p class="cat">Media &amp; Entertainment</p>
+            <p class="cat">{gettext("Media & Entertainment")}</p>
             <div class="app">
               <span class="chip">KV</span>
               <b>Kavita</b>
             </div>
-            <p>Self-hosted digital library for comics, manga, and ebooks</p>
+            <p>{gettext("Self-hosted digital library for comics, manga, and ebooks")}</p>
           </div>
         </div>
         <div class="catalog-cta reveal">
           <.button href="/catalog" class="lift">
-            Browse apps
+            {gettext("Browse apps")}
           </.button>
         </div>
       </div>
@@ -252,24 +260,26 @@ layout's flex contract while scoping the landing styles. --%>
         <div class="capsule-slot drop d5">
           <span class="capsule">
             <span class="dot"></span>
-            Every app runs on FluxVale's own managed Kubernetes fleet — the same
-            infrastructure we run ourselves on.
+            {gettext(
+              "Every app runs on FluxVale's own managed Kubernetes fleet — the same infrastructure we run ourselves on."
+            )}
           </span>
         </div>
         <div class="pricing-in">
           <div>
             <h2 id="pricing-title" class="reveal">
-              One flat rate, no surprises
+              {gettext("One flat rate, no surprises")}
             </h2>
             <p class="sub reveal">
-              Pay per app and size, month to month. New accounts start with
-              welcome credits; top up when you're ready.
+              {gettext(
+                "Pay per app and size, month to month. New accounts start with welcome credits; top up when you're ready."
+              )}
             </p>
           </div>
           <div class="pricing-side reveal">
-            <span class="eyebrow">Simple pricing</span>
+            <span class="eyebrow">{gettext("Simple pricing")}</span>
             <.button href="/catalog" class="lift">
-              See the apps and prices
+              {gettext("See the apps and prices")}
             </.button>
           </div>
         </div>
@@ -298,16 +308,16 @@ layout's flex contract while scoping the landing styles. --%>
             class="hidden dark:block"
           />
         </a>
-        <span>© {Date.utc_today().year} FluxVale</span>
+        <span>{gettext("© %{year} FluxVale", year: Date.utc_today().year)}</span>
       </span>
-      <nav aria-label="Footer">
+      <nav aria-label={gettext("Footer")}>
         <ul class="foot-links">
-          <li><a href="/catalog">Apps</a></li>
+          <li><a href="/catalog">{gettext("Apps")}</a></li>
           <li :if={is_nil(@current_user)}>
-            <a href={~p"/sign-in"}>Sign in</a>
+            <a href={~p"/sign-in"}>{gettext("Sign in")}</a>
           </li>
           <li :if={@current_user}>
-            <a href={~p"/"}>Dashboard</a>
+            <a href={~p"/"}>{gettext("Dashboard")}</a>
           </li>
         </ul>
       </nav>

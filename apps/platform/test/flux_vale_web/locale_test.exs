@@ -57,6 +57,23 @@ defmodule FluxValeWeb.LocaleTest do
     refute body =~ ~s(lang="en")
   end
 
+  # The landing's extracted copy rides the same chain: the page's own
+  # headline swaps, not just the layout chrome around it.
+  test "session locale xx swaps the landing copy", %{conn: conn} do
+    conn =
+      conn
+      |> Plug.Test.init_test_session(%{})
+      |> Plug.Conn.put_session("locale", "xx")
+
+    body =
+      conn
+      |> get(~p"/")
+      |> html_response(200)
+
+    assert body =~ "xx: Managed hosting for open source applications"
+    assert body =~ ~s(lang="xx")
+  end
+
   test "unknown session locale zz falls back to the default", %{conn: conn} do
     conn =
       conn
