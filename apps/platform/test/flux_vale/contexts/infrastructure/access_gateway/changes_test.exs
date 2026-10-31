@@ -61,7 +61,9 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
     end
 
     test "the tailnet domain must be a bare DNS name", %{org: org} do
-      for bad <- ["Example.ts.net", "https://example.ts.net", ".ts.net", "tailnet name"] do
+      too_long = String.duplicate("a", 250) <> ".ts.net"
+
+      for bad <- ["Example.ts.net", "https://example.ts.net", ".ts.net", "tailnet name", too_long] do
         assert {:error, %Ash.Error.Invalid{errors: [%{field: :tailnet_domain}]}} =
                  AccessGateway.create(
                    %{
@@ -277,6 +279,8 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
 
       expect(Tailscale, :update_credential, fn _gateway, "tskey-new" -> :ok end)
 
+      # Absent domain is the documented key-only recovery (ADR-0039 §4):
+      # the action keeps the stored domain and rewrites nothing.
       {:ok, repasted} =
         AccessGateway.update_credential(gateway, %{auth_key: "tskey-new"}, authorize?: false)
 
@@ -306,6 +310,37 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
           %{auth_key: "tskey-new", tailnet_domain: "rejoined.ts.net"},
           authorize?: false
         )
+
+      assert repasted.tailnet_domain == "rejoined.ts.net"
+    end
+
+    test "a :provisioning re-paste with a changed domain re-applies under the INCOMING one", %{
+      org: org
+    } do
+      # The drift-repair arm: update_credential re-applies the whole
+      # gateway through provision_gateway, which rewrites the serve
+      # config from the struct it is handed. The hostile-review clobber:
+      # a stale pre-write struct would write the OLD FQDN back over the
+      # rewrite the same action just made (or fail outright on a
+      # nil-domain row) while the row lands the new domain.
+      gateway = AccessFixtures.gateway!(org, state: :provisioning)
+
+      expect(Tailscale, :refresh_routes, fn %{tailnet_domain: domain} ->
+        assert domain == "rejoined.ts.net"
+        {:ok, %{}}
+      end)
+
+      expect(Tailscale, :update_credential, fn %{tailnet_domain: domain}, "tskey-new" ->
+        assert domain == "rejoined.ts.net"
+        :ok
+      end)
+
+      assert {:ok, repasted} =
+               AccessGateway.update_credential(
+                 gateway,
+                 %{auth_key: "tskey-new", tailnet_domain: "rejoined.ts.net"},
+                 authorize?: false
+               )
 
       assert repasted.tailnet_domain == "rejoined.ts.net"
     end

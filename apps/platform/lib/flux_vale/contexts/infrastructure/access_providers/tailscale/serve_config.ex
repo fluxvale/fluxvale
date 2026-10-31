@@ -67,7 +67,11 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfig do
 
   defp web_arm(_hostname, _tailnet_domain, []), do: %{}
 
-  defp web_arm(hostname, tailnet_domain, entries) do
+  # A nil domain with entries would mint `"fv-….:8443"` — a key no
+  # daemon can match. The provider guards this before calling; the
+  # guard here keeps the pure function from silently building garbage
+  # for any future caller.
+  defp web_arm(hostname, tailnet_domain, entries) when is_binary(tailnet_domain) do
     Map.new(entries, fn {port, target} ->
       {"#{hostname}.#{tailnet_domain}:#{port}", %{"Handlers" => %{"/" => %{"Proxy" => target}}}}
     end)

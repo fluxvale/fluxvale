@@ -13,10 +13,19 @@ defmodule FluxVale.Infrastructure.AccessGateway.RepasteCredential do
   A changed tailnet domain re-renders the serve config BEFORE the key
   write: the rewrite is the P1 repair path (a gateway provisioned
   before the column existed carries the broken `${TS_CERT_DOMAIN}`
-  literal in its Secret), and doing it first means the restart that
-  follows mounts the corrected config. Both writes fail the action — a
-  row that says "reconnecting" over an unwritten Secret or an
-  unregenerated config would be a lie the panel shows.
+  literal in its Secret), and doing it first means a restart that
+  follows mounts the corrected config. Both the rewrite and the key
+  write see the INCOMING domain — `changeset.data` is stale here (the
+  row has not been written), and `:provisioning` re-pastes re-apply the
+  whole gateway through the provider, so a stale struct would write the
+  OLD FQDN back over the rewrite the same action just made.
+
+  A key-write failure after a successful serve rewrite leaves the
+  Secret on the new domain while the row keeps the old — cluster I/O
+  cannot join the row's transaction. The divergence is bounded and
+  converges: the retry re-runs both writes with the same inputs, the
+  rewrite is idempotent, and until they meet the panel's address
+  follows the row while the mounted config follows the Secret.
   """
 
   use Ash.Resource.Change
@@ -30,9 +39,19 @@ defmodule FluxVale.Infrastructure.AccessGateway.RepasteCredential do
     auth_key = Ash.Changeset.get_argument(changeset, :auth_key)
 
     Ash.Changeset.before_action(changeset, fn changeset ->
-      gateway = changeset.data
+      # The struct the provider writes from — the row as this action is
+      # about to see it, not the stale pre-write struct. Every provider
+      # limb below (the serve rewrite, the key write, the :provisioning
+      # re-apply that rewrites the config again) must render the same
+      # FQDN the row will land with.
+      stored_domain = changeset.data.tailnet_domain
 
-      with :ok <- maybe_refresh_domain(gateway, changeset),
+      gateway = %{
+        changeset.data
+        | tailnet_domain: Ash.Changeset.get_attribute(changeset, :tailnet_domain)
+      }
+
+      with :ok <- maybe_refresh_domain(gateway, stored_domain),
            :ok <- AccessProvider.impl_for(gateway).update_credential(gateway, auth_key) do
         changeset
         |> Ash.Changeset.force_change_attribute(:state, :provisioning)
@@ -52,15 +71,14 @@ defmodule FluxVale.Infrastructure.AccessGateway.RepasteCredential do
   end
 
   # The serve rewrite runs only when the suffix actually moved: the
-  # ordinary re-paste (same domain) must not depend on the cluster's
-  # serve Secret being writable for the KEY recovery to land. The
-  # struct passed in carries the incoming domain, so the regenerated
-  # config renders the FQDN the owner just typed, not the stored one.
-  defp maybe_refresh_domain(gateway, changeset) do
-    domain = Ash.Changeset.get_attribute(changeset, :tailnet_domain)
-
-    if domain != gateway.tailnet_domain do
-      case AccessProvider.impl_for(gateway).refresh_routes(%{gateway | tailnet_domain: domain}) do
+  # ordinary re-paste (same domain, or none — get_attribute falls back
+  # to the stored value) must not depend on the cluster's serve Secret
+  # being writable for the KEY recovery to land. The struct already
+  # carries the incoming domain, so the regenerated config renders the
+  # FQDN the owner just typed, not the stored one.
+  defp maybe_refresh_domain(gateway, stored_domain) do
+    if gateway.tailnet_domain != stored_domain do
+      case AccessProvider.impl_for(gateway).refresh_routes(gateway) do
         {:ok, _serve_config} -> :ok
         {:error, _reason} = error -> error
       end

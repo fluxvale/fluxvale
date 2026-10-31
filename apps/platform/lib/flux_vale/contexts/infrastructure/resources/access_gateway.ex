@@ -232,7 +232,11 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     attribute :tailnet_domain, :string do
       allow_nil?(false)
       public?(true)
-      constraints(match: ~r/\A[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+\z/)
+      # DNS full-name bound: 253 chars, dot-separated lowercase labels.
+      constraints(
+        match: ~r/\A[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+\z/,
+        max_length: 253
+      )
     end
 
     attribute :provider, FluxVale.Infrastructure.Types.AccessGatewayProvider do

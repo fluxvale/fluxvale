@@ -43,6 +43,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   alias FluxVale.Infrastructure.Operations.InstanceK8s
 
   require Ash.Query
+  require Logger
 
   # The gateway's Kubernetes objects, all in the access namespace and
   # all keyed by the gateway's id — one org's gateway must never address
@@ -170,8 +171,35 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
       # the pairing).
       with :ok <- disadmit_gateway(kubeconfig, instance),
            :ok <- delete_route(instance) do
-        apply_routes(kubeconfig, gateway)
+        apply_after_detach(kubeconfig, gateway, instance)
       end
+    end
+  end
+
+  # The migration window only: OTHER routes may remain whose rewrite
+  # needs a domain the row does not carry (the same reason their attach
+  # is refused). THIS pairing's removal is complete — policy withdrawn,
+  # row deleted — and the remaining routes' mounted config is the broken
+  # literal regardless, so failing the detach would only strand a
+  # deletion the owner cannot retry (the row is gone; re-attach is
+  # refused too). The next rewrite the gateway CAN write — the owner's
+  # re-paste — regenerates from the rows and drops this port.
+  defp apply_after_detach(kubeconfig, gateway, instance) do
+    case apply_routes(kubeconfig, gateway) do
+      :ok ->
+        :ok
+
+      {:error, :tailnet_domain_missing} = tolerated ->
+        Logger.warning(
+          "Access gateway #{gateway.id} serve-config rewrite skipped after detaching " <>
+            "instance #{instance.id}: no tailnet domain on the row; remaining routes stay " <>
+            "on their stale config until the owner re-pastes (#{inspect(tolerated)})"
+        )
+
+        :ok
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

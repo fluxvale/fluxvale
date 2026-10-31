@@ -130,6 +130,19 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfigTest do
       assert config["Web"] == %{}
     end
 
+    test "a nil domain with entries is refused — no key a daemon can't match" do
+      # The laundered nil (a bare nil literal would trip warnings-as-
+      # errors): the migration-window row's shape must not silently
+      # mint "fv-….:8443" for any future caller.
+      nil_domain = Enum.at([nil], 0)
+
+      assert_raise FunctionClauseError, fn ->
+        ServeConfig.build(@hostname, nil_domain, [
+          {"8443", "http://app.ns.svc.cluster.local:80"}
+        ])
+      end
+    end
+
     test "funnel is explicitly empty — private access never becomes public" do
       config =
         ServeConfig.build(@hostname, @domain, [{"8443", "http://app.ns.svc.cluster.local:80"}])
