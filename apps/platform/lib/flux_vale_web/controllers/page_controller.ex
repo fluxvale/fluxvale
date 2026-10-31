@@ -35,11 +35,15 @@ defmodule FluxValeWeb.PageController do
   defp landing(conn, canonical_path) do
     conn
     |> assign(:canonical_path, canonical_path)
-    |> assign(:page_title, "FluxVale — Managed hosting for open source applications")
+    |> assign(
+      :page_title,
+      gettext("FluxVale — Managed hosting for open source applications")
+    )
     |> assign(
       :page_description,
-      "Browse a curated catalog of open source apps, deploy one in minutes, " <>
-        "and let FluxVale keep it running for you."
+      gettext(
+        "Browse a curated catalog of open source apps, deploy one in minutes, and let FluxVale keep it running for you."
+      )
     )
     |> render(:home)
   end
