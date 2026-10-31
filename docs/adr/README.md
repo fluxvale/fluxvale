@@ -49,6 +49,7 @@ already ruled out.
 | [ADR-0038](00038-instance-exposure-modes.md) | Instance exposure modes: public (default) \| private (no public route, edge ingress denied; provider-agnostic seam for the upcoming access layer); exposure is free | Accepted (amended — see Amendment 1) |
 | [ADR-0039](00039-private-access-layer-tailscale.md) | Private access layer: per-org userspace Tailscale gateway (B1), `AccessProvider` boundary, gateway-existence billing, gateway wake intercept, the stale-sleep self-heal | Accepted (amended — see Amendment 1) (price pending — owner's) |
 | [ADR-0040](00040-strong-private-access-and-custom-domains.md) | Strong private access + custom domains: serve raw-TCP tunnel to a Traefik `access` entrypoint, split-DNS claiming per (tailnet, domain), per-gateway-view resolver, verify-by-issuance domain registry, DNS-01 wildcard certs — public/private becomes a resolution question; wake-knock survives | Accepted (amended — see Amendment 1) |
+| [ADR-0041](00041-gettext-i18n-foundation.md) | Gettext i18n foundation: en-only now; one locale seam (`FluxValeWeb.Locale`, session-first) + `lang` attribute; extract `--check-up-to-date` in `mix ci`; phase 2 extracts authed surfaces post-redesign, email copy via an explicit-locale mailer API | Accepted |
 
 ## Conventions
 
