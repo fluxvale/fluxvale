@@ -621,9 +621,16 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
       </p>
     </div>
 
-    <div class="space-y-2">
-      <p class="text-xs font-medium text-ink-muted">Recent runs</p>
-      <div id="backup-runs" class="space-y-1.5" data-testid="backup-runs">
+    <%!-- S3: the run history is technical content — outcomes, sizes,
+    times — so it reads in the mono-panel register (the admin panel's
+    sunken treatment). The setup/restore interactions above stay form
+    surfaces; the shell stays a regular card. Label rides mb-0 +
+    space-y-3, the dav panel's explicit rhythm — space-y on the wrapper
+    would otherwise halve the grammar's 12px label gap (#328 hostile
+    F7). --%>
+    <div class="mono-panel space-y-3">
+      <p class="mono-panel-label mb-0">Recent runs</p>
+      <div id="backup-runs" class="space-y-2" data-testid="backup-runs">
         <.backup_run_row :for={run <- @runs} run={run} now={@now} />
       </div>
       <p :if={@runs == []} class="text-xs text-ink-subtle" data-testid="backups-no-runs">
@@ -1021,6 +1028,10 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   failure — the plain-words reason in body color. The snapshot hash stays
   on the run but never renders: it's restic's identifier, not the
   owner's.
+
+  S3: the row reads in the mono register — a quiet row inside the
+  mono-panel, no pill chrome; the status word alone carries the tone
+  color (red marks the state, never the reason text).
   """
   attr(:run, :any, required: true)
   attr(:now, :any, default: nil)
@@ -1032,7 +1043,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
     assigns =
       assign(assigns,
         now: now,
-        tone: status_tone(run.status),
+        tone: status_class(run.status),
         status_label: status_label(run.status),
         kind_label: kind_label(run.kind),
         size: run_size(run),
@@ -1042,13 +1053,13 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
 
     ~H"""
     <div
-      class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-control border border-line bg-panel px-3 py-2 text-xs"
+      class="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 font-mono text-xs"
       data-testid="backup-run"
       data-run-kind={@run.kind}
       data-run-status={@run.status}
     >
-      <.badge tone={@tone}>{@status_label}</.badge>
-      <span class="text-ink">{@kind_label}</span>
+      <span class={["w-24 shrink-0 font-medium", @tone]}>{@status_label}</span>
+      <span class="text-ink-muted">{@kind_label}</span>
       <span :if={@size} class="text-ink-subtle">{@size}</span>
       <span class="ml-auto text-ink-subtle">{@occurred}</span>
       <p :if={@failure} class="w-full break-words text-ink-muted">
@@ -1063,10 +1074,16 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   defp status_label(:succeeded), do: "Finished"
   defp status_label(:failed), do: "Failed"
 
-  defp status_tone(:pending), do: "neutral"
-  defp status_tone(:running), do: "primary"
-  defp status_tone(:succeeded), do: "success"
-  defp status_tone(:failed), do: "danger"
+  # The status words' tones in the mono register: text color, not a
+  # pill. The deep steps are the sunken-surface tokens (PR #328's
+  # hostile F1: the base success/danger fall under 4.5:1 on
+  # --panel-sunken in light; the deep steps clear it with margin and
+  # alias the same values in dark). `text-link` for "running" is the
+  # badge's primary tone's readable member, unchanged.
+  defp status_class(:pending), do: "text-ink-subtle"
+  defp status_class(:running), do: "text-link"
+  defp status_class(:succeeded), do: "text-success-deep"
+  defp status_class(:failed), do: "text-danger-deep"
 
   defp kind_label(:scheduled), do: "Scheduled backup"
   defp kind_label(:manual), do: "Manual backup"

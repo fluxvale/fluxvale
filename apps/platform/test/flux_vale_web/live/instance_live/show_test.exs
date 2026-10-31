@@ -621,8 +621,11 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     # The straddle IS the status card — it carries the status message.
     assert has_element?(view, ".appgram .straddle [data-testid=status-message]")
 
-    # Non-admin: no technical panel, no hole left for one.
-    refute has_element?(view, ".mono-panel")
+    # Non-admin: no technical panel, no hole left for one. The pin rides
+    # the admin block's own marker (its h2): the S3 panels render
+    # .mono-panel registers of their own (run history, quick-start), so
+    # a bare .mono-panel refute would be a false invariant (#328
+    # hostile F5).
     refute has_element?(view, ".mono-panel h2")
 
     admin =

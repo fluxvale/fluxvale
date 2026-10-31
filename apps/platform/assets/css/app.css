@@ -144,6 +144,16 @@
      Caveat: success text on the OLIVE tint would be 4.31:1 — status
      text never sits on the info tint; it carries its own. */
   --success: #007b65;
+  /* Sunken-surface steps for tone words on the mono panels (PR #328's
+     hostile F1): the run rows read on --panel-sunken, darker than the
+     tints the base tokens were tuned against (#007b65 = 4.28:1 and
+     #dc2626 = 3.96:1 there). Same hues deepened for AA on their worst
+     surface, the #277 T2 --warning retune's precedent: success-deep
+     #00654f = 5.79:1 on sunken / 6.17:1 raised / 6.95:1 panel;
+     danger-deep #b01818 = 5.76:1 / 6.14:1 / 6.92:1. Text-only — never a
+     fill or border. */
+  --success-deep: #00654f;
+  --danger-deep: #b01818;
   /* Retuned (#277 T2): #d97706 never cleared 4.5:1 on a light surface
      (3.14:1 on panel). #a55200 passes everywhere it sits — worst
      4.82:1, on panel-raised — and holds the olive gap (64°). */
@@ -219,11 +229,16 @@
   --border-info: #505432;
 
   --success: oklch(75% 0.13 184); /* ~#17c8b7 — 62° from olive, ΔL 0.09 */
+  /* Dark: the base tokens already clear AA on the dark sunken step
+     (#328's measurement — success 9.27:1, danger 7.05:1), so the deep
+     aliases point at the same values; nothing changes in dark. */
+  --success-deep: oklch(75% 0.13 184);
   /* Retuned from #fbbf24, which sat 37.7° from the olive accent; hue
      84° → 78° (chroma 0.16 → 0.15 stays in sRGB gamut) — now 44.3°
      from olive (#ffbc46), AA kept everywhere. */
   --warning: oklch(83.69% 0.15 78);
   --danger: #f87171;
+  --danger-deep: #f87171;
   --danger-hover: #ef4444;
 
   --success-muted: oklch(75% 0.13 184 / 0.18);
@@ -286,8 +301,10 @@
   --color-info-muted: var(--info-muted);
 
   --color-success: var(--success);
+  --color-success-deep: var(--success-deep);
   --color-warning: var(--warning);
   --color-danger: var(--danger);
+  --color-danger-deep: var(--danger-deep);
   --color-danger-hover: var(--danger-hover);
   --color-success-muted: var(--success-muted);
   --color-warning-muted: var(--warning-muted);
@@ -330,6 +347,23 @@
   .nav_link[aria-current="page"]::after {
     background-color: CanvasText;
     forced-color-adjust: none;
+  }
+}
+
+/* The dav tabs copy that underline motif (PR #328), so they need the
+   same rescue: under forced-colors even a transparent border force-maps
+   to CanvasText, which made all three tabs identical. Opt every tab out
+   of the forcing, keep inactive underlines transparent, and paint the
+   selected tab's underline CanvasText — aria-selected already separates
+   them for AT; this restores the sighted mark. */
+@media (forced-colors: active) {
+  .appgram [role="tab"] {
+    border-bottom-color: transparent;
+    forced-color-adjust: none;
+  }
+
+  .appgram [role="tab"][aria-selected="true"] {
+    border-bottom-color: CanvasText;
   }
 }
 

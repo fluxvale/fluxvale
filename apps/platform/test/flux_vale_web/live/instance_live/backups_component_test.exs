@@ -383,8 +383,9 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
                "A backup was skipped because the previous one was still running."
              )
 
-      # Red belongs to the "Failed" badge alone; the row's reason renders
-      # in body color, not as an error block.
+      # Red belongs to the "Failed" status word alone (it reads in the
+      # sunken-surface deep token); the row's reason renders in body
+      # color, not as an error block.
       assert has_element?(view, "[data-testid=backup-run] p.text-ink-muted")
       refute has_element?(view, "[data-testid=backup-run] p.text-danger")
     end

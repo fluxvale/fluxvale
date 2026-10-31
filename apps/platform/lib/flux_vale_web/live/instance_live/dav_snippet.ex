@@ -211,23 +211,37 @@ defmodule FluxValeWeb.InstanceLive.DavSnippet do
     binds (caught by the hostile pre-PR pass). It is attached
     unconditionally like copy_button's; the hook itself no-ops unless
     `data-detect-event` names an event (stories leave it unset). --%>
+    <%!-- S3: the quick-start is terminal content — the whole snippet
+    sits in the mono-panel register (the admin detail's sunken
+    treatment). The credential rows above it stay form surfaces. --%>
     <div
       id={"#{@id}-snippet"}
-      class="min-w-0 w-full space-y-3"
+      class="mono-panel min-w-0 w-full space-y-3"
       phx-hook=".DavOsDefault"
       data-detect-event={@on_detect}
     >
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <span class="text-xs font-medium text-ink-muted">rclone setup</span>
+        <span class="mono-panel-label mb-0">rclone setup</span>
         <.copy_button id={"copy-#{@id}-snippet"} value={@copy_value} label="Copy commands" />
       </div>
 
-      <%!-- The tab idiom rides the nav_link states: primary-muted wash
-      for the active tab, muted-ink hover for the rest. Plain buttons
+      <%!-- The tab chrome (S3): eyebrow-register labels on a hairline
+      rail, the active tab marked with the nav's amber underline motif —
+      2px on the mode-aware --focus token (border-focus), seated on the
+      rail by the 1px overlap (-mb-px). The rail wraps (flex-wrap) so
+      the labels always stay inside the hairline — at 320px and at text
+      zoom the underline must never hang past its rail (#328 hostile
+      F4); below sm the labels trade tracking for width (rem breakpoints
+      scale with text zoom, which is exactly when the rail squeezes). 
+      Inactive tabs stay quiet (a muted-ink hover, no wash). The
+      fade rides motion-safe — the reduced-motion kill list covers the
+      grammar's motion, and this transition joins it by never existing
+      there (#328 hostile F6). Focus ring is the app's (.button's
+      pattern), not the UA default (#328 hostile F10). Plain buttons
       (no roving tabindex): every tab stays keyboard-reachable —
       detection assists, never traps. --%>
       <div
-        class="flex gap-1 rounded-control border border-line bg-panel p-1"
+        class="flex flex-wrap gap-4 border-b border-line-strong"
         role="tablist"
         aria-label="Operating system"
         data-testid={"#{@id}-platform-tabs"}
@@ -242,9 +256,9 @@ defmodule FluxValeWeb.InstanceLive.DavSnippet do
           phx-click={@on_select}
           phx-value-platform={platform.key}
           class={[
-            "flex-1 rounded-control px-3 py-1.5 text-xs font-medium transition-colors duration-(--motion-fast)",
-            platform.key == @platform && "bg-primary-muted text-link",
-            platform.key != @platform && "text-ink-muted hover:bg-panel-raised hover:text-ink"
+            "-mb-px border-b-2 px-1 pb-2 pt-1.5 font-mono text-xs font-medium uppercase tracking-[0.18em] outline-offset-2 outline-focus focus-visible:outline-2 motion-safe:transition-colors motion-safe:duration-(--motion-fast) max-sm:px-0.5 max-sm:tracking-[0.04em]",
+            platform.key == @platform && "border-focus text-ink",
+            platform.key != @platform && "border-transparent text-ink-subtle hover:text-ink-muted"
           ]}
           data-testid={"#{@id}-tab-#{platform.key}"}
         >
@@ -284,7 +298,7 @@ defmodule FluxValeWeb.InstanceLive.DavSnippet do
               <span class="text-xs font-medium text-ink">{step.title}</span>
             </div>
             <pre
-              class="overflow-x-auto rounded-control bg-panel-raised p-3 text-xs leading-relaxed text-ink-muted"
+              class="overflow-x-auto rounded-control bg-panel-raised p-3 text-xs leading-relaxed text-ink"
               phx-no-curly-interpolation
             ><code><%= step.command %></code></pre>
             <p :if={step.note} class="text-xs text-ink-subtle">{step.note}</p>
