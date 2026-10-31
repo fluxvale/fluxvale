@@ -208,6 +208,28 @@ defmodule FluxValeWeb.InstanceLive.IndexTest do
     refute_k8s_terms(html)
   end
 
+  # A :restoring row's row-language contract: the badge speaks, the
+  # message line does NOT — :restoring is deliberately outside the
+  # explicit copy list (ADR-0037: the state owns the show page; the
+  # row's job is the badge). Pins the exclusion so a predicate polarity
+  # flip can't silently add the app's longest copy back (hostile-339 F1).
+  test "a restoring row shows the badge only — no status message", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    instance = create_instance!(version, user)
+    deployed = InstanceFixtures.walk_to!(instance, :running)
+
+    InstanceK8s.update_status(deployed, :restoring, nil)
+
+    {:ok, view, html} = live(conn, ~p"/instances")
+
+    assert has_element?(view, "#instances-#{instance.id}", "Restoring")
+    refute has_element?(view, "#instances-#{instance.id} [data-testid='instance-status-message']")
+    refute html =~ "putting one of your backups back in place"
+  end
+
   # #179's status tick on the list: re-streams in-flight rows without
   # any broadcast, and drops tracking for rows that left the stream.
   test "the status tick re-streams in-flight rows and ignores settled ones", %{

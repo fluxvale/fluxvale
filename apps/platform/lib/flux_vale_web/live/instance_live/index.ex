@@ -49,81 +49,123 @@ defmodule FluxValeWeb.InstanceLive.Index do
       personal_org_id={@personal_org_id}
       username={@username}
       nav_section={@nav_section}
+      bare
     >
-      <div class="space-y-6">
-        <.header>
-          Instances
-          <:actions>
-            <.button navigate={~p"/apps"} size="sm">
-              Deploy an app
-            </.button>
-          </:actions>
-        </.header>
-
-        <.empty_state :if={@instance_count == 0} title="No instances yet">
-          Deploy your first app from the catalog.
-        </.empty_state>
-
-        <%!-- Rows on the card language (#277 T5a): the T4 catalog idiom —
-        panel radius, line-strong border, mapped elevation. The lift
-        (T7) splits by hit box: the link carries only the shadow lift,
-        so its box never moves and a pointer parked at the bottom edge
-        can't oscillate (the T5a recipe translated the link itself off
-        the cursor — 3 enters/4 leaves on a parked probe). The
-        motion-safe translate rides the inner wrapper + chevron. In dark
-        the shadow collapses, so the wrapper translate is the lift;
-        reduced-motion falls back to the title hue shift. --%>
-        <div id="instances" phx-update="stream" class="space-y-3">
-          <.link
-            :for={{dom_id, instance} <- @streams.instances}
-            navigate={~p"/instances/#{instance.id}"}
-            id={dom_id}
-            data-testid="instance-row"
-            class="group relative block rounded-panel border border-line-strong bg-panel p-5 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md"
-          >
-            <div class="space-y-2 transition-[translate] duration-(--motion-base) ease-(--motion-ease-out) motion-safe:group-hover:-translate-y-1">
-              <div class="flex flex-wrap items-center justify-between gap-3">
-                <div class="flex min-w-0 items-center gap-3">
-                  <h2 class="min-w-0 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
-                    {instance.name}
-                  </h2>
-                  <span class="font-mono text-xs text-ink-subtle shrink-0">{instance.slug}</span>
-                </div>
-                <div class="flex items-center gap-3">
-                  <span class="text-sm text-ink-muted">
-                    {instance.app_version.app.name}
-                    <span class="ml-1 font-mono text-xs text-ink-subtle">
-                      v{instance.app_version.version}
-                    </span>
-                  </span>
-                  <.status_badge status={instance.status} />
-                </div>
+      <%!-- App-wide grammar page (S6): `bare` main + .appgram — the page
+      owns ALL of main's rhythm (no max-w, no padding), same posture as
+      the dashboard and the instance show. List pages stay calm: the
+      sunken band carries the page title, no straddle. --%>
+      <div class="appgram contents">
+        <%!-- 1. The sunken band header: page title on the working-page
+        type scale + the scope eyebrow (the read spans every org the
+        actor belongs to). The Deploy CTA keeps its destination; it
+        rides the dashboard header's posture. --%>
+        <section class="band">
+          <div class="wrap pt-8 pb-10">
+            <div class="rise flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+              <div class="min-w-0">
+                <p class="eyebrow">All organizations</p>
+                <h1 class="page-title mt-1.5">Instances</h1>
               </div>
-              <%!-- #179: friendly copy only — raw status_message never
-              renders here. Quiet on settled states (running/sleeping/
-              stopped): the badge says enough. --%>
-              <p
-                :if={instance.status in [:pending, :deploying, :starting, :error, :deleting, :lost]}
-                class="truncate text-xs text-ink-subtle"
-                data-testid="instance-status-message"
-              >
-                {InstanceStatus.message(instance)}
-              </p>
+
+              <div class="flex shrink-0 gap-2">
+                <.button navigate={~p"/apps"}>
+                  Deploy an app
+                </.button>
+              </div>
             </div>
-            <%!-- Chevron rides the p-5 padding band (right-1): the reveal
-            can never collide with the row's content, and the badge keeps
-            its pre-T5a outboard position (in-flow it left a 28px gutter).
-            top-5 pins it to the first line — centering on the whole row
-            (top-1/2) dropped it 12px below the badge line on two-line
-            rows (the #179 message). It rides the same motion-safe lift
-            as the wrapper, so it lines up with the lifted first line
-            while visible. --%>
-            <.icon
-              name="hero-chevron-right"
-              class="absolute right-1 top-5 size-4 text-ink-subtle opacity-0 transition-[opacity,translate] duration-(--motion-base) ease-(--motion-ease-out) group-hover:opacity-100 group-focus-visible:opacity-100 motion-safe:group-hover:-translate-y-1"
-            />
-          </.link>
-        </div>
+          </div>
+        </section>
+
+        <%!-- 2. The rows in the S4 row language (dashboard_live.ex is
+        the reference — same chip, name+slug, app/version, badge, rest
+        step, and the same hit-box split: the link's own box stays put,
+        an inner wrapper lifts motion-safe). The .rise wraps the
+        section's content container — the empty state and the stream
+        container — never the rows themselves: stream patches rewrite
+        rows in place, and a rise on patched nodes would replay the
+        reveal on every broadcast (node identity). --%>
+        <section class="wrap pt-14 pb-16">
+          <div class="rise space-y-4 [animation-delay:170ms]">
+            <.empty_state :if={@instance_count == 0} title="No instances yet">
+              Deploy your first app from the catalog.
+            </.empty_state>
+
+            <div id="instances" phx-update="stream" class="space-y-3">
+              <.link
+                :for={{dom_id, instance} <- @streams.instances}
+                navigate={~p"/instances/#{instance.id}"}
+                id={dom_id}
+                data-testid="instance-row"
+                class="group relative block rounded-panel border border-line-strong bg-panel p-4 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md sm:p-5"
+              >
+                <div class="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-2 transition-[translate] duration-(--motion-base) ease-(--motion-ease-out) motion-safe:group-hover:-translate-y-1 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
+                  <span
+                    aria-hidden="true"
+                    class="grid size-9 place-items-center rounded-panel border border-primary/25 bg-primary-muted font-mono text-xs font-semibold text-link"
+                  >
+                    {monogram(instance.name)}
+                  </span>
+
+                  <div class="min-w-0 space-y-0.5">
+                    <%!-- Rows are H2: the page title IS this section's
+                    heading (no separate H2 here), so H3 rows would skip
+                    a level under the H1. --%>
+                    <h2 class="min-w-0 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
+                      {instance.name}
+                    </h2>
+                    <p class="truncate font-mono text-xs text-ink-subtle">{instance.slug}</p>
+                    <%!-- #179: friendly copy only — raw status_message
+                    never renders here. copy_status? is the EXPLICIT
+                    positive list, NOT the dashboard's noisy? predicate:
+                    :restoring is deliberately excluded (ADR-0037 — the
+                    state owns the show page, the row's job is the
+                    badge), and the predicate's polarity would silently
+                    add it (its copy is the app's longest; a flip is a
+                    behavior change, hostile-339 F1). --%>
+                    <p
+                      :if={copy_status?(instance.status)}
+                      class="truncate text-xs text-ink-subtle"
+                      data-testid="instance-status-message"
+                    >
+                      {InstanceStatus.message(instance)}
+                    </p>
+                  </div>
+
+                  <div class="col-start-2 row-start-2 flex items-center gap-3 sm:col-start-3 sm:row-start-1">
+                    <%!-- min-w-0 truncate: the cluster's flex item must be
+                    allowed to shrink — a long single-token app name
+                    otherwise blows the auto column out and paints the
+                    badge outside the row (the org home's measured ~199px
+                    overflow at 375; hostile-339 F2). --%>
+                    <span class="min-w-0 truncate text-sm text-ink-muted">
+                      {instance.app_version.app.name}
+                      <span class="ml-1 font-mono text-xs text-ink-subtle">
+                        v{instance.app_version.version}
+                      </span>
+                    </span>
+                    <.status_badge status={instance.status} />
+                  </div>
+
+                  <%!-- In-flow grid cell (vs the old absolute right-1
+                  top-5): always occupying the cell is what keeps the
+                  message column's measure stable, and items-center on the
+                  cell answers the old top-5 calibration — the reveal
+                  centers on the row's full height instead of pinning to a
+                  first line that moves on two-line rows, so there is no
+                  collision to tune away. It rides no translate: the
+                  wrapper's lift moves the content, and a moving chevron
+                  under a stationary pointer is the dead-band bug the
+                  hit-box split exists to prevent. --%>
+                  <.icon
+                    name="hero-chevron-right"
+                    class="hidden size-4 text-ink-subtle opacity-0 transition-[opacity] duration-(--motion-base) ease-(--motion-ease-out) group-hover:opacity-100 group-focus-visible:opacity-100 sm:col-start-4 sm:row-start-1 sm:block"
+                  />
+                </div>
+              </.link>
+            </div>
+          </div>
+        </section>
       </div>
     </Layouts.app>
     """
@@ -184,6 +226,26 @@ defmodule FluxValeWeb.InstanceLive.Index do
      |> assign(:in_flight_ids, still_ids)
      |> maybe_schedule_status_tick(still_ids)}
   end
+
+  # The row chip's mark (S4's reference rows): the name's first two
+  # GRAPHEMES, uppercased — String.graphemes, not String.slice, so a
+  # multi-codepoint glyph (emoji, combining accent) is never split.
+  defp monogram(name) do
+    name
+    |> String.graphemes()
+    |> Enum.take(2)
+    |> Enum.join()
+    |> String.upcase()
+  end
+
+  # The statuses whose row carries the #179 friendly copy line — the
+  # EXPLICIT positive list, not a negation: :restoring is deliberately
+  # excluded (ADR-0037 — the state owns the show page, the row's job is
+  # the badge) and a negative predicate's polarity would silently add it
+  # (its copy is the app's longest; a flip is a behavior change,
+  # hostile-339 F1).
+  defp copy_status?(status),
+    do: status in [:pending, :deploying, :starting, :error, :deleting, :lost]
 
   defp subscribe(socket, instances) do
     Enum.reduce(instances, socket, fn instance, socket ->

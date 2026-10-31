@@ -13,6 +13,7 @@ defmodule FluxValeWeb.OrganizationLive.HomeTest do
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
@@ -122,6 +123,136 @@ defmodule FluxValeWeb.OrganizationLive.HomeTest do
 
     assert has_element?(view, "[data-testid='instances-empty']")
     assert has_element?(view, "[data-testid='instances-empty'] a[href='/apps']")
+  end
+
+  # A :restoring row's row-language contract, same as the index: the
+  # badge speaks, the message line does NOT (ADR-0037; hostile-339 F1 —
+  # pins the explicit list's exclusion against a predicate flip).
+  test "a restoring org row shows the badge only — no status message", %{
+    conn: conn,
+    org: org
+  } do
+    version = InstanceFixtures.app_version!()
+    instance = org_instance!(org, version, "Restore Inst")
+    walked = InstanceFixtures.walk_to!(instance, :running)
+    InstanceK8s.update_status(walked, :restoring, nil)
+
+    {:ok, view, html} = live(conn, ~p"/organizations/#{org.slug}")
+
+    assert has_element?(view, "#instances-#{instance.id}", "Restoring")
+
+    refute has_element?(
+             view,
+             "#instances-#{instance.id} [data-testid='instance-status-message']"
+           )
+
+    refute html =~ "putting one of your backups back in place"
+  end
+
+  # The org home is live like the dashboard (hostile-339 F4): a status
+  # broadcast re-streams the row in place AND moves the band's balance —
+  # a burn change may not leave the facts stale.
+  test "a status broadcast re-streams the row and refreshes the balance", %{
+    conn: conn,
+    org: org
+  } do
+    version = InstanceFixtures.app_version!()
+    instance = org_instance!(org, version, "Live Inst")
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}")
+
+    assert has_element?(view, "[data-testid=status-badge]", "Submitted")
+
+    # The funded-wallet gate: a walk needs credits, and the grant is
+    # exactly what the band must pick up on the broadcast's refresh.
+    {:ok, wallet} = Billing.ensure_wallet(org)
+    {:ok, _grant} = Billing.grant_credits(wallet, 5_000)
+
+    walked = InstanceFixtures.walk_to!(instance, :running)
+    InstanceK8s.update_status(walked, :sleeping, nil)
+
+    assert has_element?(view, "#instances-#{instance.id}", "Sleeping")
+    # Settled rows are quiet — the badge says enough.
+    refute has_element?(
+             view,
+             "#instances-#{instance.id} [data-testid='instance-status-message']"
+           )
+
+    assert has_element?(view, "[data-testid='wallet-balance']", "$50.00")
+  end
+
+  # A destroy broadcast removes the row and swaps in the empty state —
+  # the phantom-row bug the pre-S6 page had (hostile-339 F4).
+  test "a destroy broadcast removes the row and shows the empty state", %{
+    conn: conn,
+    org: org,
+    user: user
+  } do
+    version = InstanceFixtures.app_version!()
+
+    # Never-deployed shape (no namespace/deployed_at) — `:delete`
+    # hard-deletes exactly this shape synchronously; a deployed row goes
+    # down the async teardown flow and stays (the index test's posture).
+    instance =
+      Ash.Seed.seed!(Instance, %{
+        name: "Doomed Inst #{System.unique_integer([:positive])}",
+        slug: "inst-#{System.unique_integer([:positive])}",
+        image: "registry.example.com/org:1",
+        port: 3000,
+        healthcheck_path: "/",
+        status: :pending,
+        env_vars: %{},
+        app_version_id: version.id,
+        organization_id: org.id
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}")
+
+    assert has_element?(view, "#instances-#{instance.id}")
+
+    Instance.delete(instance.id, actor: user)
+
+    refute has_element?(view, "#instances-#{instance.id}")
+    assert has_element?(view, "[data-testid='instances-empty']")
+  end
+
+  # The exact interleaving the re-read exists for: an update_status
+  # notification for a teardown already deleted. The destroy clause
+  # handles the page exit; this arm must not raise (the index's mirror).
+  test "a trailing update broadcast for a deleted org row is a no-op", %{
+    conn: conn,
+    org: org,
+    user: user
+  } do
+    version = InstanceFixtures.app_version!()
+
+    instance =
+      Ash.Seed.seed!(Instance, %{
+        name: "Ghost Inst #{System.unique_integer([:positive])}",
+        slug: "inst-#{System.unique_integer([:positive])}",
+        image: "registry.example.com/org:1",
+        port: 3000,
+        healthcheck_path: "/",
+        status: :pending,
+        env_vars: %{},
+        app_version_id: version.id,
+        organization_id: org.id
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}")
+
+    Instance.delete(instance.id, actor: user)
+
+    notification = %Ash.Notifier.Notification{
+      resource: Instance,
+      action: %{name: :update_status},
+      data: instance
+    }
+
+    Phoenix.PubSub.broadcast(FluxVale.PubSub, "instances:#{instance.id}", notification)
+
+    refute has_element?(view, "#instances-#{instance.id}")
+    assert has_element?(view, "[data-testid='instances-empty']")
   end
 
   test "the wallet summary shows the org balance", %{conn: conn, org: org} do
