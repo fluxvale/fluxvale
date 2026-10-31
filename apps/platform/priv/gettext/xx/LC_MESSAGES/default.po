@@ -1,0 +1,64 @@
+## "msgid"s in this file come from POT (.pot) files.
+###
+### TEST FIXTURE, never a real language: "xx" exists only so tests can
+### prove the session→plug→Gettext→HEEx chain. It is never negotiated
+### from a browser — reachable only when a test or a signed session
+### sets locale "xx" (FluxValeWeb.Locale resolves session["locale"]
+### against Gettext.known_locales/1).
+###
+### Do not add, change, or remove "msgid"s manually here as
+### they're tied to the ones in the corresponding POT file
+### (with the same domain).
+###
+### Use "mix gettext.extract --merge" or "mix gettext.merge"
+### to merge POT files into PO files.
+msgid ""
+msgstr ""
+"Language: xx\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: lib/flux_vale_web/components/core_components.ex:705
+#, elixir-autogen, elixir-format
+msgid "Actions"
+msgstr ""
+
+#: lib/flux_vale_web/components/layouts.ex:295
+#: lib/flux_vale_web/components/layouts.ex:310
+#, elixir-autogen, elixir-format
+msgid "Attempting to reconnect"
+msgstr ""
+
+#: lib/flux_vale_web/components/layouts.ex:366
+#, elixir-autogen, elixir-format
+msgid "Dark theme"
+msgstr ""
+
+#: lib/flux_vale_web/components/layouts.ex:339
+#, elixir-autogen, elixir-format
+msgid "Follow system theme"
+msgstr ""
+
+#: lib/flux_vale_web/components/layouts.ex:354
+#, elixir-autogen, elixir-format
+msgid "Light theme"
+msgstr ""
+
+#: lib/flux_vale_web/components/layouts.ex:302
+#, elixir-autogen, elixir-format
+msgid "Something went wrong!"
+msgstr "xx: Something went wrong!"
+
+#: lib/flux_vale_web/components/layouts.ex:327
+#, elixir-autogen, elixir-format
+msgid "Theme"
+msgstr ""
+
+#: lib/flux_vale_web/components/layouts.ex:287
+#, elixir-autogen, elixir-format
+msgid "We can't find the internet"
+msgstr ""
+
+#: lib/flux_vale_web/components/core_components.ex:95
+#, elixir-autogen, elixir-format
+msgid "close"
+msgstr ""

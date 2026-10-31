@@ -1,0 +1,58 @@
+## This file is a PO Template file.
+##
+## "msgid"s here are often extracted from source code.
+## Add new messages manually only if they're dynamic
+## messages that can't be statically extracted.
+##
+## Run "mix gettext.extract" to bring this file up to
+## date. Leave "msgstr"s empty as changing them here has no
+## effect: edit them in PO (.po) files instead.
+#
+msgid ""
+msgstr ""
+
+#: lib/flux_vale_web/components/core_components.ex:705
+#, elixir-autogen, elixir-format
+msgid "Actions"
+msgstr ""
+
+#: lib/flux_vale_web/components/layouts.ex:295
+#: lib/flux_vale_web/components/layouts.ex:310
+#, elixir-autogen, elixir-format
+msgid "Attempting to reconnect"
+msgstr ""
+
+#: lib/flux_vale_web/components/layouts.ex:366
+#, elixir-autogen, elixir-format
+msgid "Dark theme"
+msgstr ""
+
+#: lib/flux_vale_web/components/layouts.ex:339
+#, elixir-autogen, elixir-format
+msgid "Follow system theme"
+msgstr ""
+
+#: lib/flux_vale_web/components/layouts.ex:354
+#, elixir-autogen, elixir-format
+msgid "Light theme"
+msgstr ""
+
+#: lib/flux_vale_web/components/layouts.ex:302
+#, elixir-autogen, elixir-format
+msgid "Something went wrong!"
+msgstr ""
+
+#: lib/flux_vale_web/components/layouts.ex:327
+#, elixir-autogen, elixir-format
+msgid "Theme"
+msgstr ""
+
+#: lib/flux_vale_web/components/layouts.ex:287
+#, elixir-autogen, elixir-format
+msgid "We can't find the internet"
+msgstr ""
+
+#: lib/flux_vale_web/components/core_components.ex:95
+#, elixir-autogen, elixir-format
+msgid "close"
+msgstr ""

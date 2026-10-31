@@ -1,5 +1,7 @@
 <!DOCTYPE html>
-<html lang="en">
+<%!-- lang tracks the resolved locale — a translated page must not
+announce "en" (a11y). --%>
+<html lang={Gettext.get_locale(FluxValeWeb.Gettext)}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
