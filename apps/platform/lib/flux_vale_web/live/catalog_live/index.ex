@@ -51,76 +51,93 @@ defmodule FluxValeWeb.CatalogLive.Index do
       personal_org_id={@personal_org_id}
       username={@username}
       nav_section={@nav_section}
+      bare
     >
-      <div class="space-y-10">
-        <.header>
-          Catalog
-          <:subtitle>One click from browse to a running instance.</:subtitle>
-        </.header>
-
-        <.empty_state :if={@categories == []} title="No apps in the catalog yet." />
-
-        <%!-- Card grid (#277 T4) — see
-        catalog_html/index.html.heex for the auto-fill rationale and
-        the dark/reduced-motion hover-cue note; the T7 lift split
-        (shadow on the link, translate on the wrapper) is noted there
-        too. --%>
-        <section
-          :for={category <- @categories}
-          id={"category-#{category.id}"}
-          class="space-y-4"
-        >
-          <div class="space-y-1">
-            <h2 class="text-lg font-semibold tracking-tight text-ink">{category.name}</h2>
-            <p :if={category.description} class="text-sm text-ink-muted">{category.description}</p>
+      <div class="appgram contents">
+        <%!-- 1. The sunken band header — same shape as the instances
+        index. Copy unchanged; "App catalog" is the landing band's own
+        eyebrow label. --%>
+        <section class="band">
+          <div class="wrap pt-8 pb-10">
+            <div class="rise">
+              <p class="eyebrow">App catalog</p>
+              <h1 class="page-title mt-1.5">Catalog</h1>
+              <p class="mt-2 max-w-prose text-base text-ink-muted">
+                One click from browse to a running instance.
+              </p>
+            </div>
           </div>
+        </section>
 
-          <div class="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(min(17rem,100%),1fr))]">
-            <.link
-              :for={app <- sort_by_name(category.apps)}
-              navigate={~p"/apps/#{app.slug}"}
-              id={"app-#{app.id}"}
-              data-testid={"app-#{app.slug}"}
-              class="group block rounded-panel border border-line-strong bg-panel p-5 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md"
-            >
-              <div class="transition-[translate] duration-(--motion-base) ease-(--motion-ease-out) motion-safe:group-hover:-translate-y-1">
-                <div class="flex items-center gap-3">
-                  <%!-- Icon-in-tile (#277 T4): the landing hero's tile idiom —
-                  apps with and without an icon share one silhouette. --%>
-                  <div class="grid size-9 shrink-0 place-items-center rounded-control bg-primary-muted text-sm font-semibold text-link">
-                    <img
-                      :if={app.icon_url}
-                      src={app.icon_url}
-                      alt={app.name}
-                      class="size-6 rounded-control"
+        <%!-- 2. The mosaic: one grid, all apps. Judgment call per the
+        slice spec: the seeded catalog is small (2 honest cards), so
+        per-category sections would each leave 2/3 of their row empty —
+        the exact card-dribble tell this slice kills. The grouping
+        survives as the mono category eyebrow on every card, apps in
+        category-then-name order. Two 1fr tracks fill the wrap's width
+        at every ≥480px viewport; more apps just append rows. Same card
+        language as the instance rows: link box stays put, the inner
+        wrapper lifts (a bottom-1px click still lands in the link). --%>
+        <section class="wrap pt-14 pb-16">
+          <div class="rise space-y-4 [animation-delay:170ms]">
+            <.empty_state :if={@categories == []} title="No apps in the catalog yet." />
+
+            <div id="catalog-mosaic" class="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2">
+              <.link
+                :for={{app, category} <- catalog_apps(@categories)}
+                navigate={~p"/apps/#{app.slug}"}
+                id={"app-#{app.id}"}
+                data-testid={"app-#{app.slug}"}
+                class="group relative block rounded-panel border border-line-strong bg-panel p-5 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md"
+              >
+                <div class="flex h-full flex-col transition-[translate] duration-(--motion-base) ease-(--motion-ease-out) motion-safe:group-hover:-translate-y-1">
+                  <%!-- The landing mini-catalog's cell shape: mono category,
+                  then chip + name, then description. Icon-in-tile (#277
+                  T4) keeps one silhouette for icon-less apps. --%>
+                  <p class="eyebrow">{category.name}</p>
+                  <div class="mt-2 flex items-center gap-3">
+                    <div class="grid size-9 shrink-0 place-items-center rounded-control bg-primary-muted text-sm font-semibold text-link">
+                      <img
+                        :if={app.icon_url}
+                        src={app.icon_url}
+                        alt={app.name}
+                        class="size-6 rounded-control"
+                      />
+                      <span :if={is_nil(app.icon_url)}>{String.first(app.name)}</span>
+                    </div>
+                    <h2 class="min-w-0 flex-1 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
+                      {app.name}
+                    </h2>
+                    <.icon
+                      name="hero-chevron-right"
+                      class="size-4 shrink-0 text-ink-subtle opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100"
                     />
-                    <span :if={is_nil(app.icon_url)}>{String.first(app.name)}</span>
                   </div>
-                  <h3 class="min-w-0 flex-1 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
-                    {app.name}
-                  </h3>
-                  <.icon
-                    name="hero-chevron-right"
-                    class="ml-auto size-4 shrink-0 text-ink-subtle opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100"
-                  />
+                  <p :if={app.tagline} class="mt-2.5 text-sm text-ink-muted">{app.tagline}</p>
+                  <%= if estimate = @wake_estimates[app.slug] do %>
+                    <p
+                      class="mt-3 text-xs font-medium text-success"
+                      data-testid={"wake-estimate-#{app.slug}"}
+                    >
+                      <.icon name="hero-bolt" class="size-3.5 inline-block align-text-bottom" />
+                      Wakes in {format_estimate(estimate)}
+                    </p>
+                  <% end %>
                 </div>
-                <p :if={app.tagline} class="mt-2.5 text-sm text-ink-muted">{app.tagline}</p>
-                <%= if estimate = @wake_estimates[app.slug] do %>
-                  <p
-                    class="mt-3 text-xs font-medium text-success"
-                    data-testid={"wake-estimate-#{app.slug}"}
-                  >
-                    <.icon name="hero-bolt" class="size-3.5 inline-block align-text-bottom" />
-                    Wakes in {format_estimate(estimate)}
-                  </p>
-                <% end %>
-              </div>
-            </.link>
+              </.link>
+            </div>
           </div>
         </section>
       </div>
     </Layouts.app>
     """
+  end
+
+  # The mosaic's flat stream: {app, category} pairs in the same order
+  # the per-category sections read in — categories by name, apps by
+  # name within each.
+  defp catalog_apps(categories) do
+    for category <- categories, app <- sort_by_name(category.apps), do: {app, category}
   end
 
   defp sort_by_name(apps), do: Enum.sort_by(apps, & &1.name)

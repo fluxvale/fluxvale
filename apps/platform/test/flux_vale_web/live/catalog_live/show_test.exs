@@ -37,9 +37,10 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
     {:ok, view, html} = live(conn, ~p"/apps/#{linked_app.slug}")
 
     assert has_element?(view, "h1", app.name)
-    # The poster tile renders the app icon (#277 icon-in-tile).
+    # The band tile renders the app icon (#277 icon-in-tile).
     assert has_element?(view, "img[src='https://example.com/forgejo.png']")
-    assert has_element?(view, ".fv-badge", app.category.name)
+    # The category is the band's mono eyebrow (S7 — was a badge).
+    assert has_element?(view, "p.eyebrow", app.category.name)
     assert has_element?(view, "#version-#{version.id}", "v#{version.version}")
     assert has_element?(view, "#deploy-#{version.id}")
 

@@ -47,8 +47,10 @@ defmodule FluxValeWeb.CatalogLive.IndexTest do
 
     {:ok, view, _html} = live(conn, ~p"/apps")
 
-    assert has_element?(view, "h2", "Developer Tools #{n}")
-    assert has_element?(view, "#app-#{app.id}", "Forgejo #{n}")
+    # The mosaic is one grid: app names are its headings, and the
+    # category grouping survives as the mono eyebrow on each card.
+    assert has_element?(view, "h2", "Forgejo #{n}")
+    assert has_element?(view, "#app-#{app.id}", "Developer Tools #{n}")
     assert has_element?(view, "#app-#{app.id} a, #app-#{app.id}")
     assert has_element?(view, "#app-#{iconed.id} img[src='https://example.com/gitea.png']")
   end
@@ -57,6 +59,6 @@ defmodule FluxValeWeb.CatalogLive.IndexTest do
     {:ok, view, html} = live(conn, ~p"/apps")
 
     assert html =~ "No apps in the catalog yet"
-    refute has_element?(view, "section")
+    refute has_element?(view, "#catalog-mosaic a")
   end
 end
