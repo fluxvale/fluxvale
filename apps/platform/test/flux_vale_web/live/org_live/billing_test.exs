@@ -18,14 +18,14 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
 
   setup %{conn: conn} do
     user = AccountsFixtures.user!()
-    org = AccountsFixtures.personal_org!(user)
-    {:ok, wallet} = Billing.ensure_wallet(org)
 
-    # Pin the start at exactly zero: the fixture's welcome grant and
-    # #131's signup $3 vary — the tests below own their arithmetic
-    # (debit the whole balance; posting never checks it).
-    {:ok, balance} = Billing.balance(wallet, authorize?: false)
-    {:ok, _drain} = Billing.debit_wallet(wallet, balance * 10_000)
+    # S5: the personal org no longer renders org pages (its URL
+    # redirects to /billing) — the org-billing tests ride a real org the
+    # actor owns. The fixture org has no JIT welcome grant, so the
+    # balance starts at exactly zero: the tests below own their
+    # arithmetic.
+    org = AccountsFixtures.owned_org!(user)
+    {:ok, wallet} = Billing.ensure_wallet(org)
 
     %{user: user, org: org, wallet: wallet, conn: SessionHelpers.sign_in(conn, user)}
   end
@@ -87,11 +87,11 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
     wallet: wallet
   } do
     # The discriminating case: the SAME actor belongs to two orgs, so
-    # "the URL's org" and "the personal org" are different rows and the
-    # page must bill whichever the URL names. No flow creates a second
-    # org or a second membership yet (team features are future), so both
-    # rows ride the actions with authorize?: false — the sanctioned
-    # bootstrap posture (the #279 membership precondition).
+    # "the URL's org" and "the actor's other org" are different rows and
+    # the page must bill whichever the URL names. No flow creates a
+    # second org or a second membership yet (team features are future),
+    # so both rows ride the actions with authorize?: false — the
+    # sanctioned bootstrap posture (the #279 membership precondition).
     team_org = Organization.create!(%{name: "Team Org", slug: "team-org"}, authorize?: false)
     {:ok, team_wallet} = Billing.ensure_wallet(team_org)
 
@@ -103,19 +103,19 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
     {:ok, _grant} = Billing.grant_credits(wallet, 11_100)
 
     # The team page bills the team wallet: its balance and its row show,
-    # the personal wallet's row never leaks in.
+    # the setup org's row never leaks in.
     {:ok, team_view, _html} = live(conn, ~p"/organizations/#{team_org.slug}/billing")
 
     assert has_element?(team_view, "[data-testid='wallet-balance']", "$222.00")
     assert has_element?(team_view, "[data-testid='ledger-row']", "+$222.00")
     refute has_element?(team_view, "[data-testid='ledger-row']", "+$111.00")
 
-    # And the personal org's page is the mirror image.
-    {:ok, personal_view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+    # And the setup org's page is the mirror image.
+    {:ok, org_view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
 
-    assert has_element?(personal_view, "[data-testid='wallet-balance']", "$111.00")
-    assert has_element?(personal_view, "[data-testid='ledger-row']", "+$111.00")
-    refute has_element?(personal_view, "[data-testid='ledger-row']", "+$222.00")
+    assert has_element?(org_view, "[data-testid='wallet-balance']", "$111.00")
+    assert has_element?(org_view, "[data-testid='ledger-row']", "+$111.00")
+    refute has_element?(org_view, "[data-testid='ledger-row']", "+$222.00")
   end
 
   test "load more appends the older page and retires at the end", %{

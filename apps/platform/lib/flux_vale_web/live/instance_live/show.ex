@@ -426,7 +426,8 @@ defmodule FluxValeWeb.InstanceLive.Show do
                     {tailnet_address(@route)}
                   </span>
                   — manage this pairing in <.link
-                    navigate={~p"/organizations/#{@org_slug}/settings/access"}
+                    :if={@access_href}
+                    navigate={@access_href}
                     class="underline underline-offset-2 hover:text-ink"
                     data-testid="tailnet-access-link"
                   >
@@ -957,8 +958,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
   # #273 §4.2: the exposure card's three-state inputs. The pairing row
   # (loaded with its gateway for the hostname) decides the reachability
   # line; the org's gateway decides the "attach it" vs "enable it"
-  # wording; the org slug is the Access-tab link. Each read rides its
-  # member policy with the actor; misses are the honest "not there".
+  # wording; the org is the Access surface's link (S5: /settings/access
+  # for the personal org, the org URL for a real one). Each read rides
+  # its member policy with the actor; misses are the honest "not there".
   # All three are mount-time only: they move via OTHER writers (another
   # tab's attach, an exposure toggle, a suspension) — this page does not
   # subscribe to route writes, so a long-lived mount can go stale until
@@ -972,9 +974,13 @@ defmodule FluxValeWeb.InstanceLive.Show do
         {:error, _none} -> nil
       end
 
-    org_slug = org_slug_for(instance.organization_id, user)
+    org = instance_org(instance.organization_id, user)
 
-    assign(socket, route: route, gateway: gateway, org_slug: org_slug)
+    assign(socket,
+      route: route,
+      gateway: gateway,
+      access_href: access_href(org, socket.assigns[:personal_org_id])
+    )
   end
 
   defp route_for(instance, user) do
@@ -984,9 +990,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
     end
   end
 
-  defp org_slug_for(organization_id, user) do
+  defp instance_org(organization_id, user) do
     case Organization.get_by_id(organization_id, actor: user) do
-      {:ok, org} -> org.slug
+      {:ok, org} -> org
       # Unreachable through this page: the org read's membership chain
       # is the same one the instance read passed, and an org with
       # instances is never hard-deleted (no reachable destroy). A bare
@@ -995,6 +1001,23 @@ defmodule FluxValeWeb.InstanceLive.Show do
       {:error, _none} -> nil
     end
   end
+
+  # The Access surface for the instance's org (S5): a personal-org
+  # instance is managed from the user settings' panel, a real org's from
+  # its org URL.
+  defp access_href(%{id: org_id}, personal_org_id) when org_id == personal_org_id do
+    ~p"/settings/access"
+  end
+
+  defp access_href(%{slug: slug}, _personal_org_id) do
+    ~p"/organizations/#{slug}/settings/access"
+  end
+
+  # Unreachable for the same reason as instance_org's error arm above —
+  # the org read passes wherever the instance read did. The clause exists
+  # so a future shape's bare nil drops the link instead of crashing.
+  # coveralls-ignore-next-line
+  defp access_href(nil, _personal_org_id), do: nil
 
   # §4.2's shape: hostname + route_key (the provider-opaque port).
   defp tailnet_address(route) do

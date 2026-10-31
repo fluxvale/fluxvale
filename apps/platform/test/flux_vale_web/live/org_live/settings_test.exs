@@ -12,7 +12,9 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
 
   setup %{conn: conn} do
     owner = AccountsFixtures.user!()
-    org = AccountsFixtures.personal_org!(owner)
+    # S5: the personal org's settings ARE the user settings (its org
+    # settings URL redirects) — the org settings tests ride a real org.
+    org = AccountsFixtures.owned_org!(owner)
 
     {:ok, conn: SessionHelpers.sign_in(conn, owner), owner: owner, org: org}
   end

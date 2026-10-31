@@ -87,8 +87,15 @@ defmodule FluxVale.Accounts.OrganizationTest do
     test "get_by_slug and get_by_id resolve through the code interface" do
       org = AccountsFixtures.personal_org!(AccountsFixtures.user!())
 
-      assert {:ok, ^org} = Organization.get_by_slug(org.slug, authorize?: false)
-      assert {:ok, ^org} = Organization.get_by_id(org.id, authorize?: false)
+      # The op behind the fixture sorts its read (S5: the personal pick
+      # is deterministic and load-bearing routing), which tags the
+      # returned struct with loading metadata — so the pin here is the
+      # ROW (the id), not term equality of two separately-loaded structs.
+      assert {:ok, by_slug} = Organization.get_by_slug(org.slug, authorize?: false)
+      assert by_slug.id == org.id
+
+      assert {:ok, by_id} = Organization.get_by_id(org.id, authorize?: false)
+      assert by_id.id == org.id
     end
   end
 

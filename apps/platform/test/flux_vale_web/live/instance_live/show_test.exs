@@ -1224,10 +1224,10 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
     test "route exists: the reachability line names the address and links the tab", %{
       conn: conn,
-      org: org,
       version: version,
       user: user
     } do
+      org = AccountsFixtures.personal_org!(user)
       gateway = AccessFixtures.gateway!(org)
       instance = running_private!(version, user)
 
@@ -1245,12 +1245,35 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
              )
 
       link = render(element(view, "[data-testid=tailnet-access-link]"))
-      assert link =~ "/organizations/#{org.slug}/settings/access"
+      # S5: a personal-org instance's access panel is the user settings'
+      # — never the org URL (which would just redirect).
+      assert link =~ ~s(href="/settings/access")
 
       copy = render(element(view, "[data-testid=exposure-copy]"))
       assert copy =~ "reachable from your own devices on your tailnet"
       assert copy =~ "a visit wakes it"
       refute copy =~ "upcoming"
+    end
+
+    test "a real-org instance links the org's access tab, not the personal one", %{
+      conn: conn,
+      user: user
+    } do
+      org = AccountsFixtures.owned_org!(user)
+      gateway = AccessFixtures.gateway!(org)
+      # Private + running, pinned to the org (the create action pins the
+      # actor's personal org — the fixture's sanctioned re-pin).
+      instance = AccessFixtures.private_instance!(org, user)
+
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      link = render(element(view, "[data-testid=tailnet-access-link]"))
+      assert link =~ "/organizations/#{org.slug}/settings/access"
     end
 
     # Routes outlive serving (suspend keeps the rows; the pod is scaled

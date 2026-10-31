@@ -3,7 +3,8 @@ defmodule FluxValeWeb.OrganizationLive.Settings do
   Org settings (#276): the tabbed shell with the General tab — display
   name and URL-slug rename, GitHub-parity. Slug-keyed mount like the
   catalog; unknown slugs (and policy denials) read as "not here" —
-  never a bare 404.
+  never a bare 404. The actor's personal org redirects to `/settings`
+  (S5) — its settings ARE the user settings.
 
   A slug change takes an explicit confirm step, and the step is bound to
   its proposal: `pending_slug` holds the slug the visible copy names, a
@@ -18,6 +19,7 @@ defmodule FluxValeWeb.OrganizationLive.Settings do
   alias FluxVale.Accounts.Organization
   alias FluxVale.Checks.ActorIsOrganizationOwner
   alias FluxValeWeb.OrgSettings
+  alias FluxValeWeb.PersonalOrg
 
   @impl Phoenix.LiveView
   def mount(%{"slug" => slug}, _session, socket) do
@@ -25,16 +27,12 @@ defmodule FluxValeWeb.OrganizationLive.Settings do
 
     case Organization.get_by_slug(slug, actor: user) do
       {:ok, org} ->
-        # UX gate, not the authority: the update action's owner policy is
-        # what actually forbids a non-owner save. This just spares a
-        # member a form that could never go through.
-        if ActorIsOrganizationOwner.owner?(user, org) do
-          {:ok, assign(socket, org: org, form: build_form(org, user), pending_slug: nil)}
+        if PersonalOrg.personal?(socket, org) do
+          # S5: the personal org's settings ARE the user settings —
+          # flash-free redirect (nothing failed).
+          {:ok, push_navigate(socket, to: ~p"/settings")}
         else
-          {:ok,
-           socket
-           |> put_flash(:error, "Only organization owners can access settings.")
-           |> push_navigate(to: ~p"/")}
+          mount_org_settings(socket, org, user)
         end
 
       _error ->
@@ -42,6 +40,20 @@ defmodule FluxValeWeb.OrganizationLive.Settings do
          socket
          |> put_flash(:error, "Organization not found.")
          |> push_navigate(to: ~p"/")}
+    end
+  end
+
+  defp mount_org_settings(socket, org, user) do
+    # UX gate, not the authority: the update action's owner policy is
+    # what actually forbids a non-owner save. This just spares a
+    # member a form that could never go through.
+    if ActorIsOrganizationOwner.owner?(user, org) do
+      {:ok, assign(socket, org: org, form: build_form(org, user), pending_slug: nil)}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "Only organization owners can access settings.")
+       |> push_navigate(to: ~p"/")}
     end
   end
 

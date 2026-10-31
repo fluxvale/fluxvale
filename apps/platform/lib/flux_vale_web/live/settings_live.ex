@@ -11,6 +11,9 @@ defmodule FluxValeWeb.SettingsLive do
   those guards only to DISABLE buttons — every action still runs through
   the operations, so a crafted or stale event meets the domain's own
   refusal, rendered as copy.
+
+  The Access card (S5) links `/settings/access` — the personal org's
+  gateway panel, served by `OrganizationLive.Access` without a slug.
   """
 
   use FluxValeWeb, :live_view
@@ -518,6 +521,30 @@ defmodule FluxValeWeb.SettingsLive do
               the inbox. A pending claim expires after {UserEmail.claim_ttl_minutes()} minutes.
             </p>
           </.form>
+        </.card>
+
+        <%!-- S5: the personal org's access panel lives in user settings —
+        this row is the way there (the instance page's Settings → Access
+        link lands on /settings/access for personal-org instances).
+        Hidden without a personal org (OrgNav's degradation stance): a
+        member-only actor's target would be a dead-end not-found. --%>
+        <.card :if={@personal_org_id} id="settings-access-card" class="space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 class="text-base font-medium text-ink">Access</h2>
+              <p class="mt-1 text-sm text-ink-muted">
+                Reach your private apps from your own Tailscale network.
+              </p>
+            </div>
+            <.button
+              variant="secondary"
+              size="sm"
+              navigate={~p"/settings/access"}
+              data-testid="settings-access-link"
+            >
+              Manage access
+            </.button>
+          </div>
         </.card>
       </div>
     </Layouts.app>

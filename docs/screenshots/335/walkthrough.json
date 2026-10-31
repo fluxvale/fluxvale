@@ -1,0 +1,127 @@
+{
+  "table": [
+    {
+      "who": "walker",
+      "url": "/settings",
+      "finalUrl": "/settings",
+      "marker": "settings-title",
+      "rendered": true
+    },
+    {
+      "who": "walker",
+      "url": "/organizations/s5-walker-5125",
+      "finalUrl": "/",
+      "marker": "dashboard-balance",
+      "rendered": true
+    },
+    {
+      "who": "walker",
+      "url": "/organizations/s5-walker-5125/settings",
+      "finalUrl": "/settings",
+      "marker": "settings-title",
+      "rendered": true
+    },
+    {
+      "who": "walker",
+      "url": "/organizations/s5-walker-5125/settings/members",
+      "finalUrl": "/settings",
+      "marker": "settings-title",
+      "rendered": true
+    },
+    {
+      "who": "walker",
+      "url": "/organizations/s5-walker-5125/billing",
+      "finalUrl": "/billing",
+      "marker": "wallet-balance",
+      "rendered": true
+    },
+    {
+      "who": "walker",
+      "url": "/organizations/s5-walker-5125/settings/access",
+      "finalUrl": "/settings/access",
+      "marker": "settings-title",
+      "rendered": true
+    },
+    {
+      "who": "walker",
+      "url": "/settings/access",
+      "finalUrl": "/settings/access",
+      "marker": "settings-access-back",
+      "rendered": true
+    },
+    {
+      "who": "walker",
+      "url": "/instances/01a19183-31e1-7bfe-87a3-9ac9a6887531",
+      "finalUrl": "/instances/01a19183-31e1-7bfe-87a3-9ac9a6887531",
+      "marker": "tailnet-access-link",
+      "rendered": true
+    },
+    {
+      "who": "acme",
+      "url": "/organizations/acme-5125",
+      "finalUrl": "/organizations/acme-5125",
+      "marker": "org-name",
+      "rendered": true
+    },
+    {
+      "who": "acme",
+      "url": "/organizations/acme-5125/settings",
+      "finalUrl": "/organizations/acme-5125/settings",
+      "marker": "org-general-form",
+      "rendered": true
+    },
+    {
+      "who": "acme",
+      "url": "/organizations/acme-5125/settings/members",
+      "finalUrl": "/organizations/acme-5125/settings/members",
+      "marker": "org-members-table",
+      "rendered": true
+    },
+    {
+      "who": "acme",
+      "url": "/organizations/acme-5125/billing",
+      "finalUrl": "/organizations/acme-5125/billing",
+      "marker": "wallet-balance",
+      "rendered": true
+    },
+    {
+      "who": "acme",
+      "url": "/organizations/acme-5125/settings/access",
+      "finalUrl": "/organizations/acme-5125/settings/access",
+      "marker": "org-settings-tabs",
+      "rendered": true
+    },
+    {
+      "who": "acme",
+      "url": "/settings/access?slug=acme-5125",
+      "finalUrl": "/",
+      "marker": "dashboard-balance",
+      "rendered": true
+    },
+    {
+      "who": "acme",
+      "url": "/instances/01a19183-31e6-7c7d-89b0-0832767b91b0",
+      "finalUrl": "/instances/01a19183-31e6-7c7d-89b0-0832767b91b0",
+      "marker": "tailnet-access-link",
+      "rendered": true
+    }
+  ],
+  "walkerRows": [
+    {
+      "text": "Personal — s5-walker-5125",
+      "href": "/"
+    }
+  ],
+  "acmeRows": [
+    {
+      "text": "Personal — s5-acme-5125",
+      "href": "/"
+    },
+    {
+      "text": "Acme Collective\nacme-5125",
+      "href": "/organizations/acme-5125"
+    }
+  ],
+  "walkerLink": "/settings/access",
+  "acmeLink": "/organizations/acme-5125/settings/access"
+}

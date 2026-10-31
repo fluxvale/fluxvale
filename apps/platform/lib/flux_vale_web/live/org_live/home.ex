@@ -8,6 +8,8 @@ defmodule FluxValeWeb.OrganizationLive.Home do
   Slug-keyed mount like the catalog. Unknown slug and non-member read
   identically — flash + home — because the slug is an enumeration
   boundary: "no such org" and "not yours" must be indistinguishable.
+  The actor's personal org redirects to `/` (S5) — it never renders
+  this page.
   """
 
   use FluxValeWeb, :live_view
@@ -18,6 +20,7 @@ defmodule FluxValeWeb.OrganizationLive.Home do
   alias FluxVale.Checks.ActorIsOrganizationOwner
   alias FluxVale.Infrastructure.Instance
   alias FluxValeWeb.BillingComponents
+  alias FluxValeWeb.PersonalOrg
 
   require Ash.Query
 
@@ -27,30 +30,38 @@ defmodule FluxValeWeb.OrganizationLive.Home do
 
     case Organization.get_by_slug(slug, actor: user) do
       {:ok, org} ->
-        instances =
-          Instance
-          |> Ash.Query.for_read(:list_for_organization, %{organization_id: org.id}, actor: user)
-          |> Ash.Query.sort(created_at: :desc)
-          |> Ash.Query.load(app_version: :app)
-          |> Ash.read!()
+        if PersonalOrg.personal?(socket, org) do
+          # S5: the personal org never presents as one — its org-scoped
+          # URLs redirect to the account's own surfaces, flash-free
+          # (nothing failed). Its instances and balance already live on
+          # the dashboard.
+          {:ok, push_navigate(socket, to: ~p"/")}
+        else
+          instances =
+            Instance
+            |> Ash.Query.for_read(:list_for_organization, %{organization_id: org.id}, actor: user)
+            |> Ash.Query.sort(created_at: :desc)
+            |> Ash.Query.load(app_version: :app)
+            |> Ash.read!()
 
-        members = members!(org, user)
+          members = members!(org, user)
 
-        # ensure_wallet is the system seam (idempotent), like the billing
-        # surface; the balance read rides the wallet policies.
-        {:ok, wallet} = Billing.ensure_wallet(org)
-        {:ok, balance} = Billing.balance(wallet, actor: user)
+          # ensure_wallet is the system seam (idempotent), like the billing
+          # surface; the balance read rides the wallet policies.
+          {:ok, wallet} = Billing.ensure_wallet(org)
+          {:ok, balance} = Billing.balance(wallet, actor: user)
 
-        {:ok,
-         socket
-         |> stream(:instances, instances)
-         |> assign(
-           org: org,
-           owner?: ActorIsOrganizationOwner.owner?(user, org),
-           member_count: length(members),
-           balance_cents: balance,
-           instances_empty?: instances == []
-         )}
+          {:ok,
+           socket
+           |> stream(:instances, instances)
+           |> assign(
+             org: org,
+             owner?: ActorIsOrganizationOwner.owner?(user, org),
+             member_count: length(members),
+             balance_cents: balance,
+             instances_empty?: instances == []
+           )}
+        end
 
       # Unknown slug and non-member land here together: the read policy
       # denies a stranger exactly as a miss does — no enumeration signal.
