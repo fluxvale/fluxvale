@@ -97,99 +97,98 @@ defmodule FluxValeWeb.DashboardLive do
     >
       <%!-- App-wide grammar page (S4): `bare` main + .appgram — the page
       owns ALL of main's rhythm (no max-w, no padding), same posture as
-      the instance show. The band is concept-1's ONE sanctioned
-      page-specific composition: the round-3 verdict keeps Balance/
-      runway as this page's layout — the header and the runway read
-      high inside a sunken band, the Balance card straddles its bottom
-      edge, and the whole band reads as a diagonal, not a stripe. --%>
+      the instance show. The metrics band is concept-1's sanctioned
+      composition, RENDER-EXACT (architect call on this PR: the
+      verdict'd renders beat the teardown prose — the lane's
+      artifact-pixels-beat-prose precedent): the page header sits on the
+      page background ABOVE the band, the Balance card tops the band's
+      inside-left, and the runway floats mid-band end-anchored right —
+      the diagonal is the page's bold move. NO straddle: concept-2 gives
+      the ONE straddle to the instance show's status card. --%>
       <div class="appgram contents">
-        <section class="band">
-          <div class="wrap pt-8">
-            <%!-- 1. The page header + the two quick actions, and the
-            runway metric riding the header's right column below them.
-            Why the runway is NOT a sibling of the Balance card: the
-            straddle pulls the band's flow edge up by --straddle-y, so
-            the straddling row's height is the card minus the token —
-            any in-flow sibling taller than that (the runway block is)
-            would grow the row and shrink the hang. The column keeps the
-            metric out of that row and pins it high-right: the diagonal
-            the concept asks for. --%>
-            <div class="rise flex flex-wrap items-start justify-between gap-x-6 gap-y-5">
-              <div class="min-w-0">
-                <h1 class="page-title">Dashboard</h1>
-                <p class="mt-2 text-base text-ink-muted">
-                  Your apps, balance, and runway at a glance.
-                </p>
-              </div>
-
-              <div class="flex shrink-0 flex-col items-start gap-6 sm:items-end">
-                <div class="flex flex-wrap gap-2">
-                  <.button navigate={~p"/billing/topup"} variant="secondary">
-                    Add credits
-                  </.button>
-                  <.button navigate={~p"/apps"}>
-                    Deploy an app
-                  </.button>
-                </div>
-
-                <%!-- The runway keeps the exact formatter/testid shape of
-                the old metric_card — value and hint inside the testid
-                element (the tests read both through it). --%>
-                <div
-                  :if={@wallet != :none}
-                  data-testid="dashboard-runway"
-                  class="rise [animation-delay:100ms]"
-                >
-                  <p class="eyebrow">Runway</p>
-                  <p class="mt-1.5 text-4xl font-bold tracking-tight text-ink sm:text-5xl">
-                    {format_runway(@wallet)}
-                  </p>
-                  <p class="mt-1 text-xs text-ink-subtle">{burn_hint(@wallet, @instance_count)}</p>
-                </div>
-              </div>
-            </div>
-
-            <%!-- 2. The Balance card straddles the band's bottom edge —
-            the one bold move. Straddle contract: this card is taller
-            than --straddle-y (eyebrow + value + hint guarantee it), and
-            the section after the band carries its own top padding.
-            Billing-down (#124, defensive-only: action-created users
-            always have a JIT-provisioned org) swaps the metric for the
-            callout with NO straddle — the hang is Balance's move, not a
-            warning's — so its wrapper carries the band's bottom padding. --%>
-            <div
-              :if={@wallet != :none}
-              data-testid="dashboard-balance"
-              class="straddle card rise mt-7 w-full max-w-md p-5 shadow-md [animation-delay:100ms] sm:p-6"
-            >
-              <p class="eyebrow">Balance</p>
-              <p class="mt-1.5 text-4xl font-bold tracking-tight text-ink sm:text-5xl">
-                {format_usd(@wallet.balance_cents)}
+        <%!-- 1. The page header on the page background (above the band,
+        as the render shows): title + subtitle left, quick actions
+        right, bottoms flush. --%>
+        <section class="wrap pt-8 pb-11">
+          <div class="rise flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+            <div class="min-w-0">
+              <h1 class="page-title">Dashboard</h1>
+              <p class="mt-2 text-base text-ink-muted">
+                Your apps, balance, and runway at a glance.
               </p>
-              <p class="mt-1 text-xs text-ink-subtle">Credits never expire.</p>
             </div>
 
-            <div :if={@wallet == :none} class="rise mt-7 pb-8 [animation-delay:100ms]">
-              <.callout tone="warning" title="Billing unavailable">
-                We couldn't load billing for this account. Try the <.link
-                  navigate={~p"/billing"}
-                  class="font-medium text-ink underline"
-                >Billing page</.link>.
-              </.callout>
+            <div class="flex shrink-0 flex-wrap gap-2">
+              <.button navigate={~p"/billing/topup"} variant="secondary">
+                Add credits
+              </.button>
+              <.button navigate={~p"/apps"}>
+                Deploy an app
+              </.button>
             </div>
           </div>
         </section>
 
-        <%!-- 3. The instances overview. The section after a straddling
-        band carries its own top padding (the straddle contract). The
-        .rise wraps the SECTION container, never the rows: stream
-        patches rewrite rows in place, and a rise on patched nodes
-        would replay the reveal on every broadcast (the S2/S3 lesson) —
-        node identity is what the rise rides. --%>
-        <section
-          aria-labelledby="dashboard-instances-title"
-          class="wrap pt-[calc(var(--straddle-y)_+_1.5rem)] pb-12"
-        >
+        <%!-- 2. The metrics band. Mid-page here (the header is above it
+        on the page background), so it carries its own top hairline via
+        utility — the grammar's .band supplies the sunken fill + the
+        bottom hairline. Render insets: the card tops the band (~6px in,
+        ~96px of band below it), the runway is the band's vertical
+        center at the content's right edge (~82px top inset — the
+        min-[760px] margin below IS that offset); below 760px the cards
+        stack inside the band (render's mobile insets ~22px top / ~43px
+        bottom). The runway keeps the exact formatter/testid shape of
+        the old metric_card — value and hint inside the testid element
+        (the tests read both through it). Billing-down (#124,
+        defensive-only: action-created users always have a
+        JIT-provisioned org) swaps the metric for the callout, same
+        card-width column, no special placement. --%>
+        <section class="band border-t border-line">
+          <div class="wrap pt-5 pb-11 min-[760px]:pt-1.5 min-[760px]:pb-24">
+            <div class="rise flex flex-col gap-6 min-[760px]:flex-row min-[760px]:items-start min-[760px]:justify-between">
+              <div
+                :if={@wallet != :none}
+                data-testid="dashboard-balance"
+                class="card w-full max-w-md p-5 shadow-md sm:p-6"
+              >
+                <p class="eyebrow">Balance</p>
+                <p class="mt-1.5 text-4xl font-bold tracking-tight text-ink sm:text-5xl">
+                  {format_usd(@wallet.balance_cents)}
+                </p>
+                <p class="mt-1 text-xs text-ink-subtle">Credits never expire.</p>
+              </div>
+
+              <div
+                :if={@wallet != :none}
+                data-testid="dashboard-runway"
+                class="rise min-[760px]:mt-[76px]"
+              >
+                <p class="eyebrow">Runway</p>
+                <p class="mt-1.5 text-4xl font-bold tracking-tight text-ink sm:text-5xl">
+                  {format_runway(@wallet)}
+                </p>
+                <p class="mt-1 text-xs text-ink-subtle">{burn_hint(@wallet, @instance_count)}</p>
+              </div>
+
+              <div :if={@wallet == :none} class="rise w-full max-w-md">
+                <.callout tone="warning" title="Billing unavailable">
+                  We couldn't load billing for this account. Try the <.link
+                    navigate={~p"/billing"}
+                    class="font-medium text-ink underline"
+                  >Billing page</.link>.
+                </.callout>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <%!-- 3. The instances overview — the render's ~80px drop from
+        the band to the section heading. The .rise wraps the SECTION
+        container, never the rows: stream patches rewrite rows in place,
+        and a rise on patched nodes would replay the reveal on every
+        broadcast (the S2/S3 lesson) — node identity is what the rise
+        rides. --%>
+        <section aria-labelledby="dashboard-instances-title" class="wrap pt-20 pb-12">
           <div class="rise space-y-4 [animation-delay:170ms]">
             <div class="flex items-center justify-between gap-4">
               <h2 id="dashboard-instances-title" class="text-lg font-semibold tracking-tight text-ink">

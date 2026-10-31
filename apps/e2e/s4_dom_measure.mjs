@@ -1,11 +1,14 @@
 /* S4 DOM measurements — the spec's raw-output verification.
  * Sections (each prints one JSON line, prefixed MEASURE):
- *   layout       — no-pan, band full-bleed, straddle delta + token,
- *                  runway anchor, rows/wrap alignment (per viewport)
+ *   layout       — no-pan, band full-bleed, in-band placement (Balance's
+ *                  bottom vs the band's bottom line: inside, clearance
+ *                  stated), runway anchor, rows/wrap alignment (per viewport)
  *   reduced      — reduced-motion: rise killed at first paint, zero delta
  *   live         — broadcast through the app's own Stop control:
  *                  container/row/runway NODE identity (expando survives),
- *                  rise animation not replayed (playState stays finished)
+ *                  rise animation not replayed (playState stays finished);
+ *                  restore runs in finally — a throw mid-probe never
+ *                  strands the instance stopped (CodeRabbit finding)
  *
  * Usage: FV_TOKEN=... FV_INSTANCE=<running instance id> \
  *        node s4_dom_measure.mjs <base>
@@ -58,10 +61,6 @@ async function layoutAt(browser, width, height) {
       return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, width: b.width };
     };
 
-    const token = appgram
-      ? getComputedStyle(appgram).getPropertyValue("--straddle-y").trim()
-      : null;
-
     return {
       viewport: { w: window.innerWidth, h: window.innerHeight },
       noPan: document.documentElement.scrollWidth <= window.innerWidth,
@@ -70,13 +69,17 @@ async function layoutAt(browser, width, height) {
       bandIsFullBleed: band ? band.getBoundingClientRect().left === 0 &&
         Math.abs(band.getBoundingClientRect().width - window.innerWidth) < 1 : null,
       balance: r(balance),
-      straddleToken: token,
-      straddleDelta: band && balance
-        ? balance.getBoundingClientRect().bottom - band.getBoundingClientRect().bottom
-        : null,
+      // In-band placement (render-exact): the card is INSIDE the band —
+      // its bottom sits above the band's bottom line, clearance stated.
       balanceInsideBand: band && balance
         ? balance.getBoundingClientRect().top >= band.getBoundingClientRect().top &&
           balance.getBoundingClientRect().bottom <= band.getBoundingClientRect().bottom
+        : null,
+      balanceTopInset: band && balance
+        ? balance.getBoundingClientRect().top - band.getBoundingClientRect().top
+        : null,
+      balanceClearance: band && balance
+        ? band.getBoundingClientRect().bottom - balance.getBoundingClientRect().bottom
         : null,
       runway: r(runway),
       runwayAboveBandBottom: band && runway
@@ -153,12 +156,15 @@ for (const [w, h] of widths) {
       riseOpacity: getComputedStyle(rise).opacity,
       balance: cr(balance),
       band: cr(band),
-      straddleDelta:
-        balance.getBoundingClientRect().bottom - band.getBoundingClientRect().bottom,
+      balanceInsideBand:
+        balance.getBoundingClientRect().bottom <= band.getBoundingClientRect().bottom,
+      balanceClearance:
+        band.getBoundingClientRect().bottom - balance.getBoundingClientRect().bottom,
     };
   });
   console.log(
-    "MEASURE reduced " + JSON.stringify({ early, late, note: "delta must equal the token, no animation" })
+    "MEASURE reduced " +
+      JSON.stringify({ early, late, note: "no animation; card inside the band, clearance stated" })
   );
   await ctx.close();
 }
@@ -196,53 +202,90 @@ for (const [w, h] of widths) {
 
   // Drive the broadcast through the app's own control (the server is the
   // publisher — a second mix run process couldn't reach this node's
-  // PubSub): stop the running instance from its show page.
+  // PubSub): stop the running instance from its show page. The restore
+  // below runs in `finally` — CodeRabbit's single finding on the first
+  // push: a throw mid-probe must never strand the instance stopped, and
+  // a missing restore control must fail loudly, not skip silently.
   const page2 = await ctx.newPage();
-  await page2.goto(`${BASE}/instances/${INSTANCE}`, { waitUntil: "networkidle" });
-  await page2.locator("[data-testid='stop-button']").click();
-  await page2.locator("[data-testid='status-message']").waitFor({ state: "visible" });
-  // wait for the transition to settle somewhere past :running
-  await page2.waitForFunction(
-    () => !document.body.textContent.includes("Running"),
-    null,
-    { timeout: 15000 }
+  let probe = {};
+  let restoreFailed = null;
+
+  try {
+    await page2.goto(`${BASE}/instances/${INSTANCE}`, { waitUntil: "networkidle" });
+    await page2.locator("[data-testid='stop-button']").click();
+    await page2.locator("[data-testid='status-message']").waitFor({ state: "visible" });
+    // wait for the transition to settle somewhere past :running
+    await page2.waitForFunction(
+      () => !document.body.textContent.includes("Running"),
+      null,
+      { timeout: 15000 }
+    );
+
+    // Give the dashboard's own patch a beat.
+    await page.bringToFront();
+    await page.waitForTimeout(1200);
+
+    probe = await page.evaluate(
+      (instanceId) => {
+        const container = document.getElementById("dashboard-instances");
+        const row = document.querySelector(`#instances-${instanceId}`);
+        const runway = document.querySelector("[data-testid='dashboard-runway']");
+        const anims = (sel) =>
+          Array.from(document.querySelectorAll(sel)).flatMap((el) =>
+            el.getAnimations().map((a) => ({ state: a.playState, name: a.animationName }))
+          );
+        return {
+          containerIdentity: container.__s4probe === "container-node",
+          rowIdentity: row ? row.__s4probe === "row-node" : null,
+          runwayIdentity: runway ? runway.__s4probe === "runway-node" : null,
+          riseAnims: anims(".appgram .rise"),
+          runwayText: runway?.textContent.trim(),
+          rowText: row?.textContent.trim().replace(/\s+/g, " "),
+        };
+      },
+      INSTANCE
+    );
+  } finally {
+    // Restore through the show page's own controls, or fail loudly — no
+    // silent skip that leaves the instance stranded. Start/wake cover
+    // stopped/sleeping; retry-deploy covers the dev-sentinel stop that
+    // lands :error (no real cluster behind it). None found -> the run
+    // fails loudly AFTER the measurement line prints below.
+    await page2.goto(`${BASE}/instances/${INSTANCE}`, { waitUntil: "networkidle" });
+
+    const restoreCandidates = [
+      ["start", page2.locator("[data-testid='start-button']")],
+      ["wake", page2.locator("[data-testid='wake-button']")],
+      ["deploy", page2.locator("[data-testid='deploy-button']")],
+    ];
+
+    let clicked = null;
+
+    for (const [name, loc] of restoreCandidates) {
+      if ((await loc.count()) > 0) {
+        await loc.click();
+        clicked = name;
+        break;
+      }
+    }
+
+    if (clicked) {
+      await page2.waitForTimeout(500);
+    } else {
+      restoreFailed =
+        "live-probe restore failed: no start/wake/deploy control on the show page — instance may be stranded";
+    }
+  }
+
+  console.log(
+    "MEASURE live " + JSON.stringify({ before, after: probe, restore: restoreFailed ?? "ok" })
   );
 
-  // Give the dashboard's own patch a beat.
-  await page.bringToFront();
-  await page.waitForTimeout(1200);
+  if (restoreFailed) {
+    console.error("ERROR " + restoreFailed);
+    process.exit(1);
+  }
 
-  const after = await page.evaluate(
-    (instanceId) => {
-      const container = document.getElementById("dashboard-instances");
-      const row = document.querySelector(`#instances-${instanceId}`);
-      const runway = document.querySelector("[data-testid='dashboard-runway']");
-      const anims = (sel) =>
-        Array.from(document.querySelectorAll(sel)).flatMap((el) =>
-          el.getAnimations().map((a) => ({ state: a.playState, name: a.animationName }))
-        );
-      return {
-        containerIdentity: container.__s4probe === "container-node",
-        rowIdentity: row ? row.__s4probe === "row-node" : null,
-        runwayIdentity: runway ? runway.__s4probe === "runway-node" : null,
-        riseAnims: anims(".appgram .rise"),
-        runwayText: runway?.textContent.trim(),
-        rowText: row?.textContent.trim().replace(/\s+/g, " "),
-        rowBadge: row?.textContent.includes("Stopped") || row?.textContent.includes("Stopping"),
-      };
-    },
-    INSTANCE
-  );
-
-  console.log("MEASURE live " + JSON.stringify({ before, after }));
-
-  // restore: start it back (the show page's state machine allows it from
-  // wherever stop landed)
-  await page2.goto(`${BASE}/instances/${INSTANCE}`, { waitUntil: "networkidle" });
-  const startBtn = page2.locator("[data-testid='start-button']");
-  const wakeBtn = page2.locator("[data-testid='wake-button']");
-  if (await startBtn.count()) await startBtn.click();
-  else if (await wakeBtn.count()) await wakeBtn.click();
   await ctx.close();
   await browser2.close();
 }
