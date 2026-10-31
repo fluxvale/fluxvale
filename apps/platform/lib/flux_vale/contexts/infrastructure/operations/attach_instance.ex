@@ -42,6 +42,8 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstance do
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
 
+  require Logger
+
   # The same object name EdgeRoutes / SetExposure / the provider use.
   @policy "default-deny-ingress"
 
@@ -132,10 +134,24 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstance do
   # and this apply — the controller's maybe_recheck interleaving):
   # re-read once after the mint and, if the status moved, re-apply per
   # the fresh status. One bounded re-apply, same claim-free idempotence.
+  # A failed re-apply does not retro-fail the attach — the row and the
+  # first arm stand, and the next window retries the idempotent apply —
+  # but it is not silently dropped: logged.
   defp reapply_if_status_moved(kubeconfig, gateway, instance) do
     case Instance.get_by_id(instance.id, authorize?: false) do
       {:ok, %{status: status} = fresh} when status != instance.status ->
-        EdgeRoutes.apply_access_for_status(kubeconfig, gateway, fresh)
+        case EdgeRoutes.apply_access_for_status(kubeconfig, gateway, fresh) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning(
+              "Attach: the fresh-status access re-apply failed for instance " <>
+                "#{instance.id}: #{inspect(reason)}"
+            )
+
+            :ok
+        end
 
       {:ok, _status_stable} ->
         :ok

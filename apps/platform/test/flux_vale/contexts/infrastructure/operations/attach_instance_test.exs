@@ -10,6 +10,8 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
   use FluxVale.DataCase, async: true
   use Mimic
 
+  import ExUnit.CaptureLog
+
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Ingress
@@ -241,6 +243,54 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
     # Serving first (the in-hand status), then the ONE bounded re-apply
     # per the fresh (sleeping) status — the maybe_recheck pattern.
     assert services == ["app", "wake"]
+  end
+
+  # The re-apply's failure arm: it must not retro-fail the attach (the
+  # row and the first arm stand), but it must not vanish silently either.
+  test "a failed fresh-status re-apply is logged and the attach still stands", %{
+    org: org,
+    owner: owner
+  } do
+    gateway = AccessFixtures.gateway!(org)
+    instance = AccessFixtures.private_instance!(org, owner)
+    ns = "fluxvale-app-#{instance.id}"
+
+    # Stage the same interleaving as the race above, but fail the
+    # re-apply: the first (in-hand serving) mint lands, the fresh-status
+    # wake re-apply is refused.
+    stub(Tailscale, :attach_instance, fn gw, inst ->
+      {:ok, _route} =
+        AccessRoute.create(
+          %{gateway_id: gw.id, instance_id: inst.id, route_key: "8443"},
+          authorize?: false
+        )
+
+      AccessFixtures.sleep!(inst)
+
+      {:ok, AccessRoute.get_by_instance!(inst.id, authorize?: false)}
+    end)
+
+    stub(Ingress, :create, fn _kc, ^ns, "access-" <> _tail, _spec ->
+      n = Process.get(:arm_mints, 0) + 1
+      Process.put(:arm_mints, n)
+
+      if n == 1 do
+        {:ok, %{}}
+      else
+        {:error, Error.connection_error("re-apply refused")}
+      end
+    end)
+
+    log =
+      capture_log(fn ->
+        assert {:ok, _route} = AttachInstance.call(gateway, instance)
+      end)
+
+    assert log =~ "re-apply failed"
+    assert log =~ "re-apply refused"
+
+    # The primary result stands: the pairing row survives (no unwind).
+    assert {:ok, _row} = AccessRoute.get_by_instance(instance.id, authorize?: false)
   end
 
   defp drain_access_specs(acc \\ []) do

@@ -313,6 +313,84 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
       assert log =~ "another organization"
     end
 
+    test "a file-access instance's hostname gets the /dav route too — the public app-dav mirrored" do
+      stub_kubeconfig()
+      instance = instance!(%{file_access: true})
+      ns = "fluxvale-app-#{instance.id}"
+      hostname = hostname_host!(instance.id)
+
+      stub_access_targets(ns)
+
+      parent = self()
+
+      stub(Ingress, :create, fn _kc, ^ns, "access-" <> _rest = name, spec ->
+        send(parent, {:route, name, spec})
+        {:ok, %{}}
+      end)
+
+      assert :ok = EdgeRoutes.apply_access_serving(%{}, gateway_stub(), instance)
+
+      # The app route first, then its dav sibling — same hostname, same
+      # entrypoint and TLS posture, narrowed to the path prefix, the
+      # dav Service behind it, beacon attached (the idle clock works on
+      # the private file path too).
+      assert_received {:route, _app, app_spec}
+      assert app_spec.service_name == "app"
+      refute Map.has_key?(app_spec, :path_prefix)
+
+      assert_received {:route, dav_name, dav_spec}
+      assert dav_name =~ ~r/^access-[0-9a-f]{10}-dav$/
+      assert dav_spec.host == "#{hostname.label}.#{hostname.access_domain.domain}"
+      assert dav_spec.entrypoint == "access"
+      assert dav_spec.service_name == "dav"
+      assert dav_spec.path_prefix == "/dav"
+      assert dav_spec.tls
+      refute Map.has_key?(dav_spec, :tls_secret_name)
+      assert dav_spec.middlewares == ["fluxvale-activity"]
+    end
+
+    test "a non-file-access instance mints no access /dav route" do
+      stub_kubeconfig()
+      instance = instance!(%{})
+      ns = "fluxvale-app-#{instance.id}"
+
+      stub_access_targets(ns)
+
+      parent = self()
+
+      stub(Ingress, :create, fn _kc, ^ns, "access-" <> _tail, spec ->
+        send(parent, {:route, spec})
+        {:ok, %{}}
+      end)
+
+      assert :ok = EdgeRoutes.apply_access_serving(%{}, gateway_stub(), instance)
+
+      # Exactly the app route — no dav sibling.
+      assert_received {:route, spec}
+      assert spec.service_name == "app"
+      refute_received {:route, _}
+    end
+
+    test "a dav mint failure propagates — never a half-minted access posture" do
+      stub_kubeconfig()
+      instance = instance!(%{file_access: true})
+      ns = "fluxvale-app-#{instance.id}"
+
+      stub_access_targets(ns)
+
+      stub(Ingress, :create, fn
+        _kc, ^ns, "access-" <> _tail, %{path_prefix: "/dav"} ->
+          {:error, Error.connection_error("dav refused")}
+
+        _kc, ^ns, "access-" <> _tail, _spec ->
+          # The app route landed; the dav sibling's failure still fails
+          # the arm (the first-failure-stops-the-walk stance).
+          {:ok, %{}}
+      end)
+
+      assert {:error, _error} = EdgeRoutes.apply_access_serving(%{}, gateway_stub(), instance)
+    end
+
     test "ensure_access_cert_secret replicates the source into the instance namespace" do
       stub_kubeconfig()
       owner = user()
@@ -516,6 +594,55 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
       assert log =~ "not servable"
     end
 
+    test "the access /dav route flips with the arm — wake target, access-wake middleware, prefix kept" do
+      stub_kubeconfig()
+      instance = instance!(%{file_access: true})
+      ns = "fluxvale-app-#{instance.id}"
+
+      stub(Service, :create, fn _kc, ^ns, _n, _spec -> {:ok, %{}} end)
+      stub(Middleware, :create, fn _kc, ^ns, _n, _spec -> {:ok, %{}} end)
+
+      parent = self()
+
+      stub(Ingress, :create, fn _kc, ^ns, "access-" <> _rest = name, spec ->
+        send(parent, {:route, name, spec})
+        {:ok, %{}}
+      end)
+
+      assert :ok = EdgeRoutes.apply_access_wake(%{}, gateway_stub(), instance)
+
+      assert_received {:route, _app, app_spec}
+      assert app_spec.service_name == "wake"
+      assert app_spec.middlewares == ["fluxvale-access-wake"]
+
+      assert_received {:route, _dav, dav_spec}
+      assert dav_spec.service_name == "wake"
+      assert dav_spec.path_prefix == "/dav"
+      assert dav_spec.middlewares == ["fluxvale-access-wake"]
+    end
+
+    test "a volume-less file-access instance mints no access /dav route in wake mode either" do
+      stub_kubeconfig()
+      instance = instance!(%{file_access: true}, storage_gb: 0)
+      ns = "fluxvale-app-#{instance.id}"
+
+      stub(Service, :create, fn _kc, ^ns, _n, _spec -> {:ok, %{}} end)
+      stub(Middleware, :create, fn _kc, ^ns, _n, _spec -> {:ok, %{}} end)
+
+      parent = self()
+
+      stub(Ingress, :create, fn _kc, ^ns, "access-" <> _tail, spec ->
+        send(parent, {:route, spec})
+        {:ok, %{}}
+      end)
+
+      assert :ok = EdgeRoutes.apply_access_wake(%{}, gateway_stub(), instance)
+
+      assert_received {:route, spec}
+      assert spec.service_name == "wake"
+      refute_received {:route, _}
+    end
+
     test "idempotent — the wake flip re-applies its full object set" do
       stub_kubeconfig()
       instance = instance!(%{})
@@ -533,6 +660,30 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
   end
 
   describe "apply_access_none/2 (ADR-0040 §7)" do
+    test "a file-access instance's none removes the dav sibling with the app route" do
+      stub_kubeconfig()
+      instance = instance!(%{file_access: true})
+      ns = "fluxvale-app-#{instance.id}"
+
+      parent = self()
+
+      stub(Ingress, :delete, fn _kc, ^ns, name ->
+        send(parent, {:deleted, name})
+        :ok
+      end)
+
+      stub(Middleware, :delete, fn _kc, ^ns, "fluxvale-access-wake" -> :ok end)
+
+      assert :ok = EdgeRoutes.apply_access_none(%{}, instance)
+
+      assert_received {:deleted, app_name}
+      assert app_name =~ ~r/^access-[0-9a-f]{10}$/
+
+      assert_received {:deleted, dav_name}
+      assert dav_name =~ ~r/^access-[0-9a-f]{10}-dav$/
+      refute_received {:deleted, _}
+    end
+
     test "safe-deletes every hostname's access route plus the wake middleware" do
       stub_kubeconfig()
       owner = user()

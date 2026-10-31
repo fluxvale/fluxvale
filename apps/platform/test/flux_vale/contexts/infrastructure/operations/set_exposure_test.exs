@@ -389,9 +389,6 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
 
     # A forced pairing-read failure is not "unattached" — the toggle
     # fails with the original reason instead of stranding a paired
-    # instance panel-only (the sleep-path split's precedent).
-    # A forced pairing-read failure is not "unattached" — the toggle
-    # fails with the original reason instead of stranding a paired
     # instance panel-only (the sleep-path split's precedent). The
     # counter routes the PRECHECK's read through (it must pass) and
     # fails the LIMB's read.

@@ -32,10 +32,15 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   (routes + middlewares + the wake Service): instances deployed before
   #203 converge on their first sleep or restore.
 
-  Consumed by DeployInstance (initial serving set), SleepInstance
-  (wake flip), and the wake endpoint (restore flip); on the private
-  path by AttachInstance/DetachInstance (mint/remove per the pairing
-  row) and SetExposure's toggle limbs — the specs are the
+  Consumers: DeployInstance (initial serving set, dormant wake targets,
+  an attached private's access arms), SleepInstance (wake flip, access
+  wake flip), RestoreServingEdge (the public wake endpoint's restore
+  flip), the AccessWake controller (the access edge's flip),
+  AttachInstance/DetachInstance (mint/remove per the pairing row),
+  SetExposure's toggle limbs and compensating restores,
+  VerifyAccessDomains (the janitor's transition mints, the suspended
+  domain's domain-scoped none, the cert replicas), and PerformTeardown
+  (access none). The specs are the
   shared boundary, so they live here rather than being copied many
   ways (the operations-own-their-constants rule's sanctioned exception:
   this IS the one owner).
@@ -157,6 +162,10 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   domain's issued-wildcard Secret for a verified custom one; an
   unverified custom domain never routes (skip + log).
 
+  A file-access instance's hostname also gets its `/dav` route — the
+  public plane's `app-dav` (#190) mirrored through the tunnel, so
+  WebDAV clients answer privately too. Same gate as the public pair.
+
   The dormant access-wake targets ride along (#203's lesson: the first
   sleep's flip must only rewrite a route Traefik already watches — a
   first flip that minted them too would leave a window where the
@@ -189,7 +198,9 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   grants nothing the pairing row doesn't, and the endpoint's identical-404
   miss posture answers everything else. The beacon is NOT attached in
   wake mode (mirror the public wake arm — nothing is being forwarded).
-  Idempotent (SSA); `:ok` or the first `{:error, Error.t()}`.
+  The `/dav` route flips with the arm: wake target, access-wake
+  middleware, path prefix kept. Idempotent (SSA); `:ok` or the first
+  `{:error, Error.t()}`.
   """
   @spec apply_access_wake(Kubereq.Kubeconfig.t(), map(), Instance.t()) ::
           :ok | {:error, term()}
@@ -218,7 +229,8 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
 
   @doc """
   Removes the instance's access edge: every access IngressRoute (by
-  hostname row — the rows ARE the record of what was minted) plus the
+  hostname row — the rows ARE the record of what was minted, including
+  each row's `/dav` sibling when the instance has file access) plus the
   access-wake Middleware. 404s tolerated — a missing object is the
   posture already holding (the safe_delete stance), so the call is
   idempotent. `:ok` or the first `{:error, Error.t()}`.
@@ -251,7 +263,7 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
     |> hostname_rows()
     |> Enum.filter(&(&1.access_domain_id == access_domain.id))
     |> Enum.reduce_while(:ok, fn hostname, :ok ->
-      case safe_delete_route(kubeconfig, instance.namespace, access_route_name(hostname)) do
+      case delete_hostname_routes(kubeconfig, instance, hostname) do
         :ok -> {:cont, :ok}
         {:error, _error} = error -> {:halt, error}
       end
@@ -334,9 +346,29 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
         spec = access_route_spec(gateway, hostname, mode, tls_secret)
 
         case Ingress.create(kubeconfig, instance.namespace, access_route_name(hostname), spec) do
-          {:ok, _route} -> :ok
-          {:error, _error} = error -> error
+          {:ok, _route} ->
+            maybe_mint_access_dav(kubeconfig, gateway, instance, hostname, mode, tls_secret)
+
+          {:error, _error} = error ->
+            error
         end
+    end
+  end
+
+  # The access plane's dav half (#190's public `app-dav`, mirrored onto
+  # the tunnel): a private instance's WebDAV must answer through the
+  # gateway exactly as it does publicly. Same gate as the public pair —
+  # no volume, no dav route ever existed.
+  defp maybe_mint_access_dav(kubeconfig, gateway, instance, hostname, mode, tls_secret) do
+    if dav_routed?(instance) do
+      spec = access_dav_route_spec(gateway, hostname, mode, tls_secret)
+
+      case Ingress.create(kubeconfig, instance.namespace, access_dav_route_name(hostname), spec) do
+        {:ok, _route} -> :ok
+        {:error, _error} = error -> error
+      end
+    else
+      :ok
     end
   end
 
@@ -372,6 +404,22 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
     |> put_access_service(mode)
     |> put_access_tls_secret(tls_secret)
   end
+
+  # The dav sibling of the hostname's app route — the public pair's
+  # shape carried over verbatim: serving dials the `dav` Service (beacon
+  # attached via the base), wake keeps the wake target and only narrows
+  # the match to the path prefix. Same TLS posture as the app route.
+  defp access_dav_route_spec(gateway, hostname, mode, tls_secret) do
+    path_prefix = Application.fetch_env!(:flux_vale, :file_access)[:path_prefix]
+    base = access_route_spec(gateway, hostname, mode, tls_secret)
+
+    base
+    |> put_access_dav_service(mode)
+    |> Map.put(:path_prefix, path_prefix)
+  end
+
+  defp put_access_dav_service(spec, :serving), do: Map.put(spec, :service_name, "dav")
+  defp put_access_dav_service(spec, :wake), do: spec
 
   # Serving dials the app (beacon attached); wake dials the platform via
   # the same ExternalName `wake` Service the public wake mode uses — and
@@ -506,15 +554,37 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
     "access-#{short_id}"
   end
 
+  # The dav sibling rides its hostname row's name — the none limbs
+  # delete by the same derivation (the rows ARE the record).
+  defp access_dav_route_name(hostname), do: "#{access_route_name(hostname)}-dav"
+
   defp delete_access_routes(kubeconfig, instance) do
     instance.id
     |> hostname_rows()
     |> Enum.reduce_while(:ok, fn hostname, :ok ->
-      case safe_delete_route(kubeconfig, instance.namespace, access_route_name(hostname)) do
+      case delete_hostname_routes(kubeconfig, instance, hostname) do
         :ok -> {:cont, :ok}
         {:error, _error} = error -> {:halt, error}
       end
     end)
+  end
+
+  # The app route and its dav sibling go together. Same gate as the
+  # public maybe_delete_dav: no volume, no dav route ever existed to
+  # hunt for.
+  defp delete_hostname_routes(kubeconfig, instance, hostname) do
+    case safe_delete_route(kubeconfig, instance.namespace, access_route_name(hostname)) do
+      :ok -> maybe_delete_access_dav(kubeconfig, instance, hostname)
+      {:error, _error} = error -> error
+    end
+  end
+
+  defp maybe_delete_access_dav(kubeconfig, instance, hostname) do
+    if dav_routed?(instance) do
+      safe_delete_route(kubeconfig, instance.namespace, access_dav_route_name(hostname))
+    else
+      :ok
+    end
   end
 
   # 404 is the posture already holding — the access none is idempotent
