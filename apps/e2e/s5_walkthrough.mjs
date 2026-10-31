@@ -52,26 +52,41 @@ const walker = await sessionContext(WALKER.token);
 const acme = await sessionContext(ACME.token);
 
 const table = [];
-async function probe(page, who, url, marker) {
+
+// The marker is the page's own witness: data-testid when it has one,
+// the element id when it doesn't (org-general-form, org-members-table).
+// Required markers FAIL the walkthrough; conditional ones (rendered
+// only in some panel states — e.g. access-empty with no gateway) are
+// observational: their miss is recorded, never an error.
+async function probe(page, who, url, marker, { required = true } = {}) {
   await page.goto(`${BASE}${url}`, { waitUntil: "networkidle" });
   await page.waitForTimeout(400); // the mount redirect settles
   const finalUrl = new URL(page.url()).pathname;
-  const found = await page
-    .locator(`[data-testid='${marker}']`)
-    .first()
-    .isVisible()
-    .catch(() => false);
-  table.push({ who, url, finalUrl, marker, rendered: found });
+  const testid = page.locator(`[data-testid='${marker}']`).first();
+  const byId = page.locator(`#${marker}`).first();
+  const rendered =
+    (await testid.isVisible().catch(() => false)) ||
+    (await byId.isVisible().catch(() => false));
+
+  if (required && !rendered) {
+    throw new Error(`walkthrough: ${url} did not render its marker ${marker}`);
+  }
+
+  table.push({ who, url, finalUrl, marker, rendered });
 }
 
 const p = walker.page;
 await probe(p, "walker", "/settings", "settings-title");
-await probe(p, "walker", `/organizations/${WALKER.personalSlug}`, "instances-empty");
+await probe(p, "walker", `/organizations/${WALKER.personalSlug}`, "instance-row", {
+  required: false,
+});
 await probe(p, "walker", `/organizations/${WALKER.personalSlug}/settings`, "settings-title");
 await probe(p, "walker", `/organizations/${WALKER.personalSlug}/settings/members`, "settings-title");
 await probe(p, "walker", `/organizations/${WALKER.personalSlug}/billing`, "wallet-balance");
-await probe(p, "walker", `/organizations/${WALKER.personalSlug}/settings/access`, "access-empty");
-await probe(p, "walker", "/settings/access", "access-empty");
+await probe(p, "walker", `/organizations/${WALKER.personalSlug}/settings/access`, "access-empty", {
+  required: false,
+});
+await probe(p, "walker", "/settings/access", "access-gateway-card", { required: false });
 await probe(p, "walker", `/instances/${WALKER.instance}`, "tailnet-access-link");
 
 const a = acme.page;
@@ -82,14 +97,17 @@ await probe(a, "acme", `/organizations/${ACME.orgSlug}/billing`, "wallet-balance
 await probe(a, "acme", `/organizations/${ACME.orgSlug}/settings/access`, "org-settings-tabs");
 await probe(a, "acme", `/instances/${ACME.instance}`, "tailnet-access-link");
 
-// The switcher rows' hrefs, per actor.
+// The switcher rows' hrefs + labels, per actor: the panel is inside a
+// closed <details>, so it must be OPENED before its rows have text.
 async function switcherRows(page) {
   await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
+  await page.locator("[data-testid='org-switcher-button']").click();
   const rows = await page.locator("[data-testid='org-switcher-panel'] a").all();
   const out = [];
   for (const row of rows) {
     out.push({ text: (await row.innerText()).trim(), href: await row.getAttribute("href") });
   }
+  await page.keyboard.press("Escape");
   return out;
 }
 const walkerRows = await switcherRows(walker.page);

@@ -65,7 +65,7 @@ test("personal-org path: a fresh user's org URL lands on the dashboard, org-less
 
   // The redirect landed on the dashboard — no org identity, no org
   // chrome (S5: the personal org is the account, not an org page).
-  expect(page).not.toHaveURL(/\/organizations\//);
+  await expect(page).not.toHaveURL(/\/organizations\//);
   await expect(page.getByTestId("org-name")).toHaveCount(0);
   await expect(page.getByTestId("member-count")).toHaveCount(0);
 });

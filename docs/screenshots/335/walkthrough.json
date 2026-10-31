@@ -11,8 +11,8 @@
       "who": "walker",
       "url": "/organizations/s5-walker-5125",
       "finalUrl": "/",
-      "marker": "instances-empty",
-      "rendered": false
+      "marker": "instance-row",
+      "rendered": true
     },
     {
       "who": "walker",
@@ -46,8 +46,8 @@
       "who": "walker",
       "url": "/settings/access",
       "finalUrl": "/settings/access",
-      "marker": "access-empty",
-      "rendered": false
+      "marker": "access-gateway-card",
+      "rendered": true
     },
     {
       "who": "walker",
@@ -68,14 +68,14 @@
       "url": "/organizations/acme-5125/settings",
       "finalUrl": "/organizations/acme-5125/settings",
       "marker": "org-general-form",
-      "rendered": false
+      "rendered": true
     },
     {
       "who": "acme",
       "url": "/organizations/acme-5125/settings/members",
       "finalUrl": "/organizations/acme-5125/settings/members",
       "marker": "org-members-table",
-      "rendered": false
+      "rendered": true
     },
     {
       "who": "acme",
@@ -101,17 +101,17 @@
   ],
   "walkerRows": [
     {
-      "text": "",
+      "text": "Personal — s5-walker-5125",
       "href": "/"
     }
   ],
   "acmeRows": [
     {
-      "text": "",
+      "text": "Personal — s5-acme-5125",
       "href": "/"
     },
     {
-      "text": "",
+      "text": "Acme Collective\nacme-5125",
       "href": "/organizations/acme-5125"
     }
   ],
