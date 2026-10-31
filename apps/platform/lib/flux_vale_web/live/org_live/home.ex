@@ -10,6 +10,13 @@ defmodule FluxValeWeb.OrganizationLive.Home do
   boundary: "no such org" and "not yours" must be indistinguishable.
   The actor's personal org redirects to `/` (S5) — it never renders
   this page.
+
+  Live like the dashboard (S6): per-instance PubSub subscriptions,
+  re-read + re-stream on broadcast — a destroy on another tab must not
+  leave a phantom row, and a burn change must move the band's balance.
+  Deliberately no #179 slow-provision tick: the tick is the primary ops
+  surface's optimization; this page renders mount-fresh state, refreshes
+  on broadcast, and reloads on navigation.
   """
 
   use FluxValeWeb, :live_view
@@ -60,8 +67,10 @@ defmodule FluxValeWeb.OrganizationLive.Home do
              owner?: ActorIsOrganizationOwner.owner?(user, org),
              member_count: length(members),
              balance_cents: balance,
+             instance_count: length(instances),
              instances_empty?: instances == []
-           )}
+           )
+           |> subscribe(instances)}
         end
 
       # Unknown slug and non-member land here together: the read policy
@@ -71,6 +80,48 @@ defmodule FluxValeWeb.OrganizationLive.Home do
          socket
          |> put_flash(:error, "Organization not found.")
          |> push_navigate(to: ~p"/")}
+    end
+  end
+
+  @impl Phoenix.LiveView
+  # Teardown's hard delete — the row leaves the stream and the facts
+  # follow: a destroyed row's burn changes the org's balance, and the
+  # empty state replaces the last row.
+  def handle_info(
+        %Ash.Notifier.Notification{action: %{name: :destroy}} = notification,
+        socket
+      ) do
+    count = socket.assigns.instance_count - 1
+
+    socket =
+      socket
+      |> stream_delete(:instances, notification.data)
+      |> assign(instance_count: count, instances_empty?: count == 0)
+      |> refresh_facts()
+
+    {:noreply, socket}
+  end
+
+  # Re-read the row on broadcast (the DB is the one ordering that can't
+  # lie — a trailing notification can predate fresher writes) and
+  # re-stream it loaded: the row template renders the app name. The
+  # facts ride along: a transition that changes burn (starting →
+  # running) must move the org's balance with it, or the band would
+  # contradict the row's live status.
+  def handle_info(%Ash.Notifier.Notification{data: %{id: id}}, socket) do
+    case Instance.get_by_id(id, actor: socket.assigns.current_user) do
+      {:ok, instance} ->
+        instance = Ash.load!(instance, [app_version: :app], actor: socket.assigns.current_user)
+
+        {:noreply,
+         socket
+         |> stream_insert(:instances, instance)
+         |> refresh_facts()}
+
+      _error ->
+        # Destroy races land here too — the destroy clause handles the
+        # page exit; the row leaves via stream_delete there.
+        {:noreply, socket}
     end
   end
 
@@ -133,13 +184,19 @@ defmodule FluxValeWeb.OrganizationLive.Home do
               </div>
 
               <%!-- The facts: eyebrow-labeled values on the dashboard's
-              metric scale. whitespace-nowrap: a wrap would grow the band
-              off a string ("1 member" must never break mid-phrase). --%>
-              <div class="mt-9 flex flex-wrap items-end gap-x-14 gap-y-6">
+              metric scale, stepping down one type step and one gap step
+              below 420px so the pair fits the viewport at every sweep
+              width — whitespace-nowrap protects the phrases, but the
+              guard is the PAIR: "2 members" + gap + "$111.00" wrapped
+              and grew the band 86.5px off the balance value at 375
+              (hostile-339 F3 — the S4 F1 lesson: a band never grows off
+              a string; flex-wrap stays as the safety valve for values
+              beyond the fixture set, never for the fixture set). --%>
+              <div class="mt-9 flex flex-wrap items-end gap-x-6 gap-y-6 min-[420px]:gap-x-14">
                 <div>
                   <p class="eyebrow">Members</p>
                   <p
-                    class="mt-1.5 whitespace-nowrap text-4xl font-bold tracking-tight text-ink min-[900px]:text-5xl"
+                    class="mt-1.5 whitespace-nowrap text-3xl font-bold tracking-tight text-ink min-[420px]:text-4xl min-[900px]:text-5xl"
                     data-testid="member-count"
                   >
                     {member_label(@member_count)}
@@ -149,7 +206,7 @@ defmodule FluxValeWeb.OrganizationLive.Home do
                 <div>
                   <p class="eyebrow">Balance</p>
                   <p
-                    class="mt-1.5 whitespace-nowrap text-4xl font-bold tracking-tight text-ink min-[900px]:text-5xl"
+                    class="mt-1.5 whitespace-nowrap text-3xl font-bold tracking-tight text-ink min-[420px]:text-4xl min-[900px]:text-5xl"
                     data-testid="wallet-balance"
                   >
                     {format_balance(@balance_cents)}
@@ -164,9 +221,11 @@ defmodule FluxValeWeb.OrganizationLive.Home do
         (dashboard_live.ex is the reference — same chip, name+slug,
         app/version, badge, rest step, and the same hit-box split: the
         link's own box stays put, an inner wrapper lifts motion-safe).
-        The .rise wraps the SECTION container, never the rows: stream
-        patches rewrite rows in place, and a rise on patched nodes would
-        replay the reveal on every broadcast (node identity). --%>
+        The .rise wraps the section's content container — the heading,
+        the empty state, and the stream container — never the rows
+        themselves: stream patches rewrite rows in place, and a rise on
+        patched nodes would replay the reveal on every broadcast (node
+        identity). --%>
         <section aria-labelledby="org-instances-title" class="wrap pt-14 pb-16">
           <div class="rise space-y-4 [animation-delay:170ms]">
             <h2 id="org-instances-title" class="text-lg font-semibold tracking-tight text-ink">
@@ -186,9 +245,9 @@ defmodule FluxValeWeb.OrganizationLive.Home do
               </.empty_state>
             </div>
 
-            <%!-- The S4 row language; like the index, this page renders
-            mount-fresh state and refreshes on navigation (the #179 tick
-            is the primary ops surface's optimization, not this one). --%>
+            <%!-- The S4 row language, live via the instances:<id>
+            broadcasts above (no #179 tick — the primary ops surface's
+            optimization, not this one). --%>
             <div id="org-instances" phx-update="stream" class="space-y-3">
               <.link
                 :for={{dom_id, instance} <- @streams.instances}
@@ -210,9 +269,16 @@ defmodule FluxValeWeb.OrganizationLive.Home do
                       {instance.name}
                     </h3>
                     <p class="truncate font-mono text-xs text-ink-subtle">{instance.slug}</p>
-                    <%!-- #179: friendly copy only; quiet on settled states. --%>
+                    <%!-- #179: friendly copy only — raw status_message
+                    never renders here. copy_status? is the EXPLICIT
+                    positive list, NOT the dashboard's noisy? predicate:
+                    :restoring is deliberately excluded (ADR-0037 — the
+                    state owns the show page, the row's job is the
+                    badge), and the predicate's polarity would silently
+                    add it (its copy is the app's longest; a flip is a
+                    behavior change, hostile-339 F1). --%>
                     <p
-                      :if={noisy?(instance.status)}
+                      :if={copy_status?(instance.status)}
                       class="truncate text-xs text-ink-subtle"
                       data-testid="instance-status-message"
                     >
@@ -221,7 +287,13 @@ defmodule FluxValeWeb.OrganizationLive.Home do
                   </div>
 
                   <div class="col-start-2 row-start-2 flex items-center gap-3 sm:col-start-3 sm:row-start-1">
-                    <span class="text-sm text-ink-muted">
+                    <%!-- min-w-0 truncate: the cluster's flex item must be
+                    allowed to shrink — a long single-token app name
+                    otherwise blows the auto column out and paints the
+                    badge outside the row (the pre-S6 markup carried this
+                    guard for exactly that measured ~199px overflow at
+                    375; hostile-339 F2). --%>
+                    <span class="min-w-0 truncate text-sm text-ink-muted">
                       {instance.app_version.app.name}
                       <span class="ml-1 font-mono text-xs text-ink-subtle">
                         v{instance.app_version.version}
@@ -230,6 +302,16 @@ defmodule FluxValeWeb.OrganizationLive.Home do
                     <.status_badge status={instance.status} />
                   </div>
 
+                  <%!-- In-flow grid cell (vs an absolute pin): always
+                  occupying the cell keeps the message column's measure
+                  stable, and items-center on the cell answers the old
+                  top-5 calibration — the reveal centers on the row's
+                  full height instead of pinning to a first line that
+                  moves on two-line rows, so there is no collision to
+                  tune away. It rides no translate: the wrapper's lift
+                  moves the content, and a moving chevron under a
+                  stationary pointer is the dead-band bug the hit-box
+                  split exists to prevent. --%>
                   <.icon
                     name="hero-chevron-right"
                     class="hidden size-4 text-ink-subtle opacity-0 transition-[opacity] duration-(--motion-base) ease-(--motion-ease-out) group-hover:opacity-100 group-focus-visible:opacity-100 sm:col-start-4 sm:row-start-1 sm:block"
@@ -253,6 +335,23 @@ defmodule FluxValeWeb.OrganizationLive.Home do
     |> Ash.read!()
   end
 
+  # Per-instance PubSub subscriptions — the dashboard's shape: every
+  # state change broadcasts on instances:<id>, and the page re-streams
+  # from it (a destroy on another tab must not leave a phantom row).
+  defp subscribe(socket, instances) do
+    Enum.reduce(instances, socket, fn instance, socket ->
+      Phoenix.PubSub.subscribe(FluxVale.PubSub, "instances:#{instance.id}")
+      socket
+    end)
+  end
+
+  defp refresh_facts(socket) do
+    {:ok, wallet} = Billing.ensure_wallet(socket.assigns.org)
+    {:ok, balance} = Billing.balance(wallet, actor: socket.assigns.current_user)
+
+    assign(socket, :balance_cents, balance)
+  end
+
   defp member_label(1), do: "1 member"
   defp member_label(count), do: "#{count} members"
 
@@ -261,12 +360,6 @@ defmodule FluxValeWeb.OrganizationLive.Home do
   # dashboard's and billing's.
   defp format_balance(cents) when cents < 0, do: "-" <> Pricing.format_usd(-cents)
   defp format_balance(cents), do: Pricing.format_usd(cents)
-
-  # Display choice, not vocabulary (#179/#203) — the dashboard's rule,
-  # verbatim: settled states (running/sleeping/stopped — the list rows'
-  # quiet rule) are the badge's business; everything else earns the
-  # friendly message line.
-  defp noisy?(status), do: status not in [:running, :sleeping, :stopped]
 
   # The row chip's mark (S4's reference rows): the name's first two
   # GRAPHEMES, uppercased — String.graphemes, not String.slice, so a
@@ -278,4 +371,13 @@ defmodule FluxValeWeb.OrganizationLive.Home do
     |> Enum.join()
     |> String.upcase()
   end
+
+  # The statuses whose row carries the #179 friendly copy line — the
+  # EXPLICIT positive list, not a negation: :restoring is deliberately
+  # excluded (ADR-0037 — the state owns the show page, the row's job is
+  # the badge) and a negative predicate's polarity would silently add it
+  # (its copy is the app's longest; a flip is a behavior change,
+  # hostile-339 F1).
+  defp copy_status?(status),
+    do: status in [:pending, :deploying, :starting, :error, :deleting, :lost]
 end

@@ -80,10 +80,11 @@ defmodule FluxValeWeb.InstanceLive.Index do
         <%!-- 2. The rows in the S4 row language (dashboard_live.ex is
         the reference — same chip, name+slug, app/version, badge, rest
         step, and the same hit-box split: the link's own box stays put,
-        an inner wrapper lifts motion-safe). The .rise wraps the SECTION
-        container, never the rows: stream patches rewrite rows in place,
-        and a rise on patched nodes would replay the reveal on every
-        broadcast (node identity). --%>
+        an inner wrapper lifts motion-safe). The .rise wraps the
+        section's content container — the empty state and the stream
+        container — never the rows themselves: stream patches rewrite
+        rows in place, and a rise on patched nodes would replay the
+        reveal on every broadcast (node identity). --%>
         <section class="wrap pt-14 pb-16">
           <div class="rise space-y-4 [animation-delay:170ms]">
             <.empty_state :if={@instance_count == 0} title="No instances yet">
@@ -107,15 +108,23 @@ defmodule FluxValeWeb.InstanceLive.Index do
                   </span>
 
                   <div class="min-w-0 space-y-0.5">
-                    <h3 class="min-w-0 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
+                    <%!-- Rows are H2: the page title IS this section's
+                    heading (no separate H2 here), so H3 rows would skip
+                    a level under the H1. --%>
+                    <h2 class="min-w-0 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
                       {instance.name}
-                    </h3>
+                    </h2>
                     <p class="truncate font-mono text-xs text-ink-subtle">{instance.slug}</p>
-                    <%!-- #179: friendly copy only — raw status_message never
-                    renders here. Quiet on settled states (running/sleeping/
-                    stopped): the badge says enough. --%>
+                    <%!-- #179: friendly copy only — raw status_message
+                    never renders here. copy_status? is the EXPLICIT
+                    positive list, NOT the dashboard's noisy? predicate:
+                    :restoring is deliberately excluded (ADR-0037 — the
+                    state owns the show page, the row's job is the
+                    badge), and the predicate's polarity would silently
+                    add it (its copy is the app's longest; a flip is a
+                    behavior change, hostile-339 F1). --%>
                     <p
-                      :if={noisy?(instance.status)}
+                      :if={copy_status?(instance.status)}
                       class="truncate text-xs text-ink-subtle"
                       data-testid="instance-status-message"
                     >
@@ -124,7 +133,12 @@ defmodule FluxValeWeb.InstanceLive.Index do
                   </div>
 
                   <div class="col-start-2 row-start-2 flex items-center gap-3 sm:col-start-3 sm:row-start-1">
-                    <span class="text-sm text-ink-muted">
+                    <%!-- min-w-0 truncate: the cluster's flex item must be
+                    allowed to shrink — a long single-token app name
+                    otherwise blows the auto column out and paints the
+                    badge outside the row (the org home's measured ~199px
+                    overflow at 375; hostile-339 F2). --%>
+                    <span class="min-w-0 truncate text-sm text-ink-muted">
                       {instance.app_version.app.name}
                       <span class="ml-1 font-mono text-xs text-ink-subtle">
                         v{instance.app_version.version}
@@ -133,6 +147,16 @@ defmodule FluxValeWeb.InstanceLive.Index do
                     <.status_badge status={instance.status} />
                   </div>
 
+                  <%!-- In-flow grid cell (vs the old absolute right-1
+                  top-5): always occupying the cell is what keeps the
+                  message column's measure stable, and items-center on the
+                  cell answers the old top-5 calibration — the reveal
+                  centers on the row's full height instead of pinning to a
+                  first line that moves on two-line rows, so there is no
+                  collision to tune away. It rides no translate: the
+                  wrapper's lift moves the content, and a moving chevron
+                  under a stationary pointer is the dead-band bug the
+                  hit-box split exists to prevent. --%>
                   <.icon
                     name="hero-chevron-right"
                     class="hidden size-4 text-ink-subtle opacity-0 transition-[opacity] duration-(--motion-base) ease-(--motion-ease-out) group-hover:opacity-100 group-focus-visible:opacity-100 sm:col-start-4 sm:row-start-1 sm:block"
@@ -203,12 +227,6 @@ defmodule FluxValeWeb.InstanceLive.Index do
      |> maybe_schedule_status_tick(still_ids)}
   end
 
-  # Display choice, not vocabulary (#179/#203) — the dashboard's rule,
-  # verbatim: settled states (running/sleeping/stopped — the list rows'
-  # quiet rule) are the badge's business; everything else earns the
-  # friendly message line.
-  defp noisy?(status), do: status not in [:running, :sleeping, :stopped]
-
   # The row chip's mark (S4's reference rows): the name's first two
   # GRAPHEMES, uppercased — String.graphemes, not String.slice, so a
   # multi-codepoint glyph (emoji, combining accent) is never split.
@@ -219,6 +237,15 @@ defmodule FluxValeWeb.InstanceLive.Index do
     |> Enum.join()
     |> String.upcase()
   end
+
+  # The statuses whose row carries the #179 friendly copy line — the
+  # EXPLICIT positive list, not a negation: :restoring is deliberately
+  # excluded (ADR-0037 — the state owns the show page, the row's job is
+  # the badge) and a negative predicate's polarity would silently add it
+  # (its copy is the app's longest; a flip is a behavior change,
+  # hostile-339 F1).
+  defp copy_status?(status),
+    do: status in [:pending, :deploying, :starting, :error, :deleting, :lost]
 
   defp subscribe(socket, instances) do
     Enum.reduce(instances, socket, fn instance, socket ->
