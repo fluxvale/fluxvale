@@ -86,9 +86,19 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
 
       assert {name("credential", gateway), %{"TS_AUTHKEY" => "tskey"}} in secrets
 
-      assert Enum.any?(secrets, fn {secret_name, data} ->
-               secret_name == name("serve-config", gateway) and is_binary(data["serve.json"])
-             end)
+      # The P1 contract on the provision-time config: valid JSON, and no
+      # unexpanded placeholder anywhere in what we write. Provision has
+      # no routes yet, so the Web arm is empty — the concrete-FQDN keys
+      # are pinned by the attach tests below.
+      serve_json =
+        Enum.find_value(secrets, fn {secret_name, data} ->
+          if secret_name == name("serve-config", gateway), do: data["serve.json"]
+        end)
+
+      assert is_binary(serve_json)
+      assert serve_json =~ "\"TCP\""
+      refute serve_json =~ "${"
+      refute serve_json =~ "TS_CERT_DOMAIN"
 
       assert Enum.any?(calls, fn
                {:pvc_create, _ns, claim, %{size: "64Mi"}} ->
@@ -175,6 +185,93 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
 
       assert route.route_key == "8443"
       assert route.instance_id == instance.id
+
+      # THE OTHER LOAD-BEARING LINE (the P1 fix): the written serve
+      # config keys the port under the CONCRETE FQDN — hostname joined
+      # to the row's owner-provided tailnet domain — so real SNI
+      # matches. The first cut wrote "<hostname>.${TS_CERT_DOMAIN}"
+      # and the gateway answered every handshake with "no webserver
+      # configured for name/port".
+      config = latest_serve_config()
+
+      assert config =~
+               ~s("#{gateway.hostname}.#{gateway.tailnet_domain}:#{route.route_key}")
+
+      refute config =~ "${"
+    end
+
+    test "a pre-column row with no tailnet domain is refused, not written broken", %{
+      org: org,
+      owner: owner
+    } do
+      # The migration-window shape: the live staging gateway predates
+      # the column, so no action can build it — seed! is the one
+      # sanctioned route to a state actions can't produce.
+      gateway =
+        Ash.Seed.seed!(AccessGateway, %{
+          organization_id: org.id,
+          hostname: "fv-00000001",
+          monthly_cents: 200,
+          state: :active,
+          tailnet_domain: nil
+        })
+
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      assert {:error, :tailnet_domain_missing} = Tailscale.attach_instance(gateway, instance)
+
+      # The cleanup arm ran: no route row survives a refused attach (a
+      # leftover would read as the owner's consent for a wake it never
+      # got service for — the provider's own stance).
+      assert {:error, _not_found} = AccessRoute.get_by_instance(instance.id, authorize?: false)
+    end
+
+    test "a pre-column row's detach completes; the impossible rewrite is tolerated, not stranded",
+         %{
+           org: org,
+           owner: owner
+         } do
+      # Two seeded pairings on a nil-domain gateway. Detaching either
+      # deletes its row and withdraws its policy; the rewrite for the
+      # OTHER route needs the domain the row does not carry, so the
+      # mounted config goes stale until the owner re-pastes. Failing the
+      # detach instead would strand the deletion — the row is gone and
+      # re-attach is refused, so there would be no retry path at all.
+      gateway =
+        Ash.Seed.seed!(AccessGateway, %{
+          organization_id: org.id,
+          hostname: "fv-00000003",
+          monthly_cents: 200,
+          state: :active,
+          tailnet_domain: nil
+        })
+
+      first = AccessFixtures.private_instance!(org, owner)
+      second = AccessFixtures.private_instance!(org, owner)
+
+      Ash.Seed.seed!(AccessRoute, %{
+        gateway_id: gateway.id,
+        instance_id: first.id,
+        route_key: "8443"
+      })
+
+      Ash.Seed.seed!(AccessRoute, %{
+        gateway_id: gateway.id,
+        instance_id: second.id,
+        route_key: "8444"
+      })
+
+      # First detach: tolerated rewrite (the remaining route's config
+      # cannot be re-keyed without the domain), pairing fully removed.
+      assert :ok = Tailscale.detach_instance(gateway, first)
+      assert {:error, _gone} = AccessRoute.get_by_instance(first.id, authorize?: false)
+      assert {:ok, _kept} = AccessRoute.get_by_instance(second.id, authorize?: false)
+
+      # Last detach: nothing remains, the empty config writes without a
+      # domain — the gateway converges to nothing-served.
+      assert :ok = Tailscale.detach_instance(gateway, second)
+      config = latest_serve_config()
+      assert config =~ "\"Web\":{}"
     end
 
     test "a second attach takes the next port", %{org: org, owner: owner} do
@@ -555,6 +652,32 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
                AccessRoute.get_by_instance(instance.id, authorize?: false)
     end
 
+    test "a serve rewrite failure after the row is gone still surfaces", %{
+      org: org,
+      owner: owner
+    } do
+      # The row deletion is already complete when the rewrite runs, but
+      # a NON-tolerated failure (anything but the migration window's
+      # missing domain) must surface: the mounted config is now stale
+      # and the caller needs to know — the tolerated arm is the single
+      # exception, not a swallowed-error pattern.
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+      {:ok, _route} = Tailscale.attach_instance(gateway, instance)
+
+      serve_name = name("serve-config", gateway)
+
+      expect(Secret, :create, fn _kc, _ns, secret_name, _data ->
+        if secret_name == serve_name do
+          {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
+        else
+          {:ok, %{}}
+        end
+      end)
+
+      assert {:error, %Error{}} = Tailscale.detach_instance(gateway, instance)
+    end
+
     test "a missing instance namespace is the posture already holding — 404 on detach is :ok",
          %{org: org, owner: owner} do
       gateway = AccessFixtures.gateway!(org)
@@ -741,6 +864,35 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       assert_received {:secret_create, _ns, credential, %{"TS_AUTHKEY" => "tskey-new"}}
       assert credential == name("credential", gateway)
       assert_received {:deployment_apply, _manifest}
+    end
+
+    test "a changed domain rides a :provisioning re-paste ALL the way to the Secret", %{
+      org: org,
+      owner: owner
+    } do
+      # The drift-repair arm rewrites the serve config twice — the
+      # domain refresh, then provision_gateway's own write. The hostile
+      # review caught the second write using a stale struct: the row
+      # landed the new domain while the Secret kept the old FQDN. This
+      # is the end-to-end pin (the row-level seam is pinned in the
+      # changes tests).
+      gateway = gateway_row!(org, :provisioning)
+      instance = AccessFixtures.private_instance!(org, owner)
+      {:ok, _route} = Tailscale.attach_instance(gateway, instance)
+
+      stub(Deployment, :apply_manifest, fn _kc, _manifest -> {:ok, %{}} end)
+      reject(Deployment, :restart, 3)
+
+      {:ok, _repasted} =
+        AccessGateway.update_credential(
+          gateway,
+          %{auth_key: "tskey-new", tailnet_domain: "rejoined.ts.net"},
+          authorize?: false
+        )
+
+      config = latest_serve_config()
+      assert config =~ "#{gateway.hostname}.rejoined.ts.net:"
+      refute config =~ "example.ts.net"
     end
 
     test "a failed re-apply surfaces", %{org: org} do
@@ -999,12 +1151,19 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
   defp gateway_row!(org, state \\ :active) do
     gateway =
       AccessGateway.create!(
-        %{organization_id: org.id, monthly_cents: 200, auth_key: "tskey"},
+        %{
+          organization_id: org.id,
+          monthly_cents: 200,
+          tailnet_domain: "example.ts.net",
+          auth_key: "tskey"
+        },
         authorize?: false
       )
 
     gateway
-    |> Ash.Changeset.for_update(:update_state, %{state: state}, authorize?: false)
+    |> Ash.Changeset.for_update(:update_state, %{state: state, status_message: "Connected"},
+      authorize?: false
+    )
     |> Ash.update!()
   end
 

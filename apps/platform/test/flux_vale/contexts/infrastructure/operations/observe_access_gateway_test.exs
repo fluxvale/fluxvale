@@ -219,7 +219,12 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGatewayTest do
   # A row that has its cluster objects but has not been observed yet.
   defp provisioned_row!(org) do
     AccessGateway.create!(
-      %{organization_id: org.id, monthly_cents: 200, auth_key: "tskey"},
+      %{
+        organization_id: org.id,
+        monthly_cents: 200,
+        tailnet_domain: "example.ts.net",
+        auth_key: "tskey"
+      },
       authorize?: false
     )
   end

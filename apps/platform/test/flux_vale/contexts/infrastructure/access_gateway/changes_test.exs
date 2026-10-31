@@ -29,6 +29,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
     stub(Tailscale, :scale_gateway, fn _gateway, _replicas -> :ok end)
     stub(Tailscale, :teardown_gateway, fn _gateway -> :ok end)
     stub(Tailscale, :update_credential, fn _gateway, _key -> :ok end)
+    stub(Tailscale, :refresh_routes, fn _gateway -> {:ok, %{}} end)
 
     {org, owner} = BillingFixtures.grant_free_org!()
     {:ok, wallet} = FluxVale.Billing.ensure_wallet(org)
@@ -45,6 +46,35 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       assert gateway.hostname =~ ~r/\Afv-[0-9a-f]{8}\z/
       assert gateway.provider == :tailscale
       assert gateway.monthly_cents == 200
+      assert gateway.tailnet_domain == "example.ts.net"
+    end
+
+    test "a gateway without its tailnet domain cannot exist", %{org: org} do
+      # The P1 lesson as a row-level invariant: no suffix, no serve
+      # config keys — a nil-domain gateway can never serve, so the
+      # create refuses it instead of minting a broken one.
+      assert {:error, %Ash.Error.Invalid{errors: [%{field: :tailnet_domain}]}} =
+               AccessGateway.create(
+                 %{organization_id: org.id, monthly_cents: 200, auth_key: "tskey"},
+                 authorize?: false
+               )
+    end
+
+    test "the tailnet domain must be a bare DNS name", %{org: org} do
+      too_long = String.duplicate("a", 250) <> ".ts.net"
+
+      for bad <- ["Example.ts.net", "https://example.ts.net", ".ts.net", "tailnet name", too_long] do
+        assert {:error, %Ash.Error.Invalid{errors: [%{field: :tailnet_domain}]}} =
+                 AccessGateway.create(
+                   %{
+                     organization_id: org.id,
+                     monthly_cents: 200,
+                     tailnet_domain: bad,
+                     auth_key: "tskey"
+                   },
+                   authorize?: false
+                 )
+      end
     end
 
     test "a failed create cleans up its orphaned cluster objects", %{org: org} do
@@ -57,7 +87,12 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
 
       assert {:error, _reason} =
                AccessGateway.create(
-                 %{organization_id: org.id, monthly_cents: 200, auth_key: "tskey"},
+                 %{
+                   organization_id: org.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   auth_key: "tskey"
+                 },
                  authorize?: false
                )
 
@@ -71,7 +106,12 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
 
       assert {:error, _reason} =
                AccessGateway.create(
-                 %{organization_id: org.id, monthly_cents: 200, auth_key: "tskey"},
+                 %{
+                   organization_id: org.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   auth_key: "tskey"
+                 },
                  authorize?: false
                )
 
@@ -239,11 +279,103 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
 
       expect(Tailscale, :update_credential, fn _gateway, "tskey-new" -> :ok end)
 
+      # Absent domain is the documented key-only recovery (ADR-0039 §4):
+      # the action keeps the stored domain and rewrites nothing.
       {:ok, repasted} =
         AccessGateway.update_credential(gateway, %{auth_key: "tskey-new"}, authorize?: false)
 
       assert repasted.state == :provisioning
       assert repasted.needs_attention_since == nil
+    end
+
+    test "a re-paste with a changed tailnet domain re-renders the serve config first", %{
+      org: org
+    } do
+      gateway = AccessFixtures.gateway!(org)
+
+      # The P1 backfill: the domain rides the re-paste, and the serve
+      # rewrite sees the INCOMING domain — the corrected FQDN lands in
+      # the Secret before the key write restarts the pod, so the pod
+      # mounts the fixed config.
+      expect(Tailscale, :refresh_routes, fn %{tailnet_domain: domain} ->
+        assert domain == "rejoined.ts.net"
+        {:ok, %{}}
+      end)
+
+      expect(Tailscale, :update_credential, fn _gateway, "tskey-new" -> :ok end)
+
+      {:ok, repasted} =
+        AccessGateway.update_credential(
+          gateway,
+          %{auth_key: "tskey-new", tailnet_domain: "rejoined.ts.net"},
+          authorize?: false
+        )
+
+      assert repasted.tailnet_domain == "rejoined.ts.net"
+    end
+
+    test "a :provisioning re-paste with a changed domain re-applies under the INCOMING one", %{
+      org: org
+    } do
+      # The drift-repair arm: update_credential re-applies the whole
+      # gateway through provision_gateway, which rewrites the serve
+      # config from the struct it is handed. The hostile-review clobber:
+      # a stale pre-write struct would write the OLD FQDN back over the
+      # rewrite the same action just made (or fail outright on a
+      # nil-domain row) while the row lands the new domain.
+      gateway = AccessFixtures.gateway!(org, state: :provisioning)
+
+      expect(Tailscale, :refresh_routes, fn %{tailnet_domain: domain} ->
+        assert domain == "rejoined.ts.net"
+        {:ok, %{}}
+      end)
+
+      expect(Tailscale, :update_credential, fn %{tailnet_domain: domain}, "tskey-new" ->
+        assert domain == "rejoined.ts.net"
+        :ok
+      end)
+
+      assert {:ok, repasted} =
+               AccessGateway.update_credential(
+                 gateway,
+                 %{auth_key: "tskey-new", tailnet_domain: "rejoined.ts.net"},
+                 authorize?: false
+               )
+
+      assert repasted.tailnet_domain == "rejoined.ts.net"
+    end
+
+    test "a same-domain re-paste makes no serve rewrite — the key recovery stands alone",
+         %{org: org} do
+      gateway = AccessFixtures.gateway!(org)
+
+      expect(Tailscale, :update_credential, fn _gateway, "tskey-new" -> :ok end)
+      reject(Tailscale, :refresh_routes, 1)
+
+      assert {:ok, _repasted} =
+               AccessGateway.update_credential(
+                 gateway,
+                 %{auth_key: "tskey-new", tailnet_domain: gateway.tailnet_domain},
+                 authorize?: false
+               )
+    end
+
+    test "a failed serve rewrite fails the re-paste — no half-repaired gateway", %{org: org} do
+      gateway = AccessFixtures.gateway!(org)
+
+      expect(Tailscale, :refresh_routes, fn _gateway -> {:error, :cluster_down} end)
+      reject(Tailscale, :update_credential, 2)
+
+      assert {:error, _reason} =
+               AccessGateway.update_credential(
+                 gateway,
+                 %{auth_key: "tskey-new", tailnet_domain: "rejoined.ts.net"},
+                 authorize?: false
+               )
+
+      # The row keeps its old domain — nothing landed.
+      assert AccessGateway.get_by_id!(gateway.id, authorize?: false).tailnet_domain ==
+               "example.ts.net"
     end
 
     test "a write failure fails the action and the row keeps its state", %{org: org} do
@@ -416,7 +548,12 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
 
       assert {:error, _reason} =
                AccessGateway.create(
-                 %{organization_id: org.id, monthly_cents: 200, auth_key: "tskey"},
+                 %{
+                   organization_id: org.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   auth_key: "tskey"
+                 },
                  authorize?: false
                )
     end
@@ -445,7 +582,12 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
   # the retry trigger's subject.
   defp provisioned_row!(org) do
     AccessGateway.create!(
-      %{organization_id: org.id, monthly_cents: 200, auth_key: "tskey"},
+      %{
+        organization_id: org.id,
+        monthly_cents: 200,
+        tailnet_domain: "example.ts.net",
+        auth_key: "tskey"
+      },
       authorize?: false
     )
   end

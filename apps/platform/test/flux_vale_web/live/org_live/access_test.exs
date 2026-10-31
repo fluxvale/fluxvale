@@ -47,6 +47,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       assert has_element?(view, "[data-testid='access-price']", "$2.00/month")
       assert has_element?(view, "#access-enable-form")
       assert has_element?(view, "[data-testid='access-key-input']")
+      assert has_element?(view, "[data-testid='access-domain-input']")
       assert has_element?(view, "input[type='password']")
 
       # Funded by the JIT welcome grant: no top-up hint. And no card —
@@ -113,7 +114,9 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
 
       view
-      |> form("#access-enable-form", gateway: %{auth_key: "tskey-auth-abc123"})
+      |> form("#access-enable-form",
+        gateway: %{auth_key: "tskey-auth-abc123", tailnet_domain: "example.ts.net"}
+      )
       |> render_submit()
 
       assert has_element?(view, "[data-testid='access-gateway-card']")
@@ -138,7 +141,9 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
 
       view
-      |> form("#access-enable-form", gateway: %{auth_key: "tskey-auth-typing"})
+      |> form("#access-enable-form",
+        gateway: %{auth_key: "tskey-auth-typing", tailnet_domain: "example.ts.net"}
+      )
       |> render_change()
 
       assert has_element?(view, "#access-enable-form")
@@ -156,7 +161,9 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
 
       view
-      |> form("#access-enable-form", gateway: %{auth_key: "tskey-auth-abc123"})
+      |> form("#access-enable-form",
+        gateway: %{auth_key: "tskey-auth-abc123", tailnet_domain: "example.ts.net"}
+      )
       |> render_submit()
 
       assert has_element?(view, "#flash-error", "Top up before enabling private access")
@@ -174,7 +181,9 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
 
       view
-      |> form("#access-enable-form", gateway: %{auth_key: "tskey-auth-abc123"})
+      |> form("#access-enable-form",
+        gateway: %{auth_key: "tskey-auth-abc123", tailnet_domain: "example.ts.net"}
+      )
       |> render_submit()
 
       # The failure is a flash, never a silent dead click.
@@ -196,14 +205,18 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       # (ADR-0039 §4): the typed marker must not appear in the patch or
       # the markup.
       view
-      |> form("#access-enable-form", gateway: %{auth_key: "tskey-TYPING-marker"})
+      |> form("#access-enable-form",
+        gateway: %{auth_key: "tskey-TYPING-marker", tailnet_domain: "example.ts.net"}
+      )
       |> render_change()
 
       refute render(view) =~ "tskey-TYPING-marker"
 
       # Typing still works: a submit right after lands the gateway.
       view
-      |> form("#access-enable-form", gateway: %{auth_key: "tskey-auth-final"})
+      |> form("#access-enable-form",
+        gateway: %{auth_key: "tskey-auth-final", tailnet_domain: "example.ts.net"}
+      )
       |> render_submit()
 
       assert has_element?(view, "[data-testid='access-gateway-card']")
@@ -219,7 +232,9 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
 
       view
-      |> form("#access-repaste-form", gateway: %{auth_key: "tskey-SECRET-marker"})
+      |> form("#access-repaste-form",
+        gateway: %{auth_key: "tskey-SECRET-marker", tailnet_domain: "example.ts.net"}
+      )
       |> render_submit()
 
       # The failure names itself and the form stays open for the retry —
@@ -367,7 +382,9 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       # A keystroke round-trip validates the re-paste form without
       # touching the row.
       view
-      |> form("#access-repaste-form", gateway: %{auth_key: "tskey-auth-typing"})
+      |> form("#access-repaste-form",
+        gateway: %{auth_key: "tskey-auth-typing", tailnet_domain: "example.ts.net"}
+      )
       |> render_change()
 
       assert AccessGateway.get_by_id!(gateway.id, authorize?: false).state == :active
@@ -391,7 +408,9 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
 
       view
-      |> form("#access-repaste-form", gateway: %{auth_key: "tskey-auth-fresh"})
+      |> form("#access-repaste-form",
+        gateway: %{auth_key: "tskey-auth-fresh", tailnet_domain: "example.ts.net"}
+      )
       |> render_submit()
 
       assert has_element?(view, "[data-testid=status-badge]", "Connecting")
@@ -402,6 +421,62 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       assert {:ok, _still_there} = AccessGateway.get_for_organization(org.id, actor: owner)
     end
 
+    test "a re-paste with a changed tailnet domain repairs the addresses — the P1 backfill", %{
+      conn: conn,
+      owner: owner,
+      org: org
+    } do
+      # The migration-window shape: a pre-column row, seeded because no
+      # action can produce a nil domain, with an attached instance —
+      # exactly the live staging gateway.
+      gateway =
+        Ash.Seed.seed!(AccessGateway, %{
+          organization_id: org.id,
+          hostname: "fv-00000001",
+          monthly_cents: 200,
+          state: :active,
+          status_message: "Connected",
+          tailnet_domain: nil
+        })
+
+      # The instance create resolves the single cluster row.
+      InstanceFixtures.local_cluster!()
+
+      attached_instance = AccessFixtures.private_instance!(org, owner)
+
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: attached_instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      expect(Tailscale, :refresh_routes, fn %{tailnet_domain: domain} ->
+        assert domain == "rejoined.ts.net"
+        {:ok, %{}}
+      end)
+
+      expect(Tailscale, :update_credential, fn _gateway, "tskey-auth-fresh" -> :ok end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      # The placeholder arm: a nil-domain row shows the placeholder, not
+      # a fabricated address.
+      assert has_element?(view, "[data-testid='access-attached-address']", "your-tailnet")
+
+      # :active keeps the form collapsed behind the toggle.
+      view
+      |> element("[data-testid='access-repaste-toggle']")
+      |> render_click()
+
+      view
+      |> form("#access-repaste-form",
+        gateway: %{auth_key: "tskey-auth-fresh", tailnet_domain: "rejoined.ts.net"}
+      )
+      |> render_submit()
+
+      assert AccessGateway.get_by_id!(gateway.id, authorize?: false).tailnet_domain ==
+               "rejoined.ts.net"
+    end
+
     test "a failed re-paste keeps the state and the form", %{conn: conn, org: org} do
       gateway = AccessFixtures.gateway!(org, state: :needs_attention)
 
@@ -410,7 +485,9 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
 
       view
-      |> form("#access-repaste-form", gateway: %{auth_key: "tskey-auth-fresh"})
+      |> form("#access-repaste-form",
+        gateway: %{auth_key: "tskey-auth-fresh", tailnet_domain: "example.ts.net"}
+      )
       |> render_submit()
 
       # The engine's answer reaches the owner — a flash, not a dead click.
@@ -701,7 +778,9 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       |> render_click()
 
       view
-      |> form("#access-repaste-form", gateway: %{auth_key: "tskey-auth-typing"})
+      |> form("#access-repaste-form",
+        gateway: %{auth_key: "tskey-auth-typing", tailnet_domain: "example.ts.net"}
+      )
       |> render_change()
 
       # The observer writes every minute while :active and always
@@ -843,13 +922,19 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
 
       {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
 
-      # Attached row: name, live address (hostname + port + the owner's
-      # tailnet placeholder — the platform cannot know the suffix), and
+      # Attached row: name, live address (hostname + the row's tailnet
+      # domain + port — the concrete FQDN the gateway serves, P1), and
       # the no-confirm Detach with its reversible-consequence copy.
       assert has_element?(view, "[data-testid='access-attached-row']", attached_instance.name)
       assert has_element?(view, "[data-testid='access-attached-address']", gateway.hostname)
       assert has_element?(view, "[data-testid='access-attached-address']", "8443")
-      assert has_element?(view, "[data-testid='access-attached-address']", "your-tailnet")
+
+      assert has_element?(
+               view,
+               "[data-testid='access-attached-address']",
+               "#{gateway.hostname}.#{gateway.tailnet_domain}:8443"
+             )
+
       assert has_element?(view, "[data-testid='access-detach']")
 
       assert has_element?(
@@ -950,6 +1035,42 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       |> render_click()
 
       assert has_element?(view, "[data-testid='access-attach-error']", "addresses are all in use")
+    end
+
+    test "a gateway with no tailnet domain yet answers with the backfill copy", %{
+      conn: conn,
+      owner: owner,
+      org: org
+    } do
+      # The migration-window row: seeded because no action produces a
+      # nil domain anymore. Its attach is refused by the provider until
+      # the owner re-pastes with the domain filled in.
+      Ash.Seed.seed!(AccessGateway, %{
+        organization_id: org.id,
+        hostname: "fv-00000002",
+        monthly_cents: 200,
+        state: :active,
+        status_message: "Connected",
+        tailnet_domain: nil
+      })
+
+      AccessFixtures.private_instance!(org, owner)
+
+      expect(Tailscale, :attach_instance, fn _gateway, _instance ->
+        {:error, :tailnet_domain_missing}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      view
+      |> element("[data-testid='access-attach-button']")
+      |> render_click()
+
+      assert has_element?(
+               view,
+               "[data-testid='access-attach-error']",
+               "needs its tailnet domain"
+             )
     end
 
     test "a cluster failure lands the try-again copy", %{conn: conn, owner: owner, org: org} do
@@ -1206,6 +1327,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
     end)
 
     stub(Tailscale, :update_credential, fn _gateway, _key -> :ok end)
+    stub(Tailscale, :refresh_routes, fn _gateway -> {:ok, %{}} end)
     stub(Tailscale, :scale_gateway, fn _gateway, _replicas -> :ok end)
     stub(Tailscale, :teardown_gateway, fn _gateway -> :ok end)
 

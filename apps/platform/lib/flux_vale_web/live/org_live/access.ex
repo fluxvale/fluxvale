@@ -502,6 +502,19 @@ defmodule FluxValeWeb.OrganizationLive.Access do
               required
               data-testid="access-key-input"
             />
+            <.input
+              field={@form[:tailnet_domain]}
+              type="text"
+              label="Tailnet domain"
+              placeholder="your-tailnet.ts.net"
+              required
+              data-testid="access-domain-input"
+            />
+            <p class="text-xs text-ink-muted">
+              Your tailnet's DNS name — the part after the first dot in any of your
+              device names, visible in your Tailscale admin console. It becomes part of
+              every private app's address.
+            </p>
             <div class="flex justify-end">
               <.button type="submit" data-testid="access-enable">
                 Enable private access
@@ -653,6 +666,14 @@ defmodule FluxValeWeb.OrganizationLive.Access do
             required
             data-testid="access-repaste-key"
           />
+          <.input
+            field={@form[:tailnet_domain]}
+            type="text"
+            label="Tailnet domain"
+            placeholder="your-tailnet.ts.net"
+            required
+            data-testid="access-repaste-domain"
+          />
           <div class="flex gap-3">
             <.button type="submit" size="sm" data-testid="access-repaste-submit">
               {@submit_label}
@@ -756,10 +777,10 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   end
 
   # §4.1's attached half: one row per paired app — name, status, the
-  # tailnet address (hostname + route_key; the tailnet suffix is the
-  # owner's, so it renders as a deliberate placeholder), and Detach
-  # with no confirm (reversible). The list is a stream reset on every
-  # pairing change — the refetch is the update.
+  # tailnet address (hostname + domain + route_key, rendered from the
+  # row's owner-provided suffix), and Detach with no confirm
+  # (reversible). The list is a stream reset on every pairing change —
+  # the refetch is the update.
   attr(:gateway, AccessGateway, required: true)
   attr(:attached, :any, required: true)
   attr(:attached_empty?, :boolean, required: true)
@@ -1004,6 +1025,9 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       {:error, :pool_exhausted} ->
         {:noreply, assign(socket, attach_error: :pool_exhausted)}
 
+      {:error, :tailnet_domain_missing} ->
+        {:noreply, assign(socket, attach_error: :tailnet_domain_missing)}
+
       {:error, _cluster_or_stale} ->
         {:noreply, assign(socket, attach_error: :cluster)}
     end
@@ -1101,15 +1125,28 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     "This gateway's addresses are all in use — detach an app to free one."
   end
 
+  # The migration-window row only: every gateway created after the
+  # column lands carries its domain. The fix is the re-paste form.
+  defp attach_error_copy(:tailnet_domain_missing) do
+    "This gateway needs its tailnet domain — reconnect with your key and fill it in first."
+  end
+
   defp attach_error_copy(_cluster_or_stale) do
     "Couldn't attach — try again."
   end
 
-  # §4.1's address shape: hostname + route_key, the tailnet suffix left
-  # as a deliberate placeholder — the platform cannot know it (ADR-0039
-  # §1's opaque fv- name is all that's ours).
-  defp address(route, gateway) do
+  # §4.1's address shape: hostname + tailnet domain + route_key. The
+  # domain comes from the row (the owner's, provided at enable/re-paste
+  # — with PVC state the node's FQDN never leaves the pod), so the
+  # address is the concrete thing the gateway serves. The placeholder
+  # arm is the backfill window only: a row created before the column
+  # existed, until its owner re-pastes.
+  defp address(route, %AccessGateway{tailnet_domain: nil} = gateway) do
     "#{gateway.hostname}.<your-tailnet>.ts.net:#{route.route_key}"
+  end
+
+  defp address(route, %AccessGateway{} = gateway) do
+    "#{gateway.hostname}.#{gateway.tailnet_domain}:#{route.route_key}"
   end
 
   # The recovery state shows the re-paste form outright (the ADR's

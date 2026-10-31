@@ -221,6 +221,24 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       constraints(match: ~r/\Afv-[0-9a-f]{8}\z/)
     end
 
+    # The tailnet's MagicDNS suffix (`<tailnet>.ts.net`) — the other
+    # half of the serve config's Web keys (`<hostname>.<suffix>:<port>`)
+    # and of every attached app's tailnet address. Owner-provided like
+    # the auth key, and for the same reason: with PVC state (§1) the
+    # node's FQDN never leaves the pod — containerboot stores it only in
+    # a kube state Secret this design deliberately does not use, and the
+    # LocalAPI read that would observe it needs exec. The suffix is
+    # visible to the owner in their admin console on every device name.
+    attribute :tailnet_domain, :string do
+      allow_nil?(false)
+      public?(true)
+      # DNS full-name bound: 253 chars, dot-separated lowercase labels.
+      constraints(
+        match: ~r/\A[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+\z/,
+        max_length: 253
+      )
+    end
+
     attribute :provider, FluxVale.Infrastructure.Types.AccessGatewayProvider do
       allow_nil?(false)
       default(:tailscale)
@@ -303,7 +321,7 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       billing snapshot.
       """)
 
-      accept([:organization_id, :monthly_cents])
+      accept([:organization_id, :monthly_cents, :tailnet_domain])
 
       # The org is the ACTOR's (the Instance create's contract): the
       # attribute stays acceptable for the actorless system path
@@ -350,10 +368,15 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       (§4). Writes the Secret and restarts the pod so the new key lands
       as a fresh join; the row leaves :needs_attention for
       :provisioning and the observed-state write settles it.
+
+      Also carries the tailnet-domain backfill: a row created before the
+      column existed (or one whose owner retyped the suffix) re-renders
+      its serve config here, so the recovery path is also the repair
+      path.
       """)
 
       require_atomic?(false)
-      accept([])
+      accept([:tailnet_domain])
       argument(:auth_key, :string, allow_nil?: false, sensitive?: true)
 
       change(FluxVale.Infrastructure.AccessGateway.RepasteCredential)

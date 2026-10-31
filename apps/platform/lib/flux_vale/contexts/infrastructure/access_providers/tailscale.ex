@@ -43,6 +43,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   alias FluxVale.Infrastructure.Operations.InstanceK8s
 
   require Ash.Query
+  require Logger
 
   # The gateway's Kubernetes objects, all in the access namespace and
   # all keyed by the gateway's id — one org's gateway must never address
@@ -170,8 +171,35 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
       # the pairing).
       with :ok <- disadmit_gateway(kubeconfig, instance),
            :ok <- delete_route(instance) do
-        apply_routes(kubeconfig, gateway)
+        apply_after_detach(kubeconfig, gateway, instance)
       end
+    end
+  end
+
+  # The migration window only: OTHER routes may remain whose rewrite
+  # needs a domain the row does not carry (the same reason their attach
+  # is refused). THIS pairing's removal is complete — policy withdrawn,
+  # row deleted — and the remaining routes' mounted config is the broken
+  # literal regardless, so failing the detach would only strand a
+  # deletion the owner cannot retry (the row is gone; re-attach is
+  # refused too). The next rewrite the gateway CAN write — the owner's
+  # re-paste — regenerates from the rows and drops this port.
+  defp apply_after_detach(kubeconfig, gateway, instance) do
+    case apply_routes(kubeconfig, gateway) do
+      :ok ->
+        :ok
+
+      {:error, :tailnet_domain_missing} = tolerated ->
+        Logger.warning(
+          "Access gateway #{gateway.id} serve-config rewrite skipped after detaching " <>
+            "instance #{instance.id}: no tailnet domain on the row; remaining routes stay " <>
+            "on their stale config until the owner re-pastes (#{inspect(tolerated)})"
+        )
+
+        :ok
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -368,6 +396,13 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # `containerboot` watches. A route whose instance has vanished between
   # the read and this build is skipped (its row is the source of truth
   # elsewhere; the next detach converges it).
+  #
+  # The Web keys need the tailnet's MagicDNS suffix; a gateway row that
+  # predates the column (nil domain) with an attached route is refused
+  # loudly — writing the old `"<hostname>.${TS_CERT_DOMAIN}"` literal
+  # back would resurrect the bug this shape fixed. An EMPTY route list
+  # still writes: the config carries no Web key, so the domain is
+  # unused and the nothing-served-yet posture keeps converging.
   defp write_serve_config(kubeconfig, namespace, gateway) do
     entries =
       gateway
@@ -387,15 +422,25 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
         end
       end)
 
-    config = ServeConfig.build(gateway.hostname, entries)
+    with :ok <- ensure_tailnet_domain(gateway, entries) do
+      config = ServeConfig.build(gateway.hostname, gateway.tailnet_domain, entries)
 
-    case Secret.create(kubeconfig, namespace, serve_secret_name(gateway), %{
-           @serve_file => ServeConfig.encode(config)
-         }) do
-      {:ok, secret} -> {:ok, secret}
-      {:error, _reason} = error -> error
+      case Secret.create(kubeconfig, namespace, serve_secret_name(gateway), %{
+             @serve_file => ServeConfig.encode(config)
+           }) do
+        {:ok, secret} -> {:ok, secret}
+        {:error, _reason} = error -> error
+      end
     end
   end
+
+  # Only the migration-window row can be here: the attribute is required
+  # on create, so every row made after the column lands carries a
+  # domain (the re-paste form backfills the pre-existing one).
+  defp ensure_tailnet_domain(%{tailnet_domain: nil}, [_route | _more]),
+    do: {:error, :tailnet_domain_missing}
+
+  defp ensure_tailnet_domain(_gateway, _entries), do: :ok
 
   defp apply_routes(kubeconfig, gateway) do
     case write_serve_config(kubeconfig, access_namespace(), gateway) do

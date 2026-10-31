@@ -45,17 +45,25 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfigTest do
     on_exit(fn -> Application.put_env(:flux_vale, :access_gateway, previous) end)
   end
 
-  describe "build/2" do
-    test "one app at root on its own port" do
+  describe "build/3" do
+    @domain "example.ts.net"
+
+    test "one app at root on its own port, under the CONCRETE tailnet FQDN" do
       config =
-        ServeConfig.build(@hostname, [{"8443", "http://app.fluxvale-app-x.svc.cluster.local:80"}])
+        ServeConfig.build(@hostname, @domain, [
+          {"8443", "http://app.fluxvale-app-x.svc.cluster.local:80"}
+        ])
 
       assert config["TCP"] == %{"8443" => %{"HTTPS" => true}}
 
-      # ${TS_CERT_DOMAIN} — the platform does not know the owner's
-      # tailnet suffix; containerboot substitutes it (§3).
+      # The concrete FQDN — the P1 fix. The first cut wrote the literal
+      # "<hostname>.${TS_CERT_DOMAIN}" on the theory that containerboot
+      # expands it; on the pinned image (v1.90.6) the expansion either
+      # substitutes only the suffix or declines to apply the config
+      # outright, and the gateway served nothing. What we write is what
+      # the daemon applies — verbatim.
       assert config["Web"] == %{
-               "#{@hostname}.${TS_CERT_DOMAIN}:8443" => %{
+               "#{@hostname}.#{@domain}:8443" => %{
                  "Handlers" => %{
                    "/" => %{"Proxy" => "http://app.fluxvale-app-x.svc.cluster.local:80"}
                  }
@@ -63,9 +71,25 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfigTest do
              }
     end
 
+    test "the encoded config carries no unexpanded placeholder anywhere" do
+      config =
+        ServeConfig.build(@hostname, @domain, [
+          {"8443", "http://app.ns.svc.cluster.local:80"},
+          {"8444", "http://app.ns-b.svc.cluster.local:80"}
+        ])
+
+      encoded = ServeConfig.encode(config)
+
+      # The P1 regression pin: the running config is built from this
+      # string with no expansion step between us and the daemon, so an
+      # unexpanded `${...}` here is the live gateway's broken handshake.
+      refute encoded =~ "${"
+      refute encoded =~ "TS_CERT_DOMAIN"
+    end
+
     test "two apps get two ports, each at root — the B1 compromise" do
       config =
-        ServeConfig.build(@hostname, [
+        ServeConfig.build(@hostname, @domain, [
           {"8443", "http://app.ns-a.svc.cluster.local:80"},
           {"8444", "http://app.ns-b.svc.cluster.local:80"}
         ])
@@ -78,8 +102,8 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfigTest do
       assert tcp == ["8443", "8444"]
 
       assert web == [
-               "#{@hostname}.${TS_CERT_DOMAIN}:8443",
-               "#{@hostname}.${TS_CERT_DOMAIN}:8444"
+               "#{@hostname}.#{@domain}:8443",
+               "#{@hostname}.#{@domain}:8444"
              ]
 
       # Every handler is "/" — root path per app, never a path mount
@@ -90,27 +114,51 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfigTest do
     end
 
     test "an empty gateway serves nothing yet — valid, not broken" do
-      config = ServeConfig.build(@hostname, [])
+      config = ServeConfig.build(@hostname, @domain, [])
 
       assert config["TCP"] == %{}
       assert config["Web"] == %{}
     end
 
+    # The backfill window: a pre-column row provisions and re-provisions
+    # through the empty config (nothing attached, nothing to key on the
+    # domain); the provider refuses the non-empty case separately.
+    test "an empty config builds without a domain — the nothing-served-yet row" do
+      config = ServeConfig.build(@hostname, nil, [])
+
+      assert config["TCP"] == %{}
+      assert config["Web"] == %{}
+    end
+
+    test "a nil domain with entries is refused — no key a daemon can't match" do
+      # The laundered nil (a bare nil literal would trip warnings-as-
+      # errors): the migration-window row's shape must not silently
+      # mint "fv-….:8443" for any future caller.
+      nil_domain = Enum.at([nil], 0)
+
+      assert_raise FunctionClauseError, fn ->
+        ServeConfig.build(@hostname, nil_domain, [
+          {"8443", "http://app.ns.svc.cluster.local:80"}
+        ])
+      end
+    end
+
     test "funnel is explicitly empty — private access never becomes public" do
-      config = ServeConfig.build(@hostname, [{"8443", "http://app.ns.svc.cluster.local:80"}])
+      config =
+        ServeConfig.build(@hostname, @domain, [{"8443", "http://app.ns.svc.cluster.local:80"}])
 
       assert config["AllowFunnel"] == %{}
     end
 
     test "the encoded config is valid JSON with the keys the daemon reads" do
       config =
-        ServeConfig.build(@hostname, [{"8443", "http://app.ns.svc.cluster.local:80"}])
+        ServeConfig.build(@hostname, @domain, [{"8443", "http://app.ns.svc.cluster.local:80"}])
 
       encoded = ServeConfig.encode(config)
       decoded = Jason.decode!(encoded)
 
       assert decoded["TCP"]["8443"]["HTTPS"] == true
-      assert decoded["Web"]["#{@hostname}.${TS_CERT_DOMAIN}:8443"]["Handlers"]["/"]["Proxy"]
+      assert decoded["Web"]["#{@hostname}.#{@domain}:8443"]["Handlers"]["/"]["Proxy"]
     end
   end
 
