@@ -200,17 +200,17 @@ defmodule FluxValeWeb.AccessWakeController do
 
   # One apply-set per window per instance (Edge.Activity): the endpoint
   # is anonymous, and an unthrottled GET loop must not become
-  # unthrottled K8s writes. The flip is BOTH writes now (ADR-0040 §7):
-  # the serve-config regeneration (the ts.net fallback arm) and the
-  # EdgeRoutes access arm (the hostname arm) — one claim window covers
-  # them, and a throttled window treats "someone else just applied" as
-  # success (both applies are idempotent; the next window retries).
+  # unthrottled K8s writes. The flip is BOTH writes now (ADR-0040 §7),
+  # and the limbs are DECOUPLED: a failed serve-config write is logged
+  # and the hostname arm still applies (one sick limb must not starve
+  # the other — each is idempotent and the next window retries the
+  # failed half). A throttled window treats "someone else just applied"
+  # as success.
   defp debounced_flip(gateway, instance) do
     if Edge.Activity.claim_access_flip(instance.id) == :proceed do
       case AccessProvider.impl_for(gateway).refresh_routes(gateway) do
         {:ok, _serve_config} ->
-          apply_access_arm(gateway, instance)
-          maybe_recheck(gateway, instance)
+          :ok
 
         # Silent would strand the visitor on a waking page that never
         # converges and leave the operator nothing to find: the config
@@ -222,31 +222,40 @@ defmodule FluxValeWeb.AccessWakeController do
             "Access wake: serve-config flip failed for instance #{instance.id}: " <>
               "#{inspect(reason)}"
           )
-
-          :error
       end
+
+      apply_access_arm(gateway, instance)
+      maybe_recheck(gateway, instance)
     else
       :throttled
     end
   end
 
-  # The access arm is decided by the FRESH status, not the one this
-  # request answered: a sleep committing between the pairing read and
-  # this apply must land the wake arm, not the stale serving one.
-  # :running serves; anything wake-shaped stays wake (the
-  # ServeConfig.target_for decision shape — a :starting instance gets
-  # the waking page, not a connectionless Service).
+  # The pairing is re-read FRESH immediately before the arm write: a
+  # detach that landed mid-flip (the owner clicked remove between this
+  # request's gate and this write) means NO arm write — re-minting would
+  # strand routes whose pairing row (and policy admission) is gone.
+  # The arm is decided by the FRESH status for the same reason: a sleep
+  # committing between the pairing read and this apply must land the
+  # wake arm, not the stale serving one.
   defp apply_access_arm(gateway, instance) do
-    case Instance.get_by_id(instance.id, authorize?: false) do
-      {:ok, fresh} ->
-        flip_access_arm(gateway, fresh)
+    case AccessRoute.get_by_pair(gateway.id, instance.id, authorize?: false) do
+      {:ok, _pairing} ->
+        case Instance.get_by_id(instance.id, authorize?: false) do
+          {:ok, fresh} ->
+            flip_access_arm(gateway, fresh)
 
-      # coveralls-ignore-start - race only: the row vanished under the
-      # flip (teardown won between the pairing read and this apply);
-      # there is nothing left to route.
-      {:error, _gone} ->
+          # coveralls-ignore-start - race only: the row vanished under
+          # the flip (teardown won between the pairing read and this
+          # apply); there is nothing left to route.
+          {:error, _gone} ->
+            :ok
+            # coveralls-ignore-stop
+        end
+
+      # Detached mid-flip: the posture moved on; nothing to write.
+      {:error, _not_a_pairing} ->
         :ok
-        # coveralls-ignore-stop
     end
   end
 
@@ -256,30 +265,22 @@ defmodule FluxValeWeb.AccessWakeController do
   defp flip_access_arm(gateway, instance) do
     case InstanceK8s.kubeconfig_for(instance) do
       {:ok, kubeconfig} ->
-        apply_access_arm_and_log(kubeconfig, gateway, instance)
+        result = EdgeRoutes.apply_access_for_status(kubeconfig, gateway, instance)
+
+        case result do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning(
+              "Access wake: access-route flip failed for instance #{instance.id}: " <>
+                "#{inspect(reason)}"
+            )
+        end
 
       {:error, reason} ->
         Logger.warning(
           "Access wake: access-route flip skipped for instance #{instance.id}: " <>
-            "#{inspect(reason)}"
-        )
-    end
-  end
-
-  defp apply_access_arm_and_log(kubeconfig, gateway, instance) do
-    result =
-      case instance.status do
-        :running -> EdgeRoutes.apply_access_serving(kubeconfig, gateway, instance)
-        _wake_shaped -> EdgeRoutes.apply_access_wake(kubeconfig, gateway, instance)
-      end
-
-    case result do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning(
-          "Access wake: access-route flip failed for instance #{instance.id}: " <>
             "#{inspect(reason)}"
         )
     end
@@ -302,7 +303,7 @@ defmodule FluxValeWeb.AccessWakeController do
 
       {:ok, moved_on} ->
         _retried_config = AccessProvider.impl_for(gateway).refresh_routes(gateway)
-        flip_access_arm(gateway, moved_on)
+        apply_access_arm(gateway, moved_on)
         :retried
 
       # coveralls-ignore-start - race only: the row vanished under the

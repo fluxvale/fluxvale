@@ -151,13 +151,7 @@ defmodule FluxVale.Infrastructure.Operations.SleepInstance do
         if route_not_found?(error) do
           {:ok, sleeping}
         else
-          # coveralls-ignore-start - race only: this read succeeded
-          # moments ago in maybe_access_wake (the attached-private
-          # path), so a non-not-found failure here is the pairing read
-          # decaying between two adjacent reads — a window ExUnit
-          # cannot stage.
           route_rewrite_failed(sleeping, error)
-          # coveralls-ignore-stop
         end
     end
   end

@@ -15,6 +15,7 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Ingress
   alias FluxVale.Clients.K8s.Resources.Middleware
+  alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.AccessDomain
@@ -70,23 +71,30 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
     }
   end
 
-  defp custom_hostname!(owner, instance, label, opts \\ []) do
+  # A custom domain row under `owner`'s org. `verified?: true` walks the
+  # verify pass's own funnel (the ref is what the observer recorded —
+  # and the source read the arms' cert replica will do).
+  defp custom_domain!(owner, opts \\ []) do
     {:ok, registered} =
       AccessDomain.register(
         %{domain: "apps.customer-#{System.unique_integer()}.example"},
         actor: owner
       )
 
-    domain =
-      if Keyword.get(opts, :verified?, false) do
-        registered
-        |> Ash.Changeset.for_update(:mark_verified, %{cert_secret_ref: "custom-wildcard-tls"},
-          authorize?: false
-        )
-        |> Ash.update!()
-      else
-        registered
-      end
+    if Keyword.get(opts, :verified?, false) do
+      registered
+      |> Ash.Changeset.for_update(:mark_verified, %{cert_secret_ref: "custom-wildcard-tls"},
+        authorize?: false
+      )
+      |> Ash.update!()
+    else
+      registered
+    end
+  end
+
+  # A custom domain + hostname row under it.
+  defp custom_hostname!(owner, instance, label, opts \\ []) do
+    domain = custom_domain!(owner, opts)
 
     # S1's system-only mint (the edge arms read rows, never mint them).
     InstanceHostname.mint!(
@@ -101,6 +109,18 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
     stub(Middleware, :create, fn
       _kc, ^ns, "fluxvale-access-wake", _spec -> {:ok, %{}}
       _kc, ^ns, "fluxvale-activity", _spec -> {:ok, %{}}
+    end)
+  end
+
+  # The cert replica's source: the fleet's cert-manager writes the
+  # issued wildcard here (:access_domains, :certificate_namespace).
+  defp stub_cert_source do
+    stub(Secret, :get_data, fn _kc, "fluxvale-access", "custom-wildcard-tls" ->
+      {:ok, %{"tls.crt" => "CERT-PEM", "tls.key" => "KEY-PEM"}}
+    end)
+
+    stub(Secret, :create, fn _kc, _ns, "access-domain-cert-" <> _tail, _data, _labels ->
+      {:ok, %{}}
     end)
   end
 
@@ -157,18 +177,35 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
       assert :ok = EdgeRoutes.apply_access_serving(%{}, gateway_stub(), instance)
     end
 
-    test "a verified custom domain routes with its cert secret; an unverified one never routes" do
+    test "a verified custom domain routes with its LOCAL cert replica; an unverified one never routes" do
       stub_kubeconfig()
       owner = user()
       instance = instance!(%{}, %{}, owner)
       ns = "fluxvale-app-#{instance.id}"
 
-      custom_hostname!(owner, instance, "wiki", verified?: true)
-      custom_hostname!(owner, instance, "dark")
+      domain = custom_domain!(owner, verified?: true)
+
+      InstanceHostname.mint!(
+        %{instance_id: instance.id, access_domain_id: domain.id, label: "wiki"},
+        authorize?: false
+      )
+
+      dark = custom_domain!(owner)
+
+      InstanceHostname.mint!(
+        %{instance_id: instance.id, access_domain_id: dark.id, label: "dark"},
+        authorize?: false
+      )
 
       stub_access_targets(ns)
+      stub_cert_source()
 
       parent = self()
+
+      stub(Secret, :create, fn _kc, ^ns, "access-domain-cert-" <> _tail, data, labels ->
+        send(parent, {:replica, data, labels})
+        {:ok, %{}}
+      end)
 
       stub(Ingress, :create, fn
         _kc, ^ns, _name, %{host: "wiki." <> _tail} = spec ->
@@ -189,15 +226,131 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
           assert :ok = EdgeRoutes.apply_access_serving(%{}, gateway_stub(), instance)
         end)
 
+      assert_received {:replica, data, labels}
+      assert data == %{"tls.crt" => "CERT-PEM", "tls.key" => "KEY-PEM"}
+      assert labels["fluxvale.io/access-domain"] == domain.id
+
       assert_received {:custom_route, spec}
       assert spec.tls
-      assert spec.tls_secret_name == "custom-wildcard-tls"
+      # The route references the LOCAL replica, never the cross-namespace
+      # source (Traefik's CRD provider reads the route's own namespace).
+      assert spec.tls_secret_name =~ ~r/^access-domain-cert-[0-9a-f]{10}$/
 
       # The unverified row was skipped with the reason logged — an
       # unverified domain must never route.
       refute_received {:dark_route, _}
       assert log =~ "custom domain apps.customer-"
       assert log =~ "not servable"
+    end
+
+    test "a custom domain whose source secret is unreadable is skipped — never a dead cert" do
+      stub_kubeconfig()
+      owner = user()
+      instance = instance!(%{}, %{}, owner)
+
+      domain = custom_domain!(owner, verified?: true)
+
+      InstanceHostname.mint!(
+        %{instance_id: instance.id, access_domain_id: domain.id, label: "wiki"},
+        authorize?: false
+      )
+
+      stub_access_targets("fluxvale-app-#{instance.id}")
+
+      stub(Secret, :get_data, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub(Ingress, :create, fn
+        _kc, _ns, _name, %{host: "wiki." <> _tail} ->
+          flunk("an unreadable cert source must never route")
+
+        _kc, _ns, _name, _spec ->
+          # The default platform hostname still mints — the skip is the
+          # domain's, not the arm's.
+          {:ok, %{}}
+      end)
+
+      log =
+        capture_log(fn ->
+          assert :ok = EdgeRoutes.apply_access_serving(%{}, gateway_stub(), instance)
+        end)
+
+      assert log =~ "certificate secret could not be replicated"
+      assert log =~ "never routing a dead cert"
+    end
+
+    test "a hostname under another org's domain never routes (the S3 belt)" do
+      stub_kubeconfig()
+      owner = user()
+      instance = instance!(%{}, %{}, owner)
+
+      # The domain belongs to a DIFFERENT org entirely — a row shaped
+      # like this is out-of-band today (S3's re-homing surface); the
+      # belt refuses it safely.
+      foreign_domain = custom_domain!(user())
+
+      InstanceHostname.mint!(
+        %{instance_id: instance.id, access_domain_id: foreign_domain.id, label: "foreign"},
+        authorize?: false
+      )
+
+      stub_access_targets("fluxvale-app-#{instance.id}")
+
+      stub(Ingress, :create, fn
+        _kc, _ns, _name, %{host: "foreign." <> _tail} ->
+          flunk("a foreign-org hostname must never route")
+
+        _kc, _ns, _name, _spec ->
+          {:ok, %{}}
+      end)
+
+      log =
+        capture_log(fn ->
+          assert :ok = EdgeRoutes.apply_access_serving(%{}, gateway_stub(), instance)
+        end)
+
+      assert log =~ "another organization"
+    end
+
+    test "ensure_access_cert_secret replicates the source into the instance namespace" do
+      stub_kubeconfig()
+      owner = user()
+      domain = custom_domain!(owner, verified?: true)
+
+      parent = self()
+
+      stub(Secret, :get_data, fn _kc, "fluxvale-access", "custom-wildcard-tls" ->
+        {:ok, %{"tls.crt" => "CERT-PEM", "tls.key" => "KEY-PEM"}}
+      end)
+
+      stub(Secret, :create, fn _kc,
+                               "fluxvale-app-ns",
+                               "access-domain-cert-" <> tail,
+                               data,
+                               labels ->
+        send(parent, {:replica_name, tail, data, labels})
+        {:ok, %{}}
+      end)
+
+      assert {:ok, local} = EdgeRoutes.ensure_access_cert_secret(%{}, domain, "fluxvale-app-ns")
+      assert local =~ ~r/^access-domain-cert-[0-9a-f]{10}$/
+
+      assert_received {:replica_name, replica_tail, data, labels}
+      assert local == "access-domain-cert-#{replica_tail}"
+      assert data == %{"tls.crt" => "CERT-PEM", "tls.key" => "KEY-PEM"}
+      assert labels["fluxvale.io/access-domain"] == domain.id
+    end
+
+    test "ensure_access_cert_secret reports a malformed source" do
+      stub_kubeconfig()
+      owner = user()
+      domain = custom_domain!(owner, verified?: true)
+
+      stub(Secret, :get_data, fn _kc, _ns, _name -> {:ok, %{"tls.crt" => "CERT-PEM"}} end)
+
+      assert {:error, :cert_secret_malformed} =
+               EdgeRoutes.ensure_access_cert_secret(%{}, domain, "ns")
     end
 
     test "a route apply failure propagates — never a half-minted posture" do

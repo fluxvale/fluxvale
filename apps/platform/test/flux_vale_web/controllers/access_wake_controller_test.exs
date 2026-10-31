@@ -403,6 +403,66 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
       assert log =~ instance.id
     end
 
+    test "the hostname arm applies even when the serve-config limb fails (decoupled limbs)", %{
+      conn: conn,
+      org: org,
+      owner: owner
+    } do
+      {gateway, instance} = pair!(org, owner, :running)
+      drain()
+
+      stub(Tailscale, :refresh_routes, fn _gateway -> {:error, :cluster_down} end)
+
+      log =
+        capture_log(fn ->
+          failed =
+            conn
+            |> browser()
+            |> get(wake_url(gateway, instance))
+
+          # The visitor's page holds either way...
+          assert html_response(failed, 200) =~ "Waking"
+        end)
+
+      # ...the failed half is named in the log, and the OTHER half still
+      # applied — one sick limb must not starve the other.
+      assert log =~ "serve-config flip failed"
+      assert drain_access_routes() != []
+    end
+
+    test "a detach that landed mid-flip writes no arm", %{conn: conn, org: org, owner: owner} do
+      {gateway, instance} = pair!(org, owner, :running)
+      drain()
+
+      # The pairing re-check reads the row a SECOND time (the gate's own
+      # read was the first): it finds the pairing gone — the owner
+      # detached between the gate and the arm write.
+      stub(AccessRoute, :get_by_pair, fn _gw_id, _inst_id, _opts ->
+        n = Process.get(:pair_reads, 0) + 1
+        Process.put(:pair_reads, n)
+
+        if n == 1 do
+          # The gate's read: the pairing still stands.
+          {:ok, AccessRoute.get_by_instance!(instance.id, authorize?: false)}
+        else
+          # The arm-write's fresh read: detach won.
+          {:error, :gone}
+        end
+      end)
+
+      conn =
+        conn
+        |> browser()
+        |> get(wake_url(gateway, instance))
+
+      assert html_response(conn, 200) =~ "Waking"
+
+      # The serve-config limb flipped (harmless — the config regenerates
+      # from the rows), but NO arm write happened: re-minting routes for
+      # a dead pairing would strand drift.
+      assert drain_access_routes() == []
+    end
+
     test "a second :running GET inside the window throttles the flip, not the page", %{
       conn: conn,
       org: org,

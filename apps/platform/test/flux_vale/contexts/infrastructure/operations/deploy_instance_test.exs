@@ -267,11 +267,12 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
       end)
 
       expect(Ingress, :create, fn _kc, ^ns, "access-" <> _tail, spec ->
-        # The status is :deploying, but the arms are the serving set by
-        # design: the app is what comes up next.
+        # The status is :deploying, so the arm follows the row's current
+        # status via the one owner (wake now; the first visit flips it
+        # to serving through the wake endpoint).
         assert spec.entrypoint == "access"
-        assert spec.service_name == "app"
-        assert spec.middlewares == ["fluxvale-activity"]
+        assert spec.service_name == "wake"
+        assert spec.middlewares == ["fluxvale-access-wake"]
         {:ok, %{}}
       end)
 

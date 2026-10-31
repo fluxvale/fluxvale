@@ -218,10 +218,10 @@ defmodule FluxVale.Clients.K8s.Resources.Middleware do
     end
   end
 
-  # Both halves are required and non-empty: a missing regex or an empty
-  # replacement would apply a rewrite that sends every request to the
-  # same dead path — a malformed value must die at the apply, not route
-  # traffic wrong.
+  # Both halves are required and non-empty, and the regex must actually
+  # COMPILE: a bad pattern would apply fine (Traefik's CRD schema does
+  # not validate RE2) and die at Traefik's reload — the route silently
+  # loses its rewrite. A malformed value must die HERE, at the apply.
   defp validate_replace_path_regex(rewrite) do
     cond do
       not is_binary(rewrite[:regex]) or rewrite[:regex] == "" ->
@@ -231,7 +231,13 @@ defmodule FluxVale.Clients.K8s.Resources.Middleware do
         {:error, "replace_path_regex needs a non-empty replacement"}
 
       true ->
-        :ok
+        case Regex.compile(rewrite[:regex]) do
+          {:ok, _compiled} ->
+            :ok
+
+          {:error, reason} ->
+            {:error, "replace_path_regex regex does not compile: #{inspect(reason)}"}
+        end
     end
   end
 

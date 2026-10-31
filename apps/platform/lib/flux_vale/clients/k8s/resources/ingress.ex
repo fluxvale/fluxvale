@@ -66,6 +66,7 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
           optional(:cert_resolver) => String.t(),
           optional(:path_prefix) => String.t(),
           optional(:entrypoint) => String.t(),
+          optional(:labels) => %{optional(String.t()) => String.t()},
           optional(:middlewares) => [String.t()]
         }
 
@@ -196,7 +197,9 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
   end
 
   @doc """
-  Builds the IngressRoute manifest from the simplified spec.
+  Builds the IngressRoute manifest from the simplified spec. Optional
+  `:labels` merge into the metadata labels (the access arms' ownership
+  labels — gateway + domain — so a future orphan is discoverable).
   """
   @spec build_manifest(String.t(), String.t(), spec()) :: map()
   def build_manifest(namespace, name, spec) do
@@ -251,10 +254,14 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
       "metadata" => %{
         "name" => name,
         "namespace" => namespace,
-        "labels" => %{
-          "app.kubernetes.io/managed-by" => "fluxvale",
-          "app.kubernetes.io/name" => name
-        }
+        "labels" =>
+          Map.merge(
+            %{
+              "app.kubernetes.io/managed-by" => "fluxvale",
+              "app.kubernetes.io/name" => name
+            },
+            Map.get(spec, :labels, %{})
+          )
       },
       "spec" => spec_with_tls
     }

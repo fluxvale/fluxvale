@@ -295,6 +295,32 @@ defmodule FluxVale.Infrastructure.Operations.SleepInstanceTest do
       assert stopped.status_message =~ ":boom"
     end
 
+    test "a failed pairing read on an attached PUBLIC row lands :stopped too" do
+      stub_access()
+      stub(Deployment, :scale, fn _kc, _ns, _name, 0 -> {:ok, %{}} end)
+
+      {org, owner} = BillingFixtures.grant_free_org!()
+      {:ok, _wallet} = FluxVale.Billing.ensure_wallet(org)
+      {:ok, _grant} = FluxVale.Billing.grant_credits(org, 10_000, reason: :adjustment)
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.public_instance!(org, owner)
+
+      {:ok, _route} =
+        AccessRoute.create(
+          %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+          authorize?: false
+        )
+
+      # The public arm skips the access flip entirely (no arms to flip),
+      # so THIS read is the pairing gate — its failure lands the honest
+      # :stopped (reachable, not race-only).
+      stub(AccessRoute, :get_by_instance, fn _id, _opts -> {:error, :boom} end)
+
+      assert {:ok, stopped} = SleepInstance.call(instance)
+      assert stopped.status == :stopped
+      assert stopped.status_message =~ "Slept without gateway wake routing"
+    end
+
     test "an unattached instance's sleep never writes to any gateway" do
       stub_access()
       stub(Deployment, :scale, fn _kc, _ns, _name, 0 -> {:ok, %{}} end)

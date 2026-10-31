@@ -85,6 +85,15 @@ defmodule FluxVale.Clients.K8s.Resources.MiddlewareTest do
         assert msg =~ "non-empty replacement"
       end
     end
+
+    test "a regex that does not COMPILE is rejected — a bad pattern must die here, not in Traefik's reload" do
+      spec = %{replace_path_regex: %{regex: "^/(.*[", replacement: "/x/$1"}}
+
+      assert {:error, %Error{reason: :invalid_spec, message: msg}} =
+               Middleware.create(nil, "ns", "bad", spec)
+
+      assert msg =~ "does not compile"
+    end
   end
 
   describe "create/4 — fail-loudly validation" do

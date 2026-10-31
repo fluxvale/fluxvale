@@ -58,6 +58,12 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstance do
       instance.exposure != :private ->
         {:error, :not_private}
 
+      # The provider's own stance (its admit skips a nil namespace): a
+      # pending instance has no namespace to route into — refuse cleanly
+      # instead of a raw K8s crash in the access-edge limbs below.
+      instance.namespace == nil ->
+        {:error, :not_deployed}
+
       gateway.state not in [:active, :provisioning] ->
         {:error, :gateway_not_active}
 
@@ -70,40 +76,73 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstance do
   # Split out of `call` so the failure arms stay readable (credo's depth
   # gate agrees with the reviewability).
   defp attach_with_access_edge(gateway, instance) do
+    # Created-vs-existing (the provider-cleanup lesson: only unwind what
+    # THIS attempt created): the provider answers {:ok, existing} on an
+    # idempotent retry — a transient arm failure must not destroy a
+    # pairing that predates this attempt.
+    existed_before = pairing_row_existed?(instance)
+
     case AccessProvider.impl_for(gateway).attach_instance(gateway, instance) do
-      {:ok, route} ->
-        case apply_access_edge(gateway, instance) do
-          :ok ->
-            {:ok, route}
+      {:ok, route} -> finish_attach(gateway, instance, route, existed_before)
+      {:error, _reason} = error -> error
+    end
+  end
 
-          {:error, reason} ->
-            unwind_failed_attach(instance, route, reason)
-        end
+  defp finish_attach(gateway, instance, route, existed_before) do
+    with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance),
+         :ok <- apply_access_edge(gateway, kubeconfig, instance) do
+      reapply_if_status_moved(kubeconfig, gateway, instance)
+      {:ok, route}
+    else
+      {:error, reason} ->
+        if existed_before,
+          do: {:error, reason},
+          else: unwind_failed_attach(instance, route, reason)
+    end
+  end
 
-      {:error, _reason} = error ->
-        error
+  defp pairing_row_existed?(instance) do
+    case AccessRoute.get_by_instance(instance.id, authorize?: false) do
+      {:ok, _route} -> true
+      {:error, _not_found} -> false
     end
   end
 
   # Routes first, then the policy admission (the provider's own attach
   # order: the serve config, then admit_gateway). Both must land for the
   # attach to succeed.
-  defp apply_access_edge(gateway, instance) do
-    with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance),
-         :ok <- access_arm(kubeconfig, gateway, instance) do
+  defp apply_access_edge(gateway, kubeconfig, instance) do
+    with :ok <- access_arm(kubeconfig, gateway, instance) do
       admit_edge(kubeconfig, instance)
     end
   end
 
-  # :running serves; anything else points at the wake endpoint (the
-  # ServeConfig.target_for decision shape — a sleeping instance's first
-  # knock must find the waking page, not a connectionless Service).
-  defp access_arm(kubeconfig, gateway, %{status: :running} = instance) do
-    EdgeRoutes.apply_access_serving(kubeconfig, gateway, instance)
+  # The arm is decided by the row's CURRENT status. The mint raced a
+  # status write (a sleep or wake committing between the panel's read
+  # and this apply — the controller's maybe_recheck interleaving):
+  # re-read once after the mint and, if the status moved, re-apply per
+  # the fresh status. One bounded re-apply, same claim-free idempotence.
+  defp reapply_if_status_moved(kubeconfig, gateway, instance) do
+    case Instance.get_by_id(instance.id, authorize?: false) do
+      {:ok, %{status: status} = fresh} when status != instance.status ->
+        EdgeRoutes.apply_access_for_status(kubeconfig, gateway, fresh)
+
+      {:ok, _status_stable} ->
+        :ok
+
+      # coveralls-ignore-start - race only: the row vanished under the
+      # attach (teardown won between the panel's read and this mint);
+      # the pairing row dies with it in the FK cascade.
+      {:error, _gone} ->
+        :ok
+        # coveralls-ignore-stop
+    end
   end
 
+  # The dispatch lives in EdgeRoutes (one owner): :running serves,
+  # anything wake-shaped stays wake.
   defp access_arm(kubeconfig, gateway, instance) do
-    EdgeRoutes.apply_access_wake(kubeconfig, gateway, instance)
+    EdgeRoutes.apply_access_for_status(kubeconfig, gateway, instance)
   end
 
   # The private+attached widening (ADR-0040 Am. 1): the spec is built

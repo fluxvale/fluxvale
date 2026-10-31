@@ -160,6 +160,32 @@ defmodule FluxVale.Clients.K8s.Resources.IngressTest do
     end
   end
 
+  describe "build_manifest/3 — ownership labels (the access arms, ADR-0040)" do
+    test "extra labels merge over the defaults; absent is today's shape" do
+      manifest =
+        Ingress.build_manifest("ns", "access-abc123def4", %{
+          host: "wiki.apps.customer.example",
+          service_name: "app",
+          service_port: 80,
+          labels: %{"fluxvale.io/gateway" => "gw", "fluxvale.io/access-domain" => "dom"}
+        })
+
+      assert manifest["metadata"]["labels"] == %{
+               "app.kubernetes.io/managed-by" => "fluxvale",
+               "app.kubernetes.io/name" => "access-abc123def4",
+               "fluxvale.io/gateway" => "gw",
+               "fluxvale.io/access-domain" => "dom"
+             }
+
+      plain = Ingress.build_manifest("ns", "app-ingress", base_spec())
+
+      assert plain["metadata"]["labels"] == %{
+               "app.kubernetes.io/managed-by" => "fluxvale",
+               "app.kubernetes.io/name" => "app-ingress"
+             }
+    end
+  end
+
   describe "create/4 — path-prefix gate" do
     test "rejects a backtick path before any cluster call (no crash on nil kubeconfig)" do
       spec =

@@ -13,12 +13,17 @@ defmodule FluxVale.Clients.K8s.Resources.Secret do
   @typedoc "Secret data map (plain strings, not base64 encoded)"
   @type data :: %{String.t() => String.t()}
 
-  @doc "Creates (server-side-applies) a Secret with the given data."
-  @spec create(Kubereq.Kubeconfig.t(), String.t(), String.t(), data()) ::
-          {:ok, map()} | {:error, Error.t()}
-  def create(kubeconfig, namespace, name, data) do
+  @doc """
+  Creates (server-side-applies) a Secret with the given data. `extra_labels`
+  merges into the manifest's labels (the replica-Secret pattern: a copy
+  must stay discoverable as the domain/gateway it serves).
+  """
+  @spec create(Kubereq.Kubeconfig.t(), String.t(), String.t(), data(), %{
+          optional(String.t()) => String.t()
+        }) :: {:ok, map()} | {:error, Error.t()}
+  def create(kubeconfig, namespace, name, data, extra_labels \\ %{}) do
     req = create_req(kubeconfig)
-    manifest = build_manifest(namespace, name, data)
+    manifest = build_manifest(namespace, name, data, extra_labels)
 
     case Kubereq.apply(req, manifest, "fluxvale") do
       {:ok, %{status: 201, body: body}} ->
@@ -93,6 +98,14 @@ defmodule FluxVale.Clients.K8s.Resources.Secret do
     create(kubeconfig, namespace, name, data)
   end
 
+  @doc "Upserts a Secret with extra labels — SSA, idempotent."
+  @spec upsert(Kubereq.Kubeconfig.t(), String.t(), String.t(), data(), %{
+          optional(String.t()) => String.t()
+        }) :: {:ok, map()} | {:error, Error.t()}
+  def upsert(kubeconfig, namespace, name, data, extra_labels) do
+    create(kubeconfig, namespace, name, data, extra_labels)
+  end
+
   @doc "Deletes a Secret."
   @spec delete(Kubereq.Kubeconfig.t(), String.t(), String.t()) :: :ok | {:error, Error.t()}
   def delete(kubeconfig, namespace, name) do
@@ -130,8 +143,9 @@ defmodule FluxVale.Clients.K8s.Resources.Secret do
   end
 
   @doc "Builds the Opaque Secret manifest — data base64-encoded here."
-  @spec build_manifest(String.t(), String.t(), data()) :: map()
-  def build_manifest(namespace, name, data) do
+  @spec build_manifest(String.t(), String.t(), data(), %{optional(String.t()) => String.t()}) ::
+          map()
+  def build_manifest(namespace, name, data, extra_labels \\ %{}) do
     encoded_data = Map.new(data, fn {key, value} -> {key, Base.encode64(value)} end)
 
     %{
@@ -140,10 +154,14 @@ defmodule FluxVale.Clients.K8s.Resources.Secret do
       "metadata" => %{
         "name" => name,
         "namespace" => namespace,
-        "labels" => %{
-          "app.kubernetes.io/managed-by" => "fluxvale",
-          "app.kubernetes.io/name" => name
-        }
+        "labels" =>
+          Map.merge(
+            %{
+              "app.kubernetes.io/managed-by" => "fluxvale",
+              "app.kubernetes.io/name" => name
+            },
+            extra_labels
+          )
       },
       "type" => "Opaque",
       "data" => encoded_data

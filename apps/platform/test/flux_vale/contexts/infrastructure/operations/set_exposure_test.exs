@@ -22,9 +22,11 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Identity.User
+  alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
@@ -91,7 +93,7 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
   # An instance with a real AccessRoute row at the given status — the
   # shape an attached toggle meets (the row is the durable record the
   # private limb's access mint reads). `exposure` is the pre-toggle row.
-  defp attached_deployed_instance!(status, exposure \\ :private) do
+  defp attached_deployed_instance!(status, exposure) do
     # The gateway create runs the provider's provision leg.
     stub(Tailscale, :provision_gateway, fn _gateway, _key ->
       {:ok, %{credential_secret_ref: "credential-stub"}}
@@ -113,6 +115,26 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
       )
 
     {owner, instance, gateway}
+  end
+
+  # A verified custom domain row under `owner`'s org (the verify
+  # funnel's own write; the ref is what the observer recorded).
+  defp custom_domain!(owner, opts) do
+    {:ok, registered} =
+      AccessDomain.register(
+        %{domain: "apps.customer-#{System.unique_integer()}.example"},
+        actor: owner
+      )
+
+    if Keyword.get(opts, :verified?, false) do
+      registered
+      |> Ash.Changeset.for_update(:mark_verified, %{cert_secret_ref: "custom-wildcard-tls"},
+        authorize?: false
+      )
+      |> Ash.update!()
+    else
+      registered
+    end
   end
 
   defp not_found do
@@ -340,7 +362,7 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
 
     test "an attached SLEEPING instance going private mints the wake arm" do
       stub_kubeconfig()
-      {owner, instance, _gateway} = attached_deployed_instance!(:sleeping)
+      {owner, instance, _gateway} = attached_deployed_instance!(:sleeping, :public)
       ns = "fluxvale-app-#{instance.id}"
 
       parent = self()
@@ -362,6 +384,118 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
       assert_received {:access_route, spec}
       assert spec.service_name == "wake"
       assert spec.middlewares == ["fluxvale-access-wake"]
+    end
+
+    # A forced pairing-read failure is not "unattached" — the toggle
+    # fails with the original reason instead of stranding a paired
+    # instance panel-only (the sleep-path split's precedent).
+    # A forced pairing-read failure is not "unattached" — the toggle
+    # fails with the original reason instead of stranding a paired
+    # instance panel-only (the sleep-path split's precedent). The
+    # counter routes the PRECHECK's read through (it must pass) and
+    # fails the LIMB's read.
+    test "a pairing read that fails (not NotFound) fails the toggle with that reason" do
+      stub_kubeconfig()
+      {owner, instance, _gateway} = attached_deployed_instance!(:running, :public)
+
+      # The failed mint's compensation (restore_public_edge) runs real
+      # cluster writes — stubbed like everywhere else.
+      stub(Ingress, :delete, fn _kc, _ns, _name -> not_found() end)
+      stub(Middleware, :delete, fn _kc, _ns, _name -> not_found() end)
+      stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Ingress, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      stub(AccessRoute, :get_by_instance, fn _id, _opts ->
+        n = Process.get(:route_reads, 0) + 1
+        Process.put(:route_reads, n)
+
+        if n == 1 do
+          {:ok, AccessRoute.get_by_instance!(instance.id, authorize?: false)}
+        else
+          {:error, :boom}
+        end
+      end)
+
+      assert {:error, error} =
+               Instance.set_exposure(instance, %{exposure: :private}, actor: owner)
+
+      assert inspect(error) =~ ":boom"
+    end
+
+    # §8's forbidden window: a public toggle whose access-none DELETES
+    # PARTIALLY (route 1 gone, route 2 refused) fails and rolls the row
+    # back private — the compensator must re-mint what was deleted, or
+    # the row is dark on both planes.
+    test "a partially-deleted access set is restored when the public toggle fails" do
+      stub_kubeconfig()
+      {owner, instance, _gateway} = attached_deployed_instance!(:running, :private)
+      ns = "fluxvale-app-#{instance.id}"
+
+      # A second hostname (verified custom) so the instance holds TWO
+      # access routes — the partial-delete needs an N greater than one.
+      domain = custom_domain!(owner, verified?: true)
+
+      InstanceHostname.mint!(
+        %{instance_id: instance.id, access_domain_id: domain.id, label: "wiki"},
+        authorize?: false
+      )
+
+      stub(Secret, :get_data, fn _kc, "fluxvale-access", "custom-wildcard-tls" ->
+        {:ok, %{"tls.crt" => "CERT-PEM", "tls.key" => "KEY-PEM"}}
+      end)
+
+      stub(Secret, :create, fn _kc, ^ns, "access-domain-cert-" <> _t, _data, _labels ->
+        {:ok, %{}}
+      end)
+
+      parent = self()
+
+      stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      stub(Ingress, :create, fn
+        _kc, ^ns, "access-" <> _tail, spec ->
+          send(parent, {:access_restored, spec})
+          {:ok, %{}}
+
+        _kc, ^ns, "app-ingress", _spec ->
+          {:ok, %{}}
+      end)
+
+      stub(Ingress, :delete, fn
+        _kc, ^ns, "access-" <> _tail ->
+          n = Process.get(:access_deletes, 0) + 1
+          Process.put(:access_deletes, n)
+
+          if n == 1 do
+            send(parent, {:access_removed})
+            :ok
+          else
+            send(parent, {:access_delete_refused})
+            {:error, Error.connection_error("delete refused")}
+          end
+
+        _kc, _ns, _name ->
+          not_found()
+      end)
+
+      stub(Middleware, :delete, fn _kc, _ns, _name -> not_found() end)
+
+      stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      assert {:error, error} = Instance.set_exposure(instance, %{exposure: :public}, actor: owner)
+      assert inspect(error) =~ "delete refused"
+
+      # Route 1 was deleted, route 2's delete was refused, and the
+      # compensating restore re-minted the set — the row rolled back
+      # private with its hostnames intact.
+      assert_received {:access_removed}
+      assert_received {:access_delete_refused}
+      assert_received {:access_restored, spec}
+      assert spec.entrypoint == "access"
+
+      assert Instance.get_by_id!(instance.id, authorize?: false).exposure == :private
     end
 
     test "a failed access mint compensates: the arms come off, the public routes are restored" do

@@ -21,9 +21,11 @@ defmodule FluxVale.Infrastructure.Operations.SetExposure do
   sweeps, backups, and health ride the API server and in-namespace
   workloads, never the edge exception the policy widens or narrows.
 
-  The future access layer (#265's provider-agnostic seam) attaches
-  alongside this op — it grants reachability to `:private` rows; it
-  must not widen this policy's edge entry.
+  The access layer rides this op (ADR-0040 §8, as amended): going
+  private mints an attached pairing's access arms and the widened
+  policy edge admission (Amendment 1); going public removes them. The
+  compensators restore both planes — a rolled-back row is never dark on
+  its private hostnames.
   """
 
   alias Ash.Error.Invalid
@@ -129,15 +131,14 @@ defmodule FluxVale.Infrastructure.Operations.SetExposure do
     end
   end
 
-  # Attached rows mint their access arms per current status (:running
-  # serves; anything else points at the wake endpoint — the
-  # ServeConfig.target_for decision shape). Unattached private is
+  # Attached rows mint their access arms per current status via the one
+  # owner (EdgeRoutes.apply_access_for_status). Unattached private is
   # panel-only: nothing to mint, no cluster calls.
   defp maybe_access_mint(kubeconfig, instance) do
     case AccessRoute.get_by_instance(instance.id, authorize?: false) do
       {:ok, route} ->
         with {:ok, route} <- Ash.load(route, :gateway, authorize?: false) do
-          apply_access_arm(kubeconfig, route.gateway, instance)
+          EdgeRoutes.apply_access_for_status(kubeconfig, route.gateway, instance)
         end
 
       {:error, error} ->
@@ -147,23 +148,14 @@ defmodule FluxVale.Infrastructure.Operations.SetExposure do
     end
   end
 
-  defp apply_access_arm(kubeconfig, gateway, %{status: :running} = instance) do
-    EdgeRoutes.apply_access_serving(kubeconfig, gateway, instance)
-  end
-
-  defp apply_access_arm(kubeconfig, gateway, instance) do
-    EdgeRoutes.apply_access_wake(kubeconfig, gateway, instance)
-  end
-
   defp access_route_missing?(%Invalid{errors: errors}) do
     Enum.any?(errors, &match?(%NotFound{}, &1))
   end
 
-  # coveralls-ignore-start - defensive: the catch-all keeps a widened
-  # read-error shape from being read as "unattached" (the toggle would
-  # then strand a paired instance panel-only).
+  # A non-NotFound shape must never read as "unattached" — the toggle
+  # would strand a paired instance panel-only. Pinned by the forced
+  # read-boom test below.
   defp access_route_missing?(_other), do: false
-  # coveralls-ignore-stop
 
   # The row rolls back to :public with its routes deleted — publicly
   # persisted and unreachable, and nothing self-heals it (the
@@ -181,12 +173,16 @@ defmodule FluxVale.Infrastructure.Operations.SetExposure do
     {:error, reason}
   end
 
-  # The mirror arm: the row rolls back to :private, so any route
-  # minted above must go. No reachability leak either way (the policy
-  # still denies the edge until its own apply succeeds) — this is
-  # drift cleanup, same retry ownership on its failure.
+  # The mirror arm: the row rolls back to :private, so any route minted
+  # above must go — AND the access arms the public limb deleted must
+  # come back: a partial delete that rolled the row back private must
+  # not leave it dark on both planes (§8's forbidden window). No
+  # reachability leak either way (the policy still denies the edge
+  # until its own apply succeeds) — this is drift cleanup, same retry
+  # ownership on its failure.
   defp restore_private_edge(kubeconfig, instance, reason) do
     _removed = EdgeRoutes.apply_private(kubeconfig, instance)
+    _reminted = maybe_access_mint(kubeconfig, instance)
     {:error, reason}
   end
 

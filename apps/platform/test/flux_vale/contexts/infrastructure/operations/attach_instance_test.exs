@@ -155,6 +155,96 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
     assert {:error, _not_found} = AccessRoute.get_by_instance(instance.id, authorize?: false)
   end
 
+  test "a pending instance (no namespace) attaches as a clean refusal", %{org: org, owner: owner} do
+    gateway = AccessFixtures.gateway!(org)
+    attached = AccessFixtures.private_instance!(org, owner)
+    instance = InstanceFixtures.pin!(attached, namespace: nil)
+
+    # The provider must never be reached — the guard is the operation's.
+    stub(Tailscale, :attach_instance, fn _gateway, _instance ->
+      flunk("a nil-namespace instance must be refused before the provider")
+    end)
+
+    assert {:error, :not_deployed} = AttachInstance.call(gateway, instance)
+  end
+
+  test "an arm failure on an idempotent retry leaves the pre-existing pairing", %{
+    org: org,
+    owner: owner
+  } do
+    gateway = AccessFixtures.gateway!(org)
+    instance = AccessFixtures.private_instance!(org, owner)
+    ns = "fluxvale-app-#{instance.id}"
+
+    # The pairing predates this attempt (the idempotent-retry shape):
+    # the provider answers the SAME row it finds.
+    {:ok, existing} =
+      AccessRoute.create(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+    stub(Tailscale, :attach_instance, fn _gateway, _instance -> {:ok, existing} end)
+
+    stub(Ingress, :create, fn _kc, ^ns, "access-" <> _tail, _spec ->
+      {:error, Error.connection_error("access refused")}
+    end)
+
+    assert {:error, _reason} = AttachInstance.call(gateway, instance)
+
+    # The row-claims-nothing unwind must NOT destroy a pairing this
+    # attempt did not create (the S1 three-vs-four-arg lesson).
+    assert {:ok, survivor} = AccessRoute.get_by_instance(instance.id, authorize?: false)
+    assert survivor.id == existing.id
+  end
+
+  test "an attach that races a sleep re-applies the arm per the fresh status", %{
+    org: org,
+    owner: owner
+  } do
+    gateway = AccessFixtures.gateway!(org)
+    instance = AccessFixtures.private_instance!(org, owner)
+    ns = "fluxvale-app-#{instance.id}"
+
+    parent = self()
+
+    # Stage the interleaving: the row commits :sleeping while the attach
+    # is in flight, so the minted serving arm is stale the moment it
+    # lands.
+    stub(Tailscale, :attach_instance, fn gw, inst ->
+      {:ok, _route} =
+        AccessRoute.create(
+          %{gateway_id: gw.id, instance_id: inst.id, route_key: "8443"},
+          authorize?: false
+        )
+
+      AccessFixtures.sleep!(inst)
+
+      {:ok, AccessRoute.get_by_instance!(inst.id, authorize?: false)}
+    end)
+
+    stub(Ingress, :create, fn _kc, ^ns, "access-" <> _tail, spec ->
+      send(parent, {:access_route, spec})
+      {:ok, %{}}
+    end)
+
+    assert {:ok, _route} = AttachInstance.call(gateway, instance)
+
+    services = Enum.map(drain_access_specs(), & &1.service_name)
+
+    # Serving first (the in-hand status), then the ONE bounded re-apply
+    # per the fresh (sleeping) status — the maybe_recheck pattern.
+    assert services == ["app", "wake"]
+  end
+
+  defp drain_access_specs(acc \\ []) do
+    receive do
+      {:access_route, spec} -> drain_access_specs([spec | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
   defp gateway_pod_labels(gateway), do: InstanceK8s.gateway_pod_labels(gateway.id)
 
   # A private instance at :sleeping — the funnel's own write from

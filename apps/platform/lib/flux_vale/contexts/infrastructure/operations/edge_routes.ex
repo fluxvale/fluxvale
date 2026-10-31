@@ -44,7 +44,9 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Ingress
   alias FluxVale.Clients.K8s.Resources.Middleware
+  alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Clients.K8s.Resources.Service
+  alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.InstanceHostname
 
@@ -174,7 +176,7 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
              beacon_spec(instance)
            ),
          :ok <- ensure_access_wake_targets(kubeconfig, gateway, instance) do
-      apply_hostname_routes(kubeconfig, instance, :serving)
+      apply_hostname_routes(kubeconfig, gateway, instance, :serving)
     end
   end
 
@@ -193,8 +195,25 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
           :ok | {:error, term()}
   def apply_access_wake(kubeconfig, gateway, instance) do
     with :ok <- ensure_access_wake_targets(kubeconfig, gateway, instance) do
-      apply_hostname_routes(kubeconfig, instance, :wake)
+      apply_hostname_routes(kubeconfig, gateway, instance, :wake)
     end
+  end
+
+  @doc """
+  The arm for an instance's CURRENT status: `:running` serves, anything
+  wake-shaped stays wake (the ServeConfig.target_for decision shape — a
+  `:starting` instance gets the waking page, not a connectionless
+  Service). One owner for the dispatch — the attach, deploy, toggle,
+  janitor, and wake-flip callers must not fork it.
+  """
+  @spec apply_access_for_status(Kubereq.Kubeconfig.t(), map(), Instance.t()) ::
+          :ok | {:error, term()}
+  def apply_access_for_status(kubeconfig, gateway, %{status: :running} = instance) do
+    apply_access_serving(kubeconfig, gateway, instance)
+  end
+
+  def apply_access_for_status(kubeconfig, gateway, instance) do
+    apply_access_wake(kubeconfig, gateway, instance)
   end
 
   @doc """
@@ -245,32 +264,48 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
 
   # One route per hostname row; the first failure stops the walk (a
   # half-minted set is the caller's compensation problem, never a
-  # silent partial posture).
-  defp apply_hostname_routes(kubeconfig, instance, mode) do
+  # silent partial posture). The gateway rides along for the routes'
+  # ownership labels (Design 2: a future orphan is discoverable).
+  defp apply_hostname_routes(kubeconfig, gateway, instance, mode) do
     instance.id
     |> hostname_rows()
     |> Enum.reduce_while(:ok, fn hostname, :ok ->
-      case apply_hostname_route(kubeconfig, instance, hostname, mode) do
+      case apply_hostname_route(kubeconfig, gateway, instance, hostname, mode) do
         :ok -> {:cont, :ok}
         {:error, _error} = error -> {:halt, error}
       end
     end)
   end
 
-  defp apply_hostname_route(kubeconfig, instance, hostname, mode) do
-    case access_tls_secret(hostname.access_domain) do
+  defp apply_hostname_route(kubeconfig, gateway, instance, hostname, mode) do
+    domain = hostname.access_domain
+
+    if domain.organization_id != instance.organization_id do
+      # Belt (the S3 surface): re-homing may move rows between domains;
+      # a hostname under ANOTHER org's domain must never route. The mint
+      # paths cannot produce this today — if a row ever says otherwise,
+      # it is out-of-band, and skipping (logged) is the fail-closed
+      # answer.
+      Logger.warning(
+        "Access edge: skipping hostname #{hostname.label}.#{domain.domain} — its domain " <>
+          "belongs to another organization (row out of band)"
+      )
+
+      :ok
+    else
+      mint_hostname_route(kubeconfig, gateway, instance, hostname, mode, domain)
+    end
+  end
+
+  defp mint_hostname_route(kubeconfig, gateway, instance, hostname, mode, domain) do
+    case access_tls_secret(kubeconfig, domain, instance) do
       :skip ->
         :ok
 
       {:ok, tls_secret} ->
-        spec = access_route_spec(hostname, mode, tls_secret)
+        spec = access_route_spec(gateway, hostname, mode, tls_secret)
 
-        case Ingress.create(
-               kubeconfig,
-               instance.namespace,
-               access_route_name(hostname),
-               spec
-             ) do
+        case Ingress.create(kubeconfig, instance.namespace, access_route_name(hostname), spec) do
           {:ok, _route} -> :ok
           {:error, _error} = error -> error
         end
@@ -288,14 +323,21 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
     |> Ash.read!(authorize?: false)
   end
 
-  defp access_route_spec(hostname, mode, tls_secret) do
+  defp access_route_spec(gateway, hostname, mode, tls_secret) do
     domain = hostname.access_domain
 
     base = %{
       host: "#{hostname.label}.#{domain.domain}",
       entrypoint: @access_entrypoint,
       tls: true,
-      middlewares: access_middlewares(mode)
+      middlewares: access_middlewares(mode),
+      # Ownership labels (Design 2): managed-by rides the builder's
+      # default; the pairing dimensions make any future orphan
+      # discoverable without a DB join.
+      labels: %{
+        "fluxvale.io/gateway" => gateway.id,
+        "fluxvale.io/access-domain" => domain.id
+      }
     }
 
     base
@@ -319,24 +361,103 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   defp put_access_tls_secret(spec, secret), do: Map.put(spec, :tls_secret_name, secret)
 
   # Platform domain: the fleet wildcard (#116) rides the default
-  # TLSStore — `tls: true` alone, NO secretName. Custom: the verify
-  # pass's issued-wildcard Secret, and only from a :verified row with a
-  # ref recorded — an unverified domain must never route, so the row is
-  # skipped (logged: dark hostnames are the posture, not a fault).
-  defp access_tls_secret(%{kind: :platform}), do: {:ok, nil}
+  # TLSStore — `tls: true` alone, NO secretName. Custom: the domain's
+  # cert is REPLICAATED into this namespace first (Traefik's CRD
+  # provider reads tls.secretName only in the route's namespace — a
+  # bare cross-namespace ref can never serve), and only from a
+  # :verified row with a ref recorded. An unverified domain must never
+  # route, and a source Secret that is missing or unreadable is a dead
+  # cert — either way the row's hostnames are skipped (logged: dark is
+  # the posture, not a fault).
+  defp access_tls_secret(_kubeconfig, %{kind: :platform}, _instance), do: {:ok, nil}
 
-  defp access_tls_secret(%{kind: :custom, state: :verified, cert_secret_ref: ref})
+  defp access_tls_secret(
+         kubeconfig,
+         %{kind: :custom, state: :verified, cert_secret_ref: ref} = domain,
+         instance
+       )
        when is_binary(ref) do
-    {:ok, ref}
+    case ensure_access_cert_secret(kubeconfig, domain, instance.namespace) do
+      {:ok, local_name} ->
+        {:ok, local_name}
+
+      {:error, reason} ->
+        Logger.warning(
+          "Access edge: skipping hostnames under custom domain #{domain.domain} — its " <>
+            "certificate secret could not be replicated (#{inspect(reason)}); never " <>
+            "routing a dead cert"
+        )
+
+        :skip
+    end
   end
 
-  defp access_tls_secret(%{kind: :custom, state: state, domain: domain}) do
+  defp access_tls_secret(_kubeconfig, %{kind: :custom, state: state, domain: domain}, _instance) do
     Logger.warning(
       "Access edge: skipping hostnames under custom domain #{domain} — not servable " <>
         "(state: #{inspect(state)}, no certificate secret recorded)"
     )
 
     :skip
+  end
+
+  @doc """
+  The instance-namespace REPLICA of a custom domain's issued-wildcard
+  Secret (ADR-0040 Am. 1 as built): reads the source Secret cert-manager
+  wrote in the certificate namespace (`:access_domains,
+  :certificate_namespace` + the row's `cert_secret_ref`) and SSA-copies
+  `tls.crt`/`tls.key` into `namespace` as
+  `access-domain-cert-<short-random-tail>` — Traefik's CRD provider
+  resolves `tls.secretName` ONLY in the IngressRoute's own namespace, so
+  the access routes reference this LOCAL name. Labels carry the domain
+  id (a replica is discoverable as the domain it serves). SSA — a
+  renewal rotation converges on re-apply. `{:ok, local_name}` or
+  `{:error, reason}` (the caller never routes on a failed replication).
+  """
+  @spec ensure_access_cert_secret(Kubereq.Kubeconfig.t(), AccessDomain.t(), String.t()) ::
+          {:ok, String.t()} | {:error, term()}
+  def ensure_access_cert_secret(kubeconfig, domain, namespace) do
+    with {:ok, data} <- source_cert_data(kubeconfig, domain),
+         {:ok, _secret} <-
+           Secret.create(kubeconfig, namespace, local_cert_name(domain), data, %{
+             "fluxvale.io/access-domain" => domain.id
+           }) do
+      {:ok, local_cert_name(domain)}
+    end
+  end
+
+  defp source_cert_data(kubeconfig, domain) do
+    namespace = certificate_namespace()
+
+    case Secret.get_data(kubeconfig, namespace, domain.cert_secret_ref) do
+      {:ok, %{"tls.crt" => crt, "tls.key" => key}}
+      when is_binary(crt) and is_binary(key) and crt != "" and key != "" ->
+        {:ok, %{"tls.crt" => crt, "tls.key" => key}}
+
+      {:ok, _malformed} ->
+        {:error, :cert_secret_malformed}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  # The replica's name: the object_name short_id discipline (the RANDOM
+  # TAIL of the domain id, never the uuid head — the AccessDomain
+  # certificate_name rule).
+  defp local_cert_name(domain) do
+    short_id =
+      domain.id
+      |> to_string()
+      |> String.replace("-", "")
+      |> String.slice(-10, 10)
+
+    "access-domain-cert-#{short_id}"
+  end
+
+  defp certificate_namespace do
+    config = Application.fetch_env!(:flux_vale, :access_domains)
+    Keyword.fetch!(config, :certificate_namespace)
   end
 
   # The object_name short_id discipline (AccessDomain.certificate_name,
