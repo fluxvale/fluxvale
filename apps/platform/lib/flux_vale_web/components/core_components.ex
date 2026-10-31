@@ -1314,7 +1314,10 @@ defmodule FluxValeWeb.CoreComponents do
   address); other orgs render name + slug. The
   personal context IS an org (#285 T6), so there is no hardcoded
   "Personal" chrome row and no single-org suppression — the redundancy
-  dies at the root. A native `<details>` dropdown for the same reasons
+  dies at the root. But it never presents as one (S5): the personal row
+  targets the dashboard `/` — the org-scoped URLs redirect, the personal
+  account's surfaces are user settings — while real orgs link their org
+  home. A native `<details>` dropdown for the same reasons
   as `user_menu`: keyboard-toggleable, plain-href rows that close it on
   navigation (full page load — no live patch can strand the panel
   open); the one JS is the shared DetailsDismiss hook for GitHub-style
@@ -1420,16 +1423,17 @@ defmodule FluxValeWeb.CoreComponents do
         <%!-- href, not navigate: full page loads close the dropdown, the
         user_menu's reason (#205). Exactly one row per membership
         (#285 T6) — the owned org (personal_org_id) is the personal
-        context and renders as its Personal—username label. The
+        context and renders as its Personal—username label, targeting
+        the dashboard (S5: its org-scoped URLs redirect). The
         personal_org_id guard stays falsy for callers that pass no
         personal_org_id or orgs without an :id (component-level maps)
         — every row renders name + slug there. --%>
         <.link
           :for={membership <- @orgs}
-          href={~p"/organizations/#{membership.organization.slug}"}
+          href={row_href(membership.organization, @personal_org_id)}
           class="flex items-baseline gap-1 rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
         >
-          <%= if @personal_org_id && Map.get(membership.organization, :id) == @personal_org_id do %>
+          <%= if personal_row?(membership.organization, @personal_org_id) do %>
             <span class="truncate">{personal_label(@username)}</span>
           <% else %>
             <%!-- min-w-0/truncate pair: a 39-char username (the #296 name
@@ -1474,6 +1478,25 @@ defmodule FluxValeWeb.CoreComponents do
   # "Personal — " hazard as nil (#285 T6 review).
   defp personal_label(username) when username in [nil, ""], do: "Personal"
   defp personal_label(username), do: "Personal — #{username}"
+
+  # The personal row IS the user's account (S5) — it targets the
+  # dashboard, the surface its instances and balance already live on;
+  # the personal org's org-scoped URLs redirect. Real orgs keep their
+  # org home. Same guard as the label branch below: falsy without a
+  # personal_org_id or for orgs without an :id (component-level maps).
+  defp row_href(org, personal_org_id) do
+    if personal_row?(org, personal_org_id) do
+      ~p"/"
+    else
+      ~p"/organizations/#{org.slug}"
+    end
+  end
+
+  defp personal_row?(_org, nil), do: false
+
+  defp personal_row?(org, personal_org_id) do
+    Map.get(org, :id) == personal_org_id
+  end
 
   ## JS Commands
 

@@ -13,6 +13,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
 
   alias Ash.Error.Changes.StaleRecord
   alias Ash.Error.Invalid
+  alias FluxVale.Accounts
   alias FluxVale.Accounts.Membership
   alias FluxVale.Clients.K8s
   alias FluxVale.Infrastructure
@@ -28,11 +29,32 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
 
   setup %{conn: conn} do
     owner = AccountsFixtures.user!()
-    # The JIT welcome grant funds the personal org — the precondition
-    # the create/resume funded gates read. Unfunded tests drain it.
-    org = AccountsFixtures.personal_org!(owner)
 
-    {:ok, conn: SessionHelpers.sign_in(conn, owner), owner: owner, org: org}
+    # S5: the personal org's access panel lives at /settings/access —
+    # `org` (a real org) hosts the panel-behavior tests through its org
+    # URL; `personal` hosts the ENABLE tests, because the create action
+    # pins every gateway to the actor's personal org
+    # (SetOrganizationFromActor) — the same posture as the panel's own
+    # prefund/resume gates on that surface.
+    personal = AccountsFixtures.personal_org!(owner)
+    org = AccountsFixtures.owned_org!(owner)
+
+    # The funded gates read the live ledger: each wallet funds
+    # explicitly (the JIT welcome grant only ever rode the personal
+    # org); the unfunded tests drain whichever their gate reads.
+    BillingFixtures.funded_wallet!(org: org)
+    BillingFixtures.funded_wallet!(org: personal)
+
+    # The redirect branch keys off OrgNav's personal_org_id — the
+    # canonical op's pick for a two-owner user is unordered (T7's open
+    # question). Every panel test below needs that pick to name the
+    # PERSONAL org (else the team URL would redirect): pin the premise
+    # once, here, so a tie-break flip fails with THIS message instead of
+    # forty cryptic redirect failures.
+    {:ok, pick} = Accounts.personal_org_for_user(owner.id, actor: owner)
+    assert pick.id == personal.id
+
+    {:ok, conn: SessionHelpers.sign_in(conn, owner), owner: owner, org: org, personal: personal}
   end
 
   describe "the tab and the empty state" do
@@ -51,7 +73,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       assert has_element?(view, "[data-testid='access-domain-input']")
       assert has_element?(view, "input[type='password']")
 
-      # Funded by the JIT welcome grant: no top-up hint. And no card —
+      # Funded by the setup grant: no top-up hint. And no card —
       # nothing is provisioned yet.
       refute has_element?(view, "[data-testid='access-prefund-hint']")
       refute has_element?(view, "[data-testid='access-gateway-card']")
@@ -104,15 +126,31 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
     end
   end
 
+  # The ENABLE path rides the personal panel (/settings/access): the
+  # create action pins every gateway to the actor's personal org
+  # (SetOrganizationFromActor), so the panel whose org the created row
+  # lands in is the personal one — and the actor owns EXACTLY that org,
+  # because the canonical op's pick for a two-owner user is unordered
+  # (T7) and every assertion here reads the pick.
   describe "enabling private access" do
+    setup %{conn: conn} do
+      owner = AccountsFixtures.user!()
+      personal = AccountsFixtures.personal_org!(owner)
+
+      BillingFixtures.funded_wallet!(org: personal)
+      stub_provider()
+
+      {:ok, owner: owner, personal: personal, conn: SessionHelpers.sign_in(conn, owner)}
+    end
+
     test "a funded org's key lands a connecting gateway at the config price", %{
       conn: conn,
       owner: owner,
-      org: org
+      personal: personal
     } do
       stub_provider()
 
-      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
 
       view
       |> form("#access-enable-form",
@@ -126,7 +164,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       assert has_element?(view, "[data-testid='access-hostname']")
       refute has_element?(view, "[data-testid='access-empty']")
 
-      {:ok, gateway} = AccessGateway.get_for_organization(org.id, actor: owner)
+      {:ok, gateway} = AccessGateway.get_for_organization(personal.id, actor: owner)
 
       assert gateway.hostname =~ ~r/\Afv-[0-9a-f]{8}\z/
 
@@ -136,10 +174,10 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
                Application.fetch_env!(:flux_vale, :access_gateway)[:monthly_cents]
     end
 
-    test "typing a key validates without creating anything", %{conn: conn, org: org} do
+    test "typing a key validates without creating anything", %{conn: conn, personal: personal} do
       stub_provider()
 
-      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
 
       view
       |> form("#access-enable-form",
@@ -150,16 +188,19 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       assert has_element?(view, "#access-enable-form")
       refute has_element?(view, "[data-testid='access-gateway-card']")
 
-      assert {:error, _none} = AccessGateway.get_for_organization(org.id, authorize?: false)
+      assert {:error, _none} =
+               AccessGateway.get_for_organization(personal.id, authorize?: false)
     end
 
     test "an unfunded org's enable attempt answers with the top-up copy", %{
       conn: conn,
-      org: org
+      personal: personal
     } do
-      drain_wallet!(org)
+      # The create's funded gate reads the personal org's wallet
+      # (ActorOrgWalletFunded's create shape).
+      drain_wallet!(personal)
 
-      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
 
       view
       |> form("#access-enable-form",
@@ -170,16 +211,20 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       assert has_element?(view, "#flash-error", "Top up before enabling private access")
 
       # No row: the policy gate answered before any work ran.
-      assert {:error, _none} = AccessGateway.get_for_organization(org.id, authorize?: false)
+      assert {:error, _none} =
+               AccessGateway.get_for_organization(personal.id, authorize?: false)
     end
 
-    test "a failed provisioning re-renders the form and leaves no row", %{conn: conn, org: org} do
+    test "a failed provisioning re-renders the form and leaves no row", %{
+      conn: conn,
+      personal: personal
+    } do
       stub_provider()
 
       expect(Tailscale, :provision_gateway, fn _gateway, _key -> {:error, :cluster_down} end)
       stub(Tailscale, :cleanup_failed_provision, fn _gateway -> :ok end)
 
-      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
 
       view
       |> form("#access-enable-form",
@@ -194,13 +239,14 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
 
       # A failed create rolls the row back — the owner's retry is the
       # same form.
-      assert {:error, _none} = AccessGateway.get_for_organization(org.id, authorize?: false)
+      assert {:error, _none} =
+               AccessGateway.get_for_organization(personal.id, authorize?: false)
     end
 
-    test "the typed key never echoes into the markup", %{conn: conn, org: org} do
+    test "the typed key never echoes into the markup", %{conn: conn} do
       stub_provider()
 
-      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
 
       # The validate round-trip is a read-back if the value re-renders
       # (ADR-0039 §4): the typed marker must not appear in the patch or
@@ -223,14 +269,17 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       assert has_element?(view, "[data-testid='access-gateway-card']")
     end
 
-    test "a failed re-paste leaves no key echo in the markup", %{conn: conn, org: org} do
+    test "a failed re-paste leaves no key echo in the markup", %{
+      conn: conn,
+      personal: personal
+    } do
       stub_provider()
 
-      AccessFixtures.gateway!(org, state: :needs_attention)
+      AccessFixtures.gateway!(personal, state: :needs_attention)
 
       expect(Tailscale, :update_credential, fn _gateway, _key -> {:error, :cluster_down} end)
 
-      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
 
       view
       |> form("#access-repaste-form",
@@ -1356,7 +1405,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
     :ok
   end
 
-  # The welcome grant is the org's only balance: drain it to zero and
+  # The setup grant is the org's only balance: drain it to zero and
   # the funded gate goes dark (the shared fixture — the funded-check
   # tests use the same one).
   defp drain_wallet!(org), do: BillingFixtures.drain_wallet!(org)

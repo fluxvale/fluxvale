@@ -10,6 +10,13 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   panel is a UX gate, not the authority: the actions' own policies
   (membership, funded wallet) are what actually forbid a call.
 
+  S5: the personal org's access panel moved INTO user settings —
+  `/settings/access` mounts this same LiveView WITHOUT a slug and
+  serves the actor's personal org, so the slug-keyed route for a
+  personal slug redirects there. The org chrome (header, tabs) renders
+  for real orgs only; the personal page carries the user-settings
+  frame.
+
   Live updates ride the gateway's per-org PubSub topic — every state
   write publishes there (the observer's minute tick, the ladder's
   suspension, a resume from another tab), and the teardown's hard
@@ -30,6 +37,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Pricing
   alias FluxValeWeb.OrgSettings
+  alias FluxValeWeb.PersonalOrg
 
   @impl Phoenix.LiveView
   def mount(%{"slug" => slug}, _session, socket) do
@@ -37,32 +45,25 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
     case Organization.get_by_slug(slug, actor: user) do
       {:ok, org} ->
-        # UX gate, not the authority: the actions' own policies (member
-        # read, funded-wallet create/resume) are what actually forbid a
-        # non-owner call. This only spares a member a settings surface
-        # that is owners-only by design — same posture as Settings.
-        if ActorIsOrganizationOwner.owner?(user, org) do
-          # The per-org topic, never a global one: every gateway write
-          # broadcasts here, so only this org's open panels refetch.
-          Phoenix.PubSub.subscribe(FluxVale.PubSub, "access_gateways:#{org.id}")
+        cond do
+          # S5: the personal org never renders an org page — its access
+          # panel lives at /settings/access, served below by this same
+          # module without a slug. Flash-free (nothing failed).
+          PersonalOrg.personal?(socket, org) ->
+            {:ok, push_navigate(socket, to: ~p"/settings/access")}
 
-          gateway = fetch_gateway(org, user)
+          # UX gate, not the authority: the actions' own policies (member
+          # read, funded-wallet create/resume) are what actually forbid a
+          # non-owner call. This only spares a member a settings surface
+          # that is owners-only by design — same posture as Settings.
+          ActorIsOrganizationOwner.owner?(user, org) ->
+            {:ok, mount_panel(socket, org, user, false)}
 
-          {:ok,
-           socket
-           |> assign(org: org, gateway: gateway, price_cents: monthly_cents())
-           |> assign(repaste_open?: repaste_open_for(gateway), remove_armed?: false)
-           |> assign(attach_error: nil)
-           |> stream_configure(:attached, dom_id: &"access-attached-#{&1.route.id}")
-           |> stream_configure(:attachable, dom_id: &"access-attach-#{&1.id}")
-           |> refresh_funded()
-           |> assign_forms()
-           |> refresh_pairing()}
-        else
-          {:ok,
-           socket
-           |> put_flash(:error, "Only organization owners can access settings.")
-           |> push_navigate(to: ~p"/")}
+          true ->
+            {:ok,
+             socket
+             |> put_flash(:error, "Only organization owners can access settings.")
+             |> push_navigate(to: ~p"/")}
         end
 
       _error ->
@@ -72,6 +73,72 @@ defmodule FluxValeWeb.OrganizationLive.Access do
          |> push_navigate(to: ~p"/")}
     end
   end
+
+  # /settings/access (S5): the personal account's access panel. The org
+  # is the actor's personal org through the canonical resolver — its
+  # :owner-membership filter IS the owner gate here, so no separate
+  # check. No slug in play, nothing to enumerate.
+  def mount(_params, _session, socket) do
+    user = socket.assigns.current_user
+
+    case PersonalOrg.org_for(user) do
+      {:ok, org} ->
+        {:ok, mount_panel(socket, org, user, true)}
+
+      # Seeded/legacy no-personal-org shape (OrgNav's stance) — the
+      # surface isn't here; the sibling not-found arm's answer.
+      :none ->
+        {:ok,
+         socket
+         |> put_flash(:error, "Organization not found.")
+         |> push_navigate(to: ~p"/")}
+
+      # defensive: DB read failure, not simulatable under the
+      # sandbox. Same degrade as the slug arm's miss.
+      # coveralls-ignore-start
+      {:error, _reason} ->
+        {:ok,
+         socket
+         |> put_flash(:error, "Organization not found.")
+         |> push_navigate(to: ~p"/")}
+
+        # coveralls-ignore-stop
+    end
+  end
+
+  # The panel setup both routes share — one gateway per org, whatever
+  # resolved it (URL slug or the actor's personal org). `personal?`
+  # picks the chrome: the org frame (header, tabs, org billing links)
+  # for a real org, the user-settings frame for the personal org.
+  defp mount_panel(socket, org, user, personal?) do
+    # The per-org topic, never a global one: every gateway write
+    # broadcasts here, so only this org's open panels refetch.
+    Phoenix.PubSub.subscribe(FluxVale.PubSub, "access_gateways:#{org.id}")
+
+    gateway = fetch_gateway(org, user)
+
+    socket
+    |> assign(
+      org: org,
+      personal?: personal?,
+      current_org: if(personal?, do: nil, else: org),
+      billing_path: billing_path(org, personal?),
+      gateway: gateway,
+      price_cents: monthly_cents()
+    )
+    |> assign(repaste_open?: repaste_open_for(gateway), remove_armed?: false)
+    |> assign(attach_error: nil)
+    |> stream_configure(:attached, dom_id: &"access-attached-#{&1.route.id}")
+    |> stream_configure(:attachable, dom_id: &"access-attach-#{&1.id}")
+    |> refresh_funded()
+    |> assign_forms()
+    |> refresh_pairing()
+  end
+
+  # The top-up links inside the panel: a real org bills at its org URL,
+  # the personal org at /billing (S5 — one wallet, one surface).
+  defp billing_path(_org, true), do: ~p"/billing"
+  defp billing_path(org, false), do: ~p"/organizations/#{org.slug}/billing"
 
   @impl Phoenix.LiveView
   def handle_event("validate", %{"gateway" => params}, socket) do
@@ -370,12 +437,32 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       personal_org_id={@personal_org_id}
       username={@username}
       nav_section={@nav_section}
-      current_org={@org}
+      current_org={@current_org}
     >
       <div class="mx-auto max-w-3xl space-y-8">
-        <OrgSettings.org_header org={@org} />
+        <%= if @personal? do %>
+          <%!-- S5: the personal account's frame — the SettingsLive title
+          block and the way back. No org chrome here: the personal org
+          is the account, never presented as an org. --%>
+          <div>
+            <.button
+              variant="ghost"
+              size="sm"
+              navigate={~p"/settings"}
+              class="-ml-2 mb-4"
+              data-testid="settings-access-back"
+            >
+              &larr; Settings
+            </.button>
+            <h1 class="text-2xl font-semibold tracking-tight text-ink" data-testid="settings-title">
+              Account settings
+            </h1>
+          </div>
+        <% else %>
+          <OrgSettings.org_header org={@org} />
 
-        <OrgSettings.settings_tabs current="access" slug={@org.slug} />
+          <OrgSettings.settings_tabs current="access" slug={@org.slug} />
+        <% end %>
 
         <div>
           <h2 class="text-base font-medium text-ink">Access</h2>
@@ -386,10 +473,10 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
         <%= if @gateway do %>
           <.gateway_card
-            org={@org}
             gateway={@gateway}
             form={@form}
             funded?={@funded?}
+            billing_path={@billing_path}
             repaste_open?={@repaste_open?}
             remove_armed?={@remove_armed?}
           />
@@ -419,7 +506,12 @@ defmodule FluxValeWeb.OrganizationLive.Access do
             attach_error={@attach_error}
           />
         <% else %>
-          <.access_empty_state org={@org} form={@form} funded?={@funded?} price_cents={@price_cents} />
+          <.access_empty_state
+            form={@form}
+            funded?={@funded?}
+            billing_path={@billing_path}
+            price_cents={@price_cents}
+          />
         <% end %>
       </div>
     </Layouts.app>
@@ -429,7 +521,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   # The no-gateway surface: what private access is, the three tailnet
   # prerequisites the panel cannot do for the owner (ADR-0039 §8 — it
   # only names them), the price, and the key intake.
-  attr(:org, :map, required: true)
+  attr(:billing_path, :string, required: true)
   attr(:form, :any, required: true)
   attr(:funded?, :boolean, required: true)
   attr(:price_cents, :integer, required: true)
@@ -473,7 +565,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         >
           <p>
             Your balance is empty — top up before enabling private access. Start from <.link
-              navigate={~p"/organizations/#{@org.slug}/billing"}
+              navigate={@billing_path}
               class="underline underline-offset-2 hover:text-ink"
               data-testid="access-prefund-link"
             >
@@ -527,10 +619,10 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     """
   end
 
-  attr(:org, :map, required: true)
   attr(:gateway, AccessGateway, required: true)
   attr(:form, :any, required: true)
   attr(:funded?, :boolean, required: true)
+  attr(:billing_path, :string, required: true)
   attr(:repaste_open?, :boolean, required: true)
   attr(:remove_armed?, :boolean, required: true)
 
@@ -564,10 +656,10 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       </p>
 
       <.gateway_actions
-        org={@org}
         gateway={@gateway}
         form={@form}
         funded?={@funded?}
+        billing_path={@billing_path}
         repaste_open?={@repaste_open?}
         remove_armed?={@remove_armed?}
       />
@@ -575,10 +667,10 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     """
   end
 
-  attr(:org, :map, required: true)
   attr(:gateway, AccessGateway, required: true)
   attr(:form, :any, required: true)
   attr(:funded?, :boolean, required: true)
+  attr(:billing_path, :string, required: true)
   attr(:repaste_open?, :boolean, required: true)
   attr(:remove_armed?, :boolean, required: true)
 
@@ -621,7 +713,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           />
           <.remove_panel armed?={@remove_armed?} />
         <% @gateway.state == :suspended -> %>
-          <.suspended_panel org={@org} funded?={@funded?} />
+          <.suspended_panel funded?={@funded?} billing_path={@billing_path} />
           <.remove_panel armed?={@remove_armed?} />
         <% @gateway.state == :destroying -> %>
           <p class="text-sm text-ink-muted" data-testid="access-removing-note">
@@ -745,8 +837,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     """
   end
 
-  attr(:org, :map, required: true)
   attr(:funded?, :boolean, required: true)
+  attr(:billing_path, :string, required: true)
 
   defp suspended_panel(assigns) do
     ~H"""
@@ -764,7 +856,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       <% else %>
         <p class="text-sm text-ink" data-testid="access-resume-topup">
           Top up before resuming private access — start from <.link
-            navigate={~p"/organizations/#{@org.slug}/billing"}
+            navigate={@billing_path}
             class="underline underline-offset-2 hover:text-ink"
             data-testid="access-resume-topup-link"
           >

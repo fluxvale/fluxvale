@@ -3,8 +3,9 @@ defmodule FluxValeWeb.OrgSwitcherTest do
   The app chrome's org switcher (#276): rendered for a signed-in actor
   beside the logo, absent from the public and anonymous chrome. Rows are
   asserted by rendered markup — one row per membership, the owned org
-  labeled "Personal — username" (#285 T6), every row targeting the org's
-  own home at /organizations/:slug.
+  labeled "Personal — username" (#285 T6), the personal row targeting
+  the dashboard (S5 — the account, not an org page) while real orgs
+  target their own home at /organizations/:slug.
   """
 
   use FluxValeWeb.ConnCase, async: true
@@ -69,10 +70,12 @@ defmodule FluxValeWeb.OrgSwitcherTest do
 
     # #285 T6: no hardcoded Personal chrome row, no single-org
     # suppression — the one membership IS the personal context, labeled
-    # and linked to the org's own home. One row, one destination.
+    # Personal and targeting the dashboard (S5: the account, not an org
+    # page — the personal org's org-scoped URLs redirect). One row, one
+    # destination.
     assert [row] = panel_rows(html)
     assert row_text(row) == "Personal — #{user.username}"
-    assert row_href(row) == "/organizations/#{org.slug}"
+    assert row_href(row) == "/"
   end
 
   test "two orgs: one row per membership, exactly one Personal-labeled", %{
@@ -88,11 +91,11 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     assert length(rows) == 2
 
     # Personal pinned first (#276), the later org after it.
-    assert row_href(hd(rows)) == "/organizations/#{org.slug}"
+    assert row_href(hd(rows)) == "/"
 
     personal = Enum.find(rows, &(row_text(&1) =~ "Personal"))
     assert row_text(personal) == "Personal — #{user.username}"
-    assert row_href(personal) == "/organizations/#{org.slug}"
+    assert row_href(personal) == "/"
 
     # The other row stays name + slug — and both rows are distinct
     # destinations: no Personal row, no duplicate context.
@@ -181,14 +184,14 @@ defmodule FluxValeWeb.OrgSwitcherTest do
       is_primary: true
     })
 
-    org = member_org!(straggler)
+    _org = member_org!(straggler)
     conn = SessionHelpers.sign_in(conn, straggler)
 
     html = dashboard_html(conn)
 
     assert [row] = panel_rows(html)
     assert row_text(row) == "Personal — straggler-#{int}"
-    assert row_href(row) == "/organizations/#{org.slug}"
+    assert row_href(row) == "/"
   end
 
   # Layouts.public's real consumers — the #164 SEO surfaces render the
@@ -213,14 +216,18 @@ defmodule FluxValeWeb.OrgSwitcherTest do
   # The live_session wiring is half of the hook's contract — every
   # assertion above rides `/`, whose view declares the pair itself.
   test "the authenticated live_session wires the hook — the switcher rides /apps", %{
-    conn: conn,
-    org: org
+    conn: conn
   } do
     conn = get(conn, ~p"/apps")
     html = html_response(conn, 200)
 
     assert html =~ ~s(data-testid="org-switcher")
-    assert html =~ ~s(href="/organizations/#{org.slug}")
+
+    # The chrome's Personal row targets the dashboard (S5) — scoped to
+    # the panel so the logo's href="/" stays out of the assertion.
+    assert [row] = panel_rows(html)
+    assert row_text(row) =~ "Personal"
+    assert row_href(row) == "/"
   end
 
   test "the anonymous app chrome (sign-in) carries no switcher", %{conn: conn} do
@@ -287,7 +294,7 @@ defmodule FluxValeWeb.OrgSwitcherTest do
 
     assert [row] = panel_rows(single)
     assert row_text(row) == "Personal — terence"
-    assert row_href(row) == "/organizations/acme"
+    assert row_href(row) == "/"
 
     both =
       render_component(&FluxValeWeb.CoreComponents.org_switcher/1,
@@ -300,7 +307,7 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     assert length(rows) == 2
     assert Enum.count(rows, &(row_text(&1) =~ "Personal")) == 1
     assert row_text(Enum.at(rows, 0)) == "Personal — terence"
-    assert row_href(Enum.at(rows, 0)) == "/organizations/acme"
+    assert row_href(Enum.at(rows, 0)) == "/"
     assert row_text(Enum.at(rows, 1)) =~ "OSS Friends"
     assert row_text(Enum.at(rows, 1)) =~ "oss-friends"
     assert row_href(Enum.at(rows, 1)) == "/organizations/oss-friends"
@@ -319,7 +326,7 @@ defmodule FluxValeWeb.OrgSwitcherTest do
 
     assert [row] = panel_rows(html)
     assert row_text(row) == "Personal"
-    assert row_href(row) == "/organizations/acme"
+    assert row_href(row) == "/"
   end
 
   # Same hazard for "": the email fallback's local_part of a degenerate
@@ -335,7 +342,7 @@ defmodule FluxValeWeb.OrgSwitcherTest do
 
     assert [row] = panel_rows(html)
     assert row_text(row) == "Personal"
-    assert row_href(row) == "/organizations/acme"
+    assert row_href(row) == "/"
   end
 
   # The split state (#308 review): OrgNav resolves memberships and the
@@ -441,7 +448,7 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     personal_rows = Enum.filter(rows, &(row_text(&1) =~ "Personal"))
 
     assert [personal_row] = personal_rows
-    assert row_href(personal_row) == "/organizations/#{canonical.slug}"
+    assert row_href(personal_row) == "/"
 
     # The billing mount resolves the same org the switcher labels — the
     # seam this PR exists to pin, wallet-free: the canonical pick here

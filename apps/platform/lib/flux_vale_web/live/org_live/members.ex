@@ -6,7 +6,9 @@ defmodule FluxValeWeb.OrganizationLive.Members do
 
   Membership create/destroy are system-only until team features arrive,
   so the tab is a roster, not an admin console — the copy under the
-  table says so instead of promising a timeline.
+  table says so instead of promising a timeline. The personal org has
+  no members page at all (S5): exactly one member — the user — so its
+  URL redirects to `/settings`.
   """
 
   use FluxValeWeb, :live_view
@@ -15,6 +17,7 @@ defmodule FluxValeWeb.OrganizationLive.Members do
   alias FluxVale.Accounts.Organization
   alias FluxVale.Checks.ActorIsOrganizationOwner
   alias FluxValeWeb.OrgSettings
+  alias FluxValeWeb.PersonalOrg
 
   require Ash.Query
 
@@ -24,22 +27,12 @@ defmodule FluxValeWeb.OrganizationLive.Members do
 
     case Organization.get_by_slug(slug, actor: user) do
       {:ok, org} ->
-        # UX gate, not the authority: the read policy scopes roster rows to
-        # the actor's own orgs, and the query's organization_id filter is
-        # what narrows them to THIS org — both are load-bearing (pinned by
-        # the two-org test). The gate itself only spares a member a
-        # settings surface that is owners-only — same posture as Settings.
-        if ActorIsOrganizationOwner.owner?(user, org) do
-          {:ok,
-           socket
-           |> assign(:org, org)
-           |> stream_configure(:members, dom_id: &"member-row-#{&1.id}")
-           |> stream(:members, list_members(org, user))}
+        if PersonalOrg.personal?(socket, org) do
+          # S5: exactly one member (the user) — no members page for the
+          # personal org; the account surfaces live at /settings.
+          {:ok, push_navigate(socket, to: ~p"/settings")}
         else
-          {:ok,
-           socket
-           |> put_flash(:error, "Only organization owners can access settings.")
-           |> push_navigate(to: ~p"/")}
+          mount_roster(socket, org, user)
         end
 
       _error ->
@@ -47,6 +40,26 @@ defmodule FluxValeWeb.OrganizationLive.Members do
          socket
          |> put_flash(:error, "Organization not found.")
          |> push_navigate(to: ~p"/")}
+    end
+  end
+
+  defp mount_roster(socket, org, user) do
+    # UX gate, not the authority: the read policy scopes roster rows to
+    # the actor's own orgs, and the query's organization_id filter is
+    # what narrows them to THIS org — both are load-bearing (pinned by
+    # the two-org test). The gate itself only spares a member a
+    # settings surface that is owners-only — same posture as Settings.
+    if ActorIsOrganizationOwner.owner?(user, org) do
+      {:ok,
+       socket
+       |> assign(:org, org)
+       |> stream_configure(:members, dom_id: &"member-row-#{&1.id}")
+       |> stream(:members, list_members(org, user))}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "Only organization owners can access settings.")
+       |> push_navigate(to: ~p"/")}
     end
   end
 

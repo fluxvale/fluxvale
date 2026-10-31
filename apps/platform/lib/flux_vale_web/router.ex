@@ -260,6 +260,11 @@ defmodule FluxValeWeb.Router do
       # #285 T5: account settings — the username rename + email
       # management, linked from the user menu.
       live("/settings", SettingsLive)
+      # S5: the personal account's access panel — OrganizationLive.Access
+      # mounted WITHOUT a slug serves the actor's personal org (the
+      # slug-keyed org route redirects here). Instance show links it for
+      # personal-org instances.
+      live("/settings/access", OrganizationLive.Access)
     end
   end
 

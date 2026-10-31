@@ -9,7 +9,9 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
   No "Add credits" CTA on purpose: the top-up wizard resolves the
   actor's personal org in its mount, so a CTA here would be a lie for
   any future non-personal org — org-context top-up is a future lane.
-  The page links to `/billing` instead.
+  The page links to `/billing` instead. The personal org has no view
+  here at all (S5): its URL redirects to `/billing` — one wallet, one
+  surface.
   """
 
   use FluxValeWeb, :live_view
@@ -18,6 +20,7 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
   alias FluxVale.Billing
   alias FluxVale.Billing.LedgerEntry
   alias FluxValeWeb.BillingComponents
+  alias FluxValeWeb.PersonalOrg
 
   # Mirrors BillingLive.Index — same read, same window; the pages differ
   # only in which org they resolved.
@@ -29,26 +32,13 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
 
     case Organization.get_by_slug(slug, actor: user) do
       {:ok, org} ->
-        # ensure_wallet is the system seam (idempotent); every read
-        # below runs against the actor through the wallet policies —
-        # the personal page's posture, the org resolved from the URL.
-        {:ok, wallet} = Billing.ensure_wallet(org)
-        {:ok, balance} = Billing.balance(wallet, actor: user)
-
-        page = ledger_page(wallet.id, user)
-
-        socket =
-          socket
-          |> stream(:entries, page.results)
-          |> assign(
-            org: org,
-            wallet: wallet,
-            balance: balance,
-            page: page,
-            history_empty?: page.results == []
-          )
-
-        {:ok, socket}
+        if PersonalOrg.personal?(socket, org) do
+          # S5: no separate balance view for the personal org — its
+          # wallet IS /billing. Flash-free redirect (nothing failed).
+          {:ok, push_navigate(socket, to: ~p"/billing")}
+        else
+          mount_org_billing(socket, org, user)
+        end
 
       _error ->
         # The member-scoped read policy filters an unknown slug and a
@@ -58,6 +48,29 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
          |> put_flash(:error, "Organization not found.")
          |> push_navigate(to: ~p"/")}
     end
+  end
+
+  defp mount_org_billing(socket, org, user) do
+    # ensure_wallet is the system seam (idempotent); every read
+    # below runs against the actor through the wallet policies —
+    # the personal page's posture, the org resolved from the URL.
+    {:ok, wallet} = Billing.ensure_wallet(org)
+    {:ok, balance} = Billing.balance(wallet, actor: user)
+
+    page = ledger_page(wallet.id, user)
+
+    socket =
+      socket
+      |> stream(:entries, page.results)
+      |> assign(
+        org: org,
+        wallet: wallet,
+        balance: balance,
+        page: page,
+        history_empty?: page.results == []
+      )
+
+    {:ok, socket}
   end
 
   @impl Phoenix.LiveView

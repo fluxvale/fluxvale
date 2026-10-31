@@ -7,6 +7,8 @@ defmodule FluxVale.TestSupport.AccountsFixtures do
   """
 
   alias FluxVale.Accounts
+  alias FluxVale.Accounts.Membership
+  alias FluxVale.Accounts.Organization
   alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
 
@@ -28,6 +30,29 @@ defmodule FluxVale.TestSupport.AccountsFixtures do
   @spec personal_org!(User.t()) :: FluxVale.Accounts.Organization.t()
   def personal_org!(%User{} = user) do
     {:ok, org} = Accounts.personal_org_for_user(user.id, authorize?: false)
+    org
+  end
+
+  @doc """
+  A REAL (non-personal) org the user owns — the org-surface tests' host
+  since S5: the personal org no longer renders org pages (its URLs
+  redirect to the personal account's surfaces), so tests exercising
+  those pages ride a real org. Org + `:owner` membership ride the
+  actions with `authorize?: false` — the bootstrap posture, mirroring
+  seeds (memberships are system-created; nothing in the system makes a
+  team org yet).
+  """
+  @spec owned_org!(User.t()) :: FluxVale.Accounts.Organization.t()
+  def owned_org!(%User{} = user) do
+    n = System.unique_integer([:positive])
+
+    org =
+      Organization.create!(%{name: "Org #{n}", slug: "org-#{n}"}, authorize?: false)
+
+    Membership.create!(%{organization_id: org.id, user_id: user.id, role: :owner},
+      authorize?: false
+    )
+
     org
   end
 
