@@ -6,9 +6,9 @@ defmodule FluxValeWeb.LocaleTest do
   # layout's error-flash title ("Something went wrong!"), which renders
   # on every page; the root layout carries the matching lang attribute.
   # Every wiring point is tested: the :authenticated live_session via
-  # the signed-in dashboard and /apps, the sign-in module hook via
-  # /sign-in. The probe LiveView mounts the hook directly for the
-  # arm-level checks.
+  # /apps, the sign-in module hook via /sign-in, and the dashboard's own
+  # declared hook via the signed-in / bypass below. The probe LiveView
+  # mounts the hook directly for the arm-level checks.
 
   use FluxValeWeb.ConnCase, async: true
 
@@ -74,7 +74,16 @@ defmodule FluxValeWeb.LocaleTest do
       |> html_response(200)
 
     assert body =~ "xx: Managed hosting for open source applications"
-    assert body =~ "xx: FluxVale — Managed hosting for open source applications"
+
+    # The <title> specifically — :page_title also rides og:title /
+    # twitter:title, which a bare body =~ would match alone.
+    title =
+      body
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("title")
+      |> LazyHTML.text()
+
+    assert title =~ "xx: FluxVale — Managed hosting for open source applications"
     assert body =~ ~s(lang="xx")
   end
 
