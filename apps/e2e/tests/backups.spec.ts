@@ -80,7 +80,13 @@ test("backups: configure → back up now → objects in MinIO → restore → da
   // rather than take the job's whole budget with it.
   test.setTimeout(25 * 60_000);
 
-  const email = `test+e2e-backups-${runId}@fluxvale.com`;
+  // The seed admin, not a per-run address: the paid-once gate requires
+  // one real $1+ payment before the settings save goes through, and the
+  // only wallet the local stack marks paid is the seed admin's
+  // (local_seeds.exs — a per-run welcome credit deliberately doesn't
+  // count). The run's code still lands in the TestInbox, and the run's
+  // own instance stays isolated by its runId name.
+  const email = "admin@fluxvale.com";
   await signIn(page, new TestInbox(request, testInboxToken!), email);
 
   // --- deploy Kavita (the file-access app: a volume worth backing up) -----
