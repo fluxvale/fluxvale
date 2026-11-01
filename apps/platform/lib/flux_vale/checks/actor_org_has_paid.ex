@@ -6,9 +6,9 @@ defmodule FluxVale.Checks.ActorOrgHasPaid do
   not unlock it (a bot gets welcome credits, never a card). The test is
   the ledger's shape, not the balance: reason `:purchase` is the
   payment-webhook's reason (`CreditWallet`), so goodwill/adjustment
-  grants never qualify, and refunds (compensating entries) do not
-  un-pay — no reversal is modeled. Wired to AccessGateway `create` and
-  `resume` beside the funded check.
+  grants never qualify. Refunds post compensating debits (`ReverseEntry`)
+  that this check ignores — a paid org stays paid. Wired to AccessGateway
+  `create` and `resume` beside the funded check.
 
   The org in play resolves by action shape: updates read it off the
   loaded record (`changeset.data.organization_id`); creates resolve the

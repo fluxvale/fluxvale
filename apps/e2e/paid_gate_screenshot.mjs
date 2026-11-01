@@ -6,6 +6,9 @@
  *
  * Usage: FV_BASE=http://127.0.0.1:4101 FV_TOKEN_A=<jwt> FV_TOKEN_B=<jwt> \
  *   node paid_gate_screenshot.mjs <outdir>
+ * Tokens: mint both with the sibling `paid_gate_seed.exs` (a dev
+ * `mix run` one-off — creates the two never-paid users and seeds the
+ * :suspended gateway row), then export them here.
  * Token A: never-paid user, NO gateway (the empty state). Token B:
  * never-paid user WITH a seeded :suspended gateway row (dev-only data —
  * the create action needs the provider, which no dev cluster runs).

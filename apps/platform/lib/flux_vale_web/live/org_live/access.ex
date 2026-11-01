@@ -194,10 +194,10 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
       {:error, form} ->
         if forbidden?(form) do
-          # The funded-wallet gate — the fix is the wallet, so the copy
-          # says so instead of rendering a field error. The form is
-          # rebuilt from the row (no key echo — see clear_key_display)
-          # and carries only the errors.
+          # A policy gate (funded or paid-once) — the fix is the wallet,
+          # so the copy says so instead of rendering a field error. The
+          # form is rebuilt from the row (no key echo — see
+          # clear_key_display) and carries only the errors.
           {:noreply,
            socket
            |> put_flash(:error, "Top up before enabling private access.")
