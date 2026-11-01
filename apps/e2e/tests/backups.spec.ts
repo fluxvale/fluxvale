@@ -102,7 +102,7 @@ test("backups: configure → back up now → objects in MinIO → restore → da
       "-n",
       "fluxvale-dev",
       "exec",
-      "deploy/platform",
+      "deploy/fluxvale-platform",
       "--",
       "mix",
       "run",

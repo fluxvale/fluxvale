@@ -179,9 +179,10 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
       # (never every 5-minute pass) — the owner's wallet is why nothing
       # ran. :run_in_flight stays silent (someone else owns the slot).
       {:error, :wallet_unfunded} ->
-        Logger.info(
+        skip =
           "Backup skipped for #{instance.id}: the org's wallet cannot run (not paid or empty)"
-        )
+
+        Logger.info(skip)
 
         {:ok, nil}
 
