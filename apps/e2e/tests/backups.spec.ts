@@ -104,9 +104,9 @@ test("backups: configure → back up now → objects in MinIO → restore → da
       "exec",
       "deploy/fluxvale-platform",
       "--",
-      "mix",
-      "run",
-      "-e",
+      "sh",
+      "-c",
+      'unset PHX_SERVER; exec mix run -e "$0"',
       `
       alias FluxVale.Billing
       alias FluxVale.Identity.User
