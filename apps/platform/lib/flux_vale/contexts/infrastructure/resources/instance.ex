@@ -613,6 +613,11 @@ defmodule FluxVale.Infrastructure.Instance do
         end
       end)
 
+      # The status force above is a change-time write, so this
+      # change-time read sees :deploying — and the error-occupancy
+      # alert reads the :error → :deploying exit this emits.
+      change(StatusMarkers)
+
       change({AshOban.Changes.RunObanTrigger, trigger: :deploy})
     end
 
@@ -913,6 +918,10 @@ defmodule FluxVale.Infrastructure.Instance do
         |> Ash.Changeset.force_change_attribute(:status_message, "Deploy job failed unexpectedly")
         |> Ash.Changeset.force_change_attribute(:failure_reason, :deploy_failed)
       end)
+
+      # The crash-edge ENTRY to :error — the error-occupancy alert's
+      # exact subject (a deploy job that died bypassing the funnel).
+      change(StatusMarkers)
     end
 
     update :mark_teardown_error do
@@ -937,6 +946,9 @@ defmodule FluxVale.Infrastructure.Instance do
         )
         |> Ash.Changeset.force_change_attribute(:failure_reason, :teardown_failed)
       end)
+
+      # The crash-edge ENTRY to :error (the deploy handler's stance).
+      change(StatusMarkers)
     end
 
     destroy :destroy do

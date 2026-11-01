@@ -93,8 +93,10 @@ defmodule FluxVale.Infrastructure.BackupRun.OutcomeMarkersTest do
 
     assert failed.status == :failed
 
-    assert_receive {:telemetry_event, @run_event, %{count: 1, duration: 0.0},
+    assert_receive {:telemetry_event, @run_event, %{count: 1, duration: duration},
                     %{kind: :restore, status: :failed}}
+
+    assert duration == 0.0
   end
 
   test "a re-finalize over a settled row is not a second backup", %{version: version} do

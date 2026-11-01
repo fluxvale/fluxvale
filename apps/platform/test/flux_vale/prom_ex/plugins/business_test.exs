@@ -80,5 +80,11 @@ defmodule FluxVale.PromEx.Plugins.BusinessTest do
     assert scrape =~ "flux_vale_gateway_state_change_total{from=\"active\",to=\"suspended\"}"
     assert scrape =~ "flux_vale_backup_run_total{kind=\"scheduled\",status=\"succeeded\"}"
     refute scrape =~ ~r/flux_vale_instance_status_transition_total\{[^}]*reason/
+
+    # The naming contract, pinned from the other side: no PromEx-default
+    # prefix leaks into a _total family, and the wake histograms never
+    # match a _total glob — exactly the three business families exist.
+    refute scrape =~ ~r/^flux_vale_prom_ex_.*_total\b/
+    refute scrape =~ ~r/^flux_vale_wake_.*_total\b/
   end
 end

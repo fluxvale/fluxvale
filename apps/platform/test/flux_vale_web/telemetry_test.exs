@@ -37,7 +37,10 @@ defmodule FluxValeWeb.TelemetryTest do
     emitted_events = Map.keys(@emitted)
     expected = MapSet.new(emitted_events)
 
-    assert MapSet.subset?(expected, defined)
+    # Set equality, not subset: a definition over an event nothing fires
+    # is a dead dashboard row, and a fired event without a definition
+    # renders nowhere — both directions fail here.
+    assert MapSet.equal?(defined, expected)
 
     Enum.each(business_metrics, fn metric ->
       {metadata, measurements} = Map.fetch!(@emitted, metric.event_name)

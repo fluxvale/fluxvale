@@ -116,8 +116,9 @@ defmodule FluxValeWeb.Telemetry do
         unit: :second
       ),
       # Instance lifecycle outcomes (Instance.StatusMarkers on the
-      # :update_status funnel) — reason is the deploy-failure triage
-      # lens; labels are closed enums, cardinality bounded by the state
+      # :update_status funnel plus the :deploy flip and the two Oban
+      # error handlers) — reason is the deploy-failure triage lens;
+      # labels are closed enums, cardinality bounded by the state
       # machine (~24 series).
       counter("flux_vale_instance_status_transition_count",
         event_name: [:flux_vale, :instance, :status_transition],
@@ -125,7 +126,7 @@ defmodule FluxValeWeb.Telemetry do
         description: "Instance status transitions, by from/to/reason (the lifecycle funnel).",
         tags: [:from, :to, :reason]
       ),
-      # Gateway state changes (AccessGateway.StateMarkers on the five
+      # Gateway state changes (AccessGateway.StateMarkers on the six
       # state-writing actions) — ladder suspends vs observed failures,
       # ~10 series.
       counter("flux_vale_gateway_state_change_count",

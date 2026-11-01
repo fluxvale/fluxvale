@@ -2,10 +2,12 @@ defmodule FluxVale.Infrastructure.AccessGateway.StateMarkersTest do
   @moduledoc """
   The gateway billing-switch telemetry: one
   [:flux_vale, :gateway, :state_change] per real state change across
-  the five state-writing actions — from/to decided AFTER the write
-  (Suspend/Resume land their state in before_action hooks), the
-  idempotent arms silent, and the observer's refused stale write
-  never reaching after_action so its retry emits at most once.
+  the six mounted state-writing actions — from/to decided AFTER the
+  write (Suspend/Resume/Repaste land their state in before_action
+  hooks), the idempotent arms silent, the observer's refused stale
+  write never reaching after_action so its retry emits at most once,
+  and the token-drift claim's nested write suppressed so the
+  after_transaction fallback is the one that counts.
 
   `async: false`: the events ride the global telemetry handler table
   (and Mimic is per-process anyway — the observe tests' stance).
@@ -125,6 +127,70 @@ defmodule FluxVale.Infrastructure.AccessGateway.StateMarkersTest do
       AccessGateway.update_credential(gateway, %{auth_key: "tskey-new"}, authorize?: false)
 
     assert repasted.state == :provisioning
+
+    refute_receive {:telemetry_event, _event, _measurements, _metadata}
+  end
+
+  # The token-drift shape: the claim operation's nested drift write
+  # carries the suppression context (its transaction is about to roll
+  # back), then the caller's after_transaction fallback re-writes the
+  # drift plainly — exactly one entry reaches the counter.
+  test "a suppressed nested drift write is silent; the fallback's plain write emits once",
+       %{org: org} do
+    gateway = AccessFixtures.gateway!(org)
+    Telemetry.capture_events([@state_event])
+
+    # The nested drift write (ClaimAccessDomain.drift_to_needs_attention/2's
+    # shape): real state change, suppression flag set.
+    {:ok, drifted} =
+      AccessGateway.update_state(
+        gateway,
+        %{
+          state: :needs_attention,
+          status_message: "Tailscale rejected the API key",
+          needs_attention_since: DateTime.utc_now()
+        },
+        context: %{suppress_state_markers: true},
+        authorize?: false
+      )
+
+    assert drifted.state == :needs_attention
+
+    refute_receive {:telemetry_event, _event, _measurements, _metadata}
+
+    # The fallback (AccessDomain.Resume's after_transaction write): a
+    # plain write of the same drift — the one that persists.
+    {:ok, settled} =
+      AccessGateway.update_state(
+        gateway,
+        %{state: :needs_attention, status_message: "Tailscale rejected the API key"},
+        context: %{},
+        authorize?: false
+      )
+
+    assert settled.state == :needs_attention
+
+    assert_receive {:telemetry_event, @state_event, %{count: 1},
+                    %{from: :active, to: :needs_attention}}
+
+    refute_receive {:telemetry_event, _event, _measurements, _metadata}
+  end
+
+  # The contract pin: the flag alone suppresses, on an ordinary
+  # transition, whoever sets it — the nested-caller escape hatch.
+  test "the suppression context alone suppresses a normal write", %{org: org} do
+    gateway = AccessFixtures.gateway!(org)
+    Telemetry.capture_events([@state_event])
+
+    {:ok, suspended} =
+      AccessGateway.update_state(
+        gateway,
+        %{state: :suspended, status_message: "Access paused"},
+        context: %{suppress_state_markers: true},
+        authorize?: false
+      )
+
+    assert suspended.state == :suspended
 
     refute_receive {:telemetry_event, _event, _measurements, _metadata}
   end
