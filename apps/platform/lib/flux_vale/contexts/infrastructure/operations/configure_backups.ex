@@ -26,6 +26,15 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
   `Forbidden` before any cluster write and a hoisted instance struct
   buys nothing.
 
+  A save that lands **enabled** is additionally pay-gated: the org must
+  have PAID REAL MONEY once — one completed $1+ top-up, ever; the $3
+  welcome credit is not a card (`ActorOrgHasPaid`). The gate sits after
+  the changeset validates and before the first cluster touch, so a
+  never-paid org's refusal leaves the Secret, the quota, and the row
+  untouched. A save that lands `enabled: false` — a pause — passes
+  through ungated, and disabling or removing the settings entirely is
+  never gated at all.
+
   **Disabling is a plain `BackupSetting.update` (`enabled: false`), not
   an operation of its own** — it changes one attribute and no cluster
   state. The Secret and the quota margin persist on purpose, so
@@ -47,6 +56,7 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
   alias Ash.Error.Forbidden.Policy
   alias Ash.Error.Invalid
   alias Ash.Error.Query.NotFound
+  alias FluxVale.Checks.ActorOrgHasPaid
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.ResourceQuota
   alias FluxVale.Clients.K8s.Resources.Secret
@@ -61,6 +71,7 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
   @access_key_id_key "AWS_ACCESS_KEY_ID"
   @secret_access_key_key "AWS_SECRET_ACCESS_KEY"
   @forbidden_message "This instance's backups belong to another organization"
+  @paid_message "Top up at least $1 before setting up backups"
 
   # The row's own fields — the settings form, minus every credential.
   @row_fields [:endpoint, :bucket, :prefix, :access_key_id, :retention_keep, :enabled]
@@ -100,6 +111,7 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
     with {:ok, authorized} <- authorize_instance(instance, opts),
          {:ok, stored} <- stored_setting(authorized, opts),
          {:ok, changeset} <- settings_changeset(authorized, stored, params, opts),
+         :ok <- paid_gate(authorized, changeset),
          {:ok, kubeconfig} <- kubeconfig(authorized),
          {:ok, data} <- secret_data(kubeconfig, authorized, changeset, params),
          :ok <- apply_secret(kubeconfig, authorized, data),
@@ -159,6 +171,33 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
   # plain-words reason instead of a bare "forbidden".
   defp forbidden_error do
     Policy.exception(custom_message: @forbidden_message)
+  end
+
+  # The paid gate's error, same shape: the policy class carrying the
+  # plain-words fix.
+  defp paid_error do
+    Policy.exception(custom_message: @paid_message)
+  end
+
+  # S3 backups are a paid feature: an enabled save (a first save
+  # defaults enabled true; a re-enable rides a full save) needs one
+  # real $1+ payment, ever — the welcome credit is not a card. The
+  # predicate is authorize-free (the check IS the authorization, the
+  # access panel's posture). A save that lands disabled passes through:
+  # pausing is never gated. The gate runs before the first cluster
+  # touch, so a refusal writes nothing anywhere.
+  defp paid_gate(instance, changeset) do
+    if Ash.Changeset.get_attribute(changeset, :enabled) do
+      org_id = instance.organization_id
+
+      if ActorOrgHasPaid.org_paid?(org_id) do
+        :ok
+      else
+        {:error, Forbidden.exception(errors: [paid_error()])}
+      end
+    else
+      :ok
+    end
   end
 
   # The stored row is what a save merges over. Its own read is authorized

@@ -29,9 +29,12 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
 
   use FluxValeWeb, :live_component
 
+  alias FluxVale.Accounts.Organization
+  alias FluxVale.Checks.ActorOrgHasPaid
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.BackupSetting
+  alias FluxValeWeb.PersonalOrg
   alias Phoenix.Component
 
   @runs_limit 20
@@ -225,7 +228,13 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
           <% @instance.status == :lost -> %>
             <.unavailable_note />
           <% is_nil(@setting) -> %>
-            <.unconfigured instance={@instance} editing?={@editing?} myself={@myself} />
+            <.unconfigured
+              instance={@instance}
+              editing?={@editing?}
+              myself={@myself}
+              org_paid?={@org_paid?}
+              billing_path={@billing_path}
+            />
           <% true -> %>
             <.configured
               instance={@instance}
@@ -355,9 +364,25 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   attr(:instance, :any, required: true)
   attr(:editing?, :boolean, required: true)
   attr(:myself, :any, required: true)
+  attr(:org_paid?, :boolean, required: true)
+  attr(:billing_path, :any, required: true)
 
   defp unconfigured(assigns) do
     ~H"""
+    <%!-- The pre-emptive gate (the access panel's paid-hint shape): the
+    save would be refused anyway, so the card says so before the form. --%>
+    <.callout :if={!@org_paid?} tone="warning" data-testid="backups-unpaid">
+      <p class="text-sm text-ink-muted">
+        Backups need a one-time top-up of at least $1 — add funds in <.link
+          navigate={@billing_path}
+          class="underline underline-offset-2 hover:text-ink"
+          data-testid="backups-billing-link"
+        >
+          Billing
+        </.link>.
+      </p>
+    </.callout>
+
     <.callout tone="info" data-testid="backups-unconfigured">
       <p class="text-sm text-ink-muted">
         Backups go to your own S3-compatible bucket — Cloudflare R2, or any
@@ -706,6 +731,14 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
     setting = load_setting(instance, user)
     runs = load_runs(instance, user)
 
+    # The setup path's pre-emptive wallet read (the access panel's
+    # refresh shape): the paid-once gate refuses an unconfigured
+    # never-paid org's save, so the card says so before the form. A
+    # settings row implies the org paid when it was written — refunds
+    # post compensating credits, never unpay — so the read only runs
+    # while unconfigured.
+    org_paid? = not is_nil(setting) or ActorOrgHasPaid.org_paid?(instance.organization_id)
+
     socket
     |> assign_new(:editing?, fn -> false end)
     |> assign_new(:confirm, fn -> nil end)
@@ -719,9 +752,31 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
       last_success: Enum.find(runs, &backup_success?/1),
       failed_run: newest_failure(runs),
       health: health(setting, runs),
+      org_paid?: org_paid?,
+      billing_path: billing_path(instance, user, org_paid?),
       now: DateTime.utc_now()
     )
     |> seed_form(setting)
+  end
+
+  # Only resolved when the blocked callout can render (never-paid,
+  # unconfigured) — paid orgs never read the org tables for this.
+  defp billing_path(_instance, _user, true), do: nil
+
+  defp billing_path(instance, user, false) do
+    case Organization.get_by_id(instance.organization_id, actor: user) do
+      {:ok, org} -> org_billing_path(org, user)
+      _unreadable -> ~p"/billing"
+    end
+  end
+
+  # The access panel's resolution: the personal org's wallet lives at
+  # /billing, a real org's at its own billing page.
+  defp org_billing_path(org, user) do
+    case PersonalOrg.org_for(user) do
+      {:ok, %{id: id}} when id == org.id -> ~p"/billing"
+      _not_personal -> ~p"/organizations/#{org.slug}/billing"
+    end
   end
 
   # Re-seed the form only when the stored setting moved (a save, a fresh
@@ -950,6 +1005,10 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
 
   defp copy_for(:run_in_flight), do: "A backup or restore is already running. Give it a minute."
   defp copy_for(:backups_disabled), do: "Backups are paused — resume them first."
+
+  defp copy_for(:wallet_unfunded),
+    do: "Top up to run a backup — add at least $1 once, and keep a positive balance."
+
   defp copy_for(:nothing_to_restore), do: "There's no finished backup to restore yet."
   defp copy_for(:not_restorable), do: "The app is busy right now — try again in a moment."
 
@@ -958,6 +1017,12 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
 
   defp copy_for(:secret_access_key_required), do: "Add your secret access key."
   defp copy_for(:secret_corrupt), do: "The stored credentials look damaged — re-enter your keys."
+
+  # The paid gate's refusal arrives as a Forbidden (the operation's
+  # own message names the fix) — the wallet is the fix, so the panel
+  # says so instead of the generic retry line.
+  defp copy_for(%Ash.Error.Forbidden{}), do: "Top up at least $1 before setting up backups."
+
   defp copy_for(_reason), do: "Something went wrong on our side. Try again in a minute."
 
   # `to_form/2`'s :errors option wants `{field, {message, opts}}` tuples —

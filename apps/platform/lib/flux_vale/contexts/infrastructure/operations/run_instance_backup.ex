@@ -17,6 +17,10 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackup do
     says)
   - the instance has a namespace — a never-deployed instance has no PVC
     to read
+  - the org's wallet is paid-once AND positive — one code path for the
+    manual click and the nightly pass: the $3 welcome credit is not a
+    card, and a zero balance runs nothing (the platform-wide
+    zero-balance rule)
 
   The one-active-run invariant is NOT a guard: the partial unique index
   over `pending`/`running` rows is the enforcement (atomic under
@@ -34,6 +38,8 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackup do
   attributed to the wrong row.
   """
 
+  alias FluxVale.Checks.ActorOrgHasPaid
+  alias FluxVale.Checks.ActorOrgWalletFunded
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.BackupJob
   alias FluxVale.Infrastructure.BackupRun
@@ -50,8 +56,8 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackup do
   @doc """
   Runs a backup for `instance`. `{:ok, run}` when the Job applied;
   `{:error, reason}` otherwise — the reason names the guard that closed
-  (`:backups_disabled`, `:no_settings`, `:run_in_flight`, `:not_deployed`)
-  or carries the K8s error.
+  (`:backups_disabled`, `:no_settings`, `:run_in_flight`, `:not_deployed`,
+  `:wallet_unfunded`) or carries the K8s error.
   """
   @spec call(Instance.t(), :scheduled | :manual) ::
           {:ok, BackupRun.t()} | {:error, term()}
@@ -88,7 +94,8 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackup do
   # `:run_in_flight`.
   defp guards(instance) do
     with {:ok, setting} <- enabled_setting(instance),
-         :ok <- deployed(instance) do
+         :ok <- deployed(instance),
+         :ok <- wallet_gated(instance) do
       {:ok, setting}
     end
   end
@@ -117,6 +124,20 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackup do
 
   defp deployed(%{namespace: nil}), do: {:error, :not_deployed}
   defp deployed(%{namespace: _namespace}), do: :ok
+
+  # Every run spends the org's wallet, so never-paid and zero-balance
+  # refuse alike — one code path for the manual click and the sweep.
+  # The predicates are the policy checks' own (authorize-free — the
+  # wake operation's posture); the sweep treats this refusal as benign.
+  defp wallet_gated(instance) do
+    org_id = instance.organization_id
+
+    if ActorOrgHasPaid.org_paid?(org_id) and ActorOrgWalletFunded.org_funded?(org_id) do
+      :ok
+    else
+      {:error, :wallet_unfunded}
+    end
+  end
 
   # Delete-before-insert (review finding): the leftover Job must be GONE
   # before the new row exists, or a concurrent watch pass can read the

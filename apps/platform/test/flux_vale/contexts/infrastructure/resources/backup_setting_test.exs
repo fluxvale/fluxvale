@@ -8,6 +8,7 @@ defmodule FluxVale.Infrastructure.BackupSettingTest do
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   defp user do
@@ -283,6 +284,77 @@ defmodule FluxVale.Infrastructure.BackupSettingTest do
                :retention_keep,
                :updated_at
              ]
+    end
+  end
+
+  describe "the enable flip's paid gate" do
+    # The panel's pause/resume switch is a plain `:update`, so the paid
+    # gate rides the resource's update policy, scoped to the flip to
+    # true. Pausing (and every other update) stays member-only.
+    test "a never-paid member cannot flip enabled to true" do
+      version = base!()
+
+      owner =
+        User.create!("flip-unpaid-#{System.unique_integer()}@fluxvale.com", %{},
+          authorize?: false
+        )
+
+      instance =
+        Instance.create!(
+          %{name: "Paused #{System.unique_integer()}", app_version_id: version.id, env_vars: %{}},
+          actor: owner
+        )
+
+      {:ok, setting} = create(instance, %{enabled: false})
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               BackupSetting.update(setting, %{enabled: true}, actor: owner)
+    end
+
+    test "a never-paid member can still flip enabled to false — pausing is never gated" do
+      version = base!()
+
+      owner =
+        User.create!("flip-pause-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      instance =
+        Instance.create!(
+          %{
+            name: "Enabled #{System.unique_integer()}",
+            app_version_id: version.id,
+            env_vars: %{}
+          },
+          actor: owner
+        )
+
+      {:ok, setting} = create(instance)
+
+      assert {:ok, paused} = BackupSetting.update(setting, %{enabled: false}, actor: owner)
+      refute paused.enabled
+    end
+
+    test "a paid member flips enabled to true" do
+      version = base!()
+
+      owner =
+        User.create!("flip-paid-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      BillingFixtures.mark_user_paid!(owner)
+
+      instance =
+        Instance.create!(
+          %{
+            name: "Resumed #{System.unique_integer()}",
+            app_version_id: version.id,
+            env_vars: %{}
+          },
+          actor: owner
+        )
+
+      {:ok, setting} = create(instance, %{enabled: false})
+
+      assert {:ok, resumed} = BackupSetting.update(setting, %{enabled: true}, actor: owner)
+      assert resumed.enabled
     end
   end
 

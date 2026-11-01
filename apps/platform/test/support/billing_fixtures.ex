@@ -10,6 +10,7 @@ defmodule FluxVale.TestSupport.BillingFixtures do
   an actor.
   """
 
+  alias FluxVale.Accounts
   alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
@@ -48,6 +49,20 @@ defmodule FluxVale.TestSupport.BillingFixtures do
   def mark_paid!(target) do
     {:ok, entry} = Billing.credit_wallet(target, 100)
     entry
+  end
+
+  @doc """
+  Marks a JIT-provisioned user's personal org as PAID — one $1+ top-up
+  posted through the payment-webhook seam on top of the welcome wallet.
+  The precondition the backup gates read: configuring/enabling backups
+  and running them require the org to have paid once. Returns the org.
+  """
+  @spec mark_user_paid!(User.t()) :: Organization.t()
+  def mark_user_paid!(%User{} = user) do
+    {:ok, org} = Accounts.personal_org_for_user(user.id, authorize?: false)
+    {:ok, wallet} = Billing.ensure_wallet(org)
+    mark_paid!(wallet)
+    org
   end
 
   @doc """

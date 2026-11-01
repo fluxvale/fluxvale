@@ -16,6 +16,7 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackupTest do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.SweepBackups
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   require Ash.Query
@@ -27,7 +28,15 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackupTest do
   @now DateTime.new!(~D[2026-10-24], ~T[04:00:00], "Etc/UTC")
 
   defp user do
-    User.create!("restore-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+    user = User.create!("restore-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+    # The due pass's wallet guard reads the org's ledger: this file's
+    # window test needs a due backup to actually START, so the suite's
+    # default user is paid (the never-paid benign-skip shape lives in
+    # sweep_backups_test).
+    BillingFixtures.mark_user_paid!(user)
+
+    user
   end
 
   defp base! do

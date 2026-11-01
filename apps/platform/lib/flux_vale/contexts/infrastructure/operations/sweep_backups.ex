@@ -68,8 +68,9 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
   Per-item isolation, the sibling sweeps' shape: one bad instance is
   logged and skipped, every other unit still processes, and the pass
   returns `{:error, reason}` so Oban retries. A guard rejection from
-  `RunInstanceBackup` (`:run_in_flight`, `:backups_disabled`) is not a
-  failure — it is the sweep racing a manual run or an owner's toggle, and
+  `RunInstanceBackup` (`:run_in_flight`, `:backups_disabled`,
+  `:wallet_unfunded`) is not a failure — it is the sweep racing a
+  manual run, an owner's toggle, or an org waiting on its top-up, and
   the next pass re-decides.
   """
 
@@ -88,8 +89,10 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
   require Logger
 
   # Run guards that mean "someone else owns this decision right now" —
-  # a manual run started, or the owner disabled backing up mid-pass.
-  @benign_guards [:run_in_flight, :backups_disabled, :no_settings]
+  # a manual run started, or the owner disabled backing up mid-pass —
+  # plus the wallet gate: a never-paid or zero-balance org's due
+  # instance waits for its owner's top-up, never an Oban retry.
+  @benign_guards [:run_in_flight, :backups_disabled, :no_settings, :wallet_unfunded]
 
   @enforce_keys [:started_ids, :succeeded_ids, :failed_ids, :recovered_ids]
   defstruct [:started_ids, :succeeded_ids, :failed_ids, :recovered_ids]

@@ -24,10 +24,20 @@ defmodule FluxVale.Infrastructure.Operations.PrivateInClusterPathsTest do
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.ReconcileInstance
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   defp owner do
-    User.create!("private-paths-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+    owner =
+      User.create!("private-paths-#{System.unique_integer()}@fluxvale.com", %{},
+        authorize?: false
+      )
+
+    # The backup run's wallet guard reads the org's ledger — paid here;
+    # the gate's own shapes live in run_instance_backup_test.
+    BillingFixtures.mark_user_paid!(owner)
+
+    owner
   end
 
   defp private_instance!(owner, status) do

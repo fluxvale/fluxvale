@@ -12,6 +12,7 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
   alias FluxVale.Billing
   alias FluxVale.Checks.ActorOrgWalletFunded
   alias FluxVale.Identity.User
+  alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.TestSupport.AccountsFixtures
@@ -74,6 +75,45 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
       orgless = Ash.Seed.seed!(User, %{email: "orgless-#{System.unique_integer()}@fluxvale.test"})
 
       assert ActorOrgWalletFunded.match?(orgless, %{subject: %Instance{}}, [])
+    end
+
+    test "a settings row's org resolves THROUGH its instance — the instance org's wallet answers",
+         %{
+           version: version
+         } do
+      # The BackupSetting shape: the row belongs to its instance, not
+      # the organization, so the check reads the org one hop along the
+      # same FK the policies read.
+      owner =
+        User.create!("funded-through-#{System.unique_integer()}@fluxvale.test", %{},
+          authorize?: false
+        )
+
+      instance =
+        Instance.create!(
+          %{name: "Through", app_version_id: version.id, env_vars: %{}},
+          actor: owner
+        )
+
+      setting =
+        BackupSetting
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            instance_id: instance.id,
+            endpoint: "https://account.r2.cloudflarestorage.com",
+            bucket: "fluxvale-kavita",
+            access_key_id: "AKIAIOSFODNN7EXAMPLE"
+          },
+          authorize?: false
+        )
+        |> Ash.create!()
+
+      changeset = Ash.Changeset.for_update(setting, :update, %{}, authorize?: false)
+
+      # The instance org's wallet is welcome-funded, so the check passes
+      # — and it read the RIGHT wallet (the instance's), not the actor's.
+      assert ActorOrgWalletFunded.match?(nil, %{subject: changeset}, [])
     end
   end
 
@@ -190,6 +230,37 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
 
       changeset = Ash.Changeset.for_update(stopped, :start, %{}, actor: owner)
       forged = %{changeset | data: %{stopped | organization_id: funded_other.id}}
+
+      assert {:error, %Ash.Error.Forbidden{}} = Instance.start(forged, actor: owner)
+    end
+
+    test "a forged nil organization_id on an update is refused — the row's org answers", %{
+      version: version
+    } do
+      # The exploit this closes: route the update by its nil attribute
+      # and it takes the create path — the actor's WELCOME-FUNDED
+      # personal org — while the real row's org is drained.
+      stub_scale()
+
+      {org, _wallet, owner} = funded_org_owner!()
+
+      instance =
+        Instance.create!(%{name: "Forge Nil", app_version_id: version.id, env_vars: %{}},
+          actor: owner
+        )
+
+      stopped =
+        Enum.reduce([:deploying, :starting, :running, :stopped], instance, fn status, acc ->
+          {:ok, next} = InstanceK8s.update_status(acc, status, nil)
+          next
+        end)
+
+      InstanceFixtures.pin!(stopped, namespace: "fluxvale-app-#{instance.id}")
+
+      BillingFixtures.drain_wallet!(org)
+
+      changeset = Ash.Changeset.for_update(stopped, :start, %{}, actor: owner)
+      forged = %{changeset | data: %{stopped | organization_id: nil}}
 
       assert {:error, %Ash.Error.Forbidden{}} = Instance.start(forged, actor: owner)
     end

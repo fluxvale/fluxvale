@@ -13,7 +13,9 @@ defmodule FluxVale.Checks.ActorOrgHasPaidTest do
   alias FluxVale.Checks.ActorOrgHasPaid
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.AccessGateway
+  alias FluxVale.Infrastructure.Instance
   alias FluxVale.TestSupport.BillingFixtures
+  alias FluxVale.TestSupport.InstanceFixtures
 
   describe "org_paid?/1" do
     test "a welcome-only org has not paid — the signup grant is not a card" do
@@ -94,6 +96,37 @@ defmodule FluxVale.Checks.ActorOrgHasPaidTest do
       orgless = Ash.Seed.seed!(User, %{email: "orgless-#{System.unique_integer()}@fluxvale.test"})
 
       assert ActorOrgHasPaid.match?(orgless, %{subject: %AccessGateway{}}, [])
+    end
+
+    test "a forged nil organization_id on an update answers the ROW's org, never the actor's" do
+      # The exploit this closes: route the update by its nil attribute
+      # and it takes the create path — the actor's PAID personal org —
+      # while the row's own org never paid.
+      version = InstanceFixtures.app_version!()
+      InstanceFixtures.local_cluster!()
+
+      row_owner =
+        User.create!("paid-probe-row-#{System.unique_integer()}@fluxvale.test", %{},
+          authorize?: false
+        )
+
+      instance =
+        Instance.create!(
+          %{name: "Row Org", app_version_id: version.id, env_vars: %{}},
+          actor: row_owner
+        )
+
+      paid_actor =
+        User.create!("paid-probe-actor-#{System.unique_integer()}@fluxvale.test", %{},
+          authorize?: false
+        )
+
+      BillingFixtures.mark_user_paid!(paid_actor)
+
+      changeset = Ash.Changeset.for_update(instance, :start, %{}, authorize?: false)
+      forged = %{changeset | data: %{instance | organization_id: nil}}
+
+      refute ActorOrgHasPaid.match?(paid_actor, %{subject: forged}, [])
     end
   end
 
