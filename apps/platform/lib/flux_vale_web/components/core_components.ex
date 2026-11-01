@@ -882,8 +882,18 @@ defmodule FluxValeWeb.CoreComponents do
 
   @doc """
   Renders a wizard progress stepper (deploy wizard, top-up wizard,
-  #178 wave 2). Numbered chips: done states in success, the current
-  step in primary, upcoming muted.
+  #178 wave 2). Numbered chips on a hairline rail, in the working
+  register: mono uppercase step labels, the amber `--focus` accent on
+  the current chip (the travelled rail is decorative — it fails
+  1.4.11's non-text bar on both surfaces it sits on; hostile-348 F5 —
+  the chips carry state), done states in success. Done labels ride
+  `--success-deep` — the stepper can sit on a sunken band (the deploy
+  wizard), where plain `--success` falls under 4.5:1 (CodeRabbit
+  #348) — and done discs carry a check glyph, the shape cue that
+  survives colour-vision deficiency (hostile-348 F4). Labels track
+  0.08em: at the eyebrow's 0.18em the top-up stepper's wrap cliff
+  moves 115px (hostile-348 F1). Rail stubs hide below sm, where rows
+  wrap.
 
   ## Examples
 
@@ -908,14 +918,14 @@ defmodule FluxValeWeb.CoreComponents do
   def stepper(assigns) do
     ~H"""
     <ol
-      class="flex flex-wrap items-center gap-2 text-sm"
+      class="flex flex-wrap items-center gap-2 font-mono text-xs uppercase tracking-[0.08em]"
       data-testid={@testid_prefix && "#{@testid_prefix}-stepper"}
     >
       <li
         :for={{step, index} <- Enum.with_index(@steps)}
         class={[
           "flex items-center gap-2",
-          index < @current && "text-success",
+          index < @current && "text-success-deep",
           index == @current && "font-semibold text-ink",
           index > @current && "text-ink-subtle"
         ]}
@@ -924,13 +934,29 @@ defmodule FluxValeWeb.CoreComponents do
         <span class={[
           "flex size-6 items-center justify-center rounded-full border text-xs font-medium",
           index < @current && "border-line-success bg-success-muted text-success",
-          index == @current && "border-primary bg-primary-muted text-link",
+          index == @current && "border-focus bg-focus/10 text-link",
           index > @current && "border-line bg-panel text-ink-subtle"
         ]}>
-          {index + 1}
+          <%!-- Shape cue for done (hostile-348 F4): the deep-green label is
+          AA on the sunken band but near-no-op vs the todo grey for
+          deuteranopes (dE 4.9), so the done disc carries a check instead
+          of the number — the one cue that survives CVD. --%>
+          <.icon :if={index < @current} name="hero-check" class="size-3.5" />
+          <span :if={index >= @current}>{index + 1}</span>
         </span>
         {elem(step, 1)}
-        <span :if={index < length(@steps) - 1} class="h-px w-4 bg-line" aria-hidden="true" />
+        <%!-- Rail stubs hide below sm: wrapped rows would end in a
+        travelled-amber dash promising progress-continues-right into the
+        next line (hostile-348 F6). >=sm stays one row — rails intact. --%>
+        <span
+          :if={index < length(@steps) - 1}
+          class={[
+            "hidden h-px w-6 sm:block",
+            index < @current && "bg-focus/40",
+            index >= @current && "bg-line"
+          ]}
+          aria-hidden="true"
+        />
       </li>
     </ol>
     """
