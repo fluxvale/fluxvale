@@ -89,6 +89,22 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       forbid_if(always())
     end
 
+    # Settlement's writes are the billing machinery's (the S6 worker and
+    # its per-domain settle, ADR-0040 §11) — system seams like the
+    # funnels above.
+    policy action([:settle_anchors, :perform_settle]) do
+      description("System-only: the settlement cursor and its settle body (authorize?: false)")
+      forbid_if(always())
+    end
+
+    # Resuming a billing suspension spends money: membership AND a
+    # funded wallet (the gateway :resume stance, ADR-0040 §11).
+    policy action(:resume) do
+      description("Members resume their org's own domain — membership AND a funded wallet")
+      forbid_unless(relates_to_actor_via([:organization, :members]))
+      authorize_if(FluxVale.Checks.ActorOrgWalletFunded)
+    end
+
     policy action(:remove) do
       description("Members remove their org's custom domains")
       authorize_if(relates_to_actor_via([:organization, :members]))
@@ -134,6 +150,14 @@ defmodule FluxVale.Infrastructure.AccessDomain do
     # by the verify pass, read from the observed Certificate's
     # spec.secretName (never guessed from config).
     attribute :cert_secret_ref, :string do
+      public?(false)
+    end
+
+    # The S6 settlement cursor (ADR-0040 §11 — the gateway
+    # `metering_since` stance): the FIRST settle of a serving row opens
+    # it; a suspension parks it, so the suspended interval cannot bill
+    # on resume. Internal.
+    attribute :metering_since, :utc_datetime_usec do
       public?(false)
     end
 
@@ -281,16 +305,46 @@ defmodule FluxVale.Infrastructure.AccessDomain do
     update :mark_suspended do
       description("""
       System-only: the S6 billing ladder's suspension (a lapsed custom
-      domain). No writer yet — S6 owns it; the funnel exists so the
-      ladder lands through the same one-funnel-per-transition discipline.
+      domain) — the honest-dark demotion: the domain's edge routes and
+      its tailnet claim go dark with it, and the settlement anchor
+      parks (see Suspend).
       """)
 
       accept([])
       require_atomic?(false)
 
-      change(fn changeset, _context ->
-        Ash.Changeset.force_change_attribute(changeset, :state, :suspended)
-      end)
+      change(FluxVale.Infrastructure.AccessDomain.Suspend)
+    end
+
+    # Settlement's cursor write (the gateway `settle_anchors` shape).
+    update :settle_anchors do
+      description(
+        "System-only: the settlement cursor write (PerformSettle, under the wallet lock)."
+      )
+
+      accept([:metering_since])
+      require_atomic?(false)
+    end
+
+    update :perform_settle do
+      description("The S6 settle body — see PerformSettle (ADR-0040 §11).")
+      require_atomic?(false)
+      accept([])
+
+      change(FluxVale.Infrastructure.AccessDomain.PerformSettle)
+    end
+
+    update :resume do
+      description("""
+      The owner's funded resume after a billing suspension — the row
+      back to :verified, the accrual window reopened, the tailnet claim
+      and the domain's access arms re-minted (see Resume).
+      """)
+
+      require_atomic?(false)
+      accept([])
+
+      change(FluxVale.Infrastructure.AccessDomain.Resume)
     end
 
     destroy :remove do
@@ -328,6 +382,9 @@ defmodule FluxVale.Infrastructure.AccessDomain do
     define(:mark_failed)
     define(:mark_needs_attention)
     define(:mark_suspended)
+    define(:settle_anchors)
+    define(:perform_settle)
+    define(:resume)
     define(:remove)
   end
 
@@ -363,6 +420,20 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       |> String.slice(-10, 10)
 
     "access-domain-#{short_id}"
+  end
+
+  # The custom-domain monthly rate (cents) — ADR-0040 §11's line, the
+  # ONE reader of the configured price: the settle prorates it, the
+  # runway projects it. The number is policy (config
+  # `:access_domain_pricing`, env-overridable at boot via runtime.exs),
+  # never logic — no rate literal lives in a billing path.
+  @doc """
+  The monthly rate a `:custom` domain bills at (integer cents).
+  """
+  @spec monthly_cents() :: pos_integer()
+  def monthly_cents do
+    config = Application.fetch_env!(:flux_vale, :access_domain_pricing)
+    Keyword.fetch!(config, :monthly_cents)
   end
 
   # The Certificate spec register applies and the verify pass RE-applies

@@ -18,6 +18,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient
   alias FluxVale.Infrastructure.AccessRoute
+  alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
@@ -294,10 +295,31 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
       gateway = claimed_gateway!(org)
       instance = attached_private!(org, owner, gateway)
 
-      # mark_suspended is the billing ladder's funnel (S6's writer; the
-      # ladder itself is a later slice).
+      # mark_suspended is the billing ladder's funnel — its writer (S6)
+      # takes both service tails dark, so the demotion's cluster legs
+      # are stubbed here; the RENDERER's contract is what this test
+      # pins: a suspended row is not answerable, whatever the claims
+      # map the caller hands render/1 still says.
+      Mimic.copy(EdgeRoutes)
+
+      stub(EdgeRoutes, :apply_access_none_for_domain, fn _kc, _instance, _domain -> :ok end)
+
+      stub(Tailscale, :unclaim_domain, fn _gw, _d -> :ok end)
+
       domain = domain_row!(org, @base_domain)
       {:ok, _suspended} = AccessDomain.mark_suspended(domain, %{}, authorize?: false)
+
+      # The demotion UNCLAIMS (S6's honest-dark arm deletes the claims
+      # entry). The renderer's guard is for the race shape — a claims
+      # entry that outlives the demotion (a racing write) — so the
+      # entry is re-staged through the system funnel and the suspended
+      # ROW must still not answer, while the zone keeps its default.
+      fresh = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+
+      Ash.update!(fresh, %{dns_claims: %{@base_domain => @claims}},
+        action: :update_claims,
+        authorize?: false
+      )
 
       corefile = RenderAccessDNS.render(%{gateway.id => resolver_entry()})
 

@@ -149,6 +149,25 @@ case System.get_env("ACCESS_DNS_RESOLVER_IP") do
     config :flux_vale, :access_dns, resolver_ip: ip
 end
 
+# ADR-0040 §11's billing line, env-overridable (the pricing is policy —
+# the fleet may reprice without a release). Unset keeps the config.exs
+# default; a non-integer or non-positive override raises at boot — a
+# typo'd price would otherwise silently reprice every custom domain.
+case System.get_env("ACCESS_DOMAIN_MONTHLY_CENTS") do
+  cents when cents in [nil, ""] ->
+    :ok
+
+  cents ->
+    case Integer.parse(cents) do
+      {parsed, ""} when parsed > 0 ->
+        config :flux_vale, :access_domain_pricing, monthly_cents: parsed
+
+      _invalid ->
+        raise ArgumentError,
+              "ACCESS_DOMAIN_MONTHLY_CENTS=#{inspect(cents)} is not a positive integer"
+    end
+end
+
 # #203: the idle-sleep threshold (ADR-0036's settled 1h default lives in
 # config.exs). The E2E stack shortens it via the bootstrap — a real
 # 1-hour wait would blow the suite's budget; the same override is the

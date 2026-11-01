@@ -388,12 +388,18 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   # The domain's arms (ADR-0040 Am. 1 as built)
   # ------------------------------------------------------------------
 
-  # The instances that actually serve this domain through the access
-  # edge: the domain's hostnames' instances that are private (an
-  # attached public row holds no access arms — the toggle removed them)
-  # and attached (a pairing row — without one nothing can deliver, and
-  # apply_access_none's own read drives removal).
-  defp serving_instances(domain) do
+  # Public: the S6 ladder's suspension removes exactly this
+  # population's routes (honest dark for the domain), and the resume
+  # re-arms it — one selector, three consumers, or the notion forks.
+  @doc """
+  The instances that actually serve this domain through the access
+  edge: the domain's hostnames' instances that are private (an
+  attached public row holds no access arms — the toggle removed them)
+  and attached (a pairing row — without one nothing can deliver, and
+  apply_access_none's own read drives removal).
+  """
+  @spec serving_instances(AccessDomain.t()) :: [Instance.t()]
+  def serving_instances(domain) do
     InstanceHostname
     |> Ash.Query.filter(access_domain_id == ^domain.id)
     |> Ash.read!(authorize?: false)

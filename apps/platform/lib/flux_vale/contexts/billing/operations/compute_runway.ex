@@ -8,7 +8,10 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
   deployed-and-`:stopped`, `:sleeping`, and `:restoring` instances
   accrue the storage-only stopped rate (ADR-0028 §2 — sleep is
   storage-only by construction, #203; a restore holds the app down the
-  same way, #222); everything else accrues nothing yet. Unpriced rows
+  same way, #222); everything else accrues nothing yet. `:active`
+  gateways accrue their stored monthly rate (ADR-0039 §5); serving
+  custom domains accrue the CONFIGURED monthly rate (ADR-0040 §11 —
+  the same arms and function the settle reads). Unpriced rows
   (no size AND
   no formula snapshot — pre-#121 drift or a hand-built half-snapshot)
   burn nothing, matching settle's forgiveness; a sizeless custom
@@ -24,6 +27,7 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
 
   alias FluxVale.Billing.Operations.ReadBalance
   alias FluxVale.Billing.Wallet
+  alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Pricing
@@ -48,10 +52,11 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
 
     instances = org_instances(wallet.organization_id)
     gateways = org_gateways(wallet.organization_id)
+    domains = org_custom_domains(wallet.organization_id)
 
     with {:ok, balance} <- ReadBalance.call(wallet, authorize?: false),
          {:ok, instance_burn} <- burn_micro_per_hour(instances, now) do
-      burn = instance_burn + gateway_micro_per_hour(gateways)
+      burn = instance_burn + gateway_micro_per_hour(gateways) + domain_micro_per_hour(domains)
       runway = runway_hours(balance, burn)
 
       {:ok,
@@ -88,6 +93,27 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
       %AccessGateway{state: :active, monthly_cents: cents}, acc -> acc + hourly_micro(cents)
       _gateway, acc -> acc
     end)
+  end
+
+  # ADR-0040 §11's third application of the MUST-FIX pattern: a domain
+  # debit invisible to burn would let the runway over-estimate. The
+  # accruing arms are the settle's (a `:custom` row in `:verified` or
+  # `:needs_attention` — both SERVE; `:pending`/`:failed` never
+  # accrued, `:suspended` accrues nothing by definition, and `:platform`
+  # rows are excluded at the read). The rate is the CONFIGURED price,
+  # not a stored snapshot — the same one function settle reads, so a
+  # repricing moves the projection and the accrual together.
+  defp domain_micro_per_hour(domains) do
+    monthly = AccessDomain.monthly_cents()
+
+    Enum.reduce(domains, 0, fn _domain, acc -> acc + hourly_micro(monthly) end)
+  end
+
+  defp org_custom_domains(organization_id) do
+    AccessDomain
+    |> Ash.Query.filter(organization_id == ^organization_id and kind == :custom)
+    |> Ash.Query.filter(state in [:verified, :needs_attention])
+    |> Ash.read!(authorize?: false)
   end
 
   defp burn_micro_per_hour(instances, now) do

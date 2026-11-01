@@ -103,7 +103,19 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomain do
   # The unclaim limb (ADR-0040 S3) — P1-2's step (2), see moduledoc
   # ------------------------------------------------------------------
 
-  defp unclaim_tailnet_state(domain) do
+  # Public for the one other system caller: the S6 billing ladder's
+  # suspension un-claims the same way the remove does (the honest-dark
+  # arm — reuse, never a second unclaim implementation).
+  @doc """
+  The unclaim limb on its own: reverts the domain's tailnet state
+  (split-DNS route and subnet route per the provider's shared-tailnet
+  rule, the gateway's `dns_claims` entry dropped through the system
+  funnel). No gateway — nothing to un-claim, `:ok`. `:ok` or
+  `{:error, term()}`; a failure leaves the tailnet state standing (the
+  retry converges — the PATCH nil is idempotent).
+  """
+  @spec unclaim_tailnet_state(AccessDomain.t()) :: :ok | {:error, term()}
+  def unclaim_tailnet_state(domain) do
     found = AccessGateway.get_for_organization(domain.organization_id, authorize?: false)
 
     case found do
@@ -125,11 +137,16 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomain do
     end
   end
 
-  defp gateway_missing?(%Ash.Error.Invalid{errors: errors}) do
+  # Public with the unclaim limb (its no-gateway arm is the matcher's
+  # only consumer today, and the S6 resume path narrows the same miss
+  # shape — P3-9's one owner for "the gateway is not there").
+  @doc false
+  @spec gateway_missing?(term()) :: boolean()
+  def gateway_missing?(%Ash.Error.Invalid{errors: errors}) do
     Enum.any?(errors, &match?(%Ash.Error.Query.NotFound{resource: AccessGateway}, &1))
   end
 
-  defp gateway_missing?(_other), do: false
+  def gateway_missing?(_other), do: false
 
   # The unset is unconditional now (P1-2): a claims map without the
   # entry does NOT mean the tailnet is clean — the entry can have been
