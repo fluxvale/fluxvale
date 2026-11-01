@@ -14,6 +14,7 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
@@ -55,6 +56,24 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
 
       # create changesets carry no org yet → the actor path → :none → pass
       assert ActorOrgWalletFunded.match?(orgless, %{subject: create_subject}, [])
+    end
+
+    test "a reload failure fails closed — a struct naming no row never passes" do
+      {_org, wallet} = BillingFixtures.funded_wallet!()
+
+      # The in-memory struct CLAIMS the funded org, but its primary key
+      # names no row: the fresh DB read fails and the gate answers
+      # false instead of trusting the caller.
+      phantom = %Instance{id: Ecto.UUID.generate(), organization_id: wallet.organization_id}
+      changeset = Ash.Changeset.for_update(phantom, :start, %{}, authorize?: false)
+
+      refute ActorOrgWalletFunded.match?(nil, %{subject: changeset}, [])
+    end
+
+    test "a non-changeset subject routes to the actor path — the create stance" do
+      orgless = Ash.Seed.seed!(User, %{email: "orgless-#{System.unique_integer()}@fluxvale.test"})
+
+      assert ActorOrgWalletFunded.match?(orgless, %{subject: %Instance{}}, [])
     end
   end
 
@@ -137,6 +156,42 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
       {:ok, _grant} = Billing.grant_credits(wallet, 100, reason: :adjustment)
       assert {:ok, starting} = Instance.start(stopped, actor: owner)
       assert starting.status == :starting
+    end
+
+    test "a forged struct naming a funded org is still refused — the row's org answers", %{
+      version: version
+    } do
+      # An in-process caller controls the changeset's in-memory struct:
+      # forge its organization_id to name the actor's FUNDED personal
+      # org while the real row's org is drained. The check re-reads the
+      # row from the DB, so the forgery changes nothing.
+      stub_scale()
+
+      {org, _wallet, owner} = funded_org_owner!()
+
+      instance =
+        Instance.create!(%{name: "Forge", app_version_id: version.id, env_vars: %{}},
+          actor: owner
+        )
+
+      stopped =
+        Enum.reduce([:deploying, :starting, :running, :stopped], instance, fn status, acc ->
+          {:ok, next} = InstanceK8s.update_status(acc, status, nil)
+          next
+        end)
+
+      InstanceFixtures.pin!(stopped, namespace: "fluxvale-app-#{instance.id}")
+
+      BillingFixtures.drain_wallet!(org)
+
+      # A second org the actor owns, funded — the forgery's claim.
+      funded_other = AccountsFixtures.owned_org!(owner)
+      BillingFixtures.funded_wallet!(org: funded_other)
+
+      changeset = Ash.Changeset.for_update(stopped, :start, %{}, actor: owner)
+      forged = %{changeset | data: %{stopped | organization_id: funded_other.id}}
+
+      assert {:error, %Ash.Error.Forbidden{}} = Instance.start(forged, actor: owner)
     end
   end
 

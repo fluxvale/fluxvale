@@ -8,7 +8,10 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   Slug-keyed mount like the sibling tabs; unknown slugs (and policy
   denials) read as "not here" — never a bare 404. Owners-only in the
   panel is a UX gate, not the authority: the actions' own policies
-  (membership, funded wallet) are what actually forbid a call.
+  (membership, funded wallet) are what actually forbid a call. The
+  wallet hints report the wallet each affordance acts on — enable
+  bills the actor's personal org, resume the row's org — never the
+  page org by accident.
 
   S5: the personal org's access panel moved INTO user settings —
   `/settings/access` mounts this same LiveView under the named
@@ -34,6 +37,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   alias Ash.Error.Forbidden
   alias FluxVale.Accounts.Organization
   alias FluxVale.Checks.ActorIsOrganizationOwner
+  alias FluxVale.Checks.ActorOrgHasPaid
   alias FluxVale.Checks.ActorOrgWalletFunded
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessGateway
@@ -158,7 +162,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     |> assign(attach_error: nil)
     |> stream_configure(:attached, dom_id: &"access-attached-#{&1.route.id}")
     |> stream_configure(:attachable, dom_id: &"access-attach-#{&1.id}")
-    |> refresh_funded()
+    |> refresh_wallet_gates()
     |> assign_forms()
     |> refresh_pairing()
   end
@@ -193,10 +197,10 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
       {:error, form} ->
         if forbidden?(form) do
-          # The funded-wallet gate — the fix is the wallet, so the copy
-          # says so instead of rendering a field error. The form is
-          # rebuilt from the row (no key echo — see clear_key_display)
-          # and carries only the errors.
+          # A policy gate (funded or paid-once) — the fix is the wallet,
+          # so the copy says so instead of rendering a field error. The
+          # form is rebuilt from the row (no key echo — see
+          # clear_key_display) and carries only the errors.
           {:noreply,
            socket
            |> put_flash(:error, "Top up before enabling private access.")
@@ -328,7 +332,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
          socket
          |> put_flash(:info, "Private access is reconnecting — this page updates on its own.")
          |> assign(gateway: gateway)
-         |> refresh_funded()
+         |> refresh_wallet_gates()
          |> assign_forms()}
 
       {:error, %Forbidden{}} ->
@@ -433,7 +437,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     socket =
       socket
       |> assign(:gateway, gateway)
-      |> refresh_funded()
+      |> refresh_wallet_gates()
       |> maybe_rebuild_panel(gateway, previous)
 
     {:noreply, socket}
@@ -503,7 +507,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           <.gateway_card
             gateway={@gateway}
             form={@form}
-            funded?={@funded?}
+            row_funded?={@row_funded?}
+            row_paid?={@row_paid?}
             billing_path={@billing_path}
             repaste_open?={@repaste_open?}
             remove_armed?={@remove_armed?}
@@ -537,7 +542,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           <.access_empty_state
             personal?={@personal?}
             form={@form}
-            funded?={@funded?}
+            create_funded?={@create_funded?}
+            create_paid?={@create_paid?}
             billing_path={@billing_path}
             price_cents={@price_cents}
           />
@@ -556,7 +562,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   attr(:personal?, :boolean, required: true)
   attr(:billing_path, :string, required: true)
   attr(:form, :any, required: true)
-  attr(:funded?, :boolean, required: true)
+  attr(:create_funded?, :boolean, required: true)
+  attr(:create_paid?, :boolean, required: true)
   attr(:price_cents, :integer, required: true)
 
   defp access_empty_state(assigns) do
@@ -596,8 +603,29 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           {Pricing.format_usd(@price_cents)}/month, billed hourly while connected.
         </p>
 
+        <%!-- The blocking gate's own hint, shown up front: a wallet that
+            has never PAID sees the paid-once callout (the welcome credit
+            does not unlock enablement), a paid-but-empty one the balance
+            copy. Two testids — the states assert separately. --%>
         <.callout
-          :if={!@funded?}
+          :if={!@create_paid?}
+          id="access-paid-hint"
+          tone="warning"
+          data-testid="access-paid-hint"
+        >
+          <p>
+            Private access needs a one-time top-up of at least $1 — add funds in <.link
+              navigate={@billing_path}
+              class="underline underline-offset-2 hover:text-ink"
+              data-testid="access-paid-link"
+            >
+              Billing
+            </.link>.
+          </p>
+        </.callout>
+
+        <.callout
+          :if={@create_paid? and !@create_funded?}
           id="access-prefund-hint"
           tone="warning"
           data-testid="access-prefund-hint"
@@ -660,7 +688,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
   attr(:gateway, AccessGateway, required: true)
   attr(:form, :any, required: true)
-  attr(:funded?, :boolean, required: true)
+  attr(:row_funded?, :boolean, required: true)
+  attr(:row_paid?, :boolean, required: true)
   attr(:billing_path, :string, required: true)
   attr(:repaste_open?, :boolean, required: true)
   attr(:remove_armed?, :boolean, required: true)
@@ -697,7 +726,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       <.gateway_actions
         gateway={@gateway}
         form={@form}
-        funded?={@funded?}
+        row_funded?={@row_funded?}
+        row_paid?={@row_paid?}
         billing_path={@billing_path}
         repaste_open?={@repaste_open?}
         remove_armed?={@remove_armed?}
@@ -708,7 +738,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
   attr(:gateway, AccessGateway, required: true)
   attr(:form, :any, required: true)
-  attr(:funded?, :boolean, required: true)
+  attr(:row_funded?, :boolean, required: true)
+  attr(:row_paid?, :boolean, required: true)
   attr(:billing_path, :string, required: true)
   attr(:repaste_open?, :boolean, required: true)
   attr(:remove_armed?, :boolean, required: true)
@@ -752,7 +783,11 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           />
           <.remove_panel armed?={@remove_armed?} />
         <% @gateway.state == :suspended -> %>
-          <.suspended_panel funded?={@funded?} billing_path={@billing_path} />
+          <.suspended_panel
+            row_funded?={@row_funded?}
+            row_paid?={@row_paid?}
+            billing_path={@billing_path}
+          />
           <.remove_panel armed?={@remove_armed?} />
         <% @gateway.state == :destroying -> %>
           <p class="text-sm text-ink-muted" data-testid="access-removing-note">
@@ -876,7 +911,12 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     """
   end
 
-  attr(:funded?, :boolean, required: true)
+  # The resume button only where resume can succeed — the ROW's org
+  # funded AND paid. A never-paid org (funded on welcome credit alone)
+  # would hit the paid-once Forbidden, so it sees the top-up line
+  # instead.
+  attr(:row_funded?, :boolean, required: true)
+  attr(:row_paid?, :boolean, required: true)
   attr(:billing_path, :string, required: true)
 
   defp suspended_panel(assigns) do
@@ -888,7 +928,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           reachable only through the panel, and nothing accrues while suspended.
         </p>
       </.callout>
-      <%= if @funded? do %>
+      <%= if @row_funded? and @row_paid? do %>
         <.button type="button" phx-click="resume" size="sm" data-testid="access-resume">
           Resume private access
         </.button>
@@ -1133,9 +1173,64 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   # coveralls-ignore-next-line
   defp stale_gateway?(_error), do: false
 
-  defp refresh_funded(socket) do
-    assign(socket, funded?: ActorOrgWalletFunded.org_funded?(socket.assigns.org.id))
+  # Two wallets in play, named so they can't be conflated — the
+  # divergence the funded hint carried since the panel landed:
+  #
+  # - `create_*` — the wallet an ENABLE create bills. The create change
+  #   (SetOrganizationFromActor) pins the ACTOR'S PERSONAL ORG, so the
+  #   empty state's hints read that wallet: the page org on the
+  #   :personal mount, the actor's personal org on org pages.
+  # - `row_*` — the gateway ROW's org wallet: resume spends the row's
+  #   org, so the suspended panel's affordance reads that.
+  defp refresh_wallet_gates(socket) do
+    create_org_id = create_wallet_org_id(socket)
+    row_org_id = row_wallet_org_id(socket.assigns.gateway)
+
+    socket
+    |> assign(
+      create_funded?: wallet_funded?(create_org_id),
+      create_paid?: wallet_paid?(create_org_id)
+    )
+    |> assign(
+      row_funded?: wallet_funded?(row_org_id),
+      row_paid?: wallet_paid?(row_org_id)
+    )
   end
+
+  # The :personal mount's page org IS the create's billing wallet.
+  defp create_wallet_org_id(%{assigns: %{live_action: :personal}} = socket),
+    do: socket.assigns.org.id
+
+  # An org page resolves the actor's personal org through the canonical
+  # resolver — the same lookup the create pins, so the hints and the
+  # click can never disagree. :none / read failure → nil: fail closed
+  # (the hints show; the click would fail anyway).
+  defp create_wallet_org_id(socket) do
+    case PersonalOrg.org_for(socket.assigns.current_user) do
+      {:ok, org} ->
+        org.id
+
+      # defensive: a UI-reachable actor always owns the page org, so the
+      # resolver returns one — this arm only bounds a seeded/legacy
+      # shape. Fail closed.
+      # coveralls-ignore-start
+      _none_or_error ->
+        nil
+
+        # coveralls-ignore-stop
+    end
+  end
+
+  defp row_wallet_org_id(nil), do: nil
+  defp row_wallet_org_id(%AccessGateway{organization_id: org_id}), do: org_id
+
+  # nil = no resolvable wallet (no row yet / no personal org): fail
+  # closed — the empty state's hints show, nothing else reads these.
+  defp wallet_funded?(nil), do: false
+  defp wallet_funded?(org_id), do: ActorOrgWalletFunded.org_funded?(org_id)
+
+  defp wallet_paid?(nil), do: false
+  defp wallet_paid?(org_id), do: ActorOrgHasPaid.org_paid?(org_id)
 
   # ---- Pairing data + copy (§4.1) ----
 

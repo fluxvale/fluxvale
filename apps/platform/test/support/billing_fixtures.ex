@@ -38,6 +38,19 @@ defmodule FluxVale.TestSupport.BillingFixtures do
   end
 
   @doc """
+  Marks the org as PAID — one $1+ `:purchase` credit through the
+  payment-webhook seam (`Billing.credit_wallet/3`). The paid-once gate
+  on private-access enablement reads exactly this ledger shape; the
+  other fixtures fund via welcome/adjustment credits, which
+  deliberately never qualify.
+  """
+  @spec mark_paid!(Organization.t() | Billing.Wallet.t()) :: Billing.LedgerEntry.t()
+  def mark_paid!(target) do
+    {:ok, entry} = Billing.credit_wallet(target, 100)
+    entry
+  end
+
+  @doc """
   Debits the org's wallet to exactly zero — the funded-gate tests'
   precondition (the gate reads the live ledger). The ledger's unit is
   micro-cents, hence the ×10_000.

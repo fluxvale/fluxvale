@@ -14,6 +14,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
   alias Ash.Error.Changes.StaleRecord
   alias Ash.Error.Invalid
   alias FluxVale.Accounts.Membership
+  alias FluxVale.Billing
   alias FluxVale.Clients.K8s
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessGateway
@@ -40,9 +41,14 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
 
     # The funded gates read the live ledger: each wallet funds
     # explicitly (the JIT welcome grant only ever rode the personal
-    # org); the unfunded tests drain whichever their gate reads.
+    # org); the unfunded tests drain whichever their gate reads. The
+    # paid-once gate reads the same ledger: a purchase credit marks
+    # both orgs paid, so the tests below exercise the gates they name
+    # (the never-paid shapes are built inside their own tests).
     BillingFixtures.funded_wallet!(org: org)
     BillingFixtures.funded_wallet!(org: personal)
+    BillingFixtures.mark_paid!(org)
+    BillingFixtures.mark_paid!(personal)
 
     {:ok, conn: SessionHelpers.sign_in(conn, owner), owner: owner, org: org, personal: personal}
   end
@@ -82,13 +88,57 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       refute general_tab =~ "border-primary"
     end
 
-    test "an unfunded org sees the top-up hint before submitting", %{conn: conn, org: org} do
-      drain_wallet!(org)
+    test "an empty state reports the personal org's wallet, not the page org's", %{
+      conn: conn,
+      org: org,
+      personal: personal
+    } do
+      # The enable create bills the ACTOR'S PERSONAL ORG
+      # (SetOrganizationFromActor) — the hints must report that wallet.
+      # The page org stays funded+paid (setup); draining the personal
+      # org is what lights the hint on this page.
+      drain_wallet!(personal)
 
       {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
 
       assert has_element?(view, "[data-testid='access-prefund-hint']")
       assert has_element?(view, "[data-testid='access-prefund-link']")
+    end
+
+    test "a never-paid personal org sees the paid-gate callout even on a paid org's page", %{
+      conn: conn
+    } do
+      # The page org is funded+paid; the owner's personal org — the
+      # create's billing wallet — is never-paid on its JIT welcome
+      # credit alone. Today's split-bug shape: the page-org read showed
+      # no hint and the enable click died on a Forbidden.
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+      BillingFixtures.funded_wallet!(org: org)
+      BillingFixtures.mark_paid!(org)
+
+      {:ok, view, _html} =
+        live(SessionHelpers.sign_in(conn, owner), ~p"/organizations/#{org.slug}/settings/access")
+
+      assert has_element?(view, "[data-testid='access-paid-hint']")
+      assert has_element?(view, "[data-testid='access-paid-link']")
+      refute has_element?(view, "[data-testid='access-prefund-hint']")
+    end
+
+    test "a paid-but-empty personal org sees the balance copy, not the paid-gate callout", %{
+      conn: conn,
+      personal: personal
+    } do
+      # The purchase credit survives the drain (the ledger is
+      # append-only) — paid stands, the balance gate is what blocks.
+      # The personal mount: page org and create wallet are the same.
+      drain_wallet!(personal)
+
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      assert has_element?(view, "[data-testid='access-prefund-hint']")
+      assert has_element?(view, "[data-testid='access-prefund-link']")
+      refute has_element?(view, "[data-testid='access-paid-hint']")
     end
 
     test "a non-owner member is gated away", %{conn: conn, org: org} do
@@ -128,6 +178,10 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       personal = AccountsFixtures.personal_org!(owner)
 
       BillingFixtures.funded_wallet!(org: personal)
+      # The create's paid-once gate reads the personal org too (the
+      # actor path) — these tests exercise the enable flow, not the
+      # paid gate (the unfunded test below drains and still forbids).
+      BillingFixtures.mark_paid!(personal)
       stub_provider()
 
       {:ok, owner: owner, personal: personal, conn: SessionHelpers.sign_in(conn, owner)}
@@ -191,6 +245,30 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       drain_wallet!(personal)
 
       {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      view
+      |> form("#access-enable-form",
+        gateway: %{auth_key: "tskey-auth-abc123", tailnet_domain: "example.ts.net"}
+      )
+      |> render_submit()
+
+      assert has_element?(view, "#flash-error", "Top up before enabling private access")
+
+      # No row: the policy gate answered before any work ran.
+      assert {:error, _none} =
+               AccessGateway.get_for_organization(personal.id, authorize?: false)
+    end
+
+    test "a never-paid org's enable attempt answers with the top-up copy", %{
+      conn: conn
+    } do
+      # The paid-once gate, driven through the panel: the fresh user's
+      # personal org holds its JIT welcome credit (funded) but has never
+      # PAID — the funded gate alone would let this click through.
+      owner = AccountsFixtures.user!()
+      personal = AccountsFixtures.personal_org!(owner)
+
+      {:ok, view, _html} = live(SessionHelpers.sign_in(conn, owner), ~p"/settings/access")
 
       view
       |> form("#access-enable-form",
@@ -384,6 +462,51 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       refute has_element?(view, "[data-testid='access-resume']")
       assert has_element?(view, "[data-testid='access-resume-topup']")
       assert has_element?(view, "[data-testid='access-resume-topup-link']")
+    end
+
+    test ":suspended never-paid — the top-up copy replaces the resume button too", %{
+      conn: conn
+    } do
+      # The legacy shape (a fresh org — the setup orgs are marked paid):
+      # suspended on a never-paid org — resume would be Forbidden, so
+      # the button never shows. Welcome-only positive balance: funded,
+      # never paid. (User first, then the real org — the S5
+      # personal-org route would redirect.)
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+      welcome_only!(org)
+      AccessFixtures.gateway!(org, state: :suspended)
+
+      {:ok, view, _html} =
+        live(SessionHelpers.sign_in(conn, owner), ~p"/organizations/#{org.slug}/settings/access")
+
+      assert has_element?(view, "[data-testid='access-suspended-banner']")
+      refute has_element?(view, "[data-testid='access-resume']")
+      assert has_element?(view, "[data-testid='access-resume-topup']")
+    end
+
+    test ":suspended resume affordance keys on the ROW's org, not the actor's personal org", %{
+      conn: conn
+    } do
+      # The resume spends the ROW's org: B holds the suspended gateway
+      # and is never-paid on welcome credit alone, while the actor's
+      # personal org is paid+-funded. If the panel read the personal
+      # wallet here, the button would show and the click would be
+      # Forbidden — the row's wallet decides.
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+      welcome_only!(org)
+      AccessFixtures.gateway!(org, state: :suspended)
+
+      personal = AccountsFixtures.personal_org!(owner)
+      BillingFixtures.mark_paid!(personal)
+
+      {:ok, view, _html} =
+        live(SessionHelpers.sign_in(conn, owner), ~p"/organizations/#{org.slug}/settings/access")
+
+      assert has_element?(view, "[data-testid='access-suspended-banner']")
+      refute has_element?(view, "[data-testid='access-resume']")
+      assert has_element?(view, "[data-testid='access-resume-topup']")
     end
 
     test ":destroying — the removing note and the retry affordance", %{conn: conn, org: org} do
@@ -1399,4 +1522,12 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
   # the funded gate goes dark (the shared fixture — the funded-check
   # tests use the same one).
   defp drain_wallet!(org), do: BillingFixtures.drain_wallet!(org)
+
+  # The signup shape: a welcome credit only — positive balance, never
+  # paid (no purchase entry). Exactly the org the paid-once gate
+  # exists to stop.
+  defp welcome_only!(org) do
+    {:ok, wallet} = Billing.ensure_wallet(org)
+    {:ok, _welcome} = Billing.grant_credits(wallet, 300)
+  end
 end
