@@ -12,10 +12,19 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackupsTest do
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   defp user do
-    User.create!("configure-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+    user =
+      User.create!("configure-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+    # The paid gate under test reads the org's ledger: the suite's
+    # default user is a paid one (the never-paid shapes are built
+    # inside their own tests).
+    BillingFixtures.mark_user_paid!(user)
+
+    user
   end
 
   # One cluster per test: ResolveCluster pins the only cluster row.
@@ -768,6 +777,179 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackupsTest do
                  actor: stranger
                )
                |> Ash.create()
+    end
+  end
+
+  describe "call/3 — the paid gate" do
+    test "a never-paid member's first save is Forbidden, with the fix in the message" do
+      version = base!()
+
+      owner =
+        User.create!("never-paid-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      instance = instance!(version, owner)
+
+      # Nothing may touch the cluster for a never-paid org: not even a
+      # read of the namespace's Secret.
+      reject(K8s, :kubeconfig, 1)
+      reject(Secret, :get_data, 3)
+      reject(Secret, :create, 4)
+      reject(ResourceQuota, :create, 4)
+
+      assert {:error, %Ash.Error.Forbidden{} = error} =
+               Infrastructure.configure_backups(instance, params(), actor: owner)
+
+      # The denial is the policy class carrying the plain-words fix —
+      # the same shape the cross-org refusal uses.
+      assert match?(
+               %Ash.Error.Forbidden{errors: [%Ash.Error.Forbidden.Policy{}]},
+               error
+             )
+
+      assert Exception.message(error) =~ "Top up at least $1 to use backups"
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               BackupSetting.get_by_instance(instance.id, authorize?: false)
+    end
+
+    test "a save that lands disabled passes through — pausing is never gated" do
+      version = base!()
+
+      owner =
+        User.create!("never-paid-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      instance = instance!(version, owner)
+
+      # The existing row (a paid-era configuration): the save below only
+      # flips enabled off, which no gate may stop.
+      BackupSetting
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          instance_id: instance.id,
+          endpoint: "https://account.r2.cloudflarestorage.com",
+          bucket: "fluxvale-kavita",
+          access_key_id: "AKIAIOSFODNN7EXAMPLE"
+        },
+        authorize?: false
+      )
+      |> Ash.create!()
+
+      # The stored Secret is the repo's identity — the save re-applies
+      # it (a disabled landing still writes cluster state as any save
+      # does; only the GATE is skipped).
+      stub_kubeconfig()
+
+      stub(Secret, :get_data, fn _kc, _ns, _n ->
+        {:ok,
+         %{
+           "RESTIC_REPOSITORY" => "s3:https://account.r2.cloudflarestorage.com/fluxvale-kavita",
+           "RESTIC_PASSWORD" => "stored-repo-password",
+           "AWS_ACCESS_KEY_ID" => "AKIAIOSFODNN7EXAMPLE",
+           "AWS_SECRET_ACCESS_KEY" => "stored-secret"
+         }}
+      end)
+
+      stub(Secret, :create, fn _kc, _ns, _n, _d -> {:ok, %{}} end)
+      stub(ResourceQuota, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      assert {:ok, paused} =
+               Infrastructure.configure_backups(instance, %{enabled: false}, actor: owner)
+
+      refute paused.enabled
+    end
+
+    test "a never-paid first save landing DISABLED is Forbidden too — zero cluster calls" do
+      # The row write is pre-flighted through the resource policies
+      # before any cluster touch, and :create is gated outright: a
+      # never-paid org cannot mint a row landing disabled any more than
+      # one landing enabled (the old enabled-only gate let the Secret
+      # and the quota write before the row was refused).
+      version = base!()
+
+      owner =
+        User.create!("never-paid-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      instance = instance!(version, owner)
+
+      reject(K8s, :kubeconfig, 1)
+      reject(Secret, :get_data, 3)
+      reject(Secret, :create, 4)
+      reject(ResourceQuota, :create, 4)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Infrastructure.configure_backups(instance, params(%{enabled: false}), actor: owner)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               BackupSetting.get_by_instance(instance.id, authorize?: false)
+    end
+
+    test "a caller with no actor keeps the internal bypass — no pre-flight" do
+      # The bootstrap shape: no actor, no gate — the internal bypass
+      # saves land through the same cluster steps (the row write runs
+      # authorize?: false; the resource policies are not consulted).
+      version = base!()
+
+      owner =
+        User.create!("bypass-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      instance = instance!(version, owner)
+
+      stub_cluster()
+
+      # The bypass shape: no actor AND the caller's own authorize?:
+      # false — the ownership read, the merge, and the row write all
+      # run system-side, and the pre-flight does not gate them.
+      assert {:ok, _setting} =
+               Infrastructure.configure_backups(instance, params(), authorize?: false)
+    end
+
+    test "a never-paid member's edit that STAYS enabled is Forbidden — zero cluster calls" do
+      # The legacy/lapsed shape: a settings row whose org never paid, an
+      # ordinary coordinates edit that keeps `enabled` true. The
+      # pre-flight refuses it through the update policies before any
+      # cluster touch — the pause below is the ONLY ungated save.
+      version = base!()
+
+      owner =
+        User.create!("never-paid-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      instance = instance!(version, owner)
+
+      BackupSetting
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          instance_id: instance.id,
+          endpoint: "https://account.r2.cloudflarestorage.com",
+          bucket: "fluxvale-kavita",
+          access_key_id: "AKIAIOSFODNN7EXAMPLE"
+        },
+        authorize?: false
+      )
+      |> Ash.create!()
+
+      reject(K8s, :kubeconfig, 1)
+      reject(Secret, :get_data, 3)
+      reject(Secret, :create, 4)
+      reject(ResourceQuota, :create, 4)
+
+      assert {:error, %Ash.Error.Forbidden{errors: [%Ash.Error.Forbidden.Policy{}]}} =
+               Infrastructure.configure_backups(
+                 instance,
+                 %{retention_keep: 14},
+                 actor: owner
+               )
+    end
+
+    test "a paid member's first save proceeds to the cluster" do
+      version = base!()
+      owner = user()
+      instance = instance!(version, owner)
+
+      stub_cluster()
+
+      assert {:ok, _setting} = Infrastructure.configure_backups(instance, params(), actor: owner)
     end
   end
 

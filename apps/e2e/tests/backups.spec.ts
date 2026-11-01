@@ -80,8 +80,56 @@ test("backups: configure → back up now → objects in MinIO → restore → da
   // rather than take the job's whole budget with it.
   test.setTimeout(25 * 60_000);
 
-  const email = `test+e2e-backups-${runId}@fluxvale.com`;
+  // The seed admin, not a per-run address: the paid-once gate requires
+  // one real $1+ payment before the settings save goes through, and the
+  // spec below posts that purchase itself (see the wallet seed) — the
+  // admin is just the org the run rides. The run's code still lands in
+  // the TestInbox, and the run's own instance stays isolated by its
+  // runId name.
+  const email = "admin@fluxvale.com";
   await signIn(page, new TestInbox(request, testInboxToken!), email);
+
+  // --- self-sufficiency: this spec's wallet --------------------------------
+  // The paid-once gate needs a real $1+ purchase and every run needs a
+  // positive balance — the deploy, the manual run, the scheduled one.
+  // The spec posts its own idempotent purchase (and tops the balance
+  // back up if the ledger drained) instead of leaning on local_seeds'
+  // paid-unlock credit or whatever balance the admin's wallet happens
+  // to hold. Blocked states (never-paid, paid-but-empty) stay covered
+  // by the panel's LiveView suite — no blocked-state e2e page exists.
+  await test.step("the spec's wallet is paid once and holds a balance", async () => {
+    await kubectl([
+      "-n",
+      "fluxvale-dev",
+      "exec",
+      "deploy/fluxvale-platform",
+      "--",
+      "sh",
+      "-c",
+      'unset PHX_SERVER; exec mix run -e "$0"',
+      `
+      alias FluxVale.Billing
+      alias FluxVale.Identity.User
+
+      admin = User.get_by_email!("admin@fluxvale.com", authorize?: false)
+      {:ok, org} = FluxVale.Accounts.personal_org_for_user(admin.id, authorize?: false)
+      {:ok, wallet} = Billing.ensure_wallet(org)
+
+      # Idempotent by the ledger's idempotency key: re-runs replay to
+      # the same entry, never a double credit.
+      {:ok, _entry} = Billing.credit_wallet(wallet, 100, idempotency_key: "e2e-backups:paid-unlock")
+
+      {:ok, cents} = Billing.balance(wallet, authorize?: false)
+
+      if cents <= 0 do
+        {:ok, _top_up} = Billing.grant_credits(wallet, 500, reason: :adjustment)
+        :ok
+      else
+        :ok
+      end
+      `,
+    ]);
+  });
 
   // --- deploy Kavita (the file-access app: a volume worth backing up) -----
   await page.goto("/apps");

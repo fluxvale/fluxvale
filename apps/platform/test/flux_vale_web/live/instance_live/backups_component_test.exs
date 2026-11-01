@@ -20,6 +20,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
   import Phoenix.LiveViewTest
 
   alias FluxVale.Accounts.Membership
+  alias FluxVale.Accounts.Organization
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.BackupJob
@@ -29,6 +30,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
   alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
@@ -159,7 +161,12 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
                "your own S3-compatible bucket"
              )
 
-      assert has_element?(view, "[data-testid=backups-unconfigured]", "FluxVale adds no charge")
+      assert has_element?(
+               view,
+               "[data-testid=backups-unconfigured]",
+               "charges no fee for backups"
+             )
+
       assert has_element?(view, "[data-testid=backups-setup]", "Set up backups")
       refute has_element?(view, "[data-testid=backup-settings-form]")
       refute has_element?(view, "[data-testid=back-up-now]")
@@ -245,6 +252,200 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
 
       assert BackupSetting.get_by_instance(instance.id, actor: user) == {:error, :not_found} or
                match?({:error, _}, BackupSetting.get_by_instance(instance.id, actor: user))
+    end
+  end
+
+  describe "the paid gate on the setup card" do
+    test "a never-paid org's setup card pre-empts the refusal with the top-up callout", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      # The session user's personal org is welcome-funded, never paid —
+      # exactly the org the gate holds.
+      instance = instance!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(view, "[data-testid=backups-unpaid]", "one-time top-up of at least $1")
+
+      assert has_element?(
+               view,
+               "[data-testid=backups-billing-link][href='/billing']"
+             )
+
+      # The callout pre-empts; it does not lock — the operation still
+      # owns the refusal for a crafted submit.
+      assert has_element?(view, "[data-testid=backups-setup]", "Set up backups")
+    end
+
+    test "a paid org's setup card carries no top-up callout", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      BillingFixtures.mark_user_paid!(user)
+      instance = instance!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(view, "[data-testid=backups-unconfigured]")
+      refute has_element?(view, "[data-testid=backups-unpaid]")
+    end
+
+    test "a never-paid save is refused with the top-up line, not a generic failure", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = instance!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      render_click(element(view, "[data-testid=backups-setup]"))
+
+      # The gate fires before any cluster touch.
+      reject(K8s, :kubeconfig, 1)
+
+      view
+      |> element("#backup-settings-form")
+      |> render_submit(%{
+        "backup" => %{
+          "endpoint" => @s3_endpoint,
+          "bucket" => @bucket,
+          "prefix" => "",
+          "access_key_id" => @access_key,
+          "secret_access_key" => @secret_key,
+          "retention_keep" => "7"
+        }
+      })
+
+      assert has_element?(
+               view,
+               "[data-testid=backups-error]",
+               "Top up at least $1 to use backups"
+             )
+    end
+
+    test "a never-paid org's resume toggle surfaces the top-up line", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      # The row exists (hand-minted); the resume flip is the paid gate's
+      # surface, so the panel shows the Forbidden's own copy — not a
+      # generic failure — and the row stays paused.
+      instance = instance!(version, user)
+      setting!(instance, enabled: false)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      render_click(element(view, "[data-testid=backups-enabled-toggle]"))
+
+      assert has_element?(
+               view,
+               "[data-testid=backups-error]",
+               "Top up at least $1 to resume backups"
+             )
+
+      {:ok, stored} = BackupSetting.get_by_instance(instance.id, authorize?: false)
+      refute stored.enabled
+    end
+
+    test "an unreadable org still links the personal billing surface", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = instance!(version, user)
+
+      Mimic.copy(Organization)
+      stub(Organization, :get_by_id, fn _id, _opts -> {:error, :not_found} end)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(
+               view,
+               "[data-testid=backups-billing-link][href='/billing']"
+             )
+    end
+
+    test "a configured card names an org that cannot run — never-paid", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      # The legacy/lapsed shape: a settings row whose org never paid (a
+      # hand-minted row stands in for the create-hole and pre-gate
+      # rows). The card says so instead of silently skipping.
+      instance = instance!(version, user)
+      setting!(instance)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(
+               view,
+               "[data-testid=backups-config-unpaid]",
+               "Backups are blocked — top up once (at least $1) to use them"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid=backups-config-unpaid-link][href='/billing']"
+             )
+
+      refute has_element?(view, "[data-testid=backups-config-prefund]")
+
+      # The cadence line reads the same gate: blocked, not "Backing up
+      # daily" — and the Pause switch stays (the row is enabled).
+      assert has_element?(
+               view,
+               "[data-testid=backup-cadence]",
+               "Backups are blocked — the wallet cannot run them"
+             )
+
+      assert has_element?(view, "[data-testid=backups-enabled-toggle]", "Pause backups")
+    end
+
+    test "a configured card names a paid org at zero balance", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      org = BillingFixtures.mark_user_paid!(user)
+      instance = instance!(version, user)
+      setting!(instance)
+      BillingFixtures.drain_wallet!(org)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(
+               view,
+               "[data-testid=backups-config-prefund]",
+               "Backups are blocked — the balance ran out"
+             )
+
+      refute has_element?(view, "[data-testid=backups-config-unpaid]")
+
+      assert has_element?(
+               view,
+               "[data-testid=backup-cadence]",
+               "Backups are blocked — the wallet cannot run them"
+             )
+    end
+
+    test "a configured card for a paid, funded org carries no wallet callout", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      BillingFixtures.mark_user_paid!(user)
+      instance = instance!(version, user)
+      setting!(instance)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      refute has_element?(view, "[data-testid=backups-config-unpaid]")
+      refute has_element?(view, "[data-testid=backups-config-prefund]")
+
+      assert has_element?(view, "[data-testid=backup-cadence]", "Backing up daily")
     end
   end
 
@@ -534,6 +735,8 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       instance = instance!(version, user)
       setting!(instance)
       stub_settings_save()
+      # The save rides the paid gate — a paid org is the baseline.
+      BillingFixtures.mark_user_paid!(user)
 
       {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
 
@@ -569,6 +772,10 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       instance = instance!(version, user)
       setting!(instance, enabled: false)
       stub_settings_save()
+      # An edit of a paused row STAYS disabled — a paid save under the
+      # net rule (only a pause of an enabled row escapes). The pin here
+      # is that the save cannot RESURRECT the schedule, not the wallet.
+      BillingFixtures.mark_user_paid!(user)
 
       {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
 
@@ -624,6 +831,8 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       setting!(instance)
 
       stub_settings_save()
+      # The save rides the paid gate — a paid org is the baseline.
+      BillingFixtures.mark_user_paid!(user)
 
       {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
 
@@ -744,6 +953,9 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       instance = instance!(version, user)
       setting!(instance)
       stub_backup_k8s()
+      # The run's wallet guard reads the org's ledger — paid here; the
+      # refusal shapes have their own tests below.
+      BillingFixtures.mark_user_paid!(user)
 
       {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
 
@@ -769,6 +981,28 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       render_click(element(view, "[data-testid=back-up-now]"))
 
       assert has_element?(view, "[data-testid=backups-error]", "Backups are paused")
+    end
+
+    test "a paid org at zero balance gets the top-up line, not a generic failure", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      org = BillingFixtures.mark_user_paid!(user)
+      instance = instance!(version, user)
+      setting!(instance)
+
+      BillingFixtures.drain_wallet!(org)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      render_click(element(view, "[data-testid=back-up-now]"))
+
+      assert has_element?(
+               view,
+               "[data-testid=backups-error]",
+               "Top up to run a backup — add at least $1 once, and keep a positive balance."
+             )
     end
   end
 

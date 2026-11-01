@@ -28,10 +28,17 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceBackupQuotaTest do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.DeployInstance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   defp user do
-    User.create!("quota-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+    user = User.create!("quota-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+    # The saves below ride the paid gate on configure — paid here; the
+    # gate's own shapes live in configure_backups_test.
+    BillingFixtures.mark_user_paid!(user)
+
+    user
   end
 
   # One cluster per test: ResolveCluster pins the only cluster row.

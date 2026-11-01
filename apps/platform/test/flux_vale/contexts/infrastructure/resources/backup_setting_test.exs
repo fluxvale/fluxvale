@@ -8,6 +8,7 @@ defmodule FluxVale.Infrastructure.BackupSettingTest do
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   defp user do
@@ -26,6 +27,13 @@ defmodule FluxVale.Infrastructure.BackupSettingTest do
     Instance.create!(
       %{name: "Backed up #{System.unique_integer()}", app_version_id: version.id, env_vars: %{}},
       actor: user()
+    )
+  end
+
+  defp instance_for!(version, owner) do
+    Instance.create!(
+      %{name: "Created #{System.unique_integer()}", app_version_id: version.id, env_vars: %{}},
+      actor: owner
     )
   end
 
@@ -283,6 +291,172 @@ defmodule FluxVale.Infrastructure.BackupSettingTest do
                :retention_keep,
                :updated_at
              ]
+    end
+  end
+
+  describe "the enable flip's paid gate" do
+    # The panel's pause/resume switch is a plain `:update`, so the paid
+    # gate rides the resource's update policy, scoped to the flip to
+    # true. Pausing (and every other update) stays member-only.
+    test "a never-paid member cannot flip enabled to true" do
+      version = base!()
+
+      owner =
+        User.create!("flip-unpaid-#{System.unique_integer()}@fluxvale.com", %{},
+          authorize?: false
+        )
+
+      instance =
+        Instance.create!(
+          %{name: "Paused #{System.unique_integer()}", app_version_id: version.id, env_vars: %{}},
+          actor: owner
+        )
+
+      {:ok, setting} = create(instance, %{enabled: false})
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               BackupSetting.update(setting, %{enabled: true}, actor: owner)
+    end
+
+    test "a never-paid member can still flip enabled to false — pausing is never gated" do
+      version = base!()
+
+      owner =
+        User.create!("flip-pause-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      instance =
+        Instance.create!(
+          %{
+            name: "Enabled #{System.unique_integer()}",
+            app_version_id: version.id,
+            env_vars: %{}
+          },
+          actor: owner
+        )
+
+      {:ok, setting} = create(instance)
+
+      assert {:ok, paused} = BackupSetting.update(setting, %{enabled: false}, actor: owner)
+      refute paused.enabled
+    end
+
+    test "a never-paid member's edit that STAYS enabled is Forbidden — not just re-enables" do
+      version = base!()
+
+      owner =
+        User.create!("flip-edit-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      instance =
+        Instance.create!(
+          %{
+            name: "Legacy #{System.unique_integer()}",
+            app_version_id: version.id,
+            env_vars: %{}
+          },
+          actor: owner
+        )
+
+      {:ok, setting} = create(instance)
+
+      # Coordinates only: `enabled` absent from the input in the first
+      # probe, present staying true in the second — both must answer
+      # the paid check, not slip through an enable-only scope.
+      assert {:error, %Ash.Error.Forbidden{}} =
+               BackupSetting.update(setting, %{retention_keep: 14}, actor: owner)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               BackupSetting.update(setting, %{bucket: "another-bucket"}, actor: owner)
+    end
+
+    test "a paid member edits and re-enables freely" do
+      version = base!()
+
+      owner =
+        User.create!("flip-paid-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      BillingFixtures.mark_user_paid!(owner)
+
+      instance =
+        Instance.create!(
+          %{
+            name: "Resumed #{System.unique_integer()}",
+            app_version_id: version.id,
+            env_vars: %{}
+          },
+          actor: owner
+        )
+
+      {:ok, setting} = create(instance, %{enabled: false})
+
+      assert {:ok, edited} = BackupSetting.update(setting, %{retention_keep: 14}, actor: owner)
+      assert edited.retention_keep == 14
+
+      assert {:ok, resumed} = BackupSetting.update(setting, %{enabled: true}, actor: owner)
+      assert resumed.enabled
+    end
+
+    test "a paid member flips enabled to true" do
+      version = base!()
+
+      owner =
+        User.create!("flip-paid-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      BillingFixtures.mark_user_paid!(owner)
+
+      instance =
+        Instance.create!(
+          %{
+            name: "Resumed #{System.unique_integer()}",
+            app_version_id: version.id,
+            env_vars: %{}
+          },
+          actor: owner
+        )
+
+      {:ok, setting} = create(instance, %{enabled: false})
+
+      assert {:ok, resumed} = BackupSetting.update(setting, %{enabled: true}, actor: owner)
+      assert resumed.enabled
+    end
+  end
+
+  describe "the create gate" do
+    # A row is born `enabled` (the attribute default), so the resource's
+    # :create is gated outright — a never-paid org has no business
+    # creating settings rows at all, matching the ConfigureBackups gate
+    # a direct create would otherwise walk around.
+    test "a never-paid member cannot create a settings row" do
+      version = base!()
+
+      owner =
+        User.create!("create-unpaid-#{System.unique_integer()}@fluxvale.com", %{},
+          authorize?: false
+        )
+
+      instance = instance_for!(version, owner)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               BackupSetting
+               |> Ash.Changeset.for_create(:create, attrs(instance, %{}), actor: owner)
+               |> Ash.create()
+    end
+
+    test "a paid member creates a settings row" do
+      version = base!()
+
+      owner =
+        User.create!("create-paid-#{System.unique_integer()}@fluxvale.com", %{},
+          authorize?: false
+        )
+
+      BillingFixtures.mark_user_paid!(owner)
+
+      instance = instance_for!(version, owner)
+
+      assert {:ok, _setting} =
+               BackupSetting
+               |> Ash.Changeset.for_create(:create, attrs(instance, %{}), actor: owner)
+               |> Ash.create()
     end
   end
 

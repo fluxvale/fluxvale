@@ -14,8 +14,10 @@ backups cover platform DBs, not customer volumes. #222's ask, exactly
 in PikaPods' shape: the user supplies S3-compatible keys (R2 first),
 the platform backs the instance up there on a schedule, shows status,
 and can restore. BYO bucket means storage costs sit with the user —
-v1 charges nothing extra, and the user's keys serve nothing but their
-own backups.
+v1 adds no backup fee, and the user's keys serve nothing but their own
+backups (the wallet's paid-once and positive-balance eligibility gates
+are [Amendment 3](#amendment-3-2026-11-01-backups-join-the-paid-wallet-gates),
+not a charge for the feature).
 
 This ADR owns the four decisions the issue names: engine, consistency
 stance, scheduling model, restore shape.
@@ -212,7 +214,8 @@ scheduled | manual | restore), so the panel shows one timeline.
 - Catalog apps need no changes in v1 — the whole PVC at the
   Instance's `storage_mount_path` snapshot is the backup set.
 - Product docs note: BYO bucket means the user pays their provider
-  for storage; FluxVale charges nothing extra for the feature.
+  for storage; FluxVale adds no backup fee for the feature (the
+  paid-wallet eligibility gates are Amendment 3, not a charge).
 
 ## Amendment 1 (2026-10-24): two mechanism corrections from implementation
 
@@ -245,3 +248,46 @@ repo password is generated — and §5's restore command carries the
 in-place `<snapshot>:<subfolder>` form plus the failed-restore
 contract (app stays down, retry legal from `:error` +
 `:restore_failed`).
+
+## Amendment 3 (2026-11-01): backups join the paid-wallet gates
+
+§Context/§2 as accepted say v1 "charges nothing extra" for backups.
+That stays true in the fee dimension — backups bill no dedicated line
+item — but the feature now sits behind the platform's wallet
+eligibility gates ([ADR-0039 Am. 3](00039-private-access-layer-tailscale.md)'s
+shape):
+
+- **Configure or re-enable** requires a paid-once wallet: at least one
+  `:purchase` ledger credit of $1 or more, ever (`ActorOrgHasPaid`).
+  Welcome and goodwill credits never qualify — the ledger's reason
+  dimension is the not-a-bot gate — and refunds never un-pay. ANY save
+  except a PAUSE — a first save, a re-enable, or an edit of a
+  configured row — requires the paid wallet and refuses before any
+  cluster write; only pausing and removing settings stay ungated. The
+  gate sits in `ConfigureBackups` after the settings validate and
+  before the first cluster touch (a never-paid refusal writes
+  nothing), and the `BackupSetting` policies carry the same bar —
+  create outright (the action accepts `:enabled` and defaults it
+  true — an unpaid org must not mint a settings row at all) and on
+  every update
+  except a pause — so the panel's plain-update pause switch cannot
+  walk around it.
+- **Every run** — the owner's "Back up now" and the nightly due pass
+  alike — additionally requires a positive balance: the platform-wide
+  zero-balance rule (`:wallet_unfunded`, one code path for both
+  kinds).
+- The due pass skips an org whose wallet cannot run **benignly** — the
+  pass stays `{:ok, _}` for Oban. The skip logs at DEBUG level (it
+  fires every pass for a wallet-blocked instance — a refused run
+  writes no row, so nothing marks the window served), and the panel's
+  callout is the owner-visible surface: the configured card names the
+  never-paid and paid-but-empty states, the setup card names the
+  never-paid one.
+- **Pausing, disabling, and removing the settings are never gated** —
+  a re-save landing `enabled: false` over an existing row passes the
+  pre-flight ungated, and so does the row delete. An edit that lands
+  enabled is a save like any other: it needs the same eligibility
+  (configure-time was gated, and paid never lapses — only legacy or
+  hand-made rows can hit the refusal). **Restores stay ungated by
+  deliberate omission** — the recovery path must not depend on the
+  wallet (flag if that's wrong).

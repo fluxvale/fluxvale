@@ -26,6 +26,14 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
   `Forbidden` before any cluster write and a hoisted instance struct
   buys nothing.
 
+  A save is pay-gated through the RESOURCE's own policies, pre-flighted
+  before the first cluster touch: ANY save except a PAUSE — a first
+  save, a re-enable, or an edit of a configured row — requires a
+  paid-once wallet and refuses with a plain-words Forbidden, leaving
+  the Secret, the quota, and the row untouched. Only a save that lands
+  `enabled: false` over an enabled row (a pause) and the row delete
+  pass ungated — an owner can always stop paying us for backups.
+
   **Disabling is a plain `BackupSetting.update` (`enabled: false`), not
   an operation of its own** — it changes one attribute and no cluster
   state. The Secret and the quota margin persist on purpose, so
@@ -61,6 +69,10 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
   @access_key_id_key "AWS_ACCESS_KEY_ID"
   @secret_access_key_key "AWS_SECRET_ACCESS_KEY"
   @forbidden_message "This instance's backups belong to another organization"
+  # Neutral on purpose: the same refusal renders on a first save and on
+  # an edit of a configured row — "setting up" would read wrong on the
+  # edit.
+  @paid_message "Top up at least $1 to use backups"
 
   # The row's own fields — the settings form, minus every credential.
   @row_fields [:endpoint, :bucket, :prefix, :access_key_id, :retention_keep, :enabled]
@@ -100,6 +112,7 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
     with {:ok, authorized} <- authorize_instance(instance, opts),
          {:ok, stored} <- stored_setting(authorized, opts),
          {:ok, changeset} <- settings_changeset(authorized, stored, params, opts),
+         :ok <- row_write_gate(authorized, changeset, opts),
          {:ok, kubeconfig} <- kubeconfig(authorized),
          {:ok, data} <- secret_data(kubeconfig, authorized, changeset, params),
          :ok <- apply_secret(kubeconfig, authorized, data),
@@ -159,6 +172,48 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
   # plain-words reason instead of a bare "forbidden".
   defp forbidden_error do
     Policy.exception(custom_message: @forbidden_message)
+  end
+
+  # The paid gate's error, same shape: the policy class carrying the
+  # plain-words fix.
+  defp paid_error do
+    Policy.exception(custom_message: @paid_message)
+  end
+
+  # The row write is pre-flighted through the RESOURCE's policies
+  # (member + paid-once, create and the update's enable flip) BEFORE any
+  # cluster touch: the policies are the one authority, and a refusal —
+  # a never-paid org's save, ANY save — must not write the Secret or
+  # the quota first. `Ash.can?/3` is policy evaluation only: no hooks,
+  # no writes, and the real write below re-evaluates the same policies.
+  # With no actor the caller keeps the internal bypass (bootstrap paths
+  # only).
+  defp row_write_gate(_instance, changeset, opts) do
+    case opts[:actor] do
+      nil ->
+        :ok
+
+      actor ->
+        # Ash.can/3 with `maybe_is: false`: an inconclusive filter
+        # scenario answers false here — the same answer the real write's
+        # policy evaluation reaches — so the pre-flight always agrees
+        # with the write instead of passing on a maybe.
+        case Ash.can(changeset, actor, maybe_is: false) do
+          {:ok, true} ->
+            :ok
+
+          {:ok, _false_or_maybe} ->
+            {:error, Forbidden.exception(errors: [paid_error()])}
+
+          # coveralls-ignore-start - defensive: Ash.can returns an error
+          # tuple only for malformed inputs; ExUnit cannot stage one
+          # (the policies' own verdicts are the only shape this arm
+          # sees)
+          {:error, _error} ->
+            {:error, Forbidden.exception(errors: [paid_error()])}
+            # coveralls-ignore-stop
+        end
+    end
   end
 
   # The stored row is what a save merges over. Its own read is authorized

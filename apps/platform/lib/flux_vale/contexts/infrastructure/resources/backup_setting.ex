@@ -53,13 +53,37 @@ defmodule FluxVale.Infrastructure.BackupSetting do
     end
 
     policy action_type(:create) do
-      description("Members configure their org's instance backups")
-      authorize_if(relates_to_actor_via([:instance, :organization, :members]))
+      description(
+        "Members create their org's instance backup settings — with a wallet that has paid once. The action accepts :enabled (defaulting it true), so an unpaid org must not mint a settings row at all — create is gated outright"
+      )
+
+      forbid_unless(relates_to_actor_via([:instance, :organization, :members]))
+      forbid_unless(FluxVale.Checks.ActorOrgHasPaid)
+      authorize_if(FluxVale.Checks.ActorOrgHasPaid)
     end
 
     policy action_type(:update) do
       description("Members change their org's instance backup settings")
       authorize_if(relates_to_actor_via([:instance, :organization, :members]))
+    end
+
+    # Every update needs membership; everything EXCEPT a pause to false
+    # additionally needs a wallet that has paid once. The panel's
+    # pause/resume switch is deliberately a PLAIN `:update` (pausing
+    # must never touch K8s), so the policy is what carries the gate —
+    # the pause escape is scoped to FROM true (an edit of an
+    # already-paused row, a re-enable, and an edit that stays enabled
+    # all answer the paid check; a crafted save omitting `enabled`
+    # never escapes). The member policy above composes as the AND.
+    policy action_type(:update) do
+      description(
+        "Every update needs membership; everything except a pause to false additionally needs a wallet that has paid once"
+      )
+
+      authorize_if(changing_attributes(enabled: [from: true, to: false]))
+      forbid_unless(relates_to_actor_via([:instance, :organization, :members]))
+      forbid_unless(FluxVale.Checks.ActorOrgHasPaid)
+      authorize_if(FluxVale.Checks.ActorOrgHasPaid)
     end
 
     policy action_type(:destroy) do

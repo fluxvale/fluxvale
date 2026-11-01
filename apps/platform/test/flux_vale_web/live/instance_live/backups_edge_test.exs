@@ -13,6 +13,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsEdgeTest do
   alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
@@ -182,6 +183,9 @@ defmodule FluxValeWeb.InstanceLive.BackupsEdgeTest do
     } do
       instance = instance!(version, user)
       setting!(instance)
+      # The save rides the paid gate — a paid org is the baseline here;
+      # the gate's own refusal shapes live in the component's test.
+      BillingFixtures.mark_user_paid!(user)
 
       stub(K8s, :kubeconfig, fn nil -> {:error, Error.connection_error("api down")} end)
 
@@ -236,6 +240,12 @@ defmodule FluxValeWeb.InstanceLive.BackupsEdgeTest do
       instance = instance!(version, user)
       setting = setting!(instance)
 
+      # The vanished-row Forbidden is shaped like the paid refusal — the
+      # handler asks the ledger AND the row: a PAID org's refusal reads
+      # as the row problem it is (the never-paid arms have their own
+      # tests here and in the component's suite).
+      BillingFixtures.mark_user_paid!(user)
+
       {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
 
       Infrastructure.remove_backup_settings(setting, authorize?: false)
@@ -245,9 +255,33 @@ defmodule FluxValeWeb.InstanceLive.BackupsEdgeTest do
       assert has_element?(view, "[data-testid=backups-error]", "Something went wrong on our side")
     end
 
+    test "the toggle over a vanished row on a never-paid org is not a wallet problem", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      # The wallet copy only shows when the row still exists AND the
+      # ledger says unpaid — a vanished row on a never-paid org is still
+      # the row's story, never the wallet's.
+      instance = instance!(version, user)
+      setting = setting!(instance)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      Infrastructure.remove_backup_settings(setting, authorize?: false)
+
+      render_click(element(view, "[data-testid=backups-enabled-toggle]"))
+
+      assert has_element?(view, "[data-testid=backups-error]", "Something went wrong on our side")
+
+      refute has_element?(view, "[data-testid=backups-error]", "Top up at least $1 to resume")
+    end
+
     test "a save before the app is set up says so", %{conn: conn, user: user, version: version} do
       instance = InstanceFixtures.instance!(version, user)
       setting!(instance)
+      # The save rides the paid gate — a paid org is the baseline.
+      BillingFixtures.mark_user_paid!(user)
 
       {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
 
@@ -322,6 +356,9 @@ defmodule FluxValeWeb.InstanceLive.BackupsEdgeTest do
         {:error, %Error{reason: :not_found}}
       end)
 
+      # The save rides the paid gate — a paid org is the baseline.
+      BillingFixtures.mark_user_paid!(user)
+
       {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
 
       render_click(element(view, "[data-testid=backups-setup]"))
@@ -350,6 +387,8 @@ defmodule FluxValeWeb.InstanceLive.BackupsEdgeTest do
     } do
       instance = instance!(version, user)
       setting!(instance)
+      # The save rides the paid gate — a paid org is the baseline.
+      BillingFixtures.mark_user_paid!(user)
 
       stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
 
@@ -387,6 +426,8 @@ defmodule FluxValeWeb.InstanceLive.BackupsEdgeTest do
     } do
       instance = instance!(version, user)
       setting!(instance)
+      # The save rides the paid gate — a paid org is the baseline.
+      BillingFixtures.mark_user_paid!(user)
 
       stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
 
@@ -432,6 +473,8 @@ defmodule FluxValeWeb.InstanceLive.BackupsEdgeTest do
     } do
       instance = instance!(version, user)
       setting!(instance, prefix: "keep-me")
+      # The save rides the paid gate — a paid org is the baseline.
+      BillingFixtures.mark_user_paid!(user)
 
       stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
 
@@ -528,6 +571,10 @@ defmodule FluxValeWeb.InstanceLive.BackupsEdgeTest do
     test "the switch resumes a paused instance", %{conn: conn, user: user, version: version} do
       instance = instance!(version, user)
       setting!(instance, enabled: false)
+
+      # The resume is the enable flip — the paid gate's surface. The
+      # refusal shape for a never-paid org is the policy test's.
+      BillingFixtures.mark_user_paid!(user)
 
       stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
 

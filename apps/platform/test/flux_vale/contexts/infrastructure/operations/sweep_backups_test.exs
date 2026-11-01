@@ -15,6 +15,7 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackupsTest do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.SweepBackups
   alias FluxVale.Repo
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   require Ash.Query
@@ -25,7 +26,17 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackupsTest do
   @now DateTime.new!(~D[2026-10-24], ~T[04:00:00], "Etc/UTC")
 
   defp user do
-    User.create!("sweep-backups-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+    user =
+      User.create!("sweep-backups-#{System.unique_integer()}@fluxvale.com", %{},
+        authorize?: false
+      )
+
+    # The due pass's wallet gate reads the org's ledger: the suite's
+    # default user is paid and welcome-funded (the never-paid shape is
+    # built inside its own test).
+    BillingFixtures.mark_user_paid!(user)
+
+    user
   end
 
   defp base! do
@@ -326,6 +337,27 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackupsTest do
       assert {:ok, summary} = Infrastructure.sweep_backups(@now)
       assert summary.started_ids == []
       assert summary.failed_ids == []
+    end
+
+    test "a funded-but-never-paid org's due instance is skipped benignly" do
+      # Welcome-funded, never paid: exactly the org the paid-once gate
+      # exists to hold at the nightly pass. The due math says go; the
+      # operation's wallet guard refuses; the pass stays {:ok, _} clean.
+      owner =
+        User.create!("sweep-unpaid-#{System.unique_integer()}@fluxvale.com", %{},
+          authorize?: false
+        )
+
+      instance = deployed_instance!(base!(), owner)
+      setting!(instance)
+
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+      stub(BackupJob, :delete, fn _kc, _ns -> {:error, %Error{reason: :not_found}} end)
+      reject(BackupJob, :create, 3)
+
+      assert {:ok, summary} = Infrastructure.sweep_backups(@now)
+      assert summary.started_ids == []
+      assert runs(instance) == []
     end
 
     test "a non-guard start failure fails the pass (Oban retries the apply)" do

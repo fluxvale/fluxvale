@@ -12,12 +12,21 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackupTest do
   alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   require Ash.Query
 
   defp user do
-    User.create!("run-backup-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+    user =
+      User.create!("run-backup-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+    # The wallet guard under test reads the org's ledger: the suite's
+    # default user is paid and welcome-funded (the never-paid and
+    # zero-balance shapes are built inside their own tests).
+    BillingFixtures.mark_user_paid!(user)
+
+    user
   end
 
   defp base! do
@@ -246,6 +255,38 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackupTest do
       stub_k8s()
 
       assert {:ok, _run} = Infrastructure.run_instance_backup(mine, :manual)
+    end
+
+    test "a paid org at zero balance: :wallet_unfunded — runs need a positive balance" do
+      version = base!()
+      owner = user()
+      org = BillingFixtures.mark_user_paid!(owner)
+      instance = instance!(version, owner)
+      setting!(instance)
+
+      BillingFixtures.drain_wallet!(org)
+
+      reject(BackupJob, :create, 3)
+
+      assert {:error, :wallet_unfunded} = Infrastructure.run_instance_backup(instance, :manual)
+      assert runs(instance) == []
+    end
+
+    test "a never-paid org on welcome credits: :wallet_unfunded — the $3 grant is not a card" do
+      version = base!()
+
+      owner =
+        User.create!("welcome-only-#{System.unique_integer()}@fluxvale.com", %{},
+          authorize?: false
+        )
+
+      instance = instance!(version, owner)
+      setting!(instance)
+
+      reject(BackupJob, :create, 3)
+
+      assert {:error, :wallet_unfunded} = Infrastructure.run_instance_backup(instance, :manual)
+      assert runs(instance) == []
     end
   end
 

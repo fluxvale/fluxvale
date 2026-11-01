@@ -12,6 +12,7 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
   alias FluxVale.Billing
   alias FluxVale.Checks.ActorOrgWalletFunded
   alias FluxVale.Identity.User
+  alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.TestSupport.AccountsFixtures
@@ -70,10 +71,81 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
       refute ActorOrgWalletFunded.match?(nil, %{subject: changeset}, [])
     end
 
-    test "a non-changeset subject routes to the actor path — the create stance" do
-      orgless = Ash.Seed.seed!(User, %{email: "orgless-#{System.unique_integer()}@fluxvale.test"})
+    test "a non-changeset subject fails closed — even for a funded actor" do
+      # The old create-stance catch-all routed queries/action-inputs to
+      # the actor path: a funded actor answered true on an arbitrary
+      # subject. Fail closed.
+      funded_actor = AccountsFixtures.user!()
+      AccountsFixtures.personal_org!(funded_actor)
 
-      assert ActorOrgWalletFunded.match?(orgless, %{subject: %Instance{}}, [])
+      refute ActorOrgWalletFunded.match?(funded_actor, %{subject: %Instance{}}, [])
+    end
+
+    test "an atomic changeset's placeholder data fails closed without raising" do
+      # Ash.reload raises on Ash.Changeset.OriginalDataNotAvailable —
+      # the clause before the generic data arm answers :error instead.
+      {_org, wallet} = BillingFixtures.funded_wallet!()
+
+      changeset =
+        Ash.Changeset.for_update(
+          %Instance{id: Ecto.UUID.generate(), organization_id: wallet.organization_id},
+          :start,
+          %{},
+          authorize?: false
+        )
+
+      atomic = %{changeset | data: %Ash.Changeset.OriginalDataNotAvailable{}}
+
+      refute ActorOrgWalletFunded.match?(nil, %{subject: atomic}, [])
+    end
+
+    test "a settings row's org resolves THROUGH its instance — the ROW org's wallet answers, not the actor's",
+         %{
+           version: version
+         } do
+      # The BackupSetting shape: the row belongs to its instance, not
+      # the organization, so the check reads the org one hop along the
+      # same FK the policies read — the ROW org, never the actor's.
+      owner =
+        User.create!("funded-through-#{System.unique_integer()}@fluxvale.test", %{},
+          authorize?: false
+        )
+
+      paid_actor =
+        User.create!("funded-through-actor-#{System.unique_integer()}@fluxvale.test", %{},
+          authorize?: false
+        )
+
+      BillingFixtures.mark_user_paid!(paid_actor)
+
+      instance =
+        Instance.create!(
+          %{name: "Through", app_version_id: version.id, env_vars: %{}},
+          actor: owner
+        )
+
+      setting =
+        BackupSetting
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            instance_id: instance.id,
+            endpoint: "https://account.r2.cloudflarestorage.com",
+            bucket: "fluxvale-kavita",
+            access_key_id: "AKIAIOSFODNN7EXAMPLE"
+          },
+          authorize?: false
+        )
+        |> Ash.create!()
+
+      # The row org drains AFTER its instance existed: if the actor path
+      # answered, the PAID actor would pass. The row org is what answers.
+      row_org = AccountsFixtures.personal_org!(owner)
+      BillingFixtures.drain_wallet!(row_org)
+
+      changeset = Ash.Changeset.for_update(setting, :update, %{}, authorize?: false)
+
+      refute ActorOrgWalletFunded.match?(paid_actor, %{subject: changeset}, [])
     end
   end
 
@@ -190,6 +262,130 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
 
       changeset = Ash.Changeset.for_update(stopped, :start, %{}, actor: owner)
       forged = %{changeset | data: %{stopped | organization_id: funded_other.id}}
+
+      assert {:error, %Ash.Error.Forbidden{}} = Instance.start(forged, actor: owner)
+    end
+
+    test "a create naming its instance answers the INSTANCE org, not the actor's — both directions",
+         %{version: version} do
+      # The team-org hazard, funded edition: the row's org is the
+      # INSTANCE's org. A funded member of a drained org's instance is
+      # refused, a drained member of a funded org's instance passes —
+      # the row org answers, whichever way the wallets point.
+      funded_member =
+        User.create!("create-wallet-funded-#{System.unique_integer()}@fluxvale.test", %{},
+          authorize?: false
+        )
+
+      drained_member =
+        User.create!("create-wallet-drained-#{System.unique_integer()}@fluxvale.test", %{},
+          authorize?: false
+        )
+
+      funded_org = AccountsFixtures.personal_org!(funded_member)
+      drained_org = AccountsFixtures.personal_org!(drained_member)
+
+      # Welcome-funded at create; drained after (exact ledger shapes).
+      theirs =
+        Instance.create!(
+          %{name: "Drained Org's", app_version_id: version.id, env_vars: %{}},
+          actor: drained_member
+        )
+
+      ours =
+        Instance.create!(
+          %{name: "Funded Org's", app_version_id: version.id, env_vars: %{}},
+          actor: funded_member
+        )
+
+      BillingFixtures.drain_wallet!(drained_org)
+
+      unpaid_orgs_instance =
+        Ash.Changeset.for_create(
+          BackupSetting,
+          :create,
+          %{
+            instance_id: theirs.id,
+            endpoint: "https://s3.example.com",
+            bucket: "some-bucket",
+            access_key_id: "KEY"
+          },
+          authorize?: false
+        )
+
+      funded_orgs_instance =
+        Ash.Changeset.for_create(
+          BackupSetting,
+          :create,
+          %{
+            instance_id: ours.id,
+            endpoint: "https://s3.example.com",
+            bucket: "some-bucket",
+            access_key_id: "KEY"
+          },
+          authorize?: false
+        )
+
+      refute ActorOrgWalletFunded.org_funded?(drained_org.id)
+      assert ActorOrgWalletFunded.org_funded?(funded_org.id)
+
+      # The FUNDED member against the drained org's instance: refused.
+      refute ActorOrgWalletFunded.match?(funded_member, %{subject: unpaid_orgs_instance}, [])
+
+      # The DRAINED member against the funded org's instance: passes.
+      assert ActorOrgWalletFunded.match?(drained_member, %{subject: funded_orgs_instance}, [])
+    end
+
+    test "a create naming an instance that cannot resolve fails closed" do
+      # The create arm's discipline: the instance org answers, and an
+      # instance that cannot resolve (a phantom id) is :error — never
+      # the actor path, even for a funded actor.
+      funded_actor = AccountsFixtures.user!()
+      AccountsFixtures.personal_org!(funded_actor)
+
+      changeset =
+        Ash.Changeset.for_create(
+          BackupSetting,
+          :create,
+          %{
+            instance_id: Ecto.UUID.generate(),
+            endpoint: "https://s3.example.com",
+            bucket: "some-bucket",
+            access_key_id: "KEY"
+          },
+          authorize?: false
+        )
+
+      refute ActorOrgWalletFunded.match?(funded_actor, %{subject: changeset}, [])
+    end
+
+    test "a forged nil organization_id on an update is refused — the row's org answers", %{
+      version: version
+    } do
+      # The exploit this closes: route the update by its nil attribute
+      # and it takes the create path — the actor's WELCOME-FUNDED
+      # personal org — while the real row's org is drained.
+      stub_scale()
+
+      {org, _wallet, owner} = funded_org_owner!()
+
+      instance =
+        Instance.create!(%{name: "Forge Nil", app_version_id: version.id, env_vars: %{}},
+          actor: owner
+        )
+
+      stopped =
+        Enum.reduce([:deploying, :starting, :running, :stopped], instance, fn status, acc ->
+          {:ok, next} = InstanceK8s.update_status(acc, status, nil)
+          next
+        end)
+
+      InstanceFixtures.pin!(stopped, namespace: "fluxvale-app-#{instance.id}")
+
+      BillingFixtures.drain_wallet!(org)
+
+      changeset = Ash.Changeset.for_update(stopped, :start, %{}, actor: owner)
+      forged = %{changeset | data: %{stopped | organization_id: nil}}
 
       assert {:error, %Ash.Error.Forbidden{}} = Instance.start(forged, actor: owner)
     end

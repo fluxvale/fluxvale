@@ -13,7 +13,11 @@ defmodule FluxVale.Checks.ActorOrgHasPaidTest do
   alias FluxVale.Checks.ActorOrgHasPaid
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.AccessGateway
+  alias FluxVale.Infrastructure.BackupSetting
+  alias FluxVale.Infrastructure.Instance
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
+  alias FluxVale.TestSupport.InstanceFixtures
 
   describe "org_paid?/1" do
     test "a welcome-only org has not paid — the signup grant is not a card" do
@@ -90,10 +94,209 @@ defmodule FluxVale.Checks.ActorOrgHasPaidTest do
       refute ActorOrgHasPaid.match?(nil, %{subject: changeset}, [])
     end
 
-    test "a non-changeset subject routes to the actor path — the create stance" do
-      orgless = Ash.Seed.seed!(User, %{email: "orgless-#{System.unique_integer()}@fluxvale.test"})
+    test "a non-changeset subject fails closed — even for a paid actor" do
+      # The old create-stance catch-all routed queries/action-inputs to
+      # the actor path: a paid actor answered true on an arbitrary
+      # subject. Fail closed.
+      paid_actor =
+        User.create!("paid-probe-subject-#{System.unique_integer()}@fluxvale.test", %{},
+          authorize?: false
+        )
 
-      assert ActorOrgHasPaid.match?(orgless, %{subject: %AccessGateway{}}, [])
+      BillingFixtures.mark_user_paid!(paid_actor)
+
+      refute ActorOrgHasPaid.match?(paid_actor, %{subject: %AccessGateway{}}, [])
+    end
+
+    test "an atomic changeset's placeholder data fails closed without raising" do
+      # Ash.reload raises on Ash.Changeset.OriginalDataNotAvailable —
+      # the clause before the generic data arm answers :error instead.
+      {org, _owner} = BillingFixtures.grant_free_org!()
+      {:ok, wallet} = Billing.ensure_wallet(org)
+      BillingFixtures.mark_paid!(wallet)
+
+      changeset =
+        Ash.Changeset.for_update(
+          %AccessGateway{id: Ecto.UUID.generate(), organization_id: org.id},
+          :resume,
+          %{},
+          authorize?: false
+        )
+
+      atomic = %{changeset | data: %Ash.Changeset.OriginalDataNotAvailable{}}
+
+      refute ActorOrgHasPaid.match?(nil, %{subject: atomic}, [])
+    end
+
+    test "a create naming its instance answers the INSTANCE org, not the actor's — both directions" do
+      # The team-org hazard: the row's org is the INSTANCE's org. A paid
+      # member of an unpaid org's instance must be refused (the actor
+      # path would pass), and a never-paid member of a paid org's
+      # instance must pass (the actor path would refuse) — the row's org
+      # is what answers, whichever way the wallets point.
+      version = InstanceFixtures.app_version!()
+      InstanceFixtures.local_cluster!()
+
+      paid_member =
+        User.create!("create-org-paid-#{System.unique_integer()}@fluxvale.test", %{},
+          authorize?: false
+        )
+
+      # mark_user_paid!/1 returns the org it posted the purchase to —
+      # the member's personal org.
+      paid_org = BillingFixtures.mark_user_paid!(paid_member)
+
+      unpaid_member =
+        User.create!("create-org-unpaid-#{System.unique_integer()}@fluxvale.test", %{},
+          authorize?: false
+        )
+
+      unpaid_org = AccountsFixtures.personal_org!(unpaid_member)
+
+      theirs =
+        Instance.create!(
+          %{name: "Unpaid Org's", app_version_id: version.id, env_vars: %{}},
+          actor: unpaid_member
+        )
+
+      ours =
+        Instance.create!(
+          %{name: "Paid Org's", app_version_id: version.id, env_vars: %{}},
+          actor: paid_member
+        )
+
+      refute ActorOrgHasPaid.org_paid?(unpaid_org.id)
+      assert ActorOrgHasPaid.org_paid?(paid_org.id)
+
+      unpaid_orgs_instance =
+        Ash.Changeset.for_create(
+          BackupSetting,
+          :create,
+          %{
+            instance_id: theirs.id,
+            endpoint: "https://s3.example.com",
+            bucket: "some-bucket",
+            access_key_id: "KEY"
+          },
+          authorize?: false
+        )
+
+      paid_orgs_instance =
+        Ash.Changeset.for_create(
+          BackupSetting,
+          :create,
+          %{
+            instance_id: ours.id,
+            endpoint: "https://s3.example.com",
+            bucket: "some-bucket",
+            access_key_id: "KEY"
+          },
+          authorize?: false
+        )
+
+      # The PAID actor against the unpaid org's instance: refused — the
+      # instance org answered, not the actor's paid one.
+      refute ActorOrgHasPaid.match?(paid_member, %{subject: unpaid_orgs_instance}, [])
+
+      # The UNPAID actor against the paid org's instance: passes — the
+      # instance org answered, not the actor's unpaid one.
+      assert ActorOrgHasPaid.match?(unpaid_member, %{subject: paid_orgs_instance}, [])
+    end
+
+    test "a create naming an instance that cannot resolve fails closed" do
+      # The create arm's discipline: the instance org answers, and an
+      # instance that cannot resolve (a phantom id) is :error — never
+      # the actor path, even for a paid actor.
+      paid_actor =
+        User.create!("create-phantom-#{System.unique_integer()}@fluxvale.test", %{},
+          authorize?: false
+        )
+
+      BillingFixtures.mark_user_paid!(paid_actor)
+
+      changeset =
+        Ash.Changeset.for_create(
+          BackupSetting,
+          :create,
+          %{
+            instance_id: Ecto.UUID.generate(),
+            endpoint: "https://s3.example.com",
+            bucket: "some-bucket",
+            access_key_id: "KEY"
+          },
+          authorize?: false
+        )
+
+      refute ActorOrgHasPaid.match?(paid_actor, %{subject: changeset}, [])
+    end
+
+    test "a relationship-shaped create errors as Required instance_id — never a created row" do
+      # Accepted-with-rationale (the check module's comment): the
+      # resolver only sees a concrete `instance_id`. A create shaped
+      # through the relationship instead fails the action's own
+      # Required validation — the orgless-actor posture — so the actor
+      # arm is never consulted on a foreign org's instance.
+      version = InstanceFixtures.app_version!()
+      InstanceFixtures.local_cluster!()
+
+      never_paid_member =
+        User.create!("create-rel-#{System.unique_integer()}@fluxvale.test", %{},
+          authorize?: false
+        )
+
+      instance =
+        Instance.create!(
+          %{name: "Rel #{System.unique_integer()}", app_version_id: version.id, env_vars: %{}},
+          actor: never_paid_member
+        )
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               BackupSetting
+               |> Ash.Changeset.for_create(
+                 :create,
+                 %{
+                   instance: instance.id,
+                   endpoint: "https://s3.example.com",
+                   bucket: "some-bucket",
+                   access_key_id: "KEY"
+                 },
+                 authorize?: false
+               )
+               |> Ash.create()
+
+      # No row anywhere: the pin is on the absence, not the message.
+      assert {:error, _missing} = BackupSetting.get_by_instance(instance.id, authorize?: false)
+    end
+
+    test "a forged nil organization_id on an update answers the ROW's org, never the actor's" do
+      # The exploit this closes: route the update by its nil attribute
+      # and it takes the create path — the actor's PAID personal org —
+      # while the row's own org never paid.
+      version = InstanceFixtures.app_version!()
+      InstanceFixtures.local_cluster!()
+
+      row_owner =
+        User.create!("paid-probe-row-#{System.unique_integer()}@fluxvale.test", %{},
+          authorize?: false
+        )
+
+      instance =
+        Instance.create!(
+          %{name: "Row Org", app_version_id: version.id, env_vars: %{}},
+          actor: row_owner
+        )
+
+      paid_actor =
+        User.create!("paid-probe-actor-#{System.unique_integer()}@fluxvale.test", %{},
+          authorize?: false
+        )
+
+      BillingFixtures.mark_user_paid!(paid_actor)
+
+      changeset = Ash.Changeset.for_update(instance, :start, %{}, authorize?: false)
+      forged = %{changeset | data: %{instance | organization_id: nil}}
+
+      refute ActorOrgHasPaid.match?(paid_actor, %{subject: forged}, [])
     end
   end
 
