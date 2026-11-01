@@ -27,12 +27,12 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
   buys nothing.
 
   A save is pay-gated through the RESOURCE's own policies, pre-flighted
-  before the first cluster touch: a never-paid org's save — ANY save,
-  a first save landing enabled or disabled, an edit of a configured
-  row — refuses with a plain-words Forbidden and leaves the Secret, the
-  quota, and the row untouched. Only re-saves landing `enabled: false`
-  (a pause over an existing row) pass the pre-flight ungated, and
-  disabling or removing the settings entirely is never gated at all.
+  before the first cluster touch: ANY save except a PAUSE — a first
+  save, a re-enable, or an edit of a configured row — requires a
+  paid-once wallet and refuses with a plain-words Forbidden, leaving
+  the Secret, the quota, and the row untouched. Only a save that lands
+  `enabled: false` over an enabled row (a pause) and the row delete
+  pass ungated — an owner can always stop paying us for backups.
 
   **Disabling is a plain `BackupSetting.update` (`enabled: false`), not
   an operation of its own** — it changes one attribute and no cluster
@@ -194,12 +194,24 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
         :ok
 
       actor ->
-        # Ash.can?/3 answers a plain boolean: true passes, false is the
-        # resource policies' refusal — the plain-words Forbidden.
-        if Ash.can?(changeset, actor) do
-          :ok
-        else
-          {:error, Forbidden.exception(errors: [paid_error()])}
+        # Ash.can/3 with `maybe_is: false`: an inconclusive filter
+        # scenario answers false here — the same answer the real write's
+        # policy evaluation reaches — so the pre-flight always agrees
+        # with the write instead of passing on a maybe.
+        case Ash.can(changeset, actor, maybe_is: false) do
+          {:ok, true} ->
+            :ok
+
+          {:ok, _false_or_maybe} ->
+            {:error, Forbidden.exception(errors: [paid_error()])}
+
+          # coveralls-ignore-start - defensive: Ash.can returns an error
+          # tuple only for malformed inputs; ExUnit cannot stage one
+          # (the policies' own verdicts are the only shape this arm
+          # sees)
+          {:error, _error} ->
+            {:error, Forbidden.exception(errors: [paid_error()])}
+            # coveralls-ignore-stop
         end
     end
   end

@@ -260,12 +260,16 @@ shape):
 - **Configure or re-enable** requires a paid-once wallet: at least one
   `:purchase` ledger credit of $1 or more, ever (`ActorOrgHasPaid`).
   Welcome and goodwill credits never qualify — the ledger's reason
-  dimension is the not-a-bot gate — and refunds never un-pay. The gate
-  sits in `ConfigureBackups` after the settings validate and before
-  the first cluster touch (a never-paid refusal writes nothing), and
-  the `BackupSetting` policies carry the same bar — create outright
-  (every row is born `enabled`), and the update's enable flip, so the
-  panel's plain-update pause switch cannot walk around it.
+  dimension is the not-a-bot gate — and refunds never un-pay. ANY save
+  except a PAUSE — a first save, a re-enable, or an edit of a
+  configured row — requires the paid wallet and refuses before any
+  cluster write; only pausing and removing settings stay ungated. The
+  gate sits in `ConfigureBackups` after the settings validate and
+  before the first cluster touch (a never-paid refusal writes
+  nothing), and the `BackupSetting` policies carry the same bar —
+  create outright (every row is born `enabled`) and on every update
+  except a pause — so the panel's plain-update pause switch cannot
+  walk around it.
 - **Every run** — the owner's "Back up now" and the nightly due pass
   alike — additionally requires a positive balance: the platform-wide
   zero-balance rule (`:wallet_unfunded`, one code path for both

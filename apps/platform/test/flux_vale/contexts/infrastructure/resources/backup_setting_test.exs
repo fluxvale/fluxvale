@@ -340,6 +340,61 @@ defmodule FluxVale.Infrastructure.BackupSettingTest do
       refute paused.enabled
     end
 
+    test "a never-paid member's edit that STAYS enabled is Forbidden — not just re-enables" do
+      version = base!()
+
+      owner =
+        User.create!("flip-edit-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      instance =
+        Instance.create!(
+          %{
+            name: "Legacy #{System.unique_integer()}",
+            app_version_id: version.id,
+            env_vars: %{}
+          },
+          actor: owner
+        )
+
+      {:ok, setting} = create(instance)
+
+      # Coordinates only: `enabled` absent from the input in the first
+      # probe, present staying true in the second — both must answer
+      # the paid check, not slip through an enable-only scope.
+      assert {:error, %Ash.Error.Forbidden{}} =
+               BackupSetting.update(setting, %{retention_keep: 14}, actor: owner)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               BackupSetting.update(setting, %{bucket: "another-bucket"}, actor: owner)
+    end
+
+    test "a paid member edits and re-enables freely" do
+      version = base!()
+
+      owner =
+        User.create!("flip-paid-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      BillingFixtures.mark_user_paid!(owner)
+
+      instance =
+        Instance.create!(
+          %{
+            name: "Resumed #{System.unique_integer()}",
+            app_version_id: version.id,
+            env_vars: %{}
+          },
+          actor: owner
+        )
+
+      {:ok, setting} = create(instance, %{enabled: false})
+
+      assert {:ok, edited} = BackupSetting.update(setting, %{retention_keep: 14}, actor: owner)
+      assert edited.retention_keep == 14
+
+      assert {:ok, resumed} = BackupSetting.update(setting, %{enabled: true}, actor: owner)
+      assert resumed.enabled
+    end
+
     test "a paid member flips enabled to true" do
       version = base!()
 

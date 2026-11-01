@@ -230,6 +230,44 @@ defmodule FluxVale.Checks.ActorOrgHasPaidTest do
       refute ActorOrgHasPaid.match?(paid_actor, %{subject: changeset}, [])
     end
 
+    test "a relationship-shaped create errors as Required instance_id — never a created row" do
+      # Accepted-with-rationale (the check module's comment): the
+      # resolver only sees a concrete `instance_id`. A create shaped
+      # through the relationship instead fails the action's own
+      # Required validation — the orgless-actor posture — so the actor
+      # arm is never consulted on a foreign org's instance.
+      version = InstanceFixtures.app_version!()
+      InstanceFixtures.local_cluster!()
+
+      never_paid_member =
+        User.create!("create-rel-#{System.unique_integer()}@fluxvale.test", %{},
+          authorize?: false
+        )
+
+      instance =
+        Instance.create!(
+          %{name: "Rel #{System.unique_integer()}", app_version_id: version.id, env_vars: %{}},
+          actor: never_paid_member
+        )
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               BackupSetting
+               |> Ash.Changeset.for_create(
+                 :create,
+                 %{
+                   instance: instance.id,
+                   endpoint: "https://s3.example.com",
+                   bucket: "some-bucket",
+                   access_key_id: "KEY"
+                 },
+                 authorize?: false
+               )
+               |> Ash.create()
+
+      # No row anywhere: the pin is on the absence, not the message.
+      assert {:error, _missing} = BackupSetting.get_by_instance(instance.id, authorize?: false)
+    end
+
     test "a forged nil organization_id on an update answers the ROW's org, never the actor's" do
       # The exploit this closes: route the update by its nil attribute
       # and it takes the create path — the actor's PAID personal org —

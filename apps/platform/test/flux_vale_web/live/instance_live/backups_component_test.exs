@@ -772,6 +772,10 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       instance = instance!(version, user)
       setting!(instance, enabled: false)
       stub_settings_save()
+      # An edit of a paused row STAYS disabled — a paid save under the
+      # net rule (only a pause of an enabled row escapes). The pin here
+      # is that the save cannot RESURRECT the schedule, not the wallet.
+      BillingFixtures.mark_user_paid!(user)
 
       {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
 

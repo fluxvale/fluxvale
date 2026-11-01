@@ -93,6 +93,14 @@ defmodule FluxVale.Checks.ActorOrgWalletFunded do
   # one (a team-org instance must not answer on the member's wallet,
   # either direction). Attribute first, then argument, covering both
   # intake shapes.
+  #
+  # Accepted-with-rationale: a create whose input carries a
+  # relationship-shaped instance instead of a concrete `instance_id`
+  # does not reach this resolver — the action's own Required
+  # validation answers (the orgless-actor posture), so the actor arm
+  # is never consulted on a foreign org. Revisit trigger: the day
+  # :create accepts relationship-shaped instances, resolve the org
+  # from the relationship here.
   defp create_org_id(%Ash.Changeset{} = changeset) do
     instance_id =
       Ash.Changeset.get_attribute(changeset, :instance_id) ||

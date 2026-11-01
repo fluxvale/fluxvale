@@ -67,16 +67,20 @@ defmodule FluxVale.Infrastructure.BackupSetting do
       authorize_if(relates_to_actor_via([:instance, :organization, :members]))
     end
 
-    # The enable flip is the paid surface. The panel's pause/resume
-    # switch is deliberately a PLAIN `:update` (pausing must never touch
-    # K8s), so re-enabling rides the policy: membership AND one real
-    # $1+ payment, ever — the welcome credit is not a card. Every other
-    # update (pause, edit coordinates/retention) is authorized by the
-    # member policy above.
+    # Every update needs membership; everything EXCEPT a pause to false
+    # additionally needs a wallet that has paid once. The panel's
+    # pause/resume switch is deliberately a PLAIN `:update` (pausing
+    # must never touch K8s), so the policy is what carries the gate —
+    # the pause escape is scoped to FROM true (an edit of an
+    # already-paused row, a re-enable, and an edit that stays enabled
+    # all answer the paid check; a crafted save omitting `enabled`
+    # never escapes). The member policy above composes as the AND.
     policy action_type(:update) do
-      description("Enabling backups needs membership and a wallet that has paid once")
+      description(
+        "Every update needs membership; everything except a pause to false additionally needs a wallet that has paid once"
+      )
 
-      authorize_unless(changing_attributes(enabled: [to: true]))
+      authorize_if(changing_attributes(enabled: [from: true, to: false]))
       forbid_unless(relates_to_actor_via([:instance, :organization, :members]))
       forbid_unless(FluxVale.Checks.ActorOrgHasPaid)
       authorize_if(FluxVale.Checks.ActorOrgHasPaid)

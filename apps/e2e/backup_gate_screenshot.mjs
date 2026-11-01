@@ -56,20 +56,24 @@ for (const { page } of [unconfigured, drained, configuredUnpaid]) {
   await page.locator("[data-testid=backups-panel]").waitFor();
 }
 
-// (d) click "Back up now" so the refusal callout is on the page, then
-// back to the top — a fullPage shot while scrolled paints the sticky
-// header mid-page over the content.
-await drained.page.locator("[data-testid=back-up-now]").click();
-await drained.page.locator("[data-testid=backups-error]").waitFor();
-await drained.page.evaluate(() => window.scrollTo(0, 0));
-await drained.page.waitForTimeout(300);
+// (b) is captured TWICE, in distinct states: the configured card's
+// empty-balance callout BEFORE any click, then the "Back up now"
+// refusal AFTER the click (scroll back to the top first — a fullPage
+// shot while scrolled paints the sticky header mid-page).
+const configEmpty = await drained.page
+  .locator("[data-testid=backups-config-prefund]")
+  .isVisible();
 
 const shots = [
   ["backup-paid-gate-setup", unconfigured.page],
   ["backup-paid-gate-config-empty", drained.page],
   ["backup-paid-gate-config-unpaid", configuredUnpaid.page],
-  ["backup-paid-gate-run-refusal", drained.page],
 ];
+
+if (!configEmpty) {
+  console.error("the drained page does not show the empty-balance callout — seed state drifted");
+  process.exit(1);
+}
 
 for (const mode of ["light", "dark"]) {
   for (const [name, page] of shots) {
@@ -82,6 +86,27 @@ for (const mode of ["light", "dark"]) {
     await page.screenshot({ path: `${outdir}/${name}-${mode}.png`, fullPage: true });
     console.log(`captured ${name}-${mode}.png`);
   }
+}
+
+// (d) the refusal state — captured after the stills above so the two
+// frames stay distinct.
+await drained.page.locator("[data-testid=back-up-now]").click();
+await drained.page.locator("[data-testid=backups-error]").waitFor();
+await drained.page.evaluate(() => window.scrollTo(0, 0));
+await drained.page.waitForTimeout(300);
+
+for (const mode of ["light", "dark"]) {
+  await drained.page.evaluate((m) => {
+    localStorage.setItem("phx:theme", m);
+    document.documentElement.setAttribute("data-theme", m);
+    document.documentElement.setAttribute("data-theme-source", "user");
+  }, mode);
+  await drained.page.waitForTimeout(300);
+  await drained.page.screenshot({
+    path: `${outdir}/backup-paid-gate-run-refusal-${mode}.png`,
+    fullPage: true,
+  });
+  console.log(`captured backup-paid-gate-run-refusal-${mode}.png`);
 }
 
 await unconfigured.ctx.close();

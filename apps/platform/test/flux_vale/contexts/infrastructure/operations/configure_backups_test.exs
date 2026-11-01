@@ -904,6 +904,44 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackupsTest do
                Infrastructure.configure_backups(instance, params(), authorize?: false)
     end
 
+    test "a never-paid member's edit that STAYS enabled is Forbidden — zero cluster calls" do
+      # The legacy/lapsed shape: a settings row whose org never paid, an
+      # ordinary coordinates edit that keeps `enabled` true. The
+      # pre-flight refuses it through the update policies before any
+      # cluster touch — the pause below is the ONLY ungated save.
+      version = base!()
+
+      owner =
+        User.create!("never-paid-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      instance = instance!(version, owner)
+
+      BackupSetting
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          instance_id: instance.id,
+          endpoint: "https://account.r2.cloudflarestorage.com",
+          bucket: "fluxvale-kavita",
+          access_key_id: "AKIAIOSFODNN7EXAMPLE"
+        },
+        authorize?: false
+      )
+      |> Ash.create!()
+
+      reject(K8s, :kubeconfig, 1)
+      reject(Secret, :get_data, 3)
+      reject(Secret, :create, 4)
+      reject(ResourceQuota, :create, 4)
+
+      assert {:error, %Ash.Error.Forbidden{errors: [%Ash.Error.Forbidden.Policy{}]}} =
+               Infrastructure.configure_backups(
+                 instance,
+                 %{retention_keep: 14},
+                 actor: owner
+               )
+    end
+
     test "a paid member's first save proceeds to the cluster" do
       version = base!()
       owner = user()
