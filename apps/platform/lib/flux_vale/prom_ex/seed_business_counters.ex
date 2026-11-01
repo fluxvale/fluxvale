@@ -14,15 +14,24 @@ defmodule FluxVale.PromEx.SeedBusinessCounters do
   derivations (one writer each: the validator table, the state
   enums, the terminality guard).
 
-  LiveDashboard is untouched by the seed: its telemetry listeners
-  attach per mounted metrics page, not at boot, so the zero-samples
-  never reach it (and its counter definitions count events rather
-  than accumulate measurements anyway).
+  LiveDashboard is untouched by the seed, for one reason: its
+  telemetry listeners attach per mounted metrics page, not at boot,
+  so the zero-samples never reach it. (Even a count-0 seed that did
+  would chart a 0 datapoint, not +1 — the listener extracts the
+  measurement.)
 
   Boot safety is structural, not defensive: :telemetry detaches a
   failing handler itself (the exception never propagates to the
   emitter — pinned by test), and the task is :temporary, so even a
-  crash could not restart-loop or take the supervisor down.
+  crash could not restart-loop or take the supervisor down. The
+  same :temporary stance accepts one residual: a
+  TelemetryMetricsPrometheus Core Registry crash+restart empties
+  both ETS tables and re-attaches its handlers fresh, and this task
+  never re-runs — the 68 seeds (and the accumulated history) vanish
+  until the next app restart, restoring first-event blindness for
+  that window. Accepted (same class as the per-deploy in-memory
+  reset); the stronger form (re-seed on Registry UP via monitor) is
+  deliberately not taken.
   """
 
   use Task, restart: :temporary
