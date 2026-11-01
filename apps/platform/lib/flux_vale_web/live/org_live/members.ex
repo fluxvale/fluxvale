@@ -114,7 +114,14 @@ defmodule FluxValeWeb.OrganizationLive.Members do
                       )}
                     </p>
                   </div>
-                  <.badge tone="primary">{role_label(member.role)}</.badge>
+                  <%!-- The badge is named for screen readers (hostile-355
+                  F2): the row language has no table semantics, so the
+                  role doesn't ride a column header — the sr-only prefix
+                  is what makes the roster read as email, joined date,
+                  "Role Owner". --%>
+                  <.badge tone="primary">
+                    <span class="sr-only">Role </span>{role_label(member.role)}
+                  </.badge>
                 </div>
               </li>
             </ul>

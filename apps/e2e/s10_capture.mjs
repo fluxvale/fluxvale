@@ -8,7 +8,9 @@
  * The access states ride /tmp/opencode/s10_seed.exs (four orgs + a
  * personal org; the session token lands in /tmp/opencode/s10_token.txt).
  *
- * Usage: node s10_capture.mjs <outdir>   (FV_BASE, FV_TOKEN required)
+ * Usage: node s10_capture.mjs <outdir>   (FV_BASE, FV_TOKEN, S10_SLUG,
+ *                                S10_SLUG_EMPTY, S10_SLUG_ENABLED — all
+ *                                required; the seed's org slugs)
  */
 import { chromium } from "@playwright/test";
 import { mkdirSync } from "node:fs";
@@ -19,8 +21,14 @@ const outdir = process.argv[2] ?? `/tmp/opencode/s10-shots-${label}`;
 mkdirSync(outdir, { recursive: true });
 
 const token = process.env.FV_TOKEN ?? "";
-if (!token) {
-  console.error("FV_TOKEN required");
+// All three slugs up front (hostile-355 F1): an unset slug would build
+// /organizations/undefined/… and shoot the error page under a real
+// surface's filename — validate before any navigation, not after.
+const SLUG = process.env.S10_SLUG ?? "";
+const SLUG_EMPTY = process.env.S10_SLUG_EMPTY ?? "";
+const SLUG_ENABLED = process.env.S10_SLUG_ENABLED ?? "";
+if (!token || !SLUG || !SLUG_EMPTY || !SLUG_ENABLED) {
+  console.error("FV_TOKEN, S10_SLUG, S10_SLUG_EMPTY, S10_SLUG_ENABLED required");
   process.exit(1);
 }
 
@@ -36,20 +44,28 @@ const live = (page) =>
   );
 
 const settle = (page) =>
-  // Finite animations only: an in-flight state's spinner is infinite
-  // and its `finished` promise never resolves (CodeRabbit #351).
-  page.evaluate(() =>
-    Promise.all(
-      document
-        .getAnimations()
-        .filter(
-          (a) =>
-            !a.effect ||
-            Number.isFinite(a.effect.getComputedTiming().duration ?? 0),
-        )
-        .map((a) => a.finished.catch(() => {})),
-    ),
-  );
+  // Finite animations only. Two ways an animation never finishes and
+  // would hang the await (hostile-355 F3): a missing effect, and an
+  // INFINITE-ITERATION spinner (motion-safe:animate-spin has a finite
+  // 1s duration, so duration alone doesn't catch it). Both are skipped,
+  // and the whole await races a hard timeout as the backstop.
+  page.evaluate(() => {
+    const finite = (a) => {
+      try {
+        if (!a.effect) return false;
+        const timing = a.effect.getComputedTiming();
+        return Number.isFinite(timing.duration ?? 0) && timing.iterations !== Infinity;
+      } catch {
+        return false;
+      }
+    };
+    return Promise.race([
+      Promise.all(
+        document.getAnimations().filter(finite).map((a) => a.finished.catch(() => {})),
+      ),
+      new Promise((resolve) => setTimeout(resolve, 2_000)),
+    ]);
+  });
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -67,12 +83,6 @@ await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
 if (page.url().includes("/sign-in")) throw new Error("session did not take — check FV_TOKEN");
 await live(page);
 
-const SLUG = process.env.S10_SLUG ?? "";
-if (!SLUG) {
-  console.error("S10_SLUG required (the seed's pairings-org slug)");
-  process.exit(1);
-}
-
 const SURFACES = [
   [
     "org-settings",
@@ -89,14 +99,14 @@ const SURFACES = [
   [
     "access-empty",
     async () =>
-      await page.goto(`${BASE}/organizations/${process.env.S10_SLUG_EMPTY}/settings/access`, {
+      await page.goto(`${BASE}/organizations/${SLUG_EMPTY}/settings/access`, {
         waitUntil: "networkidle",
       }),
   ],
   [
     "access-enabled",
     async () =>
-      await page.goto(`${BASE}/organizations/${process.env.S10_SLUG_ENABLED}/settings/access`, {
+      await page.goto(`${BASE}/organizations/${SLUG_ENABLED}/settings/access`, {
         waitUntil: "networkidle",
       }),
   ],
@@ -116,6 +126,11 @@ for (const [width, height] of [[1440, 900], [375, 667]]) {
   for (const [name, navigate] of SURFACES) {
     await navigate();
     await live(page);
+    // A mis-sluged navigation must never render under a real surface's
+    // filename (hostile-355 F1) — fail loudly instead.
+    if (page.url().includes("undefined")) {
+      throw new Error(`${name}: navigation landed on an 'undefined' URL: ${page.url()}`);
+    }
     await settle(page);
     for (const mode of ["light", "dark"]) {
       await page.evaluate((m) => {

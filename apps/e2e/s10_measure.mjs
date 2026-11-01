@@ -64,18 +64,28 @@ const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
 const page = await signIn(ctx);
 
 const settle = (pg) =>
-  pg.evaluate(() =>
-    Promise.all(
-      document
-        .getAnimations()
-        .filter(
-          (a) =>
-            !a.effect ||
-            Number.isFinite(a.effect.getComputedTiming().duration ?? 0),
-        )
-        .map((a) => a.finished.catch(() => {})),
-    ),
-  );
+  // Finite animations only. Two ways an animation never finishes and
+  // would hang the await (hostile-355 F3): a missing effect, and an
+  // INFINITE-ITERATION spinner (motion-safe:animate-spin has a finite
+  // 1s duration, so duration alone doesn't catch it). Both are skipped,
+  // and the whole await races a hard timeout as the backstop.
+  pg.evaluate(() => {
+    const finite = (a) => {
+      try {
+        if (!a.effect) return false;
+        const timing = a.effect.getComputedTiming();
+        return Number.isFinite(timing.duration ?? 0) && timing.iterations !== Infinity;
+      } catch {
+        return false;
+      }
+    };
+    return Promise.race([
+      Promise.all(
+        document.getAnimations().filter(finite).map((a) => a.finished.catch(() => {})),
+      ),
+      new Promise((resolve) => setTimeout(resolve, 2_000)),
+    ]);
+  });
 
 const out = (line) => console.log(JSON.stringify(line));
 
@@ -191,6 +201,7 @@ for (const [name, url] of Object.entries(SURFACES)) {
 const rowsAt = async (w, url) => {
   await page.setViewportSize({ width: w, height: 900 });
   await page.goto(url, { waitUntil: "networkidle" });
+  await live(page);
   await settle(page);
   return page.evaluate(() => {
     const tabs = [...document.querySelectorAll("[data-testid='org-settings-tabs'] a")];
