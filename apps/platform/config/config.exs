@@ -201,6 +201,15 @@ config :flux_vale,
     certificate_namespace: "fluxvale-access",
     issuance_deadline_hours: 72
   ],
+  # ADR-0040 §11's billing line: every serving custom domain bills this
+  # monthly rate, prorated hourly. The number is POLICY, not logic — the
+  # owner set it (Oct 30 2026) and one function reads it
+  # (`AccessDomain.monthly_cents/0`; no rate literal lives in a billing
+  # path). Platform domains never bill. Runtime override: the fleet's
+  # env var (runtime.exs, the INSTANCES_BASE_DOMAIN pattern).
+  access_domain_pricing: [
+    monthly_cents: 200
+  ],
   # Strong private access (ADR-0040 S3): the tunnel + resolution halves
   # of the gateway's tailnet work. `access_edge` is DEFAULTED at runtime
   # to the fleet's access entrypoint (infra #119 — runtime.exs; env
@@ -355,7 +364,12 @@ config :flux_vale, Oban,
        # :01/:16/:31/:46 — the top-of-hour :00 slot is deliberately
        # avoided by the neighbouring entries (#113's stance: nothing at
        # the top of the hour).
-       {"1-59/15 * * * *", FluxVale.Janitor.VerifyAccessDomains}
+       {"1-59/15 * * * *", FluxVale.Janitor.VerifyAccessDomains},
+       # ADR-0040 §11's custom-domain accrual tick — the gateway settle's
+       # cadence (:settler queue), offset to :03/:18/:33/:48 so it shares
+       # no slot with the verify pass, the idle sweep's */5 grid, or the
+       # top of the hour (#113's stance).
+       {"3-59/15 * * * *", FluxVale.Workers.AccessDomainSettle}
      ]},
     # Retention for finished jobs (completed/cancelled/discarded) — v1
     # never pruned oban_jobs; adopted on review (#39). 7d keeps a

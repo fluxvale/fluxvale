@@ -34,12 +34,20 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
   provider's claim reason (`:no_api_token`, `:node_not_found`,
   `:node_ambiguous`, `:unauthorized`, `:forbidden`, …) or the
   claims-write failure. `opts` carry `actor:` / `authorize?:`.
+
+  `opts[:render]` (default true) suppresses the post-claims CoreDNS
+  re-render, for the nested system caller: the S6 resume runs this
+  operation INSIDE its own transaction, where the claims write is not
+  yet committed — rendering here would put uncommitted claims into the
+  ConfigMap (the S4 lesson). The resume renders once itself, in its
+  `after_transaction`, on the committed row only.
   """
   @spec call(AccessGateway.t(), AccessDomain.t(), keyword()) ::
           {:ok, AccessGateway.t()} | {:error, term()}
   def call(%AccessGateway{} = gateway, %AccessDomain{} = domain, opts \\ []) do
     actor = opts[:actor]
     authorize? = Keyword.get(opts, :authorize?, true)
+    render? = Keyword.get(opts, :render, true)
 
     with {:ok, gateway} <-
            AccessGateway.get_by_id(gateway.id, actor: actor, authorize?: authorize?),
@@ -51,7 +59,7 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
          {:ok, resolver_ip} <- resolver_ip(),
          result <-
            AccessProvider.impl_for(gateway).claim_domain(gateway, domain.domain, resolver_ip) do
-      land(result, gateway, domain, resolver_ip)
+      land(result, gateway, domain, resolver_ip, render?)
     end
   end
 
@@ -64,7 +72,7 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
   # The claims write committed = the view's source of truth moved, so the
   # Corefile re-renders best-effort after it (ADR-0040 §4's derived-state
   # stance) — a failed render never fails the claim.
-  defp land({:ok, _claimed}, gateway, domain, resolver_ip) do
+  defp land({:ok, _claimed}, gateway, domain, resolver_ip, render?) do
     claims =
       Map.put(gateway.dns_claims || %{}, domain.domain, %{
         "ip" => resolver_ip,
@@ -73,7 +81,10 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
 
     case put_claims(gateway, domain.domain, claims, 1) do
       {:ok, row} ->
-        RenderAccessDNS.call()
+        if render? do
+          RenderAccessDNS.call()
+        end
+
         {:ok, row}
 
       {:error, _reason} = failure ->
@@ -81,13 +92,13 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
     end
   end
 
-  defp land({:error, kind} = error, gateway, _domain, _resolver_ip)
+  defp land({:error, kind} = error, gateway, _domain, _resolver_ip, _render?)
        when kind in [:unauthorized, :forbidden] do
     drift_to_needs_attention(gateway, kind)
     error
   end
 
-  defp land({:error, _reason} = error, _gateway, _domain, _resolver_ip), do: error
+  defp land({:error, _reason} = error, _gateway, _domain, _resolver_ip, _render?), do: error
 
   # A racing claims write (two tabs, two domains) fails StaleRecord
   # under update_claims' optimistic lock — the retry re-reads the

@@ -12,10 +12,14 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
   - runway < 24h of burn → one warning email per episode
     (`low_balance_warned_at`, cleared when runway recovers)
   - balance ≤ 0 → every `:running` instance stops (the pause pitch —
-    reversible: `start`'s gate reopens the moment balance > 0), and
-    every `:active` access gateway **suspends** (ADR-0039 §5's must-fix:
+    reversible: `start`'s gate reopens the moment balance > 0), every
+    `:active` access gateway **suspends** (ADR-0039 §5's must-fix:
     an unfunded gateway is a paid-for reachability the org is not
-    paying for — scaled to zero, no accrual, reversible on top-up)
+    paying for — scaled to zero, no accrual, reversible on top-up),
+    and every serving custom domain **suspends** (ADR-0040 §11 — the
+    honest-dark demotion: edge routes for the domain removed, the
+    tailnet claim reverted, the anchor parked; reversible by the
+    owner's funded resume)
   - balance < 0 → the destroy clock anchors at `negative_since`;
     destroy all the org's instances at +30d (teardown machinery,
     storage freed — the data-deletion statement's commitment), T-7/T-1
@@ -34,6 +38,7 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
   alias FluxVale.Billing.Operations.ComputeRunway
   alias FluxVale.Billing.Wallet
   alias FluxVale.Identity.UserEmail
+  alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Mailer
@@ -49,14 +54,16 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
     :destroy_warning,
     :stopped_ids,
     :destroyed_ids,
-    :suspended_gateway_ids
+    :suspended_gateway_ids,
+    :suspended_domain_ids
   ]
   defstruct [
     :runway_warning_sent,
     :destroy_warning,
     :stopped_ids,
     :destroyed_ids,
-    :suspended_gateway_ids
+    :suspended_gateway_ids,
+    :suspended_domain_ids
   ]
 
   @type t :: %__MODULE__{
@@ -64,7 +71,8 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
           destroy_warning: nil | :t7 | :t1,
           stopped_ids: [Ash.UUID.t()],
           destroyed_ids: [Ash.UUID.t()],
-          suspended_gateway_ids: [Ash.UUID.t()]
+          suspended_gateway_ids: [Ash.UUID.t()],
+          suspended_domain_ids: [Ash.UUID.t()]
         }
 
   @spec call(Wallet.t()) :: {:ok, t()} | {:error, term()}
@@ -107,7 +115,23 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
         # `stop_step` has no failure branch. The gateway arm is the only
         # out-of-DB side effect that can refuse the pass, which is exactly
         # why it runs out here.
-        {:ok, %{summary | suspended_gateway_ids: suspend_gateways(wallet)}}
+        # Domains BEFORE gateways (ADR-0040 §11): the domain
+        # suspension's unclaim dials the tailnet API through the
+        # gateway's recorded node and reads the gateway's claims map —
+        # both while the gateway row still stands `:active`. Parking
+        # the gateway first would make every later domain unclaim dial
+        # through a parked node (an ambiguous lookup at best) and
+        # could fail the suspension forever while the domain keeps
+        # accruing. The gateway park is the last, cheapest write.
+        suspended_domains = suspend_domains(wallet)
+        suspended_gateways = suspend_gateways(wallet)
+
+        {:ok,
+         %{
+           summary
+           | suspended_gateway_ids: suspended_gateways,
+             suspended_domain_ids: suspended_domains
+         }}
 
       # defensive: rollback only fires from the arms that name it —
       # not simulatable under the sandbox
@@ -140,7 +164,8 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
        destroy_warning: destroy_warning,
        stopped_ids: stopped,
        destroyed_ids: destroyed,
-       suspended_gateway_ids: []
+       suspended_gateway_ids: [],
+       suspended_domain_ids: []
      }, markers}
   end
 
@@ -233,6 +258,52 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
   defp log_suspend_failure(gateway, reason) do
     Logger.error("Access gateway #{gateway.id} suspend failed: #{inspect(reason)}")
     []
+  end
+
+  # The domain arm (ADR-0040 §11): at ≤ 0 every SERVING custom domain
+  # suspends — the honest-dark demotion (edge routes for the domain
+  # removed, the tailnet claim reverted, the anchor parked — the
+  # `mark_suspended` change owns all three), reversible by the owner's
+  # funded resume. The funnel's own state guard makes a re-entered
+  # ladder pass a no-op, not a second cluster pass.
+  #
+  # A domain whose suspension fails stays `:verified` and KEEPS
+  # ACCRUING — it is still serving, so parking it without its side
+  # effects would bill a dark domain, and demoting without them would
+  # strand routes and claims no row records (fail-closed; the log line
+  # is the trace, the next sweep the retry).
+  defp suspend_domains(wallet) do
+    # Re-read the balance (the gateway arm's stance): the pass's own
+    # writes must not be missed, and the arm runs outside the
+    # transaction that owned the earlier read.
+    if zero_or_below?(wallet) do
+      wallet.organization_id
+      |> org_serving_domains()
+      |> Enum.flat_map(&suspend_domain/1)
+    else
+      []
+    end
+  end
+
+  defp suspend_domain(domain) do
+    case AccessDomain.mark_suspended(domain, authorize?: false) do
+      {:ok, suspended} -> [suspended.id]
+      {:error, reason} -> log_domain_suspend_failure(domain, reason)
+    end
+  end
+
+  defp log_domain_suspend_failure(domain, reason) do
+    Logger.error("Access domain #{domain.domain} suspend failed: #{inspect(reason)}")
+    []
+  end
+
+  defp org_serving_domains(organization_id) do
+    AccessDomain
+    |> Ash.Query.filter(
+      organization_id == ^organization_id and kind == :custom and
+        state in [:verified, :needs_attention]
+    )
+    |> Ash.read!(authorize?: false)
   end
 
   defp zero_or_below?(wallet) do

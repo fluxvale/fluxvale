@@ -33,6 +33,7 @@ defmodule FluxValeWeb.DashboardLive do
 
   alias FluxVale.Accounts
   alias FluxVale.Billing
+  alias FluxVale.Billing.Month
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Pricing
   alias FluxValeWeb.InstanceStatus
@@ -40,7 +41,6 @@ defmodule FluxValeWeb.DashboardLive do
   # #121's calendar-neutral month, the one settle prorates by — pinned
   # by agreement tests. Display-only here: micro-cents/hour → the
   # monthly burn the runway hint shows.
-  @seconds_per_month 2_629_746
   @micro_per_cent 10_000
 
   # Locale first — it must apply in this process before any rendering.
@@ -396,7 +396,7 @@ defmodule FluxValeWeb.DashboardLive do
     if days < 60 do
       "≈ #{round(days)} #{plural(round(days), "day")}"
     else
-      months = days * 24 * 3600 / @seconds_per_month
+      months = days * 24 * 3600 / Month.seconds()
       "≈ #{round(months)} #{plural(round(months), "month")}"
     end
   end
@@ -410,7 +410,7 @@ defmodule FluxValeWeb.DashboardLive do
     do: "Nothing burning right now."
 
   defp burn_hint(%{burn_micro_cents_per_hour: burn_micro}, _instance_count) do
-    monthly_cents = div(burn_micro * @seconds_per_month, @micro_per_cent * 3600)
+    monthly_cents = div(burn_micro * Month.seconds(), @micro_per_cent * 3600)
     "at #{format_usd(monthly_cents)}/mo current burn"
   end
 

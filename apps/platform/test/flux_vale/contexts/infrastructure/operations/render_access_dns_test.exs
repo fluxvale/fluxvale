@@ -18,6 +18,8 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient
   alias FluxVale.Infrastructure.AccessRoute
+  alias FluxVale.Infrastructure.InstanceHostname
+  alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
@@ -26,6 +28,8 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
   require Ash.Query
 
   @base_domain "fluxvale.lvh.me"
+  @custom_domain "apps.customer.com"
+
   @claims %{
     "ip" => "10.20.30.40",
     "tailnet" => "example.ts.net"
@@ -287,23 +291,62 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
       assert corefile =~ "forward ."
     end
 
-    test "a SUSPENDED domain keeps its claim but answers nothing (the ladder's demotion)", %{
-      org: org,
-      owner: owner
-    } do
-      gateway = claimed_gateway!(org)
+    test "a SUSPENDED domain keeps its claim but answers nothing (the ladder's demotion — defensive)",
+         %{
+           org: org,
+           owner: owner
+         } do
+      # DEFENSIVE: the demotion UNCLAIMS (S6's honest-dark arm deletes
+      # the claims entry through the same funnel), so a claim that
+      # outlives its suspension is the race shape — a claims write
+      # that landed despite the demotion. The renderer's guard exists
+      # for exactly that: a suspended ROW answers nothing, whatever
+      # the claims map still says. The demotion's own cluster legs are
+      # stubbed; the shape rides the owner's OWN domain — a :platform
+      # row never suspends (the funnel's belt; platform domains never
+      # bill, ADR-0040 §11).
+      gateway = AccessFixtures.gateway!(org)
       instance = attached_private!(org, owner, gateway)
 
-      # mark_suspended is the billing ladder's funnel (S6's writer; the
-      # ladder itself is a later slice).
-      domain = domain_row!(org, @base_domain)
-      {:ok, _suspended} = AccessDomain.mark_suspended(domain, %{}, authorize?: false)
+      Mimic.copy(EdgeRoutes)
+
+      stub(Kubereq, :attach, fn req, _opts -> req end)
+      stub(Kubereq, :apply, fn _req, manifest, _fm -> {:ok, %{status: 201, body: manifest}} end)
+      stub(EdgeRoutes, :apply_access_none_for_domain, fn _kc, _instance, _domain -> :ok end)
+      stub(Tailscale, :unclaim_domain, fn _gw, _d -> :ok end)
+
+      {:ok, custom} =
+        FluxVale.Infrastructure.register_access_domain(%{domain: @custom_domain}, actor: owner)
+
+      verified =
+        Ash.update!(custom, %{cert_secret_ref: "cert-secret"},
+          action: :mark_verified,
+          authorize?: false
+        )
+
+      InstanceHostname.mint!(
+        %{instance_id: instance.id, access_domain_id: verified.id, label: "app"},
+        authorize?: false
+      )
+
+      claims = %{@custom_domain => %{"ip" => "10.43.0.20", "tailnet" => "example.ts.net"}}
+
+      {:ok, _claimed} =
+        AccessGateway.update_claims(gateway, %{dns_claims: claims}, authorize?: false)
+
+      {:ok, _suspended} = AccessDomain.mark_suspended(verified, %{}, authorize?: false)
+
+      # The race shape: the claims entry outlived the demotion —
+      # re-staged through the system funnel.
+      fresh = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+
+      Ash.update!(fresh, %{dns_claims: claims}, action: :update_claims, authorize?: false)
 
       corefile = RenderAccessDNS.render(%{gateway.id => resolver_entry()})
 
-      refute corefile =~ instance.slug
+      refute corefile =~ "app.#{@custom_domain}"
       # The claim's zone still gets its default (public-recursion) block.
-      assert corefile =~ @base_domain
+      assert corefile =~ @custom_domain
     end
 
     test "a claim whose domain ROW is gone answers nothing — and the default still stands", %{

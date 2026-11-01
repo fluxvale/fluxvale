@@ -13,7 +13,8 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformSettle do
     bill are the anchors that committed (a racing suspend parks them,
     and the settle must see the park);
   - **prorate in integer micro-cents** over the average Gregorian month
-    (2_629_746 s — the same constant settle and the runway share);
+    (2_629_746 s — `Billing.Month`, the one definition the settles
+    and the runway share);
   - **keyless debit** — the anchor is the retry arbiter, so a committed
     settle that advances `metering_since` can never recompute the same
     interval. No idempotency key, no new posting surface;
@@ -39,14 +40,19 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformSettle do
 
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
+  alias FluxVale.Billing.Month
   alias FluxVale.Billing.Wallet
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Repo
 
   require Ash.Query
 
-  @month_useconds Decimal.new(2_629_746_000_000)
   @micros_per_cent Decimal.new(10_000)
+
+  # The shared constant (FluxVale.Billing.Month) as a Decimal — bound
+  # through a function, not a module attribute, so the constant module
+  # carries no compile-order dependency on this resource.
+  defp month_useconds, do: Decimal.new(Month.useconds())
 
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
@@ -199,7 +205,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformSettle do
     |> Decimal.new()
     |> Decimal.mult(@micros_per_cent)
     |> Decimal.mult(usecs)
-    |> Decimal.div(@month_useconds)
+    |> Decimal.div(month_useconds())
     |> Decimal.round(0, :floor)
     |> Decimal.to_integer()
   end

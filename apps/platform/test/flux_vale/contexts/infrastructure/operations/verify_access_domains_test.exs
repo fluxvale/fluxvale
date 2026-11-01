@@ -412,13 +412,30 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
   end
 
   describe "the S6 suspension funnel" do
-    test "mark_suspended lands :suspended — no writer yet, the billing ladder owns it", %{
+    test "mark_suspended demotes a serving row; a never-served row is left alone", %{
       owner: owner
     } do
-      domain = register!(owner)
+      pending = register!(owner)
 
-      assert {:ok, suspended} = AccessDomain.mark_suspended(domain, authorize?: false)
+      # A :pending row never served — the funnel's guard leaves it
+      # alone (the ladder selects serving rows only; the guard is the
+      # backstop). Same for :failed — there is nothing to demote.
+      assert {:ok, untouched} = AccessDomain.mark_suspended(pending, authorize?: false)
+      assert untouched.state == :pending
+
+      # A verified row demotes through the funnel — and its cluster
+      # legs are no-ops on a domain with no hostnames and no gateway.
+      verified =
+        Ash.update!(pending, %{cert_secret_ref: "cert-secret"},
+          action: :mark_verified,
+          authorize?: false
+        )
+
+      assert {:ok, suspended} = AccessDomain.mark_suspended(verified, authorize?: false)
       assert suspended.state == :suspended
+      # The accrual anchor parks: the suspended interval cannot bill on
+      # resume (ADR-0040 §11).
+      assert suspended.metering_since == nil
     end
   end
 
