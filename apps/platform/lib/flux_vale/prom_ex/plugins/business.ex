@@ -37,11 +37,12 @@ defmodule FluxVale.PromEx.Plugins.Business do
   :count), not counter metrics — required for that seed: a counter
   counts events (+1 per emission, the measurement ignored), so a
   zero-seed through one would inflate every series by one per boot
-  (+5 phantom error-occupancy per deploy on the instance funnel). A
-  sum accumulates the measurement — the emitters' count-1 events
-  accumulate identically, count-0 seeds materialize the series at 0
-  — and the exporter renders the same names with TYPE counter (sum's
-  PromEx default), so the scrape contract is byte-identical.
+  (+4 phantom error-occupancy per deploy on the instance funnel —
+  9 seeded entries vs 5 exits). A sum accumulates the measurement —
+  the emitters' count-1 events accumulate identically, count-0 seeds
+  materialize the series at 0 — and the exporter renders the same
+  names with TYPE counter (sum's PromEx default), so the scrape
+  contract is byte-identical.
 
   No signup metric fleet-side: no alert consumes it (alert-worthy
   only — the ruling), LiveDashboard shows it. The `flux_vale_*_total`

@@ -89,8 +89,9 @@ defmodule FluxValeWeb.Telemetry do
       # shared with the PromEx plugin (ONE list — Wake.buckets/0).
       # The fleet families' 68 closed-enum combos are seeded at 0
       # from boot (PromEx.SeedBusinessCounters — increase() never
-      # counts a series' first increment); the zero-samples also
-      # materialize these dashboard rows at 0 (harmless).
+      # counts a series' first increment). These dashboard rows are
+      # untouched by the seed: LiveDashboard listens per mounted
+      # page, not at boot.
       #
       # Wake latency (the scale-to-zero SLI) — events fire from
       # Instance.WakeMarkers; only the definitions are new here.
@@ -125,7 +126,7 @@ defmodule FluxValeWeb.Telemetry do
       # labels are closed enums, cardinality ceilinged by the state
       # machine: 42 legal from/to pairs (Plugins.Business derives
       # them from the validator), reason nil everywhere but the
-      # error edges. Seeded at 0 from boot.
+      # error edges.
       counter("flux_vale_instance_status_transition_count",
         event_name: [:flux_vale, :instance, :status_transition],
         measurement: :count,
@@ -134,8 +135,7 @@ defmodule FluxValeWeb.Telemetry do
       ),
       # Gateway state changes (AccessGateway.StateMarkers on the six
       # state-writing actions) — ladder suspends vs observed failures:
-      # all 20 ordered from≠to pairs of the five-state enum, seeded
-      # at 0 from boot.
+      # all 20 ordered from≠to pairs of the five-state enum.
       counter("flux_vale_gateway_state_change_count",
         event_name: [:flux_vale, :gateway, :state_change],
         measurement: :count,
@@ -144,7 +144,7 @@ defmodule FluxValeWeb.Telemetry do
       ),
       # Backup/restore outcomes (BackupRun.OutcomeMarkers on :update,
       # terminal finalizes only) — 6 kind×terminal pairs + 3 for the
-      # duration summary's kinds, seeded at 0 from boot.
+      # duration summary's kinds.
       counter("flux_vale_backup_run_count",
         event_name: [:flux_vale, :backup, :run],
         measurement: :count,

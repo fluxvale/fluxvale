@@ -14,8 +14,10 @@ defmodule FluxVale.PromEx.SeedBusinessCounters do
   derivations (one writer each: the validator table, the state
   enums, the terminality guard).
 
-  The zero-samples also materialize LiveDashboard rows at 0 —
-  harmless, in-memory (the dashboard reads the same emissions).
+  LiveDashboard is untouched by the seed: its telemetry listeners
+  attach per mounted metrics page, not at boot, so the zero-samples
+  never reach it (and its counter definitions count events rather
+  than accumulate measurements anyway).
 
   Boot safety is structural, not defensive: :telemetry detaches a
   failing handler itself (the exception never propagates to the
