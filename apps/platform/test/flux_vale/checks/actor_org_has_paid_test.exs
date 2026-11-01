@@ -1,15 +1,16 @@
 defmodule FluxVale.Checks.ActorOrgHasPaidTest do
   @moduledoc false
 
-  # The paid-once gate on private-access enablement: exactly one ledger
-  # shape qualifies — a `:purchase` credit of at least $1 (the
-  # whole-cents floor). The $3 signup welcome grant and goodwill
-  # adjustments deliberately do not count (a bot gets welcome credits,
-  # never a card), and a wallet-less org has never paid.
+  # The paid gate on private-access enablement: a `:purchase` credit of
+  # at least $1 (the whole-cents floor) OR the operator's paywall
+  # waiver. The $3 signup welcome grant and goodwill adjustments
+  # deliberately do not count (a bot gets welcome credits, never a
+  # card), and a wallet-less org has neither.
 
   use FluxVale.DataCase, async: true
 
   alias FluxVale.Billing
+  alias FluxVale.Billing.Wallet
   alias FluxVale.Checks.ActorOrgHasPaid
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.AccessGateway
@@ -57,6 +58,40 @@ defmodule FluxVale.Checks.ActorOrgHasPaidTest do
       assert ActorOrgHasPaid.org_paid?(wallet.organization_id)
     end
 
+    # The paywall waiver: the operator's designated-org path. It is not
+    # money — the ledger below stays untouched (pinned in
+    # WalletTest) — it only ORs this gate open.
+
+    test "a waived never-paid org passes — the waiver is the designated-org path" do
+      {org, wallet} = welcome_wallet!()
+
+      assert {:ok, _wallet} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin())
+      assert ActorOrgHasPaid.org_paid?(org.id)
+    end
+
+    test "waiver plus purchase still passes — the OR is inclusive" do
+      {org, wallet} = welcome_wallet!()
+      {:ok, _entry} = Billing.credit_wallet(wallet, 100)
+
+      assert {:ok, _wallet} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin())
+      assert ActorOrgHasPaid.org_paid?(org.id)
+    end
+
+    test "un-waiving re-gates — waiver false is the default again" do
+      # Chain the returned records — the un-flip must edit the row AS IT
+      # NOW IS (Ash drops changes equal to the in-memory data, and the
+      # AshAdmin form edits the freshly loaded row the same way).
+      {org, wallet} = welcome_wallet!()
+
+      assert {:ok, waived} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin())
+      assert ActorOrgHasPaid.org_paid?(org.id)
+
+      assert {:ok, _unwaived} =
+               Wallet.set_waiver(waived, %{paywall_waived: false}, actor: admin())
+
+      refute ActorOrgHasPaid.org_paid?(org.id)
+    end
+
     test "a wallet-less org has never paid" do
       {org, _owner} = BillingFixtures.grant_free_org!()
       refute ActorOrgHasPaid.org_paid?(org.id)
@@ -65,7 +100,8 @@ defmodule FluxVale.Checks.ActorOrgHasPaidTest do
 
   describe "the check itself" do
     test "describe/1 names the gate" do
-      assert ActorOrgHasPaid.describe([]) == "the org has paid at least once (a $1+ top-up)"
+      assert ActorOrgHasPaid.describe([]) ==
+               "the org is past the paid gate (paid once, or operator-waived)"
     end
 
     test "an actor with no org passes — the create's own org-required validation answers" do
@@ -308,4 +344,9 @@ defmodule FluxVale.Checks.ActorOrgHasPaidTest do
     {:ok, _welcome} = Billing.grant_credits(wallet, 300)
     {org, wallet}
   end
+
+  # Bootstrap posture (mirrors the Billing policy tests): the
+  # precondition runs authorize?: false; the admin policy itself is
+  # under test in the wallet and gateway suites.
+  defp admin, do: AccountsFixtures.platform_admin!()
 end

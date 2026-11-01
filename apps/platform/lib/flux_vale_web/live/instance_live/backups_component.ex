@@ -135,8 +135,11 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
          )
          |> refresh()}
 
+      # :wallet_unfunded names two gates (paid-once OR funded), so the
+      # org's paid answer rides along — copy_for/2 splits the line by
+      # population (the waiver made "$1 once" false for waived orgs).
       {:error, reason} ->
-        {:noreply, assign(socket, error: copy_for(reason))}
+        {:noreply, assign(socket, error: copy_for(reason, socket.assigns.org_paid?))}
     end
   end
 
@@ -1083,9 +1086,6 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   defp copy_for(:run_in_flight), do: "A backup or restore is already running. Give it a minute."
   defp copy_for(:backups_disabled), do: "Backups are paused — resume them first."
 
-  defp copy_for(:wallet_unfunded),
-    do: "Top up to run a backup — add at least $1 once, and keep a positive balance."
-
   defp copy_for(:nothing_to_restore), do: "There's no finished backup to restore yet."
   defp copy_for(:not_restorable), do: "The app is busy right now — try again in a moment."
 
@@ -1111,6 +1111,20 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
        do: message
 
   defp copy_for(_reason), do: "Something went wrong on our side. Try again in a minute."
+
+  # :wallet_unfunded fires when EITHER the paid-once gate or the funded
+  # gate refuses, so the copy splits by population (the paywall waiver
+  # made the $1-once clause false for a waived org at zero balance —
+  # the waiver exists precisely so they never must pay): a never-paid
+  # org keeps the $1-once education, a paid-or-waived org at zero gets
+  # the balance-only line. The up-front callouts stay population-gated.
+  defp copy_for(:wallet_unfunded, false),
+    do: "Top up to run a backup — add at least $1 once, and keep a positive balance."
+
+  defp copy_for(:wallet_unfunded, _paid_or_waived),
+    do: "Top up to run a backup — keep a positive balance in your wallet."
+
+  defp copy_for(reason, _org_paid?), do: copy_for(reason)
 
   # `to_form/2`'s :errors option wants `{field, {message, opts}}` tuples —
   # the opts carry the gettext bindings, empty here because the resource's

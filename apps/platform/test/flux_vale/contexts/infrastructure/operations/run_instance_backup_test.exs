@@ -4,6 +4,9 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackupTest do
   use FluxVale.DataCase, async: true
   use Mimic
 
+  alias FluxVale.Billing
+  alias FluxVale.Billing.Wallet
+  alias FluxVale.Checks.ActorOrgHasPaid
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.BackupJob
@@ -12,6 +15,7 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackupTest do
   alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
@@ -90,6 +94,11 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackupTest do
     |> Ash.Query.filter(instance_id == ^instance.id)
     |> Ash.read!(authorize?: false)
   end
+
+  # Bootstrap posture (mirrors the Billing policy tests): the
+  # precondition runs authorize?: false; the admin policy itself is
+  # under test in WalletTest.
+  defp admin, do: AccountsFixtures.platform_admin!()
 
   describe "call/2 — the happy path" do
     test "creates the run, replaces the Job, and lands :running" do
@@ -282,6 +291,37 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackupTest do
 
       instance = instance!(version, owner)
       setting!(instance)
+
+      reject(BackupJob, :create, 3)
+
+      assert {:error, :wallet_unfunded} = Infrastructure.run_instance_backup(instance, :manual)
+      assert runs(instance) == []
+    end
+
+    test "a waived org at zero balance: :wallet_unfunded — the waiver never waives spend" do
+      # The paywall waiver ORs the PAID gate open, and nothing else: the
+      # run guard still refuses on the funded check (balance must be
+      # positive) — pinned here so a waived-but-empty org can never run.
+      version = base!()
+
+      owner =
+        User.create!("waived-empty-#{System.unique_integer()}@fluxvale.com", %{},
+          authorize?: false
+        )
+
+      org = AccountsFixtures.personal_org!(owner)
+
+      {:ok, wallet} = Billing.ensure_wallet(org)
+      assert {:ok, _wallet} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin())
+
+      instance = instance!(version, owner)
+      setting!(instance)
+
+      BillingFixtures.drain_wallet!(org)
+
+      # The paid gate PASSES on the waiver — the funded check is what
+      # refuses.
+      assert ActorOrgHasPaid.org_paid?(org.id)
 
       reject(BackupJob, :create, 3)
 

@@ -10,6 +10,8 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
   use Mimic
 
   alias FluxVale.Accounts
+  alias FluxVale.Billing
+  alias FluxVale.Billing.Wallet
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Ingress
@@ -352,6 +354,72 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       forged = %{changeset | data: %{suspended | organization_id: paid_other.id}}
 
       assert {:error, %Ash.Error.Forbidden{}} = AccessGateway.resume(forged, actor: owner)
+    end
+
+    # The paywall waiver: the operator's designated-org path. The gate
+    # reads ledger-paid OR waived — these pin the OR's behavior at the
+    # gateway seam (the predicate pins live in ActorOrgHasPaidTest).
+    test "a waived never-paid org creates and resumes — the waiver satisfies the paid gate", %{
+      org: org,
+      owner: owner
+    } do
+      # The create bills the ACTOR'S PERSONAL ORG — the fixture org
+      # (earliest-created org the user owns), so the waiver flips on
+      # that org's wallet: adjustment-funded, never paid.
+      {:ok, wallet} = Billing.ensure_wallet(org)
+      assert {:ok, _wallet} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin())
+
+      assert {:ok, gateway} =
+               AccessGateway.create(
+                 %{monthly_cents: 200, tailnet_domain: "example.ts.net", auth_key: "tskey"},
+                 actor: owner
+               )
+
+      assert gateway.organization_id == org.id
+
+      # Resume opens the same way — the waiver rides both gates.
+      stub(Tailscale, :scale_gateway, fn _gateway, _replicas -> :ok end)
+      {:ok, suspended} = AccessGateway.suspend(gateway, authorize?: false)
+
+      assert {:ok, resumed} = AccessGateway.resume(suspended, actor: owner)
+      assert resumed.state == :provisioning
+    end
+
+    test "un-waiving re-gates — create is Forbidden again", %{org: org, owner: owner} do
+      # Chained records — the un-flip edits the row as it now is.
+      {:ok, wallet} = Billing.ensure_wallet(org)
+
+      assert {:ok, waived} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin())
+
+      assert {:ok, _unwaived} =
+               Wallet.set_waiver(waived, %{paywall_waived: false}, actor: admin())
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               AccessGateway.create(
+                 %{monthly_cents: 200, tailnet_domain: "example.ts.net", auth_key: "tskey"},
+                 actor: owner
+               )
+    end
+
+    test "waived but empty — the funded check still bites create and resume", %{
+      org: org,
+      owner: owner
+    } do
+      # The waiver satisfies the PAID gate only; balance>0 spend points
+      # read nothing but the ledger.
+      {:ok, wallet} = Billing.ensure_wallet(org)
+      assert {:ok, _wallet} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin())
+      BillingFixtures.drain_wallet!(org)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               AccessGateway.create(
+                 %{monthly_cents: 200, tailnet_domain: "example.ts.net", auth_key: "tskey"},
+                 actor: owner
+               )
+
+      suspended = AccessFixtures.gateway!(org, state: :suspended)
+
+      assert {:error, %Ash.Error.Forbidden{}} = AccessGateway.resume(suspended, actor: owner)
     end
   end
 
@@ -832,4 +900,9 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       authorize?: false
     )
   end
+
+  # Bootstrap posture (mirrors the Billing policy tests): the
+  # precondition runs authorize?: false; the admin policy itself is
+  # under test in WalletTest.
+  defp admin, do: AccountsFixtures.platform_admin!()
 end

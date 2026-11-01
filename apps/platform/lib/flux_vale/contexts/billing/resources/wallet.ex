@@ -14,8 +14,10 @@ defmodule FluxVale.Billing.Wallet do
 
   Reads go to org members (and platform admins over AshAdmin, #140 —
   support needs to find the wallet behind a goodwill credit); creation
-  and carryover writes are system operations (`authorize?: false` — the
-  posting machinery).
+  and carryover/ladder writes are system operations (`authorize?:
+  false` — the posting machinery). The one actor-facing write is
+  `:set_waiver` — the paywall waiver (see the attribute), flipped by a
+  platform admin from the /admin edit form.
   """
 
   use Ash.Resource,
@@ -27,13 +29,18 @@ defmodule FluxVale.Billing.Wallet do
 
   alias FluxVale.Billing.LedgerEntry
 
-  # The admin surface (#140): read-only — wallet discovery for the
-  # goodwill credit. Provisioning and carryover/ladder writes are the
-  # posting machinery's, actor-forbidden by policy; an admin form for
-  # them could only fail, so none is offered.
+  # The admin surface (#140): reads for wallet discovery (the goodwill
+  # credit) plus the ONE admin write — the paywall waiver flip below,
+  # rendered by AshAdmin as the edit form's checkbox. Everything else
+  # stays off the mount deliberately (ADR-0027 Am. 1): AshAdmin's
+  # authorizing toggle defaults OFF, so actions through the mount run
+  # authorize?: false — a trusted-operator superuser surface must not
+  # offer provisioning/carryover/ladder forms at all. On every direct
+  # (non-mount) path the policies below forbid those writes to any
+  # actor, admins included (pinned in WalletTest).
   admin do
     create_actions([])
-    update_actions([])
+    update_actions([:set_waiver])
     destroy_actions([])
   end
 
@@ -49,13 +56,32 @@ defmodule FluxVale.Billing.Wallet do
       authorize_if(FluxVale.Checks.ActorIsPlatformAdmin)
     end
 
+    # The waiver flip (paywall waiver): the one actor-facing update.
+    # Composed like ledger_entry's goodwill exception — this policy
+    # scopes to :set_waiver BY NAME, and the system-write policy below
+    # scopes to the system actions by name, so the scopes never overlap
+    # (Ash composes applicable policies with AND): a non-admin on
+    # :set_waiver matches no policy at all and falls to Ash's
+    # forbid-by-default, while the system writes stay actor-forbidden
+    # even for admins.
+    policy [FluxVale.Checks.ActorIsPlatformAdmin, action(:set_waiver)] do
+      description("Platform admins flip the paywall waiver — the /admin edit form's checkbox")
+
+      authorize_if(always())
+    end
+
     policy action_type(:create) do
       description("System-only: wallet provisioning (authorize?: false)")
       forbid_if(always())
     end
 
-    policy action_type(:update) do
-      description("System-only: accrual carryover writes (authorize?: false)")
+    # By action NAME, not action_type (mirrors ledger_entry's :create
+    # forbid): :set_waiver is the admin exception above, and scoping
+    # this forbid by name is what keeps it off that action. The
+    # wallet's only other updates are the two system writes — both stay
+    # actor-forbidden, admins included.
+    policy action([:set_carryover, :set_ladder_state]) do
+      description("System-only: carryover + ladder writes (authorize?: false)")
       forbid_if(always())
     end
   end
@@ -104,6 +130,23 @@ defmodule FluxVale.Billing.Wallet do
     attribute :destroy_t1_warned_at, :utc_datetime_usec do
       public?(false)
     end
+
+    # The paywall waiver — the operator's designated-org switch, NOT
+    # money. It satisfies ONLY the "has paid $1+ once" gate
+    # (ActorOrgHasPaid ORs it with the ledger's :purchase rows), so
+    # testers/friends/demos can enable private access and backups
+    # without ever topping up. Balance>0 spend checks are never waived
+    # and no ledger row ever moves: no rows, no balance change, nothing
+    # spendable. Has-paid for revenue purposes stays DERIVED ledger
+    # truth — deliberately NOT mirrored into a column, so a waived org
+    # can never be counted as a payer by a conversion/revenue query.
+    # Written only by :set_waiver (platform admin, the /admin edit
+    # form).
+    attribute :paywall_waived, :boolean do
+      allow_nil?(false)
+      default(false)
+      public?(true)
+    end
   end
 
   relationships do
@@ -148,6 +191,19 @@ defmodule FluxVale.Billing.Wallet do
       require_atomic?(false)
     end
 
+    # The /admin edit-form flip (AshAdmin renders this action's form —
+    # `admin do update_actions` above): the ONLY actor-writable
+    # attribute on the wallet, and the only actor-facing update. The
+    # attribute carries the contract (see its comment).
+    update :set_waiver do
+      description(
+        "Flip the paywall waiver — platform-admin-only, the /admin edit form's checkbox"
+      )
+
+      accept([:paywall_waived])
+      require_atomic?(false)
+    end
+
     read :get_by_organization do
       description("Get an org's wallet")
       get?(true)
@@ -161,6 +217,7 @@ defmodule FluxVale.Billing.Wallet do
 
     define(:create)
     define(:get_by_organization, args: [:organization_id])
+    define(:set_waiver)
   end
 
   identities do

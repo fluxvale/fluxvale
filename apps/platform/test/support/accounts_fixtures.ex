@@ -57,6 +57,23 @@ defmodule FluxVale.TestSupport.AccountsFixtures do
   end
 
   @doc """
+  The seed platform admin (`admin@fluxvale.com`, `platform_role: :admin`)
+  — get-or-create, so async suites sharing the seed email converge.
+  Bootstrap posture: the precondition runs `authorize?: false`; the
+  admin policy itself is under test in the wallet/policy suites.
+  """
+  @spec platform_admin!() :: User.t()
+  def platform_admin! do
+    case User.get_by_email("admin@fluxvale.com", authorize?: false) do
+      {:ok, existing} ->
+        existing
+
+      {:error, _not_found} ->
+        User.create!("admin@fluxvale.com", %{platform_role: :admin}, authorize?: false)
+    end
+  end
+
+  @doc """
   Stamps the T1-backfill shape onto a pre-existing (seeded) user: one
   VERIFIED PRIMARY user_emails row for their address — exactly what the
   backfill gave every pre-existing user. Without it the table-backed
