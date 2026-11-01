@@ -2,9 +2,16 @@ defmodule FluxVale.Infrastructure.Instance.StatusMarkers do
   @moduledoc """
   Emits the lifecycle-outcome counter on real status transitions — the
   business-telemetry twin of the PubSub publish on the same funnel:
-  every deploy/reconcile/sleep/stop/restore/lost outcome lands one
-  event here, so the dashboard's transition rates and the fleet's
+  every lifecycle outcome that rides `:update_status` (the deploy
+  job's and the reconciler's writes, sleep/stop/restore, lost) lands
+  one event here, so the dashboard's transition rates and the fleet's
   error-occupancy alert read ONE funnel instead of per-arm emissions.
+
+  Boundary, named: the pub_sub block's out-of-funnel trio stays
+  unemitted — the `:deploy` action's own `:deploying` flip and the two
+  Oban error handlers' `:error` writes (a crashed job's landing). If
+  an error-occupancy alert needs those crash edges, extend the mounts
+  there.
 
   `[:flux_vale, :instance, :status_transition]`, measurements
   `%{count: 1}`, labels `%{from, to, reason}` — closed enums only

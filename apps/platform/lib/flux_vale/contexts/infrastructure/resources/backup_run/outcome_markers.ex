@@ -10,8 +10,12 @@ defmodule FluxVale.Infrastructure.BackupRun.OutcomeMarkers do
   seconds}`, labels `%{kind, status}` — closed enums only. Terminal
   transitions only (`:succeeded`/`:failed` with the row not already
   there): the `:running` flip is progress, not an outcome, and a
-  re-finalize over a settled row (a sweep racing itself) is not a
-  second backup.
+  re-finalize over a settled row is not a second backup. That guard
+  dedups the sequential shape only — a stale-read race (two
+  finalizers holding pre-terminal records; `:update` carries no lock)
+  can still double-count one physical run. Accepted: rare by
+  construction (the sweep's watch pass owns the row), and the alert's
+  volume floor absorbs a single dupe.
 
   Duration is `finished_at - started_at` in float seconds — 0.0
   defensively when either stamp is missing (a terminal finalize
