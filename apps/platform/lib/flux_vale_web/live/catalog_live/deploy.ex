@@ -155,7 +155,16 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
               </.button>
 
               <p class="eyebrow mt-4">Deploy</p>
-              <h1 class="page-title mt-1">{@app.name}</h1>
+              <%!-- The visible "Deploy" prefix stays in the h1: without it,
+              this page's heading outline reads identically to the app
+              detail page's (hostile-348 F9). The prefix is quieter; the
+              app name carries the page-title treatment. --%>
+              <h1 class="page-title mt-1">
+                <span class="mr-1.5 text-2xl font-semibold tracking-tight text-ink-muted">
+                  Deploy
+                </span>
+                {@app.name}
+              </h1>
 
               <div class="mt-6">
                 <.stepper
