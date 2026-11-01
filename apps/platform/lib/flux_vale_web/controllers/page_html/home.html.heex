@@ -43,8 +43,8 @@ layout's flex contract while scoping the landing styles. --%>
       </a>
       <nav aria-label={gettext("Primary")}>
         <ul class="flex items-center gap-2">
-          <li><.nav_link href="/catalog">{gettext("Apps")}</.nav_link></li>
-          <li><.nav_link href="/blog">{gettext("Blog")}</.nav_link></li>
+          <li class="hidden min-[480px]:block"><.nav_link href="/catalog">{gettext("Apps")}</.nav_link></li>
+          <li class="hidden min-[480px]:block"><.nav_link href="/blog">{gettext("Blog")}</.nav_link></li>
           <li :if={is_nil(@current_user)}>
             <.button href={~p"/sign-in"} size="sm">
               {gettext("Sign in")} <span aria-hidden="true">&rarr;</span>
