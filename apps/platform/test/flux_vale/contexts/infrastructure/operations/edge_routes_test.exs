@@ -349,6 +349,57 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
       assert dav_spec.middlewares == ["fluxvale-activity"]
     end
 
+    test "the dav route on a verified custom domain reuses the cert replica" do
+      stub_kubeconfig()
+      owner = user()
+      instance = instance!(%{file_access: true}, %{}, owner)
+      ns = "fluxvale-app-#{instance.id}"
+
+      domain = custom_domain!(owner, verified?: true)
+
+      InstanceHostname.mint!(
+        %{instance_id: instance.id, access_domain_id: domain.id, label: "wiki"},
+        authorize?: false
+      )
+
+      stub_access_targets(ns)
+      stub_cert_source()
+
+      parent = self()
+
+      stub(Ingress, :create, fn
+        _kc, ^ns, "access-" <> _rest, %{host: "wiki." <> _t} = spec ->
+          if Map.get(spec, :path_prefix) == "/dav" do
+            send(parent, {:custom_dav, spec})
+          else
+            send(parent, {:custom_app, spec})
+          end
+
+          {:ok, %{}}
+
+        _kc, ^ns, "access-" <> _rest, _spec ->
+          # The default platform hostname's routes — ordinary mints.
+          {:ok, %{}}
+      end)
+
+      assert :ok = EdgeRoutes.apply_access_serving(%{}, gateway_stub(), instance)
+
+      # The dav sibling rides the SAME local replica as the app route —
+      # Traefik resolves tls.secretName only in the route's namespace,
+      # and the replica is there for both.
+      assert_received {:custom_dav, dav_spec}
+      assert dav_spec.service_name == "dav"
+      assert dav_spec.path_prefix == "/dav"
+
+      tail =
+        domain.id
+        |> to_string()
+        |> String.replace("-", "")
+        |> String.slice(-10, 10)
+
+      assert dav_spec.tls_secret_name == "access-domain-cert-" <> tail
+    end
+
     test "a non-file-access instance mints no access /dav route" do
       stub_kubeconfig()
       instance = instance!(%{})
@@ -743,6 +794,55 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
   end
 
   describe "apply_access_none_for_domain/3 (the S6 ladder's honest-dark limb)" do
+    test "a file-access instance's domain none removes that domain's dav route too" do
+      stub_kubeconfig()
+      owner = user()
+      instance = instance!(%{file_access: true}, %{}, owner)
+      ns = "fluxvale-app-#{instance.id}"
+
+      domain_a = custom_domain!(owner, verified?: true)
+      domain_b = custom_domain!(owner, verified?: true)
+
+      row_a =
+        InstanceHostname.mint!(
+          %{instance_id: instance.id, access_domain_id: domain_a.id, label: "wiki"},
+          authorize?: false
+        )
+
+      InstanceHostname.mint!(
+        %{instance_id: instance.id, access_domain_id: domain_b.id, label: "other"},
+        authorize?: false
+      )
+
+      tail =
+        row_a.id
+        |> to_string()
+        |> String.replace("-", "")
+        |> String.slice(-10, 10)
+
+      parent = self()
+
+      stub(Ingress, :delete, fn _kc, ^ns, name ->
+        send(parent, {:deleted, name})
+        :ok
+      end)
+
+      stub(Middleware, :delete, fn _kc, ^ns, "fluxvale-access-wake" ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      assert :ok = EdgeRoutes.apply_access_none_for_domain(%{}, instance, domain_a)
+
+      # Domain A's app route AND its dav sibling go; domain B's routes
+      # are never touched — honest dark is domain-scoped, dav included.
+      assert_received {:deleted, app_name}
+      assert app_name == "access-" <> tail
+
+      assert_received {:deleted, dav_name}
+      assert dav_name == "access-" <> tail <> "-dav"
+      refute_received {:deleted, _}
+    end
+
     test "removes ONLY that domain's routes — other hostnames and the middleware stand" do
       stub_kubeconfig()
       owner = user()

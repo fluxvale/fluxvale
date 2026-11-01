@@ -38,12 +38,13 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   flip), the AccessWake controller (the access edge's flip),
   AttachInstance/DetachInstance (mint/remove per the pairing row),
   SetExposure's toggle limbs and compensating restores,
-  VerifyAccessDomains (the janitor's transition mints, the suspended
-  domain's domain-scoped none, the cert replicas), and PerformTeardown
-  (access none). The specs are the
-  shared boundary, so they live here rather than being copied many
-  ways (the operations-own-their-constants rule's sanctioned exception:
-  this IS the one owner).
+  VerifyAccessDomains (the janitor's transition mints and cert
+  replicas), and PerformTeardown's access none. `apply_access_none_for_domain/3`
+  has zero callers today — the S6 billing ladder's suspension writer,
+  currently being built on another branch, is its future caller. The
+  specs are the shared boundary, so they live here rather than being
+  copied many ways (the operations-own-their-constants rule's sanctioned
+  exception: this IS the one owner).
   """
 
   alias FluxVale.Clients.K8s.Error
@@ -253,8 +254,8 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   Built for the SUSPENDED verified domain: a suspension is the one
   demotion that had routes to remove (a `:failed` domain never routed —
   unverified rows are skipped at mint), and honest dark is domain-scoped,
-  not instance-scoped. The billing ladder's (S6) suspension writer calls
-  this.
+  not instance-scoped. The billing ladder's (S6) suspension writer is
+  the intended caller — zero callers today; S6 is being built now.
   """
   @spec apply_access_none_for_domain(Kubereq.Kubeconfig.t(), Instance.t(), AccessDomain.t()) ::
           :ok | {:error, term()}
@@ -360,15 +361,32 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   # gateway exactly as it does publicly. Same gate as the public pair —
   # no volume, no dav route ever existed.
   defp maybe_mint_access_dav(kubeconfig, gateway, instance, hostname, mode, tls_secret) do
-    if dav_routed?(instance) do
-      spec = access_dav_route_spec(gateway, hostname, mode, tls_secret)
+    path_prefix = Application.fetch_env!(:flux_vale, :file_access)[:path_prefix]
+    domain = hostname.access_domain
 
-      case Ingress.create(kubeconfig, instance.namespace, access_dav_route_name(hostname), spec) do
-        {:ok, _route} -> :ok
-        {:error, _error} = error -> error
-      end
-    else
-      :ok
+    cond do
+      not dav_routed?(instance) ->
+        :ok
+
+      path_prefix in [nil, ""] ->
+        # A nil/blank prefix would strip the PathPrefix clause and mint
+        # a bare-Host router on the dav Service — shadow-capable against
+        # the app route. Skip + log: worse to mint a shadow than none.
+        Logger.warning(
+          "Access edge: skipping the /dav route for #{hostname.label}.#{domain.domain} — " <>
+            "blank file_access path_prefix config would mint a bare-Host router " <>
+            "(shadow-capable against the app route)"
+        )
+
+        :ok
+
+      true ->
+        spec = access_dav_route_spec(gateway, hostname, mode, path_prefix, tls_secret)
+
+        case Ingress.create(kubeconfig, instance.namespace, access_dav_route_name(hostname), spec) do
+          {:ok, _route} -> :ok
+          {:error, _error} = error -> error
+        end
     end
   end
 
@@ -409,8 +427,8 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   # shape carried over verbatim: serving dials the `dav` Service (beacon
   # attached via the base), wake keeps the wake target and only narrows
   # the match to the path prefix. Same TLS posture as the app route.
-  defp access_dav_route_spec(gateway, hostname, mode, tls_secret) do
-    path_prefix = Application.fetch_env!(:flux_vale, :file_access)[:path_prefix]
+  # `path_prefix` is validated by the caller (the skip + log guard).
+  defp access_dav_route_spec(gateway, hostname, mode, path_prefix, tls_secret) do
     base = access_route_spec(gateway, hostname, mode, tls_secret)
 
     base
@@ -743,6 +761,12 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
     end
   end
 
+  # Derives from the INSTANCE record, not the hostname rows: the mints
+  # and deletes are gated on the same predicate, so a flipped-off
+  # file_access/storage_gb would strand already-minted dav routes (the
+  # delete gate would stop hunting them). Safe while the pair is
+  # create-only (the catalog's derive-at-create; no update action
+  # accepts either field) — revisit if they ever become updatable.
   defp dav_routed?(%{file_access: true, storage_gb: gb}) when gb > 0, do: true
   defp dav_routed?(_instance), do: false
 
