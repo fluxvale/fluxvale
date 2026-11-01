@@ -139,15 +139,76 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
       assert fresh.metering_since
     end
 
-    test "fail-closed: a failed unclaim leaves the row serving", %{org: org, owner: owner} do
-      _gateway = AccessFixtures.gateway!(org)
+    test "fail-closed: a failed unclaim leaves the row fully serving — routes untouched", %{
+      org: org,
+      owner: owner
+    } do
+      # The unclaim is the irreversible write and runs FIRST: its
+      # failure must fail the suspension as a unit, before a single
+      # route moves (nothing half-dark).
+      gateway = AccessFixtures.gateway!(org)
       domain = verified_domain!(owner)
+      attach_with_hostname!(gateway, org, owner, domain)
       pin_anchor!(domain)
+
+      {:ok, claimed} = Infrastructure.claim_access_domain(gateway, domain, actor: owner)
 
       stub(Tailscale, :unclaim_domain, fn _gw, _d -> {:error, :tailscale_down} end)
 
+      stub(EdgeRoutes, :apply_access_none_for_domain, fn _kc, _instance, _domain ->
+        send(self(), {:arms_removed, :moved})
+        :ok
+      end)
+
       assert {:error, _reason} = AccessDomain.mark_suspended(domain, authorize?: false)
 
+      # The routes never moved.
+      refute_received {:arms_removed, :moved}
+
+      fresh = AccessDomain.get_by_id!(domain.id, authorize?: false)
+      assert fresh.state == :verified
+      assert fresh.metering_since
+      # The claims entry is untouched too — the failure preceded it.
+      assert Map.has_key?(claimed.dns_claims, @domain_name)
+    end
+
+    test "route failure after a successful unclaim leaves the claimed-but-unrouted dark shape", %{
+      org: org,
+      owner: owner
+    } do
+      # The mirror arm: the unclaim (irreversible, first) landed, the
+      # edge removal (local, second) failed. The domain is dark by
+      # RESOLUTION (the split-DNS route is gone — the §8-honest shape)
+      # while the row still stands :verified and accrues; the sweep's
+      # whole-domain re-entry converges the rest.
+      gateway = AccessFixtures.gateway!(org)
+      domain = verified_domain!(owner)
+      attach_with_hostname!(gateway, org, owner, domain)
+
+      {:ok, claimed} = Infrastructure.claim_access_domain(gateway, domain, actor: owner)
+      assert Map.has_key?(claimed.dns_claims, @domain_name)
+
+      stub(Tailscale, :unclaim_domain, fn _gw, sent_domain ->
+        send(self(), {:unclaimed, sent_domain})
+        :ok
+      end)
+
+      stub(EdgeRoutes, :apply_access_none_for_domain, fn _kc, _instance, _domain ->
+        {:error, :cluster_down}
+      end)
+
+      assert {:error, _reason} = AccessDomain.mark_suspended(domain, authorize?: false)
+
+      # The IRREVERSIBLE half landed: the tailnet's split-DNS route is
+      # gone — dark by resolution (§8-honest) — while the row's claims
+      # registry rode the rolled-back transaction and still names the
+      # domain. The sweep's whole-domain re-entry converges both (the
+      # provider unclaim is idempotent; the removals are
+      # 404-tolerant).
+      assert_received {:unclaimed, @domain_name}
+
+      # Fail-closed: the row keeps its state (and its anchor, whatever
+      # the settle history made it).
       fresh = AccessDomain.get_by_id!(domain.id, authorize?: false)
       assert fresh.state == :verified
     end

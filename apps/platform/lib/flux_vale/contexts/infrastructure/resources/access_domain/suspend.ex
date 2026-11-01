@@ -35,12 +35,20 @@ defmodule FluxVale.Infrastructure.AccessDomain.Suspend do
   once that write has committed — a failed suspension leaves the
   previous view standing, exactly as the row left it.
 
-  **Ordering is the gateway suspend's**: side effects first
-  (`before_action`), the row write second — a failed row write after
-  successful side effects self-heals because the ladder keeps
-  selecting serving rows at ≤ 0 and re-enters (the gateway Resume
-  moduledoc owns the full argument; the arms are idempotent, so the
-  re-entry is a no-op on the cluster side).
+  **Ordering is the resume fix's principle in mirror** (the
+  irreversible write first): the tailnet unclaim is the one write no
+  transaction can roll back, so it runs BEFORE the edge removal. An
+  unclaim failure then fails the suspension AS A UNIT — the verified
+  domain stays fully serving, nothing half-dark. A route-removal
+  failure after a successful unclaim leaves the claimed-but-unrouted
+  shape — dark by resolution (the split-DNS route is gone, §8-honest)
+  while the row still stands `:verified` and accrues — and the sweep's
+  whole-domain re-entry converges the rest (the removals are
+  404-tolerant). Side effects first (`before_action`), the row write
+  second — a failed row write after successful side effects self-heals
+  because the ladder keeps selecting serving rows at ≤ 0 and re-enters
+  (the gateway Resume moduledoc owns the full argument; the arms are
+  idempotent, so the re-entry is a no-op on the cluster side).
   """
 
   use Ash.Resource.Change
@@ -91,8 +99,8 @@ defmodule FluxVale.Infrastructure.AccessDomain.Suspend do
 
   defp suspend(domain, changeset) do
     with {:ok, kubeconfig} <- K8s.kubeconfig(),
-         :ok <- remove_edge_routes(kubeconfig, domain),
-         :ok <- unclaim_tailnet_state(domain) do
+         :ok <- unclaim_tailnet_state(domain),
+         :ok <- remove_edge_routes(kubeconfig, domain) do
       changeset
       |> Ash.Changeset.force_change_attribute(:state, :suspended)
       |> Ash.Changeset.force_change_attribute(:metering_since, nil)
