@@ -352,6 +352,7 @@ defmodule FluxValeWeb.Router do
     # AshAdmin instead.
     live_dashboard("/dashboard",
       metrics: FluxValeWeb.Telemetry,
+      ecto_repos: [FluxVale.Repo],
       on_mount: {FluxValeWeb.AdminGate, :ensure_admin}
     )
 

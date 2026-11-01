@@ -46,7 +46,10 @@ defmodule FluxVale.MixProject do
   def application do
     [
       mod: {FluxVale.Application, []},
-      extra_applications: [:logger, :runtime_tools]
+      # os_mon: LiveDashboard's OS Data page reads it (CPU/disk usage —
+      # the Erlang app ships with the distribution; it only needs
+      # starting). Without it the page renders empty.
+      extra_applications: [:logger, :runtime_tools, :os_mon]
     ]
   end
 
@@ -116,6 +119,11 @@ defmodule FluxVale.MixProject do
       {:phoenix_ecto, "4.7.0"},
       {:ecto_sql, "3.14.0"},
       {:postgrex, "0.22.4"},
+      # LiveDashboard's Ecto Stats page (the query panels come from this
+      # package; without it the page reports "no repository found" — the
+      # repo runs, but the page filters out repos lacking a supported
+      # extras package). Pinned exact like its neighbors.
+      {:ecto_psql_extras, "0.8.8"},
       # Plain Oban (v1's locked version) — first consumer: the token
       # janitor, daily 03:00 UTC cron (settled on #23).
       {:oban, "2.23.0"},
