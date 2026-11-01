@@ -885,7 +885,9 @@ defmodule FluxValeWeb.CoreComponents do
   #178 wave 2). Numbered chips on a hairline rail, in the working
   register: mono uppercase step labels, the amber `--focus` accent on
   the current step and the traveled rail (the app-wide grammar, S8),
-  done states in success, upcoming muted.
+  done states in success. Done labels ride `--success-deep` — the
+  stepper can sit on a sunken band (the deploy wizard), where plain
+  `--success` falls under 4.5:1 (CodeRabbit #348).
 
   ## Examples
 
@@ -917,7 +919,7 @@ defmodule FluxValeWeb.CoreComponents do
         :for={{step, index} <- Enum.with_index(@steps)}
         class={[
           "flex items-center gap-2",
-          index < @current && "text-success",
+          index < @current && "text-success-deep",
           index == @current && "font-semibold text-ink",
           index > @current && "text-ink-subtle"
         ]}

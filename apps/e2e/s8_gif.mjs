@@ -5,6 +5,11 @@
  * measured claim (s8_measure.mjs); the GIF shows what a transition
  * actually looks like.
  *
+ * The tape includes sign-in + navigation; trim it at conversion (the
+ * shipped GIF used -ss 3.6):
+ *   ffmpeg -y -ss 3.6 -i page@<hash>.webm \
+ *     -vf "fps=12,scale=720:-1:flags=lanczos" s8-step-transition.gif
+ *
  * Usage: node s8_gif.mjs <outdir>   (FV_BASE, FV_TOKEN required)
  * ffmpeg converts the webm → gif afterwards.
  */
