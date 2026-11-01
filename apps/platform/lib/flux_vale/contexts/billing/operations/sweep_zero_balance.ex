@@ -115,11 +115,22 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
         # `stop_step` has no failure branch. The gateway arm is the only
         # out-of-DB side effect that can refuse the pass, which is exactly
         # why it runs out here.
+        # Domains BEFORE gateways (ADR-0040 §11): the domain
+        # suspension's unclaim dials the tailnet API through the
+        # gateway's recorded node and reads the gateway's claims map —
+        # both while the gateway row still stands `:active`. Parking
+        # the gateway first would make every later domain unclaim dial
+        # through a parked node (an ambiguous lookup at best) and
+        # could fail the suspension forever while the domain keeps
+        # accruing. The gateway park is the last, cheapest write.
+        suspended_domains = suspend_domains(wallet)
+        suspended_gateways = suspend_gateways(wallet)
+
         {:ok,
          %{
            summary
-           | suspended_gateway_ids: suspend_gateways(wallet),
-             suspended_domain_ids: suspend_domains(wallet)
+           | suspended_gateway_ids: suspended_gateways,
+             suspended_domain_ids: suspended_domains
          }}
 
       # defensive: rollback only fires from the arms that name it —

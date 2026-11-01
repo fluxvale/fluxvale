@@ -51,11 +51,14 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
     Mimic.copy(EdgeRoutes)
 
     # The suspension funnel's edge leg — default success; the
-    # fail-closed test overrides.
+    # fail-closed test overrides. The resume's re-mint (routes-first,
+    # the fix-round ordering) rides the same default.
     stub(EdgeRoutes, :apply_access_none_for_domain, fn _kc, instance, domain ->
       send(self(), {:arms_removed, instance.id, domain.id})
       :ok
     end)
+
+    stub(EdgeRoutes, :apply_access_for_status, fn _kc, _gw, _instance -> :ok end)
 
     # The S4 hook: a committed claims write re-renders the resolver
     # view best-effort. Default success; expect-ed where a test cares.
@@ -161,6 +164,64 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
       assert again.state == :suspended
       assert again.metering_since == nil
     end
+
+    test "a platform row is never demoted by a money event (the belt)", %{org: org} do
+      platform_domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
+
+      platform =
+        AccessDomain.mint_platform!(
+          %{domain: platform_domain, organization_id: org.id},
+          authorize?: false
+        )
+
+      # The ladder's query selects serving :custom rows only; this is
+      # the funnel's belt behind it — a platform row bills nothing and
+      # must never be parked by the sweep.
+      assert {:ok, untouched} = AccessDomain.mark_suspended(platform, authorize?: false)
+      assert untouched.state == :verified
+    end
+
+    test "an unreachable cluster fails the suspension — fail-closed", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      domain = verified_domain!(owner)
+      pin_anchor!(domain)
+      attach_with_hostname!(gateway, org, owner, domain)
+
+      stub(K8s, :kubeconfig, fn -> {:error, :no_cluster} end)
+
+      stub(EdgeRoutes, :apply_access_none_for_domain, fn _kc, _instance, _domain ->
+        flunk("no cluster, no edge writes")
+      end)
+
+      assert {:error, _reason} = AccessDomain.mark_suspended(domain, authorize?: false)
+
+      fresh = AccessDomain.get_by_id!(domain.id, authorize?: false)
+      assert fresh.state == :verified
+      assert fresh.metering_since
+    end
+
+    test "the CoreDNS render follows the COMMITTED suspension only", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      domain = verified_domain!(owner)
+      attach_with_hostname!(gateway, org, owner, domain)
+
+      # Failure: the claims write rolled back — the previous view
+      # stands, and the render must not run.
+      stub(EdgeRoutes, :apply_access_none_for_domain, fn _kc, _instance, _domain ->
+        {:error, :cluster_down}
+      end)
+
+      stub(RenderAccessDNS, :call, fn -> send(self(), :rendered) end)
+
+      assert {:error, _reason} = AccessDomain.mark_suspended(domain, authorize?: false)
+      refute_received :rendered
+
+      # Success: the unclaim committed — the view learns of it.
+      stub(EdgeRoutes, :apply_access_none_for_domain, fn _kc, _instance, _domain -> :ok end)
+
+      assert {:ok, _suspended} = AccessDomain.mark_suspended(domain, authorize?: false)
+      assert_received :rendered
+    end
   end
 
   describe "resume — the owner's funded path" do
@@ -190,12 +251,39 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
       # parked; the resume starts a fresh one).
       assert DateTime.compare(resumed.metering_since, before) != :lt
 
-      assert_received {:claimed, @domain_name}
+      # The danger ordering, pinned (BLOCK-2): the route re-mints (the
+      # local, idempotent half) BEFORE the tailnet claim (the external
+      # write no transaction can roll back) — a route failure never
+      # touches the tailnet. assert_received is FIFO.
       assert_received {:rearmed, ^instance_id}
+      assert_received {:claimed, @domain_name}
 
       # The claims registry holds the restored entry.
       fresh = AccessGateway.get_by_id!(gateway.id, authorize?: false)
       assert fresh.dns_claims[@domain_name]["ip"] == @resolver_ip
+    end
+
+    test "the CoreDNS render is success-only and post-commit", %{org: org, owner: owner} do
+      gateway = token_gateway!(org)
+      domain = verified_domain!(owner)
+      attach_with_hostname!(gateway, org, owner, domain)
+
+      {:ok, suspended} = AccessDomain.mark_suspended(domain, authorize?: false)
+
+      # The claim refuses: the resume rolls back, and the ConfigMap
+      # must never learn of the uncommitted claims (the S4 lesson).
+      stub(Tailscale, :claim_domain, fn _gw, _d, _ip -> {:error, :unauthorized} end)
+      stub(RenderAccessDNS, :call, fn -> send(self(), :rendered) end)
+
+      assert {:error, _reason} = AccessDomain.resume(suspended, actor: owner)
+      refute_received :rendered
+
+      # The owner pastes the token and retries: the resume commits,
+      # and the committed claims reach the view exactly once.
+      stub(Tailscale, :claim_domain, fn _gw, _d, _ip -> {:ok, %{device_id: "dev-777"}} end)
+
+      assert {:ok, _resumed} = AccessDomain.resume(suspended, actor: owner)
+      assert_received :rendered
     end
 
     test "a missing token fails the resume, keeps the row parked, and drifts the gateway", %{
@@ -324,6 +412,41 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
       assert {:error, %Ash.Error.Forbidden{}} = AccessDomain.resume(suspended, actor: outsider)
     end
 
+    test "a scope-less token (403) drifts with the scope copy", %{org: org, owner: owner} do
+      gateway = token_gateway!(org)
+      domain = verified_domain!(owner)
+      attach_with_hostname!(gateway, org, owner, domain)
+
+      {:ok, suspended} = AccessDomain.mark_suspended(domain, authorize?: false)
+
+      stub(Tailscale, :claim_domain, fn _gw, _d, _ip -> {:error, :forbidden} end)
+
+      assert {:error, _reason} = AccessDomain.resume(suspended, actor: owner)
+
+      drifted = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+      assert drifted.state == :needs_attention
+      assert drifted.status_message == Tailscale.token_drift_message(:forbidden)
+    end
+
+    test "an unreachable cluster aborts the resume before anything is touched", %{
+      org: org,
+      owner: owner
+    } do
+      gateway = token_gateway!(org)
+      domain = verified_domain!(owner)
+      attach_with_hostname!(gateway, org, owner, domain)
+
+      {:ok, suspended} = AccessDomain.mark_suspended(domain, authorize?: false)
+
+      stub(K8s, :kubeconfig, fn -> {:error, :no_cluster} end)
+
+      stub(Tailscale, :claim_domain, fn _gw, _d, _ip -> flunk("a dead cluster claims nothing") end)
+
+      assert {:error, _reason} = AccessDomain.resume(suspended, actor: owner)
+
+      assert AccessDomain.get_by_id!(domain.id, authorize?: false).state == :suspended
+    end
+
     test "a gateway read failure (not a miss) aborts the resume honestly", %{
       org: org,
       owner: owner
@@ -335,6 +458,27 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
       {:ok, suspended} = AccessDomain.mark_suspended(domain, authorize?: false)
 
       stub(AccessGateway, :get_for_organization, fn _org_id, _opts -> {:error, :db_down} end)
+
+      assert {:error, _reason} = AccessDomain.resume(suspended, actor: owner)
+
+      assert AccessDomain.get_by_id!(domain.id, authorize?: false).state == :suspended
+    end
+
+    test "attached instances without a gateway row fail the resume — the drift is not eaten", %{
+      org: org,
+      owner: owner
+    } do
+      gateway = token_gateway!(org)
+      domain = verified_domain!(owner)
+      attach_with_hostname!(gateway, org, owner, domain)
+
+      {:ok, suspended} = AccessDomain.mark_suspended(domain, authorize?: false)
+
+      # The pairing FKs make this shape impossible to persist; a read
+      # that reports it anyway is drift, and the resume refuses rather
+      # than eat it.
+      not_found = %Ash.Error.Invalid{errors: [%Ash.Error.Query.NotFound{resource: AccessGateway}]}
+      stub(AccessGateway, :get_for_organization, fn _org_id, _opts -> {:error, not_found} end)
 
       assert {:error, _reason} = AccessDomain.resume(suspended, actor: owner)
 

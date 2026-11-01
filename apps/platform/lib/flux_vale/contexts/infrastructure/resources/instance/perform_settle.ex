@@ -37,6 +37,7 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettle do
 
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
+  alias FluxVale.Billing.Month
   alias FluxVale.Billing.Wallet
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Pricing
@@ -46,8 +47,11 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettle do
   require Logger
 
   # 365.2425-day average Gregorian month, in microseconds — integer
-  # time end to end; Decimal only at the rate division.
-  @month_useconds Decimal.new(2_629_746_000_000)
+  # time end to end; Decimal only at the rate division. The shared
+  # constant (`Billing.Month`) as a Decimal — bound through a
+  # function, not a module attribute, so the constant module carries
+  # no compile-order dependency on this resource.
+  defp month_useconds, do: Decimal.new(Month.useconds())
   @micros_per_cent Decimal.new(10_000)
 
   @impl Ash.Resource.Change
@@ -249,7 +253,7 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettle do
     |> Decimal.new()
     |> Decimal.mult(@micros_per_cent)
     |> Decimal.mult(usecs)
-    |> Decimal.div(@month_useconds)
+    |> Decimal.div(month_useconds())
   end
 
   # Zero accrued (fresh tick, retry after commit, or a fully-clamped

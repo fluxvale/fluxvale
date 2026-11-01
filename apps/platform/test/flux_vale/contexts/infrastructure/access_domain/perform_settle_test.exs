@@ -128,28 +128,67 @@ defmodule FluxVale.Infrastructure.AccessDomain.PerformSettleTest do
       assert domain_ledger_total(settled.organization_id) == 0
     end
 
-    test "leaving the serving arms bills the served interval, then parks", %{owner: owner} do
-      # The race the fresh re-read exists for: a row that left the
-      # serving arms with its window still open bills the time it
-      # actually served, then closes — a recovery cannot bill the gap
-      # in arrears (the gateway's park, moved to this tick).
+    test "leaving the serving arms bills to the transition, then parks (defensive arm)", %{
+      owner: owner
+    } do
+      # Defensive: production reaches this arm only through the race
+      # the fresh FOR UPDATE re-read exists for — a row that left the
+      # serving arms with its window still open (a demotion predating
+      # the anchor-parking discipline). The re-pin stages that open
+      # window; its write (`updated_at`) is the transition instant the
+      # park arm bills to — never past it, the gateway's
+      # never-past-it discipline. Month-ago anchor → transition ≈ a
+      # full month, billed exactly.
       domain = verified_domain!(owner)
-
       {:ok, suspended} = AccessDomain.mark_suspended(domain, authorize?: false)
-      pin_anchor!(suspended, ago(3 * 24 * 60 * 60))
+
+      pin_anchor!(suspended, ago(@month_seconds))
 
       assert {:ok, settled} = settle(suspended)
 
-      # The 3 served days bill (whole-cent arithmetic makes them
-      # visible); the post-suspension gap does not.
       billed = domain_ledger_total(settled.organization_id)
-      assert billed > -@monthly_cents
+      assert billed == -@monthly_cents
 
       # The window is closed: a second tick bills nothing.
       assert settled.metering_since == nil
 
       assert {:ok, _again} = settle(settled)
       assert domain_ledger_total(settled.organization_id) == billed
+    end
+
+    test "a debit failure rolls the settle back — nothing posts, the anchor stands", %{
+      owner: owner
+    } do
+      domain = verified_domain!(owner)
+      pinned_at = ago(@month_seconds)
+      pin_anchor!(domain, pinned_at)
+
+      stub(Billing, :debit_wallet, fn _wallet, _micros, _opts ->
+        {:error, :forced}
+      end)
+
+      assert {:error, _reason} = settle(domain)
+
+      # The debit and the anchor share the transaction: nothing
+      # posted, the window did not move — the retry re-bills the same
+      # interval (the anchor is the retry arbiter).
+      fresh = AccessDomain.get_by_id!(domain.id, authorize?: false)
+      assert domain_ledger_total(fresh.organization_id) == 0
+      assert DateTime.diff(fresh.metering_since, pinned_at, :second) < 5
+    end
+
+    test "a mispriced config is a configuration error — money paths fail closed" do
+      previous = Application.get_env(:flux_vale, :access_domain_pricing)
+
+      on_exit(fn -> Application.put_env(:flux_vale, :access_domain_pricing, previous) end)
+
+      for bad <- [0, -200, "free"] do
+        Application.put_env(:flux_vale, :access_domain_pricing, monthly_cents: bad)
+
+        assert_raise ArgumentError, ~r/must be a positive integer/, fn ->
+          AccessDomain.monthly_cents()
+        end
+      end
     end
 
     test "pending and failed domains never accrue", %{owner: owner} do

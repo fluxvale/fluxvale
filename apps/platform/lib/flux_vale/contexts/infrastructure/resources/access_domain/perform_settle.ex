@@ -2,9 +2,11 @@ defmodule FluxVale.Infrastructure.AccessDomain.PerformSettle do
   @moduledoc """
   Custom-domain accrual (ADR-0040 §11): prorates the configured monthly
   rate over the open interval against the org wallet — the gateway
-  settle's discipline verbatim (ADR-0039 §5), minus the transition
-  instant (a domain row carries no `needs_attention_since`, so the
-  honest end of an interval is the tick that closes it).
+  settle's discipline verbatim (ADR-0039 §5). A domain row carries no
+  `needs_attention_since`; its TRANSITION instant is `updated_at` (the
+  write that took it out of the serving arms), and the park arm bills
+  to that instant, never past it (the gateway's never-past-it
+  discipline, same question, different column).
 
   The discipline, unchanged from the gateway:
 
@@ -15,7 +17,8 @@ defmodule FluxVale.Infrastructure.AccessDomain.PerformSettle do
     bill are the anchors that committed (a racing suspension parks
     them, and the settle must see the park);
   - **prorate in integer micro-cents** over the average Gregorian month
-    (2_629_746 s — the same constant settle and the runway share);
+    (2_629_746 s — `Billing.Month`, the one definition the settles
+    and the runway share);
   - **keyless debit** — the anchor is the retry arbiter, so a committed
     settle that advances `metering_since` can never recompute the same
     interval. No idempotency key, no new posting surface;
@@ -51,14 +54,19 @@ defmodule FluxVale.Infrastructure.AccessDomain.PerformSettle do
 
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
+  alias FluxVale.Billing.Month
   alias FluxVale.Billing.Wallet
   alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Repo
 
   require Ash.Query
 
-  @month_useconds Decimal.new(2_629_746_000_000)
   @micros_per_cent Decimal.new(10_000)
+
+  # The shared constant (FluxVale.Billing.Month) as a Decimal — bound
+  # through a function, not a module attribute, so the constant module
+  # carries no compile-order dependency on this resource.
+  defp month_useconds, do: Decimal.new(Month.useconds())
 
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
@@ -72,10 +80,14 @@ defmodule FluxVale.Infrastructure.AccessDomain.PerformSettle do
   def atomic?, do: false
 
   # Leaving the serving arms: bill the interval actually served, then
-  # close the window. Parking without billing would drop served time;
-  # leaving it open would bill the whole unobserved gap in arrears on
-  # recovery (the gateway's park, moved to the only honest end a
-  # domain row has: this tick).
+  # close the window — the gateway's never-past-it discipline. The
+  # interval's honest end is the TRANSITION instant (`updated_at`, the
+  # write that took the row out of the serving arms), never this tick:
+  # a row demoted at T must not bill the tick's late arrival after T.
+  # A domain row carries no `needs_attention_since` (the gateway's
+  # column for the same question); its last write IS the transition
+  # record. Parking without billing would drop served time; leaving it
+  # open would bill the whole unobserved gap in arrears on recovery.
   defp park_anchor(%AccessDomain{metering_since: nil} = fresh), do: {:ok, fresh}
 
   defp park_anchor(%AccessDomain{} = fresh) do
@@ -90,10 +102,21 @@ defmodule FluxVale.Infrastructure.AccessDomain.PerformSettle do
   end
 
   defp settle_interval(%AccessDomain{} = fresh, %Wallet{} = wallet) do
-    usecs = usecs_between(fresh.metering_since, DateTime.utc_now())
+    usecs = usecs_between(fresh.metering_since, interval_end(fresh))
     micros = prorate(AccessDomain.monthly_cents(), usecs)
     post_debit(wallet, fresh, micros)
   end
+
+  # The transition instant (see park_anchor/1). `updated_at` is never
+  # nil on a persisted row (the update timestamp); the now() arm is
+  # the unpersisted-struct race backstop only.
+  defp interval_end(%AccessDomain{updated_at: at}) when not is_nil(at), do: at
+
+  # coveralls-ignore-start - defensive: answers only an unpersisted
+  # struct (no updated_at), which no read can produce — every row the
+  # settle re-reads carries the transition stamp.
+  defp interval_end(%AccessDomain{}), do: DateTime.utc_now()
+  # coveralls-ignore-stop
 
   defp settle(%AccessDomain{} = record) do
     result =
@@ -201,7 +224,7 @@ defmodule FluxVale.Infrastructure.AccessDomain.PerformSettle do
     |> Decimal.new()
     |> Decimal.mult(@micros_per_cent)
     |> Decimal.mult(usecs)
-    |> Decimal.div(@month_useconds)
+    |> Decimal.div(month_useconds())
     |> Decimal.round(0, :floor)
     |> Decimal.to_integer()
   end

@@ -49,6 +49,30 @@ defmodule FluxVale.RuntimeConfigTest do
     end
   end
 
+  describe "ACCESS_DOMAIN_MONTHLY_CENTS (ADR-0040 §11)" do
+    test "is inert in test — a stray export never reprices the suite's money paths" do
+      with_env(%{"ACCESS_DOMAIN_MONTHLY_CENTS" => "500"}, fn ->
+        # runtime.exs only ever OVERLAYS the key (config.exs owns the
+        # default); inert in test means the overlay never lands.
+        refute Keyword.has_key?(read!(:test)[:flux_vale] || [], :access_domain_pricing)
+      end)
+    end
+
+    test "still applies (and validates) outside test" do
+      with_env(%{"ACCESS_DOMAIN_MONTHLY_CENTS" => "500"}, fn ->
+        assert read!(:dev)[:flux_vale][:access_domain_pricing][:monthly_cents] == 500
+      end)
+
+      with_env(%{"ACCESS_DOMAIN_MONTHLY_CENTS" => "free"}, fn ->
+        assert_raise ArgumentError, ~r/ACCESS_DOMAIN_MONTHLY_CENTS/, fn -> read!(:dev) end
+      end)
+
+      with_env(%{"ACCESS_DOMAIN_MONTHLY_CENTS" => "0"}, fn ->
+        assert_raise ArgumentError, ~r/ACCESS_DOMAIN_MONTHLY_CENTS/, fn -> read!(:dev) end
+      end)
+    end
+  end
+
   describe "IDLE_SWEEP_CRONEXPR (#210 part 3)" do
     test "is inert in test — a stray export never compresses the suite's cadence" do
       with_env(%{"IDLE_SWEEP_CRONEXPR" => "* * * * *"}, fn ->

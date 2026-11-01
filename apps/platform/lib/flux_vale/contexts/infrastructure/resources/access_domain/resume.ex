@@ -4,19 +4,36 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
   the row back to `:verified`, the accrual window reopened, and — row
   committed — the two tails of the domain's service re-armed:
 
-  - the tailnet claim, through the claim operation's provider path
-    (`Infrastructure.claim_access_domain/3` — the same gates, claims
-    funnel, P2-3 retry and CoreDNS render the member-scoped claim
-    runs), and
   - the edge routes, re-minted per instance for its CURRENT status
     (the verify pass's promotion limb, entered for the same population
-    the suspension stripped).
+    the suspension stripped), FIRST, and
+  - the tailnet claim, through the claim operation's provider path
+    (`Infrastructure.claim_access_domain/3` — the same gates, claims
+    funnel and P2-3 retry the member-scoped claim runs), LAST.
+
+  **The order is the danger ordering.** The routes are local cluster
+  writes (SSA-idempotent, converged by the retry); the tailnet claim is
+  EXTERNAL state no transaction can roll back. A failure in the routes
+  aborts the resume before the tailnet is ever touched — the API never
+  sees a half-resume. The reverse order would claim split-DNS for a
+  domain whose route mints then failed: names that resolve on the
+  tailnet into nothing.
+
+  Routes standing WITHOUT the claim (the failure window here: routes
+  minted, claim refused) are the safe dangle — a hostname with no
+  split-DNS route does not resolve on the tailnet, so nothing is
+  reachable; the owner's retry converges the claim and the pair is
+  whole again. This is `RemoveAccessDomain`'s hard-failure stance in
+  the opposite direction: there, an unclaim failure FAILS the remove
+  because a removed row can never record what to revert — here the row
+  still stands (`:suspended` after the rollback), so the retry owns the
+  convergence and nothing is stranded ungoverned.
 
   The anchor reopens at `now` — the suspended interval is not billed
   (Suspend parked it), and the resume starts a fresh accrual window.
 
   **Ordering is load-bearing: the row commits before the cluster work**
-  (the gateway Resume's discipline). The re-claim and the re-mint run
+  (the gateway Resume's discipline). The re-mint and the re-claim run
   in `after_action`, so a failure aborts the action and rolls the row
   back to `:suspended` — nothing serving, nothing billed, owner can
   retry. Cluster-first would be the opposite hazard: a row write that
@@ -25,20 +42,25 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
   observer writes over neither `:suspended` nor `:failed`, so the
   domain would serve free forever.
 
+  **The CoreDNS render is success-only, post-commit.** The claim
+  operation runs nested inside this transaction (its `render: false`
+  opt suppresses its own render), so the claims write is uncommitted
+  until this action commits — rendering inside would put uncommitted
+  claims into the ConfigMap (the S4 lesson). This module renders in
+  `after_transaction`, on the `{:ok, _}` branch only: a failed resume
+  leaves the previous view standing, exactly as the row left it.
+
   **The token drift (the S3 shape):** a claim the tailnet refuses —
-  `:unauthorized`/`:forbidden` (expired and revoked present
-  identically) or a MISSING token (`:no_api_token`) — drifts the
-  GATEWAY row `:needs_attention` with the honest copy (the same
-  `:update_state` funnel the claim operation writes: the provider's
-  copy for a rejected key, this module's for a missing one) AND fails
-  the resume honestly. The row stays `:suspended` — the one state
-  every other writer respects — and the owner pastes a fresh token and
-  retries. No silent half-serve. The drift write rides
-  `after_transaction` (outside the rolled-back transaction): the claim
-  operation's own 401/403 drift runs nested inside this transaction
-  and dies with the rollback — the observer's claim-credential check
-  is the backstop there; a MISSING token has no observer, so this
-  module owns that drift outright.
+  `:unauthorized`, `:forbidden`, or a MISSING token (`:no_api_token`) —
+  drifts the GATEWAY row `:needs_attention` with the honest copy (the
+  same `:update_state` funnel the claim operation writes: the
+  provider's copy for a rejected key, this module's for a missing one)
+  AND fails the resume honestly. All three kinds are this module's
+  `@token_drift_kinds`, and all three drift through the same
+  `after_transaction` write — the claim operation's own nested 401/403
+  drift dies with the rollback, so this module's write is the one that
+  persists. The row stays `:suspended` and the owner pastes a fresh
+  token and retries. No silent half-serve.
 
   **A parked gateway refuses the resume** (`:gateway_not_serving`, the
   claim operation's own gate): arming routes toward a scaled-to-zero
@@ -56,6 +78,7 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.RemoveAccessDomain
+  alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.Infrastructure.Operations.VerifyAccessDomains
 
   require Logger
@@ -83,7 +106,7 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
     # registers there for the same reason).
     changeset
     |> Ash.Changeset.after_transaction(fn changeset, result ->
-      drift_after_rollback(changeset.data, result)
+      settle_down(changeset.data, result)
     end)
     |> Ash.Changeset.before_action(fn changeset ->
       domain = changeset.data
@@ -145,11 +168,22 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
     end
   end
 
+  # Routes FIRST, claim LAST — the danger ordering (see the
+  # moduledoc): the claim is the one write no transaction can roll
+  # back, so every local failure must be exhausted before the tailnet
+  # is touched. `render: false` — this transaction's claims write is
+  # uncommitted until the action commits; the render is this module's,
+  # post-commit, success-only.
   defp reclaim_then_rearm(domain, instances) do
     with {:ok, kubeconfig} <- K8s.kubeconfig(),
          {:ok, gateway} <- org_gateway(domain),
-         {:ok, _row} <- Infrastructure.claim_access_domain(gateway, domain, authorize?: false) do
-      rearm_routes(kubeconfig, instances)
+         :ok <- rearm_routes(kubeconfig, instances),
+         {:ok, _row} <-
+           Infrastructure.claim_access_domain(gateway, domain,
+             authorize?: false,
+             render: false
+           ) do
+      :ok
     end
   end
 
@@ -195,17 +229,35 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
 
   defp remember_drift_kind(_other), do: :ok
 
-  # The S3 drift shape, persisted outside the rolled-back transaction.
-  # Any other failure drifts nothing (the claim operation's stance:
-  # only the token reasons present as "the owner must act").
-  defp drift_after_rollback(domain, result) do
-    case Process.get(@drift_key) do
-      nil ->
+  # The two post-transaction duties, in one hook (both must see the
+  # action's FINAL outcome):
+  #
+  # - the S3 drift, persisted outside the rolled-back transaction. Any
+  #   non-token failure drifts nothing (the claim operation's stance:
+  #   only the token reasons present as "the owner must act");
+  # - the CoreDNS render, on the {:ok, _} branch ONLY — the claims
+  #   write committed with this action, so this is the first point
+  #   where the ConfigMap may learn of it (uncommitted claims must
+  #   never reach the view — the S4 lesson). A failed resume leaves
+  #   the previous view standing, exactly as the row left it.
+  defp settle_down(domain, result) do
+    result =
+      case Process.get(@drift_key) do
+        nil ->
+          result
+
+        kind ->
+          Process.delete(@drift_key)
+          drift_gateway_token_failure(domain, kind)
+          result
+      end
+
+    case result do
+      {:ok, _row} ->
+        RenderAccessDNS.call()
         result
 
-      kind ->
-        Process.delete(@drift_key)
-        drift_gateway_token_failure(domain, kind)
+      {:error, _reason} ->
         result
     end
   end

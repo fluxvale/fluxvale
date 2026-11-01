@@ -19,12 +19,13 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
   resolver read failure fails the projection rather than under-burning
   silently. No instances → `:infinity` runway, no warning ever.
 
-  The divisor is the average Gregorian month (2_629_746 s — #121's
-  calendar-neutral constant, the one settle prorates by, pinned
-  together by the agreement tests): a flat monthly rate divided across
-  its own billing month.
+  The divisor is the average Gregorian month (`Billing.Month` — #121's
+  calendar-neutral constant, the one both settles prorate by, one
+  definition for the whole money path): a flat monthly rate divided
+  across its own billing month.
   """
 
+  alias FluxVale.Billing.Month
   alias FluxVale.Billing.Operations.ReadBalance
   alias FluxVale.Billing.Wallet
   alias FluxVale.Infrastructure.AccessDomain
@@ -34,7 +35,6 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
 
   require Ash.Query
 
-  @seconds_per_month 2_629_746
   @micro_per_cent 10_000
 
   @enforce_keys [:balance_cents, :burn_micro_cents_per_hour, :runway_hours]
@@ -161,7 +161,7 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
   defp monthly_rate(_instance, _rates), do: 0
 
   defp hourly_micro(monthly_cents) do
-    div(monthly_cents * @micro_per_cent * 3600, @seconds_per_month)
+    div(monthly_cents * @micro_per_cent * 3600, Month.seconds())
   end
 
   defp runway_hours(_balance, 0), do: :infinity

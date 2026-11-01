@@ -426,14 +426,25 @@ defmodule FluxVale.Infrastructure.AccessDomain do
   # ONE reader of the configured price: the settle prorates it, the
   # runway projects it. The number is policy (config
   # `:access_domain_pricing`, env-overridable at boot via runtime.exs),
-  # never logic — no rate literal lives in a billing path.
+  # never logic — no rate literal lives in a billing path. A zero or
+  # negative config is a CONFIGURATION ERROR raised at the read: money
+  # paths fail closed (a silent 0 would make every domain free; a
+  # negative would pay orgs to hold domains).
   @doc """
   The monthly rate a `:custom` domain bills at (integer cents).
   """
   @spec monthly_cents() :: pos_integer()
   def monthly_cents do
     config = Application.fetch_env!(:flux_vale, :access_domain_pricing)
-    Keyword.fetch!(config, :monthly_cents)
+    cents = Keyword.fetch!(config, :monthly_cents)
+
+    unless is_integer(cents) and cents > 0 do
+      raise ArgumentError,
+            "config :access_domain_pricing[:monthly_cents] must be a positive integer — " <>
+              "got #{inspect(cents)} (billing refuses to run on a mispriced config)"
+    end
+
+    cents
   end
 
   # The Certificate spec register applies and the verify pass RE-applies

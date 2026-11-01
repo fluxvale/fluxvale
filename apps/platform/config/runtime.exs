@@ -153,19 +153,23 @@ end
 # the fleet may reprice without a release). Unset keeps the config.exs
 # default; a non-integer or non-positive override raises at boot — a
 # typo'd price would otherwise silently reprice every custom domain.
-case System.get_env("ACCESS_DOMAIN_MONTHLY_CENTS") do
-  cents when cents in [nil, ""] ->
-    :ok
+# Test is excluded (the IDLE_SLEEP_AFTER_SECONDS stance): a stray value
+# in the suite's shell must not reprice every test's money path.
+if config_env() != :test do
+  case System.get_env("ACCESS_DOMAIN_MONTHLY_CENTS") do
+    cents when cents in [nil, ""] ->
+      :ok
 
-  cents ->
-    case Integer.parse(cents) do
-      {parsed, ""} when parsed > 0 ->
-        config :flux_vale, :access_domain_pricing, monthly_cents: parsed
+    cents ->
+      case Integer.parse(cents) do
+        {parsed, ""} when parsed > 0 ->
+          config :flux_vale, :access_domain_pricing, monthly_cents: parsed
 
-      _invalid ->
-        raise ArgumentError,
-              "ACCESS_DOMAIN_MONTHLY_CENTS=#{inspect(cents)} is not a positive integer"
-    end
+        _invalid ->
+          raise ArgumentError,
+                "ACCESS_DOMAIN_MONTHLY_CENTS=#{inspect(cents)} is not a positive integer"
+      end
+  end
 end
 
 # #203: the idle-sleep threshold (ADR-0036's settled 1h default lives in

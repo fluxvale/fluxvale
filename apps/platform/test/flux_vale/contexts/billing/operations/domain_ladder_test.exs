@@ -243,15 +243,47 @@ defmodule FluxVale.Billing.Operations.DomainLadderTest do
       assert fresh.state == :verified
     end
 
-    test "a serving domain suspends alongside the gateway arm" do
-      {org, owner, wallet} = drained_wallet!()
+    test "a serving domain suspends alongside the gateway arm — domains first" do
+      {org, owner, wallet} = wallet!(100)
       gateway = AccessFixtures.gateway!(org, monthly_cents: @monthly_cents)
       domain = verified_domain!(owner)
+      instance_id = attach_with_hostname!(gateway, org, owner, domain)
+
+      # Drain AFTER the fixtures (the instance create's funded gate).
+      {:ok, _entry} = Billing.debit_wallet(wallet, 100 * 10_000, reason: :adjustment)
+
+      # The domain unclaim dials through the gateway's recorded node
+      # and reads its claims map — it must run while the gateway row
+      # still stands :active. assert_received is FIFO: the domain's
+      # edge write lands before the gateway's scale-down.
+      stub(Tailscale, :scale_gateway, fn _gw, _replicas ->
+        send(self(), :gateway_scaled)
+        :ok
+      end)
 
       assert {:ok, summary} = Billing.sweep_zero_balance(wallet)
 
       assert gateway.id in summary.suspended_gateway_ids
       assert domain.id in summary.suspended_domain_ids
+
+      assert_received {:arms_removed, ^instance_id, _domain_id}
+      assert_received :gateway_scaled
+    end
+
+    test "a re-entered pass claims no credit — parked rows are not re-counted" do
+      {org, owner, wallet} = drained_wallet!()
+      gateway = AccessFixtures.gateway!(org, monthly_cents: @monthly_cents)
+      domain = verified_domain!(owner)
+
+      assert {:ok, first} = Billing.sweep_zero_balance(wallet)
+      assert gateway.id in first.suspended_gateway_ids
+      assert domain.id in first.suspended_domain_ids
+
+      # The ladder re-enters at ≤ 0 every pass; the id lists are what
+      # THIS pass changed (the gateway arm's stance).
+      assert {:ok, second} = Billing.sweep_zero_balance(wallet)
+      assert second.suspended_domain_ids == []
+      assert second.suspended_gateway_ids == []
     end
   end
 

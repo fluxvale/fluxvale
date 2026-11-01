@@ -15,15 +15,25 @@ defmodule FluxVale.Infrastructure.AccessDomain.Suspend do
     runs, reused not duplicated.
 
   **Failure of a side effect fails the suspension** (fail-closed): the
-  row stays exactly as it was and keeps accruing — it is still serving
-  — and the next sweep pass re-enters. The side effects are idempotent
-  (safe-deletes; an idempotent provider unclaim), so re-entry
-  converges.
+  row keeps its state and keeps accruing, and the next sweep pass
+  RE-RUNS THE WHOLE DOMAIN — the arms are idempotent (safe-deletes; an
+  idempotent provider unclaim), so re-entry converges on the full dark
+  posture instead of retrying a residual. Honest about the partial
+  case: a pass that removed the routes but failed the unclaim leaves
+  the domain HALF dark while still accruing — one sweep cadence of
+  mismatch is the price of never demoting a row whose tails are not
+  both down, and the log line is the trace.
 
   The anchor parks on the way down (the gateway Suspend stance): the
   suspended interval cannot bill on resume. The Certificate and its
   namespace replicas stay — a resume re-mints the routes; nothing is
   re-issued.
+
+  **The CoreDNS render is success-only, post-commit** (the S4 lesson,
+  the resume's mirror): the unclaim drops the domain's claims entry
+  inside this transaction, and the view must stop answering it only
+  once that write has committed — a failed suspension leaves the
+  previous view standing, exactly as the row left it.
 
   **Ordering is the gateway suspend's**: side effects first
   (`before_action`), the row write second — a failed row write after
@@ -38,21 +48,36 @@ defmodule FluxVale.Infrastructure.AccessDomain.Suspend do
   alias FluxVale.Clients.K8s
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.RemoveAccessDomain
+  alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.Infrastructure.Operations.VerifyAccessDomains
 
   require Logger
 
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
-    Ash.Changeset.before_action(changeset, fn changeset ->
+    # The render hook registers in the CHANGE phase: hooks added inside
+    # a before_action callback are not on the changeset the engine
+    # hands to after_transaction (the resume's note).
+    changeset
+    |> Ash.Changeset.after_transaction(fn _changeset, result ->
+      case result do
+        {:ok, _suspended} -> RenderAccessDNS.call()
+        {:error, _reason} -> :ok
+      end
+
+      result
+    end)
+    |> Ash.Changeset.before_action(fn changeset ->
       domain = changeset.data
 
       # Idempotent: the ladder re-enters this arm every pass while the
       # balance stays ≤ 0. A row already parked has nothing to do —
       # and a :pending/:failed row never served, so there is nothing
-      # to demote either (the ladder selects serving rows only; this
-      # guard is the backstop).
-      if domain.state in [:suspended, :pending, :failed] do
+      # to demote either; a :platform row never bills at all (§11) and
+      # must never be demoted by a money event. The ladder's query
+      # selects serving `:custom` rows only — these guards are the
+      # belt behind it.
+      if domain.state in [:suspended, :pending, :failed] or domain.kind == :platform do
         changeset
       else
         suspend(domain, changeset)
