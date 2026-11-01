@@ -156,7 +156,11 @@ defmodule FluxValeWeb.BillingComponents do
     # reconstructing with div would truncate again — every rate then
     # displays a cent low ($1.00/mo read "$0.99/mo", $10.00/mo
     # "$9.99/mo"). Half-up rounding recovers the nearest cent of the
-    # already-truncated rate (CodeRabbit #351).
+    # already-truncated rate (CodeRabbit #351). Cent-boundary budget:
+    # the truncation loss is per SOURCE (< 1 µ¢/h ≈ 0.073¢ each), so a
+    # burn summed from ≥ 7 sources can push past this 0.5¢ window and
+    # still round a cent low — exactness per-source, approximate for
+    # many-source totals.
     half_divisor = div(@micro_per_cent * 3600, 2)
 
     monthly_cents =

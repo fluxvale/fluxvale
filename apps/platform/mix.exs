@@ -15,13 +15,15 @@ defmodule FluxVale.MixProject do
       # no effect" — non-fatally, but Elixir caches those diagnostics
       # in the compile manifest and REPLAYS them on later compiles of
       # the unchanged files, where `mix ci`'s --warnings-as-errors
-      # compile makes the replay fatal. Hit on S9 (#351): a cache-
-      # restored CI _build plus a 6-file diff died the Platform job at
-      # the compile step; locally a single-file touch on any warm tree
-      # reproduced it. Consolidation off in :test removes the second
-      # pass, so the warnings are never emitted, never cached, never
-      # replayed; releases (:prod — the Docker image and the release
-      # gate proof leg) still consolidate.
+      # compile makes the replay fatal. Hit on S9 (#351): a CI _build
+      # whose manifest carried the cached diagnostics (the caching pass
+      # had run there) plus a 6-file diff died the Platform job at the
+      # compile step; a clean warm tree does NOT reproduce it — the
+      # poison is the cached diagnostics, not warmth itself. With
+      # consolidation off in :test the second pass never runs, so the
+      # warnings are never emitted, never cached, never replayed;
+      # releases (:prod — the Docker image and the release gate proof
+      # leg) still consolidate.
       consolidate_protocols: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),

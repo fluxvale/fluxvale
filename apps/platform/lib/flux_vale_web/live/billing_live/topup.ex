@@ -543,7 +543,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
             data-testid="topup-new-balance"
           >
             <span>New balance after top-up</span>
-            <span class="font-mono">{Pricing.format_usd(@balance + @totals.subtotal)}</span>
+            <span class="font-mono">{signed_usd(@balance + @totals.subtotal)}</span>
           </p>
         </div>
       <% end %>
@@ -601,7 +601,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
           data-testid="topup-new-balance"
         >
           <span>New balance after top-up</span>
-          <span class="font-mono">{Pricing.format_usd(@balance + @totals.subtotal)}</span>
+          <span class="font-mono">{signed_usd(@balance + @totals.subtotal)}</span>
         </p>
         <%!-- billed_to is buyer-typed and can run long and unbroken
             (name · email · VAT) — the guards let it wrap inside its
@@ -648,6 +648,14 @@ defmodule FluxValeWeb.BillingLive.Topup do
 
   # Net credit, VAT, and the gross the gateway will charge — one math
   # source for the Amount and Payment steps.
+  # The new-balance line adds the top-up to the RAW ledger sum, which
+  # is negative for an overdrawn wallet — the band's celebrated
+  # Depleted state is exactly who the "Add credits" CTA invites here.
+  # The shared formatter is non-negative by constraint; the sign is
+  # this surface's business, like every other billing display seam.
+  defp signed_usd(cents) when cents < 0, do: "-" <> Pricing.format_usd(-cents)
+  defp signed_usd(cents), do: Pricing.format_usd(cents)
+
   defp totals(%{amount_dollars: dollars, tax_rate_bp: rate_bp})
        when is_integer(dollars) and dollars >= 1 do
     subtotal = dollars * @unit_cents

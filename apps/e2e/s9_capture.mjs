@@ -24,6 +24,18 @@ if (!token) {
   process.exit(1);
 }
 
+// One live-socket assertion, the S7 lesson: the static render carries
+// the same DOM, so a click before the socket connects lands on the
+// dead page and the phx event never fires (a harness flake that reads
+// like an app bug). Await this after every navigation, before driving.
+const live = (page) =>
+  page.waitForFunction(
+    () =>
+      document.querySelector("[data-phx-session]")?.classList.contains("phx-connected"),
+    null,
+    { timeout: 15_000 },
+  );
+
 const settle = (page) =>
   // Finite animations only: a pending receipt's spinner is infinite and
   // its `finished` promise never resolves — waiting on it hung the
@@ -55,6 +67,7 @@ if (!session.ok()) throw new Error(`session POST failed: ${session.status()}`);
 // verify the app actually knows us before the first shot.
 await page.goto(`${BASE}/billing`, { waitUntil: "networkidle" });
 if (page.url().includes("/sign-in")) throw new Error("session did not take — check FV_TOKEN");
+await live(page);
 
 // Drive the wizard: 1 = details, 2 = amount with the live-priced
 // receipt panel visible (the capture's subject), 3 = payment. Each
@@ -62,6 +75,7 @@ if (page.url().includes("/sign-in")) throw new Error("session did not take — c
 // slow submission used to leave the previous step under the next
 // step's filename (CodeRabbit #351).
 const gotoStep = async (n) => {
+  await live(page);
   if (n > 1) {
     await page.locator("#topup-details-form input[name='details[name]']").fill("Jane Doe");
     await page.locator("#topup-details-form input[name='details[country]']").fill("DE");
@@ -104,6 +118,7 @@ for (const [width, height] of [[1440, 900], [375, 667]]) {
   await page.setViewportSize({ width, height });
   for (const [name, navigate] of SURFACES) {
     await navigate();
+    await live(page);
     await settle(page);
     for (const mode of ["light", "dark"]) {
       await page.evaluate((m) => {

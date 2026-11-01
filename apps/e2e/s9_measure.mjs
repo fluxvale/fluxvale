@@ -36,6 +36,17 @@ if (!token || !tokenDepleted) {
 const WIDTHS = [1440, 1000, 920, 845, 820, 768, 760, 375, 320];
 const HEIGHT = (w) => (w <= 375 ? 760 : 900);
 
+// One live-socket assertion, the S7 lesson: the static render carries
+// the same DOM, so driving before the socket connects fires events
+// into a dead page (harness flake that reads like an app bug).
+const live = (pg) =>
+  pg.waitForFunction(
+    () =>
+      document.querySelector("[data-phx-session]")?.classList.contains("phx-connected"),
+    null,
+    { timeout: 15_000 },
+  );
+
 const browser = await chromium.launch();
 
 // ---- sessions (cookie jars per actor) ----
@@ -50,6 +61,7 @@ async function signIn(ctx, jwt) {
   if (!res.ok()) throw new Error(`session POST failed: ${res.status()}`);
   await page.goto(`${BASE}/billing`, { waitUntil: "networkidle" });
   if (page.url().includes("/sign-in")) throw new Error("session did not take");
+  await live(page);
   return page;
 }
 
@@ -73,6 +85,7 @@ const out = (line) => console.log(JSON.stringify(line));
 
 // drive the wizard to a step from a pristine load
 const gotoStep = async (pg, n) => {
+  await live(pg);
   if (n > 1) {
     await pg.locator("#topup-details-form input[name='details[name]']").fill("Jane Doe");
     await pg.locator("#topup-details-form input[name='details[country]']").fill("DE");
@@ -176,21 +189,31 @@ for (const [name, nav] of Object.entries(SURFACES)) {
   for (const width of WIDTHS) {
     await page.setViewportSize({ width, height: HEIGHT(width) });
     await nav(page);
+    await live(page);
     out({ probe: "layout-sweep", surface: name, width, ...(await layoutProbe(page)) });
   }
 }
 
-// ---- 2. facts posture at the extremes (overdrawn wallet) ----
+// ---- 2. facts posture at the extremes (overdrawn wallet, BOTH wallet
+// surfaces — /billing and the org page share the band component) ----
 const dctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const dpage = await signIn(dctx, tokenDepleted);
+const DEPLETED_SURFACES = [
+  `${BASE}/billing`,
+  `${BASE}/organizations/depleted-robotics/billing`,
+];
 for (const width of WIDTHS) {
-  await dpage.setViewportSize({ width, height: HEIGHT(width) });
-  await dpage.goto(`${BASE}/billing`, { waitUntil: "networkidle" });
-  out({
-    probe: "facts-extreme-depleted",
-    width,
-    ...(await layoutProbe(dpage)),
-  });
+  for (const url of DEPLETED_SURFACES) {
+    await dpage.setViewportSize({ width, height: HEIGHT(width) });
+    await dpage.goto(url, { waitUntil: "networkidle" });
+    await live(dpage);
+    out({
+      probe: "facts-extreme-depleted",
+      surface: url.includes("/billing") && !url.includes("organizations") ? "billing" : "org-billing",
+      width,
+      ...(await layoutProbe(dpage)),
+    });
+  }
 }
 await dctx.close();
 
@@ -248,13 +271,33 @@ await page.locator("#topup-amount-next").click();
 await page.waitForTimeout(400);
 await settle(page);
 const risesAfterStep3 = await page.evaluate(() => window.__riseStarts);
+// the back buttons are part of the flow: walk BACKWARD and re-forward —
+// patch-driven replays are as likely on the way back (hostile-351 F3)
+await page.locator("#topup-payment-back").click();
+await page.waitForTimeout(400);
+const risesAfterBack2 = await page.evaluate(() => window.__riseStarts);
+await page.locator("#topup-amount-back").click();
+await page.waitForTimeout(400);
+const risesAfterBack1 = await page.evaluate(() => window.__riseStarts);
+await page.locator("#topup-details-form input[name='details[name]']").fill("Jane Doe");
+await page.locator("#topup-details-form input[name='details[country]']").fill("DE");
+await page.locator("#topup-details-next").click();
+await page.waitForTimeout(400);
+const risesAfterFwd2Again = await page.evaluate(() => window.__riseStarts);
 out({
   probe: "rise-on-step-patches",
   risesAtLoad,
   risesAfterIdle,
   risesAfterStep2,
   risesAfterStep3,
-  noReplay: risesAfterStep3 === risesAfterIdle,
+  risesAfterBack2,
+  risesAfterBack1,
+  risesAfterFwd2Again,
+  noReplay:
+    risesAfterStep3 === risesAfterIdle &&
+    risesAfterBack2 === risesAfterIdle &&
+    risesAfterBack1 === risesAfterIdle &&
+    risesAfterFwd2Again === risesAfterIdle,
 });
 
 // ---- 5. money contrast: mono figures on their surfaces, both themes ----
@@ -359,6 +402,7 @@ for (const mode of ["light", "dark"]) {
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${BASE}/billing`, { waitUntil: "networkidle" });
+  await live(page);
   out({ probe: "money-contrast", theme: mode, surface: "billing", items: await contrastProbe(page) });
 
   await page.goto(`${BASE}/billing/topup`, { waitUntil: "networkidle" });
@@ -373,6 +417,7 @@ for (const mode of ["light", "dark"]) {
   await page.goto(`${BASE}/billing/topup/return?reference=pr_s9_capture`, {
     waitUntil: "networkidle",
   });
+  await live(page);
   out({
     probe: "money-contrast",
     theme: mode,

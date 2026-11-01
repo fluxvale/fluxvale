@@ -31,6 +31,15 @@ const ctx = await browser.newContext({
 // so each clip gets its own page (and its own file, renamed on close);
 // one shared page used to record sign-in + both clips into a single
 // WebM (CodeRabbit #351).
+// One live-socket assertion, the S7 lesson (see s9_capture.mjs).
+const live = (page) =>
+  page.waitForFunction(
+    () =>
+      document.querySelector("[data-phx-session]")?.classList.contains("phx-connected"),
+    null,
+    { timeout: 15_000 },
+  );
+
 const signIn = async (page) => {
   await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
   const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
@@ -55,6 +64,7 @@ const saveClip = async (page, name) => {
 const billing = await ctx.newPage();
 await signIn(billing);
 await billing.goto(`${BASE}/billing`, { waitUntil: "networkidle" });
+await live(billing);
 await billing.waitForTimeout(2500);
 await saveClip(billing, "s9-band-rise");
 
@@ -63,6 +73,7 @@ await saveClip(billing, "s9-band-rise");
 const wizard = await ctx.newPage();
 await signIn(wizard);
 await wizard.goto(`${BASE}/billing/topup`, { waitUntil: "networkidle" });
+await live(wizard);
 await wizard.waitForTimeout(2000);
 await wizard.locator("#topup-details-form input[name='details[name]']").fill("Jane Doe");
 await wizard.locator("#topup-details-form input[name='details[country]']").fill("DE");

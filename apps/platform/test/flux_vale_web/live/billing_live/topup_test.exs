@@ -229,6 +229,41 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
     defp drop_unless(map, true, _key), do: map
     defp drop_unless(map, false, key), do: Map.delete(map, key)
 
+    # F1 (hostile-351): the wizard is the remedy the band offers a
+    # depleted wallet — the band celebrates "-$100.00 / Depleted" with
+    # the Add-credits CTA. Driving it as that wallet used to crash the
+    # socket: the new-balance line's Pricing.format_usd(@balance +
+    # subtotal) FunctionClaused on the negative (format_usd guards
+    # cents >= 0), on the validate-amount patch, snapping the page back
+    # to step 1 with no error shown.
+    test "a depleted wallet reaches steps 2 and 3 — the new balance reads signed", %{
+      conn: conn,
+      wallet: wallet
+    } do
+      # The setup drains the wallet to 0; this wallet is $200 in the
+      # hole on a $100 grant — −$100.00, the band's celebrated extreme.
+      {:ok, _grant} = Billing.grant_credits(wallet, 10_000)
+      {:ok, _debit} = Billing.debit_wallet(wallet, 200_000_000)
+
+      view = to_amount(conn)
+
+      # −$100.00 balance + a $25 top-up → −$75.00, still negative: the
+      # display must be signed, not a crash.
+      view
+      |> form("#topup-amount-form", amount: %{dollars: "25"})
+      |> render_change()
+
+      assert render(element(view, "[data-testid='topup-new-balance']")) =~ "-$75.00"
+
+      # The payment step renders the same line from the same assign.
+      view
+      |> form("#topup-amount-form", amount: %{dollars: "25"})
+      |> render_submit()
+
+      assert has_element?(view, "#topup-pay")
+      assert render(element(view, "[data-testid='topup-new-balance']")) =~ "-$75.00"
+    end
+
     test "an unpriced country shows a 0% VAT line and the unit total", %{conn: conn} do
       view = to_amount(conn, country: "AU")
 
