@@ -98,15 +98,7 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackupTest do
   # Bootstrap posture (mirrors the Billing policy tests): the
   # precondition runs authorize?: false; the admin policy itself is
   # under test in WalletTest.
-  defp admin do
-    case User.get_by_email("admin@fluxvale.com", authorize?: false) do
-      {:ok, existing} ->
-        existing
-
-      {:error, _not_found} ->
-        User.create!("admin@fluxvale.com", %{platform_role: :admin}, authorize?: false)
-    end
-  end
+  defp admin, do: AccountsFixtures.platform_admin!()
 
   describe "call/2 — the happy path" do
     test "creates the run, replaces the Job, and lands :running" do

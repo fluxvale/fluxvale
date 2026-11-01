@@ -31,10 +31,13 @@ defmodule FluxVale.Billing.Wallet do
 
   # The admin surface (#140): reads for wallet discovery (the goodwill
   # credit) plus the ONE admin write — the paywall waiver flip below,
-  # rendered by AshAdmin as the edit form's checkbox. Provisioning and
-  # carryover/ladder writes stay the posting machinery's, actor-forbidden
-  # by policy; an admin form for them could only fail, so none is
-  # offered.
+  # rendered by AshAdmin as the edit form's checkbox. Everything else
+  # stays off the mount deliberately (ADR-0027 Am. 1): AshAdmin's
+  # authorizing toggle defaults OFF, so actions through the mount run
+  # authorize?: false — a trusted-operator superuser surface must not
+  # offer provisioning/carryover/ladder forms at all. On every direct
+  # (non-mount) path the policies below forbid those writes to any
+  # actor, admins included (pinned in WalletTest).
   admin do
     create_actions([])
     update_actions([:set_waiver])

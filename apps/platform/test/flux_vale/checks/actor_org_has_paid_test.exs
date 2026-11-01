@@ -347,13 +347,5 @@ defmodule FluxVale.Checks.ActorOrgHasPaidTest do
   # Bootstrap posture (mirrors the Billing policy tests): the
   # precondition runs authorize?: false; the admin policy itself is
   # under test in the wallet and gateway suites.
-  defp admin do
-    case User.get_by_email("admin@fluxvale.com", authorize?: false) do
-      {:ok, existing} ->
-        existing
-
-      {:error, _not_found} ->
-        User.create!("admin@fluxvale.com", %{platform_role: :admin}, authorize?: false)
-    end
-  end
+  defp admin, do: AccountsFixtures.platform_admin!()
 end

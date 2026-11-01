@@ -5,9 +5,12 @@ defmodule FluxVale.Infrastructure.BackupSettingTest do
 
   import Ash.Resource.Info, only: [attributes: 1]
 
+  alias FluxVale.Billing
+  alias FluxVale.Billing.Wallet
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
@@ -498,4 +501,60 @@ defmodule FluxVale.Infrastructure.BackupSettingTest do
       assert {:ok, _still_there} = BackupSetting.get_by_instance(instance.id, authorize?: false)
     end
   end
+
+  # The paywall waiver at THIS seam: the "a waived org can enable
+  # backups" story rides these policies (create + the flip), so the
+  # gateway-seam and predicate pins are not the whole picture. Waiver
+  # alone (never paid) passes the paid gate here exactly as a purchase
+  # would.
+  describe "the paid gate under the waiver" do
+    test "a waived never-paid member configures backups and flips enabled" do
+      version = base!()
+
+      owner =
+        User.create!("flip-waived-#{System.unique_integer()}@fluxvale.com", %{},
+          authorize?: false
+        )
+
+      org = AccountsFixtures.personal_org!(owner)
+
+      {:ok, wallet} = Billing.ensure_wallet(org)
+
+      assert {:ok, _wallet} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin())
+
+      instance =
+        Instance.create!(
+          %{
+            name: "Waived #{System.unique_integer()}",
+            app_version_id: version.id,
+            env_vars: %{}
+          },
+          actor: owner
+        )
+
+      # Create (the enable bar) — the waiver alone satisfies the gate.
+      assert {:ok, setting} =
+               BackupSetting.create(
+                 %{
+                   instance_id: instance.id,
+                   endpoint: "https://account.r2.cloudflarestorage.com",
+                   bucket: "fluxvale-kavita",
+                   access_key_id: "KEY"
+                 },
+                 actor: owner
+               )
+
+      # The flip — the same gate on update, both directions.
+      assert {:ok, paused} = BackupSetting.update(setting, %{enabled: false}, actor: owner)
+      refute paused.enabled
+
+      assert {:ok, resumed} = BackupSetting.update(paused, %{enabled: true}, actor: owner)
+      assert resumed.enabled
+    end
+  end
+
+  # Bootstrap posture (mirrors the Billing policy tests): the
+  # precondition runs authorize?: false; the admin policy itself is
+  # under test in WalletTest.
+  defp admin, do: AccountsFixtures.platform_admin!()
 end

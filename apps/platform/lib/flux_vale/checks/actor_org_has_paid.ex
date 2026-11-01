@@ -8,8 +8,9 @@ defmodule FluxVale.Checks.ActorOrgHasPaid do
   shape, not the balance: reason `:purchase` is the payment-webhook's
   reason (`CreditWallet`), so goodwill/adjustment grants never
   qualify. Refunds post compensating debits (`ReverseEntry`) that this
-  check ignores — a paid org stays paid. Wired to AccessGateway
-  `create` and `resume` beside the funded check.
+  check ignores — a paid org stays paid. Wired beside the funded check
+  at AccessGateway `create`/`resume` and BackupSetting create/update;
+  the backup-run guard and the panels read the same predicate.
 
   The waiver is the operator's designated-org path (testers, friends,
   demos): a `paywall_waived` boolean on the wallet, flipped from /admin

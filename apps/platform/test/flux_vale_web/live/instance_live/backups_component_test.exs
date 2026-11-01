@@ -21,6 +21,8 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
 
   alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.Organization
+  alias FluxVale.Billing
+  alias FluxVale.Billing.Wallet
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.BackupJob
@@ -30,6 +32,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
   alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
@@ -983,7 +986,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(view, "[data-testid=backups-error]", "Backups are paused")
     end
 
-    test "a paid org at zero balance gets the top-up line, not a generic failure", %{
+    test "a paid org at zero balance gets the balance-only line, not a generic failure", %{
       conn: conn,
       user: user,
       version: version
@@ -1001,7 +1004,58 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(
                view,
                "[data-testid=backups-error]",
+               "Top up to run a backup — keep a positive balance in your wallet."
+             )
+    end
+
+    test "a never-paid org (positive welcome balance) keeps the $1-once line", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      # The run refusal is two gates in one name; the never-paid
+      # population keeps the $1-once education (the up-front callout
+      # also shows — this pins the error line itself).
+      instance = instance!(version, user)
+      setting!(instance)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      render_click(element(view, "[data-testid=back-up-now]"))
+
+      assert has_element?(
+               view,
+               "[data-testid=backups-error]",
                "Top up to run a backup — add at least $1 once, and keep a positive balance."
+             )
+    end
+
+    test "a waived org at zero balance is not told to add $1 once — the waiver exists so it never must",
+         %{
+           conn: conn,
+           user: user,
+           version: version
+         } do
+      # Waiver-only (never paid): org_paid? true on the waiver alone —
+      # the same balance-only line a paid org gets.
+      {:ok, org} = FluxVale.Accounts.personal_org_for_user(user.id, authorize?: false)
+      {:ok, wallet} = Billing.ensure_wallet(org)
+
+      assert {:ok, _wallet} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin())
+
+      instance = instance!(version, user)
+      setting!(instance)
+
+      BillingFixtures.drain_wallet!(org)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      render_click(element(view, "[data-testid=back-up-now]"))
+
+      assert has_element?(
+               view,
+               "[data-testid=backups-error]",
+               "Top up to run a backup — keep a positive balance in your wallet."
              )
     end
   end
@@ -1234,4 +1288,9 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(view, "[data-testid=backups-health]", "Healthy")
     end
   end
+
+  # Bootstrap posture (mirrors the Billing policy tests): the
+  # precondition runs authorize?: false; the admin policy itself is
+  # under test in WalletTest.
+  defp admin, do: AccountsFixtures.platform_admin!()
 end

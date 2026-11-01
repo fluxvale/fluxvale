@@ -8,7 +8,6 @@ defmodule FluxVale.Billing.WalletTest do
 
   alias FluxVale.Billing
   alias FluxVale.Billing.Wallet
-  alias FluxVale.Identity.User
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
 
@@ -165,17 +164,5 @@ defmodule FluxVale.Billing.WalletTest do
 
   # Bootstrap posture (mirrors the Ops policy tests): the precondition
   # runs authorize?: false; the policy itself is under test above.
-  defp admin do
-    case User.get_by_email("admin@fluxvale.com", authorize?: false) do
-      {:ok, existing} ->
-        existing
-
-      {:error, _not_found} ->
-        User.create!(
-          "admin@fluxvale.com",
-          %{platform_role: :admin},
-          authorize?: false
-        )
-    end
-  end
+  defp admin, do: AccountsFixtures.platform_admin!()
 end
