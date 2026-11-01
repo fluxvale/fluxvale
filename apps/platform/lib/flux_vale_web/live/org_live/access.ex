@@ -34,6 +34,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   alias Ash.Error.Forbidden
   alias FluxVale.Accounts.Organization
   alias FluxVale.Checks.ActorIsOrganizationOwner
+  alias FluxVale.Checks.ActorOrgHasPaid
   alias FluxVale.Checks.ActorOrgWalletFunded
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessGateway
@@ -504,6 +505,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
             gateway={@gateway}
             form={@form}
             funded?={@funded?}
+            paid?={@paid?}
             billing_path={@billing_path}
             repaste_open?={@repaste_open?}
             remove_armed?={@remove_armed?}
@@ -538,6 +540,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
             personal?={@personal?}
             form={@form}
             funded?={@funded?}
+            paid?={@paid?}
             billing_path={@billing_path}
             price_cents={@price_cents}
           />
@@ -557,6 +560,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   attr(:billing_path, :string, required: true)
   attr(:form, :any, required: true)
   attr(:funded?, :boolean, required: true)
+  attr(:paid?, :boolean, required: true)
   attr(:price_cents, :integer, required: true)
 
   defp access_empty_state(assigns) do
@@ -596,8 +600,29 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           {Pricing.format_usd(@price_cents)}/month, billed hourly while connected.
         </p>
 
+        <%!-- The blocking gate's own hint, shown up front: a wallet that
+            has never PAID sees the paid-once callout (the welcome credit
+            does not unlock enablement), a paid-but-empty one the balance
+            copy. Two testids — the states assert separately. --%>
         <.callout
-          :if={!@funded?}
+          :if={!@paid?}
+          id="access-paid-hint"
+          tone="warning"
+          data-testid="access-paid-hint"
+        >
+          <p>
+            Private access needs a one-time top-up of at least $1 — add funds in <.link
+              navigate={@billing_path}
+              class="underline underline-offset-2 hover:text-ink"
+              data-testid="access-paid-link"
+            >
+              Billing
+            </.link>.
+          </p>
+        </.callout>
+
+        <.callout
+          :if={@paid? and !@funded?}
           id="access-prefund-hint"
           tone="warning"
           data-testid="access-prefund-hint"
@@ -661,6 +686,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   attr(:gateway, AccessGateway, required: true)
   attr(:form, :any, required: true)
   attr(:funded?, :boolean, required: true)
+  attr(:paid?, :boolean, required: true)
   attr(:billing_path, :string, required: true)
   attr(:repaste_open?, :boolean, required: true)
   attr(:remove_armed?, :boolean, required: true)
@@ -698,6 +724,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         gateway={@gateway}
         form={@form}
         funded?={@funded?}
+        paid?={@paid?}
         billing_path={@billing_path}
         repaste_open?={@repaste_open?}
         remove_armed?={@remove_armed?}
@@ -709,6 +736,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   attr(:gateway, AccessGateway, required: true)
   attr(:form, :any, required: true)
   attr(:funded?, :boolean, required: true)
+  attr(:paid?, :boolean, required: true)
   attr(:billing_path, :string, required: true)
   attr(:repaste_open?, :boolean, required: true)
   attr(:remove_armed?, :boolean, required: true)
@@ -752,7 +780,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           />
           <.remove_panel armed?={@remove_armed?} />
         <% @gateway.state == :suspended -> %>
-          <.suspended_panel funded?={@funded?} billing_path={@billing_path} />
+          <.suspended_panel funded?={@funded?} paid?={@paid?} billing_path={@billing_path} />
           <.remove_panel armed?={@remove_armed?} />
         <% @gateway.state == :destroying -> %>
           <p class="text-sm text-ink-muted" data-testid="access-removing-note">
@@ -876,7 +904,11 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     """
   end
 
+  # The resume button only where resume can succeed — funded AND paid.
+  # A never-paid org (funded on welcome credit alone) would hit the
+  # paid-once Forbidden, so it sees the top-up line instead.
   attr(:funded?, :boolean, required: true)
+  attr(:paid?, :boolean, required: true)
   attr(:billing_path, :string, required: true)
 
   defp suspended_panel(assigns) do
@@ -888,7 +920,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           reachable only through the panel, and nothing accrues while suspended.
         </p>
       </.callout>
-      <%= if @funded? do %>
+      <%= if @funded? and @paid? do %>
         <.button type="button" phx-click="resume" size="sm" data-testid="access-resume">
           Resume private access
         </.button>
@@ -1134,7 +1166,13 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   defp stale_gateway?(_error), do: false
 
   defp refresh_funded(socket) do
-    assign(socket, funded?: ActorOrgWalletFunded.org_funded?(socket.assigns.org.id))
+    org_id = socket.assigns.org.id
+
+    socket
+    |> assign(funded?: ActorOrgWalletFunded.org_funded?(org_id))
+    # The paid-once gate's own assign — the empty state and the
+    # suspended panel are honest about which gate blocks.
+    |> assign(paid?: ActorOrgHasPaid.org_paid?(org_id))
   end
 
   # ---- Pairing data + copy (§4.1) ----

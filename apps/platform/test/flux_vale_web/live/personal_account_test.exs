@@ -150,13 +150,14 @@ defmodule FluxValeWeb.PersonalAccountTest do
              "every app on your account"
            )
 
-    # The panel bills the personal org: the prefund hint (drained below)
-    # points at /billing, never an org billing URL.
+    # The panel bills the personal org: the top-up hint (drained below)
+    # points at /billing, never an org billing URL — the paid-gate
+    # callout, since a drained wallet is still a never-paid wallet.
     BillingFixtures.drain_wallet!(org)
 
     {:ok, prefunded_view, _html} = live(conn, ~p"/settings/access")
 
-    assert has_element?(prefunded_view, "[data-testid='access-prefund-link'][href='/billing']")
+    assert has_element?(prefunded_view, "[data-testid='access-paid-link'][href='/billing']")
   end
 
   test "an anonymous visit to /settings/access redirects to sign-in" do

@@ -141,11 +141,17 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     end
 
     # Opting in is a paid add-on: the same funded gate instance creates
-    # carry (#124), because the first accrual lands within one tick.
+    # carry (#124), because the first accrual lands within one tick —
+    # and a wallet that has actually PAID at least once, so the signup
+    # welcome credit can't unlock it.
     policy action(:create) do
-      description("Members opt their org in — membership AND a funded wallet, the #124 gate")
+      description(
+        "Members opt their org in — membership AND a funded wallet (#124) AND a paid-once wallet"
+      )
 
       forbid_unless(actor_present())
+      forbid_unless(FluxVale.Checks.ActorOrgWalletFunded)
+      forbid_unless(FluxVale.Checks.ActorOrgHasPaid)
       authorize_if(FluxVale.Checks.ActorOrgWalletFunded)
     end
 
@@ -155,8 +161,13 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     end
 
     policy action(:resume) do
-      description("Resuming after suspension spends money — membership AND a funded wallet")
+      description(
+        "Resuming after suspension spends money — membership AND a funded wallet (#124) AND a paid-once wallet"
+      )
+
       forbid_unless(relates_to_actor_via([:organization, :members]))
+      forbid_unless(FluxVale.Checks.ActorOrgWalletFunded)
+      forbid_unless(FluxVale.Checks.ActorOrgHasPaid)
       authorize_if(FluxVale.Checks.ActorOrgWalletFunded)
     end
 

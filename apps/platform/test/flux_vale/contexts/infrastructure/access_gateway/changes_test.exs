@@ -278,6 +278,57 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
     end
   end
 
+  describe "the paid-once policy gates (create/resume)" do
+    # The paid-once gate (ActorOrgHasPaid) beside the funded check: the
+    # signup welcome credit must not unlock enablement or resume — one
+    # real $1+ payment ever.
+
+    test "a never-paid member is forbidden to create and to resume", %{org: org, owner: owner} do
+      # Create rides the actor's personal org (SetOrganizationFromActor
+      # pins the row there too) — the fixture org here (earliest-created
+      # org the user owns), funded by the adjustment grant but never
+      # paid: exactly the wallet the paid-once gate exists for.
+      assert {:error, %Ash.Error.Forbidden{}} =
+               AccessGateway.create(
+                 %{monthly_cents: 200, tailnet_domain: "example.ts.net", auth_key: "tskey"},
+                 actor: owner
+               )
+
+      suspended = AccessFixtures.gateway!(org, state: :suspended)
+
+      assert {:error, %Ash.Error.Forbidden{}} = AccessGateway.resume(suspended, actor: owner)
+    end
+
+    test "a paid, funded member creates and resumes", %{org: org, owner: owner} do
+      BillingFixtures.mark_paid!(org)
+
+      assert {:ok, gateway} =
+               AccessGateway.create(
+                 %{monthly_cents: 200, tailnet_domain: "example.ts.net", auth_key: "tskey"},
+                 actor: owner
+               )
+
+      # The row landed on the org the policy checked — the actor's own
+      # (the fixture org here: the earliest-created org the user owns).
+      assert gateway.organization_id == org.id
+
+      # Resume opens the same way for a paid, funded wallet.
+      stub(Tailscale, :scale_gateway, fn _gateway, _replicas -> :ok end)
+      {:ok, suspended} = AccessGateway.suspend(gateway, authorize?: false)
+
+      assert {:ok, resumed} = AccessGateway.resume(suspended, actor: owner)
+      assert resumed.state == :provisioning
+    end
+
+    test "paid but empty — the funded check still bites the resume", %{org: org, owner: owner} do
+      BillingFixtures.mark_paid!(org)
+      suspended = AccessFixtures.gateway!(org, state: :suspended)
+      BillingFixtures.drain_wallet!(org)
+
+      assert {:error, %Ash.Error.Forbidden{}} = AccessGateway.resume(suspended, actor: owner)
+    end
+  end
+
   describe "update_credential/2" do
     test "re-paste writes the Secret and lands :provisioning", %{org: org} do
       gateway = AccessFixtures.gateway!(org, state: :needs_attention)
