@@ -12,6 +12,8 @@ defmodule FluxVale.Billing.WalletTest do
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
 
+  require Ash.Query
+
   test "an org has exactly one wallet (unique_org)" do
     {org, wallet} = BillingFixtures.funded_wallet!()
 
@@ -73,6 +75,92 @@ defmodule FluxVale.Billing.WalletTest do
     {_org, wallet} = BillingFixtures.funded_wallet!(balance_cents: 700)
 
     assert {:ok, 700} = Billing.balance(wallet, actor: admin())
+  end
+
+  # The waiver flip (paywall waiver): the one actor-facing update, the
+  # /admin edit form's checkbox (`admin do update_actions([:set_waiver])`).
+  # The waiver is NOT money — the ledger-inertness pin lives here, the
+  # gate-OR pins live in ActorOrgHasPaidTest and the gateway suite.
+  describe "set_waiver (the /admin flip)" do
+    test "a platform admin flips the waiver on and off" do
+      {_org, wallet} = BillingFixtures.funded_wallet!()
+
+      assert {:ok, waived} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin())
+      assert waived.paywall_waived == true
+
+      assert {:ok, unwaived} = Wallet.set_waiver(waived, %{paywall_waived: false}, actor: admin())
+      assert unwaived.paywall_waived == false
+    end
+
+    test "the flip is ledger-inert — balance and entry count unchanged both ways" do
+      {_org, wallet} = BillingFixtures.funded_wallet!(balance_cents: 700)
+      admin = admin()
+
+      {:ok, balance_before} = Billing.balance(wallet, authorize?: false)
+      entries_before = count_entries(wallet)
+
+      # Chained records — the un-flip edits the row as it now is.
+      assert {:ok, waived} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin)
+      assert {:ok, _unwaived} = Wallet.set_waiver(waived, %{paywall_waived: false}, actor: admin)
+
+      assert {:ok, ^balance_before} = Billing.balance(wallet, authorize?: false)
+      assert count_entries(wallet) == entries_before
+    end
+
+    test "the org's owner cannot flip the waiver — non-admins match no policy" do
+      {_org, wallet} = BillingFixtures.funded_wallet!()
+
+      owner =
+        wallet
+        |> Ash.load!([organization: [:members]], authorize?: false)
+        |> Map.get(:organization)
+        |> Map.get(:members)
+        |> List.first()
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: owner)
+    end
+
+    test "a generic update carrying paywall_waived stays forbidden (the old forbid holds)" do
+      {_org, wallet} = BillingFixtures.funded_wallet!()
+
+      member =
+        wallet
+        |> Ash.load!([organization: [:members]], authorize?: false)
+        |> Map.get(:organization)
+        |> Map.get(:members)
+        |> List.first()
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               wallet
+               |> Ash.Changeset.for_update(:set_carryover, %{})
+               |> Ash.Changeset.force_change_attribute(:paywall_waived, true)
+               |> Ash.update(actor: member)
+    end
+
+    test "the system writes stay forbidden — admins included" do
+      {_org, wallet} = BillingFixtures.funded_wallet!()
+      admin = admin()
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               wallet
+               |> Ash.Changeset.for_update(:set_carryover, %{})
+               |> Ash.Changeset.force_change_attribute(:carryover, 1)
+               |> Ash.update(actor: admin)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               wallet
+               |> Ash.Changeset.for_update(:set_ladder_state, %{
+                 negative_since: DateTime.utc_now()
+               })
+               |> Ash.update(actor: admin)
+    end
+
+    defp count_entries(wallet) do
+      FluxVale.Billing.LedgerEntry
+      |> Ash.Query.filter(wallet_id == ^wallet.id)
+      |> Ash.count!(authorize?: false)
+    end
   end
 
   # Bootstrap posture (mirrors the Ops policy tests): the precondition

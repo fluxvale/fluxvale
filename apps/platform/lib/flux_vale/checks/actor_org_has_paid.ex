@@ -1,14 +1,24 @@
 defmodule FluxVale.Checks.ActorOrgHasPaid do
   @moduledoc """
-  Policy check: the org in play has PAID REAL MONEY at least once — one
-  completed $1+ top-up, ever. Private-access enablement is a paid
-  add-on's surface: the $3 welcome credit every org gets at signup must
-  not unlock it (a bot gets welcome credits, never a card). The test is
-  the ledger's shape, not the balance: reason `:purchase` is the
-  payment-webhook's reason (`CreditWallet`), so goodwill/adjustment
-  grants never qualify. Refunds post compensating debits (`ReverseEntry`)
-  that this check ignores — a paid org stays paid. Wired to AccessGateway
+  Policy check: the org in play is past the paid gate — REAL MONEY at
+  least once (one completed $1+ top-up, ever), OR the operator's
+  paywall waiver. Private-access enablement is a paid add-on's surface:
+  the $3 welcome credit every org gets at signup must not unlock it (a
+  bot gets welcome credits, never a card). The test is the ledger's
+  shape, not the balance: reason `:purchase` is the payment-webhook's
+  reason (`CreditWallet`), so goodwill/adjustment grants never
+  qualify. Refunds post compensating debits (`ReverseEntry`) that this
+  check ignores — a paid org stays paid. Wired to AccessGateway
   `create` and `resume` beside the funded check.
+
+  The waiver is the operator's designated-org path (testers, friends,
+  demos): a `paywall_waived` boolean on the wallet, flipped from /admin
+  by a platform admin. It satisfies THIS gate only — the funded
+  (balance > 0) checks read nothing but the ledger, and the waiver
+  never moves money (no rows, no balance, nothing spendable). Has-paid
+  for revenue purposes remains the ledger's `:purchase` rows alone:
+  the waiver is never a purchase row, so conversion queries count only
+  real payers.
 
   The org in play resolves by action shape — create vs update comes from
   the changeset's action type, never from a nil attribute (a forged
@@ -59,13 +69,15 @@ defmodule FluxVale.Checks.ActorOrgHasPaid do
   end
 
   @doc """
-  The predicate: has this org ever posted a qualifying purchase credit?
-  A wallet-less org has never paid (there is no ledger to hold one).
+  The predicate: is this org past the paid gate — a qualifying purchase
+  credit on the ledger, OR the wallet carries the operator's paywall
+  waiver? A wallet-less org has neither (there is no ledger to hold a
+  purchase, no wallet to hold a waiver).
   """
   @spec org_paid?(Ash.UUID.t()) :: boolean()
   def org_paid?(org_id) do
     case Wallet.get_by_organization(org_id, authorize?: false) do
-      {:ok, wallet} -> purchase_credited?(wallet)
+      {:ok, wallet} -> wallet.paywall_waived or purchase_credited?(wallet)
       {:error, _no_wallet} -> false
     end
   end
