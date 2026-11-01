@@ -135,310 +135,344 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
       personal_org_id={@personal_org_id}
       username={@username}
       nav_section={@nav_section}
+      bare
     >
-      <div class="max-w-2xl mx-auto space-y-8">
-        <div>
-          <.button variant="ghost" size="sm" navigate={~p"/apps/#{@app.slug}"} class="-ml-2 mb-4">
-            &larr; {@app.name}
-          </.button>
-          <h1 class="text-2xl font-semibold tracking-tight text-ink">Deploy {@app.name}</h1>
-        </div>
-
-        <.stepper
-          steps={[
-            {"version", "Version"},
-            {"configuration", "Configuration"},
-            {"resources", "Resources"},
-            {"name", "Name"}
-          ]}
-          current={@step - 1}
-        />
-
-        <.card :if={@step == 1} class="space-y-4">
-          <h2 class="text-base font-medium text-ink">Pick a version</h2>
-          <div class="space-y-2">
-            <label
-              :for={version <- @versions}
-              for={"version-#{version.id}"}
-              class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-panel-raised"
-            >
-              <input
-                type="radio"
-                name="version_id"
-                id={"version-#{version.id}"}
-                value={version.id}
-                checked={@version_id == version.id}
-                phx-click="pick-version"
-                phx-value-id={version.id}
-                class="size-4 accent-primary"
-                data-testid="version-option"
-              />
-              <span class="text-sm text-ink">
-                <span class="font-mono">v{version.version}</span>
-                <span :if={version.published_at} class="ml-1 text-xs text-ink-subtle">
-                  published {Calendar.strftime(version.published_at, "%b %d, %Y")}
-                </span>
-                <span
-                  :if={version.recommended_size}
-                  class="ml-1 text-xs text-ink-subtle"
-                  data-testid={"version-price-#{version.version}"}
-                >
-                  {FluxVale.Pricing.format_monthly_rate(version.recommended_size.monthly_cents)}
-                </span>
-              </span>
-            </label>
-          </div>
-          <div class="flex justify-end">
-            <.button
-              size="sm"
-              phx-click="to-env"
-              disabled={is_nil(@version_id)}
-              data-testid="continue-version"
-            >
-              Continue
-            </.button>
-          </div>
-        </.card>
-
-        <.card :if={@step == 2} class="max-w-lg space-y-4">
-          <h2 class="text-base font-medium text-ink">Configuration</h2>
-
-          <ul
-            :if={env_errors(@form) != []}
-            id="env-errors"
-            class="space-y-1 text-sm text-danger"
-          >
-            <li :for={msg <- env_errors(@form)}>{msg}</li>
-          </ul>
-
-          <p :if={@schema == []} class="text-sm text-ink-muted">
-            Nothing to configure for this app — continue.
-          </p>
-
-          <form
-            :if={@schema != []}
-            id="env-form"
-            phx-submit="env-continue"
-            class="space-y-4"
-          >
-            <div :for={{name, spec} <- @schema}>
-              <label class="mb-1.5 block text-sm font-medium text-ink" for={"env-#{name}"}>
-                {spec.label}
-                <span :if={spec.required} class="text-danger">*</span>
-                <span class="ml-1 font-mono text-xs text-ink-subtle">{name}</span>
-              </label>
-              <.env_input
-                name={"env_values[#{name}]"}
-                id={"env-#{name}"}
-                spec={spec}
-                value={Map.get(@env_values, name)}
-              />
-              <p :if={spec.description} class="mt-1.5 text-xs text-ink-subtle">
-                {spec.description}
-              </p>
-            </div>
-            <div class="flex justify-end gap-3 pt-2">
-              <.button variant="ghost" size="sm" type="button" phx-click="back-version">
-                Back
+      <%!-- App-wide grammar page (S8): `bare` main + .appgram — the page
+      owns ALL of main's rhythm. The band carries the wizard's identity;
+      the step cards keep their <.card> surface (the grammar's card
+      already). The RESOURCES step's card — the #221 picker's frame — is
+      byte-identical to origin/main (the PR body's picker byte-guard). --%>
+      <div class="appgram contents">
+        <%!-- 1. The sunken band: back link, mono eyebrow (Deploy), the
+        app's name on the working-page scale, and the stepper in the
+        working register (core_components' stepper — shared with the
+        top-up wizard; token-level restyle there). --%>
+        <section class="band">
+          <div class="wrap pt-8 pb-10">
+            <div class="rise">
+              <.button variant="ghost" size="sm" navigate={~p"/apps/#{@app.slug}"} class="-ml-2">
+                &larr; {@app.name}
               </.button>
-              <.button type="submit" size="sm" data-testid="continue-env">
-                Continue
-              </.button>
-            </div>
-          </form>
 
-          <div :if={@schema == []} class="flex justify-end gap-3">
-            <.button variant="ghost" size="sm" type="button" phx-click="back-version">
-              Back
-            </.button>
-            <.button type="button" size="sm" phx-click="env-continue" data-testid="continue-env">
-              Continue
-            </.button>
-          </div>
-        </.card>
+              <p class="eyebrow mt-4">Deploy</p>
+              <h1 class="page-title mt-1">{@app.name}</h1>
 
-        <.card :if={@step == 3} class="space-y-4">
-          <h2 class="text-base font-medium text-ink">Resources</h2>
-
-          <p class="text-sm text-ink-muted">
-            {@app.name} recommends
-            <span
-              class="font-mono text-ink"
-              data-testid="recommended-allocation"
-            >
-              {@selected.default_cpu_cores} CPU · {@selected.default_memory_mb} MB · {@selected.default_storage_gb} GB
-            </span>
-            for this version — allocate more, or less at your own risk.
-          </p>
-
-          <form
-            id="resources-form"
-            phx-change="resources-change"
-            phx-submit="resources-continue"
-            class="space-y-5"
-          >
-            <div class="space-y-2">
-              <p class="text-sm font-medium text-ink" id="quick-picks-label">Quick picks</p>
-              <div
-                class="grid gap-2 sm:grid-cols-2"
-                role="group"
-                aria-labelledby="quick-picks-label"
-              >
-                <button
-                  :for={preset <- @presets}
-                  type="button"
-                  id={"preset-#{preset.slug}"}
-                  phx-click="pick-size"
-                  phx-value-slug={preset.slug}
-                  aria-pressed={preset.pressed}
-                  data-testid={"preset-#{preset.slug}"}
-                  class={[
-                    "flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition-colors",
-                    "outline-offset-2 outline-focus focus-visible:outline-2",
-                    if(preset.pressed == "true",
-                      do: "border-primary bg-primary-muted",
-                      else: "border-line bg-panel hover:border-line-strong hover:bg-panel-raised"
-                    )
+              <div class="mt-6">
+                <.stepper
+                  steps={[
+                    {"version", "Version"},
+                    {"configuration", "Configuration"},
+                    {"resources", "Resources"},
+                    {"name", "Name"}
                   ]}
-                >
-                  <span class="min-w-0">
-                    <span class="block text-sm font-medium text-ink capitalize">
-                      {preset.slug}
-                      <span
-                        :if={preset.recommended}
-                        class="ml-1 align-middle rounded-full bg-primary-muted px-1.5 py-0.5 text-[0.6875rem] font-normal text-link"
-                      >
-                        recommended
-                      </span>
-                    </span>
-                    <span class="block truncate font-mono text-xs text-ink-muted">
-                      {preset.allocation}
-                    </span>
-                  </span>
-                  <span class="flex-none text-sm font-semibold text-ink">
-                    {preset.price}
-                  </span>
-                </button>
+                  current={@step - 1}
+                />
               </div>
             </div>
-
-            <div class="space-y-4 border-t border-line pt-5">
-              <p class="text-sm font-medium text-ink">Fine-tune</p>
-              <.slider
-                :for={dimension <- resource_dimensions()}
-                id={dimension.id}
-                name={"resources[#{dimension.key}]"}
-                label={dimension.label}
-                value={@resources[dimension.key]}
-                values={dimension.values}
-                unit={dimension.unit}
-                data-testid={dimension.testid}
-              />
-            </div>
-
-            <.callout
-              :if={@below_recommendation?}
-              id="below-recommendation-warning"
-              tone="warning"
-              role="alert"
-              data-testid="below-recommendation-warning"
-            >
-              <p class="font-medium text-ink">
-                This is below what {@app.name} recommends — it may run slowly or fail.
-              </p>
-              <label
-                for="below-recommendation-ack"
-                class="flex cursor-pointer items-center gap-3 pt-2 text-sm text-ink"
-              >
-                <input
-                  type="checkbox"
-                  name="resources[below_ack]"
-                  id="below-recommendation-ack"
-                  checked={@below_ack}
-                  class="size-4 accent-warning"
-                  data-testid="below-recommendation-ack"
-                /> I understand — deploy with less than the recommended resources
-              </label>
-            </.callout>
-
-            <div
-              class="flex flex-wrap items-center justify-between gap-4 rounded-xl bg-panel-raised px-4 py-3 text-sm"
-              data-testid="resources-price"
-            >
-              <span class="text-ink">
-                {@app.name} <span class="font-mono">v{@selected.version}</span>
-                <span :if={@resources} class="text-ink-muted">
-                  · {allocation_text(@resources)}
-                </span>
-              </span>
-              <.price_line selected={@selected} resources={@resources} />
-            </div>
-
-            <div class="flex justify-end gap-3 pt-2">
-              <.button variant="ghost" size="sm" type="button" phx-click="back-env">
-                Back
-              </.button>
-              <.button
-                type="submit"
-                size="sm"
-                disabled={@below_recommendation? and not @below_ack}
-                data-testid="continue-resources"
-              >
-                Continue
-              </.button>
-            </div>
-          </form>
-        </.card>
-
-        <.card :if={@step == 4} class="space-y-4">
-          <h2 class="text-base font-medium text-ink">Name your instance</h2>
-          <div
-            :if={@selected}
-            class="flex flex-wrap items-center justify-between gap-4 rounded-xl bg-panel-raised px-4 py-3 text-sm"
-            data-testid="price-summary"
-          >
-            <span class="text-ink">
-              {@app.name} <span class="font-mono">v{@selected.version}</span>
-              <span :if={@resources} class="text-ink-muted">
-                · {allocation_text(@resources)}
-              </span>
-            </span>
-            <.price_line selected={@selected} resources={@resources} />
           </div>
-          <ul
-            :if={step_invisible_errors(@form) != []}
-            id="deploy-errors"
-            class="space-y-1 text-sm text-danger"
-          >
-            <li :for={msg <- step_invisible_errors(@form)}>{msg}</li>
-          </ul>
-          <.form for={@form} id="deploy-form" phx-submit="save" class="space-y-4">
-            <.input
-              field={@form[:name]}
-              type="text"
-              label="Instance name"
-              placeholder={"My #{@app.name}"}
-              required
-              autofocus
-              data-testid="instance-name"
-            />
-            <p class="text-xs text-ink-subtle">
-              We'll generate the subdomain — the name is yours to change later, nothing else.
-            </p>
-            <div class="flex justify-end gap-3 pt-2">
-              <.button variant="ghost" size="sm" type="button" phx-click="back-resources">
-                Back
-              </.button>
-              <.button
-                type="submit"
-                phx-disable-with="Deploying…"
-                data-testid="deploy-submit"
+        </section>
+
+        <%!-- 2. The steps: one card at a time, swapped by LiveView
+        patches. The section wrapper's rise is container-level and
+        persistent — the wrapper node survives every patch, so the
+        animation never replays (a rise on a step card itself would;
+        measured in the PR). --%>
+        <section class="wrap pt-10 pb-16">
+          <div class="rise mx-auto max-w-2xl space-y-8">
+            <.card :if={@step == 1} class="space-y-4">
+              <h2 class="text-base font-medium text-ink">Pick a version</h2>
+              <div class="space-y-2">
+                <%!-- No transition utility on the label row: a <label> is
+                neither a nor button, so the grammar's reduced-motion
+                kill can't reach it — the hover state stays, the motion
+                goes (S8's 60ms-sample lesson, same as S7's). --%>
+                <label
+                  :for={version <- @versions}
+                  for={"version-#{version.id}"}
+                  class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-panel-raised"
+                >
+                  <input
+                    type="radio"
+                    name="version_id"
+                    id={"version-#{version.id}"}
+                    value={version.id}
+                    checked={@version_id == version.id}
+                    phx-click="pick-version"
+                    phx-value-id={version.id}
+                    class="size-4 accent-primary"
+                    data-testid="version-option"
+                  />
+                  <span class="text-sm text-ink">
+                    <span class="font-mono">v{version.version}</span>
+                    <span :if={version.published_at} class="ml-1 text-xs text-ink-subtle">
+                      published {Calendar.strftime(version.published_at, "%b %d, %Y")}
+                    </span>
+                    <span
+                      :if={version.recommended_size}
+                      class="ml-1 text-xs text-ink-subtle"
+                      data-testid={"version-price-#{version.version}"}
+                    >
+                      {FluxVale.Pricing.format_monthly_rate(version.recommended_size.monthly_cents)}
+                    </span>
+                  </span>
+                </label>
+              </div>
+              <div class="flex justify-end">
+                <.button
+                  size="sm"
+                  phx-click="to-env"
+                  disabled={is_nil(@version_id)}
+                  data-testid="continue-version"
+                >
+                  Continue
+                </.button>
+              </div>
+            </.card>
+
+            <.card :if={@step == 2} class="max-w-lg space-y-4">
+              <h2 class="text-base font-medium text-ink">Configuration</h2>
+
+              <ul
+                :if={env_errors(@form) != []}
+                id="env-errors"
+                class="space-y-1 text-sm text-danger"
               >
-                Deploy {@app.name}
-              </.button>
-            </div>
-          </.form>
-        </.card>
+                <li :for={msg <- env_errors(@form)}>{msg}</li>
+              </ul>
+
+              <p :if={@schema == []} class="text-sm text-ink-muted">
+                Nothing to configure for this app — continue.
+              </p>
+
+              <form
+                :if={@schema != []}
+                id="env-form"
+                phx-submit="env-continue"
+                class="space-y-4"
+              >
+                <div :for={{name, spec} <- @schema}>
+                  <label class="mb-1.5 block text-sm font-medium text-ink" for={"env-#{name}"}>
+                    {spec.label}
+                    <span :if={spec.required} class="text-danger">*</span>
+                    <span class="ml-1 font-mono text-xs text-ink-subtle">{name}</span>
+                  </label>
+                  <.env_input
+                    name={"env_values[#{name}]"}
+                    id={"env-#{name}"}
+                    spec={spec}
+                    value={Map.get(@env_values, name)}
+                  />
+                  <p :if={spec.description} class="mt-1.5 text-xs text-ink-subtle">
+                    {spec.description}
+                  </p>
+                </div>
+                <div class="flex justify-end gap-3 pt-2">
+                  <.button variant="ghost" size="sm" type="button" phx-click="back-version">
+                    Back
+                  </.button>
+                  <.button type="submit" size="sm" data-testid="continue-env">
+                    Continue
+                  </.button>
+                </div>
+              </form>
+
+              <div :if={@schema == []} class="flex justify-end gap-3">
+                <.button variant="ghost" size="sm" type="button" phx-click="back-version">
+                  Back
+                </.button>
+                <.button type="button" size="sm" phx-click="env-continue" data-testid="continue-env">
+                  Continue
+                </.button>
+              </div>
+            </.card>
+
+            <.card :if={@step == 3} class="space-y-4">
+              <h2 class="text-base font-medium text-ink">Resources</h2>
+
+              <p class="text-sm text-ink-muted">
+                {@app.name} recommends
+                <span
+                  class="font-mono text-ink"
+                  data-testid="recommended-allocation"
+                >
+                  {@selected.default_cpu_cores} CPU · {@selected.default_memory_mb} MB · {@selected.default_storage_gb} GB
+                </span>
+                for this version — allocate more, or less at your own risk.
+              </p>
+
+              <form
+                id="resources-form"
+                phx-change="resources-change"
+                phx-submit="resources-continue"
+                class="space-y-5"
+              >
+                <div class="space-y-2">
+                  <p class="text-sm font-medium text-ink" id="quick-picks-label">Quick picks</p>
+                  <div
+                    class="grid gap-2 sm:grid-cols-2"
+                    role="group"
+                    aria-labelledby="quick-picks-label"
+                  >
+                    <button
+                      :for={preset <- @presets}
+                      type="button"
+                      id={"preset-#{preset.slug}"}
+                      phx-click="pick-size"
+                      phx-value-slug={preset.slug}
+                      aria-pressed={preset.pressed}
+                      data-testid={"preset-#{preset.slug}"}
+                      class={[
+                        "flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition-colors",
+                        "outline-offset-2 outline-focus focus-visible:outline-2",
+                        if(preset.pressed == "true",
+                          do: "border-primary bg-primary-muted",
+                          else: "border-line bg-panel hover:border-line-strong hover:bg-panel-raised"
+                        )
+                      ]}
+                    >
+                      <span class="min-w-0">
+                        <span class="block text-sm font-medium text-ink capitalize">
+                          {preset.slug}
+                          <span
+                            :if={preset.recommended}
+                            class="ml-1 align-middle rounded-full bg-primary-muted px-1.5 py-0.5 text-[0.6875rem] font-normal text-link"
+                          >
+                            recommended
+                          </span>
+                        </span>
+                        <span class="block truncate font-mono text-xs text-ink-muted">
+                          {preset.allocation}
+                        </span>
+                      </span>
+                      <span class="flex-none text-sm font-semibold text-ink">
+                        {preset.price}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="space-y-4 border-t border-line pt-5">
+                  <p class="text-sm font-medium text-ink">Fine-tune</p>
+                  <.slider
+                    :for={dimension <- resource_dimensions()}
+                    id={dimension.id}
+                    name={"resources[#{dimension.key}]"}
+                    label={dimension.label}
+                    value={@resources[dimension.key]}
+                    values={dimension.values}
+                    unit={dimension.unit}
+                    data-testid={dimension.testid}
+                  />
+                </div>
+
+                <.callout
+                  :if={@below_recommendation?}
+                  id="below-recommendation-warning"
+                  tone="warning"
+                  role="alert"
+                  data-testid="below-recommendation-warning"
+                >
+                  <p class="font-medium text-ink">
+                    This is below what {@app.name} recommends — it may run slowly or fail.
+                  </p>
+                  <label
+                    for="below-recommendation-ack"
+                    class="flex cursor-pointer items-center gap-3 pt-2 text-sm text-ink"
+                  >
+                    <input
+                      type="checkbox"
+                      name="resources[below_ack]"
+                      id="below-recommendation-ack"
+                      checked={@below_ack}
+                      class="size-4 accent-warning"
+                      data-testid="below-recommendation-ack"
+                    /> I understand — deploy with less than the recommended resources
+                  </label>
+                </.callout>
+
+                <div
+                  class="flex flex-wrap items-center justify-between gap-4 rounded-xl bg-panel-raised px-4 py-3 text-sm"
+                  data-testid="resources-price"
+                >
+                  <span class="text-ink">
+                    {@app.name} <span class="font-mono">v{@selected.version}</span>
+                    <span :if={@resources} class="text-ink-muted">
+                      · {allocation_text(@resources)}
+                    </span>
+                  </span>
+                  <.price_line selected={@selected} resources={@resources} />
+                </div>
+
+                <div class="flex justify-end gap-3 pt-2">
+                  <.button variant="ghost" size="sm" type="button" phx-click="back-env">
+                    Back
+                  </.button>
+                  <.button
+                    type="submit"
+                    size="sm"
+                    disabled={@below_recommendation? and not @below_ack}
+                    data-testid="continue-resources"
+                  >
+                    Continue
+                  </.button>
+                </div>
+              </form>
+            </.card>
+
+            <.card :if={@step == 4} class="space-y-4">
+              <h2 class="text-base font-medium text-ink">Name your instance</h2>
+              <div
+                :if={@selected}
+                class="flex flex-wrap items-center justify-between gap-4 rounded-xl bg-panel-raised px-4 py-3 text-sm"
+                data-testid="price-summary"
+              >
+                <%!-- The confirm step's figures ride the mono register (the
+                wizard's one technical readout outside the resources
+                step). --%>
+                <span class="text-ink">
+                  {@app.name} <span class="font-mono">v{@selected.version}</span>
+                  <span :if={@resources} class="font-mono text-ink-muted">
+                    · {allocation_text(@resources)}
+                  </span>
+                </span>
+                <.price_line selected={@selected} resources={@resources} />
+              </div>
+              <ul
+                :if={step_invisible_errors(@form) != []}
+                id="deploy-errors"
+                class="space-y-1 text-sm text-danger"
+              >
+                <li :for={msg <- step_invisible_errors(@form)}>{msg}</li>
+              </ul>
+              <.form for={@form} id="deploy-form" phx-submit="save" class="space-y-4">
+                <.input
+                  field={@form[:name]}
+                  type="text"
+                  label="Instance name"
+                  placeholder={"My #{@app.name}"}
+                  required
+                  autofocus
+                  data-testid="instance-name"
+                />
+                <p class="text-xs text-ink-subtle">
+                  We'll generate the subdomain — the name is yours to change later, nothing else.
+                </p>
+                <div class="flex justify-end gap-3 pt-2">
+                  <.button variant="ghost" size="sm" type="button" phx-click="back-resources">
+                    Back
+                  </.button>
+                  <.button
+                    type="submit"
+                    phx-disable-with="Deploying…"
+                    data-testid="deploy-submit"
+                  >
+                    Deploy {@app.name}
+                  </.button>
+                </div>
+              </.form>
+            </.card>
+          </div>
+        </section>
       </div>
     </Layouts.app>
     """

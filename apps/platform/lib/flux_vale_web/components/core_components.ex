@@ -882,8 +882,10 @@ defmodule FluxValeWeb.CoreComponents do
 
   @doc """
   Renders a wizard progress stepper (deploy wizard, top-up wizard,
-  #178 wave 2). Numbered chips: done states in success, the current
-  step in primary, upcoming muted.
+  #178 wave 2). Numbered chips on a hairline rail, in the working
+  register: mono uppercase step labels, the amber `--focus` accent on
+  the current step and the traveled rail (the app-wide grammar, S8),
+  done states in success, upcoming muted.
 
   ## Examples
 
@@ -908,7 +910,7 @@ defmodule FluxValeWeb.CoreComponents do
   def stepper(assigns) do
     ~H"""
     <ol
-      class="flex flex-wrap items-center gap-2 text-sm"
+      class="flex flex-wrap items-center gap-2 font-mono text-xs uppercase tracking-[0.14em]"
       data-testid={@testid_prefix && "#{@testid_prefix}-stepper"}
     >
       <li
@@ -924,13 +926,17 @@ defmodule FluxValeWeb.CoreComponents do
         <span class={[
           "flex size-6 items-center justify-center rounded-full border text-xs font-medium",
           index < @current && "border-line-success bg-success-muted text-success",
-          index == @current && "border-primary bg-primary-muted text-link",
+          index == @current && "border-focus bg-focus/10 text-link",
           index > @current && "border-line bg-panel text-ink-subtle"
         ]}>
           {index + 1}
         </span>
         {elem(step, 1)}
-        <span :if={index < length(@steps) - 1} class="h-px w-4 bg-line" aria-hidden="true" />
+        <span
+          :if={index < length(@steps) - 1}
+          class={["h-px w-6", index < @current && "bg-focus/40", index >= @current && "bg-line"]}
+          aria-hidden="true"
+        />
       </li>
     </ol>
     """

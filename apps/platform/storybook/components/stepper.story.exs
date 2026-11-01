@@ -1,6 +1,8 @@
 defmodule FluxValeWeb.Storybook.Components.Stepper do
   @moduledoc """
-  Stepper stories — wizard progress (#178 wave 2).
+  Stepper stories — wizard progress (#178 wave 2). The working-register
+  treatment (mono uppercase labels, amber `--focus` current chip and
+  traveled rail, hairline rail) is the component's own since S8.
   """
 
   use PhoenixStorybook.Story, :component
