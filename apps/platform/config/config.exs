@@ -301,16 +301,6 @@ config :flux_vale, :test_inbox,
 # where it runs). Dev overrides to on.
 config :flux_vale, :storybook_enabled, false
 
-# The AshAdmin mount gate (#288, ADR-0027 §2 Am. 1): /admin compiles
-# into every release and answers a bare 404 while this is unset —
-# default-denied, the TestInbox gate shape above. runtime.exs flips it
-# from ADMIN_MOUNT_KEY (staging sets it via BWS; prod leaves it unset).
-# The value is a deliberate SECRET, not a boolean: enabling requires a
-# vault write, and it is never presented per-request — the credential
-# is the platform-admin session behind the gate plug. Fail-closed on
-# blank/off-intent values (see AdminEnabled.enabled?/0).
-config :flux_vale, :admin_mount_key, nil
-
 # AshOban: open-source Oban, not Pro (v1's stance, kept)
 config :ash_oban, :pro?, false
 
