@@ -276,8 +276,38 @@ defmodule FluxValeWeb.BillingLive.Topup do
         personal_org_id={@personal_org_id}
         username={@username}
         nav_section={@nav_section}
+        bare
       >
-        <.confirmation topup={@topup} state={@confirmation_state} />
+        <%!-- The gateway return wears the same band frame as the wizard
+        (S9): identity + the stepper at the confirmation rung — the
+        return is a wizard state, not a different page. --%>
+        <div class="appgram contents">
+          <section class="band">
+            <div class="wrap pt-8 pb-10">
+              <div class="rise">
+                <.button variant="ghost" size="sm" navigate={~p"/billing"} class="-ml-2">
+                  &larr; Billing
+                </.button>
+
+                <p class="eyebrow mt-4">Billing</p>
+                <h1 class="page-title mt-1">Add credits</h1>
+                <p class="mt-2 text-base text-ink-muted">
+                  Prepaid balance for your instances.
+                </p>
+
+                <div class="mt-6">
+                  <.stepper steps={topup_steps()} current={step_index(@step)} testid_prefix="topup" />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="wrap pt-10 pb-16">
+            <div class="rise mx-auto max-w-2xl">
+              <.confirmation topup={@topup} state={@confirmation_state} />
+            </div>
+          </section>
+        </div>
       </Layouts.app>
       """
     else
@@ -289,34 +319,63 @@ defmodule FluxValeWeb.BillingLive.Topup do
         personal_org_id={@personal_org_id}
         username={@username}
         nav_section={@nav_section}
+        bare
       >
-        <div class="space-y-6">
-          <.header>
-            Add credits
-            <:subtitle>Prepaid balance for your instances.</:subtitle>
-          </.header>
+        <%!-- App-wide grammar page (S9): `bare` main + .appgram — the
+        band carries the wizard's identity (S8's deploy shape: back
+        link, eyebrow, page-title h1, the shared stepper in-band), and
+        the steps section holds the step cards on the card language.
+        The section wrapper's rise is container-level and persistent —
+        the wrapper node survives every step patch, so the animation
+        never replays (S8's measured pattern; a rise on a step card
+        itself would). --%>
+        <div class="appgram contents">
+          <%!-- 1. The wizard band. --%>
+          <section class="band">
+            <div class="wrap pt-8 pb-10">
+              <div class="rise">
+                <.button variant="ghost" size="sm" navigate={~p"/billing"} class="-ml-2">
+                  &larr; Billing
+                </.button>
 
-          <.stepper steps={topup_steps()} current={step_index(@step)} testid_prefix="topup" />
+                <p class="eyebrow mt-4">Billing</p>
+                <h1 class="page-title mt-1">Add credits</h1>
+                <p class="mt-2 text-base text-ink-muted">
+                  Prepaid balance for your instances.
+                </p>
 
-          <%= cond do %>
-            <% @step == :details -> %>
-              <.details_form details={@details} />
-            <% @step == :amount -> %>
-              <.amount_step
-                amount_dollars={@amount_dollars}
-                balance={@balance}
-                tax_rate_bp={@tax_rate_bp}
-                reverse_charge?={@reverse_charge?}
-              />
-            <% @step == :payment -> %>
-              <.payment_step
-                details={@details}
-                amount_dollars={@amount_dollars}
-                balance={@balance}
-                tax_rate_bp={@tax_rate_bp}
-                reverse_charge?={@reverse_charge?}
-              />
-          <% end %>
+                <div class="mt-6">
+                  <.stepper steps={topup_steps()} current={step_index(@step)} testid_prefix="topup" />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <%!-- 2. The steps: one card at a time, swapped by LiveView
+          patches. No rise on the step cards themselves (patch safety). --%>
+          <section class="wrap pt-10 pb-16">
+            <div class="rise mx-auto max-w-2xl space-y-8">
+              <%= cond do %>
+                <% @step == :details -> %>
+                  <.details_form details={@details} />
+                <% @step == :amount -> %>
+                  <.amount_step
+                    amount_dollars={@amount_dollars}
+                    balance={@balance}
+                    tax_rate_bp={@tax_rate_bp}
+                    reverse_charge?={@reverse_charge?}
+                  />
+                <% @step == :payment -> %>
+                  <.payment_step
+                    details={@details}
+                    amount_dollars={@amount_dollars}
+                    balance={@balance}
+                    tax_rate_bp={@tax_rate_bp}
+                    reverse_charge?={@reverse_charge?}
+                  />
+              <% end %>
+            </div>
+          </section>
         </div>
       </Layouts.app>
       """
@@ -484,7 +543,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
             data-testid="topup-new-balance"
           >
             <span>New balance after top-up</span>
-            <span class="font-mono">{Pricing.format_usd(@balance + @totals.subtotal)}</span>
+            <span class="font-mono">{signed_usd(@balance + @totals.subtotal)}</span>
           </p>
         </div>
       <% end %>
@@ -542,7 +601,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
           data-testid="topup-new-balance"
         >
           <span>New balance after top-up</span>
-          <span class="font-mono">{Pricing.format_usd(@balance + @totals.subtotal)}</span>
+          <span class="font-mono">{signed_usd(@balance + @totals.subtotal)}</span>
         </p>
         <%!-- billed_to is buyer-typed and can run long and unbroken
             (name · email · VAT) — the guards let it wrap inside its
@@ -589,6 +648,14 @@ defmodule FluxValeWeb.BillingLive.Topup do
 
   # Net credit, VAT, and the gross the gateway will charge — one math
   # source for the Amount and Payment steps.
+  # The new-balance line adds the top-up to the RAW ledger sum, which
+  # is negative for an overdrawn wallet — the band's celebrated
+  # Depleted state is exactly who the "Add credits" CTA invites here.
+  # The shared formatter is non-negative by constraint; the sign is
+  # this surface's business, like every other billing display seam.
+  defp signed_usd(cents) when cents < 0, do: "-" <> Pricing.format_usd(-cents)
+  defp signed_usd(cents), do: Pricing.format_usd(cents)
+
   defp totals(%{amount_dollars: dollars, tax_rate_bp: rate_bp})
        when is_integer(dollars) and dollars >= 1 do
     subtotal = dollars * @unit_cents
@@ -619,9 +686,6 @@ defmodule FluxValeWeb.BillingLive.Topup do
   defp confirmation(%{topup: nil} = assigns) do
     ~H"""
     <div class="space-y-6" data-testid="topup-confirmation">
-      <.header>
-        Add credits
-      </.header>
       <.card class="space-y-4">
         <h2 class="text-base font-medium text-ink">We couldn't find that top-up</h2>
         <p class="text-sm text-ink-muted">
@@ -640,9 +704,6 @@ defmodule FluxValeWeb.BillingLive.Topup do
   defp confirmation(assigns) do
     ~H"""
     <div class="space-y-6" data-testid="topup-confirmation">
-      <.header>
-        Add credits
-      </.header>
       <.card class="space-y-4">
         <%= if @state == :completed do %>
           <h2
@@ -652,7 +713,8 @@ defmodule FluxValeWeb.BillingLive.Topup do
             <.icon name="hero-check-circle" class="size-5" /> Payment received
           </h2>
           <p class="text-sm text-ink-muted">
-            {Pricing.format_usd(@topup.amount_cents)} of credit was added to your balance.
+            <span class="font-mono">{Pricing.format_usd(@topup.amount_cents)}</span> of credit
+            was added to your balance.
           </p>
         <% end %>
 

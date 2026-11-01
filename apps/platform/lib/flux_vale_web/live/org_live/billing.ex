@@ -51,11 +51,11 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
   end
 
   defp mount_org_billing(socket, org, user) do
-    # ensure_wallet is the system seam (idempotent); every read
-    # below runs against the actor through the wallet policies —
-    # the personal page's posture, the org resolved from the URL.
+    # ensure_wallet is the system seam (idempotent); the facts ride the
+    # runway projection (balance included — the dashboard's source, the
+    # personal page's posture), the org resolved from the URL.
     {:ok, wallet} = Billing.ensure_wallet(org)
-    {:ok, balance} = Billing.balance(wallet, actor: user)
+    {:ok, runway} = Billing.compute_runway(wallet)
 
     page = ledger_page(wallet.id, user)
 
@@ -65,7 +65,7 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
       |> assign(
         org: org,
         wallet: wallet,
-        balance: balance,
+        runway: runway,
         page: page,
         history_empty?: page.results == []
       )
@@ -111,37 +111,67 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
       username={@username}
       nav_section={@nav_section}
       current_org={@org}
+      bare
     >
-      <div class="space-y-6">
-        <.header>
-          Billing
-          <:subtitle>Prepaid credits fund {@org.name}'s instances.</:subtitle>
-        </.header>
+      <%!-- App-wide grammar page (S9): `bare` main + .appgram — the page
+      owns ALL of main's rhythm. The band is the org's wallet: the org's
+      name rides the band's eyebrow (the S6 identity posture, no second
+      mark block), the h1 stays "Billing" — the heading outline never
+      collides with the org home's (the S8 muted-prefix lesson, avoided
+      outright). No straddle. --%>
+      <div class="appgram contents">
+        <%!-- 1. The org wallet band. --%>
+        <section class="band">
+          <div class="wrap pt-8 pb-10">
+            <div class="rise">
+              <div class="min-w-0">
+                <p class="eyebrow">{@org.name}</p>
+                <h1 class="page-title mt-1.5">Billing</h1>
+                <p class="mt-2 text-base text-ink-muted">
+                  Prepaid credits fund {@org.name}'s instances.
+                </p>
+              </div>
 
-        <.card class="space-y-4">
-          <BillingComponents.balance_header balance={@balance} />
-          <p class="text-xs text-ink-subtle">
-            <%!-- No "Add credits" here: the top-up wizard resolves the
-                actor's personal org in its mount, so a wizard CTA on an
-                org page would top up the wrong wallet the moment this
-                route serves a non-personal org. Org-context top-up is a
-                future lane; until it lands, top-ups start from the
-                personal billing page. --%>
-            Top up from <.link
-              navigate={~p"/billing"}
-              data-testid="topup-link"
-              class="underline underline-offset-2 hover:text-ink"
-            >
-              Billing
-            </.link>.
-          </p>
-        </.card>
+              <div class="mt-9">
+                <BillingComponents.wallet_facts facts={@runway} />
+              </div>
 
-        <BillingComponents.ledger_history
-          entries={@streams.entries}
-          page={@page}
-          history_empty?={@history_empty?}
-        />
+              <p class="mt-6 text-xs text-ink-subtle">
+                <%!-- No "Add credits" here: the top-up wizard resolves the
+                    actor's personal org in its mount, so a wizard CTA on an
+                    org page would top up the wrong wallet the moment this
+                    route serves a non-personal org. Org-context top-up is a
+                    future lane; until it lands, top-ups start from the
+                    personal billing page. --%>
+                Top up from <.link
+                  navigate={~p"/billing"}
+                  data-testid="topup-link"
+                  class="underline underline-offset-2 hover:text-ink"
+                >
+                  Billing
+                </.link>.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <%!-- 2. The ledger — the S4/S6 section shape (the personal
+        page's posture): heading outside the card, container-level rise
+        (stream patches rewrite rows in place; node identity is what
+        the rise rides). --%>
+        <section aria-labelledby="org-billing-history-title" class="wrap pt-10 pb-16">
+          <div class="rise space-y-4 [animation-delay:170ms]">
+            <h2 id="org-billing-history-title" class="text-lg font-semibold tracking-tight text-ink">
+              History
+            </h2>
+
+            <BillingComponents.ledger_history
+              entries={@streams.entries}
+              page={@page}
+              history_empty?={@history_empty?}
+            />
+          </div>
+        </section>
       </div>
     </Layouts.app>
     """

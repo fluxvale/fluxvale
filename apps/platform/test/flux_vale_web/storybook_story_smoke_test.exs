@@ -19,7 +19,7 @@ defmodule FluxValeWeb.Storybook.StorySmokeTest do
     {"readonly_field", "Readonly Field"},
     {"org_switcher", "Org Switcher"},
     {"user_menu", "User Menu"},
-    {"balance_header", "Balance Header"},
+    {"wallet_facts", "Wallet Facts"},
     {"ledger_history", "Ledger History"}
   ]
 
