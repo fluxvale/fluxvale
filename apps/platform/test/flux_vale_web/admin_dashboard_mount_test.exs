@@ -91,10 +91,10 @@ defmodule FluxValeWeb.AdminDashboardMountTest do
     test "a platform-admin session renders the LiveDashboard", %{conn: conn, admin: admin} do
       conn = admin_session_conn(conn, admin)
 
-      {:ok, _view, html} = live(conn, "/admin/dashboard")
+      # The index live-redirects to its Home page; mount a real page
+      # directly (the metrics page — the surface this mount exists for).
+      {:ok, _view, html} = live(conn, "/admin/dashboard/metrics")
 
-      # The dashboard's own page nav is the render proof; the metrics
-      # mount rides the same Telemetry module the route names.
       assert html =~ "Metrics"
     end
 
