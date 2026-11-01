@@ -25,8 +25,20 @@ if (!token) {
 }
 
 const settle = (page) =>
+  // Finite animations only: a pending receipt's spinner is infinite and
+  // its `finished` promise never resolves — waiting on it hung the
+  // receipt capture (CodeRabbit #351).
   page.evaluate(() =>
-    Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {}))),
+    Promise.all(
+      document
+        .getAnimations()
+        .filter(
+          (a) =>
+            !a.effect ||
+            Number.isFinite(a.effect.getComputedTiming().duration ?? 0),
+        )
+        .map((a) => a.finished.catch(() => {})),
+    ),
   );
 
 const browser = await chromium.launch();
@@ -44,22 +56,28 @@ if (!session.ok()) throw new Error(`session POST failed: ${session.status()}`);
 await page.goto(`${BASE}/billing`, { waitUntil: "networkidle" });
 if (page.url().includes("/sign-in")) throw new Error("session did not take — check FV_TOKEN");
 
-// Drive the wizard: 1 = details, 2 = amount (receipt panel visible —
-// the typed amount prices it live), 3 = payment. Each advance waits
-// for the patch.
+// Drive the wizard: 1 = details, 2 = amount with the live-priced
+// receipt panel visible (the capture's subject), 3 = payment. Each
+// advance waits for the DESTINATION's element, not a fixed delay — a
+// slow submission used to leave the previous step under the next
+// step's filename (CodeRabbit #351).
 const gotoStep = async (n) => {
   if (n > 1) {
     await page.locator("#topup-details-form input[name='details[name]']").fill("Jane Doe");
     await page.locator("#topup-details-form input[name='details[country]']").fill("DE");
-    await page.waitForTimeout(300);
     await page.locator("#topup-details-next").click();
+    await page.locator("#topup-amount-form").waitFor();
+  }
+  if (n >= 2) {
+    // A typed amount is what prices the panel; an empty field captures
+    // the form without it.
+    await page.locator("#topup-amount-form input[name='amount[dollars]']").fill("25");
+    await page.locator("[data-testid='topup-summary']").waitFor();
   }
   if (n > 2) {
-    await page.locator("#topup-amount-form input[name='amount[dollars]']").fill("25");
-    await page.waitForTimeout(400);
     await page.locator("#topup-amount-next").click();
+    await page.locator("#topup-pay").waitFor();
   }
-  await page.waitForTimeout(400);
   await settle(page);
 };
 

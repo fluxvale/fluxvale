@@ -26,30 +26,53 @@ const ctx = await browser.newContext({
   viewport: { width: 1440, height: 900 },
   recordVideo: { dir: outdir, size: { width: 1440, height: 900 } },
 });
-const page = await ctx.newPage();
-await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
-const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
-const session = await page.request.post(`${BASE}/auth/session`, {
-  form: { token },
-  headers: { "x-csrf-token": csrf },
-});
-if (!session.ok()) throw new Error(`session POST failed: ${session.status()}`);
+
+// Playwright records per PAGE, and a page's video finalizes on close —
+// so each clip gets its own page (and its own file, renamed on close);
+// one shared page used to record sign-in + both clips into a single
+// WebM (CodeRabbit #351).
+const signIn = async (page) => {
+  await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
+  const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
+  const session = await page.request.post(`${BASE}/auth/session`, {
+    form: { token },
+    headers: { "x-csrf-token": csrf },
+  });
+  if (!session.ok()) throw new Error(`session POST failed: ${session.status()}`);
+};
+
+const saveClip = async (page, name) => {
+  const video = page.video();
+  await page.close();
+  const recorded = await video.path();
+  const target = `${outdir}/${name}.webm`;
+  const { renameSync } = await import("node:fs");
+  renameSync(recorded, target);
+  console.log(`clip written: ${target}`);
+};
 
 // Clip 1: the billing page load reveal.
-await page.goto(`${BASE}/billing`, { waitUntil: "networkidle" });
-await page.waitForTimeout(2500);
+const billing = await ctx.newPage();
+await signIn(billing);
+await billing.goto(`${BASE}/billing`, { waitUntil: "networkidle" });
+await billing.waitForTimeout(2500);
+await saveClip(billing, "s9-band-rise");
 
 // Clip 2: the wizard step transition — load at details, advance to
 // amount, hold. The band must not replay its rise on the patch.
-await page.goto(`${BASE}/billing/topup`, { waitUntil: "networkidle" });
-await page.waitForTimeout(2000);
-await page.locator("#topup-details-form input[name='details[name]']").fill("Jane Doe");
-await page.locator("#topup-details-form input[name='details[country]']").fill("DE");
-await page.waitForTimeout(300);
-await page.locator("#topup-details-next").click();
-await page.waitForTimeout(2500);
+const wizard = await ctx.newPage();
+await signIn(wizard);
+await wizard.goto(`${BASE}/billing/topup`, { waitUntil: "networkidle" });
+await wizard.waitForTimeout(2000);
+await wizard.locator("#topup-details-form input[name='details[name]']").fill("Jane Doe");
+await wizard.locator("#topup-details-form input[name='details[country]']").fill("DE");
+await wizard.waitForTimeout(300);
+await wizard.locator("#topup-details-next").click();
+await wizard.waitForTimeout(2500);
+await saveClip(wizard, "s9-step-transition");
 
 await ctx.close();
 await browser.close();
-console.log(`webm clips written to ${outdir} — trim with:
-  ffmpeg -i in.webm -vf "fps=12,scale=720:-1:flags=lanczos" out.gif`);
+console.log(`trimmed with:
+  ffmpeg -i s9-band-rise.webm -vf "fps=12,scale=720:-1:flags=lanczos" s9-band-rise.gif
+  ffmpeg -i s9-step-transition.webm -vf "fps=12,scale=720:-1:flags=lanczos" s9-step-transition.gif`);

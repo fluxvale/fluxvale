@@ -110,6 +110,12 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
              "[data-testid='wallet-runway']",
              ~r/at \$[\d.]+\/mo current burn/
            )
+
+    # Exact cents: the hint must ROUND the reconstructed rate, not
+    # truncate it again — ComputeRunway's µ¢/h conversion already
+    # floors, and a second floor displayed $1.00/mo as "$0.99/mo"
+    # (CodeRabbit #351).
+    assert has_element?(view, "[data-testid='wallet-runway']", "at $1.00/mo current burn")
   end
 
   # The wallet crossed zero: no "under an hour" sugar on a spent

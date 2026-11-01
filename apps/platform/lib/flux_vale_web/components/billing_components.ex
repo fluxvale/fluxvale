@@ -152,7 +152,16 @@ defmodule FluxValeWeb.BillingComponents do
   defp burn_hint(%{burn_micro_cents_per_hour: 0}), do: "Nothing burning right now."
 
   defp burn_hint(%{burn_micro_cents_per_hour: burn_micro}) do
-    monthly_cents = div(burn_micro * Month.seconds(), @micro_per_cent * 3600)
+    # ComputeRunway truncates the rate into µ¢/h (hourly_micro's div);
+    # reconstructing with div would truncate again — every rate then
+    # displays a cent low ($1.00/mo read "$0.99/mo", $10.00/mo
+    # "$9.99/mo"). Half-up rounding recovers the nearest cent of the
+    # already-truncated rate (CodeRabbit #351).
+    half_divisor = div(@micro_per_cent * 3600, 2)
+
+    monthly_cents =
+      div(burn_micro * Month.seconds() + half_divisor, @micro_per_cent * 3600)
+
     "at #{Pricing.format_usd(monthly_cents)}/mo current burn"
   end
 

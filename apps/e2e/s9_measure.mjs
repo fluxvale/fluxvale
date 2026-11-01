@@ -332,8 +332,15 @@ const contrastProbe = (pg) =>
         "[data-testid='ledger-row'] span.font-mono.text-ink-muted",
         "ledger timestamp (mono)",
       ),
-      pick("[data-testid='topup-total'] span.font-mono", "receipt total (mono)"),
-      pick("[data-testid='topup-new-balance'] span.font-mono", "receipt new balance (mono)"),
+      pick("[data-testid='topup-total'] span.font-mono", "wizard total (mono)"),
+      pick(
+        "[data-testid='topup-new-balance'] span.font-mono",
+        "wizard new balance (mono)",
+      ),
+      pick(
+        "[data-testid='topup-confirmation-completed'] + p span.font-mono",
+        "receipt credit (mono)",
+      ),
     ].filter(Boolean);
   });
 
@@ -370,7 +377,7 @@ for (const mode of ["light", "dark"]) {
     probe: "money-contrast",
     theme: mode,
     surface: "receipt",
-    items: (await contrastProbe(page)).filter((i) => i.name.includes("receipt")),
+    items: (await contrastProbe(page)).filter((i) => i.name.includes("receipt credit")),
   });
 }
 
