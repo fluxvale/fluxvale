@@ -37,102 +37,146 @@ defmodule FluxValeWeb.CatalogLive.Show do
       personal_org_id={@personal_org_id}
       username={@username}
       nav_section={@nav_section}
+      bare
     >
-      <div class="space-y-8">
-        <div>
-          <.button variant="ghost" size="sm" navigate={~p"/apps"} class="-ml-2 mb-4">
-            &larr; Catalog
-          </.button>
+      <div class="appgram contents">
+        <%!-- 1. The sunken band carries the app's identity: mono category
+        eyebrow, name on the working-page scale, tagline + description.
+        The Deploy CTA rides the band header's posture (dashboard /
+        instances index) and lands on the same stepper entry the version
+        cards' buttons use. No straddle — list/detail pages stay calm. --%>
+        <section class="band">
+          <div class="wrap pt-8 pb-10">
+            <div class="rise">
+              <.button variant="ghost" size="sm" navigate={~p"/apps"} class="-ml-2">
+                &larr; Catalog
+              </.button>
 
-          <%!-- App poster (#277 T4): identity + description in one card —
-          the page's panel band; versions stay cards on canvas below. --%>
-          <.card class="space-y-4">
-            <div class="flex items-start gap-4">
-              <div class="grid size-14 shrink-0 place-items-center rounded-control bg-primary-muted text-xl font-semibold text-link">
-                <img
-                  :if={@app.icon_url}
-                  src={@app.icon_url}
-                  alt={@app.name}
-                  class="size-9 rounded-control"
-                />
-                <span :if={is_nil(@app.icon_url)}>{String.first(@app.name)}</span>
-              </div>
-              <div class="space-y-1.5">
-                <h1 class="text-2xl font-semibold tracking-tight text-ink">{@app.name}</h1>
-                <p :if={@app.tagline} class="text-ink-muted">{@app.tagline}</p>
-                <div class="flex flex-wrap items-center gap-3 pt-1 text-sm">
-                  <.badge>{@app.category.name}</.badge>
-                  <.badge :if={@app.file_access} data-testid="file-access-badge">
-                    File access
-                  </.badge>
-                  <a
-                    :if={@app.source_url}
-                    href={@app.source_url}
-                    class="font-medium text-link hover:underline"
-                    target="_blank"
-                    rel="noopener"
-                  >
-                    Source
-                  </a>
-                  <a
-                    :if={@app.docs_url}
-                    href={@app.docs_url}
-                    class="font-medium text-link hover:underline"
-                    target="_blank"
-                    rel="noopener"
-                  >
-                    Docs
-                  </a>
+              <p class="eyebrow mt-4">{@app.category.name}</p>
+              <%!-- The category's own line — the field the browse retired
+                (hostile-341 F4): editable catalog data no authed surface
+                read. It lands here, in situ under the eyebrow. --%>
+              <p
+                :if={@app.category.description}
+                class="mt-1 max-w-prose text-sm text-ink-muted"
+              >
+                {@app.category.description}
+              </p>
+
+              <div class="mt-1.5 flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
+                <div class="flex min-w-0 items-center gap-4">
+                  <div class="grid size-12 shrink-0 place-items-center rounded-control bg-primary-muted text-lg font-semibold text-link sm:size-14 sm:text-xl">
+                    <img
+                      :if={@app.icon_url}
+                      src={@app.icon_url}
+                      alt={@app.name}
+                      class="size-8 rounded-control sm:size-9"
+                    />
+                    <span :if={is_nil(@app.icon_url)}>{String.first(@app.name)}</span>
+                  </div>
+                  <div class="min-w-0">
+                    <h1 class="page-title">{@app.name}</h1>
+                    <p :if={@app.tagline} class="mt-1 text-base text-ink-muted">{@app.tagline}</p>
+                  </div>
                 </div>
+
+                <div class="flex shrink-0 gap-2">
+                  <%!-- No versions, no stepper: the wizard's step 1 would
+                    list nothing (an app can exist before its first
+                    version; #341 review). Distinguishable from the
+                    version buttons for readers and tests (hostile-341
+                    F6); the duplication itself is a known decision. --%>
+                  <.button
+                    :if={@versions != []}
+                    id="deploy-app"
+                    data-testid="deploy-band"
+                    aria-label={"Deploy #{@app.name}"}
+                    navigate={~p"/apps/#{@app.slug}/deploy"}
+                  >
+                    Deploy
+                  </.button>
+                </div>
+              </div>
+
+              <p
+                :if={is_binary(@app.description) and String.trim(@app.description) != ""}
+                class="mt-4 max-w-prose leading-relaxed text-ink-muted"
+              >
+                <%!-- pre-line rides the span: the p's own whitespace is
+                normal, so the template's indentation newlines collapse
+                instead of laying out a phantom blank line (T4 review). --%>
+                <span class="whitespace-pre-line">{String.trim(@app.description)}</span>
+              </p>
+
+              <div class="mt-4 flex flex-wrap items-center gap-3 text-sm">
+                <.badge :if={@app.file_access} data-testid="file-access-badge">
+                  File access
+                </.badge>
+                <a
+                  :if={@app.source_url}
+                  href={@app.source_url}
+                  class="font-medium text-link hover:underline"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  Source
+                </a>
+                <a
+                  :if={@app.docs_url}
+                  href={@app.docs_url}
+                  class="font-medium text-link hover:underline"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  Docs
+                </a>
               </div>
             </div>
-            <p
-              :if={is_binary(@app.description) and String.trim(@app.description) != ""}
-              class="border-t border-line pt-4 leading-relaxed text-ink-muted"
-            >
-              <%!-- pre-line rides the span: the p's own whitespace is normal,
-              so the template's indentation newlines collapse instead of
-              laying out a phantom blank line (T4 review). --%>
-              <span class="whitespace-pre-line">{String.trim(@app.description)}</span>
-            </p>
-          </.card>
-        </div>
-
-        <div class="space-y-4">
-          <h2 class="text-lg font-semibold tracking-tight text-ink">Versions</h2>
-
-          <div class="space-y-4">
-            <.card :for={version <- @versions} id={"version-#{version.id}"} class="space-y-4">
-              <div class="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h3 class="font-mono font-semibold text-ink">v{version.version}</h3>
-                  <p :if={version.published_at} class="mt-0.5 text-xs text-ink-subtle">
-                    Published {Calendar.strftime(version.published_at, "%b %d, %Y")}
-                  </p>
-                </div>
-                <.button
-                  navigate={~p"/apps/#{@app.slug}/deploy"}
-                  size="sm"
-                  id={"deploy-#{version.id}"}
-                  data-testid={"deploy-#{version.version}"}
-                >
-                  Deploy
-                </.button>
-              </div>
-              <p :if={version.release_notes} class="text-sm text-ink-muted">
-                <%!-- pre-line rides the span — same phantom-line fix as the
-                poster description above (T4 review). --%>
-                <span class="whitespace-pre-line">{version.release_notes}</span>
-              </p>
-              <div class="flex flex-wrap gap-2">
-                <.badge>{version.default_cpu_cores} CPU</.badge>
-                <.badge>{version.default_memory_mb} MB RAM</.badge>
-                <.badge>{version.default_storage_gb} GB storage</.badge>
-                <.price_badge version={version} />
-              </div>
-            </.card>
           </div>
-        </div>
+        </section>
+
+        <%!-- 2. Versions — the page's existing content in grammar cards
+        (the <.card> rest step IS the grammar's card: raised, line-strong,
+        shadow-sm). They host buttons, so no hover lift. --%>
+        <section class="wrap pt-14 pb-16">
+          <div class="rise space-y-4 [animation-delay:170ms]">
+            <h2 class="text-lg font-semibold tracking-tight text-ink">Versions</h2>
+
+            <.empty_state :if={@versions == []} title="No versions published yet." />
+
+            <div class="space-y-4">
+              <.card :for={version <- @versions} id={"version-#{version.id}"} class="space-y-4">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 class="font-mono font-semibold text-ink">v{version.version}</h3>
+                    <p :if={version.published_at} class="mt-0.5 text-xs text-ink-subtle">
+                      Published {Calendar.strftime(version.published_at, "%b %d, %Y")}
+                    </p>
+                  </div>
+                  <.button
+                    navigate={~p"/apps/#{@app.slug}/deploy"}
+                    size="sm"
+                    id={"deploy-#{version.id}"}
+                    data-testid={"deploy-#{version.version}"}
+                  >
+                    Deploy
+                  </.button>
+                </div>
+                <p :if={version.release_notes} class="text-sm text-ink-muted">
+                  <%!-- pre-line rides the span — same phantom-line fix as
+                  the band description above (T4 review). --%>
+                  <span class="whitespace-pre-line">{version.release_notes}</span>
+                </p>
+                <div class="flex flex-wrap gap-2">
+                  <.badge>{version.default_cpu_cores} CPU</.badge>
+                  <.badge>{version.default_memory_mb} MB RAM</.badge>
+                  <.badge>{version.default_storage_gb} GB storage</.badge>
+                  <.price_badge version={version} />
+                </div>
+              </.card>
+            </div>
+          </div>
+        </section>
       </div>
     </Layouts.app>
     """
