@@ -38,6 +38,19 @@ defmodule FluxVale.Observability do
   end
 
   @doc """
+  The business-counter zero-seed child — same gate as
+  prom_ex_child/0 (pointless without the tree) and a sibling
+  ordered right after it: children start sequentially, so the seed
+  runs once per boot with the PromEx handlers attached.
+  """
+  @spec seed_business_counters_child() :: [module()]
+  def seed_business_counters_child do
+    if Application.get_env(:flux_vale, :prom_ex_enabled, false),
+      do: [FluxVale.PromEx.SeedBusinessCounters],
+      else: []
+  end
+
+  @doc """
   Attaches the request/query tracing handlers (called once at boot).
   """
   @spec setup_instrumentation() :: :ok

@@ -2,7 +2,8 @@ defmodule FluxVale.PromEx.Plugins.BusinessTest do
   @moduledoc """
   The fleet counter contract: three counters, the NARROWER fleet label
   sets (no app, no reason — the LiveDashboard tags deliberately
-  dropped), and an end-to-end scrape proving the events land as
+  dropped), the closed-enum derivations behind the 68-series ceiling,
+  and an end-to-end scrape proving the events land as
   `flux_vale_*_total` series (the names the fleet allowlist and the
   alert rules query; nothing may rename them silently).
   """
@@ -11,6 +12,7 @@ defmodule FluxVale.PromEx.Plugins.BusinessTest do
   # which is VM-global (one instance of the named processes).
   use FluxVale.DataCase, async: false
 
+  alias FluxVale.Infrastructure.Instance.StatusTransition
   alias FluxVale.PromEx.Plugins.Business
 
   @series ~r/^flux_vale_(instance_status_transition|gateway_state_change|backup_run)_total\{/
@@ -40,6 +42,85 @@ defmodule FluxVale.PromEx.Plugins.BusinessTest do
     Enum.each([instance, gateway, backup], fn counter ->
       assert counter.measurement == :count
     end)
+
+    # Sum metrics, not counters — the zero-seed contract: a
+    # Telemetry.Metrics counter counts events (+1 per emission, the
+    # measurement ignored), which would inflate every series per
+    # boot; sum accumulates the measurement, so count-1 events
+    # accumulate identically and count-0 seeds materialize at 0.
+    # The exporter still renders TYPE counter (sum's default).
+    assert Enum.all?(counters, &match?(%Telemetry.Metrics.Sum{}, &1))
+  end
+
+  describe "the closed-enum derivations — the 68-series ceiling" do
+    test "instance: the 42 legal pairs (validator table + catch-alls, from ≠ to)" do
+      pairs = Business.instance_transition_pairs()
+
+      assert length(pairs) == 42
+
+      # Table edges (spot): the deploy funnel, the wake lane, the
+      # re-deploy exit, error recovery.
+      assert {:pending, :deploying} in pairs
+      assert {:starting, :running} in pairs
+      assert {:running, :sleeping} in pairs
+      assert {:sleeping, :starting} in pairs
+      assert {:error, :deploying} in pairs
+      assert {:lost, :deploying} in pairs
+
+      # Catch-all arms: any → error / any → deleting, including
+      # edges the table itself never lists.
+      assert {:lost, :error} in pairs
+      assert {:pending, :deleting} in pairs
+      assert {:running, :deleting} in pairs
+
+      # No self-edges (a no-op write emits nothing).
+      refute {:error, :error} in pairs
+      refute {:running, :running} in pairs
+
+      # And every pair is legal per the validator itself.
+      transitions = StatusTransition.valid_transitions()
+
+      Enum.each(pairs, fn {from, to} ->
+        legal = to in [:error, :deleting] or to in Map.fetch!(transitions, from)
+        assert legal, "#{from} -> #{to} is not a validator-legal edge"
+      end)
+    end
+
+    test "gateway: all 20 ordered from≠to pairs of the five-state enum" do
+      assert Business.gateway_state_pairs() == [
+               {:provisioning, :active},
+               {:provisioning, :needs_attention},
+               {:provisioning, :suspended},
+               {:provisioning, :destroying},
+               {:active, :provisioning},
+               {:active, :needs_attention},
+               {:active, :suspended},
+               {:active, :destroying},
+               {:needs_attention, :provisioning},
+               {:needs_attention, :active},
+               {:needs_attention, :suspended},
+               {:needs_attention, :destroying},
+               {:suspended, :provisioning},
+               {:suspended, :active},
+               {:suspended, :needs_attention},
+               {:suspended, :destroying},
+               {:destroying, :provisioning},
+               {:destroying, :active},
+               {:destroying, :needs_attention},
+               {:destroying, :suspended}
+             ]
+    end
+
+    test "backup: 3 kinds × 2 terminal statuses" do
+      assert Business.backup_outcome_pairs() == [
+               {:scheduled, :succeeded},
+               {:scheduled, :failed},
+               {:manual, :succeeded},
+               {:manual, :failed},
+               {:restore, :succeeded},
+               {:restore, :failed}
+             ]
+    end
   end
 
   test "the business events land in the scrape as flux_vale_*_total series" do

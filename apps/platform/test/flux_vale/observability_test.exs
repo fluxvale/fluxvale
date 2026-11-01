@@ -74,6 +74,35 @@ defmodule FluxVale.ObservabilityTest do
     end
   end
 
+  describe "seed_business_counters_child/0" do
+    setup do
+      original = Application.get_env(:flux_vale, :prom_ex_enabled)
+
+      on_exit(fn ->
+        case original do
+          nil -> Application.delete_env(:flux_vale, :prom_ex_enabled)
+          value -> Application.put_env(:flux_vale, :prom_ex_enabled, value)
+        end
+      end)
+
+      :ok
+    end
+
+    test "no child when PromEx is disabled (the seeder is pointless without the tree)" do
+      Application.put_env(:flux_vale, :prom_ex_enabled, false)
+
+      assert Observability.seed_business_counters_child() == []
+    end
+
+    test "the zero-seed Task when PromEx is enabled" do
+      Application.put_env(:flux_vale, :prom_ex_enabled, true)
+
+      assert Observability.seed_business_counters_child() == [
+               FluxVale.PromEx.SeedBusinessCounters
+             ]
+    end
+  end
+
   describe "setup_instrumentation/0" do
     test "the request and query tracing handlers are attached at boot" do
       handlers = :telemetry.list_handlers([])
