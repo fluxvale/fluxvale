@@ -174,15 +174,16 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
       {:ok, run} ->
         {:ok, {:started, run.id}}
 
-      # The one benign skip worth naming: due?/2 already said the window
-      # opened, so this fires at most once per daily window per instance
-      # (never every 5-minute pass) — the owner's wallet is why nothing
-      # ran. :run_in_flight stays silent (someone else owns the slot).
+      # The wallet refusal fires EVERY pass for a wallet-blocked
+      # configured instance — a refused run writes no row, so nothing
+      # ever marks the window served. Debug-only operator detail (the
+      # owner-visible surface is the panel's callout); :run_in_flight
+      # stays silent (someone else owns the slot).
       {:error, :wallet_unfunded} ->
         skip =
           "Backup skipped for #{instance.id}: the org's wallet cannot run (not paid or empty)"
 
-        Logger.info(skip)
+        Logger.debug(skip)
 
         {:ok, nil}
 

@@ -449,7 +449,12 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
     assigns =
       assign(assigns,
         backup_blocked?: blocked_backup?(assigns),
-        restore_blocked?: blocked_restore?(assigns)
+        restore_blocked?: blocked_restore?(assigns),
+        # The cadence line reads the same gate the callouts name: a row
+        # whose wallet cannot run is BLOCKED, not "backing up daily" —
+        # and the Pause switch stays (the row is enabled; pausing is
+        # still the owner's off-verb).
+        wallet_runnable?: assigns.org_paid? and assigns.org_funded?
       )
 
     ~H"""
@@ -458,7 +463,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
     silently skipped — the same shapes the due pass skips benignly. --%>
     <.callout :if={!@org_paid?} tone="warning" data-testid="backups-config-unpaid">
       <p class="text-sm text-ink-muted">
-        Backups are paused — top up once (at least $1) to use them. Add funds
+        Backups are blocked — top up once (at least $1) to use them. Add funds
         in <.link
           navigate={@billing_path}
           class="underline underline-offset-2 hover:text-ink"
@@ -475,7 +480,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
       data-testid="backups-config-prefund"
     >
       <p class="text-sm text-ink-muted">
-        Backups are paused — the balance ran out. Top up to use them again —
+        Backups are blocked — the balance ran out. Top up to use them again —
         add funds in <.link
           navigate={@billing_path}
           class="underline underline-offset-2 hover:text-ink"
@@ -544,8 +549,8 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
 
     <div class="flex flex-wrap items-center justify-between gap-3 rounded-control border border-line-strong bg-panel-raised px-3 py-2">
       <div>
-        <p class="text-sm text-ink">
-          {if(@setting.enabled, do: "Backing up daily", else: "Backups paused")}
+        <p class="text-sm text-ink" data-testid="backup-cadence">
+          {cadence_label(@setting.enabled, @wallet_runnable?)}
         </p>
         <%!-- The success it reports is named as one: the last attempt may
         have failed, and this line must never read as that attempt. --%>
@@ -1057,6 +1062,10 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   end
 
   defp mask_secret(_value), do: "••••"
+
+  defp cadence_label(_enabled, false), do: "Backups are blocked — the wallet cannot run them"
+  defp cadence_label(true, true), do: "Backing up daily"
+  defp cadence_label(false, true), do: "Backups paused"
 
   defp toggle_notice(true), do: "Backups resumed."
   defp toggle_notice(false), do: "Backups paused — nothing is uploaded until you resume."

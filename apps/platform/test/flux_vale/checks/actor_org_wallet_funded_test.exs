@@ -266,6 +266,99 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
       assert {:error, %Ash.Error.Forbidden{}} = Instance.start(forged, actor: owner)
     end
 
+    test "a create naming its instance answers the INSTANCE org, not the actor's — both directions",
+         %{version: version} do
+      # The team-org hazard, funded edition: the row's org is the
+      # INSTANCE's org. A funded member of a drained org's instance is
+      # refused, a drained member of a funded org's instance passes —
+      # the row org answers, whichever way the wallets point.
+      funded_member =
+        User.create!("create-wallet-funded-#{System.unique_integer()}@fluxvale.test", %{},
+          authorize?: false
+        )
+
+      drained_member =
+        User.create!("create-wallet-drained-#{System.unique_integer()}@fluxvale.test", %{},
+          authorize?: false
+        )
+
+      funded_org = AccountsFixtures.personal_org!(funded_member)
+      drained_org = AccountsFixtures.personal_org!(drained_member)
+
+      # Welcome-funded at create; drained after (exact ledger shapes).
+      theirs =
+        Instance.create!(
+          %{name: "Drained Org's", app_version_id: version.id, env_vars: %{}},
+          actor: drained_member
+        )
+
+      ours =
+        Instance.create!(
+          %{name: "Funded Org's", app_version_id: version.id, env_vars: %{}},
+          actor: funded_member
+        )
+
+      BillingFixtures.drain_wallet!(drained_org)
+
+      unpaid_orgs_instance =
+        Ash.Changeset.for_create(
+          BackupSetting,
+          :create,
+          %{
+            instance_id: theirs.id,
+            endpoint: "https://s3.example.com",
+            bucket: "some-bucket",
+            access_key_id: "KEY"
+          },
+          authorize?: false
+        )
+
+      funded_orgs_instance =
+        Ash.Changeset.for_create(
+          BackupSetting,
+          :create,
+          %{
+            instance_id: ours.id,
+            endpoint: "https://s3.example.com",
+            bucket: "some-bucket",
+            access_key_id: "KEY"
+          },
+          authorize?: false
+        )
+
+      refute ActorOrgWalletFunded.org_funded?(drained_org.id)
+      assert ActorOrgWalletFunded.org_funded?(funded_org.id)
+
+      # The FUNDED member against the drained org's instance: refused.
+      refute ActorOrgWalletFunded.match?(funded_member, %{subject: unpaid_orgs_instance}, [])
+
+      # The DRAINED member against the funded org's instance: passes.
+      assert ActorOrgWalletFunded.match?(drained_member, %{subject: funded_orgs_instance}, [])
+    end
+
+    test "a create naming an instance that cannot resolve fails closed" do
+      # The create arm's discipline: the instance org answers, and an
+      # instance that cannot resolve (a phantom id) is :error — never
+      # the actor path, even for a funded actor.
+      funded_actor = AccountsFixtures.user!()
+      AccountsFixtures.personal_org!(funded_actor)
+
+      changeset =
+        Ash.Changeset.for_create(
+          BackupSetting,
+          :create,
+          %{
+            instance_id: Ecto.UUID.generate(),
+            endpoint: "https://s3.example.com",
+            bucket: "some-bucket",
+            access_key_id: "KEY"
+          },
+          authorize?: false
+        )
+
+      refute ActorOrgWalletFunded.match?(funded_actor, %{subject: changeset}, [])
+    end
+
     test "a forged nil organization_id on an update is refused — the row's org answers", %{
       version: version
     } do

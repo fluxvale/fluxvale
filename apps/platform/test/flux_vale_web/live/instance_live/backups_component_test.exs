@@ -383,7 +383,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(
                view,
                "[data-testid=backups-config-unpaid]",
-               "Backups are paused — top up once (at least $1) to use them"
+               "Backups are blocked — top up once (at least $1) to use them"
              )
 
       assert has_element?(
@@ -392,6 +392,16 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
              )
 
       refute has_element?(view, "[data-testid=backups-config-prefund]")
+
+      # The cadence line reads the same gate: blocked, not "Backing up
+      # daily" — and the Pause switch stays (the row is enabled).
+      assert has_element?(
+               view,
+               "[data-testid=backup-cadence]",
+               "Backups are blocked — the wallet cannot run them"
+             )
+
+      assert has_element?(view, "[data-testid=backups-enabled-toggle]", "Pause backups")
     end
 
     test "a configured card names a paid org at zero balance", %{
@@ -409,10 +419,16 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(
                view,
                "[data-testid=backups-config-prefund]",
-               "Backups are paused — the balance ran out"
+               "Backups are blocked — the balance ran out"
              )
 
       refute has_element?(view, "[data-testid=backups-config-unpaid]")
+
+      assert has_element?(
+               view,
+               "[data-testid=backup-cadence]",
+               "Backups are blocked — the wallet cannot run them"
+             )
     end
 
     test "a configured card for a paid, funded org carries no wallet callout", %{
@@ -428,6 +444,8 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
 
       refute has_element?(view, "[data-testid=backups-config-unpaid]")
       refute has_element?(view, "[data-testid=backups-config-prefund]")
+
+      assert has_element?(view, "[data-testid=backup-cadence]", "Backing up daily")
     end
   end
 

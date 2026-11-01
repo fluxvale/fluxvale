@@ -13,17 +13,19 @@ defmodule FluxVale.Checks.ActorOrgHasPaid do
   The org in play resolves by action shape — create vs update comes from
   the changeset's action type, never from a nil attribute (a forged
   `organization_id: nil` on an update must not reroute the gate to the
-  caller's own wallet). Creates resolve the actor's personal org — the
-  same lookup `SetOrganizationFromActor` pins the row with moments
-  later. Updates re-read the ROW from the database: an in-process
-  caller controls the changeset's in-memory struct, and the gate must
-  not be caller-controlled. The row's org rides `organization_id`
-  directly, or THROUGH the row's instance (a `BackupSetting` belongs to
-  its instance, not the organization); a row whose org cannot be
-  resolved fails closed. Any non-changeset subject fails closed too.
-  An actor with no org passes the check so the create's own
-  `organization_id is required` validation answers instead of a bare
-  Forbidden (the ActorOrgWalletFunded stance).
+  caller's own wallet). Creates that NAME their instance
+  (`BackupSetting`) resolve the org from THAT instance — the row's org
+  — freshly read and fail-closed; creates without one (the gateway —
+  `SetOrganizationFromActor` pins the actor's org moments later)
+  resolve the actor's personal org. Updates re-read the ROW from the
+  database: an in-process caller controls the changeset's in-memory
+  struct, and the gate must not be caller-controlled. The row's org
+  rides `organization_id` directly, or THROUGH the row's instance (a
+  `BackupSetting` belongs to its instance, not the organization); a row
+  whose org cannot be resolved fails closed. Any non-changeset subject
+  fails closed too. An actor with no org passes the check so the
+  create's own `organization_id is required` validation answers instead
+  of a bare Forbidden (the ActorOrgWalletFunded stance).
   """
 
   use Ash.Policy.SimpleCheck
@@ -44,9 +46,12 @@ defmodule FluxVale.Checks.ActorOrgHasPaid do
 
   @impl Ash.Policy.SimpleCheck
   def match?(actor, context, _opts) do
-    case row_org_id(context.subject) do
-      :create -> paid_via_actor?(actor)
+    case org_in_play(context.subject) do
       {:ok, org_id} -> org_paid?(org_id)
+      # Creates that name no instance (the gateway —
+      # SetOrganizationFromActor pins the actor's org moments later)
+      # resolve the actor's personal org.
+      :actor -> paid_via_actor?(actor)
       # Non-changeset subject, reload or org-resolution failure (row
       # gone, no resolvable org, DB down): fail closed.
       :error -> false
@@ -85,21 +90,48 @@ defmodule FluxVale.Checks.ActorOrgHasPaid do
   # row, never the in-memory attribute. Creates carry no row yet → the
   # actor path. Any non-changeset subject (a query, an action input)
   # fails closed.
-  defp row_org_id(%Ash.Changeset{action_type: :create}), do: :create
+  defp org_in_play(%Ash.Changeset{action_type: :create} = changeset),
+    do: create_org_id(changeset)
 
   # Atomic changesets carry this placeholder — Ash.reload would raise
   # on it — and no org resolves from it: fail closed.
-  defp row_org_id(%Ash.Changeset{data: %Ash.Changeset.OriginalDataNotAvailable{}}),
+  defp org_in_play(%Ash.Changeset{data: %Ash.Changeset.OriginalDataNotAvailable{}}),
     do: :error
 
-  defp row_org_id(%Ash.Changeset{data: data}) do
+  defp org_in_play(%Ash.Changeset{data: data}) do
     case Ash.reload(data, authorize?: false) do
       {:ok, fresh_row} -> row_org(fresh_row)
       {:error, _reload_failure} -> :error
     end
   end
 
-  defp row_org_id(_subject), do: :error
+  defp org_in_play(_subject), do: :error
+
+  # A create that NAMES its instance (BackupSetting) resolves the org
+  # from THAT instance — the row's org — never the actor's personal
+  # one (a team-org instance must not answer on the member's wallet,
+  # either direction). Attribute first, then argument, covering both
+  # intake shapes.
+  defp create_org_id(%Ash.Changeset{} = changeset) do
+    instance_id =
+      Ash.Changeset.get_attribute(changeset, :instance_id) ||
+        Map.get(changeset.arguments, :instance_id)
+
+    case instance_id do
+      nil -> :actor
+      instance_id -> instance_org_id(instance_id)
+    end
+  end
+
+  # Fresh authorize-free read, the same fail-closed discipline as
+  # updates: an instance that cannot resolve (deleted under the
+  # changeset, a DB outage) answers :error, never the actor path.
+  defp instance_org_id(instance_id) do
+    case Ash.get(FluxVale.Infrastructure.Instance, instance_id, authorize?: false) do
+      {:ok, %{organization_id: org_id}} when not is_nil(org_id) -> {:ok, org_id}
+      _unresolved -> :error
+    end
+  end
 
   # The org rides the row directly (organization_id) or THROUGH the
   # row's instance (BackupSetting belongs to :instance, not the

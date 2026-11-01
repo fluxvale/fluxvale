@@ -271,12 +271,17 @@ shape):
   zero-balance rule (`:wallet_unfunded`, one code path for both
   kinds).
 - The due pass skips an org whose wallet cannot run **benignly** — the
-  pass stays `{:ok, _}` for Oban, and the skip is logged (instance id
-  + reason) at most once per daily window per instance, since `due?/2`
-  gates when the refusal can fire; configured rows get their wallet
-  re-checked per window, which is bounded by the same schedule. The
-  panel names the same states (never-paid and paid-but-empty callouts
-  on the configured card, the top-up callout on the setup card).
-- **Disabling, editing coordinates, and removing the settings are
-  never gated.** Restores stay ungated by deliberate omission — the
-  recovery path must not depend on the wallet (flag if that's wrong).
+  pass stays `{:ok, _}` for Oban. The skip logs at DEBUG level (it
+  fires every pass for a wallet-blocked instance — a refused run
+  writes no row, so nothing marks the window served), and the panel's
+  callout is the owner-visible surface: the configured card names the
+  never-paid and paid-but-empty states, the setup card names the
+  never-paid one.
+- **Pausing, disabling, and removing the settings are never gated** —
+  a re-save landing `enabled: false` over an existing row passes the
+  pre-flight ungated, and so does the row delete. An edit that lands
+  enabled is a save like any other: it needs the same eligibility
+  (configure-time was gated, and paid never lapses — only legacy or
+  hand-made rows can hit the refusal). **Restores stay ungated by
+  deliberate omission** — the recovery path must not depend on the
+  wallet (flag if that's wrong).

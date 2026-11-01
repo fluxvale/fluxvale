@@ -859,6 +859,51 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackupsTest do
       refute paused.enabled
     end
 
+    test "a never-paid first save landing DISABLED is Forbidden too — zero cluster calls" do
+      # The row write is pre-flighted through the resource policies
+      # before any cluster touch, and :create is gated outright: a
+      # never-paid org cannot mint a row landing disabled any more than
+      # one landing enabled (the old enabled-only gate let the Secret
+      # and the quota write before the row was refused).
+      version = base!()
+
+      owner =
+        User.create!("never-paid-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      instance = instance!(version, owner)
+
+      reject(K8s, :kubeconfig, 1)
+      reject(Secret, :get_data, 3)
+      reject(Secret, :create, 4)
+      reject(ResourceQuota, :create, 4)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Infrastructure.configure_backups(instance, params(%{enabled: false}), actor: owner)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               BackupSetting.get_by_instance(instance.id, authorize?: false)
+    end
+
+    test "a caller with no actor keeps the internal bypass — no pre-flight" do
+      # The bootstrap shape: no actor, no gate — the internal bypass
+      # saves land through the same cluster steps (the row write runs
+      # authorize?: false; the resource policies are not consulted).
+      version = base!()
+
+      owner =
+        User.create!("bypass-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      instance = instance!(version, owner)
+
+      stub_cluster()
+
+      # The bypass shape: no actor AND the caller's own authorize?:
+      # false — the ownership read, the merge, and the row write all
+      # run system-side, and the pre-flight does not gate them.
+      assert {:ok, _setting} =
+               Infrastructure.configure_backups(instance, params(), authorize?: false)
+    end
+
     test "a paid member's first save proceeds to the cluster" do
       version = base!()
       owner = user()

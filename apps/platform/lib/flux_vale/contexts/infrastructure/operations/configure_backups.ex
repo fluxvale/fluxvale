@@ -26,14 +26,13 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
   `Forbidden` before any cluster write and a hoisted instance struct
   buys nothing.
 
-  A save that lands **enabled** is additionally pay-gated: the org must
-  have PAID REAL MONEY once — one completed $1+ top-up, ever; the $3
-  welcome credit is not a card (`ActorOrgHasPaid`). The gate sits after
-  the changeset validates and before the first cluster touch, so a
-  never-paid org's refusal leaves the Secret, the quota, and the row
-  untouched. A save that lands `enabled: false` — a pause — passes
-  through ungated, and disabling or removing the settings entirely is
-  never gated at all.
+  A save is pay-gated through the RESOURCE's own policies, pre-flighted
+  before the first cluster touch: a never-paid org's save — ANY save,
+  a first save landing enabled or disabled, an edit of a configured
+  row — refuses with a plain-words Forbidden and leaves the Secret, the
+  quota, and the row untouched. Only re-saves landing `enabled: false`
+  (a pause over an existing row) pass the pre-flight ungated, and
+  disabling or removing the settings entirely is never gated at all.
 
   **Disabling is a plain `BackupSetting.update` (`enabled: false`), not
   an operation of its own** — it changes one attribute and no cluster
@@ -56,7 +55,6 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
   alias Ash.Error.Forbidden.Policy
   alias Ash.Error.Invalid
   alias Ash.Error.Query.NotFound
-  alias FluxVale.Checks.ActorOrgHasPaid
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.ResourceQuota
   alias FluxVale.Clients.K8s.Resources.Secret
@@ -114,7 +112,7 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
     with {:ok, authorized} <- authorize_instance(instance, opts),
          {:ok, stored} <- stored_setting(authorized, opts),
          {:ok, changeset} <- settings_changeset(authorized, stored, params, opts),
-         :ok <- paid_gate(authorized, changeset),
+         :ok <- row_write_gate(authorized, changeset, opts),
          {:ok, kubeconfig} <- kubeconfig(authorized),
          {:ok, data} <- secret_data(kubeconfig, authorized, changeset, params),
          :ok <- apply_secret(kubeconfig, authorized, data),
@@ -182,24 +180,27 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
     Policy.exception(custom_message: @paid_message)
   end
 
-  # S3 backups are a paid feature: an enabled save (a first save
-  # defaults enabled true; a re-enable rides a full save) needs one
-  # real $1+ payment, ever — the welcome credit is not a card. The
-  # predicate is authorize-free (the check IS the authorization, the
-  # access panel's posture). A save that lands disabled passes through:
-  # pausing is never gated. The gate runs before the first cluster
-  # touch, so a refusal writes nothing anywhere.
-  defp paid_gate(instance, changeset) do
-    if Ash.Changeset.get_attribute(changeset, :enabled) do
-      org_id = instance.organization_id
-
-      if ActorOrgHasPaid.org_paid?(org_id) do
+  # The row write is pre-flighted through the RESOURCE's policies
+  # (member + paid-once, create and the update's enable flip) BEFORE any
+  # cluster touch: the policies are the one authority, and a refusal —
+  # a never-paid org's save, ANY save — must not write the Secret or
+  # the quota first. `Ash.can?/3` is policy evaluation only: no hooks,
+  # no writes, and the real write below re-evaluates the same policies.
+  # With no actor the caller keeps the internal bypass (bootstrap paths
+  # only).
+  defp row_write_gate(_instance, changeset, opts) do
+    case opts[:actor] do
+      nil ->
         :ok
-      else
-        {:error, Forbidden.exception(errors: [paid_error()])}
-      end
-    else
-      :ok
+
+      actor ->
+        # Ash.can?/3 answers a plain boolean: true passes, false is the
+        # resource policies' refusal — the plain-words Forbidden.
+        if Ash.can?(changeset, actor) do
+          :ok
+        else
+          {:error, Forbidden.exception(errors: [paid_error()])}
+        end
     end
   end
 
