@@ -82,10 +82,10 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
 
       access_tab = render(element(view, "[data-testid='org-settings-tab-access']"))
       assert access_tab =~ ~s(aria-current="page")
-      assert access_tab =~ "border-primary"
+      assert access_tab =~ "border-focus"
 
       general_tab = render(element(view, "[data-testid='org-settings-tab-general']"))
-      refute general_tab =~ "border-primary"
+      refute general_tab =~ "border-focus"
     end
 
     test "an empty state reports the personal org's wallet, not the page org's", %{
