@@ -316,32 +316,24 @@ defmodule FluxValeWeb.Router do
     forward("/", FluxValeWeb.Plugs.TestInboxPreview)
   end
 
-  # The AshAdmin mount (ADR-0027 §2, built with #288): compiled into
-  # EVERY release — never compile-time-open — and denied at runtime
-  # while ADMIN_MOUNT_KEY is unset (the TestInbox gate pattern above:
-  # staging flips the same prod-mode release via BWS; prod leaves it
-  # unset and /admin answers a bare 404). The gate runs BEFORE :browser
-  # — a closed surface must not negotiate content (an Accept: 406
-  # oracle), write a session, or set headers; the closed arm reveals
-  # nothing. Behind it, §2's route-level auth: the platform-admin
-  # session, the same stack the TestInbox rides. The on_mount hook
-  # re-checks both at every socket mount — a LiveView socket never
-  # re-enters the router, so without it a session token outlives a
-  # gate close or demotion for the life of the tab. Which domains
-  # render is the §3 opt-in (`admin show?` per domain, config.exs —
-  # Identity/Accounts stay out); AshAdmin resolves that set at runtime,
-  # so nothing about the exposure is baked into this route.
-  pipeline :admin_gate do
-    plug(FluxValeWeb.Plugs.AdminEnabled)
-  end
-
+  # The AshAdmin mount (ADR-0027 §2, built with #288; Am. 2 Nov 1,
+  # 2026): ALWAYS MOUNTED in every environment — the runtime
+  # ADMIN_MOUNT_KEY gate is retired; the platform-admin auth IS the
+  # gate. §2's route-level auth: the platform-admin session, the same
+  # stack the TestInbox rides. The on_mount hook re-checks at every
+  # socket mount — a LiveView socket never re-enters the router, so
+  # without it a demoted admin's session token outlives the demotion
+  # for the life of the tab. Which domains render is the §3 opt-in
+  # (`admin show?` per domain, config.exs — Identity/Accounts stay
+  # out); AshAdmin resolves that set at runtime, so nothing about the
+  # exposure is baked into this route.
   pipeline :admin_auth do
     plug(FluxValeWeb.Plugs.Authenticate)
     plug(FluxValeWeb.Plugs.RequirePlatformAdmin, :html)
   end
 
   scope "/admin" do
-    pipe_through([:admin_gate, :browser, :admin_auth])
+    pipe_through([:browser, :admin_auth])
 
     # LiveDashboard on the admin surface (the LiveDashboard docs' prod
     # pattern — no more /dev-only mount): the same triple gate as

@@ -1,9 +1,9 @@
 defmodule FluxValeWeb.AdminMountTest do
   @moduledoc false
 
-  # The mounted surface behind the gate (#288, ADR-0027 §2): the closed
-  # gate outranks credentials (reveals nothing), the open gate rides the
-  # TestInbox auth stack, the render carries the §3 domain split
+  # The mounted surface (#288, ADR-0027 §2 Am. 2 — always mounted, the
+  # key gate retired): the auth stack rides the TestInbox vocabulary,
+  # the render carries the §3 domain split
   # (Infrastructure in, Identity out — asserted on the structured nav,
   # not raw-HTML substrings), one real action runs through AshAdmin (a
   # Cluster table read via the resource's primary read action), and the
@@ -31,16 +31,8 @@ defmodule FluxValeWeb.AdminMountTest do
   @admin_email "admin-mount-admin@fluxvale.com"
   @user_email "admin-mount-user@fluxvale.com"
 
+  # No app-env gate to sync (Am. 2): the surface is always mounted.
   setup do
-    original = Application.get_env(:flux_vale, :admin_mount_key)
-
-    on_exit(fn ->
-      case original do
-        nil -> Application.delete_env(:flux_vale, :admin_mount_key)
-        value -> Application.put_env(:flux_vale, :admin_mount_key, value)
-      end
-    end)
-
     admin =
       case User.get_by_email(@admin_email, authorize?: false) do
         {:ok, existing} ->
@@ -53,31 +45,7 @@ defmodule FluxValeWeb.AdminMountTest do
     %{admin: admin, admin_pat: mint_pat!(@admin_email, admin)}
   end
 
-  describe "the gate closed" do
-    setup do
-      Application.delete_env(:flux_vale, :admin_mount_key)
-      :ok
-    end
-
-    test "404 even with valid admin credentials: the gate runs first and reveals nothing", %{
-      conn: conn,
-      admin_pat: pat
-    } do
-      conn =
-        conn
-        |> put_req_header("authorization", "Bearer " <> pat)
-        |> get("/admin")
-
-      assert conn.status == 404
-    end
-  end
-
-  describe "the gate open, route-level auth (the TestInbox vocabulary)" do
-    setup do
-      Application.put_env(:flux_vale, :admin_mount_key, "mount-open-literal")
-      :ok
-    end
-
+  describe "route-level auth (the TestInbox vocabulary)" do
     test "anonymous bounces to /sign-in", %{conn: conn} do
       conn = get(conn, "/admin")
 
@@ -117,12 +85,7 @@ defmodule FluxValeWeb.AdminMountTest do
     end
   end
 
-  describe "the gate open, one real action path" do
-    setup do
-      Application.put_env(:flux_vale, :admin_mount_key, "mount-open-literal")
-      :ok
-    end
-
+  describe "one real action path" do
     test "the Infrastructure/Cluster table reads rows through the resource's action", %{
       conn: conn,
       admin: admin
@@ -141,23 +104,10 @@ defmodule FluxValeWeb.AdminMountTest do
   end
 
   describe "the on_mount socket gate (AdminGate)" do
-    setup do
-      Application.put_env(:flux_vale, :admin_mount_key, "mount-open-literal")
-      :ok
-    end
-
     test "a platform-admin session mounts", %{admin: admin} do
       session = admin_session(admin)
 
       assert {:cont, _socket} = AdminGate.on_mount(:ensure_admin, %{}, session, empty_socket())
-    end
-
-    test "the socket path closes when the gate flips off mid-session", %{admin: admin} do
-      session = admin_session(admin)
-      Application.delete_env(:flux_vale, :admin_mount_key)
-
-      assert {:halt, %Phoenix.LiveView.Socket{redirected: {:redirect, %{to: "/"}}}} =
-               AdminGate.on_mount(:ensure_admin, %{}, session, empty_socket())
     end
 
     test "a non-admin session redirects away (a bare halt raises in the mount lifecycle)", %{

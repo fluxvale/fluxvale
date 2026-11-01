@@ -2,16 +2,13 @@ defmodule FluxValeWeb.AdminDashboardMountTest do
   @moduledoc false
 
   # LiveDashboard on the admin surface (the LiveDashboard docs' prod
-  # pattern, replacing the /dev-only mount): the same triple gate as
-  # the AshAdmin mount (ADR-0027 §2 Am. 1's vocabulary — the closed
-  # gate outranks credentials, the open gate bounces anonymous to
-  # sign-in and 403s non-admins), PLUS the on_mount socket re-check:
+  # pattern, replacing the /dev-only mount): the same auth stack as
+  # the AshAdmin mount (anonymous bounces to sign-in, non-admins get a
+  # 403), PLUS the on_mount socket re-check:
   # the macro accepts on_mount and a LiveView socket never re-enters
   # the router, so a demoted admin's open dashboard tab cannot
   # outlive the gate — asserted by a denied mount, not just a denied
   # request.
-  #
-  # Sync-only: like the AdminMount tests, it mutates the app env.
 
   use FluxValeWeb.ConnCase, async: false
 
@@ -23,16 +20,8 @@ defmodule FluxValeWeb.AdminDashboardMountTest do
   @admin_email "admin-dash-admin@fluxvale.com"
   @user_email "admin-dash-user@fluxvale.com"
 
+  # No app-env gate to sync (Am. 2): the surface is always mounted.
   setup do
-    original = Application.get_env(:flux_vale, :admin_mount_key)
-
-    on_exit(fn ->
-      case original do
-        nil -> Application.delete_env(:flux_vale, :admin_mount_key)
-        value -> Application.put_env(:flux_vale, :admin_mount_key, value)
-      end
-    end)
-
     admin =
       case User.get_by_email(@admin_email, authorize?: false) do
         {:ok, existing} ->
@@ -45,31 +34,7 @@ defmodule FluxValeWeb.AdminDashboardMountTest do
     %{admin: admin, admin_pat: mint_pat!(@admin_email, admin)}
   end
 
-  describe "the gate closed" do
-    setup do
-      Application.delete_env(:flux_vale, :admin_mount_key)
-      :ok
-    end
-
-    test "404 even with valid admin credentials: the gate runs first and reveals nothing", %{
-      conn: conn,
-      admin_pat: pat
-    } do
-      conn =
-        conn
-        |> put_req_header("authorization", "Bearer " <> pat)
-        |> get("/admin/dashboard")
-
-      assert conn.status == 404
-    end
-  end
-
-  describe "the gate open, route-level auth (the AdminMount vocabulary)" do
-    setup do
-      Application.put_env(:flux_vale, :admin_mount_key, "mount-open-literal")
-      :ok
-    end
-
+  describe "route-level auth (the AdminMount vocabulary)" do
     test "anonymous bounces to /sign-in", %{conn: conn} do
       conn = get(conn, "/admin/dashboard")
 

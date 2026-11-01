@@ -92,11 +92,6 @@ config :flux_vale, :test_inbox, enabled: true
 # The storybook workshop (#178): on by default in dev (localhost only).
 config :flux_vale, :storybook_enabled, true
 
-# /admin on in dev (#288): AshAdmin is the local flag-flipping surface
-# (ADR-0027 §2) behind the platform-admin sign-in — admin@fluxvale.com
-# is seeded (mix setup), its sign-in code lands in the TestInbox above.
-config :flux_vale, :admin_mount_key, "dev-only-literal"
-
 # Blog hot reload (ADR-00025 §1): priv/content/blog is not Elixir, so
 # code reloading doesn't watch it — with this flag the blog controllers
 # stat-check the content dir per request and recompile on change, so

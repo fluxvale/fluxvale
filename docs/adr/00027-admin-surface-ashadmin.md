@@ -88,3 +88,24 @@ AshAdmin's actor picker only offers resources with the admin `actor?`
 flag inside *shown* domains, and §3 keeps Identity (User) out. A concrete
 impersonation need reopens §3's "unless a concrete need appears" clause —
 minimal `show_resources([User])` — as its own decision.
+
+## Amendment 2 — the mount gate retires; auth is the gate (2026-11-01)
+
+The §2 runtime mount gate (`ADMIN_MOUNT_KEY`, default-denied 404) is
+RETIRED by owner decision: the admin surface is mounted in every
+environment, and the platform-admin session is the gate. The
+`AdminEnabled` plug, the config keys, and the closed-gate test arms are
+removed with it.
+
+What changes, honestly: the surface's *existence* is now visible — an
+unauthenticated request to `/admin` answers the sign-in bounce (302)
+instead of a bare 404. The 404-was-invisible posture was defense in
+depth, not the security boundary; the boundary was and remains the
+platform-admin auth plus the `AdminGate` socket re-check (which keeps
+guarding the demotion window the key never could — it stays). One
+operational seam disappears: staging's BWS-rendered key and the
+"flip prod when ready" choreography are gone with the env var.
+
+One operational seam appears, accepted: the surface ships ON in new
+environments by default — worth remembering when a fresh environment
+first serves traffic.
