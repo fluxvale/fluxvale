@@ -9,6 +9,7 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
   alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Ops.AccessRule
+  alias FluxVale.TestSupport.Telemetry
 
   require Ash.Query
 
@@ -30,6 +31,16 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
   end
 
   describe "call/2" do
+    test "a JIT signup fires the signup counter — the {:ok, user} arm only", %{email: email} do
+      Telemetry.capture_events([[:flux_vale, :identity, :signup]])
+
+      :ok = Identity.request_auth_code(email)
+
+      assert {:ok, _user, _token} = Identity.verify_auth_code(email, mailbox_code())
+
+      assert_receive {:telemetry_event, [:flux_vale, :identity, :signup], %{count: 1}, %{}}
+    end
+
     test "wrong code increments attempts and stays verifiable", %{email: email} do
       :ok = Identity.request_auth_code(email)
       code = mailbox_code()

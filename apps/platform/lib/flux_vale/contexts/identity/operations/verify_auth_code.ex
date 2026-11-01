@@ -35,6 +35,9 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   # The framework's own door for auth flows — see RequestAuthCode's note
   @interaction %{private: %{ash_authentication?: true}}
 
+  # The signup counter's event name — the operation owns its constants.
+  @signup_event [:flux_vale, :identity, :signup]
+
   @doc """
   Verifies `code` for `email`. On success returns `{:ok, user, token}`;
   failures are uniform in shape — no account-enumeration signal between
@@ -212,6 +215,11 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   defp provision_user(email) do
     case create_user(email) do
       {:ok, user} ->
+        # The signup-success point (business telemetry): seed/admin
+        # creates never pass through here, so this counts signups only —
+        # the collision arms below are sign-ins to existing accounts.
+        :telemetry.execute(@signup_event, %{count: 1}, %{})
+
         {:ok, user}
 
       # The address already belongs to an account our lookups missed:

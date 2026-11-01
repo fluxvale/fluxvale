@@ -33,6 +33,8 @@ defmodule FluxVale.Infrastructure.BackupRun do
     authorizers: [Ash.Policy.Authorizer],
     notifiers: [Ash.Notifier.PubSub]
 
+  alias FluxVale.Infrastructure.BackupRun.OutcomeMarkers
+
   postgres do
     table("backup_runs")
     repo(FluxVale.Repo)
@@ -186,6 +188,11 @@ defmodule FluxVale.Infrastructure.BackupRun do
         :error_summary,
         :finished_at
       ])
+
+      # Both finalize writers (RunInstanceBackup.fail_now/2 and
+      # SweepBackups.finalize_row/2) ride this one action — the outcome
+      # metric mounts here so neither operation knows about metrics.
+      change(OutcomeMarkers)
     end
 
     read :recent_for_instance do

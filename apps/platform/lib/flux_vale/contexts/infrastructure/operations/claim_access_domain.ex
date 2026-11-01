@@ -144,6 +144,13 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
   defp stale_record?(_other), do: false
 
   defp drift_to_needs_attention(gateway, kind) do
+    # This write runs NESTED inside a caller's transaction that is
+    # about to fail (the resume's rollback) — the caller's
+    # after_transaction fallback re-writes the drift and that one
+    # persists. suppress_state_markers keeps the doomed write's
+    # after_action from emitting a phantom needs_attention entry beside
+    # the fallback's real one (the occupancy alert counts the
+    # difference — AccessGateway.StateMarkers reads the flag).
     case AccessGateway.update_state(
            gateway,
            %{
@@ -151,6 +158,7 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
              status_message: AccessProvider.impl_for(gateway).token_drift_message(kind),
              needs_attention_since: DateTime.utc_now()
            },
+           context: %{suppress_state_markers: true},
            authorize?: false
          ) do
       {:ok, _row} ->
