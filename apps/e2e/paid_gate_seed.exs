@@ -12,7 +12,10 @@ alias FluxVale.Infrastructure.AccessGateway
 
 require Ash.Query
 
-suffix = System.unique_integer([:positive])
+# Random, not unique_integer: separate `mix run` processes restart the
+# counter, and the dev DB keeps rows across runs — the emails and the
+# hostname must stay collision-free on their own.
+suffix = Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)
 
 user_a = User.create!("capture-a-#{suffix}@fluxvale.test", %{}, authorize?: false)
 user_b = User.create!("capture-b-#{suffix}@fluxvale.test", %{}, authorize?: false)
@@ -44,7 +47,9 @@ end)
 
 Ash.Seed.seed!(AccessGateway, %{
   organization_id: personal_b.id,
-  hostname: "fv-0000000#{rem(suffix, 10)}",
+  # 8 hex chars — the row's \Afv-[0-9a-f]{8}\z constraint; the random
+  # suffix keeps repeated capture runs off the unique_hostname identity.
+  hostname: "fv-" <> String.downcase(suffix),
   monthly_cents: 200,
   state: :suspended,
   status_message: "Suspended — the balance ran out",
