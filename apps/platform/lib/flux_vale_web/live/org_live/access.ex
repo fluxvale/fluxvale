@@ -470,84 +470,99 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       username={@username}
       nav_section={@nav_section}
       current_org={@current_org}
+      bare
     >
-      <div class="mx-auto max-w-3xl space-y-8">
+      <%!-- App-wide grammar page (S10): `bare` main + .appgram — the
+      page owns ALL of main's rhythm. This is the mono-panel grammar's
+      dense home: the gateway's technical reality (hostname, rate, the
+      pairing rows) in the sunken mono register, the ACTIONS on raised
+      cards — the instance-show pattern, asymmetric. --%>
+      <div class="appgram contents">
         <%= if @personal? do %>
-          <%!-- S5: the personal account's frame — the SettingsLive title
-          block and the way back. No org chrome here: the personal org
-          is the account, never presented as an org. --%>
-          <div>
-            <.button
-              variant="ghost"
-              size="sm"
-              navigate={~p"/settings"}
-              class="-ml-2 mb-4"
-              data-testid="settings-access-back"
-            >
-              &larr; Settings
-            </.button>
-            <h1 class="text-2xl font-semibold tracking-tight text-ink" data-testid="settings-title">
-              Account settings
-            </h1>
+          <%!-- S5: the personal account's frame — the account band and
+          the way back. No org chrome here: the personal org is the
+          account, never presented as an org. --%>
+          <section class="band">
+            <div class="wrap pt-8 pb-10">
+              <div class="rise">
+                <.link
+                  navigate={~p"/settings"}
+                  data-testid="settings-access-back"
+                  class="inline-flex items-center gap-1.5 text-sm text-ink-muted transition-colors hover:text-ink"
+                >
+                  <span aria-hidden="true">&larr;</span> Settings
+                </.link>
+                <div class="mt-3 min-w-0">
+                  <p class="eyebrow">Account</p>
+                  <h1 class="page-title mt-1.5" data-testid="settings-title">
+                    Account settings
+                  </h1>
+                </div>
+              </div>
+            </div>
+          </section>
+        <% else %>
+          <OrgSettings.org_header org={@org} surface="Access" />
+        <% end %>
+
+        <section class="wrap pt-8 pb-16">
+          <div class="rise space-y-6">
+            <OrgSettings.settings_tabs :if={!@personal?} current="access" slug={@org.slug} />
+
+            <div>
+              <h2 class="text-base font-medium text-ink">Access</h2>
+              <p class="mt-1 text-sm text-ink-muted">
+                Reach your private apps from your own Tailscale network.
+              </p>
+            </div>
+
+            <%= if @gateway do %>
+              <.gateway_card
+                gateway={@gateway}
+                form={@form}
+                row_funded?={@row_funded?}
+                row_paid?={@row_paid?}
+                billing_path={@billing_path}
+                repaste_open?={@repaste_open?}
+                remove_armed?={@remove_armed?}
+              />
+
+              <%!-- §4.1's pairing sections — only while the operation would
+                  accept an attach; every other state gets one honest line
+                  instead (the banner explains why). --%>
+              <p
+                :if={pairing_paused_copy(@gateway)}
+                class="text-sm text-ink-muted"
+                data-testid="access-pairing-paused"
+              >
+                {pairing_paused_copy(@gateway)}
+              </p>
+
+              <.attached_card
+                :if={pairing_open?(@gateway)}
+                gateway={@gateway}
+                attached={@streams.attached}
+                attached_empty?={@attached_empty?}
+              />
+
+              <.attach_card
+                :if={pairing_open?(@gateway)}
+                attachable={@streams.attachable}
+                attachable_empty?={@attachable_empty?}
+                attach_error={@attach_error}
+              />
+            <% else %>
+              <.access_empty_state
+                personal?={@personal?}
+                form={@form}
+                create_funded?={@create_funded?}
+                create_paid?={@create_paid?}
+                billing_path={@billing_path}
+                price_cents={@price_cents}
+              />
+            <% end %>
           </div>
-        <% else %>
-          <OrgSettings.org_header org={@org} />
-
-          <OrgSettings.settings_tabs current="access" slug={@org.slug} />
-        <% end %>
-
-        <div>
-          <h2 class="text-base font-medium text-ink">Access</h2>
-          <p class="mt-1 text-sm text-ink-muted">
-            Reach your private apps from your own Tailscale network.
-          </p>
-        </div>
-
-        <%= if @gateway do %>
-          <.gateway_card
-            gateway={@gateway}
-            form={@form}
-            row_funded?={@row_funded?}
-            row_paid?={@row_paid?}
-            billing_path={@billing_path}
-            repaste_open?={@repaste_open?}
-            remove_armed?={@remove_armed?}
-          />
-
-          <%!-- §4.1's pairing sections — only while the operation would
-              accept an attach; every other state gets one honest line
-              instead (the banner explains why). --%>
-          <p
-            :if={pairing_paused_copy(@gateway)}
-            class="text-sm text-ink-muted"
-            data-testid="access-pairing-paused"
-          >
-            {pairing_paused_copy(@gateway)}
-          </p>
-
-          <.attached_card
-            :if={pairing_open?(@gateway)}
-            gateway={@gateway}
-            attached={@streams.attached}
-            attached_empty?={@attached_empty?}
-          />
-
-          <.attach_card
-            :if={pairing_open?(@gateway)}
-            attachable={@streams.attachable}
-            attachable_empty?={@attachable_empty?}
-            attach_error={@attach_error}
-          />
-        <% else %>
-          <.access_empty_state
-            personal?={@personal?}
-            form={@form}
-            create_funded?={@create_funded?}
-            create_paid?={@create_paid?}
-            billing_path={@billing_path}
-            price_cents={@price_cents}
-          />
-        <% end %>
+        </section>
       </div>
     </Layouts.app>
     """
@@ -568,8 +583,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
   defp access_empty_state(assigns) do
     ~H"""
-    <div class="space-y-6" data-testid="access-empty">
-      <.card id="access-intro-card" class="space-y-4">
+    <div class="max-w-2xl space-y-6" data-testid="access-empty">
+      <.card id="access-intro-card" class="card space-y-4">
         <div>
           <h3 class="text-sm font-medium text-ink-muted">Private access</h3>
           <p class="mt-2 text-sm text-ink" data-testid="access-explainer">
@@ -600,7 +615,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         </div>
 
         <p class="text-sm text-ink" data-testid="access-price">
-          {Pricing.format_usd(@price_cents)}/month, billed hourly while connected.
+          <span class="font-mono">{Pricing.format_usd(@price_cents)}</span>/month, billed hourly
+          while connected.
         </p>
 
         <%!-- The blocking gate's own hint, shown up front: a wallet that
@@ -642,7 +658,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         </.callout>
       </.card>
 
-      <.card id="access-enable-card" class="space-y-4">
+      <.card id="access-enable-card" class="card space-y-4">
         <div>
           <h3 class="text-sm font-medium text-ink-muted">Enable private access</h3>
           <p class="mt-1 text-sm text-ink-muted">
@@ -696,43 +712,60 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
   defp gateway_card(assigns) do
     ~H"""
-    <.card id="access-gateway-card" class="space-y-4" data-testid="access-gateway-card">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="flex items-center gap-3">
-          <h3 class="text-base font-medium text-ink">Private access</h3>
+    <%!-- The instance-show pattern: the technical reality in the sunken
+    mono panel beside the raised actions card, asymmetric (1.4fr/1fr —
+    no fake symmetry). The panel carries what the gateway IS (state,
+    hostname, rate); the card carries what you DO (re-paste, remove,
+    resume) — actions stay form surfaces, never sunken. --%>
+    <div class="min-w-0 items-start gap-6 space-y-6 lg:grid lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] lg:space-y-0">
+      <div class="mono-panel min-w-0 space-y-3" data-testid="access-gateway-card">
+        <div class="flex items-center gap-2">
+          <h3 class="mono-panel-label mb-0">Private access</h3>
           <.status_badge status={@gateway.state} />
         </div>
-        <p class="font-mono text-sm text-ink-muted" data-testid="access-hostname">
-          {@gateway.hostname}
-        </p>
+
+        <div class="grid gap-1.5">
+          <p class="flex gap-4">
+            <span class="w-24 shrink-0">hostname:</span>
+            <span
+              class="min-w-0 text-ink [overflow-wrap:anywhere]"
+              data-testid="access-hostname"
+            >
+              {@gateway.hostname}
+            </span>
+          </p>
+          <p class="flex gap-4">
+            <span class="w-24 shrink-0">rate:</span>
+            <span class="min-w-0" data-testid="access-billing-line">
+              {Pricing.format_usd(@gateway.monthly_cents)}/month, billed hourly while connected —
+              suspended or removed, nothing accrues.
+            </span>
+          </p>
+        </div>
       </div>
 
-      <%!-- the engine's own words for the state — written friendly by
-          design (the #179 split: technical detail never leaves the
-          row). --%>
-      <p
-        :if={@gateway.status_message}
-        class="text-sm text-ink"
-        data-testid="access-status-message"
-      >
-        {@gateway.status_message}
-      </p>
+      <.card class="card min-w-0 space-y-4">
+        <%!-- the engine's own words for the state — written friendly by
+        design (the #179 split: technical detail never leaves the row). --%>
+        <p
+          :if={@gateway.status_message}
+          class="text-sm text-ink"
+          data-testid="access-status-message"
+        >
+          {@gateway.status_message}
+        </p>
 
-      <p class="text-sm text-ink-muted" data-testid="access-billing-line">
-        {Pricing.format_usd(@gateway.monthly_cents)}/month, billed hourly while connected —
-        suspended or removed, nothing accrues.
-      </p>
-
-      <.gateway_actions
-        gateway={@gateway}
-        form={@form}
-        row_funded?={@row_funded?}
-        row_paid?={@row_paid?}
-        billing_path={@billing_path}
-        repaste_open?={@repaste_open?}
-        remove_armed?={@remove_armed?}
-      />
-    </.card>
+        <.gateway_actions
+          gateway={@gateway}
+          form={@form}
+          row_funded?={@row_funded?}
+          row_paid?={@row_paid?}
+          billing_path={@billing_path}
+          repaste_open?={@repaste_open?}
+          remove_armed?={@remove_armed?}
+        />
+      </.card>
+    </div>
     """
   end
 
@@ -958,7 +991,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
   defp attached_card(assigns) do
     ~H"""
-    <.card id="access-attached-card" class="space-y-4" data-testid="access-attached">
+    <div class="min-w-0 space-y-3" data-testid="access-attached">
       <div>
         <h3 class="text-sm font-medium text-ink-muted">Attached apps</h3>
         <p class="mt-1 text-sm text-ink-muted">
@@ -967,51 +1000,63 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         </p>
       </div>
 
-      <p :if={@attached_empty?} class="text-sm text-ink-muted" data-testid="access-attached-empty">
-        Nothing attached yet — pick an app below.
-      </p>
-
-      <ul id="access-attached-rows" phx-update="stream" class="divide-y divide-line">
-        <li
-          :for={{dom_id, row} <- @attached}
-          id={dom_id}
-          class="space-y-1.5 py-3"
-          data-testid="access-attached-row"
+      <%!-- The pairing rows are the gateway's technical reality — the
+      sunken mono register (the dav-snippet posture). The row-scoped
+      Detach rides its row (the snippet's copy-button precedent);
+      panel-level actions stay on cards. Friendly copy (the empty
+      line, the public note) overrides the panel's mono so it keeps
+      the sans register. --%>
+      <div class="mono-panel min-w-0">
+        <p
+          :if={@attached_empty?}
+          class="font-sans text-sm text-ink-muted"
+          data-testid="access-attached-empty"
         >
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div class="flex min-w-0 flex-wrap items-center gap-2">
-              <span class="text-sm font-medium text-ink">{row.instance.name}</span>
-              <.status_badge status={row.instance.status} />
-            </div>
-            <.button
-              type="button"
-              phx-click="detach"
-              phx-value-instance_id={row.instance.id}
-              variant="ghost"
-              size="sm"
-              data-testid="access-detach"
-            >
-              Detach
-            </.button>
-          </div>
+          Nothing attached yet — pick an app below.
+        </p>
 
-          <p class="font-mono text-xs text-ink-muted break-all" data-testid="access-attached-address">
-            {address(row.route, @gateway)}
-          </p>
-
-          <%!-- §4.1: the exposure toggle can put a public instance here
-              after the fact — the two switches are independent, and the
-              row says so honestly instead of hiding it. --%>
-          <p
-            :if={row.instance.exposure == :public}
-            class="text-xs text-ink-muted"
-            data-testid="access-attached-public-note"
+        <ul id="access-attached-rows" phx-update="stream" class="divide-y divide-line">
+          <li
+            :for={{dom_id, row} <- @attached}
+            id={dom_id}
+            class="space-y-1.5 py-3 first:pt-0 last:pb-0"
+            data-testid="access-attached-row"
           >
-            Also public — anyone can reach it at its own address too.
-          </p>
-        </li>
-      </ul>
-    </.card>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="flex min-w-0 flex-wrap items-center gap-2">
+                <span class="text-sm font-medium text-ink">{row.instance.name}</span>
+                <.status_badge status={row.instance.status} />
+              </div>
+              <.button
+                type="button"
+                phx-click="detach"
+                phx-value-instance_id={row.instance.id}
+                variant="ghost"
+                size="sm"
+                data-testid="access-detach"
+              >
+                Detach
+              </.button>
+            </div>
+
+            <p class="text-xs break-all text-ink" data-testid="access-attached-address">
+              {address(row.route, @gateway)}
+            </p>
+
+            <%!-- §4.1: the exposure toggle can put a public instance here
+                after the fact — the two switches are independent, and the
+                row says so honestly instead of hiding it. --%>
+            <p
+              :if={row.instance.exposure == :public}
+              class="font-sans text-xs text-ink-muted"
+              data-testid="access-attached-public-note"
+            >
+              Also public — anyone can reach it at its own address too.
+            </p>
+          </li>
+        </ul>
+      </div>
+    </div>
     """
   end
 
@@ -1024,7 +1069,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
   defp attach_card(assigns) do
     ~H"""
-    <.card id="access-attach-card" class="space-y-4" data-testid="access-attach">
+    <.card id="access-attach-card" class="card space-y-4" data-testid="access-attach">
       <div>
         <h3 class="text-sm font-medium text-ink-muted">Attach an app</h3>
         <p class="mt-1 text-sm text-ink-muted">

@@ -76,8 +76,10 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     # rendered sequence.
     assert_row_order(view, [owner_email, member_a_email, member_b_email])
 
-    # The Joined column is labelled Joined and fed by created_at.
-    assert has_element?(view, "th", "Joined")
+    # The Joined column is labelled Joined and fed by created_at — the
+    # label rides an sr-only span now that the roster is the row
+    # language (no visible header row).
+    assert has_element?(view, "#org-members-table .sr-only", "Joined")
 
     # The domain's stance on invitations — one copy line, no promises.
     assert has_element?(
@@ -208,11 +210,11 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
 
     # Only the active tab carries aria-current and the active styling.
     refute general_tab =~ "aria-current"
-    refute general_tab =~ "border-primary"
+    refute general_tab =~ "border-focus"
 
     members_tab = render(element(view, "[data-testid='org-settings-tab-members']"))
     assert members_tab =~ ~s(aria-current="page")
-    assert members_tab =~ "border-primary"
+    assert members_tab =~ "border-focus"
   end
 
   test "the page carries the shared org header, and the switcher names THIS org", %{

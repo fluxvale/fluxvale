@@ -72,16 +72,17 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
 
     assert link_count == 3
 
-    # General is the active tab on THIS page — and only it.
+    # General is the active tab on THIS page — and only it. The active
+    # underline rides the --focus token (S10's dav-tab register).
     general_tab = render(element(view, "[data-testid='org-settings-tab-general']"))
     assert general_tab =~ ~s(aria-current="page")
-    assert general_tab =~ "border-primary"
+    assert general_tab =~ "border-focus"
 
     members_tab = render(element(view, "[data-testid='org-settings-tab-members']"))
-    refute members_tab =~ "border-primary"
+    refute members_tab =~ "border-focus"
 
     access_tab = render(element(view, "[data-testid='org-settings-tab-access']"))
-    refute access_tab =~ "border-primary"
+    refute access_tab =~ "border-focus"
   end
 
   test "the slug preview follows the input live", %{conn: conn, org: org} do

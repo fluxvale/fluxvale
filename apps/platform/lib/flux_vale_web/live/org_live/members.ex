@@ -74,36 +74,56 @@ defmodule FluxValeWeb.OrganizationLive.Members do
       username={@username}
       nav_section={@nav_section}
       current_org={@org}
+      bare
     >
-      <div class="mx-auto max-w-3xl space-y-8">
-        <OrgSettings.org_header org={@org} />
+      <%!-- App-wide grammar page (S10): `bare` main + .appgram — the
+      page owns ALL of main's rhythm. The roster rides the row/list
+      language (the S4 row shell, no links — rows are not navigable), --%>
+      <div class="appgram contents">
+        <OrgSettings.org_header org={@org} surface="Members" />
 
-        <OrgSettings.settings_tabs current="members" slug={@org.slug} />
+        <section class="wrap pt-8 pb-16">
+          <div class="rise space-y-6">
+            <OrgSettings.settings_tabs current="members" slug={@org.slug} />
 
-        <div>
-          <h2 class="text-base font-medium text-ink">Members</h2>
-          <p class="mt-1 text-sm text-ink-muted">People with access to this organization.</p>
-        </div>
+            <div>
+              <h2 class="text-base font-medium text-ink">Members</h2>
+              <p class="mt-1 text-sm text-ink-muted">People with access to this organization.</p>
+            </div>
 
-        <.table
-          id="org-members-table"
-          rows={@streams.members}
-          row_item={fn {_dom_id, member} -> member end}
-        >
-          <:col :let={member} label="Email">{member.user_email}</:col>
-          <:col :let={member} label="Role">
-            <.badge tone="primary">{role_label(member.role)}</.badge>
-          </:col>
-          <:col :let={member} label="Joined">
-            <span class="whitespace-nowrap text-ink-muted">
-              {Calendar.strftime(member.created_at, "%b %d, %Y")}
-            </span>
-          </:col>
-        </.table>
+            <%!-- The container keeps the table's old id — the row-order
+            assertion renders this element. Column semantics ride
+            sr-only labels (the row language has no visible header
+            row); emails are technical and ride the mono register. --%>
+            <ul id="org-members-table" phx-update="stream" class="space-y-3">
+              <li
+                :for={{dom_id, member} <- @streams.members}
+                id={dom_id}
+                data-testid="member-row"
+                class="rounded-panel border border-line-strong bg-panel p-4 shadow-sm sm:p-5"
+              >
+                <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                  <div class="min-w-0">
+                    <p class="font-mono text-sm font-medium text-ink [overflow-wrap:anywhere]">
+                      {member.user_email}
+                    </p>
+                    <p class="mt-0.5 whitespace-nowrap text-xs text-ink-subtle">
+                      <span class="sr-only">Joined </span>{Calendar.strftime(
+                        member.created_at,
+                        "%b %d, %Y"
+                      )}
+                    </p>
+                  </div>
+                  <.badge tone="primary">{role_label(member.role)}</.badge>
+                </div>
+              </li>
+            </ul>
 
-        <p class="text-xs text-ink-subtle" data-testid="members-invite-note">
-          Invitations arrive with team features.
-        </p>
+            <p class="text-xs text-ink-subtle" data-testid="members-invite-note">
+              Invitations arrive with team features.
+            </p>
+          </div>
+        </section>
       </div>
     </Layouts.app>
     """

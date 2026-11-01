@@ -176,87 +176,97 @@ defmodule FluxValeWeb.OrganizationLive.Settings do
       username={@username}
       nav_section={@nav_section}
       current_org={@org}
+      bare
     >
-      <div class="mx-auto max-w-3xl space-y-8">
-        <OrgSettings.org_header org={@org} />
+      <%!-- App-wide grammar page (S10): `bare` main + .appgram — the
+      page owns ALL of main's rhythm. The band shell (org identity +
+      surface eyebrow) is the shared OrgSettings.org_header; the working
+      register opens with the tab rail, the rename card under it. --%>
+      <div class="appgram contents">
+        <OrgSettings.org_header org={@org} surface="Settings" />
 
-        <OrgSettings.settings_tabs current="general" slug={@org.slug} />
+        <section class="wrap pt-8 pb-16">
+          <div class="rise space-y-6">
+            <OrgSettings.settings_tabs current="general" slug={@org.slug} />
 
-        <.card id="org-general-card" class="space-y-4">
-          <div>
-            <h2 class="text-base font-medium text-ink">General</h2>
-            <p class="mt-1 text-sm text-ink-muted">
-              Your organization's display name and its address on FluxVale.
-            </p>
-          </div>
-
-          <.form
-            for={@form}
-            id="org-general-form"
-            phx-change="validate"
-            phx-submit="save"
-            class="space-y-4"
-          >
-            <.input
-              field={@form[:name]}
-              label="Name"
-              maxlength={100}
-              required
-              data-testid="org-name-input"
-            />
-            <.input
-              field={@form[:slug]}
-              label="Slug"
-              maxlength={39}
-              required
-              data-testid="org-slug-input"
-            />
-            <p class="text-xs text-ink-subtle" data-testid="slug-preview">
-              Your organization will live at
-              <span class="font-mono text-ink-muted">/organizations/{@form[:slug].value}</span>
-            </p>
-
-            <.callout
-              :if={@pending_slug}
-              id="slug-confirm"
-              tone="warning"
-              title="Renaming changes this organization's address"
-              data-testid="slug-confirm"
-            >
-              <p>
-                Links to <span class="font-mono">/organizations/{@org.slug}</span> will stop
-                working and <span class="font-mono">/organizations/{@pending_slug}</span> becomes
-                the address. The old slug is released for anyone to claim, and no redirect is
-                created.
-              </p>
-              <div class="flex gap-3 pt-1">
-                <.button
-                  type="button"
-                  phx-click="confirm-rename"
-                  size="sm"
-                  data-testid="confirm-rename"
-                >
-                  Rename organization
-                </.button>
-                <.button
-                  variant="ghost"
-                  type="button"
-                  phx-click="cancel-rename"
-                  size="sm"
-                  data-testid="cancel-rename"
-                >
-                  Cancel
-                </.button>
+            <.card id="org-general-card" class="card max-w-2xl space-y-4">
+              <div>
+                <h2 class="text-base font-medium text-ink">General</h2>
+                <p class="mt-1 text-sm text-ink-muted">
+                  Your organization's display name and its address on FluxVale.
+                </p>
               </div>
-            </.callout>
 
-            <div class="flex justify-end">
-              <.button type="submit" data-testid="org-save">
-                Save changes
-              </.button>
-            </div>
-          </.form>
-        </.card>
+              <.form
+                for={@form}
+                id="org-general-form"
+                phx-change="validate"
+                phx-submit="save"
+                class="space-y-4"
+              >
+                <.input
+                  field={@form[:name]}
+                  label="Name"
+                  maxlength={100}
+                  required
+                  data-testid="org-name-input"
+                />
+                <.input
+                  field={@form[:slug]}
+                  label="Slug"
+                  maxlength={39}
+                  required
+                  data-testid="org-slug-input"
+                />
+                <p class="text-xs text-ink-subtle" data-testid="slug-preview">
+                  Your organization will live at
+                  <span class="font-mono text-ink-muted">/organizations/{@form[:slug].value}</span>
+                </p>
+
+                <.callout
+                  :if={@pending_slug}
+                  id="slug-confirm"
+                  tone="warning"
+                  title="Renaming changes this organization's address"
+                  data-testid="slug-confirm"
+                >
+                  <p>
+                    Links to <span class="font-mono">/organizations/{@org.slug}</span>
+                    will stop
+                    working and <span class="font-mono">/organizations/{@pending_slug}</span>
+                    becomes the address. The old slug is released for anyone to claim, and no
+                    redirect is created.
+                  </p>
+                  <div class="flex gap-3 pt-1">
+                    <.button
+                      type="button"
+                      phx-click="confirm-rename"
+                      size="sm"
+                      data-testid="confirm-rename"
+                    >
+                      Rename organization
+                    </.button>
+                    <.button
+                      variant="ghost"
+                      type="button"
+                      phx-click="cancel-rename"
+                      size="sm"
+                      data-testid="cancel-rename"
+                    >
+                      Cancel
+                    </.button>
+                  </div>
+                </.callout>
+
+                <div class="flex justify-end">
+                  <.button type="submit" data-testid="org-save">
+                    Save changes
+                  </.button>
+                </div>
+              </.form>
+            </.card>
+          </div>
+        </section>
       </div>
     </Layouts.app>
     """
