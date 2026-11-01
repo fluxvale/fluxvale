@@ -343,20 +343,26 @@ defmodule FluxValeWeb.Router do
   scope "/admin" do
     pipe_through([:admin_gate, :browser, :admin_auth])
 
-    ash_admin("/", on_mount: {FluxValeWeb.AdminGate, :ensure_admin})
-
     # LiveDashboard on the admin surface (the LiveDashboard docs' prod
     # pattern — no more /dev-only mount): the same triple gate as
-    # AshAdmin above (runtime key -> session auth -> platform-admin
+    # AshAdmin below (runtime key -> session auth -> platform-admin
     # role), plus the SAME on_mount socket re-check — the macro accepts
     # it and a LiveDashboard LiveView socket never re-enters the
     # router, so a demoted admin's open tab cannot outlive the gate.
     # Business telemetry (Telemetry.Metric definitions in
     # FluxValeWeb.Telemetry) renders here; alert-worthy metrics ALSO
     # flow to Grafana where the alert rules live.
+    #
+    # ORDER MATTERS: this mount must precede ash_admin — AshAdmin's
+    # page routes end in a segment wildcard, and router clauses compile
+    # in source order: dashboard-after-ash_admin compiles (with a
+    # warning) into unreachable clauses, every /admin/* path landing in
+    # AshAdmin instead.
     live_dashboard("/dashboard",
       metrics: FluxValeWeb.Telemetry,
       on_mount: {FluxValeWeb.AdminGate, :ensure_admin}
     )
+
+    ash_admin("/", on_mount: {FluxValeWeb.AdminGate, :ensure_admin})
   end
 end
