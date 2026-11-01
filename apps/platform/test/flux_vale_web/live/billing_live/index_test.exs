@@ -12,7 +12,12 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
   alias FluxVale.Billing
   alias FluxVale.Identity.User
   alias FluxVale.TestSupport.AccountsFixtures
+  alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
+
+  # Micro-cents per cent — Billing's debit/credit unit (the wallet
+  # shape test below trades in it).
+  @micro_per_cent 10_000
 
   setup %{conn: conn} do
     {user, conn} = SessionHelpers.user_with_session(conn)
@@ -57,6 +62,74 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
     {:ok, view, _html} = live(conn, ~p"/billing")
 
     assert has_element?(view, "[data-testid='wallet-balance']", "-$100.00")
+  end
+
+  # The band's runway formatter arms, one wallet shape each — the S4
+  # sweep, against the billing band's copy (BillingComponents'). Each
+  # shape owns its user so the burn arithmetic stays flat.
+  test "runway copy tracks the balance-to-burn shape" do
+    InstanceFixtures.local_cluster!()
+
+    check = fn monthly_cents, cents_left, expected_runway ->
+      {user, conn} = SessionHelpers.user_with_session(Phoenix.ConnTest.build_conn())
+
+      org = AccountsFixtures.personal_org!(user)
+      {:ok, wallet} = Billing.ensure_wallet(org)
+
+      # Deploy first (creates are balance-gated), then shape the wallet.
+      version = InstanceFixtures.app_version!(monthly_cents: monthly_cents)
+      instance = InstanceFixtures.instance!(version, user)
+      InstanceFixtures.walk_to!(instance, :running)
+
+      {:ok, balance} = Billing.balance(wallet, authorize?: false)
+
+      if balance != cents_left do
+        Billing.debit_wallet(wallet, (balance - cents_left) * @micro_per_cent)
+      end
+
+      {:ok, view, _html} = live(conn, ~p"/billing")
+
+      assert has_element?(view, "[data-testid='wallet-runway']", expected_runway)
+    end
+
+    check.(1000, 2, "≈ 1 hour")
+    check.(1000, 1, "under an hour")
+    check.(100, 100, "≈ 30 days")
+    check.(100, 300, "≈ 3 months")
+
+    # The burn hint arm: a live burn names its monthly rate.
+    {user, conn} = SessionHelpers.user_with_session(Phoenix.ConnTest.build_conn())
+    version = InstanceFixtures.app_version!(monthly_cents: 100)
+    instance = InstanceFixtures.instance!(version, user)
+    InstanceFixtures.walk_to!(instance, :running)
+
+    {:ok, view, _html} = live(conn, ~p"/billing")
+
+    assert has_element?(
+             view,
+             "[data-testid='wallet-runway']",
+             ~r/at \$[\d.]+\/mo current burn/
+           )
+  end
+
+  # The wallet crossed zero: no "under an hour" sugar on a spent
+  # balance — the band reads Depleted over the minus-signed value.
+  test "a spent wallet's runway reads Depleted", %{conn: conn, wallet: wallet} do
+    {:ok, _grant} = Billing.grant_credits(wallet, 10_000)
+    {:ok, _debit} = Billing.debit_wallet(wallet, 200_000_000)
+
+    {:ok, view, _html} = live(conn, ~p"/billing")
+
+    assert has_element?(view, "[data-testid='wallet-runway']", "Depleted")
+  end
+
+  # The fresh-account shape: nothing deployed → no burn → the
+  # infinite-runway arm with the neutral hint.
+  test "a wallet with no burn reads No active burn", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/billing")
+
+    assert has_element?(view, "[data-testid='wallet-runway']", "No active burn")
+    assert has_element?(view, "[data-testid='wallet-runway']", "Nothing burning right now.")
   end
 
   test "a zero balance renders $0.00", %{conn: conn} do

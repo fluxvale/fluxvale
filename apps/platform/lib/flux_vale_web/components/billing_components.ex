@@ -1,6 +1,6 @@
 defmodule FluxValeWeb.BillingComponents do
   @moduledoc """
-  Shared billing render pieces (#276): the balance header and the
+  Shared billing render pieces (#276): the wallet facts and the
   paginated ledger history. Extracted from `BillingLive.Index` when the
   org billing view (`/organizations/:slug/billing`) needed the same shape
   over a URL-resolved org. The top-up CTA and its notice stay
@@ -11,31 +11,57 @@ defmodule FluxValeWeb.BillingComponents do
   use FluxValeWeb, :html
 
   alias FluxVale.Billing.LedgerEntry
+  alias FluxVale.Billing.Month
   alias FluxVale.Pricing
 
-  @doc """
-  The balance header: the label and the live ledger sum, signed USD —
-  the ledger carries signed cents, so a negative balance renders a minus.
-  """
-  attr(:balance, :integer, required: true, doc: "the wallet balance in integer cents")
+  @micro_per_cent 10_000
 
-  @spec balance_header(map()) :: Phoenix.LiveView.Rendered.t()
-  def balance_header(assigns) do
+  @doc """
+  The wallet facts as the grammar's in-band posture (S9, the S4/S6
+  shape): Balance and Runway as eyebrow-labeled values. The projection
+  is `Billing.compute_runway/1` — the same struct the dashboard's band
+  shows, so the two surfaces can never disagree about the wallet.
+
+  The pair stacks below 760px and sits end-anchored side-by-side above:
+  the runway value's longest shape ("No active burn") is wider than the
+  S6 pair's fixtures, so the S6 at-375 side-by-side fit doesn't hold
+  here — the stack is the measured composition, not a wrap.
+  """
+  attr(:facts, :any,
+    required: true,
+    doc: "the Billing.compute_runway/1 projection: balance, runway, burn"
+  )
+
+  @spec wallet_facts(map()) :: Phoenix.LiveView.Rendered.t()
+  def wallet_facts(assigns) do
     ~H"""
-    <div>
-      <h2 class="text-sm font-medium text-ink-muted">Balance</h2>
-      <p class="mt-1 text-4xl font-bold tracking-tight text-ink" data-testid="wallet-balance">
-        {format_balance(@balance)}
-      </p>
+    <div class="flex flex-col gap-y-6 min-[760px]:flex-row min-[760px]:items-start min-[760px]:gap-x-14">
+      <div data-testid="wallet-balance">
+        <p class="eyebrow">Balance</p>
+        <p class="mt-1.5 whitespace-nowrap text-3xl font-bold tracking-tight text-ink min-[760px]:text-4xl min-[900px]:text-5xl">
+          {format_balance(@facts.balance_cents)}
+        </p>
+      </div>
+
+      <div data-testid="wallet-runway">
+        <p class="eyebrow">Runway</p>
+        <p class="mt-1.5 whitespace-nowrap text-3xl font-bold tracking-tight text-ink min-[760px]:text-4xl min-[900px]:text-5xl">
+          {format_runway(@facts)}
+        </p>
+        <p class="mt-1 text-xs text-ink-subtle">{burn_hint(@facts)}</p>
+      </div>
     </div>
     """
   end
 
   @doc """
-  The paginated ledger history: the empty state, the newest-first stream
-  rows, and the "Load more" button — retired at exhaustion via
+  The paginated ledger history rows: the empty state, the newest-first
+  stream rows, and the "Load more" button — retired at exhaustion via
   `page.more?`. Appends ride the rendering LiveView's "load-more"
-  handler; the component owns only the markup.
+  handler; the component owns only the markup. The section heading is
+  the pages' (S9: the S4/S6 section shape — heading outside the card).
+  Timestamps and amounts ride the mono register — ledger rows are
+  technical content (S8's confirm-step register).
   """
   attr(:entries, :list, required: true, doc: "the stream: {dom_id, entry} tuples")
   attr(:page, :any, required: true, doc: "the current Ash keyset page (more? gates the button)")
@@ -46,28 +72,35 @@ defmodule FluxValeWeb.BillingComponents do
   def ledger_history(assigns) do
     ~H"""
     <.card>
-      <h2 class="text-sm font-medium text-ink-muted">History</h2>
       <%!-- Empty state lives OUTSIDE the stream container: streams
           can't count, and an in-stream hidden placeholder makes
           divide/border selectors render a phantom row divider
           (vision QA round 2). --%>
-      <p :if={@history_empty?} class="mt-3 text-sm text-ink-subtle" data-testid="ledger-empty">
+      <p :if={@history_empty?} class="text-sm text-ink-subtle" data-testid="ledger-empty">
         No activity yet.
       </p>
-      <div id="entries" phx-update="stream" class="mt-2">
+      <div id="entries" phx-update="stream">
         <div
           :for={{dom_id, entry} <- @entries}
           id={dom_id}
           data-testid="ledger-row"
           class="flex items-center justify-between gap-4 border-t border-line py-3 first:border-t-0"
         >
-          <span class="text-sm whitespace-nowrap text-ink-muted">
+          <%!-- The mono register steps down below 480px: the fixed-format
+              timestamp (22 mono chars) plus the widest fixture amount
+              overshoots the 320 viewport by ~1px at text-sm — measured,
+              the S6 lesson (the guard is the row's own arithmetic, not
+              a wrap). --%>
+          <span class="font-mono text-xs whitespace-nowrap text-ink-muted min-[480px]:text-sm">
             {Calendar.strftime(entry.created_at, "%b %d, %Y %H:%M UTC")}
           </span>
           <span class="min-w-0 flex-1 truncate text-sm text-ink capitalize">
             {reason_label(entry.reason)}
           </span>
-          <span class={["font-mono text-sm whitespace-nowrap", amount_color(entry)]}>
+          <span class={[
+            "font-mono text-xs whitespace-nowrap min-[480px]:text-sm",
+            amount_color(entry)
+          ]}>
             {format_amount(entry.amount)}
           </span>
         </div>
@@ -91,6 +124,40 @@ defmodule FluxValeWeb.BillingComponents do
   defp format_balance(cents) do
     Pricing.format_usd(cents)
   end
+
+  # The runway copy is the dashboard's formatter shape (S4), owned at
+  # the billing display seam: a spent wallet is out of runway — "under
+  # an hour" would read as nearly-there — and :infinity (no burn) reads
+  # as itself. The divisor is the average Gregorian month (Billing.Month),
+  # the same constant the projection and the settles use.
+  defp format_runway(%{balance_cents: cents}) when cents < 0, do: "Depleted"
+  defp format_runway(%{runway_hours: :infinity}), do: "No active burn"
+
+  defp format_runway(%{runway_hours: hours}) when hours < 1, do: "under an hour"
+
+  defp format_runway(%{runway_hours: hours}) when hours < 48,
+    do: "≈ #{round(hours)} #{plural(round(hours), "hour")}"
+
+  defp format_runway(%{runway_hours: hours}) do
+    days = hours / 24
+
+    if days < 60 do
+      "≈ #{round(days)} #{plural(round(days), "day")}"
+    else
+      months = days * 24 * 3600 / Month.seconds()
+      "≈ #{round(months)} #{plural(round(months), "month")}"
+    end
+  end
+
+  defp burn_hint(%{burn_micro_cents_per_hour: 0}), do: "Nothing burning right now."
+
+  defp burn_hint(%{burn_micro_cents_per_hour: burn_micro}) do
+    monthly_cents = div(burn_micro * Month.seconds(), @micro_per_cent * 3600)
+    "at #{Pricing.format_usd(monthly_cents)}/mo current burn"
+  end
+
+  defp plural(1, unit), do: unit
+  defp plural(_n, unit), do: "#{unit}s"
 
   defp format_amount(cents) when cents < 0 do
     "-" <> Pricing.format_usd(-cents)

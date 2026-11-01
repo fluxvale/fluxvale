@@ -46,6 +46,23 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
     assert has_element?(view, "[data-testid='ledger-row']", "-$0.25")
   end
 
+  # S9: the band is the org's wallet — the org's name rides the
+  # eyebrow, the facts are the same in-band pair the personal page
+  # shows (no instances → no burn → the infinite-runway arm).
+  test "the band carries the org identity and the wallet facts", %{
+    conn: conn,
+    org: org,
+    wallet: wallet
+  } do
+    {:ok, _grant} = Billing.grant_credits(wallet, 10_000)
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+    assert has_element?(view, "[data-testid='wallet-balance']", "$100.00")
+    assert has_element?(view, "[data-testid='wallet-runway']", "No active burn")
+    assert has_element?(view, "[data-testid='wallet-runway']", "Nothing burning right now.")
+  end
+
   test "the switcher names the viewed org as the active context", %{conn: conn, org: org} do
     {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
 

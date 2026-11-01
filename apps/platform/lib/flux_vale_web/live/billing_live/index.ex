@@ -1,14 +1,15 @@
 defmodule FluxValeWeb.BillingLive.Index do
   @moduledoc """
-  The billing surface (#123): the org wallet's balance and paginated
-  ledger history. Balance is the live ledger sum (`Billing.balance/2`);
-  history is keyset-paginated newest-first, appended into the stream by
-  "Load more" — cursors survive rows landing between pages, offset
-  windows wouldn't.
+  The billing surface (#123): the org wallet's facts and paginated
+  ledger history. The band's Balance/Runway facts ride the
+  `Billing.compute_runway/1` projection (the dashboard's source — one
+  wallet story for both surfaces); history is keyset-paginated
+  newest-first, appended into the stream by "Load more" — cursors
+  survive rows landing between pages, offset windows wouldn't.
 
   "Add credits" opens the top-up wizard (#137). No live updates:
-  balance reads at mount; the wizard's confirmation refreshes on its
-  own navigation. The balance header and the ledger history render
+  facts read at mount; the wizard's confirmation refreshes on its
+  own navigation. The band facts and the ledger history render
   through BillingComponents — shared with the org billing view (#276).
   """
 
@@ -27,10 +28,12 @@ defmodule FluxValeWeb.BillingLive.Index do
 
     case Accounts.personal_org_for_user(user.id, actor: user) do
       {:ok, org} ->
-        # ensure_wallet is the system seam (idempotent); every read
-        # below runs against the actor through the wallet policies.
+        # ensure_wallet is the system seam (idempotent); the facts ride
+        # the runway projection (balance included — the dashboard's
+        # source), the ledger read runs against the actor through the
+        # wallet policies.
         {:ok, wallet} = Billing.ensure_wallet(org)
-        {:ok, balance} = Billing.balance(wallet, actor: user)
+        {:ok, runway} = Billing.compute_runway(wallet)
 
         page = ledger_page(wallet.id, user)
 
@@ -39,7 +42,7 @@ defmodule FluxValeWeb.BillingLive.Index do
           |> stream(:entries, page.results)
           |> assign(
             wallet: wallet,
-            balance: balance,
+            runway: runway,
             page: page,
             history_empty?: page.results == []
           )
@@ -93,37 +96,69 @@ defmodule FluxValeWeb.BillingLive.Index do
       personal_org_id={@personal_org_id}
       username={@username}
       nav_section={@nav_section}
+      bare
     >
-      <div class="space-y-6">
-        <.header>
-          Billing
-          <:subtitle>Prepaid credits fund your instances.</:subtitle>
-        </.header>
+      <%!-- App-wide grammar page (S9): `bare` main + .appgram — the page
+      owns ALL of main's rhythm. The sunken band is the wallet: title +
+      CTA on the S6 band shape, the facts as eyebrow-labeled values
+      (the S4/S6 in-band posture, NOT floating stat cards), and the
+      top-up notice as the band's small print. No straddle (the one
+      straddle stays the instance show's, per S4's verdict). --%>
+      <div class="appgram contents">
+        <%!-- 1. The wallet band. --%>
+        <section class="band">
+          <div class="wrap pt-8 pb-10">
+            <div class="rise">
+              <div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+                <div class="min-w-0">
+                  <p class="eyebrow">Wallet</p>
+                  <h1 class="page-title mt-1.5">Billing</h1>
+                  <p class="mt-2 text-base text-ink-muted">
+                    Prepaid credits fund your instances.
+                  </p>
+                </div>
 
-        <.card class="space-y-4">
-          <div class="flex flex-wrap items-end justify-between gap-4">
-            <BillingComponents.balance_header balance={@balance} />
+                <div class="flex shrink-0 gap-2">
+                  <.button navigate={~p"/billing/topup"} variant="secondary" id="add-credits">
+                    Add credits
+                  </.button>
+                </div>
+              </div>
 
-            <.button navigate={~p"/billing/topup"} size="sm" id="add-credits">
-              Add credits
-            </.button>
+              <div class="mt-9">
+                <BillingComponents.wallet_facts facts={@runway} />
+              </div>
+
+              <p class="mt-6 text-xs text-ink-subtle" data-testid="topup-notice">
+                Credits can be used for any app, never expire, and are non-refundable — <.link
+                  navigate={~p"/policies/refund"}
+                  data-testid="topup-refund-policy"
+                  class="underline underline-offset-2 hover:text-ink"
+                >
+                  refund policy
+                </.link>.
+              </p>
+            </div>
           </div>
-          <p class="text-xs text-ink-subtle" data-testid="topup-notice">
-            Credits can be used for any app, never expire, and are non-refundable — <.link
-              navigate={~p"/policies/refund"}
-              data-testid="topup-refund-policy"
-              class="underline underline-offset-2 hover:text-ink"
-            >
-              refund policy
-            </.link>.
-          </p>
-        </.card>
+        </section>
 
-        <BillingComponents.ledger_history
-          entries={@streams.entries}
-          page={@page}
-          history_empty?={@history_empty?}
-        />
+        <%!-- 2. The ledger — the S4/S6 section shape: heading outside the
+        card, container-level rise (the stream patches rewrite rows in
+        place; a rise on patched nodes would replay the reveal — node
+        identity is what the rise rides). --%>
+        <section aria-labelledby="billing-history-title" class="wrap pt-10 pb-16">
+          <div class="rise space-y-4 [animation-delay:170ms]">
+            <h2 id="billing-history-title" class="text-lg font-semibold tracking-tight text-ink">
+              History
+            </h2>
+
+            <BillingComponents.ledger_history
+              entries={@streams.entries}
+              page={@page}
+              history_empty?={@history_empty?}
+            />
+          </div>
+        </section>
       </div>
     </Layouts.app>
     """

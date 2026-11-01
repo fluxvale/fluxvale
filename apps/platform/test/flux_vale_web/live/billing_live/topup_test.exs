@@ -45,9 +45,13 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
     test "renders the form with the actor's email prefilled", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/billing/topup")
 
+      # S9: the wizard opens in the band frame — identity, back link,
+      # and the shared stepper at the details rung.
       assert has_element?(view, "#topup-details-form")
       assert has_element?(view, "#topup-details-form input[name='details[email]']")
       assert has_element?(view, "[data-testid='topup-step-details']")
+      assert has_element?(view, "[data-testid='topup-stepper']")
+      assert has_element?(view, "a[href='/billing']", "← Billing")
     end
 
     # #285 T4 teeth: after the REAL operations promote a verified
