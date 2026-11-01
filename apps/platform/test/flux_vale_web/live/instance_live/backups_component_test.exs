@@ -319,6 +319,31 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
              )
     end
 
+    test "a never-paid org's resume toggle surfaces the top-up line", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      # The row exists (hand-minted); the resume flip is the paid gate's
+      # surface, so the panel shows the Forbidden's own copy — not a
+      # generic failure — and the row stays paused.
+      instance = instance!(version, user)
+      setting!(instance, enabled: false)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      render_click(element(view, "[data-testid=backups-enabled-toggle]"))
+
+      assert has_element?(
+               view,
+               "[data-testid=backups-error]",
+               "Top up at least $1 to resume backups"
+             )
+
+      {:ok, stored} = BackupSetting.get_by_instance(instance.id, authorize?: false)
+      refute stored.enabled
+    end
+
     test "an unreadable org still links the personal billing surface", %{
       conn: conn,
       user: user,

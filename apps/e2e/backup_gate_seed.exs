@@ -49,8 +49,10 @@ Enum.each([user_a, user_b], fn user ->
 end)
 
 # A catalog chain the instances point at (the fixtures' shape — dev
-# screenshot data, authorize?: false).
-n = System.unique_integer([:positive])
+# screenshot data, authorize?: false). The slug base is the random
+# suffix, not a process-local counter: `mix run` restarts the counter,
+# and the dev DB keeps rows between runs.
+n = suffix
 
 category =
   Category.create!(%{name: "Tools #{n}", slug: "tools-#{n}", description: "capture category"},

@@ -240,6 +240,12 @@ defmodule FluxValeWeb.InstanceLive.BackupsEdgeTest do
       instance = instance!(version, user)
       setting = setting!(instance)
 
+      # The vanished-row Forbidden is shaped like the paid refusal — the
+      # handler asks the ledger, and a PAID org's refusal reads as the
+      # row problem it is (the never-paid arm has its own test in the
+      # component's suite).
+      BillingFixtures.mark_user_paid!(user)
+
       {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
 
       Infrastructure.remove_backup_settings(setting, authorize?: false)

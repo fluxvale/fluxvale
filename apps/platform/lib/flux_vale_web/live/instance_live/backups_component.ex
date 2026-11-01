@@ -101,12 +101,22 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
          |> assign(error: nil, notice: toggle_notice(enabled))
          |> refresh()}
 
-      # coveralls-ignore-start - defensive: the merged setting validates
-      # (it came from a stored row) and a cluster failure is the same
-      # arms the save handler's copy covers with its own tests; landing
-      # here needs a K8s failure on a one-attribute update
-      {:error, _reason} ->
-        {:noreply, assign(socket, error: copy_for(:unavailable))}
+      # The resume flip is the paid gate's surface — and Ash answers a
+      # vanished row with the same Forbidden shape, so the ledger says
+      # which it is: a paid org's refusal here is the row, a never-paid
+      # org's is the wallet (the access panel's row_paid? posture).
+      {:error, %Ash.Error.Forbidden{}} ->
+        if ActorOrgHasPaid.org_paid?(socket.assigns.instance.organization_id) do
+          {:noreply, assign(socket, error: copy_for(:unavailable))}
+        else
+          {:noreply, assign(socket, error: copy_for(:resume_unpaid))}
+        end
+
+      # coveralls-ignore-start - defensive: the only non-policy failure
+      # is a DB outage, which ExUnit cannot simulate (DBConnection
+      # reconnects)
+      {:error, reason} ->
+        {:noreply, assign(socket, error: copy_for(reason))}
         # coveralls-ignore-stop
     end
   end
@@ -1018,10 +1028,20 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   defp copy_for(:secret_access_key_required), do: "Add your secret access key."
   defp copy_for(:secret_corrupt), do: "The stored credentials look damaged — re-enter your keys."
 
-  # The paid gate's refusal arrives as a Forbidden (the operation's
-  # own message names the fix) — the wallet is the fix, so the panel
-  # says so instead of the generic retry line.
-  defp copy_for(%Ash.Error.Forbidden{}), do: "Top up at least $1 before setting up backups."
+  # The resume toggle's paid refusal — the resource policy has no
+  # message of its own, so the panel names the fix (the save path's
+  # refusal renders the operation's own line).
+  defp copy_for(:resume_unpaid), do: "Top up at least $1 to resume backups."
+
+  # A Forbidden whose policy error carries a plain-words message is the
+  # operation speaking to the owner (the paid gate) — render its words.
+  # Bare policy denials (a stale row under the toggle, a cross-org save)
+  # are structural, not wallet problems: the honest generic line.
+  defp copy_for(%Ash.Error.Forbidden{
+         errors: [%Ash.Error.Forbidden.Policy{custom_message: message} | _rest]
+       })
+       when is_binary(message) and message != "",
+       do: message
 
   defp copy_for(_reason), do: "Something went wrong on our side. Try again in a minute."
 
