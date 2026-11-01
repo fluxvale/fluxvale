@@ -39,6 +39,20 @@ defmodule FluxVale.Checks.ActorOrgHasPaidTest do
       refute ActorOrgHasPaid.org_paid?(wallet.organization_id)
     end
 
+    test "a refund credit does not pay the org — the reason has teeth too" do
+      {_org, wallet} = welcome_wallet!()
+      {:ok, _entry} = Billing.credit_wallet(wallet, 500, reason: :refund)
+      refute ActorOrgHasPaid.org_paid?(wallet.organization_id)
+    end
+
+    test "an org holding welcome AND a $1 purchase has paid — the purchase entry is what counts" do
+      # The exists-filter only needs one qualifying row; the welcome
+      # balance around it is irrelevant.
+      {_org, wallet} = welcome_wallet!()
+      {:ok, _entry} = Billing.credit_wallet(wallet, 100)
+      assert ActorOrgHasPaid.org_paid?(wallet.organization_id)
+    end
+
     test "a wallet-less org has never paid" do
       {org, _owner} = BillingFixtures.grant_free_org!()
       refute ActorOrgHasPaid.org_paid?(org.id)
@@ -47,7 +61,7 @@ defmodule FluxVale.Checks.ActorOrgHasPaidTest do
 
   describe "the check itself" do
     test "describe/1 names the gate" do
-      assert is_binary(ActorOrgHasPaid.describe([]))
+      assert ActorOrgHasPaid.describe([]) == "the org has paid at least once (a $1+ top-up)"
     end
 
     test "an actor with no org passes — the create's own org-required validation answers" do
@@ -60,6 +74,26 @@ defmodule FluxVale.Checks.ActorOrgHasPaidTest do
 
       # create changesets carry no org yet → the actor path → :none → pass
       assert ActorOrgHasPaid.match?(orgless, %{subject: create_subject}, [])
+    end
+
+    test "a reload failure fails closed — a struct naming no row never passes" do
+      {org, _owner} = BillingFixtures.grant_free_org!()
+      {:ok, wallet} = Billing.ensure_wallet(org)
+      BillingFixtures.mark_paid!(wallet)
+
+      # The in-memory struct CLAIMS the paid org, but its primary key
+      # names no row: the fresh DB read fails and the gate answers
+      # false instead of trusting the caller.
+      phantom = %AccessGateway{id: Ecto.UUID.generate(), organization_id: org.id}
+      changeset = Ash.Changeset.for_update(phantom, :resume, %{}, authorize?: false)
+
+      refute ActorOrgHasPaid.match?(nil, %{subject: changeset}, [])
+    end
+
+    test "a non-changeset subject routes to the actor path — the create stance" do
+      orgless = Ash.Seed.seed!(User, %{email: "orgless-#{System.unique_integer()}@fluxvale.test"})
+
+      assert ActorOrgHasPaid.match?(orgless, %{subject: %AccessGateway{}}, [])
     end
   end
 

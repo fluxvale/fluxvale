@@ -52,7 +52,9 @@ Ash.Seed.seed!(AccessGateway, %{
   hostname: "fv-" <> String.downcase(suffix),
   monthly_cents: 200,
   state: :suspended,
-  status_message: "Suspended — the balance ran out",
+  # The real suspend path's copy (Suspend.change) — the capture must
+  # not show a status line the product never writes.
+  status_message: "Access paused — top up to resume",
   tailnet_domain: "capture-#{suffix}.ts.net"
 })
 

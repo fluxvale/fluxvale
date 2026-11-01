@@ -10,10 +10,11 @@ defmodule FluxVale.Checks.ActorOrgHasPaid do
   that this check ignores — a paid org stays paid. Wired to AccessGateway
   `create` and `resume` beside the funded check.
 
-  The org in play resolves by action shape: updates read it off the
-  loaded record (`changeset.data.organization_id`); creates resolve the
-  actor's personal org — the same lookup `SetOrganizationFromActor`
-  pins the row with moments later. An actor with no org passes the
+  The org in play resolves by action shape: creates resolve the actor's
+  personal org — the same lookup `SetOrganizationFromActor` pins the row
+  with moments later. Updates re-read the ROW from the database: an
+  in-process caller controls the changeset's in-memory struct, and the
+  gate must not be caller-controlled. An actor with no org passes the
   check so the create's own `organization_id is required` validation
   answers instead of a bare Forbidden (the ActorOrgWalletFunded stance).
   """
@@ -36,9 +37,11 @@ defmodule FluxVale.Checks.ActorOrgHasPaid do
 
   @impl Ash.Policy.SimpleCheck
   def match?(actor, context, _opts) do
-    case org_id(context.subject) do
-      nil -> paid_via_actor?(actor)
-      org_id -> org_paid?(org_id)
+    case row_org_id(context.subject) do
+      :create -> paid_via_actor?(actor)
+      {:ok, org_id} -> org_paid?(org_id)
+      # Reload failure (row gone, DB down): fail closed.
+      :error -> false
     end
   end
 
@@ -66,11 +69,19 @@ defmodule FluxVale.Checks.ActorOrgHasPaid do
     |> Ash.exists?(authorize?: false)
   end
 
-  # Updates carry the loaded record; creates don't (nil → actor path).
-  defp org_id(%Ash.Changeset{data: %_record{organization_id: org_id}}) when not is_nil(org_id),
-    do: org_id
+  # Updates carry the loaded record — but an in-process caller controls
+  # that struct, so the org comes off a FRESH DB read of the row, never
+  # the in-memory attribute. Creates carry no row yet → the actor path.
+  defp row_org_id(%Ash.Changeset{data: %_record{organization_id: nil}}), do: :create
 
-  defp org_id(_subject), do: nil
+  defp row_org_id(%Ash.Changeset{data: data}) do
+    case Ash.reload(data, authorize?: false) do
+      {:ok, fresh_row} -> {:ok, fresh_row.organization_id}
+      {:error, _reload_failure} -> :error
+    end
+  end
+
+  defp row_org_id(_subject), do: :create
 
   # The actor's org is what SetOrganizationFromActor will pin the row
   # with — the same wallet the created gateway bills. No org at all

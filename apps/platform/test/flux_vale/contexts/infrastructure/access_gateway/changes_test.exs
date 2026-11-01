@@ -9,6 +9,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
   use FluxVale.DataCase, async: true
   use Mimic
 
+  alias FluxVale.Accounts
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Ingress
@@ -300,7 +301,12 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
     end
 
     test "a paid, funded member creates and resumes", %{org: org, owner: owner} do
-      BillingFixtures.mark_paid!(org)
+      # The create bills the ACTOR'S PERSONAL ORG — SetOrganizationFromActor
+      # pins it, and the paid+funded policy reads the same resolver's
+      # answer (earliest-created org the user owns). Assert against that
+      # resolved org, not against the fixture org by coincidence.
+      {:ok, personal} = Accounts.personal_org_for_user(owner.id, authorize?: false)
+      BillingFixtures.mark_paid!(personal)
 
       assert {:ok, gateway} =
                AccessGateway.create(
@@ -308,9 +314,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
                  actor: owner
                )
 
-      # The row landed on the org the policy checked — the actor's own
-      # (the fixture org here: the earliest-created org the user owns).
-      assert gateway.organization_id == org.id
+      assert gateway.organization_id == personal.id
 
       # Resume opens the same way for a paid, funded wallet.
       stub(Tailscale, :scale_gateway, fn _gateway, _replicas -> :ok end)
@@ -326,6 +330,28 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       BillingFixtures.drain_wallet!(org)
 
       assert {:error, %Ash.Error.Forbidden{}} = AccessGateway.resume(suspended, actor: owner)
+    end
+
+    test "a forged struct naming a paid org is still refused — the row's own org answers", %{
+      org: org,
+      owner: owner
+    } do
+      # An in-process caller controls the changeset's in-memory struct:
+      # forge its organization_id to name a paid org the actor belongs
+      # to, while the real row lives in the never-paid org. The check
+      # re-reads the row from the DB, so the forgery changes nothing.
+      # (Membership is satisfied on both orgs, so the paid check is the
+      # only gate in play.)
+      paid_other = AccountsFixtures.owned_org!(owner)
+      BillingFixtures.funded_wallet!(org: paid_other)
+      BillingFixtures.mark_paid!(paid_other)
+
+      suspended = AccessFixtures.gateway!(org, state: :suspended)
+
+      changeset = Ash.Changeset.for_update(suspended, :resume, %{}, actor: owner)
+      forged = %{changeset | data: %{suspended | organization_id: paid_other.id}}
+
+      assert {:error, %Ash.Error.Forbidden{}} = AccessGateway.resume(forged, actor: owner)
     end
   end
 

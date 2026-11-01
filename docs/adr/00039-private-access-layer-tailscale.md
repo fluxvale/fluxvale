@@ -532,3 +532,19 @@ so the row-side gate admits the observed states too — `:active`,
 not-serving ones (`:suspended`, `:destroying`). The row is the consent;
 the states only decide whether anything is behind the port to hear it.
 Revisit trigger: a measured abuse of the path from outside the cluster.
+
+## Amendment 3 (2026-11-01): enablement also requires a paid-once wallet
+
+§4/§5 as accepted gate enablement (create and resume) on membership and
+a positive wallet balance. That balance test is satisfied by the $3
+welcome credit every org gets at signup — a bot gets welcome credits,
+never a card. Enablement now additionally requires a **paid-once**
+wallet: at least one `:purchase` ledger credit of $1 or more, ever
+(`ActorOrgHasPaid`, chained beside the funded check on `create` and
+`resume`). Welcome and goodwill credits never qualify — the ledger's
+reason dimension is the not-a-bot gate — and refunds (compensating
+debits) never un-pay a paid org. The balance>0 test itself stays: a
+paid org that drains still cannot resume. The panel's hints report the
+wallet each affordance acts on — enable bills the actor's personal org
+(the empty state's top-up callouts), resume the row's org (the
+suspended panel's top-up line).
