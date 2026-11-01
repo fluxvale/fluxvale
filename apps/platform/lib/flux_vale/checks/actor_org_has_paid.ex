@@ -53,7 +53,7 @@ defmodule FluxVale.Checks.ActorOrgHasPaid do
   @min_purchase_cents 100
 
   @impl Ash.Policy.Check
-  def describe(_opts), do: "the org has paid at least once (a $1+ top-up)"
+  def describe(_opts), do: "the org is past the paid gate (paid once, or operator-waived)"
 
   @impl Ash.Policy.SimpleCheck
   def match?(actor, context, _opts) do

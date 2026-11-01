@@ -1,11 +1,11 @@
 defmodule FluxVale.Checks.ActorOrgHasPaidTest do
   @moduledoc false
 
-  # The paid-once gate on private-access enablement: exactly one ledger
-  # shape qualifies — a `:purchase` credit of at least $1 (the
-  # whole-cents floor). The $3 signup welcome grant and goodwill
-  # adjustments deliberately do not count (a bot gets welcome credits,
-  # never a card), and a wallet-less org has never paid.
+  # The paid gate on private-access enablement: a `:purchase` credit of
+  # at least $1 (the whole-cents floor) OR the operator's paywall
+  # waiver. The $3 signup welcome grant and goodwill adjustments
+  # deliberately do not count (a bot gets welcome credits, never a
+  # card), and a wallet-less org has neither.
 
   use FluxVale.DataCase, async: true
 
@@ -100,7 +100,8 @@ defmodule FluxVale.Checks.ActorOrgHasPaidTest do
 
   describe "the check itself" do
     test "describe/1 names the gate" do
-      assert ActorOrgHasPaid.describe([]) == "the org has paid at least once (a $1+ top-up)"
+      assert ActorOrgHasPaid.describe([]) ==
+               "the org is past the paid gate (paid once, or operator-waived)"
     end
 
     test "an actor with no org passes — the create's own org-required validation answers" do
