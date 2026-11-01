@@ -79,7 +79,84 @@ defmodule FluxValeWeb.Telemetry do
       summary("vm.memory.total", unit: {:byte, :kilobyte}),
       summary("vm.total_run_queue_lengths.total"),
       summary("vm.total_run_queue_lengths.cpu"),
-      summary("vm.total_run_queue_lengths.io")
+      summary("vm.total_run_queue_lengths.io"),
+
+      # Business Metrics — one emission per seam, two consumers: these
+      # definitions render in LiveDashboard (the NOW view); the
+      # alert-worthy subset also flows to Grafana via PromEx's plugins
+      # (Plugins.Wake / Plugins.Business) with deliberately narrower
+      # labels. In-memory, resets per deploy — accepted. Buckets are
+      # shared with the PromEx plugin (ONE list — Wake.buckets/0).
+      #
+      # Wake latency (the scale-to-zero SLI) — events fire from
+      # Instance.WakeMarkers; only the definitions are new here.
+      distribution("flux_vale_wake_promotion_wait_seconds",
+        event_name: [:flux_vale, :wake, :promotion],
+        measurement: :duration,
+        description:
+          "Wake request to Deployment scaled — the platform-owned part of a wake (p95 < 5s SLO).",
+        reporter_options: [buckets: FluxVale.PromEx.Plugins.Wake.buckets()],
+        tags: [:app],
+        unit: :second
+      ),
+      distribution("flux_vale_wake_app_boot_seconds",
+        event_name: [:flux_vale, :wake, :boot],
+        measurement: :duration,
+        description: "Deployment scaled to readiness — the app-owned part of a wake, per-app.",
+        reporter_options: [buckets: FluxVale.PromEx.Plugins.Wake.buckets()],
+        tags: [:app],
+        unit: :second
+      ),
+      distribution("flux_vale_wake_total_seconds",
+        event_name: [:flux_vale, :wake, :total],
+        measurement: :duration,
+        description: "Wake request to serving — the whole wake, per-app.",
+        reporter_options: [buckets: FluxVale.PromEx.Plugins.Wake.buckets()],
+        tags: [:app],
+        unit: :second
+      ),
+      # Instance lifecycle outcomes (Instance.StatusMarkers on the
+      # :update_status funnel) — reason is the deploy-failure triage
+      # lens; labels are closed enums, cardinality bounded by the state
+      # machine (~24 series).
+      counter("flux_vale_instance_status_transition_count",
+        event_name: [:flux_vale, :instance, :status_transition],
+        measurement: :count,
+        description: "Instance status transitions, by from/to/reason (the lifecycle funnel).",
+        tags: [:from, :to, :reason]
+      ),
+      # Gateway state changes (AccessGateway.StateMarkers on the five
+      # state-writing actions) — ladder suspends vs observed failures,
+      # ~10 series.
+      counter("flux_vale_gateway_state_change_count",
+        event_name: [:flux_vale, :gateway, :state_change],
+        measurement: :count,
+        description: "Access-gateway state changes, by from/to (the billing switch).",
+        tags: [:from, :to]
+      ),
+      # Backup/restore outcomes (BackupRun.OutcomeMarkers on :update,
+      # terminal finalizes only) — 6 series + 3 for the duration
+      # summary's kinds.
+      counter("flux_vale_backup_run_count",
+        event_name: [:flux_vale, :backup, :run],
+        measurement: :count,
+        description: "Backup/restore runs reaching a terminal status, by kind and status.",
+        tags: [:kind, :status]
+      ),
+      summary("flux_vale_backup_duration_seconds",
+        event_name: [:flux_vale, :backup, :run],
+        measurement: :duration,
+        description: "Terminal backup/restore duration (started_at → finished_at), by kind.",
+        tags: [:kind],
+        unit: :second
+      ),
+      # Signups (VerifyAuthCode's JIT arm — seed/admin creates never
+      # pass through it) — one series.
+      counter("flux_vale_identity_signup_count",
+        event_name: [:flux_vale, :identity, :signup],
+        measurement: :count,
+        description: "JIT account creations — the signup rate."
+      )
     ]
   end
 

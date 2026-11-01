@@ -26,7 +26,10 @@ defmodule FluxVale.PromEx do
       {Beam, []},
       # #232: wake-latency histograms — the scale-to-zero SLI
       # (FluxVale.PromEx.Plugins.Wake owns the bucket/label contract).
-      {FluxVale.PromEx.Plugins.Wake, []}
+      {FluxVale.PromEx.Plugins.Wake, []},
+      # Business counters — the flux_vale_*_total families the fleet
+      # PR's allowlist cites (narrower labels than LiveDashboard's).
+      {FluxVale.PromEx.Plugins.Business, []}
     ]
   end
 end

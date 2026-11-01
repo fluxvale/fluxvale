@@ -35,6 +35,13 @@ defmodule FluxVale.PromEx.Plugins.Wake do
   # before touching this list.
   @buckets [0.5, 1, 2, 3, 5, 8, 12, 20, 30, 60, 90, 120, 180]
 
+  # The ONE bucket list: FluxValeWeb.Telemetry's LiveDashboard
+  # definitions share it so the dashboard's histograms and the fleet's
+  # series resolve identically.
+  @doc false
+  @spec buckets() :: [number()]
+  def buckets, do: @buckets
+
   @impl PromEx.Plugin
   def event_metrics(opts) do
     # Deliberately not the PromEx default prefix ([otp_app, :prom_ex,
