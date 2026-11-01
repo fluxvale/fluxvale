@@ -64,9 +64,13 @@ defmodule FluxValeWeb.CoreComponents do
       :if={msg = render_slot(@inner_block) || Phoenix.Flash.get(@flash, @kind)}
       id={@id}
       role="alert"
-      class="pointer-events-none fixed top-4 right-4 z-50 w-[calc(100%-2rem)] max-w-sm"
+      class="pointer-events-none fixed top-18 right-4 z-50 w-[calc(100%-2rem)] max-w-sm"
       {@rest}
     >
+      <%!-- Safe area (S11 consistency sweep): the header is sticky at
+           57px on every surface — top-4 parked the toast ON it, covering
+           the theme toggles and the user menu for the toast's whole
+           lifetime. top-18 clears the band. --%>
       <%!-- #294: pointer-events on these boxes is load-bearing (display-only
            toast) — the dismiss handler rides the close button, the one
            element that opts back in; don't undo it via rest/class. --%>
@@ -565,33 +569,6 @@ defmodule FluxValeWeb.CoreComponents do
     >
       {render_slot(@inner_block)}
     </div>
-    """
-  end
-
-  @doc """
-  Renders a single-value metric on a card (#205's dashboard: balance,
-  runway — the shape later widgets reuse).
-
-  ## Examples
-
-      <.metric_card label="Balance" value="$3.00" hint="Credits never expire." />
-      <.metric_card label="Runway" value="≈ 2 months" hint="at $4.10/mo burn" />
-  """
-  attr(:label, :string, required: true, doc: "the metric's name (small, muted)")
-  attr(:value, :string, required: true, doc: "the formatted value (large)")
-  attr(:hint, :string, default: nil, doc: "one line of context under the value")
-  attr(:class, :any, default: nil)
-  attr(:rest, :global)
-
-  def metric_card(assigns) do
-    ~H"""
-    <.card class={["flex items-start justify-between gap-4", @class]} {@rest}>
-      <div class="min-w-0">
-        <h2 class="text-sm font-medium text-ink-muted">{@label}</h2>
-        <p class="mt-1 text-3xl font-bold tracking-tight text-ink">{@value}</p>
-        <p :if={@hint} class="mt-1 text-xs text-ink-subtle">{@hint}</p>
-      </div>
-    </.card>
     """
   end
 
@@ -1201,7 +1178,7 @@ defmodule FluxValeWeb.CoreComponents do
     ~H"""
     <details data-testid="user-menu" class={["group relative", @class]} {@rest}>
       <summary
-        class="flex cursor-pointer list-none items-center gap-1.5 rounded-full border border-line bg-panel p-1 pr-2.5 [box-shadow:var(--elevation-sm)] transition-colors hover:bg-panel-raised [&::-webkit-details-marker]:hidden"
+        class="flex cursor-pointer list-none items-center gap-1.5 rounded-full border border-line bg-panel p-1 pr-2.5 [box-shadow:var(--elevation-sm)] outline-offset-2 outline-focus focus-visible:outline-2 transition-colors hover:bg-panel-raised [&::-webkit-details-marker]:hidden"
         aria-label="Account menu"
         data-testid="user-menu-button"
       >

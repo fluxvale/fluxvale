@@ -270,6 +270,13 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     assert html =~ "SMTP_PORT"
     assert html =~ "whole number"
     assert has_element?(view, "#env-form")
+
+    # The S8 a11y follow-up: the error list is an alert region that
+    # takes focus on mount (the error shape is map-level — every
+    # message hangs off :env_vars — so per-field aria-invalid has
+    # nothing honest to point at; that residual is declared on the PR).
+    assert has_element?(view, "#env-errors[role='alert']")
+    assert has_element?(view, "#env-errors[tabindex='-1']")
   end
 
   test "the full flow creates the instance and auto-deploys", %{

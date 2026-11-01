@@ -28,6 +28,17 @@ const settle = (page) =>
     Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {}))),
   );
 
+// One live-socket assertion, the S7 lesson (same helper as s9/s10):
+// the static render carries the same DOM, so driving before the socket
+// connects fires events into a dead page.
+const live = (pg) =>
+  pg.waitForFunction(
+    () =>
+      document.querySelector("[data-phx-session]")?.classList.contains("phx-connected"),
+    null,
+    { timeout: 15_000 },
+  );
+
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await ctx.newPage();
@@ -44,8 +55,18 @@ await page.goto(`${BASE}/apps/forgejo/deploy`, { waitUntil: "networkidle" });
 if (page.url().includes("/sign-in")) throw new Error("session did not take — check FV_TOKEN");
 
 // Drive the wizard to a step: 1 = version, 2 = configuration,
-// 3 = resources (picker), 4 = name. Each advance waits for the patch.
+// 3 = resources (picker), 4 = name. Each advance waits for the
+// DESTINATION's heading, not a fixed delay — a slow patch used to
+// leave the previous step under the next step's filename (the
+// CodeRabbit #351 lesson, applied to this script by the S11 audit).
+const DESTINATIONS = {
+  1: "h2:text('Pick a version')",
+  2: "h2:text('Configuration')",
+  3: "h2:text('Resources')",
+  4: "h2:text('Name your instance')",
+};
 const gotoStep = async (n) => {
+  await live(page);
   if (n > 1) {
     await page.locator("[data-testid='version-option']").first().click();
     await page.locator("[data-testid='continue-version']").click();
@@ -56,7 +77,7 @@ const gotoStep = async (n) => {
   if (n > 3) {
     await page.locator("[data-testid='continue-resources']").click();
   }
-  await page.waitForTimeout(400);
+  await page.locator(DESTINATIONS[n]).waitFor();
   await settle(page);
 };
 

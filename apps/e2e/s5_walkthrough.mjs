@@ -46,6 +46,17 @@ const setTheme = (page, mode) =>
 
 const join = (page) => page.waitForLoadState("networkidle");
 
+// One live-socket assertion, the S7 lesson (same helper as s9/s10):
+// mount redirects (push_navigate) ride the socket — reading the final
+// URL after a fixed sleep can read the pre-redirect address.
+const live = (pg) =>
+  pg.waitForFunction(
+    () =>
+      document.querySelector("[data-phx-session]")?.classList.contains("phx-connected"),
+    null,
+    { timeout: 15_000 },
+  );
+
 // -- 1. Route table ----------------------------------------------------
 
 const walker = await sessionContext(WALKER.token);
@@ -60,6 +71,7 @@ const table = [];
 // observational: their miss is recorded, never an error.
 async function probe(page, who, url, marker, { required = true } = {}) {
   await page.goto(`${BASE}${url}`, { waitUntil: "networkidle" });
+  await live(page);
   await page.waitForTimeout(400); // the mount redirect settles
   const finalUrl = new URL(page.url()).pathname;
   const testid = page.locator(`[data-testid='${marker}']`).first();

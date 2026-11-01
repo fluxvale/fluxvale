@@ -241,13 +241,31 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
             <.card :if={@step == 2} class="max-w-lg space-y-4">
               <h2 class="text-base font-medium text-ink">Configuration</h2>
 
+              <%!-- The error shape here is map-level (every message hangs
+              off the :env_vars attribute — no per-env-name attribution
+              exists to wire aria-invalid/aria-describedby against), so
+              the honest minimum is the alert region itself: role=alert
+              announces the list on mount, and the colocated hook moves
+              focus to it (the S8 a11y follow-up; per-field wiring is
+              the declared residual). --%>
               <ul
                 :if={env_errors(@form) != []}
                 id="env-errors"
-                class="space-y-1 text-sm text-danger"
+                role="alert"
+                tabindex="-1"
+                phx-hook=".FocusOnMount"
+                class="space-y-1 text-sm text-danger focus:outline-none"
               >
                 <li :for={msg <- env_errors(@form)}>{msg}</li>
               </ul>
+
+              <script :type={Phoenix.LiveView.ColocatedHook} name=".FocusOnMount">
+                export default {
+                  mounted() {
+                    requestAnimationFrame(() => this.el.focus())
+                  },
+                }
+              </script>
 
               <p :if={@schema == []} class="text-sm text-ink-muted">
                 Nothing to configure for this app — continue.
@@ -446,10 +464,16 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                 </span>
                 <.price_line selected={@selected} resources={@resources} />
               </div>
+              <%!-- Same a11y posture as the env step's list: the alert
+              region takes focus on mount (this is the arm a failed
+              save lands on when the errors render here). --%>
               <ul
                 :if={step_invisible_errors(@form) != []}
                 id="deploy-errors"
-                class="space-y-1 text-sm text-danger"
+                role="alert"
+                tabindex="-1"
+                phx-hook=".FocusOnMount"
+                class="space-y-1 text-sm text-danger focus:outline-none"
               >
                 <li :for={msg <- step_invisible_errors(@form)}>{msg}</li>
               </ul>

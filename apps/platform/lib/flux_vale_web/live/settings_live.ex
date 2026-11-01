@@ -324,228 +324,254 @@ defmodule FluxValeWeb.SettingsLive do
       personal_org_id={@personal_org_id}
       username={@username}
       nav_section={@nav_section}
+      bare
     >
-      <div class="mx-auto max-w-3xl space-y-8">
-        <div>
-          <h1 class="text-2xl font-semibold tracking-tight text-ink" data-testid="settings-title">
-            Account settings
-          </h1>
-          <p class="mt-1 text-sm text-ink-muted">Your handle and the addresses you sign in with.</p>
-        </div>
-
-        <.card id="settings-username-card" class="space-y-4">
-          <div>
-            <h2 class="text-base font-medium text-ink">Username</h2>
-            <p class="mt-1 text-sm text-ink-muted">
-              Your handle across FluxVale. The old handle is released for anyone to claim —
-              no reservations.
-            </p>
-          </div>
-
-          <.form
-            for={@username_form}
-            id="username-form"
-            phx-change="validate"
-            phx-submit="save-username"
-            class="space-y-4"
-          >
-            <.input
-              field={@username_form[:username]}
-              label="Username"
-              maxlength={39}
-              required
-              data-testid="username-input"
-            />
-
-            <.callout
-              :if={@pending_username}
-              id="username-confirm"
-              tone="warning"
-              title="Rename your account?"
-              data-testid="username-confirm"
-            >
-              <p>
-                Your handle becomes <span class="font-mono">{@pending_username}</span>. The old
-                handle is released immediately and no redirect is created — anything that
-                addressed it stops.
-              </p>
-              <div class="flex gap-3 pt-1">
-                <.button
-                  type="button"
-                  phx-click="confirm-username"
-                  size="sm"
-                  data-testid="confirm-username"
-                >
-                  Rename account
-                </.button>
-                <.button
-                  variant="ghost"
-                  type="button"
-                  phx-click="cancel-username"
-                  size="sm"
-                  data-testid="cancel-username"
-                >
-                  Cancel
-                </.button>
+      <%!-- App-wide grammar page (S11): `bare` main + .appgram — the
+      page owns ALL of main's rhythm. The band is the account frame
+      (the S10 personal-access band's shape: the way back, the Account
+      eyebrow, the working-page title); the sections keep the flows
+      byte-for-byte, re-skinned on the grammar's card language. --%>
+      <div class="appgram contents">
+        <section class="band">
+          <div class="wrap pt-8 pb-10">
+            <div class="rise">
+              <.link
+                navigate={~p"/"}
+                data-testid="settings-back"
+                class="inline-flex items-center gap-1.5 text-sm text-ink-muted transition-colors hover:text-ink"
+              >
+                <span aria-hidden="true">&larr;</span> Dashboard
+              </.link>
+              <div class="mt-3 min-w-0">
+                <p class="eyebrow">Account</p>
+                <h1 class="page-title mt-1.5" data-testid="settings-title">
+                  Account settings
+                </h1>
+                <p class="mt-2 text-sm text-ink-muted">
+                  Your handle and the addresses you sign in with.
+                </p>
               </div>
-            </.callout>
-
-            <div class="flex justify-end">
-              <.button type="submit" data-testid="username-save">
-                Save changes
-              </.button>
             </div>
-          </.form>
-        </.card>
-
-        <.card id="settings-emails-card" class="space-y-4">
-          <div>
-            <h2 class="text-base font-medium text-ink">Email addresses</h2>
-            <p class="mt-1 text-sm text-ink-muted">
-              Any verified address signs you in; the primary is where billing writes to.
-            </p>
           </div>
+        </section>
 
-          <div class="divide-y divide-line">
-            <div
-              :for={item <- @emails}
-              id={"email-row-#{item.row.id}"}
-              class="flex flex-wrap items-start justify-between gap-3 py-3"
-              data-testid="email-row"
-            >
-              <div class="min-w-0 space-y-1">
-                <div class="flex flex-wrap items-center gap-2">
-                  <span class="break-all text-sm font-medium text-ink">{item.row.address}</span>
-                  <.badge
-                    :if={item.row.is_primary}
-                    tone="primary"
-                    data-testid={"email-primary-#{item.row.id}"}
-                  >
-                    Primary
-                  </.badge>
-                  <.badge
-                    :if={not is_nil(item.row.verified_at)}
-                    tone="success"
-                    data-testid={"email-verified-#{item.row.id}"}
-                  >
-                    Verified
-                  </.badge>
-                  <.badge
-                    :if={is_nil(item.row.verified_at)}
-                    tone="warning"
-                    data-testid={"email-pending-#{item.row.id}"}
-                  >
-                    Pending
-                  </.badge>
-                </div>
+        <section class="wrap pt-8 pb-16">
+          <div class="rise space-y-6">
+            <.card id="settings-username-card" class="card max-w-2xl space-y-4">
+              <div>
+                <h2 class="text-base font-medium text-ink">Username</h2>
+                <p class="mt-1 text-sm text-ink-muted">
+                  Your handle across FluxVale. The old handle is released for anyone to claim —
+                  no reservations.
+                </p>
+              </div>
 
-                <%!-- A pending claim is a claim on an inbox, not an address
-                you own yet: the code that lands there is the proof — the
-                same sign-in code, no separate token ("one proof"). --%>
-                <.form
-                  :if={is_nil(item.row.verified_at)}
-                  for={@verify_form}
-                  id={"verify-form-#{item.row.id}"}
-                  phx-submit="verify-email"
-                  class="flex items-end gap-2"
+              <.form
+                for={@username_form}
+                id="username-form"
+                phx-change="validate"
+                phx-submit="save-username"
+                class="space-y-4"
+              >
+                <.input
+                  field={@username_form[:username]}
+                  label="Username"
+                  maxlength={39}
+                  required
+                  data-testid="username-input"
+                />
+
+                <.callout
+                  :if={@pending_username}
+                  id="username-confirm"
+                  tone="warning"
+                  title="Rename your account?"
+                  data-testid="username-confirm"
                 >
-                  <input type="hidden" name="row_id" value={item.row.id} />
-                  <div class="w-32">
-                    <%!-- one shared form struct names every row's field the
-                    same — the explicit id keeps the DOM ids unique per row
-                    (the cap allows several pending claims on one page) --%>
-                    <.input
-                      field={@verify_form[:code]}
-                      id={"verify-code-input-#{item.row.id}"}
-                      type="text"
-                      inputmode="numeric"
-                      maxlength={6}
-                      label="Sign-in code"
-                      data-testid={"verify-code-#{item.row.id}"}
-                    />
+                  <p>
+                    Your handle becomes <span class="font-mono">{@pending_username}</span>. The old
+                    handle is released immediately and no redirect is created — anything that
+                    addressed it stops.
+                  </p>
+                  <div class="flex gap-3 pt-1">
+                    <.button
+                      type="button"
+                      phx-click="confirm-username"
+                      size="sm"
+                      data-testid="confirm-username"
+                    >
+                      Rename account
+                    </.button>
+                    <.button
+                      variant="ghost"
+                      type="button"
+                      phx-click="cancel-username"
+                      size="sm"
+                      data-testid="cancel-username"
+                    >
+                      Cancel
+                    </.button>
                   </div>
-                  <.button type="submit" size="sm" data-testid={"verify-submit-#{item.row.id}"}>
-                    Verify
+                </.callout>
+
+                <div class="flex justify-end">
+                  <.button type="submit" data-testid="username-save">
+                    Save changes
                   </.button>
-                </.form>
+                </div>
+              </.form>
+            </.card>
+
+            <.card id="settings-emails-card" class="card max-w-2xl space-y-4">
+              <div>
+                <h2 class="text-base font-medium text-ink">Email addresses</h2>
+                <p class="mt-1 text-sm text-ink-muted">
+                  Any verified address signs you in; the primary is where billing writes to.
+                </p>
               </div>
 
-              <div class="flex shrink-0 items-center gap-2">
-                <%!-- Disabled mirrors the domain's guards (SetPrimary's
-                verified-only); the domain still enforces them. --%>
-                <.button
-                  :if={not item.row.is_primary}
-                  type="button"
-                  phx-click="set-primary"
-                  phx-value-row_id={item.row.id}
-                  variant="secondary"
-                  size="sm"
-                  disabled={not item.promotable?}
-                  data-testid={"email-set-primary-#{item.row.id}"}
+              <div class="divide-y divide-line">
+                <div
+                  :for={item <- @emails}
+                  id={"email-row-#{item.row.id}"}
+                  class="flex flex-wrap items-start justify-between gap-3 py-3"
+                  data-testid="email-row"
                 >
-                  Set primary
-                </.button>
-                <%!-- Disabled mirrors RemoveGuard (frozen mirror / primary /
-                last verified); the domain still enforces them — a crafted
-                click meets the refusal, not the UI's word for it. --%>
-                <.button
-                  type="button"
-                  phx-click="remove-email"
-                  phx-value-row_id={item.row.id}
-                  variant="ghost"
-                  size="sm"
-                  disabled={not item.removable?}
-                  data-testid={"email-remove-#{item.row.id}"}
-                >
-                  Remove
-                </.button>
+                  <div class="min-w-0 space-y-1">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="break-all text-sm font-medium text-ink">{item.row.address}</span>
+                      <.badge
+                        :if={item.row.is_primary}
+                        tone="primary"
+                        data-testid={"email-primary-#{item.row.id}"}
+                      >
+                        Primary
+                      </.badge>
+                      <.badge
+                        :if={not is_nil(item.row.verified_at)}
+                        tone="success"
+                        data-testid={"email-verified-#{item.row.id}"}
+                      >
+                        Verified
+                      </.badge>
+                      <.badge
+                        :if={is_nil(item.row.verified_at)}
+                        tone="warning"
+                        data-testid={"email-pending-#{item.row.id}"}
+                      >
+                        Pending
+                      </.badge>
+                    </div>
+
+                    <%!-- A pending claim is a claim on an inbox, not an address
+                    you own yet: the code that lands there is the proof — the
+                    same sign-in code, no separate token ("one proof"). --%>
+                    <.form
+                      :if={is_nil(item.row.verified_at)}
+                      for={@verify_form}
+                      id={"verify-form-#{item.row.id}"}
+                      phx-submit="verify-email"
+                      class="flex items-end gap-2"
+                    >
+                      <input type="hidden" name="row_id" value={item.row.id} />
+                      <div class="w-32">
+                        <%!-- one shared form struct names every row's field the
+                        same — the explicit id keeps the DOM ids unique per row
+                        (the cap allows several pending claims on one page) --%>
+                        <.input
+                          field={@verify_form[:code]}
+                          id={"verify-code-input-#{item.row.id}"}
+                          type="text"
+                          inputmode="numeric"
+                          maxlength={6}
+                          label="Sign-in code"
+                          data-testid={"verify-code-#{item.row.id}"}
+                        />
+                      </div>
+                      <.button type="submit" size="sm" data-testid={"verify-submit-#{item.row.id}"}>
+                        Verify
+                      </.button>
+                    </.form>
+                  </div>
+
+                  <div class="flex shrink-0 items-center gap-2">
+                    <%!-- Disabled mirrors the domain's guards (SetPrimary's
+                    verified-only); the domain still enforces them. --%>
+                    <.button
+                      :if={not item.row.is_primary}
+                      type="button"
+                      phx-click="set-primary"
+                      phx-value-row_id={item.row.id}
+                      variant="secondary"
+                      size="sm"
+                      disabled={not item.promotable?}
+                      data-testid={"email-set-primary-#{item.row.id}"}
+                    >
+                      Set primary
+                    </.button>
+                    <%!-- Disabled mirrors RemoveGuard (frozen mirror / primary /
+                    last verified); the domain still enforces them — a crafted
+                    click meets the refusal, not the UI's word for it. --%>
+                    <.button
+                      type="button"
+                      phx-click="remove-email"
+                      phx-value-row_id={item.row.id}
+                      variant="ghost"
+                      size="sm"
+                      disabled={not item.removable?}
+                      data-testid={"email-remove-#{item.row.id}"}
+                    >
+                      Remove
+                    </.button>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
 
-          <.form for={@add_form} id="add-email-form" phx-submit="add-email" class="space-y-3">
-            <div class="flex items-end gap-2">
-              <.input
-                field={@add_form[:address]}
-                type="email"
-                label="Add an address"
-                placeholder="you@example.com"
-                data-testid="add-email-input"
-              />
-              <.button type="submit" size="sm" data-testid="add-email-submit">
-                Add address
-              </.button>
-            </div>
-            <p class="text-xs text-ink-subtle">
-              We'll send a sign-in code to the new address — enter it here to verify you own
-              the inbox. A pending claim expires after {UserEmail.claim_ttl_minutes()} minutes.
-            </p>
-          </.form>
-        </.card>
+              <.form for={@add_form} id="add-email-form" phx-submit="add-email" class="space-y-3">
+                <div class="flex items-end gap-2">
+                  <.input
+                    field={@add_form[:address]}
+                    type="email"
+                    label="Add an address"
+                    placeholder="you@example.com"
+                    data-testid="add-email-input"
+                  />
+                  <.button type="submit" size="sm" data-testid="add-email-submit">
+                    Add address
+                  </.button>
+                </div>
+                <p class="text-xs text-ink-subtle">
+                  We'll send a sign-in code to the new address — enter it here to verify you own
+                  the inbox. A pending claim expires after {UserEmail.claim_ttl_minutes()} minutes.
+                </p>
+              </.form>
+            </.card>
 
-        <%!-- S5: the personal org's access panel lives in user settings —
-        this row is the way there (the instance page's Settings → Access
-        link lands on /settings/access for personal-org instances).
-        Hidden without a personal org (OrgNav's degradation stance): a
-        member-only actor's target would be a dead-end not-found. --%>
-        <.card :if={@personal_org_id} id="settings-access-card" class="space-y-4">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 class="text-base font-medium text-ink">Access</h2>
-              <p class="mt-1 text-sm text-ink-muted">
-                Reach your private apps from your own Tailscale network.
-              </p>
-            </div>
-            <.button
-              variant="secondary"
-              size="sm"
+            <%!-- S5: the personal org's access panel lives in user settings —
+            this row is the way there (the instance page's Settings → Access
+            link lands on /settings/access for personal-org instances).
+            Hidden without a personal org (OrgNav's degradation stance): a
+            member-only actor's target would be a dead-end not-found.
+            In-grammar: the whole card IS the link (the grammar's a.card —
+            the lift fires because the card is the clickable unit), the
+            dashboard row's chevron as the affordance. --%>
+            <.link
+              :if={@personal_org_id}
               navigate={~p"/settings/access"}
+              id="settings-access-card"
               data-testid="settings-access-link"
+              class="card max-w-2xl flex flex-wrap items-center justify-between gap-3 p-5"
             >
-              Manage access
-            </.button>
+              <div>
+                <h2 class="text-base font-medium text-ink">Access</h2>
+                <p class="mt-1 text-sm text-ink-muted">
+                  Reach your private apps from your own Tailscale network.
+                </p>
+              </div>
+              <.icon name="hero-chevron-right" class="size-4 shrink-0 text-ink-subtle" />
+            </.link>
           </div>
-        </.card>
+        </section>
       </div>
     </Layouts.app>
     """

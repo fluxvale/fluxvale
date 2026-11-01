@@ -329,7 +329,7 @@ defmodule FluxValeWeb.Layouts do
       <button
         class={
           [
-            "grid size-7 cursor-pointer place-items-center rounded-full text-ink-subtle transition-colors hover:text-ink-muted",
+            "grid size-7 cursor-pointer place-items-center rounded-full text-ink-subtle outline-offset-2 outline-focus focus-visible:outline-2 transition-colors hover:text-ink-muted",
             # system is active while the source attr says system
             "[[data-theme-source=system]_&]:bg-panel-raised [[data-theme-source=system]_&]:text-ink"
           ]
@@ -344,7 +344,7 @@ defmodule FluxValeWeb.Layouts do
       <button
         class={
           [
-            "grid size-7 cursor-pointer place-items-center rounded-full text-ink-subtle transition-colors hover:text-ink-muted",
+            "grid size-7 cursor-pointer place-items-center rounded-full text-ink-subtle outline-offset-2 outline-focus focus-visible:outline-2 transition-colors hover:text-ink-muted",
             # explicit picks: data-theme is always set; exclude system mode
             "[[data-theme=light]:not([data-theme-source=system])_&]:bg-panel-raised [[data-theme=light]:not([data-theme-source=system])_&]:text-ink"
           ]
@@ -358,7 +358,7 @@ defmodule FluxValeWeb.Layouts do
 
       <button
         class={[
-          "grid size-7 cursor-pointer place-items-center rounded-full text-ink-subtle transition-colors hover:text-ink-muted",
+          "grid size-7 cursor-pointer place-items-center rounded-full text-ink-subtle outline-offset-2 outline-focus focus-visible:outline-2 transition-colors hover:text-ink-muted",
           "[[data-theme=dark]:not([data-theme-source=system])_&]:bg-panel-raised [[data-theme=dark]:not([data-theme-source=system])_&]:text-ink"
         ]}
         phx-click={JS.dispatch("phx:set-theme")}
