@@ -230,6 +230,19 @@
       translate: none !important;
       transition: none !important;
     }
+
+    /* Hover fades are motion: non-card interactive surfaces (the
+     * instance rows, the mosaic cards, inline links) carry transition
+     * utilities the .card kill never reached, and the fades split
+     * across the tree — the card link's shadow, the title's colour,
+     * the chevron's opacity. Kill the transitions, keep the design
+     * states (opacity: 1 here would pin hover-only affordances
+     * visible; hostile-341 F5; one rule lands it across S2-S7). */
+    .appgram :is(a, button):not(.card),
+    .appgram :is(a, button):not(.card) * {
+      animation: none !important;
+      transition: none !important;
+    }
   }
 
   /* Print: paged media never runs a load animation — the same kill list,

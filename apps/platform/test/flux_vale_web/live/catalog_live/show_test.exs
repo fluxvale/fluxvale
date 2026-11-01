@@ -94,7 +94,14 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
     n = System.unique_integer()
 
     category =
-      Category.create!(%{name: "Empty #{n}", slug: "empty-#{n}"}, authorize?: false)
+      Category.create!(
+        %{
+          name: "Empty #{n}",
+          slug: "empty-#{n}",
+          description: "Test category #{n} — covers the band's category line."
+        },
+        authorize?: false
+      )
 
     app =
       App.create!(
@@ -102,9 +109,15 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
         authorize?: false
       )
 
-    {:ok, view, _html} = live(conn, ~p"/apps/bare-#{n}")
+    {:ok, view, html} = live(conn, ~p"/apps/bare-#{n}")
 
     assert has_element?(view, "h1", "Bare #{n}")
+    # The category description lands in the band under the eyebrow
+    # (hostile-341 F4) — the field stays readable by the authed app.
+    assert has_element?(view, "p", "Test category #{n} — covers the band's category line.")
+    # The gate's companion (#341 hostile F7): the Versions heading isn't
+    # a dead end — the empty state carries the next step's absence.
+    assert html =~ "No versions published yet."
     refute has_element?(view, "a[href='/apps/bare-#{n}/deploy']")
   end
 

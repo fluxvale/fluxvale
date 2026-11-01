@@ -53,6 +53,15 @@ defmodule FluxValeWeb.CatalogLive.Show do
               </.button>
 
               <p class="eyebrow mt-4">{@app.category.name}</p>
+              <%!-- The category's own line — the field the browse retired
+                (hostile-341 F4): editable catalog data no authed surface
+                read. It lands here, in situ under the eyebrow. --%>
+              <p
+                :if={@app.category.description}
+                class="mt-1 max-w-prose text-sm text-ink-muted"
+              >
+                {@app.category.description}
+              </p>
 
               <div class="mt-1.5 flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
                 <div class="flex min-w-0 items-center gap-4">
@@ -74,8 +83,16 @@ defmodule FluxValeWeb.CatalogLive.Show do
                 <div class="flex shrink-0 gap-2">
                   <%!-- No versions, no stepper: the wizard's step 1 would
                     list nothing (an app can exist before its first
-                    version; #341 review). --%>
-                  <.button :if={@versions != []} navigate={~p"/apps/#{@app.slug}/deploy"}>
+                    version; #341 review). Distinguishable from the
+                    version buttons for readers and tests (hostile-341
+                    F6); the duplication itself is a known decision. --%>
+                  <.button
+                    :if={@versions != []}
+                    id="deploy-app"
+                    data-testid="deploy-band"
+                    aria-label={"Deploy #{@app.name}"}
+                    navigate={~p"/apps/#{@app.slug}/deploy"}
+                  >
                     Deploy
                   </.button>
                 </div>
@@ -124,6 +141,8 @@ defmodule FluxValeWeb.CatalogLive.Show do
         <section class="wrap pt-14 pb-16">
           <div class="rise space-y-4 [animation-delay:170ms]">
             <h2 class="text-lg font-semibold tracking-tight text-ink">Versions</h2>
+
+            <.empty_state :if={@versions == []} title="No versions published yet." />
 
             <div class="space-y-4">
               <.card :for={version <- @versions} id={"version-#{version.id}"} class="space-y-4">

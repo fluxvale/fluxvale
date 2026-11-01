@@ -114,6 +114,10 @@ await settle(page);
 const cards = page.locator("#catalog-mosaic > a");
 const cardCount = await cards.count();
 const probe = cards.nth(cardCount - 1);
+// The probe card may sit below the fold on a grown catalog — its
+// bottom-1px click must be in the viewport to land (hostile-341 F9).
+await probe.evaluate((el) => el.scrollIntoView({ block: "center" }));
+await page.waitForTimeout(150);
 const box = await probe.boundingBox();
 await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 await page.waitForTimeout(400);
@@ -192,16 +196,31 @@ out({ probe: "reduced-motion-rest", ...rm });
 
 const rbox = await rpage.locator("#catalog-mosaic > a").first().boundingBox();
 await rpage.mouse.move(rbox.x + rbox.width / 2, rbox.y + rbox.height / 2);
-await rpage.waitForTimeout(400);
-const rmHover = await rpage.evaluate(() => {
-  const card = document.querySelector("#catalog-mosaic > a");
-  return {
-    cardTranslate: getComputedStyle(card).translate || "none",
-    innerTranslate: getComputedStyle(card.firstElementChild).translate || "none",
-    animations: document.getAnimations().length,
-  };
-});
-out({ probe: "reduced-motion-hover", ...rmHover });
+// Sample inside the transition window: a 400ms wait can only ever read
+// zero, so watch every frame for the first 60ms and report what runs
+// (hostile-341 F5/F9).
+const rmHover = await rpage.evaluate(
+  () =>
+    new Promise((resolve) => {
+      const t0 = performance.now();
+      const sample = () => {
+        const anims = document
+          .getAnimations()
+          .filter((a) => a instanceof CSSTransition || a instanceof CSSAnimation);
+        if (anims.length > 0 || performance.now() - t0 >= 60) {
+          resolve({
+            atMs: Math.round(performance.now() - t0),
+            animations: anims.length,
+            props: anims.map((a) => a.transitionProperty || a.animationName),
+          });
+        } else {
+          requestAnimationFrame(sample);
+        }
+      };
+      requestAnimationFrame(sample);
+    }),
+);
+out({ probe: "reduced-motion-hover-60ms", ...rmHover });
 
 await rctx.close();
 await browser.close();

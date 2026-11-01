@@ -45,6 +45,9 @@ const shots = [
   ["catalog", "/apps", 375, 667],
   ["catalog-show", "/apps/forgejo", 1440, 900],
   ["catalog-show", "/apps/forgejo", 375, 667],
+  // The zero-versions state (hostile-341 F7): no band CTA, an empty
+  // state under the Versions heading — only exists on staged catalogs.
+  ["catalog-show-empty", "/apps/unreleased-thing", 1440, 900],
 ];
 
 for (const [name, path, width, height] of shots) {

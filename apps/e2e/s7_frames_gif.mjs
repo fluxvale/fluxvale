@@ -43,11 +43,19 @@ await page.request.post(`${BASE}/auth/session`, {
 const nav = page.goto(`${BASE}/apps`, { waitUntil: "commit" });
 await nav;
 let n = 0;
+const shot = async (path) => {
+  // The reveal is still painting during the burst; Chromium can refuse
+  // the capture mid-frame — one retry after a beat is enough.
+  try {
+    await page.screenshot({ path });
+  } catch {
+    await page.waitForTimeout(120);
+    await page.screenshot({ path });
+  }
+};
 const burst = async (prefix, times) => {
   for (let i = 0; i < times; i++) {
-    await page.screenshot({
-      path: `${outdir}/frames/${prefix}${String(n++).padStart(2, "0")}.png`,
-    });
+    await shot(`${outdir}/frames/${prefix}${String(n++).padStart(2, "0")}.png`);
     await page.waitForTimeout(70);
   }
 };

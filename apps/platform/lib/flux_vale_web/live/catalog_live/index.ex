@@ -1,8 +1,10 @@
 defmodule FluxValeWeb.CatalogLive.Index do
   @moduledoc """
-  Catalog browse (#74): categories with their apps — the deploy flow's
+  Catalog browse (#74): the apps as a dense mosaic — the deploy flow's
   front door. Reads run through resource policies (any signed-in actor
-  browses; public read relaxes with M7 pages).
+  browses; public read relaxes with M7 pages). The category structure
+  rides each card's mono eyebrow (category-then-name order); the old
+  per-category sections are gone with the S7 mosaic.
   """
 
   use FluxValeWeb, :live_view
@@ -12,21 +14,20 @@ defmodule FluxValeWeb.CatalogLive.Index do
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
-    categories =
+    # The mosaic renders the flat {app, category} stream only — there is
+    # no category assign left to render (hostile-341 F10); the :apps
+    # load feeds catalog_apps/1.
+    catalog_apps =
       Category
       |> Ash.Query.for_read(:read, %{}, actor: socket.assigns.current_user)
       |> Ash.Query.sort(:name)
       |> Ash.Query.load(:apps)
       |> Ash.read!()
+      |> catalog_apps()
 
     {:ok,
-     assign(
-       socket,
-       categories: categories,
-       # The mosaic's flat stream, computed once — the empty state keys
-       # on it, not on @categories (categories can exist with zero apps;
-       # #341 review).
-       catalog_apps: catalog_apps(categories),
+     assign(socket,
+       catalog_apps: catalog_apps,
        wake_estimates: safe_wake_estimates()
      )}
   end
@@ -78,20 +79,25 @@ defmodule FluxValeWeb.CatalogLive.Index do
           </div>
         </section>
 
-        <%!-- 2. The mosaic: one grid, all apps. Judgment call per the
-        slice spec: the seeded catalog is small (2 honest cards), so
-        per-category sections would each leave 2/3 of their row empty —
-        the exact card-dribble tell this slice kills. The grouping
-        survives as the mono category eyebrow on every card, apps in
-        category-then-name order. Two 1fr tracks fill the wrap's width
-        at every ≥480px viewport; more apps just append rows. Same card
+        <%!-- 2. The mosaic: one grid, all apps. Category sections would
+        each leave their row partly empty (the card-dribble tell), so
+        the grouping rides each card's mono eyebrow instead — see the
+        grid comment below for the self-fitting track rule. Same card
         language as the instance rows: link box stays put, the inner
         wrapper lifts (a bottom-1px click still lands in the link). --%>
         <section class="wrap pt-14 pb-16">
           <div class="rise space-y-4 [animation-delay:170ms]">
             <.empty_state :if={@catalog_apps == []} title="No apps in the catalog yet." />
 
-            <div id="catalog-mosaic" class="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2">
+            <%!-- Self-fitting mosaic (hostile-341 F1/F2/F3): auto-fit
+            collapses unused tracks, so small catalogs fill the wrap (a
+            1-app catalog is one full-width card) and grown catalogs get
+            3 tracks at desktop; the 17rem floor means 2 tracks only
+            when each cell is at least 17rem — no 216px cliff cells. --%>
+            <div
+              id="catalog-mosaic"
+              class="grid grid-cols-[repeat(auto-fit,minmax(min(17rem,100%),1fr))] gap-4"
+            >
               <.link
                 :for={{app, category} <- @catalog_apps}
                 navigate={~p"/apps/#{app.slug}"}
@@ -102,9 +108,12 @@ defmodule FluxValeWeb.CatalogLive.Index do
                 <div class="flex h-full flex-col transition-[translate] duration-(--motion-base) ease-(--motion-ease-out) motion-safe:group-hover:-translate-y-1">
                   <%!-- The landing mini-catalog's cell shape: mono category,
                   then chip + name, then description. Icon-in-tile (#277
-                  T4) keeps one silhouette for icon-less apps. --%>
-                  <p class="eyebrow">{category.name}</p>
-                  <div class="mt-2 flex items-center gap-3">
+                  T4) keeps one silhouette for icon-less apps. The
+                  eyebrow can't wrap (nowrap holds the row line), and the
+                  tagline holds two lines so stretched cells even out
+                  (hostile-341 F3). --%>
+                  <p class="eyebrow whitespace-nowrap">{category.name}</p>
+                  <div class="relative mt-2 flex items-center gap-3">
                     <div class="grid size-9 shrink-0 place-items-center rounded-control bg-primary-muted text-sm font-semibold text-link">
                       <img
                         :if={app.icon_url}
@@ -117,12 +126,20 @@ defmodule FluxValeWeb.CatalogLive.Index do
                     <h2 class="min-w-0 flex-1 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
                       {app.name}
                     </h2>
+                    <%!-- Out of flow: the affordance holds no layout space
+                      at rest — 28px stays with the name at the narrowest
+                      cells (hostile-341 F8). --%>
                     <.icon
                       name="hero-chevron-right"
-                      class="size-4 shrink-0 text-ink-subtle opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100"
+                      class="absolute top-1/2 right-0 size-4 -translate-y-1/2 text-ink-subtle opacity-0 transition-opacity duration-(--motion-fast) group-hover:opacity-100"
                     />
                   </div>
-                  <p :if={app.tagline} class="mt-2.5 text-sm text-ink-muted">{app.tagline}</p>
+                  <p
+                    :if={app.tagline}
+                    class="mt-2.5 line-clamp-2 min-h-10 text-sm text-ink-muted"
+                  >
+                    {app.tagline}
+                  </p>
                   <%= if estimate = @wake_estimates[app.slug] do %>
                     <p
                       class="mt-3 text-xs font-medium text-success"
