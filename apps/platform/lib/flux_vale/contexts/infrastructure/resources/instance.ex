@@ -72,6 +72,7 @@ defmodule FluxVale.Infrastructure.Instance do
   alias FluxVale.Infrastructure.Instance.PerformTeardown
   alias FluxVale.Infrastructure.Instance.ResolveCluster
   alias FluxVale.Infrastructure.Instance.SetOrganizationFromActor
+  alias FluxVale.Infrastructure.Instance.StatusMarkers
   alias FluxVale.Infrastructure.Instance.StatusTransition
   alias FluxVale.Infrastructure.Instance.ValidateEnvVars
   alias FluxVale.Infrastructure.Instance.WakeMarkers
@@ -572,6 +573,7 @@ defmodule FluxVale.Infrastructure.Instance do
 
       change(MaintainAnchors)
       change(WakeMarkers)
+      change(StatusMarkers)
 
       validate(StatusTransition)
     end

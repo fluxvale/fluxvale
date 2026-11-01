@@ -43,6 +43,7 @@ defmodule FluxVale.Infrastructure.AccessGateway do
   alias FluxVale.Infrastructure.AccessGateway.PerformSettle
   alias FluxVale.Infrastructure.AccessGateway.PerformTeardown
   alias FluxVale.Infrastructure.AccessGateway.ProvisionCluster
+  alias FluxVale.Infrastructure.AccessGateway.StateMarkers
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
 
@@ -453,6 +454,8 @@ defmodule FluxVale.Infrastructure.AccessGateway do
         :provisioned_at,
         :credential_secret_ref
       ])
+
+      change(StateMarkers)
     end
 
     update :set_api_token_ref do
@@ -510,6 +513,7 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       accept([])
 
       change(FluxVale.Infrastructure.AccessGateway.Suspend)
+      change(StateMarkers)
     end
 
     update :resume do
@@ -521,6 +525,7 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       accept([])
 
       change(FluxVale.Infrastructure.AccessGateway.Resume)
+      change(StateMarkers)
     end
 
     # Settlement's cursor write (the instance `settle_anchors` shape).
@@ -619,6 +624,8 @@ defmodule FluxVale.Infrastructure.AccessGateway do
         )
         |> Ash.Changeset.force_change_attribute(:needs_attention_since, DateTime.utc_now())
       end)
+
+      change(StateMarkers)
     end
 
     update :mark_teardown_error do
@@ -645,6 +652,8 @@ defmodule FluxVale.Infrastructure.AccessGateway do
           "Removal failed — retry removing access"
         )
       end)
+
+      change(StateMarkers)
     end
   end
 
