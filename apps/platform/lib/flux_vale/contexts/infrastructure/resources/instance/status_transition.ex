@@ -74,6 +74,15 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
     lost: [:deploying]
   }
 
+  @doc """
+  The transition table — one writer (this validator). Read by
+  FluxVale.PromEx.Plugins.Business to derive the fleet's 42-pair
+  ceiling; the catch-all arms (any → :error / any → :deleting) are
+  validate/2 arms, not map entries, so the derivation adds them.
+  """
+  @spec valid_transitions() :: %{atom() => [atom()]}
+  def valid_transitions, do: @valid_transitions
+
   @impl Validation
   def init(_opts), do: {:ok, []}
 

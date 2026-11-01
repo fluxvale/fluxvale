@@ -25,12 +25,16 @@ defmodule FluxVale.Application do
     # traffic (#98, ADR-0012 Am. 1).
     FluxVale.Observability.setup_instrumentation()
 
+    # Business-counter zero-seed — sibling AFTER the PromEx
+    # child (handlers attached by then): increase() must find
+    # every closed-enum series already at 0 from boot.
     children =
       [
         FluxValeWeb.Telemetry
         # PromEx metrics tree — env-gated, empty in dev/test (#98)
       ] ++
         FluxVale.Observability.prom_ex_child() ++
+        FluxVale.Observability.seed_business_counters_child() ++
         [
           FluxVale.Repo,
           # Job queue (must start after Repo) — janitor cron (#23) + Instance

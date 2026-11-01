@@ -35,6 +35,14 @@ defmodule FluxVale.Infrastructure.BackupRun.OutcomeMarkers do
   @run_event [:flux_vale, :backup, :run]
   @terminal [:succeeded, :failed]
 
+  @doc """
+  The terminal statuses (this module emits on these only) — read by
+  FluxVale.PromEx.Plugins.Business to derive the backup pairs. One
+  writer: the emitter owns terminality.
+  """
+  @spec terminal_statuses() :: [atom()]
+  def terminal_statuses, do: @terminal
+
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
     old_status = changeset.data.status

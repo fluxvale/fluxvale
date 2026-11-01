@@ -87,6 +87,11 @@ defmodule FluxValeWeb.Telemetry do
       # (Plugins.Wake / Plugins.Business) with deliberately narrower
       # labels. In-memory, resets per deploy — accepted. Buckets are
       # shared with the PromEx plugin (ONE list — Wake.buckets/0).
+      # The fleet families' 68 closed-enum combos are seeded at 0
+      # from boot (PromEx.SeedBusinessCounters — increase() never
+      # counts a series' first increment). These dashboard rows are
+      # untouched by the seed: LiveDashboard listens per mounted
+      # page, not at boot.
       #
       # Wake latency (the scale-to-zero SLI) — events fire from
       # Instance.WakeMarkers; only the definitions are new here.
@@ -118,8 +123,10 @@ defmodule FluxValeWeb.Telemetry do
       # Instance lifecycle outcomes (Instance.StatusMarkers on the
       # :update_status funnel plus the :deploy flip and the two Oban
       # error handlers) — reason is the deploy-failure triage lens;
-      # labels are closed enums, cardinality bounded by the state
-      # machine (~24 series).
+      # labels are closed enums, cardinality ceilinged by the state
+      # machine: 42 legal from/to pairs (Plugins.Business derives
+      # them from the validator), reason nil everywhere but the
+      # error edges.
       counter("flux_vale_instance_status_transition_count",
         event_name: [:flux_vale, :instance, :status_transition],
         measurement: :count,
@@ -127,8 +134,8 @@ defmodule FluxValeWeb.Telemetry do
         tags: [:from, :to, :reason]
       ),
       # Gateway state changes (AccessGateway.StateMarkers on the six
-      # state-writing actions) — ladder suspends vs observed failures,
-      # ~10 series.
+      # state-writing actions) — ladder suspends vs observed failures:
+      # all 20 ordered from≠to pairs of the five-state enum.
       counter("flux_vale_gateway_state_change_count",
         event_name: [:flux_vale, :gateway, :state_change],
         measurement: :count,
@@ -136,8 +143,8 @@ defmodule FluxValeWeb.Telemetry do
         tags: [:from, :to]
       ),
       # Backup/restore outcomes (BackupRun.OutcomeMarkers on :update,
-      # terminal finalizes only) — 6 series + 3 for the duration
-      # summary's kinds.
+      # terminal finalizes only) — 6 kind×terminal pairs + 3 for the
+      # duration summary's kinds.
       counter("flux_vale_backup_run_count",
         event_name: [:flux_vale, :backup, :run],
         measurement: :count,
