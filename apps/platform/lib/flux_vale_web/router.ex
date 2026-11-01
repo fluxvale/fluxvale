@@ -3,6 +3,7 @@ defmodule FluxValeWeb.Router do
 
   import PhoenixStorybook.Router
   import AshAdmin.Router
+  import Phoenix.LiveDashboard.Router
 
   pipeline :browser do
     plug(:accepts, ["html"])
@@ -315,25 +316,6 @@ defmodule FluxValeWeb.Router do
     forward("/", FluxValeWeb.Plugs.TestInboxPreview)
   end
 
-  # Enable LiveDashboard in development
-  if Application.compile_env(:flux_vale, :dev_routes) do
-    # If you want to use the LiveDashboard in production, you should put
-    # it behind authentication and allow only admins to access it.
-    # If your application does not have an admins-only section yet,
-    # you can use Plug.BasicAuth to set up some basic authentication
-    # as long as you are also using SSL (which you should anyway).
-    import Phoenix.LiveDashboard.Router
-
-    scope "/dev" do
-      pipe_through(:browser)
-
-      live_dashboard("/dashboard", metrics: FluxValeWeb.Telemetry)
-      # No Swoosh /dev/mailbox here: ADR-0023 Am. 3 — the gated TestInbox
-      # above (#22) is the only sanctioned mail viewer; the stock mount
-      # is public-by-design (it displays live login codes)
-    end
-  end
-
   # The AshAdmin mount (ADR-0027 §2, built with #288): compiled into
   # EVERY release — never compile-time-open — and denied at runtime
   # while ADMIN_MOUNT_KEY is unset (the TestInbox gate pattern above:
@@ -360,6 +342,26 @@ defmodule FluxValeWeb.Router do
 
   scope "/admin" do
     pipe_through([:admin_gate, :browser, :admin_auth])
+
+    # LiveDashboard on the admin surface (the LiveDashboard docs' prod
+    # pattern — no more /dev-only mount): the same triple gate as
+    # AshAdmin below (runtime key -> session auth -> platform-admin
+    # role), plus the SAME on_mount socket re-check — the macro accepts
+    # it and a LiveDashboard LiveView socket never re-enters the
+    # router, so a demoted admin's open tab cannot outlive the gate.
+    # Business telemetry (Telemetry.Metric definitions in
+    # FluxValeWeb.Telemetry) renders here; alert-worthy metrics ALSO
+    # flow to Grafana where the alert rules live.
+    #
+    # ORDER MATTERS: this mount must precede ash_admin — AshAdmin's
+    # page routes end in a segment wildcard, and router clauses compile
+    # in source order: dashboard-after-ash_admin compiles (with a
+    # warning) into unreachable clauses, every /admin/* path landing in
+    # AshAdmin instead.
+    live_dashboard("/dashboard",
+      metrics: FluxValeWeb.Telemetry,
+      on_mount: {FluxValeWeb.AdminGate, :ensure_admin}
+    )
 
     ash_admin("/", on_mount: {FluxValeWeb.AdminGate, :ensure_admin})
   end
