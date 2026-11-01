@@ -20,9 +20,10 @@ defmodule FluxVale.Checks.ActorOrgHasPaid do
   not be caller-controlled. The row's org rides `organization_id`
   directly, or THROUGH the row's instance (a `BackupSetting` belongs to
   its instance, not the organization); a row whose org cannot be
-  resolved fails closed. An actor with no org passes the check so the
-  create's own `organization_id is required` validation answers instead
-  of a bare Forbidden (the ActorOrgWalletFunded stance).
+  resolved fails closed. Any non-changeset subject fails closed too.
+  An actor with no org passes the check so the create's own
+  `organization_id is required` validation answers instead of a bare
+  Forbidden (the ActorOrgWalletFunded stance).
   """
 
   use Ash.Policy.SimpleCheck
@@ -46,8 +47,8 @@ defmodule FluxVale.Checks.ActorOrgHasPaid do
     case row_org_id(context.subject) do
       :create -> paid_via_actor?(actor)
       {:ok, org_id} -> org_paid?(org_id)
-      # Reload or org-resolution failure (row gone, no resolvable org,
-      # DB down): fail closed.
+      # Non-changeset subject, reload or org-resolution failure (row
+      # gone, no resolvable org, DB down): fail closed.
       :error -> false
     end
   end
@@ -82,8 +83,14 @@ defmodule FluxVale.Checks.ActorOrgHasPaid do
   # controls. Updates carry the loaded record, but an in-process caller
   # controls that struct, so the org comes off a FRESH DB read of the
   # row, never the in-memory attribute. Creates carry no row yet → the
-  # actor path.
+  # actor path. Any non-changeset subject (a query, an action input)
+  # fails closed.
   defp row_org_id(%Ash.Changeset{action_type: :create}), do: :create
+
+  # Atomic changesets carry this placeholder — Ash.reload would raise
+  # on it — and no org resolves from it: fail closed.
+  defp row_org_id(%Ash.Changeset{data: %Ash.Changeset.OriginalDataNotAvailable{}}),
+    do: :error
 
   defp row_org_id(%Ash.Changeset{data: data}) do
     case Ash.reload(data, authorize?: false) do
@@ -92,7 +99,7 @@ defmodule FluxVale.Checks.ActorOrgHasPaid do
     end
   end
 
-  defp row_org_id(_subject), do: :create
+  defp row_org_id(_subject), do: :error
 
   # The org rides the row directly (organization_id) or THROUGH the
   # row's instance (BackupSetting belongs to :instance, not the

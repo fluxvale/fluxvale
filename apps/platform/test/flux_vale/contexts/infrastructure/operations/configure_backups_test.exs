@@ -806,7 +806,7 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackupsTest do
                error
              )
 
-      assert Exception.message(error) =~ "Top up at least $1 before setting up backups"
+      assert Exception.message(error) =~ "Top up at least $1 to use backups"
 
       assert {:error, %Ash.Error.Invalid{}} =
                BackupSetting.get_by_instance(instance.id, authorize?: false)

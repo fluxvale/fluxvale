@@ -71,7 +71,10 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
   @access_key_id_key "AWS_ACCESS_KEY_ID"
   @secret_access_key_key "AWS_SECRET_ACCESS_KEY"
   @forbidden_message "This instance's backups belong to another organization"
-  @paid_message "Top up at least $1 before setting up backups"
+  # Neutral on purpose: the same refusal renders on a first save and on
+  # an edit of a configured row — "setting up" would read wrong on the
+  # edit.
+  @paid_message "Top up at least $1 to use backups"
 
   # The row's own fields — the settings form, minus every credential.
   @row_fields [:endpoint, :bucket, :prefix, :access_key_id, :retention_keep, :enabled]

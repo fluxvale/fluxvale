@@ -1,9 +1,11 @@
-# Dev-only capture setup for the backup paid-gate screenshots. Two
+# Dev-only capture setup for the backup paid-gate screenshots. Three
 # users: (a) never-paid (welcome credit only) with a running, deployed,
 # UNCONFIGURED instance — the setup card's blocked callout; (b) paid
 # once, balance drained to zero, running instance with a settings row —
-# the "Back up now" refusal. Prints the two session tokens for
-# backup_gate_screenshot.mjs.
+# the configured card's empty-balance callout and the "Back up now"
+# refusal; (c) never-paid with a settings row — the configured card's
+# never-paid callout (the legacy/lapsed shape). Prints the three
+# session tokens for backup_gate_screenshot.mjs.
 #
 # Run from apps/platform: mix run ../e2e/backup_gate_seed.exs
 
@@ -27,8 +29,9 @@ suffix = Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)
 
 user_a = User.create!("capture-a-#{suffix}@fluxvale.test", %{}, authorize?: false)
 user_b = User.create!("capture-b-#{suffix}@fluxvale.test", %{}, authorize?: false)
+user_c = User.create!("capture-c-#{suffix}@fluxvale.test", %{}, authorize?: false)
 
-Enum.each([user_a, user_b], fn user ->
+Enum.each([user_a, user_b, user_c], fn user ->
   existing =
     UserEmail
     |> Ash.Query.filter(address == ^user.email)
@@ -109,7 +112,7 @@ FluxVale.Seeds.seed_local_cluster!()
 # the create), namespace pinned and walked to :running — the state the
 # panel's actions live in. The deploy trigger's cluster calls fail
 # loudly in the log (no dev cluster); the row is what the capture reads.
-Enum.each([user_a, user_b], fn user ->
+Enum.each([user_a, user_b, user_c], fn user ->
   instance =
     Instance.create!(
       %{name: "Capture #{System.unique_integer([:positive])}", app_version_id: version.id},
@@ -141,9 +144,9 @@ end)
 {:ok, balance_b} = Billing.balance(wallet_b, authorize?: false)
 {:ok, _drain} = Billing.debit_wallet(wallet_b, balance_b * 10_000)
 
-# (b)'s settings row: Ash.Seed.seed! — the row is ConfigureBackups'
-# output and needs the namespace Secret no dev cluster runs (the tests'
-# documented seed! exception).
+# (b)'s and (c)'s settings rows: Ash.Seed.seed! — the row is
+# ConfigureBackups' output and needs the namespace Secret no dev cluster
+# runs (the tests' documented seed! exception).
 instance_b =
   Instance
   |> Ash.Query.filter(organization_id == ^personal_b.id)
@@ -157,8 +160,25 @@ Ash.Seed.seed!(BackupSetting, %{
   access_key_id: "AKIAIOSFODNN7EXAMPLE"
 })
 
+{:ok, personal_c} = FluxVale.Accounts.personal_org_for_user(user_c.id, authorize?: false)
+
+instance_c =
+  Instance
+  |> Ash.Query.filter(organization_id == ^personal_c.id)
+  |> Ash.read!(authorize?: false)
+  |> List.first()
+
+Ash.Seed.seed!(BackupSetting, %{
+  instance_id: instance_c.id,
+  endpoint: "https://account.r2.cloudflarestorage.com",
+  bucket: "capture-backups",
+  access_key_id: "AKIAIOSFODNN7EXAMPLE"
+})
+
 {:ok, token_a, _} = AshAuthentication.Jwt.token_for_user(user_a)
 {:ok, token_b, _} = AshAuthentication.Jwt.token_for_user(user_b)
+{:ok, token_c, _} = AshAuthentication.Jwt.token_for_user(user_c)
 
 IO.puts("FV_TOKEN_A=#{token_a}")
 IO.puts("FV_TOKEN_B=#{token_b}")
+IO.puts("FV_TOKEN_C=#{token_c}")

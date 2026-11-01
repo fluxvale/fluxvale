@@ -171,9 +171,25 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
 
   defp start(instance) do
     case RunInstanceBackup.call(instance, :scheduled) do
-      {:ok, run} -> {:ok, {:started, run.id}}
-      {:error, reason} when reason in @benign_guards -> {:ok, nil}
-      {:error, _reason} = error -> error
+      {:ok, run} ->
+        {:ok, {:started, run.id}}
+
+      # The one benign skip worth naming: due?/2 already said the window
+      # opened, so this fires at most once per daily window per instance
+      # (never every 5-minute pass) — the owner's wallet is why nothing
+      # ran. :run_in_flight stays silent (someone else owns the slot).
+      {:error, :wallet_unfunded} ->
+        Logger.info(
+          "Backup skipped for #{instance.id}: the org's wallet cannot run (not paid or empty)"
+        )
+
+        {:ok, nil}
+
+      {:error, reason} when reason in @benign_guards ->
+        {:ok, nil}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

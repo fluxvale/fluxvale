@@ -241,9 +241,9 @@ defmodule FluxValeWeb.InstanceLive.BackupsEdgeTest do
       setting = setting!(instance)
 
       # The vanished-row Forbidden is shaped like the paid refusal — the
-      # handler asks the ledger, and a PAID org's refusal reads as the
-      # row problem it is (the never-paid arm has its own test in the
-      # component's suite).
+      # handler asks the ledger AND the row: a PAID org's refusal reads
+      # as the row problem it is (the never-paid arms have their own
+      # tests here and in the component's suite).
       BillingFixtures.mark_user_paid!(user)
 
       {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
@@ -253,6 +253,28 @@ defmodule FluxValeWeb.InstanceLive.BackupsEdgeTest do
       render_click(element(view, "[data-testid=backups-enabled-toggle]"))
 
       assert has_element?(view, "[data-testid=backups-error]", "Something went wrong on our side")
+    end
+
+    test "the toggle over a vanished row on a never-paid org is not a wallet problem", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      # The wallet copy only shows when the row still exists AND the
+      # ledger says unpaid — a vanished row on a never-paid org is still
+      # the row's story, never the wallet's.
+      instance = instance!(version, user)
+      setting = setting!(instance)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      Infrastructure.remove_backup_settings(setting, authorize?: false)
+
+      render_click(element(view, "[data-testid=backups-enabled-toggle]"))
+
+      assert has_element?(view, "[data-testid=backups-error]", "Something went wrong on our side")
+
+      refute has_element?(view, "[data-testid=backups-error]", "Top up at least $1 to resume")
     end
 
     test "a save before the app is set up says so", %{conn: conn, user: user, version: version} do

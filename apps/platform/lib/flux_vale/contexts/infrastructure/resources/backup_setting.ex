@@ -53,8 +53,13 @@ defmodule FluxVale.Infrastructure.BackupSetting do
     end
 
     policy action_type(:create) do
-      description("Members configure their org's instance backups")
-      authorize_if(relates_to_actor_via([:instance, :organization, :members]))
+      description(
+        "Members create their org's instance backup settings — with a wallet that has paid once (every row is born enabled, so a never-paid org has no business creating one)"
+      )
+
+      forbid_unless(relates_to_actor_via([:instance, :organization, :members]))
+      forbid_unless(FluxVale.Checks.ActorOrgHasPaid)
+      authorize_if(FluxVale.Checks.ActorOrgHasPaid)
     end
 
     policy action_type(:update) do

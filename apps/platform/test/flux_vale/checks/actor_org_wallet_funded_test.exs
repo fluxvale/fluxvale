@@ -71,23 +71,52 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
       refute ActorOrgWalletFunded.match?(nil, %{subject: changeset}, [])
     end
 
-    test "a non-changeset subject routes to the actor path — the create stance" do
-      orgless = Ash.Seed.seed!(User, %{email: "orgless-#{System.unique_integer()}@fluxvale.test"})
+    test "a non-changeset subject fails closed — even for a funded actor" do
+      # The old create-stance catch-all routed queries/action-inputs to
+      # the actor path: a funded actor answered true on an arbitrary
+      # subject. Fail closed.
+      funded_actor = AccountsFixtures.user!()
+      AccountsFixtures.personal_org!(funded_actor)
 
-      assert ActorOrgWalletFunded.match?(orgless, %{subject: %Instance{}}, [])
+      refute ActorOrgWalletFunded.match?(funded_actor, %{subject: %Instance{}}, [])
     end
 
-    test "a settings row's org resolves THROUGH its instance — the instance org's wallet answers",
+    test "an atomic changeset's placeholder data fails closed without raising" do
+      # Ash.reload raises on Ash.Changeset.OriginalDataNotAvailable —
+      # the clause before the generic data arm answers :error instead.
+      {_org, wallet} = BillingFixtures.funded_wallet!()
+
+      changeset =
+        Ash.Changeset.for_update(
+          %Instance{id: Ecto.UUID.generate(), organization_id: wallet.organization_id},
+          :start,
+          %{},
+          authorize?: false
+        )
+
+      atomic = %{changeset | data: %Ash.Changeset.OriginalDataNotAvailable{}}
+
+      refute ActorOrgWalletFunded.match?(nil, %{subject: atomic}, [])
+    end
+
+    test "a settings row's org resolves THROUGH its instance — the ROW org's wallet answers, not the actor's",
          %{
            version: version
          } do
       # The BackupSetting shape: the row belongs to its instance, not
       # the organization, so the check reads the org one hop along the
-      # same FK the policies read.
+      # same FK the policies read — the ROW org, never the actor's.
       owner =
         User.create!("funded-through-#{System.unique_integer()}@fluxvale.test", %{},
           authorize?: false
         )
+
+      paid_actor =
+        User.create!("funded-through-actor-#{System.unique_integer()}@fluxvale.test", %{},
+          authorize?: false
+        )
+
+      BillingFixtures.mark_user_paid!(paid_actor)
 
       instance =
         Instance.create!(
@@ -109,11 +138,14 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
         )
         |> Ash.create!()
 
+      # The row org drains AFTER its instance existed: if the actor path
+      # answered, the PAID actor would pass. The row org is what answers.
+      row_org = AccountsFixtures.personal_org!(owner)
+      BillingFixtures.drain_wallet!(row_org)
+
       changeset = Ash.Changeset.for_update(setting, :update, %{}, authorize?: false)
 
-      # The instance org's wallet is welcome-funded, so the check passes
-      # — and it read the RIGHT wallet (the instance's), not the actor's.
-      assert ActorOrgWalletFunded.match?(nil, %{subject: changeset}, [])
+      refute ActorOrgWalletFunded.match?(paid_actor, %{subject: changeset}, [])
     end
   end
 

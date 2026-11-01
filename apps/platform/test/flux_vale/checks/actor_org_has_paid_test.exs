@@ -92,10 +92,38 @@ defmodule FluxVale.Checks.ActorOrgHasPaidTest do
       refute ActorOrgHasPaid.match?(nil, %{subject: changeset}, [])
     end
 
-    test "a non-changeset subject routes to the actor path — the create stance" do
-      orgless = Ash.Seed.seed!(User, %{email: "orgless-#{System.unique_integer()}@fluxvale.test"})
+    test "a non-changeset subject fails closed — even for a paid actor" do
+      # The old create-stance catch-all routed queries/action-inputs to
+      # the actor path: a paid actor answered true on an arbitrary
+      # subject. Fail closed.
+      paid_actor =
+        User.create!("paid-probe-subject-#{System.unique_integer()}@fluxvale.test", %{},
+          authorize?: false
+        )
 
-      assert ActorOrgHasPaid.match?(orgless, %{subject: %AccessGateway{}}, [])
+      BillingFixtures.mark_user_paid!(paid_actor)
+
+      refute ActorOrgHasPaid.match?(paid_actor, %{subject: %AccessGateway{}}, [])
+    end
+
+    test "an atomic changeset's placeholder data fails closed without raising" do
+      # Ash.reload raises on Ash.Changeset.OriginalDataNotAvailable —
+      # the clause before the generic data arm answers :error instead.
+      {org, _owner} = BillingFixtures.grant_free_org!()
+      {:ok, wallet} = Billing.ensure_wallet(org)
+      BillingFixtures.mark_paid!(wallet)
+
+      changeset =
+        Ash.Changeset.for_update(
+          %AccessGateway{id: Ecto.UUID.generate(), organization_id: org.id},
+          :resume,
+          %{},
+          authorize?: false
+        )
+
+      atomic = %{changeset | data: %Ash.Changeset.OriginalDataNotAvailable{}}
+
+      refute ActorOrgHasPaid.match?(nil, %{subject: atomic}, [])
     end
 
     test "a forged nil organization_id on an update answers the ROW's org, never the actor's" do

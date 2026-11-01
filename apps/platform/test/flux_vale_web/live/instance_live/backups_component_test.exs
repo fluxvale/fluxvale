@@ -161,7 +161,12 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
                "your own S3-compatible bucket"
              )
 
-      assert has_element?(view, "[data-testid=backups-unconfigured]", "FluxVale adds no charge")
+      assert has_element?(
+               view,
+               "[data-testid=backups-unconfigured]",
+               "charges no fee for backups"
+             )
+
       assert has_element?(view, "[data-testid=backups-setup]", "Set up backups")
       refute has_element?(view, "[data-testid=backup-settings-form]")
       refute has_element?(view, "[data-testid=back-up-now]")
@@ -315,7 +320,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(
                view,
                "[data-testid=backups-error]",
-               "Top up at least $1 before setting up backups"
+               "Top up at least $1 to use backups"
              )
     end
 
@@ -360,6 +365,69 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
                view,
                "[data-testid=backups-billing-link][href='/billing']"
              )
+    end
+
+    test "a configured card names an org that cannot run — never-paid", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      # The legacy/lapsed shape: a settings row whose org never paid (a
+      # hand-minted row stands in for the create-hole and pre-gate
+      # rows). The card says so instead of silently skipping.
+      instance = instance!(version, user)
+      setting!(instance)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(
+               view,
+               "[data-testid=backups-config-unpaid]",
+               "Backups are paused — top up once (at least $1) to use them"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid=backups-config-unpaid-link][href='/billing']"
+             )
+
+      refute has_element?(view, "[data-testid=backups-config-prefund]")
+    end
+
+    test "a configured card names a paid org at zero balance", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      org = BillingFixtures.mark_user_paid!(user)
+      instance = instance!(version, user)
+      setting!(instance)
+      BillingFixtures.drain_wallet!(org)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(
+               view,
+               "[data-testid=backups-config-prefund]",
+               "Backups are paused — the balance ran out"
+             )
+
+      refute has_element?(view, "[data-testid=backups-config-unpaid]")
+    end
+
+    test "a configured card for a paid, funded org carries no wallet callout", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      BillingFixtures.mark_user_paid!(user)
+      instance = instance!(version, user)
+      setting!(instance)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      refute has_element?(view, "[data-testid=backups-config-unpaid]")
+      refute has_element?(view, "[data-testid=backups-config-prefund]")
     end
   end
 

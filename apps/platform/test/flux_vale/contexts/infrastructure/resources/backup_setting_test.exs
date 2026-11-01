@@ -30,6 +30,13 @@ defmodule FluxVale.Infrastructure.BackupSettingTest do
     )
   end
 
+  defp instance_for!(version, owner) do
+    Instance.create!(
+      %{name: "Created #{System.unique_integer()}", app_version_id: version.id, env_vars: %{}},
+      actor: owner
+    )
+  end
+
   defp attrs(instance, overrides) do
     Map.merge(
       %{
@@ -355,6 +362,46 @@ defmodule FluxVale.Infrastructure.BackupSettingTest do
 
       assert {:ok, resumed} = BackupSetting.update(setting, %{enabled: true}, actor: owner)
       assert resumed.enabled
+    end
+  end
+
+  describe "the create gate" do
+    # A row is born `enabled` (the attribute default), so the resource's
+    # :create is gated outright — a never-paid org has no business
+    # creating settings rows at all, matching the ConfigureBackups gate
+    # a direct create would otherwise walk around.
+    test "a never-paid member cannot create a settings row" do
+      version = base!()
+
+      owner =
+        User.create!("create-unpaid-#{System.unique_integer()}@fluxvale.com", %{},
+          authorize?: false
+        )
+
+      instance = instance_for!(version, owner)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               BackupSetting
+               |> Ash.Changeset.for_create(:create, attrs(instance, %{}), actor: owner)
+               |> Ash.create()
+    end
+
+    test "a paid member creates a settings row" do
+      version = base!()
+
+      owner =
+        User.create!("create-paid-#{System.unique_integer()}@fluxvale.com", %{},
+          authorize?: false
+        )
+
+      BillingFixtures.mark_user_paid!(owner)
+
+      instance = instance_for!(version, owner)
+
+      assert {:ok, _setting} =
+               BackupSetting
+               |> Ash.Changeset.for_create(:create, attrs(instance, %{}), actor: owner)
+               |> Ash.create()
     end
   end
 
