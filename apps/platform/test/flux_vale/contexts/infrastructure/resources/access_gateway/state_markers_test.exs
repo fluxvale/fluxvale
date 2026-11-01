@@ -98,6 +98,37 @@ defmodule FluxVale.Infrastructure.AccessGateway.StateMarkersTest do
                     %{from: :suspended, to: :provisioning}}
   end
 
+  test "the re-paste's recovery edge emits — the occupancy alert reads the exit", %{
+    org: org
+  } do
+    gateway = AccessFixtures.gateway!(org, state: :needs_attention)
+    Telemetry.capture_events([@state_event])
+
+    stub(Tailscale, :update_credential, fn _gateway, _key -> :ok end)
+
+    {:ok, repasted} =
+      AccessGateway.update_credential(gateway, %{auth_key: "tskey-new"}, authorize?: false)
+
+    assert repasted.state == :provisioning
+
+    assert_receive {:telemetry_event, @state_event, %{count: 1},
+                    %{from: :needs_attention, to: :provisioning}}
+  end
+
+  test "a same-state re-paste (already :provisioning) stays silent", %{org: org} do
+    gateway = AccessFixtures.gateway!(org, state: :provisioning)
+    Telemetry.capture_events([@state_event])
+
+    stub(Tailscale, :update_credential, fn _gateway, _key -> :ok end)
+
+    {:ok, repasted} =
+      AccessGateway.update_credential(gateway, %{auth_key: "tskey-new"}, authorize?: false)
+
+    assert repasted.state == :provisioning
+
+    refute_receive {:telemetry_event, _event, _measurements, _metadata}
+  end
+
   test "an error handler's landing emits (the change-fn mounts)", %{org: org} do
     gateway = AccessFixtures.gateway!(org)
     Telemetry.capture_events([@state_event])

@@ -1,17 +1,15 @@
 defmodule FluxVale.Infrastructure.AccessGateway.StateMarkers do
   @moduledoc """
   Emits the gateway state-change counter — the billing switch's
-  telemetry: the five mounted state writers (the observer's
-  `:update_state`, the ladder's suspend, the owner's resume, the two
-  error handlers) land one event, so the dashboard shows ladder
-  suspends distinctly from observed failures and error-handler
-  landings.
-
-  Boundary, named: the owner's key re-paste (`:update_credential`) also
-  force-changes state (RepasteCredential lands `:provisioning` in
-  before_action) and is NOT mounted — the five mounts are the seam set
-  this landed with; extend them if the recovery edge
-  (`:needs_attention → :provisioning`) turns out to matter.
+  telemetry: the six mounted state writers (the observer's
+  `:update_state`, the ladder's suspend, the owner's resume, the
+  key re-paste, the two error handlers) land one event, so the
+  dashboard shows ladder suspends distinctly from observed failures
+  and error-handler landings. The re-paste's recovery edge
+  (`:needs_attention → :provisioning`, force-changed in
+  RepasteCredential's before_action) is an EXIT from
+  :needs_attention — the occupancy alert reads entries minus exits,
+  so that edge counts like any other.
 
   `[:flux_vale, :gateway, :state_change]`, measurements `%{count: 1}`,
   labels `%{from, to}` — the closed AccessGatewayState enum only.

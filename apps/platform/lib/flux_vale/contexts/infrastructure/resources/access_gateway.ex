@@ -437,6 +437,7 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       argument(:auth_key, :string, allow_nil?: false, sensitive?: true)
 
       change(FluxVale.Infrastructure.AccessGateway.RepasteCredential)
+      change(StateMarkers)
     end
 
     # Observable-state write: the platform's read of the cluster, and
