@@ -218,10 +218,16 @@ defmodule FluxVale.Clients.K8s.Resources.Middleware do
     end
   end
 
-  # Both halves are required and non-empty, and the regex must actually
-  # COMPILE: a bad pattern would apply fine (Traefik's CRD schema does
-  # not validate RE2) and die at Traefik's reload — the route silently
-  # loses its rewrite. A malformed value must die HERE, at the apply.
+  # Both halves are required and non-empty, and the pattern must
+  # compile — a pattern dead even as PCRE must die at the apply, not at
+  # Traefik's reload (where the route would silently lose its rewrite).
+  # Honesty note: Elixir's Regex is PCRE, so this is a PCRE compile
+  # check, NOT an RE2 one — Traefik/Go runs RE2. That gap is acceptable
+  # because every value here is a platform-built literal, never user
+  # input, so RE2-divergent constructs (lookarounds, backreferences)
+  # cannot occur today. Revisit trigger: the day a spec value becomes
+  # external, this validation must grow an RE2-compatible check — a
+  # PCRE-clean pattern Traefik treats differently routes traffic wrong.
   defp validate_replace_path_regex(rewrite) do
     cond do
       not is_binary(rewrite[:regex]) or rewrite[:regex] == "" ->
