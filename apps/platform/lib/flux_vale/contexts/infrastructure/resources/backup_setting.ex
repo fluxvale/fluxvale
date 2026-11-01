@@ -54,7 +54,7 @@ defmodule FluxVale.Infrastructure.BackupSetting do
 
     policy action_type(:create) do
       description(
-        "Members create their org's instance backup settings — with a wallet that has paid once (every row is born enabled, so a never-paid org has no business creating one)"
+        "Members create their org's instance backup settings — with a wallet that has paid once. The action accepts :enabled (defaulting it true), so an unpaid org must not mint a settings row at all — create is gated outright"
       )
 
       forbid_unless(relates_to_actor_via([:instance, :organization, :members]))

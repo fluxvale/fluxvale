@@ -267,7 +267,9 @@ shape):
   gate sits in `ConfigureBackups` after the settings validate and
   before the first cluster touch (a never-paid refusal writes
   nothing), and the `BackupSetting` policies carry the same bar —
-  create outright (every row is born `enabled`) and on every update
+  create outright (the action accepts `:enabled` and defaults it
+  true — an unpaid org must not mint a settings row at all) and on
+  every update
   except a pause — so the panel's plain-update pause switch cannot
   walk around it.
 - **Every run** — the owner's "Back up now" and the nightly due pass
