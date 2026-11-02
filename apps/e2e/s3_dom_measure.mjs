@@ -25,6 +25,17 @@ const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await ctx.newPage();
 
+// One live-socket assertion, the S7 lesson (same helper as s9/s10):
+// the dav-tab drives below ride the socket — firing them into a dead
+// page measures the wrong tab state (hostile-357 F6).
+const live = (pg) =>
+  pg.waitForFunction(
+    () =>
+      document.querySelector("[data-phx-session]")?.classList.contains("phx-connected"),
+    null,
+    { timeout: 15_000 },
+  );
+
 await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
 const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
 await page.request.post(`${BASE}/auth/session`, {
@@ -33,7 +44,7 @@ await page.request.post(`${BASE}/auth/session`, {
 });
 
 await page.goto(`${BASE}${INSTANCE_PATH}`, { waitUntil: "networkidle" });
-await page.waitForTimeout(500);
+await live(page);
 
 // Session + surface guard: never measure the wrong page.
 if (page.url().includes("/sign-in")) {

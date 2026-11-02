@@ -40,7 +40,19 @@ const session = await page.request.post(`${BASE}/auth/session`, {
 });
 if (!session.ok()) throw new Error(`session POST failed: ${session.status()}`);
 
+// One live-socket assertion, the S7 lesson (same helper as s9/s10):
+// the step clicks below ride the socket — firing them into a dead
+// page tapes a wizard that never advances.
+const live = (pg) =>
+  pg.waitForFunction(
+    () =>
+      document.querySelector("[data-phx-session]")?.classList.contains("phx-connected"),
+    null,
+    { timeout: 15_000 },
+  );
+
 await page.goto(`${BASE}/apps/forgejo/deploy`, { waitUntil: "networkidle" });
+await live(page);
 // let the mount rise finish before the tape's real content
 await page.waitForTimeout(1800);
 

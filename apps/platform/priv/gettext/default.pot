@@ -11,7 +11,7 @@
 msgid ""
 msgstr ""
 
-#: lib/flux_vale_web/components/core_components.ex:705
+#: lib/flux_vale_web/components/core_components.ex:682
 #, elixir-autogen, elixir-format
 msgid "Actions"
 msgstr ""
@@ -52,7 +52,7 @@ msgstr ""
 msgid "We can't find the internet"
 msgstr ""
 
-#: lib/flux_vale_web/components/core_components.ex:95
+#: lib/flux_vale_web/components/core_components.ex:99
 #, elixir-autogen, elixir-format
 msgid "close"
 msgstr ""

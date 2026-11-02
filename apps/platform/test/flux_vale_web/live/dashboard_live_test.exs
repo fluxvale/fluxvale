@@ -120,6 +120,13 @@ defmodule FluxValeWeb.DashboardLiveTest do
              "[data-testid='dashboard-runway']",
              ~r/at \$[\d.]+\/mo current burn/
            )
+
+    # Exact cents: the hint must ROUND the reconstructed rate, not
+    # truncate it again — ComputeRunway's µ¢/h conversion already
+    # floors, and a second floor displayed $1.00/mo as "$0.99/mo"
+    # (CodeRabbit #351; the billing surface's own test is the
+    # reference). S11 pins the dashboard twin to the same cents.
+    assert has_element?(view, "[data-testid='dashboard-runway']", "at $1.00/mo current burn")
   end
 
   # Zero burn isn't always a fresh account: a pending row accrues

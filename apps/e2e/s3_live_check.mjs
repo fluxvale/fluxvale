@@ -23,6 +23,17 @@ const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await ctx.newPage();
 
+// One live-socket assertion, the S7 lesson (same helper as s9/s10):
+// the static render carries the same DOM, so driving before the socket
+// connects fires events into a dead page (hostile-357 F6).
+const live = (pg) =>
+  pg.waitForFunction(
+    () =>
+      document.querySelector("[data-phx-session]")?.classList.contains("phx-connected"),
+    null,
+    { timeout: 15_000 },
+  );
+
 await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
 const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
 await page.request.post(`${BASE}/auth/session`, {
@@ -31,7 +42,7 @@ await page.request.post(`${BASE}/auth/session`, {
 });
 
 await page.goto(`${BASE}${INSTANCE_PATH}`, { waitUntil: "networkidle" });
-await page.waitForTimeout(500);
+await live(page);
 
 if (page.url().includes("/sign-in")) {
   console.error(`session failed — landed on ${page.url()}`);

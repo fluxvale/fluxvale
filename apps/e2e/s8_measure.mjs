@@ -35,6 +35,18 @@ const WIDTHS = [1440, 1000, 920, 845, 820, 768, 760, 375, 320];
 const HEIGHT = (w) => (w <= 375 ? 760 : 900);
 const DEPLOY = `${BASE}/apps/forgejo/deploy`;
 
+// One live-socket assertion, the S7 lesson (same helper as s9/s10):
+// the static render carries the same DOM, so driving before the socket
+// connects fires events into a dead page (steps silently don't
+// advance; the harness then measures the wrong step).
+const live = (pg) =>
+  pg.waitForFunction(
+    () =>
+      document.querySelector("[data-phx-session]")?.classList.contains("phx-connected"),
+    null,
+    { timeout: 15_000 },
+  );
+
 const browser = await chromium.launch();
 
 // ---- session (shared cookie state) ----
@@ -66,6 +78,7 @@ const out = (line) => console.log(JSON.stringify(line));
 // advance the wizard to step n from a pristine load (steps are
 // one-shot state; the caller reloads per scenario)
 const gotoStep = async (pg, n) => {
+  await live(pg);
   if (n > 1) {
     await pg.locator("[data-testid='version-option']").first().click();
     await pg.locator("[data-testid='continue-version']").click();
@@ -82,6 +95,7 @@ for (const width of WIDTHS) {
   const perStep = {};
   for (const step of [1, 3]) {
     await page.goto(DEPLOY, { waitUntil: "networkidle" });
+    await live(page);
     await gotoStep(page, step);
     perStep[`step${step}`] = await page.evaluate(() => {
       const html = document.documentElement;
@@ -121,6 +135,7 @@ const stepNames = { 1: "version", 2: "configuration", 3: "resources", 4: "name" 
 for (const step of [1, 2, 3, 4]) {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(DEPLOY, { waitUntil: "networkidle" });
+  await live(page);
   await gotoStep(page, step);
   const geo = await page.evaluate(() => {
     // probe chips carrying the component's exact class strings; the
@@ -208,6 +223,7 @@ out({
 // ---- 4. picker DOM signature + slider keyboard contract (#221) ----
 await page.setViewportSize({ width: 1440, height: 900 });
 await page.goto(DEPLOY, { waitUntil: "networkidle" });
+await live(page);
 await gotoStep(page, 3);
 
 const signature = await page.evaluate(() => {
@@ -275,6 +291,7 @@ out({
 
 // ---- 5. rise behavior across step patches ----
 await page.goto(DEPLOY, { waitUntil: "networkidle" });
+await live(page);
 await settle(page);
 const risesAtLoad = await page.evaluate(() => window.__riseStarts);
 await page.waitForTimeout(1200);
@@ -315,6 +332,7 @@ const rsession = await rpage.request.post(`${BASE}/auth/session`, {
 });
 if (!rsession.ok()) throw new Error(`session POST failed: ${rsession.status()}`);
 await rpage.goto(DEPLOY, { waitUntil: "networkidle" });
+await live(rpage);
 await rpage.waitForTimeout(300);
 // the real step card: <.card> emits no `card` class (hostile-348
 // F3/F7), so probe the rendered rounded-panel node and say so

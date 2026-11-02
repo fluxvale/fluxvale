@@ -96,15 +96,12 @@ defmodule FluxValeWeb.DashboardLive do
       bare
     >
       <%!-- App-wide grammar page (S4): `bare` main + .appgram — the page
-      owns ALL of main's rhythm (no max-w, no padding), same posture as
-      the instance show. The metrics band is concept-1's sanctioned
-      composition, RENDER-EXACT (architect call on this PR: the
-      verdict'd renders beat the teardown prose — the lane's
-      artifact-pixels-beat-prose precedent): the page header sits on the
-      page background ABOVE the band, the Balance card tops the band's
-      inside-left, and the runway floats mid-band end-anchored right —
-      the diagonal is the page's bold move. NO straddle: concept-2 gives
-      the ONE straddle to the instance show's status card. --%>
+      owns ALL of main's rhythm (no max-w, no padding). The header sits
+      on the page background ABOVE the band, the Balance card tops the
+      band's inside-left, the runway floats mid-band end-anchored right
+      (render-exact, architect call: verdict'd renders beat teardown
+      prose). NO straddle: concept-2 gives the ONE straddle to the
+      instance show's status card. --%>
       <div class="appgram contents">
         <%!-- 1. The page header on the page background (above the band,
         as the render shows): title + subtitle left, quick actions
@@ -129,28 +126,28 @@ defmodule FluxValeWeb.DashboardLive do
           </div>
         </section>
 
-        <%!-- 2. The metrics band. Mid-page here (the header is above it
-        on the page background), so it carries its own top hairline via
-        utility — the grammar's .band supplies the sunken fill + the
-        bottom hairline. Render insets, real numbers (page first, render
-        second): the card tops the band 7px / 7px in, with 123px / 97px
-        of band below it; the runway is the band's vertical center at
-        the content's right edge, top inset 83px / 82px — the
-        min-[760px] margin below IS that offset. Below 760px the cards
-        stack inside the band (render's mobile insets 21px / 45px on the
-        page). The metric values are whitespace-nowrap and step down
-        below 900px (text-4xl, card capped max-w-sm there): "No active
-        burn" and "under an hour" must never break mid-phrase — a wrap
-        would grow the band 48px off a string (hostile F1). The values
-        carry border-line-strong: the render's card edge is --line-strong
-        in BOTH themes, and app.css's dark rule says raised panels carry
-        depth with border emphasis (hostile F6). The runway carries no
-        .rise of its own — the band's rise already carries it; a nested
-        rise double-fades and double-travels (hostile F2, and now a
-        grammar kill rule). Billing-down (#124, defensive-only:
-        action-created users always have a JIT-provisioned org) swaps
-        the metric for the callout, same card-width column, no special
-        placement. --%>
+        <%!-- 2. The metrics band. Mid-page (the header is above it), so
+        it carries its own top hairline via utility; .band supplies the
+        sunken fill + bottom hairline. Invariants:
+        - metric values are whitespace-nowrap and step down below 900px;
+          "No active burn" / "under an hour" must never break mid-phrase
+          (a wrap would grow the band 48px off a string, hostile F1).
+        - values carry border-line-strong: the render's card edge is
+          --line-strong in BOTH themes (hostile F6).
+        - no .rise on the runway — the band's rise carries it; a nested
+          rise double-fades (a grammar kill rule).
+        - Billing-down (#124, defensive-only) swaps the metric for the
+          callout, same card-width column.
+        Measured insets, page first / render second (S4's renders, the
+        durable record):
+        - the card tops the band 7px / 7px in, 123px / 97px of band
+          below it. The wrap's numbers ARE those insets: min-[760px]:
+          pt-1.5 (6px) + the card's 1px border = 7px; min-[760px]:pb-24
+          (96px) + 1px = 97px. Mobile stacks inside the band: pt-5
+          (20px) + 1 = 21px, pb-11 (44px) + 1 = 45px.
+        - the runway is the band's vertical center at the content's
+          right edge, top inset 83px / 82px — min-[760px]:mt-[76px] on
+          the runway div IS that offset. --%>
         <section class="band border-t border-line">
           <div class="wrap pt-5 pb-11 min-[760px]:pt-1.5 min-[760px]:pb-24">
             <div class="rise flex flex-col gap-6 min-[760px]:flex-row min-[760px]:items-start min-[760px]:justify-between">
@@ -410,7 +407,17 @@ defmodule FluxValeWeb.DashboardLive do
     do: "Nothing burning right now."
 
   defp burn_hint(%{burn_micro_cents_per_hour: burn_micro}, _instance_count) do
-    monthly_cents = div(burn_micro * Month.seconds(), @micro_per_cent * 3600)
+    # ComputeRunway truncates the rate into µ¢/h (hourly_micro's div);
+    # reconstructing with div would truncate again — $1.00/mo read
+    # "$0.99/mo". Half-up recovers the nearest cent of the
+    # already-truncated rate, matching /billing's hint (CodeRabbit
+    # #351, S11 twin fix; the cent-boundary caveat in
+    # BillingComponents.burn_hint applies here too).
+    half_divisor = div(@micro_per_cent * 3600, 2)
+
+    monthly_cents =
+      div(burn_micro * Month.seconds() + half_divisor, @micro_per_cent * 3600)
+
     "at #{format_usd(monthly_cents)}/mo current burn"
   end
 

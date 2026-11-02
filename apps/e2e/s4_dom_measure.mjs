@@ -31,6 +31,18 @@ const browser = await chromium.launch();
 
 // ---- helpers ------------------------------------------------------------
 
+// One live-socket assertion, the S7 lesson (same helper as s9/s10):
+// the static render carries the same DOM, and the live probe below
+// reads a socket patch — without the wait, a not-yet-connected page
+// silently reports stale state instead of the broadcast.
+const live = (pg) =>
+  pg.waitForFunction(
+    () =>
+      document.querySelector("[data-phx-session]")?.classList.contains("phx-connected"),
+    null,
+    { timeout: 15_000 },
+  );
+
 async function signIn(page) {
   await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
   const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
@@ -39,7 +51,7 @@ async function signIn(page) {
     headers: { "x-csrf-token": csrf },
   });
   await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
-  await page.waitForTimeout(700);
+  await live(page);
   if (page.url().includes("/sign-in")) throw new Error("session failed");
 }
 
@@ -288,6 +300,7 @@ if (!LAYOUT_ONLY) {
 
   try {
     await page2.goto(`${BASE}/instances/${INSTANCE}`, { waitUntil: "networkidle" });
+    await live(page2);
     await page2.locator("[data-testid='stop-button']").click();
     await page2.locator("[data-testid='status-message']").waitFor({ state: "visible" });
     // wait for the transition to settle somewhere past :running
@@ -328,6 +341,7 @@ if (!LAYOUT_ONLY) {
     // lands :error (no real cluster behind it). None found -> the run
     // fails loudly AFTER the measurement line prints below.
     await page2.goto(`${BASE}/instances/${INSTANCE}`, { waitUntil: "networkidle" });
+    await live(page2);
 
     const restoreCandidates = [
       ["start", page2.locator("[data-testid='start-button']")],
