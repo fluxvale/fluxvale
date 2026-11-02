@@ -31,12 +31,11 @@ defmodule FluxVale.Accounts.Organization do
 
   require Ash.Query
 
-  postgres do
-    table("organizations")
-    repo(FluxVale.Repo)
-
-    # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
-    migration_defaults(id: "nil")
+  admin do
+    # How an Organization renders wherever it appears as a relationship
+    # (the wallet/gateway/instance admin tables): the name a human can
+    # search, not the raw UUID.
+    relationship_display_fields [:name]
   end
 
   policies do
@@ -70,6 +69,14 @@ defmodule FluxVale.Accounts.Organization do
     end
   end
 
+  postgres do
+    table("organizations")
+    repo(FluxVale.Repo)
+
+    # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
+    migration_defaults(id: "nil")
+  end
+
   attributes do
     uuid_v7_primary_key(:id)
 
@@ -85,13 +92,6 @@ defmodule FluxVale.Accounts.Organization do
       allow_nil?(false)
       public?(true)
     end
-  end
-
-  admin do
-    # How an Organization renders wherever it appears as a relationship
-    # (the wallet/gateway/instance admin tables): the name a human can
-    # search, not the raw UUID.
-    relationship_display_fields [:name]
   end
 
   relationships do
