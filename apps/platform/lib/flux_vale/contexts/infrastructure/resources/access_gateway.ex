@@ -49,27 +49,11 @@ defmodule FluxVale.Infrastructure.AccessGateway do
 
   require Ash.Query
 
-  postgres do
-    table("access_gateways")
-    repo(FluxVale.Repo)
-
-    # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
-    migration_defaults(id: "nil")
-
-    # Restrict, not cascade. A DB-level cascade would be a silent lie: it
-    # drops the row while the Deployment, its two Secrets and the PVC keep
-    # running in the access namespace, still joined to the customer's
-    # tailnet under their auth key — with no row left for any sweep to
-    # find. Refusing the org delete forces the caller through the
-    # teardown path (opt-out, or the ladder's destroy arm), which removes
-    # the cluster objects and needs the row to exist while it does.
-    #
-    # Accepted for v1: org deletion is not a supported flow yet (no action
-    # does it); when it lands it must tear gateways down first, exactly as
-    # it must for instances.
-    references do
-      reference(:organization, on_delete: :restrict)
-    end
+  admin do
+    # The operator table: whose gateway, where it serves, what state
+    # it is in, what it costs. Secrets refs and claim maps stay on the
+    # record page.
+    table_columns [:organization, :hostname, :tailnet_domain, :state, :monthly_cents]
   end
 
   oban do
@@ -125,6 +109,29 @@ defmodule FluxVale.Infrastructure.AccessGateway do
         worker_module_name(__MODULE__.Teardown.Worker)
         scheduler_module_name(__MODULE__.Teardown.Scheduler)
       end
+    end
+  end
+
+  postgres do
+    table("access_gateways")
+    repo(FluxVale.Repo)
+
+    # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
+    migration_defaults(id: "nil")
+
+    # Restrict, not cascade. A DB-level cascade would be a silent lie: it
+    # drops the row while the Deployment, its two Secrets and the PVC keep
+    # running in the access namespace, still joined to the customer's
+    # tailnet under their auth key — with no row left for any sweep to
+    # find. Refusing the org delete forces the caller through the
+    # teardown path (opt-out, or the ladder's destroy arm), which removes
+    # the cluster objects and needs the row to exist while it does.
+    #
+    # Accepted for v1: org deletion is not a supported flow yet (no action
+    # does it); when it lands it must tear gateways down first, exactly as
+    # it must for instances.
+    references do
+      reference(:organization, on_delete: :restrict)
     end
   end
 
@@ -349,13 +356,6 @@ defmodule FluxVale.Infrastructure.AccessGateway do
 
     create_timestamp(:created_at)
     update_timestamp(:updated_at)
-  end
-
-  admin do
-    # The operator table: whose gateway, where it serves, what state
-    # it is in, what it costs. Secrets refs and claim maps stay on the
-    # record page.
-    table_columns [:organization, :hostname, :tailnet_domain, :state, :monthly_cents]
   end
 
   relationships do

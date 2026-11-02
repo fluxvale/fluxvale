@@ -83,12 +83,11 @@ defmodule FluxVale.Infrastructure.Instance do
   alias FluxVale.Infrastructure.Operations.StartInstance
   alias FluxVale.Infrastructure.Operations.StopInstance
 
-  postgres do
-    table("instances")
-    repo(FluxVale.Repo)
-
-    # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
-    migration_defaults(id: "nil")
+  admin do
+    # The operator table: whose instance, its name, its lifecycle
+    # status, and where it lives. The dense operational fields stay on
+    # the record page.
+    table_columns [:organization, :name, :status, :namespace]
   end
 
   oban do
@@ -131,6 +130,14 @@ defmodule FluxVale.Infrastructure.Instance do
         scheduler_module_name(__MODULE__.Teardown.Scheduler)
       end
     end
+  end
+
+  postgres do
+    table("instances")
+    repo(FluxVale.Repo)
+
+    # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
+    migration_defaults(id: "nil")
   end
 
   policies do
@@ -483,13 +490,6 @@ defmodule FluxVale.Infrastructure.Instance do
 
     create_timestamp(:created_at)
     update_timestamp(:updated_at)
-  end
-
-  admin do
-    # The operator table: whose instance, its name, its lifecycle
-    # status, and where it lives. The dense operational fields stay on
-    # the record page.
-    table_columns [:organization, :name, :status, :namespace]
   end
 
   relationships do
