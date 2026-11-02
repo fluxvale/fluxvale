@@ -101,7 +101,7 @@ defmodule FluxValeWeb.DashboardLive do
       band's inside-left, the runway floats mid-band end-anchored right
       (render-exact, architect call: verdict'd renders beat teardown
       prose). NO straddle: concept-2 gives the ONE straddle to the
-      instance show's status card. Pixel measurements: PR body. --%>
+      instance show's status card. --%>
       <div class="appgram contents">
         <%!-- 1. The page header on the page background (above the band,
         as the render shows): title + subtitle left, quick actions
@@ -138,7 +138,16 @@ defmodule FluxValeWeb.DashboardLive do
           rise double-fades (a grammar kill rule).
         - Billing-down (#124, defensive-only) swaps the metric for the
           callout, same card-width column.
-        Measured insets (desktop + mobile): PR body. --%>
+        Measured insets, page first / render second (S4's renders, the
+        durable record):
+        - the card tops the band 7px / 7px in, 123px / 97px of band
+          below it. The wrap's numbers ARE those insets: min-[760px]:
+          pt-1.5 (6px) + the card's 1px border = 7px; min-[760px]:pb-24
+          (96px) + 1px = 97px. Mobile stacks inside the band: pt-5
+          (20px) + 1 = 21px, pb-11 (44px) + 1 = 45px.
+        - the runway is the band's vertical center at the content's
+          right edge, top inset 83px / 82px — min-[760px]:mt-[76px] on
+          the runway div IS that offset. --%>
         <section class="band border-t border-line">
           <div class="wrap pt-5 pb-11 min-[760px]:pt-1.5 min-[760px]:pb-24">
             <div class="rise flex flex-col gap-6 min-[760px]:flex-row min-[760px]:items-start min-[760px]:justify-between">

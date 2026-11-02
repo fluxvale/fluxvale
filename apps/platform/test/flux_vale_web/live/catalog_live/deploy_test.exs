@@ -1064,6 +1064,11 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
     assert html =~ "no cluster is configured"
     assert has_element?(view, "#deploy-errors")
+
+    # The step-4 list carries the same alert posture as the env step's
+    # (hostile-357 F4 pins it: a future edit strips this silently).
+    assert has_element?(view, "#deploy-errors[role='alert']")
+    assert has_element?(view, "#deploy-errors[tabindex='-1']")
     assert has_element?(view, "#deploy-form")
   end
 end

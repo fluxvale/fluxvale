@@ -247,8 +247,9 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
               the honest minimum is the alert region itself: role=alert
               announces the list on mount, and the colocated hook moves
               focus to it (the S8 a11y follow-up; per-field wiring is
-              the declared residual). --%>
-              <ul
+              the declared residual). A div, not a ul: alert is not a
+              conforming role for ul (hostile-357 F5). --%>
+              <div
                 :if={env_errors(@form) != []}
                 id="env-errors"
                 role="alert"
@@ -256,8 +257,8 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                 phx-hook=".FocusOnMount"
                 class="space-y-1 text-sm text-danger focus:outline-none"
               >
-                <li :for={msg <- env_errors(@form)}>{msg}</li>
-              </ul>
+                <p :for={msg <- env_errors(@form)}>{msg}</p>
+              </div>
 
               <script :type={Phoenix.LiveView.ColocatedHook} name=".FocusOnMount">
                 export default {
@@ -466,8 +467,9 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
               </div>
               <%!-- Same a11y posture as the env step's list: the alert
               region takes focus on mount (this is the arm a failed
-              save lands on when the errors render here). --%>
-              <ul
+              save lands on when the errors render here). Div, not ul —
+              hostile-357 F5. --%>
+              <div
                 :if={step_invisible_errors(@form) != []}
                 id="deploy-errors"
                 role="alert"
@@ -475,8 +477,8 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                 phx-hook=".FocusOnMount"
                 class="space-y-1 text-sm text-danger focus:outline-none"
               >
-                <li :for={msg <- step_invisible_errors(@form)}>{msg}</li>
-              </ul>
+                <p :for={msg <- step_invisible_errors(@form)}>{msg}</p>
+              </div>
               <.form for={@form} id="deploy-form" phx-submit="save" class="space-y-4">
                 <.input
                   field={@form[:name]}

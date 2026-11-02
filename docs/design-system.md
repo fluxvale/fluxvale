@@ -32,8 +32,8 @@ Component set: `button` (4 variants × 3 sizes, link-aware), `input`
 range with label + unit readout, #195), `card`, `badge`, `status_badge`
 (instance lifecycle, pulsing dot on in-motion states), `table`
 (stream-ready), `flash` (toasts), `nav_link` (active state), `header`,
-`empty_state`, `icon`, `list`, `metric_card` (single-value stat on a
-card), `user_menu` (signed-in avatar dropdown, #205).
+`empty_state`, `icon`, `list`, `user_menu` (signed-in avatar dropdown,
+#205).
 
 ## Surfaces on the system
 
@@ -48,7 +48,9 @@ aligned-themes stopgap is gone with it.
 Since the waves: the session-aware root (#205) — `/` is the marketing
 landing for anonymous visitors (unchanged) and the dashboard LiveView
 for signed-in sessions (instances overview with live status, balance +
-runway `metric_card`s, quick actions, fresh-account empty states);
+runway metric cards hand-rolled on `div.card` — the dashboard is their
+only renderer; `metric_card` was retired unused, hostile-357 F1),
+quick actions, fresh-account empty states;
 the landing lives on at `/about` (canonical to `/`); every chrome —
 app, public, landing — renders `user_menu` when signed in.
 
@@ -57,9 +59,12 @@ New in wave 2: `stepper` (wizard progress, testid-prefix aware) and
 `<.input>` now appends caller classes instead of replacing the base.
 Since then: `slider` (#195) — the selectable continuous control, used by
 the deploy wizard's resources step, which now picks allocations instead
-of typing them; `metric_card` + `user_menu` (#205) — the session-aware
-root's dashboard cards and the signed-in chrome's avatar dropdown
-(a native `<details>`: zero-JS on the dead marketing pages). The slider
+of typing them; `user_menu` (#205) — the signed-in chrome's avatar
+dropdown (a native `<details>`: zero-JS on the dead marketing pages).
+History: `metric_card` shipped alongside `user_menu` in #205 as the
+session-aware root's dashboard cards, then grew no renderer beyond the
+dashboard — retired unused on the app-wide lane (the component and its
+story deleted; the dashboard hand-rolls its cards). The slider
 went **rungs-only** (#221): the input addresses its dimension's ladder
 by index (one arrow press = one rung, thumb never between rungs), the
 tick row labels the rungs and highlights the active one, and the

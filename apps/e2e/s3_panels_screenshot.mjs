@@ -28,6 +28,17 @@ const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await ctx.newPage();
 
+// One live-socket assertion, the S7 lesson (same helper as s9/s10):
+// the setup/tab/confirm drives below ride the socket — firing them
+// into a dead page captures the wrong panel state (hostile-357 F6).
+const live = (pg) =>
+  pg.waitForFunction(
+    () =>
+      document.querySelector("[data-phx-session]")?.classList.contains("phx-connected"),
+    null,
+    { timeout: 15_000 },
+  );
+
 // 1. session: POST /auth/session (needs csrf from a fetched page)
 await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
 const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
@@ -47,6 +58,7 @@ async function setMode(mode) {
 
 async function openInstance() {
   await page.goto(`${BASE}${INSTANCE_PATH}`, { waitUntil: "networkidle" });
+  await live(page);
   await page.waitForTimeout(500);
 
   // The session POST can silently fail — a /sign-in redirect here would
