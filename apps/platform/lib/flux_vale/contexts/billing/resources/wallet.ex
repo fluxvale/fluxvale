@@ -44,6 +44,14 @@ defmodule FluxVale.Billing.Wallet do
     destroy_actions([])
   end
 
+  admin do
+    # The operator table: org-first (the way an operator looks for a
+    # wallet), the paywall waiver, and the ladder's decision state.
+    # :balance is the live sum aggregate; the full field set stays on
+    # the record page.
+    table_columns [:organization, :balance, :paywall_waived, :negative_since]
+  end
+
   policies do
     # One read policy, two ways in (Ash composes applicable policies
     # with AND — a separate admin policy would still leave the member
@@ -147,14 +155,6 @@ defmodule FluxVale.Billing.Wallet do
       default(false)
       public?(true)
     end
-  end
-
-  admin do
-    # The operator table: org-first (the way an operator looks for a
-    # wallet), the paywall waiver, and the ladder's decision state.
-    # :balance is the live sum aggregate; the full field set stays on
-    # the record page.
-    table_columns [:organization, :balance, :paywall_waived, :negative_since]
   end
 
   relationships do
