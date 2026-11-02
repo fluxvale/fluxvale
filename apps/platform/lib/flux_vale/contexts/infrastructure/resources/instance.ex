@@ -57,7 +57,7 @@ defmodule FluxVale.Infrastructure.Instance do
     otp_app: :flux_vale,
     domain: FluxVale.Infrastructure,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshOban],
+    extensions: [AshOban, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
     notifiers: [Ash.Notifier.PubSub]
 
@@ -483,6 +483,13 @@ defmodule FluxVale.Infrastructure.Instance do
 
     create_timestamp(:created_at)
     update_timestamp(:updated_at)
+  end
+
+  admin do
+    # The operator table: whose instance, its name, its lifecycle
+    # status, and where it lives. The dense operational fields stay on
+    # the record page.
+    table_columns [:organization, :name, :status, :namespace]
   end
 
   relationships do

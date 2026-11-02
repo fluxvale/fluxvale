@@ -35,7 +35,7 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     otp_app: :flux_vale,
     domain: FluxVale.Infrastructure,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshOban],
+    extensions: [AshOban, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
     notifiers: [Ash.Notifier.PubSub]
 
@@ -349,6 +349,13 @@ defmodule FluxVale.Infrastructure.AccessGateway do
 
     create_timestamp(:created_at)
     update_timestamp(:updated_at)
+  end
+
+  admin do
+    # The operator table: whose gateway, where it serves, what state
+    # it is in, what it costs. Secrets refs and claim maps stay on the
+    # record page.
+    table_columns [:organization, :hostname, :tailnet_domain, :state, :monthly_cents]
   end
 
   relationships do

@@ -149,6 +149,14 @@ defmodule FluxVale.Billing.Wallet do
     end
   end
 
+  admin do
+    # The operator table: org-first (the way an operator looks for a
+    # wallet), the paywall waiver, and the ladder's decision state.
+    # :balance is the live sum aggregate; the full field set stays on
+    # the record page.
+    table_columns [:organization, :balance, :paywall_waived, :negative_since]
+  end
+
   relationships do
     belongs_to :organization, FluxVale.Accounts.Organization do
       allow_nil?(false)

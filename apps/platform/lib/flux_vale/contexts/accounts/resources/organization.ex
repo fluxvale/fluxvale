@@ -20,7 +20,12 @@ defmodule FluxVale.Accounts.Organization do
     otp_app: :flux_vale,
     domain: FluxVale.Accounts,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    # AshAdmin.Resource is for the DISPLAY contract only (see the admin
+    # block below) — the Accounts domain stays out of the /admin mount
+    # (the config.exs domain opt-in governs what shows; this extension
+    # only teaches the resource how to render when referenced).
+    extensions: [AshAdmin.Resource]
 
   alias FluxVale.Accounts.Membership
 
@@ -80,6 +85,13 @@ defmodule FluxVale.Accounts.Organization do
       allow_nil?(false)
       public?(true)
     end
+  end
+
+  admin do
+    # How an Organization renders wherever it appears as a relationship
+    # (the wallet/gateway/instance admin tables): the name a human can
+    # search, not the raw UUID.
+    relationship_display_fields [:name]
   end
 
   relationships do
