@@ -151,12 +151,13 @@ defmodule FluxValeWeb.Webhooks.PolarController do
     :ok
   end
 
-  # Contract point 1 (#377): `subtotal_amount` — pre-discount,
-  # pre-tax, exactly what the checkout set — never `total_amount`
-  # (the product prices tax-inclusive, so Polar carves its tax OUT
-  # of our gross and a post-tax total could never match the guard).
-  # Contract point 2: the checkout id is the payment identity
-  # everywhere — request id, payment id, idempotency key.
+  # Contract point 1 (#377): `subtotal_amount` is discount-invariant
+  # — exactly the amount the checkout set, unchanged by Polar's tax
+  # carve-out AND by applied discounts. `total_amount` equals our
+  # gross only under tax-inclusive-no-discount; discounts make it
+  # diverge, so only the subtotal can meet the guard on every
+  # charge. Contract point 2: the checkout id is the payment
+  # identity everywhere — request id, payment id, idempotency key.
   @spec credit_outcome(map()) :: {:ok, map()} | :none
   defp credit_outcome(data) do
     checkout_id = data["checkout_id"]

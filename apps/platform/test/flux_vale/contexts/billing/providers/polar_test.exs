@@ -47,7 +47,7 @@ defmodule FluxVale.Billing.Providers.PolarTest do
     test "posts a JSON checkout and returns the handle" do
       expect(Req, :post, fn req, opts ->
         assert req.options[:base_url] == "https://sandbox-api.polar.sh"
-        assert Req.Request.get_header(req, "authorization") == ["bearer sbx_token"]
+        assert Req.Request.get_header(req, "authorization") == ["Bearer sbx_token"]
         assert opts[:url] == "/v1/checkouts/"
 
         assert opts[:json] == %{
@@ -56,6 +56,7 @@ defmodule FluxVale.Billing.Providers.PolarTest do
                  "currency" => "usd",
                  "success_url" => "https://app.example/billing/topup/return/topup_1",
                  "metadata" => %{"topup_id" => "topup_1"},
+                 "allow_discount_codes" => false,
                  "customer_email" => "buyer@example.com",
                  "customer_name" => "Buyer One"
                }
@@ -77,7 +78,8 @@ defmodule FluxVale.Billing.Providers.PolarTest do
                  "amount" => 12_345,
                  "currency" => "usd",
                  "success_url" => "https://app.example/billing/topup/return/topup_1",
-                 "metadata" => %{"topup_id" => "topup_1"}
+                 "metadata" => %{"topup_id" => "topup_1"},
+                 "allow_discount_codes" => false
                }
 
         {:ok,
@@ -96,6 +98,40 @@ defmodule FluxVale.Billing.Providers.PolarTest do
       end)
 
       assert {:ok, _handle} = Polar.create_checkout(@request, server: "production")
+    end
+
+    # The discount-code dial (#377, e2e-only): off by default (asserted
+    # in the exact-JSON tests above), on when the config or an opts pin
+    # says so — a buyer-entered code would pay less while the webhook
+    # credits the pre-discount subtotal.
+    test "a configured allow_discount_codes sends true" do
+      Application.put_env(:flux_vale, :polar,
+        access_token: "sbx_token",
+        webhook_secret: @standard_secret,
+        server: "sandbox",
+        product_id: "prod_1",
+        allow_discount_codes: true
+      )
+
+      expect(Req, :post, fn _req, opts ->
+        assert opts[:json]["allow_discount_codes"] == true
+
+        {:ok,
+         %Req.Response{status: 200, body: %{"id" => "co_1", "url" => "https://checkout/co_1"}}}
+      end)
+
+      assert {:ok, _handle} = Polar.create_checkout(@request, [])
+    end
+
+    test "opts override the discount-code dial like any other config key" do
+      expect(Req, :post, fn _req, opts ->
+        assert opts[:json]["allow_discount_codes"] == true
+
+        {:ok,
+         %Req.Response{status: 200, body: %{"id" => "co_1", "url" => "https://checkout/co_1"}}}
+      end)
+
+      assert {:ok, _handle} = Polar.create_checkout(@request, allow_discount_codes: true)
     end
 
     test "answers :missing_config without a token, product, or known server" do
@@ -252,7 +288,7 @@ defmodule FluxVale.Billing.Providers.PolarTest do
 
       expect(Req, :get, fn req, opts ->
         assert req.options[:base_url] == "https://sandbox-api.polar.sh"
-        assert Req.Request.get_header(req, "authorization") == ["bearer sbx_token"]
+        assert Req.Request.get_header(req, "authorization") == ["Bearer sbx_token"]
         assert opts[:url] == "/v1/checkouts/co_1"
         {:ok, %Req.Response{status: 200, body: body}}
       end)

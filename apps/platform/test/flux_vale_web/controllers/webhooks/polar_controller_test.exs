@@ -4,8 +4,10 @@ defmodule FluxValeWeb.Webhooks.PolarControllerTest do
   three Standard Webhooks headers joined in signed order,
   constant-time over the raw body — then the idempotent credit.
   Both #377 contract points pin here: the amount reads
-  `subtotal_amount` (never `total_amount`), and idempotency converges
-  on `polar:<checkout_id>`. A replayed delivery never
+  `subtotal_amount` — exactly what the checkout set, discount-
+  invariant where `total_amount` diverges under discounts and
+  Polar's tax carve-out — and idempotency converges on
+  `polar:<checkout_id>`. A replayed delivery never
   double-credits; every valid-signature delivery acks 200 except a
   failed credit (500 → Polar retries).
   """
@@ -46,9 +48,11 @@ defmodule FluxValeWeb.Webhooks.PolarControllerTest do
   end
 
   defp order_paid_payload(subtotal_cents, opts \\ []) do
-    # total_amount deliberately differs from the subtotal — Polar
-    # carves its tax out of the tax-inclusive gross, so a credit
-    # keyed on total would never match the guard (contract point 1).
+    # total_amount deliberately differs from the subtotal — they'd
+    # match under tax-inclusive-no-discount, but Polar's tax carve-out
+    # and applied discounts both make total diverge; subtotal_amount
+    # is the discount-invariant amount the checkout set (contract
+    # point 1).
     base = %{
       id: "ord_1",
       checkout_id: "co_1",
@@ -131,8 +135,10 @@ defmodule FluxValeWeb.Webhooks.PolarControllerTest do
 
     assert_received {:outcome, outcome}
 
-    # Amount from subtotal_amount (never total_amount); the checkout
-    # id is the payment identity everywhere; idempotency converges on
+    # Amount from subtotal_amount — exactly the amount the checkout
+    # set, discount-invariant (total_amount diverges under discounts
+    # and Polar's tax carve-out); the checkout id is the payment
+    # identity everywhere; idempotency converges on
     # polar:<checkout_id> — identical to the reconcile path.
     assert outcome == %{
              payment_request_id: "co_1",

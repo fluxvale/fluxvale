@@ -8,8 +8,8 @@ defmodule FluxVale.Billing.Providers.Polar do
   `server` defaults to "sandbox"; production flips via `POLAR_SERVER`
   at the gated cutover (#377 S4). Config block `config :flux_vale,
   :polar` — `access_token`, `webhook_secret`, `server`, `product_id`
-  — resolved from env by runtime.exs (BWS in cluster, ADR-0021),
-  never committed.
+  — resolved from env by runtime.exs (1Password-sourced env in the
+  cluster, ADR-0021 Am. 3), never committed.
 
   ## Webhook signature
 
@@ -81,10 +81,10 @@ defmodule FluxVale.Billing.Providers.Polar do
     with {:ok, access_token} <- fetch_config(config, :access_token),
          {:ok, product_id} <- fetch_config(config, :product_id),
          {:ok, base_url} <- base_url(config) do
-      req = Req.new(base_url: base_url, headers: [{"authorization", "bearer " <> access_token}])
+      req = Req.new(base_url: base_url, headers: [{"authorization", "Bearer " <> access_token}])
 
       req
-      |> Req.post(url: "/v1/checkouts/", json: checkout_body(request, product_id))
+      |> Req.post(url: "/v1/checkouts/", json: checkout_body(request, product_id, config))
       |> handle_checkout_response()
     end
   end
@@ -115,11 +115,12 @@ defmodule FluxVale.Billing.Providers.Polar do
 
     with {:ok, access_token} <- fetch_config(config, :access_token),
          {:ok, base_url} <- base_url(config) do
-      req = Req.new(base_url: base_url, headers: [{"authorization", "bearer " <> access_token}])
+      req = Req.new(base_url: base_url, headers: [{"authorization", "Bearer " <> access_token}])
 
       # Percent-encode: an id carrying ../, ?, or # (a hostile or
       # malformed webhook) must not retarget the GET. Item paths
-      # take no trailing slash (collections do — Polar 404s the swap).
+      # take no trailing slash (collections do — the swap 307s in
+      # both directions).
       encoded = URI.encode(checkout_id, &URI.char_unreserved?/1)
 
       req
@@ -136,13 +137,18 @@ defmodule FluxVale.Billing.Providers.Polar do
   @spec idempotency_key(String.t()) :: String.t()
   def idempotency_key(checkout_id) when is_binary(checkout_id), do: "polar:" <> checkout_id
 
-  defp checkout_body(request, product_id) do
+  defp checkout_body(request, product_id, config) do
     base = %{
       "products" => [product_id],
       "amount" => request.amount_cents,
       "currency" => String.downcase(request.currency),
       "success_url" => request.redirect_url,
-      "metadata" => %{"topup_id" => request.reference}
+      "metadata" => %{"topup_id" => request.reference},
+      # #377: buyer-entered codes off by default — the webhook
+      # credits the pre-discount subtotal, so a buyer-entered code
+      # would pay less while the credit lands full gross
+      # (pay-less-credit-full). The e2e-only dial enables it.
+      "allow_discount_codes" => Keyword.get(config, :allow_discount_codes, false)
     }
 
     Map.merge(base, buyer_fields(request))

@@ -360,10 +360,11 @@ case System.get_env("HITPAY_PAYMENT_METHODS") do
     end
 end
 
-# Polar gateway (#377, ADR-0029): the second provider — BWS-injected
-# in the cluster (ADR-0021), never committed. Unset in dev/test —
-# checkout answers {:error, :missing_config} and the top-up UI says
-# so plainly; sandbox runs set the sandbox org's token via env.
+# Polar gateway (#377, ADR-0029): the second provider — secrets
+# arrive as 1Password-sourced env (ADR-0021 Am. 3), never committed.
+# Unset in dev/test — checkout answers {:error, :missing_config} and
+# the top-up UI says so plainly; sandbox runs set the sandbox org's
+# token via env.
 case System.get_env("POLAR_ACCESS_TOKEN") do
   nil -> :ok
   token -> config :flux_vale, :polar, access_token: token
@@ -389,6 +390,18 @@ end
 case System.get_env("POLAR_PRODUCT_ID") do
   nil -> :ok
   product_id -> config :flux_vale, :polar, product_id: product_id
+end
+
+# #377: buyer-entered discount codes stay off outside the e2e — the
+# webhook credits the pre-discount subtotal, so a code would pay
+# less while the credit lands full gross. Only an explicit "true"/"1"
+# enables; anything else keeps config.exs's default.
+case System.get_env("POLAR_ALLOW_DISCOUNT_CODES") do
+  value when value in ["true", "1"] ->
+    config :flux_vale, :polar, allow_discount_codes: true
+
+  _default ->
+    :ok
 end
 
 # Postmark mailer (ADR-0003 Am. 1, #165): POSTMARK_API_KEY moves delivery
