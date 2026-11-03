@@ -884,7 +884,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
           phx-disable-with="Opening checkout…"
           id="topup-pay"
         >
-          Pay {Pricing.format_usd(@totals.total)} with HitPay
+          Pay {Pricing.format_usd(@totals.total)} with {provider_label()}
         </.button>
         <.button variant="ghost" size="sm" phx-click="back" id="topup-payment-back">
           Back
@@ -903,6 +903,17 @@ defmodule FluxValeWeb.BillingLive.Topup do
   # this surface's business, like every other billing display seam.
   defp signed_usd(cents) when cents < 0, do: "-" <> Pricing.format_usd(-cents)
   defp signed_usd(cents), do: Pricing.format_usd(cents)
+
+  # #377: the pay button names the active provider (ADR-0029's
+  # one-provider-via-config) — read at render, so the label rides the
+  # flip with no template change. HitPay stays the fallback: an
+  # unset/unknown provider renders today's text, not a blank.
+  defp provider_label do
+    case Application.get_env(:flux_vale, :payments_provider) do
+      FluxVale.Billing.Providers.Polar -> "Polar"
+      _active -> "HitPay"
+    end
+  end
 
   defp totals(%{amount_dollars: dollars, tax_rate_bp: rate_bp})
        when is_integer(dollars) and dollars >= 1 do

@@ -248,6 +248,16 @@ config :flux_vale,
     # default flip. HITPAY_PAYMENT_METHODS overrides at runtime.
     payment_methods: ["card"]
   ],
+  # The second provider (#377) — sandbox default, production flips
+  # via POLAR_SERVER at the gated cutover. Credentials arrive via
+  # env (runtime.exs, ADR-0021 Am. 3) — never here.
+  polar: [
+    # #377: buyer-entered codes off by default — the pre-discount
+    # subtotal mapping would credit full gross on a discounted
+    # charge; the no-real-charge e2e enables it per the runbook.
+    allow_discount_codes: false,
+    server: "sandbox"
+  ],
   # SEO canonical identity (#164, ADR-00025): canonical links, og:url, the
   # sitemap and the noindex host check all read these — the prod origin is
   # the truth regardless of the serving host (staging serves prod URLs by

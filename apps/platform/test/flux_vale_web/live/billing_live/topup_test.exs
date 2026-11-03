@@ -782,6 +782,30 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       assert [%Topup{status: :pending, payment_request_id: "pr_1", amount_cents: 500}] = topups
     end
 
+    # #377: the button names the active provider (ADR-0029's
+    # one-provider-via-config) — HitPay while it's active (identical
+    # rendered text to before the helper existed), Polar after the flip.
+    test "the pay button label names the active provider", %{conn: conn} do
+      view = to_payment(conn)
+
+      assert render(element(view, "#topup-pay")) =~ "with HitPay"
+
+      original = Application.get_env(:flux_vale, :payments_provider)
+
+      Application.put_env(:flux_vale, :payments_provider, FluxVale.Billing.Providers.Polar)
+      on_exit(fn -> Application.put_env(:flux_vale, :payments_provider, original) end)
+
+      # Re-walk to the payment step — a no-diff re-render keeps the
+      # old HTML, so the label is observed on a fresh render.
+      render_click(view, "back")
+
+      view
+      |> form("#topup-amount-form", amount: %{dollars: "5"})
+      |> render_submit()
+
+      assert render(element(view, "#topup-pay")) =~ "with Polar"
+    end
+
     test "a hostile details swap from the payment step reprices the charge", %{
       conn: conn,
       org: org
