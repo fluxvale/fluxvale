@@ -16,38 +16,38 @@ msgstr ""
 msgid "Actions"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:295
-#: lib/flux_vale_web/components/layouts.ex:310
+#: lib/flux_vale_web/components/layouts.ex:314
+#: lib/flux_vale_web/components/layouts.ex:329
 #, elixir-autogen, elixir-format
 msgid "Attempting to reconnect"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:366
+#: lib/flux_vale_web/components/layouts.ex:385
 #, elixir-autogen, elixir-format
 msgid "Dark theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:339
+#: lib/flux_vale_web/components/layouts.ex:358
 #, elixir-autogen, elixir-format
 msgid "Follow system theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:354
+#: lib/flux_vale_web/components/layouts.ex:373
 #, elixir-autogen, elixir-format
 msgid "Light theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:302
+#: lib/flux_vale_web/components/layouts.ex:321
 #, elixir-autogen, elixir-format
 msgid "Something went wrong!"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:327
+#: lib/flux_vale_web/components/layouts.ex:346
 #, elixir-autogen, elixir-format
 msgid "Theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:287
+#: lib/flux_vale_web/components/layouts.ex:306
 #, elixir-autogen, elixir-format
 msgid "We can't find the internet"
 msgstr ""
@@ -240,4 +240,14 @@ msgstr ""
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:83
 #, elixir-autogen, elixir-format
 msgid "Managed platform"
+msgstr ""
+
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:329
+#, elixir-autogen, elixir-format
+msgid "Acceptable use"
+msgstr ""
+
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:325
+#, elixir-autogen, elixir-format
+msgid "Terms"
 msgstr ""
