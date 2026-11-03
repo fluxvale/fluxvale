@@ -248,6 +248,9 @@ boot — unset in dev/test, the adapter answers
 - `POLAR_SERVER` — `sandbox` \| `production`: separate Polar
   environments with separate tokens (default `sandbox`)
 - `POLAR_PRODUCT_ID` — the top-up product's UUID
+- `POLAR_ALLOW_DISCOUNT_CODES` — enables buyer-entered discount codes;
+  off by default: the credit maps the pre-discount subtotal, so a
+  discounted charge would still credit the full gross
 
 Both secrets are minted in the Polar dashboard, stored in 1Password by
 the owner, never printed.
@@ -283,20 +286,24 @@ Allowlist Polar's delivery IPs (verified from Polar's docs 2026-11-03
 
 ### No-real-charge e2e (gates the flip)
 
-Create a 100%-off discount code (once, or reuse), then run a staging
-top-up through Polar's hosted checkout with the code. Pass = the
-`order.paid` delivery is 200, the top-up row completes, the wallet
+Set `POLAR_ALLOW_DISCOUNT_CODES=true` on staging for the run, unset it
+after. Create a 100%-off discount code (once, or reuse), then run a
+staging top-up through Polar's hosted checkout with the code. Pass =
+the `order.paid` delivery is 200, the top-up row completes, the wallet
 credits the net. The credit at 100% off is correct, not a bug: the
 guard maps `subtotal_amount` (pre-discount), per
 [ADR-0029](adr/00029-payments-adapter-selfmor.md) Am. 6 —
-`total_amount` would be 0.
+`total_amount` would be 0. If Polar turns out not to apply codes to
+custom prices, the fallback is the sandbox test card 4242 — sandbox
+charges aren't real by construction.
 
 ### Cutover (gated on the e2e above)
 
 Flip `payments_provider` to `FluxVale.Billing.Providers.Polar`
-(config commit), set the production env vars, redeploy. The top-up
-button label follows the active provider. HitPay's config block
-stays — rollback is flipping back plus its env vars.
+(config commit), set the production env vars, redeploy.
+`POLAR_ALLOW_DISCOUNT_CODES` stays unset in production — false is the
+default. The top-up button label follows the active provider. HitPay's
+config block stays — rollback is flipping back plus its env vars.
 
 **Operator note**: Polar disables a webhook endpoint after 10
 consecutive failed deliveries (retries up to 10×, 10s timeout) — a

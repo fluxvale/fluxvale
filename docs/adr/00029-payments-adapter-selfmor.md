@@ -168,7 +168,10 @@ custom-amount USD price created `tax_behavior: inclusive`, so the
 buyer pays exactly FluxVale's computed gross and the credit guard
 holds; the paid-order mapping uses Polar's `subtotal_amount`
 (pre-discount, pre-tax — exactly the amount FluxVale set), never
-`total_amount`.
+`total_amount`. Buyer-entered discount codes are off by default
+(`allow_discount_codes: false`) precisely because the mapping is
+pre-discount — a code can never short the credit, and conversely a
+discounted charge must never credit full gross.
 
 **Payment identity converges on the Polar checkout session id**:
 `payment_request_id`, `payment_id`, and the ledger idempotency key
