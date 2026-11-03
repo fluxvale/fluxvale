@@ -54,5 +54,6 @@ read/write per domain (`instances, backups, gateways, wallet,
 catalog`; `wallet`/`catalog` read-only for now), enforced at the
 `/api/v1` boundary inside the 401/403 contract — resource policies
 stay scope-unaware. Session auth on `/api/v1` is read-only (CSRF:
-writes are token-only). Per-token rate limits and audit land as
-later slices of #360.
+writes are token-only). Per-token rate limits landed (#360: fixed
+window per token, 300/min default, 429 + `Retry-After`); audit
+remains a later slice.

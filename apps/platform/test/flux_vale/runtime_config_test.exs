@@ -100,7 +100,9 @@ defmodule FluxVale.RuntimeConfigTest do
         assert {"1-59/15 * * * *", FluxVale.Janitor.VerifyAccessDomains} in crontab
         # ADR-0040 §11's domain-accrual tick (the S6 settler walk).
         assert {"3-59/15 * * * *", FluxVale.Workers.AccessDomainSettle} in crontab
-        assert length(crontab) == 8
+        # #360 slice 3's request-window prune (daily, off the token prune).
+        assert {"15 3 * * *", FluxVale.Janitor.PruneRequestWindows} in crontab
+        assert length(crontab) == 9
       end)
     end
 
