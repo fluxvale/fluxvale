@@ -9,7 +9,9 @@ defmodule FluxValeWeb.Plugs.ApiAudit do
   429s, 404s, one code path. One registration per conn = one row per
   request, a pure append with no arithmetic shared with the rate
   limiter's window counters (separate stores, no double-count
-  surface).
+  surface). Mechanism-inherent gap: a crash that escapes
+  Plug.Conn's send path never runs `register_before_send` —
+  rendered errors are audited, crash-500s are not.
 
   Mounted right after Authenticate, BEFORE the gates: a conn that
   halts at a later plug still gets its row — including the

@@ -210,6 +210,21 @@ defmodule FluxValeWeb.Api.MeRouteTest do
       assert %{"data" => %{"id" => _id}} = json_response(conn, 200)
     end
 
+    # The scheme rewrite is case-insensitive for ANY casing — an
+    # exact-lowercase-only rewrite would leave "BEARER" (or "BeArEr")
+    # uncanonicalized and 401 a valid token despite RFC 7235.
+    test "an upper-case bearer scheme is parsed too (RFC 7235: any casing)", %{
+      conn: conn,
+      pat: pat
+    } do
+      conn =
+        conn
+        |> put_req_header("authorization", "BEARER " <> pat)
+        |> get("/api/v1/me")
+
+      assert %{"data" => %{"id" => _id}} = json_response(conn, 200)
+    end
+
     test "401 for a garbage token", %{conn: conn} do
       conn =
         conn

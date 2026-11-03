@@ -16,6 +16,7 @@ defmodule FluxValeWeb.Plugs.ApiAuditTest do
   alias FluxVale.Identity
   alias FluxVale.Identity.PersonalAccessToken
   alias FluxVale.Identity.User
+  alias FluxVale.Ops.AccessRule
   alias FluxVale.Repo
   alias FluxVale.TestSupport.ApiPat
 
@@ -63,6 +64,35 @@ defmodule FluxValeWeb.Plugs.ApiAuditTest do
       assert row.method == "GET"
       assert row.path == "/api/v1/apps"
       assert row.status_code == 403
+    end
+
+    test "an AccessRule-denied call (401) is audited — api_pat survives the denial" do
+      # The access gate nils current_user AFTER the bearer resolved
+      # (api_pat stays assigned), so RequireActor answers 401 — the
+      # row must land anyway, the moduledoc's own claim. The denied
+      # user needs its own token: the setup user's fluxvale.com
+      # address is allowlisted under this rule.
+      AccessRule.create!(%{domain: "fluxvale.com"}, authorize?: false)
+
+      denied = User.create!("audit-denied@example.com", %{}, authorize?: false)
+
+      {:ok, %{token: denied_token, pat: denied_pat}} =
+        Identity.mint_pat(nil, %{user_id: denied.id, name: "denied", scopes: []},
+          authorize?: false
+        )
+
+      conn =
+        Phoenix.ConnTest.build_conn()
+        |> Plug.Conn.put_req_header("authorization", "Bearer " <> denied_token)
+        |> get("/api/v1/me")
+
+      assert %{"errors" => [%{"status" => "401"}]} = json_response(conn, 401)
+
+      assert [%{kind: :mint}, %{kind: :request} = row] = audit_rows(denied_pat.id)
+      assert row.personal_access_token_id == denied_pat.id
+      assert row.method == "GET"
+      assert row.path == "/api/v1/me"
+      assert row.status_code == 401
     end
 
     test "a policy-refused call (403 paywall) is audited" do

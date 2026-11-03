@@ -101,19 +101,42 @@ defmodule FluxValeWeb.Plugs.Authenticate do
 
     case PersonalAccessToken.get_by_token_hash(hash, authorize?: false) do
       {:ok, pat} when is_nil(pat.revoked_at) ->
-        if DateTime.after?(pat.expires_at, DateTime.utc_now()) do
-          user = Ash.get!(User, pat.user_id, authorize?: false)
-
-          conn
-          |> Plug.Conn.assign(:current_user, user)
-          |> Plug.Conn.assign(:api_pat, pat)
-          |> touch_last_used(pat)
-        else
-          conn
-        end
+        resolve_user(conn, pat)
 
       _revoked_or_missing ->
         conn
+    end
+  end
+
+  # A live, unrevoked token still needs its user: expiry first, then
+  # the non-bang fetch — see attach_user for the never-500 posture.
+  defp resolve_user(conn, pat) do
+    if DateTime.after?(pat.expires_at, DateTime.utc_now()) do
+      attach_user(conn, pat)
+    else
+      conn
+    end
+  end
+
+  defp attach_user(conn, pat) do
+    case Ash.get(User, pat.user_id, authorize?: false) do
+      {:ok, user} ->
+        conn
+        |> Plug.Conn.assign(:current_user, user)
+        |> Plug.Conn.assign(:api_pat, pat)
+        |> touch_last_used(pat)
+
+      # coveralls-ignore-start - user-delete race: the FK is
+      # on_delete: :delete_all, so a live token row cannot outlive
+      # its user through any action or seed — only a delete landing
+      # between the token read and this fetch lands here. Behaves
+      # like a failed lookup (no current_user from this branch,
+      # session consulted below): the file's never-500 posture
+      # mid-Authenticate.
+      _deleted_mid_auth ->
+        conn
+
+        # coveralls-ignore-stop
     end
   end
 
@@ -133,14 +156,36 @@ defmodule FluxValeWeb.Plugs.Authenticate do
     |> String.starts_with?("bearer ")
   end
 
+  # Any casing of the scheme token — "BEARER", "BeArEr", … — rewrites to
+  # canonical "Bearer" before the parsers below see the header: they all
+  # match on the exact canonical prefix, so a case-sensitive rewrite would
+  # leave anything but all-lowercase uncanonicalized (and 401 a valid
+  # token). "Bearer" itself (and any non-bearer scheme) passes through
+  # unchanged.
   defp canonicalize_bearer_scheme(conn) do
     req_headers =
       Enum.map(conn.req_headers, fn
-        {"authorization", "bearer" <> rest} -> {"authorization", "Bearer" <> rest}
+        {"authorization", header} -> {"authorization", canonical_scheme(header)}
         header -> header
       end)
 
     %{conn | req_headers: req_headers}
+  end
+
+  defp canonical_scheme(header) do
+    case String.split(header, " ", parts: 2) do
+      [scheme, rest] when scheme != "Bearer" ->
+        if String.downcase(scheme) == "bearer" do
+          "Bearer " <> rest
+        else
+          header
+        end
+
+      # Already canonical, or not scheme-shaped ("bearer" with no
+      # value, a bare token) — downstream parsing decides.
+      _canonical_or_shapeless ->
+        header
+    end
   end
 
   # The bearer value when it is a PAT, nil otherwise (JWT, garbage, or
