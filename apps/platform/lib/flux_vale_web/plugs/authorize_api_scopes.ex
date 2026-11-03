@@ -66,7 +66,10 @@ defmodule FluxValeWeb.Plugs.AuthorizeApiScopes do
         end
 
       # Deny-by-default (#360): a token caller on a path the table
-      # does not know gets 403, never a fallthrough.
+      # does not know gets 403, never a fallthrough. This is where a
+      # PAT HEAD request lands too: the table has no HEAD rows by
+      # design (JSON:API clients do not HEAD), so token HEADs deny
+      # here while session HEADs pass gate_session below.
       :error ->
         forbidden(conn, "no scope grants access to this path")
     end

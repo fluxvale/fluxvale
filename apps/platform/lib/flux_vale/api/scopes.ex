@@ -16,9 +16,9 @@ defmodule FluxVale.Api.Scopes do
   The route table maps `{method, path segments}` (under `/api/v1`,
   literals or `:_` wildcards) to the required scope, or `:any` for
   scopeless routes. It is written ONCE here, covering the whole S1
-  route set (#360's plan) — patterns may exist before their routes;
-  the completeness test asserts the other direction (every route is
-  mapped), and slice 2 asserts patterns ↔ routes both ways.
+  route set (#360's plan); the coverage test asserts it both ways —
+  every shipped route is mapped, and every pattern has a shipped
+  route (a dead entry fails).
   """
 
   @read_domains [:instances, :backups, :gateways, :wallet, :catalog]
@@ -77,6 +77,14 @@ defmodule FluxVale.Api.Scopes do
   """
   @spec all_scopes() :: [String.t()]
   def all_scopes, do: @all_scopes
+
+  @doc """
+  The route table itself — `{{method, pattern}, scope}` pairs — for
+  the coverage test's reverse direction (a pattern no shipped route
+  matches is a dead entry).
+  """
+  @spec route_table() :: [{{String.t(), [String.t() | :_]}, :any | String.t()}]
+  def route_table, do: @route_table
 
   @doc """
   Is `scope` a catalog scope? (`wallet:write` and unknown domains are

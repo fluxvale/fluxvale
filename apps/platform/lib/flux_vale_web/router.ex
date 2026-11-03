@@ -50,16 +50,19 @@ defmodule FluxValeWeb.Router do
   # 401/403 contract. fetch_session rides here so the session fallback can
   # read the token-backed session cookie (v1's :api pipeline did the same).
   # #360: AuthorizeApiScopes closes the boundary — scopes for PAT callers,
-  # read-only sessions (ADR-0019 Am. 1); ApiRateLimit meters the PAT calls
-  # that cross it (ADR-0019 §4); ApiAudit rides BEFORE the gates so a halted
-  # conn (401/403/429) still gets its audit row (slice 5).
+  # read-only sessions (ADR-0019 Am. 1); ApiAudit and ApiRateLimit ride
+  # BEFORE the gates, audit first so a halted conn (401/403/429) still gets
+  # its audit row (slice 5), the meter right behind it so EVERY
+  # PAT-authenticated call is counted — denials included: a valid-but-
+  # refused token writes audit rows, so an unmetered denial flood would
+  # hammer the trail with no ceiling (ADR-0019 §4).
   pipeline :api_auth do
     plug(:fetch_session)
     plug(FluxValeWeb.Plugs.Authenticate)
     plug(FluxValeWeb.Plugs.ApiAudit)
+    plug(FluxValeWeb.Plugs.ApiRateLimit)
     plug(FluxValeWeb.Plugs.RequireActor)
     plug(FluxValeWeb.Plugs.AuthorizeApiScopes)
-    plug(FluxValeWeb.Plugs.ApiRateLimit)
   end
 
   # #360 slice 4: the spec this scope serves must equal the committed

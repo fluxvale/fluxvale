@@ -78,10 +78,13 @@ config :flux_vale, :access_gateway, namespace: "fluxvale-access"
 # window is a full day so every request in a test run floors into the
 # same window (unless the suite crosses UTC midnight — a millisecond
 # straddle the hammer tests accept); rollover is exercised by
-# backdating window rows, never by sleeping. max sits ONE above the
-# suite's worst per-token call count (the /api/v1 route suites ride
-# 4 on one token) — any suite growing past it re-trips here on
-# purpose. Defaults (60s / 300) live in the plug.
+# backdating window rows, never by sleeping. The meter rides BEFORE
+# the gates, so PAT-authenticated denials (401/403) consume the
+# window too. max sits ONE above the suite's worst non-hammer
+# per-token call count (the /api/v1 route suites ride 4 on one
+# token; the rate-limit/audit hammer suites trip it on purpose) —
+# any suite growing past it re-trips here on purpose. Defaults
+# (60s / 300) live in the plug.
 config :flux_vale, FluxValeWeb.Plugs.ApiRateLimit,
   window_seconds: 86_400,
   max_requests: 5

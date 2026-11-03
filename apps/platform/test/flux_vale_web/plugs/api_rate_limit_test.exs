@@ -90,6 +90,26 @@ defmodule FluxValeWeb.Plugs.ApiRateLimitTest do
       # the refused pair counted too (a hammer earns no free passes).
       assert window_count(pat.id) == 7
     end
+
+    test "a scope-denied call consumes the window — deny, then exhaust, then 429", %{
+      token: token
+    } do
+      # The meter rides BEFORE the gates: the setup token holds no
+      # scopes, so /api/v1/apps is a scope 403 that never reaches a
+      # controller — and still counts against the same window as the
+      # 200s (an unmetered denial flood was the gap this order
+      # closes: a valid-but-refused token hammers with a ceiling).
+      denied =
+        Phoenix.ConnTest.build_conn()
+        |> Plug.Conn.put_req_header("authorization", "Bearer " <> token)
+        |> get("/api/v1/apps")
+
+      assert %{"errors" => [%{"status" => "403"}]} = json_response(denied, 403)
+
+      for _n <- 1..4, do: assert(json_response(me_request(token), 200)["data"])
+
+      assert %{"errors" => [%{"status" => "429"}]} = json_response(me_request(token), 429)
+    end
   end
 
   describe "window rollover" do
