@@ -166,6 +166,34 @@ defmodule FluxVale.Billing.Operations.CompleteTopupTest do
     assert {:ok, 0} = Billing.balance(wallet, authorize?: false)
   end
 
+  # #364: local expiry is staleness, not a payment verdict — the money
+  # answer. A webhook landing after the sweep flipped the row must
+  # still credit, exactly once.
+  test "a completion landing on an :expired row credits and completes" do
+    topup = topup!(500, payment_request_id: "pr_1")
+    {:ok, expired} = Topup.mark_expired(topup, %{}, authorize?: false)
+    assert expired.status == :expired
+
+    outcome = outcome(topup)
+    assert {:ok, completed} = Billing.complete_topup(outcome)
+    assert completed.status == :completed
+
+    wallet = wallet_of(topup)
+    assert {:ok, 500} = Billing.balance(wallet, authorize?: false)
+  end
+
+  test "a late completion replays idempotently — credits exactly once" do
+    topup = topup!(500, payment_request_id: "pr_1")
+    {:ok, _expired} = Topup.mark_expired(topup, %{}, authorize?: false)
+
+    outcome = outcome(topup)
+    assert {:ok, _completed} = Billing.complete_topup(outcome)
+    assert {:ok, :already_completed} = Billing.complete_topup(outcome)
+
+    wallet = wallet_of(topup)
+    assert {:ok, 500} = Billing.balance(wallet, authorize?: false)
+  end
+
   test "an unknown payment request answers :unknown_topup" do
     assert {:error, :unknown_topup} =
              Billing.complete_topup(%{

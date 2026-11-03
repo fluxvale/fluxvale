@@ -916,6 +916,25 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       assert {:ok, 0} = Billing.balance(wallet, authorize?: false)
     end
 
+    test "an expired row shows the expired card — no reconcile, no credit", %{
+      conn: conn,
+      topup: topup,
+      wallet: wallet
+    } do
+      {:ok, _expired} = Topup.mark_expired(topup, %{}, authorize?: false)
+
+      {:ok, view, _html} = live(conn, ~p"/billing/topup/return?reference=pr_1&status=cancelled")
+
+      assert has_element?(view, "[data-testid='topup-confirmation-expired']")
+      assert render(view) =~ "This payment window expired"
+
+      assert render(view) =~
+               "No credit was added. If you completed a payment, your credit will appear once the gateway confirms it."
+
+      assert has_element?(view, "#topup-back-to-billing")
+      assert {:ok, 0} = Billing.balance(wallet, authorize?: false)
+    end
+
     test "a completion racing a failed gateway state still shows completed", %{conn: conn} do
       # The webhook completes the row while reconciliation's fetch is
       # in flight and the gateway still reports failed — the guarded

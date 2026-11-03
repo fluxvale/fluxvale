@@ -8,7 +8,10 @@ defmodule FluxVale.Billing.Types.TopupStatus do
     (idempotently, by payment id).
   - `:failed` — checkout creation failed or the payment request failed;
     no credit ever posts from this row.
+  - `:expired` — pending past the expiry policy (#364): abandoned.
+    Local staleness, not a payment verdict — money verified after
+    expiry still credits (CompleteTopup's widened guard).
   """
 
-  use Ash.Type.Enum, values: [:pending, :completed, :failed]
+  use Ash.Type.Enum, values: [:pending, :completed, :failed, :expired]
 end

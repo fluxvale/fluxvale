@@ -728,6 +728,18 @@ defmodule FluxValeWeb.BillingLive.Topup do
           <p class="text-sm text-ink-muted">No credit was added and nothing was charged.</p>
         <% end %>
 
+        <%= if @state == :expired do %>
+          <h2
+            class="flex items-center gap-2 text-base font-medium text-ink"
+            data-testid="topup-confirmation-expired"
+          >
+            <.icon name="hero-clock" class="size-5" /> This payment window expired
+          </h2>
+          <p class="text-sm text-ink-muted">
+            No credit was added. If you completed a payment, your credit will appear once the gateway confirms it.
+          </p>
+        <% end %>
+
         <%= if @state == :pending do %>
           <h2
             class="flex items-center gap-2 text-base font-medium text-ink"

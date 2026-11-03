@@ -81,4 +81,8 @@ defmodule FluxVale.Billing do
   # M6 (#137): the Confirmation step's reconciliation — same credit
   # path as the webhook, promptness only.
   defdelegate reconcile_topup(payment_request_id), to: Operations.ReconcileTopup, as: :call
+
+  # #364: the local staleness policy — abandoned pending rows expire;
+  # money that lands late still credits (CompleteTopup's widened guard).
+  defdelegate expire_stale_topups(), to: Operations.ExpireStaleTopups, as: :call
 end

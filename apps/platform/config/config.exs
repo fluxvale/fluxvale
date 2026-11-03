@@ -344,6 +344,10 @@ config :flux_vale, Oban,
        # #154's stranded-instance sweeper, hourly at :13 — off :07 and
        # the top of the hour (same stance).
        {"13 * * * *", FluxVale.Workers.StrandedInstanceSweep},
+       # #364's stale top-up sweep, hourly at :17 — off :07 (zero
+       # balance), :13 (stranded), and the top-of-hour rush (same
+       # stance).
+       {"17 * * * *", FluxVale.Workers.StaleTopupSweep},
        # #203's idle sweep, every 5 minutes — the 1-hour idle promise
        # rounds to at most threshold + one cadence (the minute-tick
        # reconciler already crosses the top of the hour every minute).

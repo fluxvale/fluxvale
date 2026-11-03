@@ -94,11 +94,13 @@ defmodule FluxVale.RuntimeConfigTest do
         assert {"0 3 * * *", FluxVale.Janitor.PruneExpiredTokens} in crontab
         assert {"7 * * * *", FluxVale.Workers.ZeroBalanceSweep} in crontab
         assert {"13 * * * *", FluxVale.Workers.StrandedInstanceSweep} in crontab
+        # #364's stale top-up sweep.
+        assert {"17 * * * *", FluxVale.Workers.StaleTopupSweep} in crontab
         assert {"6-59/5 * * * *", FluxVale.Workers.BackupSweep} in crontab
         assert {"1-59/15 * * * *", FluxVale.Janitor.VerifyAccessDomains} in crontab
         # ADR-0040 §11's domain-accrual tick (the S6 settler walk).
         assert {"3-59/15 * * * *", FluxVale.Workers.AccessDomainSettle} in crontab
-        assert length(crontab) == 7
+        assert length(crontab) == 8
       end)
     end
 
