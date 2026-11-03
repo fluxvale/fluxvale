@@ -96,8 +96,12 @@ defmodule FluxVale.Billing.Operations.CompleteTopup do
 
   # A failed row never credits: a completed outcome contradicting a
   # failed record is an operator signal, not something to act on.
-  # Completed rows fall through: the credit replays idempotently by
-  # payment id and the guarded write below answers :already_completed.
+  # An :expired row takes the NORMAL path below — local expiry is our
+  # staleness rule, not a gateway verdict; if the money landed after
+  # the sweep flipped the row, the buyer was charged and must be
+  # credited. Completed rows fall through: the credit replays
+  # idempotently by payment id and the guarded write below answers
+  # :already_completed.
   defp complete(%Topup{status: :failed} = topup, _outcome) do
     Logger.error("Completed payment for a failed top-up #{topup.id} — not crediting")
     {:error, :topup_failed}
@@ -156,9 +160,13 @@ defmodule FluxVale.Billing.Operations.CompleteTopup do
 
   # Terminal-once: the status filter rides the UPDATE's WHERE, so an
   # out-of-order delivery racing this write loses (zero rows) instead
-  # of flipping an already-terminal row.
+  # of flipping an already-terminal row. :expired rides along (#364):
+  # local expiry is display staleness, not a payment verdict — a
+  # verified payment after the sweep still completes and credits
+  # exactly once.
   defp mark_completed(topup, outcome) do
-    query = Ash.Query.filter(Topup, id == ^topup.id and status == :pending)
+    query =
+      Ash.Query.filter(Topup, id == ^topup.id and status in [:pending, :expired])
 
     result =
       Ash.bulk_update(

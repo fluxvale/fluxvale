@@ -37,21 +37,21 @@ defmodule FluxVale.Billing.Topup do
   alias FluxVale.Accounts.Organization
 
   postgres do
-    table "billing_topups"
-    repo FluxVale.Repo
+    table("billing_topups")
+    repo(FluxVale.Repo)
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
-    migration_defaults id: "nil"
+    migration_defaults(id: "nil")
   end
 
   policies do
     policy action_type(:read) do
-      description "Members read their org's top-ups"
+      description("Members read their org's top-ups")
       authorize_if(relates_to_actor_via([:organization, :members]))
     end
 
     policy action_type([:create, :update]) do
-      description "System-only: checkout flow and verified gateway outcomes (authorize?: false)"
+      description("System-only: checkout flow and verified gateway outcomes (authorize?: false)")
       forbid_if(always())
     end
   end
@@ -185,25 +185,37 @@ defmodule FluxVale.Billing.Topup do
     # The gateway answered with a payment request id — the top-up now has
     # a checkout the webhook can report against.
     update :attach_checkout do
-      description "System: record the gateway's payment request id (StartTopup)."
+      description("System: record the gateway's payment request id (StartTopup).")
       accept([:payment_request_id])
     end
 
     update :mark_completed do
-      description """
+      description("""
       System: a verified payment succeeded (CompleteTopup). Callers
       guard the transition (status-filtered bulk update) — terminal
       states flip exactly once.
-      """
+      """)
 
       accept([:payment_id, :payment_request_id])
       change(set_attribute(:status, :completed))
     end
 
     update :mark_failed do
-      description "System: checkout creation failed or the payment request failed (same terminal-once guard)."
+      description(
+        "System: checkout creation failed or the payment request failed (same terminal-once guard)."
+      )
+
       accept([])
       change(set_attribute(:status, :failed))
+    end
+
+    update :mark_expired do
+      description(
+        "System: pending past the expiry policy — abandoned (ExpireStaleTopups' sweep, #364). Same terminal-once guard."
+      )
+
+      accept([])
+      change(set_attribute(:status, :expired))
     end
 
     read :get_by_id do
@@ -216,12 +228,13 @@ defmodule FluxVale.Billing.Topup do
   end
 
   code_interface do
-    domain FluxVale.Billing
+    domain(FluxVale.Billing)
 
     define(:create)
     define(:attach_checkout)
     define(:mark_completed)
     define(:mark_failed)
+    define(:mark_expired)
     define(:get_by_id, args: [:id])
   end
 
