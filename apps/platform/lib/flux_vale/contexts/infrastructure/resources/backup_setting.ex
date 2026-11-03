@@ -30,66 +30,7 @@ defmodule FluxVale.Infrastructure.BackupSetting do
     otp_app: :flux_vale,
     domain: FluxVale.Infrastructure,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshJsonApi.Resource],
     authorizers: [Ash.Policy.Authorizer]
-
-  # #360 (ADR-0019 §1): the backups settings family's wire contract.
-  # The row holds no secrets by design (its moduledoc) — every field
-  # here is the settings UI's own surface.
-  json_api do
-    type("backup_setting")
-
-    routes do
-      # backups:read
-      get(:get_by_instance,
-        route: "/instances/:instance_id/backup-setting",
-        default_fields: [
-          :id,
-          :instance_id,
-          :endpoint,
-          :bucket,
-          :prefix,
-          :access_key_id,
-          :retention_keep,
-          :enabled
-        ]
-      )
-
-      # backups:write — instance_id rides the path; the bucket
-      # coordinates ride the attributes.
-      post(:create,
-        route: "/instances/:instance_id/backup-setting",
-        default_fields: [
-          :id,
-          :instance_id,
-          :endpoint,
-          :bucket,
-          :prefix,
-          :access_key_id,
-          :retention_keep,
-          :enabled
-        ]
-      )
-
-      # backups:write
-      patch(:update,
-        route: "/backup-settings/:id",
-        default_fields: [
-          :id,
-          :instance_id,
-          :endpoint,
-          :bucket,
-          :prefix,
-          :access_key_id,
-          :retention_keep,
-          :enabled
-        ]
-      )
-
-      # backups:write — the "stop backing up entirely" row delete.
-      delete(:destroy, route: "/backup-settings/:id")
-    end
-  end
 
   postgres do
     table("backup_settings")
@@ -215,11 +156,6 @@ defmodule FluxVale.Infrastructure.BackupSetting do
   actions do
     defaults([:read])
 
-    # #360: instance_id arrives as an ARGUMENT so the JSON:API route can
-    # feed it from the PATH (`/instances/:instance_id/backup-setting` —
-    # path params feed arguments by name). The change copies it onto the
-    # attribute, so ConfigureBackups' attribute-shaped params land the
-    # same row (the ActorOrgHasPaid gate already reads both shapes).
     create :create do
       primary?(true)
 
@@ -232,16 +168,6 @@ defmodule FluxVale.Infrastructure.BackupSetting do
         :enabled,
         :instance_id
       ])
-
-      argument(:instance_id, :uuid, allow_nil?: false, public?: true)
-
-      change(fn changeset, _context ->
-        Ash.Changeset.force_change_attribute(
-          changeset,
-          :instance_id,
-          Ash.Changeset.get_argument(changeset, :instance_id)
-        )
-      end)
     end
 
     update :update do

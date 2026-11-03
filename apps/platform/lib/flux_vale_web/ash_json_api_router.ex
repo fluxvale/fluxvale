@@ -6,12 +6,7 @@ defmodule FluxValeWeb.AshJsonApiRouter do
   """
 
   use AshJsonApi.Router,
-    domains: [
-      FluxVale.Identity,
-      FluxVale.Infrastructure,
-      FluxVale.Billing,
-      FluxVale.Catalog
-    ],
+    domains: [FluxVale.Identity],
     prefix: "/api/v1",
     open_api: "/open_api"
 end

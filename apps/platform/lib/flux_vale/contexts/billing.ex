@@ -13,12 +13,9 @@ defmodule FluxVale.Billing do
   :grant_goodwill`, #140).
   """
 
-  # AshJsonApi.Domain (#360): the resource-level json_api blocks ride
-  # the domain through AshJsonApiRouter — routes are contract
-  # (ADR-0019 §1).
   use Ash.Domain,
     otp_app: :flux_vale,
-    extensions: [AshAdmin.Domain, AshJsonApi.Domain]
+    extensions: [AshAdmin.Domain]
 
   # AshAdmin exposure (#140, ADR-0027 §3 — opt-in, admin policies ride
   # ActorIsPlatformAdmin like every exposed domain): the goodwill

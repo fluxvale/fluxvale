@@ -10,49 +10,14 @@ defmodule FluxVale.Catalog.App do
     otp_app: :flux_vale,
     domain: FluxVale.Catalog,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshJsonApi.Resource]
+    authorizers: [Ash.Policy.Authorizer]
 
-  # #360 (ADR-0019 §1): the catalog's wire contract — the public browse
-  # surface (ADR-00025); first cut is the authenticated read (every
-  # /api/v1 route rides the auth pipeline).
-  json_api do
-    type("app")
+  postgres do
+    table("apps")
+    repo(FluxVale.Repo)
 
-    routes do
-      # catalog:read
-      index(:list,
-        route: "/apps",
-        default_fields: [
-          :id,
-          :name,
-          :slug,
-          :tagline,
-          :description,
-          :icon_url,
-          :source_url,
-          :docs_url,
-          :file_access
-        ]
-      )
-
-      # catalog:read — one segment in the path; the param name is the
-      # action's own argument (`:slug` feeds it by name).
-      get(:get_by_slug,
-        route: "/apps/:slug",
-        default_fields: [
-          :id,
-          :name,
-          :slug,
-          :tagline,
-          :description,
-          :icon_url,
-          :source_url,
-          :docs_url,
-          :file_access
-        ]
-      )
-    end
+    # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
+    migration_defaults(id: "nil")
   end
 
   policies do
@@ -68,14 +33,6 @@ defmodule FluxVale.Catalog.App do
       description("Platform admins manage catalog apps (ADR-0027, ADR-0030)")
       authorize_if(always())
     end
-  end
-
-  postgres do
-    table("apps")
-    repo(FluxVale.Repo)
-
-    # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
-    migration_defaults(id: "nil")
   end
 
   attributes do
@@ -180,16 +137,6 @@ defmodule FluxVale.Catalog.App do
       argument(:slug, :string, allow_nil?: false)
       filter(expr(slug == ^arg(:slug)))
     end
-
-    # #360: the browse list the catalog page reads through the category
-    # relationship — the resource itself had no list action. Mirrors the
-    # read policy's own posture exactly (action_type(:read) → public
-    # browse, #164/ADR-00025): no policy is added or widened, this read
-    # simply falls under the existing one. Sorted like the page sorts.
-    read :list do
-      description("The catalog's apps, by name — the browse surface's flat list")
-      prepare(build(sort: :name))
-    end
   end
 
   code_interface do
@@ -198,7 +145,6 @@ defmodule FluxVale.Catalog.App do
     define(:create)
     define(:update)
     define(:get_by_slug, args: [:slug])
-    define(:list)
   end
 
   identities do

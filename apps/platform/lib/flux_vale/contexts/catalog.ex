@@ -8,20 +8,17 @@ defmodule FluxVale.Catalog do
   away from prod.
   """
 
-  # AshJsonApi.Domain (#360): the resource-level json_api blocks ride
-  # the domain through AshJsonApiRouter — routes are contract
-  # (ADR-0019 §1).
   use Ash.Domain,
     otp_app: :flux_vale,
-    extensions: [AshAdmin.Domain, AshJsonApi.Domain]
+    extensions: [AshAdmin.Domain]
 
   admin do
-    show?(true)
+    show? true
   end
 
   resources do
-    resource(FluxVale.Catalog.Category)
-    resource(FluxVale.Catalog.App)
-    resource(FluxVale.Catalog.AppVersion)
+    resource FluxVale.Catalog.Category
+    resource FluxVale.Catalog.App
+    resource FluxVale.Catalog.AppVersion
   end
 end
