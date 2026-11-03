@@ -31,7 +31,6 @@ defmodule FluxValeWeb.BillingLive.Topup do
 
   alias FluxVale.Accounts
   alias FluxVale.Billing
-  alias FluxVale.Billing.Countries
   alias FluxVale.Billing.Tax
   alias FluxVale.Billing.Topup
   alias FluxVale.Pricing
@@ -40,12 +39,8 @@ defmodule FluxValeWeb.BillingLive.Topup do
   require Logger
 
   @steps [:details, :amount, :payment]
+  @country_format ~r/^[A-Z]{2}$/
   @state_format ~r/^[A-Z]{2}$/
-  # The country picker's rendered cap (#364): options beyond this many
-  # matches fold into a "keep typing" hint. The listbox scrolls
-  # (max-h-80), so the cap is what keeps the keyboard highlight inside
-  # the rows actually on screen.
-  @country_rows 8
   # $1 credit unit × quantity (decided 2026-10-13, #137).
   @unit_cents 100
 
@@ -83,16 +78,6 @@ defmodule FluxValeWeb.BillingLive.Topup do
           |> assign(ip_country: session["ip_country"])
           |> assign(tax_rate_bp: 0, reverse_charge?: false)
           |> assign(amount_dollars: nil)
-          # The country combobox's open state (#364): the query the
-          # buyer typed, the matches on display (capped), the keyboard
-          # highlight, and whether the listbox shows at all.
-          |> assign(
-            country_query: "",
-            country_matches: [],
-            country_total: 0,
-            country_active: 0,
-            country_open: false
-          )
 
         {:ok, socket}
 
@@ -127,35 +112,17 @@ defmodule FluxValeWeb.BillingLive.Topup do
   end
 
   @impl Phoenix.LiveView
-  def handle_event("validate-details", %{"details" => details} = params, socket) do
-    submitted = normalize_details(details)
-    details = reconcile_country(submitted, socket)
+  def handle_event("validate-details", %{"details" => details}, socket) do
+    details = normalize_details(details)
 
     {:noreply,
      socket
      |> assign(details: details)
-     # The dropdown is the country field's own concern — typing in any
-     # other field abandons the search, so its listbox folds away.
-     |> close_list_on_other_field(params)
      |> assign_tax(details)}
   end
 
-  # Enter inside the query field: the commit happens HERE, in the
-  # keydown. Chromium's implicit submit clicks the default button right
-  # after this keydown, so country-away + continue-details + the form's
-  # next-details all follow on the channel — the listbox is closed and
-  # the serialized country is stale by the time the submit lands. The
-  # blank-country reconciliation in the submit handlers is what makes
-  # that pairing safe; no flag can be, because the synthetic click and
-  # a real Continue click are indistinguishable server-side.
-  def handle_event("next-details", %{"details" => _details}, socket)
-      when socket.assigns.country_open do
-    {:noreply, commit_highlighted(socket)}
-  end
-
   def handle_event("next-details", %{"details" => details}, socket) do
-    submitted = normalize_details(details)
-    details = reconcile_country(submitted, socket)
+    details = normalize_details(details)
 
     if details_valid?(details) do
       {:noreply,
@@ -165,96 +132,6 @@ defmodule FluxValeWeb.BillingLive.Topup do
     else
       {:noreply, put_flash(socket, :error, details_error(details))}
     end
-  end
-
-  def handle_event("continue-details", _params, socket) do
-    # The Continue click, ahead of its form submit: the list closes so
-    # the submit advances instead of committing a highlighted option.
-    {:noreply, assign(socket, country_open: false)}
-  end
-
-  def handle_event("filter-countries", %{"country_query" => query}, socket)
-      when is_binary(query) do
-    query = String.trim(query)
-    matches = filter_countries(query)
-
-    {:noreply,
-     assign(
-       socket,
-       country_query: query,
-       country_matches: Enum.take(matches, @country_rows),
-       country_total: length(matches),
-       country_active: 0,
-       country_open: query != ""
-     )}
-  end
-
-  # Hostile or malformed pushes fall through as silence — a
-  # FunctionClauseError would kill the socket and restart the buyer's
-  # wizard (the posture the pay event promises).
-  def handle_event("filter-countries", _missing_or_malformed_query, socket),
-    do: {:noreply, socket}
-
-  def handle_event("select-country", %{"code" => code}, socket) do
-    {:noreply, select_country(socket, code)}
-  end
-
-  def handle_event("select-country", _missing_code, socket), do: {:noreply, socket}
-
-  # Click-away — the plain-LiveView close on outside clicks (a blur
-  # binding would unmount the rows before the option's mouse-up click
-  # lands). The implicit submit fires it too (Chromium clicks the
-  # default button), right before the submit it precedes. Idempotent
-  # while closed.
-  def handle_event("country-away", _params, socket) do
-    {:noreply, assign(socket, country_open: false)}
-  end
-
-  # Keyboard navigation rides the wrapper's focus. Enter is owned by
-  # the implicit submit (see next-details); a closed ArrowDown reopens
-  # the list; everything else is a no-op.
-  def handle_event(
-        "country-key",
-        %{"key" => "ArrowDown"},
-        %{assigns: %{country_open: true}} = socket
-      ) do
-    {:noreply, move_active(socket, +1)}
-  end
-
-  def handle_event(
-        "country-key",
-        %{"key" => "ArrowUp"},
-        %{assigns: %{country_open: true}} = socket
-      ) do
-    {:noreply, move_active(socket, -1)}
-  end
-
-  def handle_event(
-        "country-key",
-        %{"key" => "Escape"},
-        %{assigns: %{country_open: true}} = socket
-      ) do
-    {:noreply, assign(socket, country_open: false)}
-  end
-
-  def handle_event(
-        "country-key",
-        %{"key" => "Enter"},
-        %{assigns: %{country_open: true}} = socket
-      ) do
-    {:noreply, commit_highlighted(socket)}
-  end
-
-  def handle_event(
-        "country-key",
-        %{"key" => "ArrowDown"},
-        %{assigns: %{country_open: false}} = socket
-      ) do
-    {:noreply, reopen_country(socket)}
-  end
-
-  def handle_event("country-key", _not_a_nav_key, socket) do
-    {:noreply, socket}
   end
 
   def handle_event("back", _params, socket) do
@@ -480,14 +357,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
             <div class="rise mx-auto max-w-2xl space-y-8">
               <%= cond do %>
                 <% @step == :details -> %>
-                  <.details_form
-                    details={@details}
-                    country_query={@country_query}
-                    country_matches={@country_matches}
-                    country_total={@country_total}
-                    country_active={@country_active}
-                    country_open={@country_open}
-                  />
+                  <.details_form details={@details} />
                 <% @step == :amount -> %>
                   <.amount_step
                     amount_dollars={@amount_dollars}
@@ -531,11 +401,6 @@ defmodule FluxValeWeb.BillingLive.Topup do
   end
 
   attr(:details, :map, required: true)
-  attr(:country_query, :string, required: true)
-  attr(:country_matches, :list, required: true)
-  attr(:country_total, :integer, required: true)
-  attr(:country_active, :integer, required: true)
-  attr(:country_open, :boolean, required: true)
 
   defp details_form(assigns) do
     form =
@@ -577,98 +442,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
           placeholder="jane@example.com"
           required
         />
-        <%!-- The searchable country control (#364): a plain-LiveView
-            combobox — the query input's own phx-change filters the
-            dataset, the listbox is LiveView-rendered (ARIA
-            combobox/listbox/option), keyboard navigation rides the
-            wrapper's phx-keydown, and the stored code rides the
-            hidden details[country] input. --%>
-        <div
-          id="country-combobox"
-          class="relative mb-4"
-          data-testid="topup-country-combobox"
-          phx-keydown="country-key"
-          phx-click-away="country-away"
-        >
-          <label for="country-query">
-            <span class="mb-1.5 block text-sm font-medium text-ink">Country</span>
-            <input
-              type="text"
-              id="country-query"
-              name="country_query"
-              value={@country_query}
-              placeholder="Search countries"
-              autocomplete="off"
-              spellcheck="false"
-              required
-              role="combobox"
-              aria-expanded={if(@country_open, do: "true", else: "false")}
-              aria-controls="country-listbox"
-              aria-activedescendant={
-                active_option_id(@country_open, @country_matches, @country_active)
-              }
-              aria-autocomplete="list"
-              phx-change="filter-countries"
-              class="w-full rounded-control border border-line bg-panel px-3 py-2 text-sm text-ink shadow-sm transition-[color,background-color,border-color,box-shadow] duration-(--motion-fast) placeholder:text-ink-subtle focus:outline-none focus:ring-2 focus:border-line-primary focus:ring-focus/25"
-              data-testid="topup-country-input"
-            />
-          </label>
-          <input
-            type="hidden"
-            name="details[country]"
-            value={@details.country}
-            data-testid="topup-country-value"
-          />
-
-          <%= if @country_open do %>
-            <div class="absolute inset-x-0 top-full z-20 mt-1" data-testid="topup-country-listbox">
-              <ul
-                id="country-listbox"
-                role="listbox"
-                aria-labelledby="country-query"
-                class="max-h-80 overflow-auto rounded-control border border-line bg-panel py-1 shadow-lg"
-              >
-                <%= for {country, index} <- Enum.with_index(@country_matches) do %>
-                  <li
-                    id={"country-option-#{index}"}
-                    role="option"
-                    aria-selected={if(index == @country_active, do: "true", else: "false")}
-                    phx-click="select-country"
-                    phx-value-code={country.code}
-                    class={[
-                      "flex cursor-pointer items-baseline justify-between gap-2 px-3 py-2 text-sm",
-                      if(index == @country_active,
-                        do: "bg-panel-raised font-medium text-ink",
-                        else: "text-ink-muted"
-                      )
-                    ]}
-                  >
-                    <span>{country.name}</span>
-                    <span class="font-mono text-xs text-ink-subtle">{country.code}</span>
-                  </li>
-                <% end %>
-              </ul>
-              <%= if @country_total > length(@country_matches) do %>
-                <p
-                  class="mt-1 rounded-control border border-line bg-panel px-3 py-2 text-xs text-ink-muted shadow-lg"
-                  data-testid="topup-country-more"
-                  aria-live="polite"
-                >
-                  …and {@country_total - length(@country_matches)} more — keep typing
-                </p>
-              <% end %>
-              <%= if @country_total == 0 do %>
-                <p
-                  class="rounded-control border border-line bg-panel px-3 py-2 text-sm text-ink-muted shadow-lg"
-                  data-testid="topup-country-empty"
-                  aria-live="polite"
-                >
-                  No matching country — keep typing, or check the spelling.
-                </p>
-              <% end %>
-            </div>
-          <% end %>
-        </div>
+        <.input field={@form[:country]} label="Country code" placeholder="DE" required />
         <%= if @details.country == "US" do %>
           <.input field={@form[:state]} label="State" placeholder="CA" required />
         <% end %>
@@ -685,23 +459,13 @@ defmodule FluxValeWeb.BillingLive.Topup do
             placeholder="DE123456789"
           />
         <% end %>
-        <.button
-          type="submit"
-          size="sm"
-          id="topup-details-next"
-          phx-click="continue-details"
-        >
+        <.button type="submit" size="sm" id="topup-details-next">
           Continue
         </.button>
       </.form>
     </.card>
     """
   end
-
-  # The combobox input's aria-activedescendant: the highlighted
-  # option's id while the listbox shows matches, absent otherwise.
-  defp active_option_id(true, [_match | _matches], active), do: "country-option-#{active}"
-  defp active_option_id(_closed_or_empty, _matches, _active), do: nil
 
   attr(:amount_dollars, :integer, default: nil)
   attr(:balance, :integer, required: true)
@@ -1075,7 +839,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
 
   defp details_valid?(details) do
     details.name != "" and valid_email?(details.email) and
-      Countries.valid?(details.country) and state_valid?(details)
+      String.match?(details.country, @country_format) and state_valid?(details)
   end
 
   # The US rate is per-state (ADR-0029 Am. 3) — a US buyer's state is
@@ -1086,143 +850,11 @@ defmodule FluxValeWeb.BillingLive.Topup do
   defp state_valid?(_elsewhere), do: true
 
   defp details_error(%{country: "US"}) do
-    "Name, a valid email, a selected country, and a 2-letter US state are required."
+    "Name, a valid email, a 2-letter country code, and a 2-letter US state are required."
   end
 
   defp details_error(_elsewhere) do
-    "Name, a valid email, and a selected country are required."
-  end
-
-  # --- the country combobox (#364) ---
-
-  # Prefix matches rank ahead of substring matches; both arms keep the
-  # dataset's name-sorted order. Matching folds accents and case, and
-  # runs on the code too — "PH", "Phil", and "phi" all find the
-  # Philippines.
-  defp filter_countries(query) do
-    if query == "" do
-      []
-    else
-      needle = fold(query)
-
-      {prefix, rest} =
-        Enum.split_with(Countries.all(), fn country ->
-          String.starts_with?(fold(country.name), needle) or
-            String.starts_with?(String.downcase(country.code), needle)
-        end)
-
-      substring =
-        Enum.filter(rest, fn country ->
-          String.contains?(fold(country.name), needle) or
-            String.contains?(String.downcase(country.code), needle)
-        end)
-
-      Enum.concat(prefix, substring)
-    end
-  end
-
-  # The accent-fold for matching and the dataset's sort order — the
-  # letters a buyer types, not the codepoints the name carries.
-  # Codepoints, not graphemes: a decomposed å is one grapheme cluster
-  # ("a" + combining ring) and the mark must be dropped.
-  defp fold(value) do
-    value
-    |> String.downcase()
-    |> String.normalize(:nfd)
-    |> String.codepoints()
-    |> Enum.reject(fn
-      <<codepoint::utf8>> when codepoint in 0x0300..0x036F -> true
-      _base_character -> false
-    end)
-    |> Enum.join()
-  end
-
-  # The selection — the stored shape stays the 2-letter code
-  # (normalize_details and open_checkout untouched); the control reads
-  # "Philippines (PH)". Shared by the click, the Enter keydown, and
-  # the hostile next-details commit.
-  defp select_country(socket, code) do
-    details = %{socket.assigns.details | country: code}
-
-    socket
-    |> assign(
-      details: details,
-      country_query: "#{Countries.name(code)} (#{code})",
-      country_open: false
-    )
-    |> assign_tax(details)
-  end
-
-  # The keyboard highlight commits (nil match folds the list —
-  # nothing to take).
-  defp commit_highlighted(socket) do
-    case Enum.at(socket.assigns.country_matches, socket.assigns.country_active) do
-      nil -> assign(socket, country_open: false)
-      match -> select_country(socket, match.code)
-    end
-  end
-
-  defp move_active(socket, delta) do
-    count = length(socket.assigns.country_matches)
-    current = socket.assigns.country_active
-    shifted = current + delta
-
-    active =
-      cond do
-        count == 0 -> 0
-        shifted < 0 -> 0
-        shifted > count - 1 -> count - 1
-        true -> shifted
-      end
-
-    assign(socket, country_active: active)
-  end
-
-  defp close_list_on_other_field(socket, %{"_target" => ["details", field]})
-       when field != "country" do
-    assign(socket, country_open: false)
-  end
-
-  defp close_list_on_other_field(socket, _same_field_or_untracked), do: socket
-
-  # A blank submitted country is stale serialization, never intent: the
-  # combobox has no clear affordance, so the only way a serialized
-  # blank pairs with a server-side selection is a submit (or change)
-  # that left the browser before the selection's patch landed — the
-  # Enter-in-query pairing. The committed code stands; a non-blank
-  # submitted country always wins (the hostile-swap case).
-  defp reconcile_country(%{country: ""} = details, socket) do
-    committed = socket.assigns.details.country
-
-    if Countries.valid?(committed) do
-      %{details | country: committed}
-    else
-      details
-    end
-  end
-
-  defp reconcile_country(details, _socket), do: details
-
-  # The list re-opens over the selected country when the buyer arrows
-  # back in; before any selection it opens on the top of the dataset.
-  defp reopen_country(socket) do
-    code = socket.assigns.details.country
-
-    {query, matches} =
-      if code == "" do
-        {"", Countries.all()}
-      else
-        {code, filter_countries(code)}
-      end
-
-    assign(
-      socket,
-      country_query: query,
-      country_matches: Enum.take(matches, @country_rows),
-      country_total: length(matches),
-      country_active: 0,
-      country_open: true
-    )
+    "Name, a valid email, and a 2-letter country code are required."
   end
 
   defp valid_email?(email) do

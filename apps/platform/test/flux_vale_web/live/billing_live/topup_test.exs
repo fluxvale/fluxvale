@@ -84,11 +84,9 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
     test "typing updates the details without advancing", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/billing/topup")
 
-      select_country(view, "DE")
-
       view
       |> form("#topup-details-form",
-        details: %{name: "Jane Doe", email: "jane@example.com"}
+        details: %{name: "Jane Doe", email: "jane@example.com", country: "DE"}
       )
       |> render_change()
 
@@ -108,22 +106,20 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
 
       view
       |> form("#topup-details-form",
-        details: %{name: "", email: "not-an-email"}
+        details: %{name: "", email: "not-an-email", country: "deutschland"}
       )
       |> render_submit()
 
       assert has_element?(view, "#topup-details-form")
-      assert render(view) =~ "selected country"
+      assert render(view) =~ "2-letter country code"
     end
 
     test "valid details advance to the amount step", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/billing/topup")
 
-      select_country(view, "DE")
-
       view
       |> form("#topup-details-form",
-        details: %{name: "Jane Doe", email: "jane@example.com"}
+        details: %{name: "Jane Doe", email: "jane@example.com", country: "de"}
       )
       |> render_submit()
 
@@ -135,23 +131,36 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
 
       refute has_element?(view, "input[name='details[state]']")
 
-      select_country(view, "US")
+      view
+      |> form("#topup-details-form",
+        details: %{name: "Jane Doe", email: "jane@example.com", country: "US"}
+      )
+      |> render_change()
+
       assert has_element?(view, "input[name='details[state]']")
 
       # Back to a non-US country and the field folds away again.
-      select_country(view, "DE")
+      view
+      |> form("#topup-details-form",
+        details: %{name: "Jane Doe", email: "jane@example.com", country: "DE"}
+      )
+      |> render_change()
+
       refute has_element?(view, "input[name='details[state]']")
     end
 
     test "a US buyer must name a state to continue", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/billing/topup")
 
-      select_country(view, "US")
+      details = %{name: "Jane Doe", email: "jane@example.com", country: "US", state: ""}
+
+      # Shape the DOM first (the state field exists only for the US).
+      view
+      |> form("#topup-details-form", details: Map.delete(details, :state))
+      |> render_change()
 
       view
-      |> form("#topup-details-form",
-        details: %{name: "Jane Doe", email: "jane@example.com", state: ""}
-      )
+      |> form("#topup-details-form", details: details)
       |> render_submit()
 
       assert has_element?(view, "#topup-details-form")
@@ -163,13 +172,12 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
 
       refute has_element?(view, "input[name='details[vat_number]']")
 
-      select_country(view, "DE")
-
       view
       |> form("#topup-details-form",
         details: %{
           name: "Jane Doe",
           email: "jane@example.com",
+          country: "DE",
           customer_type: "business"
         }
       )
@@ -179,348 +187,10 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
     end
   end
 
-  describe "the country combobox" do
-    # The combobox's events, as the real client sends them: the query
-    # input's own change (filter), an option click (select), a keydown
-    # on the wrapper (navigation), and the implicit form submit.
-    defp filter(view, query) do
-      render_change(view, "filter-countries", %{
-        "country_query" => query,
-        "_target" => ["country_query"]
-      })
-    end
-
-    defp keydown(view, key) do
-      render_keydown(element(view, "#country-combobox"), %{"key" => key})
-    end
-
-    test "the country field is a searchable combobox, closed until typed into", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/billing/topup")
-
-      assert has_element?(view, "#country-combobox")
-      assert has_element?(view, "input[name='details[country]']")
-      assert has_element?(view, "#country-query")
-      refute has_element?(view, "#country-listbox")
-
-      filter(view, "phi")
-
-      assert has_element?(view, "#country-listbox")
-      assert render(element(view, "#country-query")) =~ "aria-expanded=\"true\""
-
-      assert render(element(view, "#country-query")) =~
-               "aria-activedescendant=\"country-option-0\""
-
-      # "phi" (and "PH", "Phil") finds exactly the Philippines, and the
-      # first option carries the highlight.
-      assert render(element(view, "#country-option-0")) =~ "Philippines"
-      assert render(element(view, "#country-option-0")) =~ "aria-selected=\"true\""
-      assert render(view) =~ "aria-expanded=\"true\""
-    end
-
-    test "filtering matches by code and by name, case-insensitively", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/billing/topup")
-
-      filter(view, "PH")
-      assert render(element(view, "#country-option-0")) =~ "Philippines"
-
-      filter(view, "ger")
-      assert render(element(view, "#country-option-0")) =~ "Germany"
-
-      # Substring, not just prefix — and the accent-folded name ("cote").
-      filter(view, "many")
-      assert render(element(view, "#country-option-0")) =~ "Germany"
-
-      filter(view, "cote")
-      assert render(element(view, "#country-option-0")) =~ "Ivoire"
-    end
-
-    test "a cleared query closes the list; a no-match query shows the empty state", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/billing/topup")
-
-      filter(view, "phi")
-      assert has_element?(view, "#country-listbox")
-
-      filter(view, "")
-      refute has_element?(view, "#country-listbox")
-
-      filter(view, "zzqq")
-      assert has_element?(view, "[data-testid='topup-country-empty']")
-      assert render(view) =~ "No matching country"
-
-      # Arrow keys with nothing to highlight are a safe no-op.
-      keydown(view, "ArrowDown")
-      assert has_element?(view, "[data-testid='topup-country-empty']")
-    end
-
-    test "the rendered list caps at 8 rows with a keep-typing hint", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/billing/topup")
-
-      filter(view, "a")
-
-      assert has_element?(view, "#country-option-7")
-      refute has_element?(view, "#country-option-8")
-      assert render(element(view, "[data-testid='topup-country-more']")) =~ "more — keep typing"
-    end
-
-    test "clicking an option stores the exact code and closes the list", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/billing/topup")
-
-      filter(view, "phi")
-      render_click(element(view, "#country-option-0"), %{"code" => "PH"})
-
-      refute has_element?(view, "#country-listbox")
-      assert render(element(view, "[data-testid='topup-country-value']")) =~ "value=\"PH\""
-
-      # The control reads the name-forward label; the stored shape is
-      # the 2-letter code.
-      assert render(element(view, "#country-query")) =~ "value=\"Philippines (PH)\""
-
-      assert render(element(view, "#country-query")) =~ "aria-expanded=\"false\""
-    end
-
-    test "keyboard navigation moves the highlight and clamps at the ends", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/billing/topup")
-
-      # Five "united" matches — the prefix group (United Arab
-      # Emirates, United Kingdom, United States, United States Minor
-      # Outlying Islands) then the substring match (Tanzania, United
-      # Republic of).
-      filter(view, "united")
-      assert render(element(view, "#country-option-0")) =~ "aria-selected=\"true\""
-
-      # ArrowUp clamps at the first row.
-      keydown(view, "ArrowUp")
-      assert render(element(view, "#country-option-0")) =~ "aria-selected=\"true\""
-
-      keydown(view, "ArrowDown")
-      assert render(element(view, "#country-option-1")) =~ "aria-selected=\"true\""
-      assert render(element(view, "#country-option-0")) =~ "aria-selected=\"false\""
-
-      assert render(element(view, "#country-query")) =~
-               "aria-activedescendant=\"country-option-1\""
-
-      # ArrowDown clamps at the last row (Tanzania, the substring arm).
-      for _down <- 1..5, do: keydown(view, "ArrowDown")
-      assert render(element(view, "#country-option-4")) =~ "aria-selected=\"true\""
-    end
-
-    test "escape closes the list, and keys while closed are no-ops", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/billing/topup")
-
-      # A closed list ignores keys that don't open it (ArrowUp among
-      # them — only ArrowDown reopens).
-      keydown(view, "ArrowUp")
-      refute has_element?(view, "#country-listbox")
-
-      filter(view, "united")
-      keydown(view, "Escape")
-      refute has_element?(view, "#country-listbox")
-    end
-
-    test "a click outside the combobox folds the list", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/billing/topup")
-
-      filter(view, "united")
-      assert has_element?(view, "#country-listbox")
-
-      render_click(view, "country-away", %{})
-      refute has_element?(view, "#country-listbox")
-    end
-
-    test "ArrowDown reopens the list over the selection", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/billing/topup")
-
-      # Nothing chosen yet: the list reopens on the top of the dataset.
-      keydown(view, "ArrowDown")
-      assert has_element?(view, "#country-listbox")
-      assert render(element(view, "[data-testid='topup-country-more']")) =~ "more — keep typing"
-      keydown(view, "Escape")
-
-      # After a selection it reopens filtered to the stored code.
-      filter(view, "phi")
-      render_click(element(view, "#country-option-0"), %{"code" => "PH"})
-
-      keydown(view, "ArrowDown")
-      assert has_element?(view, "#country-listbox")
-      assert render(element(view, "#country-option-0")) =~ "Philippines"
-      assert render(element(view, "#country-query")) =~ "value=\"PH\""
-    end
-
-    test "hostile pushes with missing payload keys are silence, not a crash", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/billing/topup")
-
-      render_change(view, "filter-countries", %{"_target" => ["country_query"]})
-      render_click(view, "select-country", %{})
-
-      assert has_element?(view, "#topup-details-form")
-      refute has_element?(view, "#country-listbox")
-    end
-
-    test "a submit pushed while the listbox is open commits the highlighted row", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/billing/topup")
-
-      # Five "united" matches — the prefix group then the substring
-      # arm (Tanzania). Two ArrowDowns put the highlight on United
-      # States (index 2).
-      filter(view, "united")
-      keydown(view, "ArrowDown")
-      keydown(view, "ArrowDown")
-
-      # A hostile/direct next-details while the list is open: the
-      # commit takes the highlighted row, ignoring the stale country
-      # in the pushed params, and the wizard stays.
-      view
-      |> form("#topup-details-form",
-        details: %{name: "Jane Doe", email: "jane@example.com", country: ""}
-      )
-      |> render_submit()
-
-      assert has_element?(view, "#topup-details-form")
-      refute has_element?(view, "#topup-amount-form")
-      refute has_element?(view, "#country-listbox")
-
-      assert render(element(view, "[data-testid='topup-country-value']")) =~ "value=\"US\""
-
-      # The stored code drives the US-state reveal.
-      assert has_element?(view, "input[name='details[state]']")
-    end
-
-    test "the Enter keydown commits, and its paired submit advances on the committed code", %{
-      conn: conn
-    } do
-      {:ok, view, _html} = live(conn, ~p"/billing/topup")
-
-      # The real browser sequence: Enter in the query field pushes the
-      # keydown (the commit happens here), then the implicit submit
-      # clicks Continue — country-away + continue-details fire — and
-      # pushes next-details with the stale serialized DOM. The
-      # blank-country reconciliation pairs them.
-      filter(view, "phi")
-      keydown(view, "Enter")
-
-      refute has_element?(view, "#country-listbox")
-      assert render(element(view, "[data-testid='topup-country-value']")) =~ "value=\"PH\""
-
-      render_click(view, "country-away", %{})
-      render_click(view, "continue-details", %{})
-
-      render_click(view, "next-details", %{
-        "details" => %{"name" => "Jane Doe", "email" => "jane@example.com", "country" => ""},
-        "country_query" => "phi"
-      })
-
-      # The reconciled details carried the commit forward.
-      assert has_element?(view, "#topup-amount-form")
-      refute render(view) =~ "are required"
-    end
-
-    test "a stale blank country in validate-details keeps the committed code", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/billing/topup")
-
-      filter(view, "phi")
-      render_click(element(view, "#country-option-0"), %{"code" => "PH"})
-
-      # A change event that serialized before the selection's patch
-      # landed: blank country must not fold the committed selection.
-      render_click(view, "validate-details", %{
-        "details" => %{"name" => "Jane Doe", "email" => "jane@example.com", "country" => ""},
-        "_target" => ["details", "name"]
-      })
-
-      assert render(element(view, "[data-testid='topup-country-value']")) =~ "value=\"PH\""
-    end
-
-    test "an Enter with no matches folds the list, and the next submit explains", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/billing/topup")
-
-      filter(view, "zzqq")
-
-      # The keydown folds the list — nothing to take, nothing committed.
-      keydown(view, "Enter")
-
-      refute has_element?(view, "#country-listbox")
-
-      # The submit that follows (blank serialized country, no
-      # server-side selection to reconcile to) explains itself.
-      render_click(view, "next-details", %{
-        "details" => %{"name" => "Jane Doe", "email" => "jane@example.com", "country" => ""}
-      })
-
-      assert has_element?(view, "#topup-details-form")
-      assert render(view) =~ "are required"
-    end
-
-    test "Continue closes the list so its submit advances", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/billing/topup")
-
-      filter(view, "phi")
-      render_click(element(view, "#topup-details-next"), %{})
-
-      refute has_element?(view, "#country-listbox")
-    end
-
-    test "typing in another field folds the list", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/billing/topup")
-
-      filter(view, "phi")
-      assert has_element?(view, "#country-listbox")
-
-      render_change(view, "validate-details", %{
-        "details" => %{"name" => "Jane Doe"},
-        "_target" => ["details", "name"]
-      })
-
-      refute has_element?(view, "#country-listbox")
-    end
-
-    test "a chosen country prices the amount step's VAT line from the rate table", %{conn: conn} do
-      # 19% — the German standard rate the launch table ships.
-      TaxRate.create!(
-        %{country: "DE", rate_bp: 1900, effective_from: @effective_from},
-        authorize?: false
-      )
-
-      {:ok, view, _html} = live(conn, ~p"/billing/topup")
-
-      filter(view, "ger")
-      render_click(element(view, "#country-option-0"), %{"code" => "DE"})
-
-      view
-      |> form("#topup-details-form",
-        details: %{name: "Jane Doe", email: "jane@example.com"}
-      )
-      |> render_submit()
-
-      assert has_element?(view, "#topup-amount-form")
-
-      view
-      |> form("#topup-amount-form", amount: %{dollars: "10"})
-      |> render_change()
-
-      taxes = render(element(view, "[data-testid='topup-taxes']"))
-      assert taxes =~ "VAT (19%)"
-      assert taxes =~ "$1.90"
-    end
-  end
-
   describe "step 2 — amount" do
-    # The combobox is the country's only door: the helper selects
-    # through it — filtering by the code and clicking the row whose
-    # phx-value-code names it (never a positional row with a pushed
-    # payload). The conditional fields — state for the US, VAT for
-    # business — shape the DOM, so the submit carries whatever the
-    # shaped DOM renders.
-    defp select_country(view, code) do
-      render_change(view, "filter-countries", %{
-        "country_query" => code,
-        "_target" => ["country_query"]
-      })
-
-      view
-      |> element("ul#country-listbox li[phx-value-code='#{code}']")
-      |> render_click(%{"code" => code})
-    end
-
+    # The conditional fields shape the DOM (state for the US, VAT for
+    # business), so the fill runs in two phases: a change to re-render,
+    # then the submit with whatever the shaped DOM renders.
     defp to_amount(conn, overrides \\ %{}) do
       {:ok, view, _html} = live(conn, ~p"/billing/topup")
 
@@ -537,11 +207,9 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
           Map.new(overrides)
         )
 
-      select_country(view, details.country)
-
       view
       |> form("#topup-details-form",
-        details: Map.take(details, [:name, :email, :customer_type])
+        details: Map.take(details, [:name, :email, :country, :customer_type])
       )
       |> render_change()
 
