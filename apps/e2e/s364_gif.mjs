@@ -4,11 +4,13 @@
  * (verified twice on this run: the webm froze mid-typing while the
  * page had long committed the selection), so the motion is captured by
  * stepping screenshots through it and assembling with ffmpeg
- * (fps=12-equivalent pacing, lanczos, per the owner GIF rule).
+ * (720px, lanczos, per the owner GIF rule).
  *
  * The clip, 1440x900 light, cropped to the details card:
  *   focus the query → type "phi" → the listbox filters to the
  *   Philippines → click the row → the control reads "Philippines (PH)".
+ *   Assembled at a 7fps input rate — the owner rule's fps=12 figure is
+ *   for video-to-gif conversion; frame-stepped shots pace by -framerate.
  *
  * Usage: node s364_gif.mjs <outdir>   (FV_BASE, FV_TOKEN required)
  * Assemble with the ffmpeg line printed at the end.

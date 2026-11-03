@@ -91,8 +91,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
             country_matches: [],
             country_total: 0,
             country_active: 0,
-            country_open: false,
-            country_enter_commit: false
+            country_open: false
           )
 
         {:ok, socket}
@@ -130,6 +129,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
   @impl Phoenix.LiveView
   def handle_event("validate-details", %{"details" => details} = params, socket) do
     details = normalize_details(details)
+    details = reconcile_country(details, socket)
 
     {:noreply,
      socket
@@ -143,28 +143,11 @@ defmodule FluxValeWeb.BillingLive.Topup do
   # Enter inside the query field: the commit happens HERE, in the
   # keydown. Chromium's implicit submit clicks the default button right
   # after this keydown, so country-away + continue-details + the form's
-  # next-details all follow on the channel — by then the listbox is
-  # closed and the serialized country is stale. The
-  # country_enter_commit flag pairs this keydown with the submit it
-  # rides (channel order guarantees keydown-first): that submit
-  # reconciles to the committed assign, stays on the step, and never
-  # flashes. A click on Continue runs continue-details first too — the
-  # list is closed by then and the same submit advances.
-  def handle_event("next-details", %{"details" => details}, socket)
-      when socket.assigns.country_enter_commit do
-    details =
-      details
-      |> normalize_details()
-      |> Map.put(:country, socket.assigns.details.country)
-
-    {:noreply,
-     socket
-     |> assign(details: details, country_enter_commit: false)
-     |> assign_tax(details)}
-  end
-
-  # A next-details pushed while the listbox is open (hostile client, or
-  # a test skipping the keydown): commit the highlighted row, stay put.
+  # next-details all follow on the channel — the listbox is closed and
+  # the serialized country is stale by the time the submit lands. The
+  # blank-country reconciliation in the submit handlers is what makes
+  # that pairing safe; no flag can be, because the synthetic click and
+  # a real Continue click are indistinguishable server-side.
   def handle_event("next-details", %{"details" => _details}, socket)
       when socket.assigns.country_open do
     {:noreply, commit_highlighted(socket)}
@@ -172,6 +155,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
 
   def handle_event("next-details", %{"details" => details}, socket) do
     details = normalize_details(details)
+    details = reconcile_country(details, socket)
 
     if details_valid?(details) do
       {:noreply,
@@ -189,7 +173,8 @@ defmodule FluxValeWeb.BillingLive.Topup do
     {:noreply, assign(socket, country_open: false)}
   end
 
-  def handle_event("filter-countries", %{"country_query" => query}, socket) do
+  def handle_event("filter-countries", %{"country_query" => query}, socket)
+      when is_binary(query) do
     query = String.trim(query)
     matches = filter_countries(query)
 
@@ -207,7 +192,8 @@ defmodule FluxValeWeb.BillingLive.Topup do
   # Hostile or malformed pushes fall through as silence — a
   # FunctionClauseError would kill the socket and restart the buyer's
   # wizard (the posture the pay event promises).
-  def handle_event("filter-countries", _missing_query, socket), do: {:noreply, socket}
+  def handle_event("filter-countries", _missing_or_malformed_query, socket),
+    do: {:noreply, socket}
 
   def handle_event("select-country", %{"code" => code}, socket) do
     {:noreply, select_country(socket, code)}
@@ -217,7 +203,9 @@ defmodule FluxValeWeb.BillingLive.Topup do
 
   # Click-away — the plain-LiveView close on outside clicks (a blur
   # binding would unmount the rows before the option's mouse-up click
-  # lands). Idempotent while closed.
+  # lands). The implicit submit fires it too (Chromium clicks the
+  # default button), right before the submit it precedes. Idempotent
+  # while closed.
   def handle_event("country-away", _params, socket) do
     {:noreply, assign(socket, country_open: false)}
   end
@@ -254,10 +242,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
         %{"key" => "Enter"},
         %{assigns: %{country_open: true}} = socket
       ) do
-    {:noreply,
-     socket
-     |> commit_highlighted()
-     |> assign(country_enter_commit: true)}
+    {:noreply, commit_highlighted(socket)}
   end
 
   def handle_event(
@@ -667,6 +652,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
                 <p
                   class="mt-1 rounded-control border border-line bg-panel px-3 py-2 text-xs text-ink-muted shadow-lg"
                   data-testid="topup-country-more"
+                  aria-live="polite"
                 >
                   …and {@country_total - length(@country_matches)} more — keep typing
                 </p>
@@ -675,6 +661,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
                 <p
                   class="rounded-control border border-line bg-panel px-3 py-2 text-sm text-ink-muted shadow-lg"
                   data-testid="topup-country-empty"
+                  aria-live="polite"
                 >
                   No matching country — keep typing, or check the spelling.
                 </p>
@@ -1197,6 +1184,24 @@ defmodule FluxValeWeb.BillingLive.Topup do
   end
 
   defp close_list_on_other_field(socket, _same_field_or_untracked), do: socket
+
+  # A blank submitted country is stale serialization, never intent: the
+  # combobox has no clear affordance, so the only way a serialized
+  # blank pairs with a server-side selection is a submit (or change)
+  # that left the browser before the selection's patch landed — the
+  # Enter-in-query pairing. The committed code stands; a non-blank
+  # submitted country always wins (the hostile-swap case).
+  defp reconcile_country(%{country: ""} = details, socket) do
+    committed = socket.assigns.details.country
+
+    if Countries.valid?(committed) do
+      %{details | country: committed}
+    else
+      details
+    end
+  end
+
+  defp reconcile_country(details, _socket), do: details
 
   # The list re-opens over the selected country when the buyer arrows
   # back in; before any selection it opens on the top of the dataset.
