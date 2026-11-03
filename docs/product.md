@@ -2,7 +2,7 @@
 
 ## What FluxVale is
 
-A **catalog-based PaaS for managed hosting of open-source applications**.
+A **catalog-based PaaS: a managed cloud platform for open-source applications**.
 Users browse a curated catalog of apps, click install, get an instance
 running on a subdomain
 with HTTPS, and pay a flat monthly rate per instance from prepaid credits.
@@ -17,10 +17,10 @@ backups. The user just logs in and uses the app.
 ## Positioning
 
 - **Zero-ops with a bill.** The customer never sees a server, a YAML file, or a
-  Dockerfile — they see a catalog and a running app. (DIY self-hosting panels
+  Dockerfile — they see a catalog and a running app. (DIY run-it-yourself panels
   serve people who *want* to run their own infrastructure; that is a different
   customer.)
-- **Differentiation test**: if the pitch can be approximated by "a self-hosting
+- **Differentiation test**: if the pitch can be approximated by "a run-it-yourself
   panel plus a payments page," it has failed. The moat is the managed side:
   curation, updates, backups, SFTP/file access, support, metering.
 - **Agent-native.** A first-class JSON:API, a CLI, and an MCP server from
