@@ -1,6 +1,6 @@
 # ADR-0029: Payments — adapter architecture; direct processing via pluggable providers
 
-**Status**: Accepted (amended — see Amendments 1–4)
+**Status**: Accepted (amended — see Amendments 1–6)
 **Date**: 2026-09-01
 
 **Context**: v1 used Dodo Payments (checkout + Standard Webhooks). OQ #4
@@ -144,3 +144,39 @@ original named an MoR evaluation outcome. The decision record is unchanged.
 FluxVale is a managed cloud platform for open-source applications (see
 `/policies/terms`); the payments architecture — adapter, direct processing,
 per-provider webhooks — is exactly as decided and amended above.
+
+## Amendment 6 (2026-11-03): Polar as second provider — the MoR lane, adapter unchanged
+
+**Trigger**: the org went live on Polar (polar.sh) — wallet top-ups
+move to Polar's hosted checkout (#377).
+
+**Decision**: `Providers.Polar` is the second provider implementation
+behind the unchanged `PaymentProvider` behaviour — the provider switch
+stays a one-module config swap, wallet and ledger untouched. The
+original decision rejected MoR products for the *hosting* category;
+that rejection stands. The org's Nov 2026 direction adds Polar as
+Merchant of Record for **wallet top-ups** — small prepaid amounts, the
+exposure Decision 3 already judged structurally mitigated — and the
+self-MoR obligations on the existing provider are unaffected. HitPay
+stays configured: one config flip away.
+
+**MoR split — the ledger stays the book of record.** Polar is MoR for
+sales-tax collection and remittal on its checkouts; FluxVale's own
+checkout tax layer and the ledger facts (Am. 3/Am. 4) remain the books
+of record. The Polar top-up product ("FluxVale Credits") is a one-time
+custom-amount USD price created `tax_behavior: inclusive`, so the
+buyer pays exactly FluxVale's computed gross and the credit guard
+holds; the paid-order mapping uses Polar's `subtotal_amount`
+(pre-discount, pre-tax — exactly the amount FluxVale set), never
+`total_amount`.
+
+**Payment identity converges on the Polar checkout session id**:
+`payment_request_id`, `payment_id`, and the ledger idempotency key
+`polar:<checkout_id>` on both the webhook path (`order.paid` →
+`checkout_id`) and the reconcile path (`fetch_payment`) — one
+identity, no double credit.
+
+**Verification is sandbox-first** — Polar's sandbox is a separate
+environment with its own token. The active-provider flip is gated on a
+no-real-charge staging e2e (100% discount code) and is an env/config
+change only.

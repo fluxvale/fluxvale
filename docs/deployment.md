@@ -228,6 +228,81 @@ curated view is deferred until generated CRUD annoys), separate
 values per environment via separate databases. Flags gate *features*,
 never schema. Delete flags on a schedule.
 
+## Polar payments (top-ups)
+
+Polar ([ADR-0029](adr/00029-payments-adapter-selfmor.md) Am. 6) is the
+second provider behind the `PaymentProvider` adapter. HitPay stays
+configured; the active provider is a config flip, so this section is
+the payments runbook — provisioning, verification, cutover, rollback.
+
+### Environment variables
+
+1Password → env → `runtime.exs`, never committed
+([ADR-0021](adr/00021-secrets-bws-operator.md) Am. 3). Optional at
+boot — unset in dev/test, the adapter answers
+`{:error, :missing_config}`:
+
+- `POLAR_ACCESS_TOKEN` — org access token (scopes: products,
+  checkouts, webhooks — read+write)
+- `POLAR_WEBHOOK_SECRET` — webhook endpoint signing secret
+- `POLAR_SERVER` — `sandbox` \| `production`: separate Polar
+  environments with separate tokens (default `sandbox`)
+- `POLAR_PRODUCT_ID` — the top-up product's UUID
+
+Both secrets are minted in the Polar dashboard, stored in 1Password by
+the owner, never printed.
+
+### Provisioning (API, needs the token)
+
+Collection endpoints take a trailing slash — `GET
+https://api.polar.sh/v1/products/?limit=1` to inspect; a bare path
+gets a 307.
+
+1. Create the one-time **"FluxVale Credits"** product with a custom
+   USD price (`minimum_amount: 100`, `tax_behavior: inclusive` —
+   Am. 6's gross mapping depends on it); record its UUID as
+   `POLAR_PRODUCT_ID`.
+2. Create the webhook endpoint: `POST /v1/webhooks/endpoints` with
+   `url: https://staging.fluxvale.com/webhooks/polar`,
+   `format: "raw"`, `api_version: "2026-10"`, events
+   `["order.paid", "customer.state_changed"]`. The response's `secret`
+   is `POLAR_WEBHOOK_SECRET` — to 1Password, never pasted.
+
+Never pass `organization_id` — the org token is org-scoped; Polar
+answers 422. Sandbox: the same calls against
+`https://sandbox-api.polar.sh` with a sandbox-minted token.
+
+### Network: webhook delivery IPs
+
+Allowlist Polar's delivery IPs (verified from Polar's docs 2026-11-03
+— re-check at cutover):
+
+- production: `3.134.238.10`, `3.129.111.220`, `52.15.118.168`,
+  `3.134.178.243`, `74.220.50.0/24`, `74.220.58.0/24`
+- sandbox: same list, `18.117.215.101` in place of `3.134.178.243`
+
+### No-real-charge e2e (gates the flip)
+
+Create a 100%-off discount code (once, or reuse), then run a staging
+top-up through Polar's hosted checkout with the code. Pass = the
+`order.paid` delivery is 200, the top-up row completes, the wallet
+credits the net. The credit at 100% off is correct, not a bug: the
+guard maps `subtotal_amount` (pre-discount), per
+[ADR-0029](adr/00029-payments-adapter-selfmor.md) Am. 6 —
+`total_amount` would be 0.
+
+### Cutover (gated on the e2e above)
+
+Flip `payments_provider` to `FluxVale.Billing.Providers.Polar`
+(config commit), set the production env vars, redeploy. The top-up
+button label follows the active provider. HitPay's config block
+stays — rollback is flipping back plus its env vars.
+
+**Operator note**: Polar disables a webhook endpoint after 10
+consecutive failed deliveries (retries up to 10×, 10s timeout) — a
+silent staging is a disabled endpoint; check the dashboard's delivery
+page.
+
 ## Migration rules (load-bearing)
 
 Simultaneous deploy lands code+schema everywhere at once; rolling
