@@ -51,10 +51,12 @@ defmodule FluxValeWeb.Router do
   # read the token-backed session cookie (v1's :api pipeline did the same).
   # #360: AuthorizeApiScopes closes the boundary — scopes for PAT callers,
   # read-only sessions (ADR-0019 Am. 1); ApiRateLimit meters the PAT calls
-  # that cross it (ADR-0019 §4).
+  # that cross it (ADR-0019 §4); ApiAudit rides BEFORE the gates so a halted
+  # conn (401/403/429) still gets its audit row (slice 5).
   pipeline :api_auth do
     plug(:fetch_session)
     plug(FluxValeWeb.Plugs.Authenticate)
+    plug(FluxValeWeb.Plugs.ApiAudit)
     plug(FluxValeWeb.Plugs.RequireActor)
     plug(FluxValeWeb.Plugs.AuthorizeApiScopes)
     plug(FluxValeWeb.Plugs.ApiRateLimit)

@@ -8,6 +8,7 @@ defmodule FluxVale.Identity.Operations.RevokePat do
   the original `revoked_at` stamp untouched.
   """
 
+  alias FluxVale.Api
   alias FluxVale.Identity.PersonalAccessToken
 
   @doc """
@@ -30,6 +31,22 @@ defmodule FluxVale.Identity.Operations.RevokePat do
   end
 
   defp revoke(pat, actor, opts) do
-    PersonalAccessToken.revoke(pat, Keyword.put(opts, :actor, actor))
+    case PersonalAccessToken.revoke(pat, Keyword.put(opts, :actor, actor)) do
+      {:ok, revoked} ->
+        # Audit every successful call, idempotent no-ops included:
+        # "revoke was asked for" is itself the event. The operator
+        # rides actor_id (nil on the no-actor operator path);
+        # guarded — a failed row never fails a severed token.
+        Api.record_audit_event(%{
+          kind: :revoke,
+          personal_access_token_id: pat.id,
+          actor_id: actor && actor.id
+        })
+
+        {:ok, revoked}
+
+      {:error, error} ->
+        {:error, error}
+    end
   end
 end

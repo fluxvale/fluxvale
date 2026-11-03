@@ -352,6 +352,10 @@ config :flux_vale, Oban,
        # off the 03:00 token prune (queue concurrency is 1; the stagger
        # keeps the pair from bunching behind one lock).
        {"15 3 * * *", FluxVale.Janitor.PruneRequestWindows},
+       # #360 slice 5: the audit-event sweep, daily at 03:30 — off
+       # 03:00 (token prune) and 03:15 (windows) for the same reason;
+       # the janitor trio staggers behind one queue lock.
+       {"30 3 * * *", FluxVale.Janitor.PruneAuditEvents},
        # #124's ladder sweep, hourly at :07 — off the top-of-hour rush
        # (#113's stance; the reconciler minute-tick and smoke crons sit
        # there).
