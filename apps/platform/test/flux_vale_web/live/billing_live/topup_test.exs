@@ -927,7 +927,10 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
 
       assert has_element?(view, "[data-testid='topup-confirmation-expired']")
       assert render(view) =~ "This payment window expired"
-      assert render(view) =~ "No charge was made and no credit was added."
+
+      assert render(view) =~
+               "No credit was added. If you completed a payment, your credit will appear once the gateway confirms it."
+
       assert has_element?(view, "#topup-back-to-billing")
       assert {:ok, 0} = Billing.balance(wallet, authorize?: false)
     end
