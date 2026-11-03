@@ -16,16 +16,16 @@ defmodule FluxVale.Identity.Operations.RevokePat do
   """
   @spec call(term(), PersonalAccessToken.t() | String.t(), keyword()) ::
           {:ok, PersonalAccessToken.t()} | {:error, term()}
-  def call(actor, pat_or_id, opts \\ [])
+  def call(actor, pat_or_id, opts \\ []) do
+    case pat_or_id do
+      %PersonalAccessToken{} = pat ->
+        revoke(pat, actor, opts)
 
-  def call(actor, %PersonalAccessToken{} = pat, opts) do
-    revoke(pat, actor, opts)
-  end
-
-  def call(actor, pat_id, opts) when is_binary(pat_id) do
-    case PersonalAccessToken.get(pat_id, Keyword.put(opts, :actor, actor)) do
-      {:ok, pat} -> revoke(pat, actor, opts)
-      {:error, error} -> {:error, error}
+      pat_id when is_binary(pat_id) ->
+        case PersonalAccessToken.get(pat_id, Keyword.put(opts, :actor, actor)) do
+          {:ok, pat} -> revoke(pat, actor, opts)
+          {:error, error} -> {:error, error}
+        end
     end
   end
 

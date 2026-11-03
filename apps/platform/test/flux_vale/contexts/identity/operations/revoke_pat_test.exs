@@ -55,7 +55,10 @@ defmodule FluxVale.Identity.Operations.RevokePatTest do
       pat = mint!(member.id)
 
       assert {:ok, first} = Identity.revoke_pat(member, pat)
-      assert {:ok, second} = Identity.revoke_pat(member, pat)
+
+      # The REVOKED record rides the second call — the arm that must
+      # no-op, not a fresh read racing the same second's stamp.
+      assert {:ok, second} = Identity.revoke_pat(member, first)
       assert second.revoked_at == first.revoked_at
     end
 
