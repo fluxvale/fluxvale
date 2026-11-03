@@ -334,6 +334,32 @@ case System.get_env("HITPAY_BASE_URL") do
   base_url -> config :flux_vale, :hitpay, base_url: base_url
 end
 
+# Checkout payment methods (#364): comma-separated HitPay method keys
+# ("card" or "card,gcash"), trimmed, empties dropped — sent as
+# repeatable payment_methods[] entries. nil/"" keeps config.exs's
+# default (cards-only by owner decision; the dial exists so staging can
+# prove a widened list without a re-cut release).
+case System.get_env("HITPAY_PAYMENT_METHODS") do
+  value when value in [nil, ""] ->
+    :ok
+
+  value ->
+    methods =
+      value
+      |> String.split(",")
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+    # A value that trims to nothing (",", " ") keeps the default too —
+    # overriding with [] would silently drop the cards-only constraint
+    # and hand the offer back to the account default (#364's stranded
+    # top-up shape).
+    case methods do
+      [] -> :ok
+      _methods -> config :flux_vale, :hitpay, payment_methods: methods
+    end
+end
+
 # Postmark mailer (ADR-0003 Am. 1, #165): POSTMARK_API_KEY moves delivery
 # off the Local adapter (config.exs) onto Postmark's API. nil and "" (the
 # classic empty-Secret shape) both mean unconfigured — a prod release

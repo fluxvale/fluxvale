@@ -121,6 +121,96 @@ defmodule FluxVale.Billing.Providers.HitPayTest do
     end
   end
 
+  describe "checkout payment methods (#364)" do
+    test "default config sends the configured methods as repeatable payment_methods[] entries" do
+      Application.put_env(:flux_vale, :hitpay,
+        api_key: "sbx_key",
+        webhook_salt: "salt",
+        base_url: "https://api.example",
+        payment_methods: ["card"]
+      )
+
+      expect(Req, :post, fn _req, opts ->
+        assert opts[:form] == [
+                 {"email", "buyer@example.com"},
+                 {"name", "Buyer One"},
+                 {"amount", "5.00"},
+                 {"currency", "USD"},
+                 {"reference_number", "topup_1"},
+                 {"redirect_url", "https://app.example/billing/topup/return/topup_1"},
+                 {"allow_repeated_payments", "false"},
+                 {"payment_methods[]", "card"}
+               ]
+
+        {:ok,
+         %Req.Response{status: 200, body: %{"id" => "pr_1", "url" => "https://checkout/pr_1"}}}
+      end)
+
+      assert {:ok, _handle} = HitPay.create_checkout(@request, [])
+    end
+
+    test "multiple configured methods encode as repeated tuples in order" do
+      Application.put_env(:flux_vale, :hitpay,
+        api_key: "sbx_key",
+        webhook_salt: "salt",
+        base_url: "https://api.example",
+        payment_methods: ["card", "gcash", "qrph_netbank"]
+      )
+
+      expect(Req, :post, fn _req, opts ->
+        method_entries =
+          for {"payment_methods[]" = key, value} <- opts[:form], do: {key, value}
+
+        assert method_entries == [
+                 {"payment_methods[]", "card"},
+                 {"payment_methods[]", "gcash"},
+                 {"payment_methods[]", "qrph_netbank"}
+               ]
+
+        {:ok,
+         %Req.Response{status: 200, body: %{"id" => "pr_1", "url" => "https://checkout/pr_1"}}}
+      end)
+
+      assert {:ok, _handle} = HitPay.create_checkout(@request, [])
+    end
+
+    test "an empty configured list sends no payment_methods — the account default decides" do
+      Application.put_env(:flux_vale, :hitpay,
+        api_key: "sbx_key",
+        webhook_salt: "salt",
+        base_url: "https://api.example",
+        payment_methods: []
+      )
+
+      expect(Req, :post, fn _req, opts ->
+        refute Enum.any?(opts[:form], fn {key, _value} -> key == "payment_methods[]" end)
+
+        {:ok,
+         %Req.Response{status: 200, body: %{"id" => "pr_1", "url" => "https://checkout/pr_1"}}}
+      end)
+
+      assert {:ok, _handle} = HitPay.create_checkout(@request, [])
+    end
+
+    test "opts override the configured list like any other config key" do
+      expect(Req, :post, fn _req, opts ->
+        method_entries =
+          for {"payment_methods[]" = key, value} <- opts[:form], do: {key, value}
+
+        assert method_entries == [
+                 {"payment_methods[]", "card"},
+                 {"payment_methods[]", "paynow_online"}
+               ]
+
+        {:ok,
+         %Req.Response{status: 200, body: %{"id" => "pr_1", "url" => "https://checkout/pr_1"}}}
+      end)
+
+      assert {:ok, _handle} =
+               HitPay.create_checkout(@request, payment_methods: ["card", "paynow_online"])
+    end
+  end
+
   describe "verify_webhook/2" do
     test "accepts a correctly signed body" do
       signature = sign("salt", ~s({"id":"pr_1"}))
