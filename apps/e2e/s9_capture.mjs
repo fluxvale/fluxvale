@@ -89,9 +89,11 @@ const pickCountry = async (query) => {
   await page.locator("#country-query").fill(query);
   await page.locator("#country-listbox").waitFor();
   await page.locator("#country-option-0").click();
+  // The stored code lands in the hidden input — attached, not visible
+  // (a hidden input never passes the default visibility wait).
   await page
     .locator("[data-testid='topup-country-value'][value='DE']")
-    .waitFor();
+    .waitFor({ state: "attached" });
 };
 
 const gotoStep = async (n) => {

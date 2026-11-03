@@ -91,7 +91,8 @@ defmodule FluxValeWeb.BillingLive.Topup do
             country_matches: [],
             country_total: 0,
             country_active: 0,
-            country_open: false
+            country_open: false,
+            country_enter_commit: false
           )
 
         {:ok, socket}
@@ -139,28 +140,34 @@ defmodule FluxValeWeb.BillingLive.Topup do
      |> assign_tax(details)}
   end
 
-  # Enter inside the query field submits the form implicitly (no JS
-  # hook can preventDefault it), so the submit itself is the commit:
-  # with the listbox open, Enter means "take the highlighted option",
-  # never "advance". A click on Continue runs continue-details first —
-  # the list is closed by then and the same submit advances. The
-  # commit re-derives the matches from the POSTED query (the input's
-  # value rides the submit), so the committed row is the one the
-  # buyer saw, whatever round-trips are in flight.
-  def handle_event("next-details", params, socket) when socket.assigns.country_open do
-    matches = filter_countries(String.trim(params["country_query"] || ""))
+  # Enter inside the query field: the commit happens HERE, in the
+  # keydown. Chromium's implicit submit clicks the default button right
+  # after this keydown, so country-away + continue-details + the form's
+  # next-details all follow on the channel — by then the listbox is
+  # closed and the serialized country is stale. The
+  # country_enter_commit flag pairs this keydown with the submit it
+  # rides (channel order guarantees keydown-first): that submit
+  # reconciles to the committed assign, stays on the step, and never
+  # flashes. A click on Continue runs continue-details first too — the
+  # list is closed by then and the same submit advances.
+  def handle_event("next-details", %{"details" => details}, socket)
+      when socket.assigns.country_enter_commit do
+    details =
+      details
+      |> normalize_details()
+      |> Map.put(:country, socket.assigns.details.country)
 
-    case matches do
-      [] ->
-        # Nothing to commit (no matches) — fold the list, stay put.
-        {:noreply, assign(socket, country_open: false)}
+    {:noreply,
+     socket
+     |> assign(details: details, country_enter_commit: false)
+     |> assign_tax(details)}
+  end
 
-      _available ->
-        active = max(socket.assigns.country_active, 0)
-        index = min(active, length(matches) - 1)
-        match = Enum.at(matches, index)
-        select_country(socket, match.code)
-    end
+  # A next-details pushed while the listbox is open (hostile client, or
+  # a test skipping the keydown): commit the highlighted row, stay put.
+  def handle_event("next-details", %{"details" => _details}, socket)
+      when socket.assigns.country_open do
+    {:noreply, commit_highlighted(socket)}
   end
 
   def handle_event("next-details", %{"details" => details}, socket) do
@@ -203,7 +210,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
   def handle_event("filter-countries", _missing_query, socket), do: {:noreply, socket}
 
   def handle_event("select-country", %{"code" => code}, socket) do
-    select_country(socket, code)
+    {:noreply, select_country(socket, code)}
   end
 
   def handle_event("select-country", _missing_code, socket), do: {:noreply, socket}
@@ -240,6 +247,17 @@ defmodule FluxValeWeb.BillingLive.Topup do
         %{assigns: %{country_open: true}} = socket
       ) do
     {:noreply, assign(socket, country_open: false)}
+  end
+
+  def handle_event(
+        "country-key",
+        %{"key" => "Enter"},
+        %{assigns: %{country_open: true}} = socket
+      ) do
+    {:noreply,
+     socket
+     |> commit_highlighted()
+     |> assign(country_enter_commit: true)}
   end
 
   def handle_event(
@@ -1134,19 +1152,27 @@ defmodule FluxValeWeb.BillingLive.Topup do
 
   # The selection — the stored shape stays the 2-letter code
   # (normalize_details and open_checkout untouched); the control reads
-  # "Philippines (PH)". Shared by the click, and by the Enter commit
-  # riding the implicit submit.
+  # "Philippines (PH)". Shared by the click, the Enter keydown, and
+  # the hostile next-details commit.
   defp select_country(socket, code) do
     details = %{socket.assigns.details | country: code}
 
-    {:noreply,
-     socket
-     |> assign(
-       details: details,
-       country_query: "#{Countries.name(code)} (#{code})",
-       country_open: false
-     )
-     |> assign_tax(details)}
+    socket
+    |> assign(
+      details: details,
+      country_query: "#{Countries.name(code)} (#{code})",
+      country_open: false
+    )
+    |> assign_tax(details)
+  end
+
+  # The keyboard highlight commits (nil match folds the list —
+  # nothing to take).
+  defp commit_highlighted(socket) do
+    case Enum.at(socket.assigns.country_matches, socket.assigns.country_active) do
+      nil -> assign(socket, country_open: false)
+      match -> select_country(socket, match.code)
+    end
   end
 
   defp move_active(socket, delta) do

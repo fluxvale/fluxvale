@@ -356,18 +356,19 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       refute has_element?(view, "#country-listbox")
     end
 
-    test "the Enter submit commits the highlighted option instead of advancing", %{conn: conn} do
+    test "a submit pushed while the listbox is open commits the highlighted row", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/billing/topup")
 
-      # Two ArrowDowns: the highlight lands on United States (index 2
-      # of the "united" prefix group), then Enter commits it.
+      # Five "united" matches — the prefix group then the substring
+      # arm (Tanzania). Two ArrowDowns put the highlight on United
+      # States (index 2).
       filter(view, "united")
       keydown(view, "ArrowDown")
       keydown(view, "ArrowDown")
 
-      # The browser's implicit submit serializes the stale DOM — the
-      # hidden country still empty. The commit ignores it and takes
-      # the highlighted row.
+      # A hostile/direct next-details while the list is open: the
+      # commit takes the highlighted row, ignoring the stale country
+      # in the pushed params, and the wizard stays.
       view
       |> form("#topup-details-form",
         details: %{name: "Jane Doe", email: "jane@example.com", country: ""}
@@ -384,19 +385,68 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       assert has_element?(view, "input[name='details[state]']")
     end
 
-    test "an Enter submit with no matches just folds the list", %{conn: conn} do
+    test "the Enter keydown commits, and its paired submit stays without a flash", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/billing/topup")
+
+      # The real browser sequence: Enter in the query field pushes the
+      # keydown, then the implicit submit clicks Continue (country-away
+      # + continue-details fire) and pushes next-details with the stale
+      # serialized DOM. Keydown first on the channel.
+      filter(view, "united")
+      keydown(view, "ArrowDown")
+      keydown(view, "ArrowDown")
+      keydown(view, "Enter")
+
+      refute has_element?(view, "#country-listbox")
+      assert render(element(view, "[data-testid='topup-country-value']")) =~ "value=\"US\""
+
+      # The paired submit (pushed raw — the real one serializes the
+      # DOM before the commit's patch lands, so its country is stale):
+      # reconciles to the committed assign, stays on the step, no
+      # error flash.
+      render_click(view, "country-away", %{})
+      render_click(view, "continue-details", %{})
+
+      render_click(view, "next-details", %{
+        "details" => %{"name" => "Jane Doe", "email" => "jane@example.com", "country" => ""},
+        "country_query" => "united"
+      })
+
+      assert has_element?(view, "#topup-details-form")
+      refute has_element?(view, "#topup-amount-form")
+      refute render(view) =~ "are required"
+      assert render(element(view, "[data-testid='topup-country-value']")) =~ "value=\"US\""
+
+      # The flag is one-shot: the next submit advances normally
+      # (the US commit revealed the state field — it ships a state).
+      view
+      |> form("#topup-details-form",
+        details: %{name: "Jane Doe", email: "jane@example.com", state: "CA"}
+      )
+      |> render_submit()
+
+      assert has_element?(view, "#topup-amount-form")
+    end
+
+    test "an Enter with no matches folds the list, and its paired submit is silence", %{
+      conn: conn
+    } do
       {:ok, view, _html} = live(conn, ~p"/billing/topup")
 
       filter(view, "zzqq")
 
-      view
-      |> form("#topup-details-form",
-        details: %{name: "Jane Doe", email: "jane@example.com", country: ""}
-      )
-      |> render_submit()
+      # The keydown folds the list (nothing to take) and marks the
+      # submit riding this Enter: it stays, flash-free.
+      keydown(view, "Enter")
+
+      refute has_element?(view, "#country-listbox")
+
+      render_click(view, "next-details", %{
+        "details" => %{"name" => "Jane Doe", "email" => "jane@example.com", "country" => ""}
+      })
 
       assert has_element?(view, "#topup-details-form")
-      refute has_element?(view, "#country-listbox")
+      refute render(view) =~ "are required"
     end
 
     test "Continue closes the list so its submit advances", %{conn: conn} do
