@@ -14,7 +14,8 @@
 **Rationale**:
 
 - **App repo public**: the product's transparency is the trust signal — and
-  the marketing — for a hosting company. The public `docs/` (ADRs,
+  the marketing — for the product (a managed cloud platform; wording
+  predates the positioning pass). The public `docs/` (ADRs,
   architecture, deployment protocol) disclose *how we run things* honestly
   without publishing the operational map. FSL preserves the business model,
   as in v1.

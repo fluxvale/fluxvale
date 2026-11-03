@@ -1,4 +1,4 @@
-# ADR-0029: Payments — adapter architecture; self-MoR with Stripe (MoR products rejected)
+# ADR-0029: Payments — adapter architecture; direct processing via pluggable providers
 
 **Status**: Accepted (amended — see Amendments 1–4)
 **Date**: 2026-09-01
@@ -136,3 +136,11 @@ reversals, never re-deriving — never a new table.
 PHP, auto-converted at the transaction-time exchange rate** — gate 4's
 foreign-currency requirement. The conversion evidence lives in HitPay's
 own settlement records, not our ledger.
+
+## Amendment 5 (2026-11-04)
+
+Public-vocabulary pass: this ADR's title (and its index row) was renamed — the
+original named an MoR evaluation outcome. The decision record is unchanged.
+FluxVale is a managed cloud platform for open-source applications (see
+`/policies/terms`); the payments architecture — adapter, direct processing,
+per-provider webhooks — is exactly as decided and amended above.
