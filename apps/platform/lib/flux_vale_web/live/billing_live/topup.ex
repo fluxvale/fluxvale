@@ -128,8 +128,8 @@ defmodule FluxValeWeb.BillingLive.Topup do
 
   @impl Phoenix.LiveView
   def handle_event("validate-details", %{"details" => details} = params, socket) do
-    details = normalize_details(details)
-    details = reconcile_country(details, socket)
+    submitted = normalize_details(details)
+    details = reconcile_country(submitted, socket)
 
     {:noreply,
      socket
@@ -154,8 +154,8 @@ defmodule FluxValeWeb.BillingLive.Topup do
   end
 
   def handle_event("next-details", %{"details" => details}, socket) do
-    details = normalize_details(details)
-    details = reconcile_country(details, socket)
+    submitted = normalize_details(details)
+    details = reconcile_country(submitted, socket)
 
     if details_valid?(details) do
       {:noreply,
