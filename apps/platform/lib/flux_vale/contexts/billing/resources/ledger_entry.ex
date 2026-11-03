@@ -38,19 +38,43 @@ defmodule FluxVale.Billing.LedgerEntry do
     domain: FluxVale.Billing,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshAdmin.Resource]
+    extensions: [AshAdmin.Resource, AshJsonApi.Resource]
 
   alias FluxVale.Billing.LedgerEntry.SignMatchesType
   alias FluxVale.Billing.Types.EntryReason
   alias FluxVale.Billing.Types.EntryType
   alias FluxVale.Billing.Wallet
 
-  # The admin surface (#140, ADR-0027 §3): goodwill creates + ledger
-  # reads only — the system :create is the posting machinery's, never a
-  # form (it's actor-forbidden regardless; hiding it keeps the admin UI
-  # from offering a button that can only fail).
-  admin do
-    create_actions([:grant_goodwill])
+  # #360 (ADR-0019 §1): the ledger's wire contract — the append-only
+  # row's full public shape (reconciliation wants the tax facts), rides
+  # the action's own keyset pagination (?page[limit]&page[after|before]).
+  # The caller owns the sort like the LiveView does; over the wire
+  # `-id` is the newest-first key (uuidv7 is time-ordered, and created_at
+  # is not a public attribute).
+  json_api do
+    type("ledger_entry")
+
+    routes do
+      # wallet:read — the billing page's history list.
+      index(:list_for_wallet,
+        route: "/wallets/:wallet_id/ledger-entries",
+        default_fields: [
+          :id,
+          :wallet_id,
+          :amount,
+          :type,
+          :reason,
+          :idempotency_key,
+          :reverses_id,
+          :billing_country,
+          :billing_state,
+          :applied_rate,
+          :tax_cents,
+          :subject,
+          :reverse_charge?
+        ]
+      )
+    end
   end
 
   policies do
@@ -77,6 +101,14 @@ defmodule FluxVale.Billing.LedgerEntry do
       description("System-only: the posting machinery (authorize?: false)")
       forbid_if(always())
     end
+  end
+
+  # The admin surface (#140, ADR-0027 §3): goodwill creates + ledger
+  # reads only — the system :create is the posting machinery's, never a
+  # form (it's actor-forbidden regardless; hiding it keeps the admin UI
+  # from offering a button that can only fail).
+  admin do
+    create_actions([:grant_goodwill])
   end
 
   postgres do

@@ -9,9 +9,12 @@ defmodule FluxVale.Infrastructure do
   `authorize?: false` — global config, not actor-scoped data.
   """
 
+  # AshJsonApi.Domain (#360): the resource-level json_api blocks ride
+  # the domain through AshJsonApiRouter — routes are contract
+  # (ADR-0019 §1).
   use Ash.Domain,
     otp_app: :flux_vale,
-    extensions: [AshAdmin.Domain]
+    extensions: [AshAdmin.Domain, AshJsonApi.Domain]
 
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Operations.AttachInstance

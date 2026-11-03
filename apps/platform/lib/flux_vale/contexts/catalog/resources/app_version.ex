@@ -13,14 +13,59 @@ defmodule FluxVale.Catalog.AppVersion do
     otp_app: :flux_vale,
     domain: FluxVale.Catalog,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshJsonApi.Resource]
 
-  postgres do
-    table "app_versions"
-    repo FluxVale.Repo
+  # #360 (ADR-0019 §1): the version family's wire contract — the detail
+  # page's blueprint summary, same public surface the page renders.
+  json_api do
+    type("app_version")
 
-    # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
-    migration_defaults id: "nil"
+    routes do
+      # catalog:read
+      index(:list_for_app,
+        route: "/apps/:app_id/versions",
+        default_fields: [
+          :id,
+          :app_id,
+          :version,
+          :image,
+          :port,
+          :healthcheck_path,
+          :storage_mount_path,
+          :default_cpu_cores,
+          :default_memory_mb,
+          :default_storage_gb,
+          :default_env_vars,
+          :configurable_env_vars,
+          :first_run,
+          :release_notes,
+          :published_at
+        ]
+      )
+
+      # catalog:read
+      get(:get_by_id,
+        route: "/app-versions/:id",
+        default_fields: [
+          :id,
+          :app_id,
+          :version,
+          :image,
+          :port,
+          :healthcheck_path,
+          :storage_mount_path,
+          :default_cpu_cores,
+          :default_memory_mb,
+          :default_storage_gb,
+          :default_env_vars,
+          :configurable_env_vars,
+          :first_run,
+          :release_notes,
+          :published_at
+        ]
+      )
+    end
   end
 
   policies do
@@ -29,14 +74,25 @@ defmodule FluxVale.Catalog.AppVersion do
       # healthcheck) — catalog data is upstream-shaped and public. Never
       # put a secret in default_env_vars; a secret-carrying app version
       # needs a secret ref, which revisits this policy.
-      description "Public browse — the catalog is a public marketing surface (#164, ADR-00025); writes stay admin-only"
+      description(
+        "Public browse — the catalog is a public marketing surface (#164, ADR-00025); writes stay admin-only"
+      )
+
       authorize_if(always())
     end
 
     policy FluxVale.Checks.ActorIsPlatformAdmin do
-      description "Platform admins manage catalog app versions (ADR-0027, ADR-0030)"
+      description("Platform admins manage catalog app versions (ADR-0027, ADR-0030)")
       authorize_if(always())
     end
+  end
+
+  postgres do
+    table("app_versions")
+    repo(FluxVale.Repo)
+
+    # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
+    migration_defaults(id: "nil")
   end
 
   attributes do
@@ -177,7 +233,7 @@ defmodule FluxVale.Catalog.AppVersion do
     defaults([:read, :destroy])
 
     create :create do
-      primary? true
+      primary?(true)
 
       accept([
         :version,
@@ -205,7 +261,7 @@ defmodule FluxVale.Catalog.AppVersion do
     end
 
     update :update do
-      primary? true
+      primary?(true)
       # version is the seed's lookup key (with app_id) — immutable after
       # create, same as Category/App slug; an edited version would orphan
       # the row from seed convergence. Seeds converge drifted rows through
@@ -236,13 +292,34 @@ defmodule FluxVale.Catalog.AppVersion do
       validate(FluxVale.Catalog.AppVersion.ValidateSizeMatchesAllocation)
       validate(FluxVale.Catalog.AppVersion.ValidateFirstRunEnv)
     end
+
+    # #360: the detail page reads versions through the app relationship;
+    # the resource itself had no by-id or per-app list read. Both mirror
+    # the read policy's own posture exactly (action_type(:read) → public
+    # browse): no policy added or widened. The sort is the page's own
+    # (version string descending).
+    read :get_by_id do
+      description("Get a version by id")
+      get?(true)
+      argument(:id, :uuid, allow_nil?: false)
+      filter(expr(id == ^arg(:id)))
+    end
+
+    read :list_for_app do
+      description("The app's versions, newest first")
+      argument(:app_id, :uuid, allow_nil?: false)
+      filter(expr(app_id == ^arg(:app_id)))
+      prepare(build(sort: [version: :desc]))
+    end
   end
 
   code_interface do
-    domain FluxVale.Catalog
+    domain(FluxVale.Catalog)
 
     define(:create)
     define(:update)
+    define(:get_by_id, args: [:id])
+    define(:list_for_app, args: [:app_id])
   end
 
   identities do
