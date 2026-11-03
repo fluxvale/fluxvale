@@ -1,6 +1,6 @@
 # ADR-00021: Secrets — Bitwarden SM Kubernetes operator (primary) + fnox (bootstrap residual)
 
-**Status**: Accepted (amended — see Amendments 1–2) — with one named pre-adoption verification (EU region, below)
+**Status**: Superseded (see Amendment 3) — EU pre-adoption check passed
 **Date**: 2026-08-28
 
 **Context**: v1 materialized K8s Secrets at bootstrap time via the fnox CLI
@@ -98,3 +98,28 @@ prod-only canary absent from staging — cross-env denial structural):
   gotcha on the CLI: `bws` stores `server-base` **per token profile** —
   an unconfigured token silently defaults to US and fails
   `invalid_client`; set `BWS_SERVER_URL` or per-token config.
+
+## Amendment 3 (2026-11-03): superseded — the 1Password endgame
+
+The migration the fleet started after Am. 2 finished, and it changed the
+store, not just the renderer: the BWS operator and every `BitwardenSecret`
+CR are retired from the fleet repo, and every fleet secret now renders via
+1Password Connect operators — one `OnePasswordItem` CR per secret, reading
+per-project/env vaults.
+
+- **Items are tofu-owned** (`tofu/onepassword-items.tf`): values flow only
+  through write-only fields, so they never enter tofu state. The
+  references-only rule survives unchanged — the manifests still hold
+  references, never values; the store the references point at is
+  1Password.
+- **The out-of-band token class** (Am. 1/2's operator machine-account
+  tokens) is now the three `onepassword-service-account-token` Secrets,
+  minted by the bootstrap and re-applied by the tokens script — the only
+  values ever applied by hand.
+- **The BWS org itself is deleted owner-side**, gated by the org-deletion
+  checklist in the fleet repo's cold-start/DR runbook (irreversible; the
+  checklist is the gate).
+
+This ADR's EU-region verification, least-privilege split, and
+out-of-band-bootstrap lesson all carried into the 1Password design; the
+decision record stands as history.
