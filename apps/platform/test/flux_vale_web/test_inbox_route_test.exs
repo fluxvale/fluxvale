@@ -18,6 +18,21 @@ defmodule FluxValeWeb.TestInboxRouteTest do
   @admin_email "test-inbox-admin@fluxvale.com"
   @user_email "test-inbox-user@fluxvale.com"
 
+  # #360: fvpat_ tokens with the full S1 grant set — the surface under
+  # test is admin-gated (outside /api/v1), so the scopes are unused
+  # here; they ride the helper to future-proof the suites that share
+  # its shape.
+  @s1_scopes [
+    "instances:read",
+    "instances:write",
+    "backups:read",
+    "backups:write",
+    "gateways:read",
+    "gateways:write",
+    "wallet:read",
+    "catalog:read"
+  ]
+
   setup do
     admin =
       case User.get_by_email(@admin_email, authorize?: false) do
@@ -89,6 +104,20 @@ defmodule FluxValeWeb.TestInboxRouteTest do
       assert %{"error" => _detail} = json_response(conn, 401)
     end
 
+    # The JWT bearer path survives ONLY off /api/v1 (ADR-0019 Am. 1:
+    # /api/v1 takes fvpat_ values alone; the refusal itself is pinned
+    # in me_route_test). This is the surface that still honors it.
+    test "an admin JWT bearer still authenticates off /api/v1", %{conn: conn, admin: admin} do
+      {:ok, token, _claims} = Jwt.token_for_user(admin)
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> get("/test-inbox/api/mails")
+
+      assert %{"mails" => _mails} = json_response(conn, 200)
+    end
+
     test "403 for an authenticated non-admin", %{conn: conn, admin: admin} do
       User.create!(@user_email, %{}, authorize?: false)
       user_pat = mint_pat!(@user_email, admin)
@@ -156,10 +185,18 @@ defmodule FluxValeWeb.TestInboxRouteTest do
     end
   end
 
-  # mint_pat authorizes under the platform-admin policy (#23) — the admin
-  # actor mints, the PAT belongs to `email`'s user (me_route_test's shape)
+  # mint_pat runs under the create policy (#360) — the admin actor
+  # mints, the PAT belongs to `email`'s user (me_route_test's shape)
   defp mint_pat!(email, admin) do
-    {:ok, token} = User.mint_pat(email, actor: admin)
+    {:ok, user} = User.get_by_email(email, authorize?: false)
+
+    {:ok, %{token: token}} =
+      FluxVale.Identity.mint_pat(admin, %{
+        user_id: user.id,
+        name: "inbox test",
+        scopes: @s1_scopes
+      })
+
     token
   end
 end

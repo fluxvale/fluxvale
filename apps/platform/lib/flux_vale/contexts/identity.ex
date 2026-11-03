@@ -1,11 +1,13 @@
 defmodule FluxVale.Identity do
   @moduledoc """
-  Identity: users, platform roles, and the revocable token store.
+  Identity: users, platform roles, personal access tokens, and the
+  revocable token store.
 
-  Passwordless email-code sign-in (#21) and PATs (#23 — mint via the
-  `User` code interface, prune via `prune_expired_tokens/1`) build on this
-  domain. Deliberately **not** exposed through AshAdmin — User/Token are
-  sensitive resources (ADR-0027 §3).
+  Passwordless email-code sign-in (#21) and PATs (#360 — mint via
+  `mint_pat/3` with scopes, revoke via `revoke_pat/3`; the token
+  store below backs sessions, `prune_expired_tokens/1` its janitor)
+  build on this domain. Deliberately **not** exposed through AshAdmin
+  — User/Token are sensitive resources (ADR-0027 §3).
   """
 
   use Ash.Domain,
@@ -14,6 +16,7 @@ defmodule FluxVale.Identity do
 
   resources do
     resource(FluxVale.Identity.AuthCode)
+    resource(FluxVale.Identity.PersonalAccessToken)
     resource(FluxVale.Identity.Token)
     resource(FluxVale.Identity.User)
     resource(FluxVale.Identity.UserEmail)
@@ -47,5 +50,16 @@ defmodule FluxVale.Identity do
 
   defdelegate remove_email(actor, email_row_id),
     to: FluxVale.Identity.Operations.RemoveEmail,
+    as: :call
+
+  # PATs (#360): scoped opaque tokens for the machine API. The mint
+  # operation returns the raw value exactly once; see the op for the
+  # failure shapes.
+  defdelegate mint_pat(actor, params, opts \\ []),
+    to: FluxVale.Identity.Operations.MintPat,
+    as: :call
+
+  defdelegate revoke_pat(actor, pat_or_id, opts \\ []),
+    to: FluxVale.Identity.Operations.RevokePat,
     as: :call
 end

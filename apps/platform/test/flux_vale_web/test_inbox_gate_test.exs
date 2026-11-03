@@ -52,7 +52,14 @@ defmodule FluxValeWeb.TestInboxGateTest do
     admin =
       User.create!("gate-admin@fluxvale.com", %{platform_role: :admin}, authorize?: false)
 
-    {:ok, token} = User.mint_pat("gate-admin@fluxvale.com", actor: admin)
+    # Operator posture: the gate test needs a valid credential, not an
+    # authorized actor path (the plug under test never authorizes).
+    {:ok, %{token: token}} =
+      FluxVale.Identity.mint_pat(
+        nil,
+        %{user_id: admin.id, name: "gate test", scopes: []},
+        authorize?: false
+      )
 
     conn =
       conn

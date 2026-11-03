@@ -43,3 +43,16 @@ it is the substrate for both machine clients.
   tool design.
 - Scope discipline: CLI and MCP land **after** the API + LiveView for a given
   capability exist — they are clients, not drivers, of the domain model.
+
+## Amendment 1 (2026-11-03): PATs are opaque, hashed, and scoped at the boundary
+
+The #23 JWT PAT mint is replaced (#360): PATs are single-part opaque
+values (`fvpat_…`) shown once at mint and stored only as SHA-256
+hashes — a DB leak reveals nothing reusable, and no long-lived signed
+machine credential exists to outlive a key compromise. Scopes are
+read/write per domain (`instances, backups, gateways, wallet,
+catalog`; `wallet`/`catalog` read-only for now), enforced at the
+`/api/v1` boundary inside the 401/403 contract — resource policies
+stay scope-unaware. Session auth on `/api/v1` is read-only (CSRF:
+writes are token-only). Per-token rate limits and audit land as
+later slices of #360.

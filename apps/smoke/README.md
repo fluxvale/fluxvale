@@ -22,9 +22,16 @@ npx bru run --env Production --env-var pat=$SMOKE_PAT_PRODUCTION
 ```
 
 The PAT is injected per run (CI secret) — never stored in the repo.
-Mint/rotate: release rpc per env (`FluxVale.Identity.User.mint_pat/2`,
-authorize-free operator path), value into the matching GitHub Actions
-secret, revoke the old token (docs/deployment.md).
+Mint/rotate: release rpc per env — resolve the user, then mint with
+the authorize-free operator path; `scopes: []` suffices (the smoke
+read is `/api/v1/me`, scopeless). Value into the matching GitHub
+Actions secret, revoke the old token (docs/deployment.md):
+
+```elixir
+{:ok, user} = FluxVale.Identity.User.get_by_email("admin@fluxvale.com", authorize?: false)
+{:ok, %{token: token}} =
+  FluxVale.Identity.mint_pat(nil, %{user_id: user.id, name: "smoke", scopes: []}, authorize?: false)
+```
 
 `scripts/heartbeat.mjs` — the scheduled run's remote-write; run by CI
 with `PROM_REMOTE_WRITE_USERNAME`/`PROM_REMOTE_WRITE_TOKEN` set.
