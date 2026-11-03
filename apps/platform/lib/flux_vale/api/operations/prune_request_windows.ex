@@ -10,8 +10,10 @@ defmodule FluxVale.Api.Operations.PruneRequestWindows do
 
   alias FluxVale.Api.RequestWindow
 
-  # One day: generous against clock skew, still swept daily (a
-  # runaway token produces at most ~32k rows/day at the default cap).
+  # One day: generous against clock skew, still swept daily. A token
+  # produces at most ONE row per window (1,440/day at the 60s
+  # default) however hard it hammers — refused requests grow `count`,
+  # never rows — so the horizon only bounds storage.
   @retention_seconds 24 * 60 * 60
 
   @doc """

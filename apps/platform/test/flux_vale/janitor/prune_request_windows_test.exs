@@ -21,7 +21,7 @@ defmodule FluxVale.Janitor.PruneRequestWindowsTest do
       # Seed-only state: a backdated window (see the operation's suite)
       Ash.Seed.seed!(RequestWindow, %{
         token_id: pat.id,
-        window_started_at: ~U[2026-11-01 00:00:00Z],
+        window_started_at: DateTime.add(DateTime.utc_now(), -2, :day),
         count: 42
       })
 

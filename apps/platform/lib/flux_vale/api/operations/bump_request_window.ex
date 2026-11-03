@@ -35,7 +35,9 @@ defmodule FluxVale.Api.Operations.BumpRequestWindow do
   System write from the boundary plug — no actor to authorize (the
   Authenticate plug's lookup posture). Raises on DB failure: an
   uncounted request must not proceed silently, and the call is
-  DB-backed anyway.
+  DB-backed anyway. One known window: a user-delete cascade dropping
+  the token mid-request turns the FK miss into a 500 for that single
+  in-flight call (the next presentation is a 401) — accepted.
   """
   @spec call(String.t(), DateTime.t()) :: pos_integer()
   def call(token_id, window_started_at) do
@@ -43,7 +45,11 @@ defmodule FluxVale.Api.Operations.BumpRequestWindow do
       Repo.query!(@bump_sql, [
         Ecto.UUID.dump!(Ash.UUIDv7.generate()),
         Ecto.UUID.dump!(token_id),
-        DateTime.to_naive(window_started_at)
+        # The column is timestamp(0) and PG ROUNDS on insert — truncate
+        # here so the caller's value IS the keyed value (the plug
+        # floors; a future caller with usec must not land half a second
+        # into the next bucket).
+        DateTime.to_naive(DateTime.truncate(window_started_at, :second))
       ])
 
     [[count]] = result.rows

@@ -7,6 +7,11 @@ defmodule FluxValeWeb.Plugs.ApiRateLimit do
   Applies only to PAT-authenticated calls (`conn.assigns.api_pat`,
   set by Authenticate): session calls pass untouched, and
   unauthenticated ones never arrive (RequireActor already 401'd).
+  Mounted after AuthorizeApiScopes, a scope-refused (403) call never
+  reaches it either — a deliberate stance: this limiter meters API
+  *use*; unauthenticated and scope-denied floods cost one indexed
+  SHA-256 lookup each and are the edge proxy's concern, not the
+  meter's.
 
   Over the limit: 429 with a JSON:API error document byte-matching
   AuthorizeApiScopes' rendering, plus a `Retry-After` header —
