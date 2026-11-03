@@ -5,7 +5,7 @@ defmodule FluxValeWeb.Plugs.ApiRateLimitTest do
   # through the real /api/v1 pipeline, the 429 contract (byte-shape +
   # Retry-After), rollover by backdated window rows (never by
   # sleeping), and the session pass-through. test.exs pins
-  # max_requests 3 / window_seconds 86_400 — every request in a test
+  # max_requests 5 / window_seconds 86_400 — every request in a test
   # run floors into one window, so the hammer needs no clock games.
   # Env overrides (VM-global state) live in the async: false
   # ApiRateLimitConfigTest.
@@ -42,7 +42,7 @@ defmodule FluxValeWeb.Plugs.ApiRateLimitTest do
 
   describe "mounted in :api_auth — the hammer" do
     test "max_requests allowed, then 429 with Retry-After", %{token: token} do
-      for _n <- 1..3, do: assert(json_response(me_request(token), 200)["data"])
+      for _n <- 1..5, do: assert(json_response(me_request(token), 200)["data"])
 
       refused = me_request(token)
 
@@ -74,21 +74,21 @@ defmodule FluxValeWeb.Plugs.ApiRateLimitTest do
           authorize?: false
         )
 
-      for _n <- 1..3, do: assert(json_response(me_request(token), 200)["data"])
+      for _n <- 1..5, do: assert(json_response(me_request(token), 200)["data"])
 
       assert %{"errors" => [%{"status" => "429"}]} = json_response(me_request(token), 429)
 
-      for _n <- 1..3, do: assert(json_response(me_request(neighbor), 200)["data"])
+      for _n <- 1..5, do: assert(json_response(me_request(neighbor), 200)["data"])
     end
 
     test "refused requests still count — the meter sees every call", %{token: token, pat: pat} do
-      for _n <- 1..3, do: json_response(me_request(token), 200)
+      for _n <- 1..5, do: json_response(me_request(token), 200)
       json_response(me_request(token), 429)
       json_response(me_request(token), 429)
 
-      # Five calls through the pipeline = five in the window row —
+      # Seven calls through the pipeline = seven in the window row —
       # the refused pair counted too (a hammer earns no free passes).
-      assert window_count(pat.id) == 5
+      assert window_count(pat.id) == 7
     end
   end
 
@@ -115,10 +115,10 @@ defmodule FluxValeWeb.Plugs.ApiRateLimitTest do
     test "session calls neither consume nor trip the token's window", %{user: user, token: token} do
       {:ok, session_jwt, _claims} = Jwt.token_for_user(user)
 
-      # Five session reads — over the limit — all pass, and none of
-      # them touch the PAT's counter (the three later PAT calls would
-      # tip over at the second if the session had shared the window).
-      for _n <- 1..5 do
+      # Six session reads — over the limit — all pass, and none of
+      # them touch the PAT's counter (the five later PAT calls would
+      # tip over at the first if the session had shared the window).
+      for _n <- 1..6 do
         session_conn =
           Phoenix.ConnTest.build_conn()
           |> Plug.Test.init_test_session(%{"user_token" => session_jwt})
@@ -127,7 +127,7 @@ defmodule FluxValeWeb.Plugs.ApiRateLimitTest do
         assert json_response(session_conn, 200)["data"]
       end
 
-      for _n <- 1..3, do: assert(json_response(me_request(token), 200)["data"])
+      for _n <- 1..5, do: assert(json_response(me_request(token), 200)["data"])
     end
 
     test "a conn with no PAT passes untouched (unauthenticated arm)" do
