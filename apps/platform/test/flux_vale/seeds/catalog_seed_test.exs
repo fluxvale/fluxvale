@@ -63,7 +63,7 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
 
       app = App.get_by_slug!("forgejo", authorize?: false)
       assert app.category_id == category.id
-      assert app.tagline == "Self-hosted Git forge with issues, pull requests, and Actions CI"
+      assert app.tagline == "Git forge with issues, pull requests, and Actions CI"
       # #190: file access is deliberate per app — Forgejo ships without
       assert app.file_access == false
 

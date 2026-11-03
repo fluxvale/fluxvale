@@ -7,11 +7,11 @@ import { expect, test } from "@playwright/test";
 test("landing page renders hero and CTAs", async ({ page }) => {
   await page.goto("/");
   // Landing-specific: the default layout title must not satisfy this.
-  await expect(page).toHaveTitle(/Managed hosting for open source applications/);
+  await expect(page).toHaveTitle(/Managed cloud platform for open source applications/);
 
   const h1 = page.getByRole("heading", { level: 1 });
   await expect(h1).toBeVisible();
-  await expect(h1).toHaveText(/Managed hosting for open source applications/);
+  await expect(h1).toHaveText(/Managed cloud platform for open source applications/);
 
   // The landing carries three "Browse apps" links (hero CTA, the steps'
   // catalog-preview foot, the catalog band CTA) — the hero one is first

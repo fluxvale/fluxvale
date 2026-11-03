@@ -89,7 +89,9 @@ defmodule FluxValeWeb.CatalogControllerTest do
       refute title =~ "Phoenix"
       # phx-r sits on rendered elements — assert on attribute pairs, not
       # the full tag.
-      assert html =~ ~s(name="description" content="Managed hosting for open source apps")
+      assert html =~
+               ~s(name="description" content="A curated catalog of open source apps, ready to run in minutes.")
+
       assert html =~ ~s(rel="canonical" href="https://fluxvale.com/catalog")
       assert html =~ ~s(property="og:title" content="App catalog · FluxVale")
       assert html =~ "https://fluxvale.com/images/og-default.png"
