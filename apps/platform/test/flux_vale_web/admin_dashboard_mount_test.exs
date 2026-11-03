@@ -20,6 +20,21 @@ defmodule FluxValeWeb.AdminDashboardMountTest do
   @admin_email "admin-dash-admin@fluxvale.com"
   @user_email "admin-dash-user@fluxvale.com"
 
+  # #360: fvpat_ tokens with the full S1 grant set — the surface under
+  # test is admin-gated (outside /api/v1), so the scopes are unused
+  # here; they ride the helper to future-proof the suites that share
+  # its shape.
+  @s1_scopes [
+    "instances:read",
+    "instances:write",
+    "backups:read",
+    "backups:write",
+    "gateways:read",
+    "gateways:write",
+    "wallet:read",
+    "catalog:read"
+  ]
+
   # No app-env gate to sync (Am. 2): the surface is always mounted.
   setup do
     admin =
@@ -100,7 +115,15 @@ defmodule FluxValeWeb.AdminDashboardMountTest do
   end
 
   defp mint_pat!(email, admin) do
-    {:ok, token} = User.mint_pat(email, actor: admin)
+    {:ok, user} = User.get_by_email(email, authorize?: false)
+
+    {:ok, %{token: token}} =
+      FluxVale.Identity.mint_pat(admin, %{
+        user_id: user.id,
+        name: "mount test",
+        scopes: @s1_scopes
+      })
+
     token
   end
 end

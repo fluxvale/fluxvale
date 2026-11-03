@@ -1,0 +1,83 @@
+defmodule FluxVale.Identity.Operations.MintPat do
+  @moduledoc """
+  Mints a scoped personal access token (#360, ADR-0019 Am. 1).
+
+  The raw value (`fvpat_` + 43 url-safe chars) exists ONLY in the
+  `{:ok, %{token: raw, pat: row}}` return — never logged, never
+  stored; the row carries its SHA-256 hash alone. The create policy
+  is the gate: a user mints for themselves, a platform admin for
+  anyone (the settings/access panel consumes this later).
+  """
+
+  alias FluxVale.Api.Scopes
+  alias FluxVale.Identity.PersonalAccessToken
+
+  require Logger
+
+  @token_prefix "fvpat_"
+  # Same lifetime the #23 JWT PAT carried — `expires_at` bounds the
+  # worst case; revocation is the instant mechanism.
+  @lifetime_seconds 365 * 24 * 60 * 60
+
+  @doc """
+  Mints a PAT for `params.user_id`.
+
+  `params`: `%{user_id:, name:, scopes:}` (empty scopes allowed;
+  optional `expires_at` overrides the 1-year default). Returns
+  `{:ok, %{token: raw_value, pat: %PersonalAccessToken{}}}` — the
+  caller shows the value once (or never); there is no way to recover
+  it later. Off-catalog or duplicate scopes are refused before
+  anything is generated.
+  """
+  @spec call(map() | nil, map(), keyword()) ::
+          {:ok, %{token: String.t(), pat: PersonalAccessToken.t()}} | {:error, term()}
+  def call(actor, params, opts \\ []) do
+    scopes = params[:scopes] || []
+
+    with :ok <- Scopes.validate(scopes) do
+      random =
+        32
+        |> :crypto.strong_rand_bytes()
+        |> Base.url_encode64(padding: false)
+
+      raw = @token_prefix <> random
+      expires_at = params[:expires_at] || default_expiry()
+      create_opts = Keyword.put(opts, :actor, actor)
+
+      changeset =
+        PersonalAccessToken
+        |> Ash.Changeset.new()
+        # The digest of the generated value, via the action's private
+        # argument — set by the system, never an accepted input (the
+        # before-for_create pattern Ash itself prescribes).
+        |> Ash.Changeset.set_argument(:token_hash, PersonalAccessToken.token_hash(raw))
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            user_id: params[:user_id],
+            name: params[:name],
+            scopes: scopes,
+            expires_at: expires_at
+          },
+          create_opts
+        )
+
+      case Ash.create(changeset) do
+        {:ok, pat} ->
+          # Audit the mint, never the token value (v1 posture).
+          Logger.info(
+            "PAT minted: user=#{pat.user_id} token=#{pat.id} scopes=#{Enum.join(pat.scopes, ",")}"
+          )
+
+          {:ok, %{token: raw, pat: pat}}
+
+        {:error, error} ->
+          {:error, error}
+      end
+    end
+  end
+
+  defp default_expiry do
+    DateTime.add(DateTime.utc_now(), @lifetime_seconds, :second)
+  end
+end

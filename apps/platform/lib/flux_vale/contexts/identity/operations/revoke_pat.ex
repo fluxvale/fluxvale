@@ -1,0 +1,35 @@
+defmodule FluxVale.Identity.Operations.RevokePat do
+  @moduledoc """
+  Revokes a personal access token (#360) — a policy-checked row write
+  (owner or platform admin); the auth lookup refuses a revoked row on
+  the next presentation, so the sever is instant.
+
+  Idempotent: revoking an already-revoked token is `{:ok, pat}` with
+  the original `revoked_at` stamp untouched.
+  """
+
+  alias FluxVale.Identity.PersonalAccessToken
+
+  @doc """
+  Revokes the PAT given as a record or an id. `opts` ride the read
+  and the update (e.g. `authorize?: false` for operator tooling).
+  """
+  @spec call(term(), PersonalAccessToken.t() | String.t(), keyword()) ::
+          {:ok, PersonalAccessToken.t()} | {:error, term()}
+  def call(actor, pat_or_id, opts \\ [])
+
+  def call(actor, %PersonalAccessToken{} = pat, opts) do
+    revoke(pat, actor, opts)
+  end
+
+  def call(actor, pat_id, opts) when is_binary(pat_id) do
+    case PersonalAccessToken.get(pat_id, Keyword.put(opts, :actor, actor)) do
+      {:ok, pat} -> revoke(pat, actor, opts)
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp revoke(pat, actor, opts) do
+    PersonalAccessToken.revoke(pat, Keyword.put(opts, :actor, actor))
+  end
+end

@@ -31,6 +31,21 @@ defmodule FluxValeWeb.AdminMountTest do
   @admin_email "admin-mount-admin@fluxvale.com"
   @user_email "admin-mount-user@fluxvale.com"
 
+  # #360: fvpat_ tokens with the full S1 grant set — the surface under
+  # test is admin-gated (outside /api/v1), so the scopes are unused
+  # here; they ride the helper to future-proof the suites that share
+  # its shape.
+  @s1_scopes [
+    "instances:read",
+    "instances:write",
+    "backups:read",
+    "backups:write",
+    "gateways:read",
+    "gateways:write",
+    "wallet:read",
+    "catalog:read"
+  ]
+
   # No app-env gate to sync (Am. 2): the surface is always mounted.
   setup do
     admin =
@@ -167,11 +182,19 @@ defmodule FluxValeWeb.AdminMountTest do
     %Phoenix.LiveView.Socket{}
   end
 
-  # mint_pat authorizes under the platform-admin policy (#23) — the admin
-  # actor minting for the non-admin user above is the sanctioned shape
+  # mint_pat runs under the create policy (#360) — the admin actor
+  # minting for the non-admin user above is the sanctioned shape
   # (mirrors test_inbox_route_test).
   defp mint_pat!(email, admin) do
-    {:ok, token} = User.mint_pat(email, actor: admin)
+    {:ok, user} = User.get_by_email(email, authorize?: false)
+
+    {:ok, %{token: token}} =
+      FluxVale.Identity.mint_pat(admin, %{
+        user_id: user.id,
+        name: "mount test",
+        scopes: @s1_scopes
+      })
+
     token
   end
 end

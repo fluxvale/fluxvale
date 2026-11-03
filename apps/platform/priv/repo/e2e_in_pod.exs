@@ -11,9 +11,10 @@
 # seeds.exs / local_seeds.exs stay host-side `mix run` scripts; this
 # wrapper evals them rather than forking their logic.
 #
-# Contract: the token rides ONE tagged line (`E2E_PAT <jwt>`) — async
+# Contract: the token rides ONE tagged line (`E2E_PAT <token>`) — async
 # log lines can interleave anywhere else, the tag prefix can't be
-# faked, and the JWT itself has no spaces.
+# faked, and the token value itself has no spaces. The value is
+# ephemeral per-run (minted here, shown here — the whole point).
 
 endpoint_config = Application.get_env(:flux_vale, FluxValeWeb.Endpoint, [])
 
@@ -29,8 +30,17 @@ for script <- ["priv/repo/seeds.exs", "priv/repo/local_seeds.exs"] do
   Code.eval_file(script)
 end
 
-case FluxVale.Identity.User.mint_pat("admin@fluxvale.com", authorize?: false) do
-  {:ok, token} ->
+# The operator posture the seeds use: no actor, authorize?: false.
+# Every S1 scope rides the e2e token — the suite it feeds exercises
+# the whole first route set (#360).
+{:ok, admin} = FluxVale.Identity.User.get_by_email("admin@fluxvale.com", authorize?: false)
+
+case FluxVale.Identity.mint_pat(
+       nil,
+       %{user_id: admin.id, name: "e2e", scopes: FluxVale.Api.Scopes.all_scopes()},
+       authorize?: false
+     ) do
+  {:ok, %{token: token}} ->
     IO.puts("E2E_PAT " <> token)
 
   {:error, error} ->
