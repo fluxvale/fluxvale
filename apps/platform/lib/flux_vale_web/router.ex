@@ -139,6 +139,7 @@ defmodule FluxValeWeb.Router do
     pipe_through(:api)
 
     post("/hitpay", HitPayController, :create)
+    post("/polar", PolarController, :create)
   end
 
   # /api/v1 — the versioned JSON:API surface (#24 settles OQ #9: URL-prefix

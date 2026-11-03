@@ -248,6 +248,12 @@ config :flux_vale,
     # default flip. HITPAY_PAYMENT_METHODS overrides at runtime.
     payment_methods: ["card"]
   ],
+  # The second provider (#377) — sandbox default, production flips
+  # via POLAR_SERVER at the gated cutover. Credentials arrive via
+  # env/BWS (runtime.exs, ADR-0021) — never here.
+  polar: [
+    server: "sandbox"
+  ],
   # SEO canonical identity (#164, ADR-00025): canonical links, og:url, the
   # sitemap and the noindex host check all read these — the prod origin is
   # the truth regardless of the serving host (staging serves prod URLs by

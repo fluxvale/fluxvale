@@ -360,6 +360,37 @@ case System.get_env("HITPAY_PAYMENT_METHODS") do
     end
 end
 
+# Polar gateway (#377, ADR-0029): the second provider — BWS-injected
+# in the cluster (ADR-0021), never committed. Unset in dev/test —
+# checkout answers {:error, :missing_config} and the top-up UI says
+# so plainly; sandbox runs set the sandbox org's token via env.
+case System.get_env("POLAR_ACCESS_TOKEN") do
+  nil -> :ok
+  token -> config :flux_vale, :polar, access_token: token
+end
+
+case System.get_env("POLAR_WEBHOOK_SECRET") do
+  nil -> :ok
+  secret -> config :flux_vale, :polar, webhook_secret: secret
+end
+
+# Only the two known servers override; nil/empty/anything else keeps
+# config.exs's sandbox default — an unknown string would dead-end
+# checkout creation on :missing_config (the adapter maps server →
+# base URL from a fixed two-entry table).
+case System.get_env("POLAR_SERVER") do
+  server when server in ["sandbox", "production"] ->
+    config :flux_vale, :polar, server: server
+
+  _default ->
+    :ok
+end
+
+case System.get_env("POLAR_PRODUCT_ID") do
+  nil -> :ok
+  product_id -> config :flux_vale, :polar, product_id: product_id
+end
+
 # Postmark mailer (ADR-0003 Am. 1, #165): POSTMARK_API_KEY moves delivery
 # off the Local adapter (config.exs) onto Postmark's API. nil and "" (the
 # classic empty-Secret shape) both mean unconfigured — a prod release
