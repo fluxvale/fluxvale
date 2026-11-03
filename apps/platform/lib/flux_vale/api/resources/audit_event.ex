@@ -41,6 +41,10 @@ defmodule FluxVale.Api.AuditEvent do
       # THE access pattern: filter by token, order by created_at ("what
       # did this token do").
       index([:personal_access_token_id, :created_at])
+
+      # The janitor's stale read filters on created_at alone — the
+      # composite above can't serve it.
+      index([:created_at])
     end
   end
 
