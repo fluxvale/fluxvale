@@ -447,19 +447,19 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       description("""
       Opts the org in (ADR-0039): writes the row as :provisioning and
       enqueues the cluster work. The hostname is minted here — opaque,
-      never derived from org or app names (§1). The monthly rate is the
-      caller's (the pricing lane's figure); the row stores it as the
-      billing snapshot.
+      never derived from org or app names (§1). The monthly rate comes
+      from the :access_gateway config and is stored as the billing
+      snapshot — it is never caller-supplied (#360: a wire caller must
+      not price their own gateway).
       """)
 
       accept([:tailnet_domain])
 
-      # #360: organization_id arrives as a compat ARGUMENT (the panel
-      # and the fixtures send it; the API body omits it — the
-      # SetOrganizationFromActor change below pins the actor's own org
-      # whenever an actor is present). The copy change carries the
-      # actorless system path (`authorize?: false`), the BackupSetting
-      # create's own shape.
+      # #360: organization_id arrives as a compat ARGUMENT for the
+      # actorless system path only (`authorize?: false` — the fixtures'
+      # shape); with an actor present the SetOrganizationFromActor
+      # change below forces the actor's own org, so the API body never
+      # steers ownership.
       argument(:organization_id, :uuid, allow_nil?: true)
 
       change(fn changeset, _context ->
@@ -470,13 +470,12 @@ defmodule FluxVale.Infrastructure.AccessGateway do
         )
       end)
 
-      # The org is the ACTOR's (the Instance create's contract): the
-      # attribute stays settable for the actorless system path
-      # (`authorize?: false`), but with an actor present this change
-      # forces the actor's own org, so a member of a funded org can no
-      # longer create a gateway owned by a different org (which that org
-      # would then pay for), and `ActorOrgWalletFunded` and the row can
-      # never disagree about whose wallet is in play.
+      # The org is the ACTOR's (the Instance create's contract): with
+      # an actor this change forces the actor's own org, so a member of
+      # a funded org can no longer create a gateway owned by a
+      # different org (which that org would then pay for), and
+      # `ActorOrgWalletFunded` and the row can never disagree about
+      # whose wallet is in play.
       change({FluxVale.Infrastructure.Instance.SetOrganizationFromActor, []})
 
       change(GenerateHostname)
@@ -485,12 +484,10 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       # provision writes it to the Secret and stores only the ref.
       argument(:auth_key, :string, allow_nil?: false, sensitive?: true)
 
-      # #360: the price is the platform's, never the caller's — the row
-      # snapshots what settlement bills, so a wire caller must not be
-      # able to price their own gateway. Every existing caller (the
-      # panel, the fixtures) sends the config figure anyway; the
-      # argument keeps those payloads parsing while the change pins the
-      # config value for everyone. Omit it on the wire.
+      # #360: the price is the platform's, never the caller's — every
+      # existing caller (the panel, the fixtures) sends the config
+      # figure anyway; the argument keeps those payloads parsing while
+      # the change pins the config value for everyone.
       argument(:monthly_cents, :integer, allow_nil?: true, sensitive?: false)
 
       change(fn changeset, _context ->

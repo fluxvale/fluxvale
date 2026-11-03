@@ -74,7 +74,9 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
       assert row["id"] == instance.id
 
       # The attribute key set is the contract (the /me stance) — public
-      # fields only, no metering anchors, no failure_reason.
+      # fields only, no metering anchors, no failure_reason. The raw
+      # status_message is #179's admin-only trail and env_vars never
+      # rides the wire (hide_fields) — both asserted below.
       keys = Map.keys(row["attributes"])
 
       assert MapSet.new(keys) ==
@@ -83,7 +85,6 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
                  "slug",
                  "namespace",
                  "status",
-                 "status_message",
                  "exposure",
                  "always_on",
                  "deployed_at"
@@ -108,7 +109,31 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
       assert row["id"] == instance.id
       assert row["attributes"]["name"] == instance.name
       assert row["attributes"]["status"] == "pending"
-      assert row["attributes"]["env_vars"] == %{}
+
+      # env_vars carries whatever the deployer typed, credentials
+      # included — hide_fields keeps it off the wire entirely.
+      refute Map.has_key?(row["attributes"], "env_vars")
+      refute Map.has_key?(row["attributes"], "status_message")
+    end
+
+    test "a sparse fieldset cannot summon the hidden fields", %{conn: conn} do
+      {user, instance} = member_with_instance()
+      pat = ApiPat.mint!(user.email, ["instances:write"])
+
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/instances/#{instance.id}?fields[instance]=name,status_message,env_vars")
+
+      # The hidden pair is off the field catalog entirely — ?fields
+      # requests for them are refused as invalid, not silently dropped,
+      # so a client can never mistake absence for emptiness.
+      assert %{"errors" => errors} = json_response(conn, 400)
+
+      details = Enum.map(errors, & &1["detail"])
+
+      assert "Invalid field for type instance: status_message" in details
+      assert "Invalid field for type instance: env_vars" in details
     end
   end
 

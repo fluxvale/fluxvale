@@ -107,10 +107,12 @@ defmodule FluxValeWeb.Api.RouteInventoryTest do
     # The label is "<router> <resource>.<action>" — match on the
     # dotted suffix (no runtime atom creation), so a legit member
     # action (BackupSetting's :create) never trips the money
-    # machinery's :create.
+    # machinery's :create. No separator before the resource: the
+    # label's is a space, and a leading dot here would make every
+    # ends_with? miss — a vacuous assertion.
     unroutable_suffixes =
       MapSet.new(@unroutable, fn {resource, action} ->
-        "." <> inspect(resource) <> "." <> Atom.to_string(action)
+        inspect(resource) <> "." <> Atom.to_string(action)
       end)
 
     leaks =
@@ -119,5 +121,13 @@ defmodule FluxValeWeb.Api.RouteInventoryTest do
       end)
 
     assert leaks == []
+
+    # The mechanism itself: a ROUTED action's label must not match any
+    # unroutable suffix (guards against a separator change re-vacuating
+    # the assertion above).
+    routed_label = Enum.find(routed_labels(), &String.ends_with?(&1, "Instance.deploy"))
+
+    assert routed_label
+    refute Enum.any?(unroutable_suffixes, &String.ends_with?(routed_label, &1))
   end
 end

@@ -85,8 +85,6 @@ defmodule FluxVale.Infrastructure.Instance do
   alias FluxVale.Infrastructure.Operations.StartInstance
   alias FluxVale.Infrastructure.Operations.StopInstance
 
-  require Ash.Query
-
   # #360 (ADR-0019 §1): the instance family's wire contract — each
   # route's field list is deliberate, public attributes only. Scope
   # names in the route comments map slice 1's gate table. Timestamps
@@ -99,7 +97,6 @@ defmodule FluxVale.Infrastructure.Instance do
     :slug,
     :namespace,
     :status,
-    :status_message,
     :exposure,
     :always_on,
     :image,
@@ -110,12 +107,20 @@ defmodule FluxVale.Infrastructure.Instance do
     :cpu_cores,
     :memory_mb,
     :storage_gb,
-    :env_vars,
     :deployed_at
   ]
 
   json_api do
     type("instance")
+
+    # #179/#360: the raw status_message is the admin-only technical
+    # trail (the page derives plain copy from the status atom — "the
+    # raw status_message never renders to non-admins"), and env_vars
+    # carries whatever the deployer typed, credentials included — no
+    # page renders it back. hide_fields takes both off EVERY response
+    # (default lists and ?fields[instance]= sparse requests alike);
+    # the API is an all-audiences surface.
+    hide_fields([:status_message, :env_vars])
 
     routes do
       # instances:read
@@ -127,7 +132,6 @@ defmodule FluxVale.Infrastructure.Instance do
           :slug,
           :namespace,
           :status,
-          :status_message,
           :exposure,
           :always_on,
           :deployed_at
@@ -967,10 +971,11 @@ defmodule FluxVale.Infrastructure.Instance do
 
     # #360: the panel's "Restore latest" over the wire. The operation
     # restores the NEWEST successful snapshot (no by-id restore exists,
-    # ADR-0037 §5) — the route's :backup_run_id is validated to name
-    # exactly that run, so the path can never promise a different
-    # snapshot than the one restored. The actor rides the call (the
-    # operation re-reads ownership through its authorized get_by_id).
+    # ADR-0037 §5) — the route's :backup_run_id rides as
+    # expected_run_id, and the OPERATION refuses a mismatch (fence and
+    # restore in one read, no gap for a racing run to slip through).
+    # The actor rides the call (the operation re-reads ownership
+    # through its authorized get_by_id).
     action :restore_backup, :struct do
       description("Restores the newest successful backup — the run row comes back.")
 
@@ -981,15 +986,12 @@ defmodule FluxVale.Infrastructure.Instance do
       run(fn input, %{actor: actor, authorize?: authorize?} ->
         case get_by_id(input.arguments.id, actor: actor, authorize?: authorize?) do
           {:ok, instance} ->
-            case restore_target(instance, input.arguments.backup_run_id) do
-              :ok ->
-                case FluxVale.Infrastructure.restore_instance_backup(instance, actor: actor) do
-                  {:ok, run} -> {:ok, run}
-                  {:error, reason} -> {:error, backup_error(reason)}
-                end
-
-              {:error, _reason} = error ->
-                error
+            case FluxVale.Infrastructure.restore_instance_backup(instance,
+                   actor: actor,
+                   expected_run_id: input.arguments.backup_run_id
+                 ) do
+              {:ok, run} -> {:ok, run}
+              {:error, reason} -> {:error, backup_error(reason)}
             end
 
           {:error, _reason} = error ->
@@ -1137,46 +1139,6 @@ defmodule FluxVale.Infrastructure.Instance do
 
   # --- the API backup verbs' helpers (#360) ---------------------------
 
-  # The restore's honest-contract fence: the operation restores the
-  # NEWEST successful snapshot, so the route's run id must name exactly
-  # that row — a caller asking for an older run gets a refusal, never a
-  # different snapshot than the one they named.
-  defp restore_target(instance, backup_run_id) do
-    case newest_snapshot(instance) do
-      %BackupRun{id: ^backup_run_id} ->
-        :ok
-
-      %BackupRun{} ->
-        {:error,
-         InvalidArgument.exception(
-           field: :backup_run_id,
-           message: "is not the latest successful backup — restore targets the latest one"
-         )}
-
-      nil ->
-        {:error,
-         InvalidArgument.exception(
-           field: :backup_run_id,
-           message: "there is no finished backup to restore yet"
-         )}
-    end
-  end
-
-  # The operation's own newest-snapshot lookup (RestoreInstanceBackup's
-  # exact filter), a system read: ownership was fenced by the authorized
-  # get_by_id above.
-  defp newest_snapshot(instance) do
-    BackupRun
-    |> Ash.Query.filter(
-      instance_id == ^instance.id and kind in [:scheduled, :manual] and
-        status == :succeeded and not is_nil(snapshot_id)
-    )
-    |> Ash.Query.sort(started_at: :desc, id: :desc)
-    |> Ash.Query.limit(1)
-    |> Ash.read!(authorize?: false)
-    |> List.first()
-  end
-
   # The operations' guard atoms carry no message of their own; give them
   # the panel's plain words. Anything else (an Ash error, a K8s error)
   # passes through untouched — the :delete action's stance.
@@ -1187,6 +1149,7 @@ defmodule FluxVale.Infrastructure.Instance do
     run_in_flight: "a backup or restore is already running — try again shortly",
     nothing_to_restore: "there is no finished backup to restore yet",
     not_restorable: "the app is busy right now — try again in a moment",
+    not_latest_backup: "is not the latest successful backup — restore targets the latest one",
     wallet_unfunded: "top up to run a backup — keep a positive wallet balance"
   }
 

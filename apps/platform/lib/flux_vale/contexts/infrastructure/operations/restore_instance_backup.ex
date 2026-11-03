@@ -115,16 +115,26 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
   `{:ok, run}` once the Job applied (`:pending`/`:running` — the sweep
   owns the outcome); `{:error, reason}` otherwise. Reasons name the guard
   that closed (`:no_settings`, `:backups_disabled`, `:nothing_to_restore`,
-  `:run_in_flight`, `:not_deployed`, `:not_restorable`), the ownership
-  refusal (`Forbidden`), or carry the K8s error.
+  `:run_in_flight`, `:not_deployed`, `:not_restorable`,
+  `:not_latest_backup`), the ownership refusal (`Forbidden`), or carry
+  the K8s error.
+
+  `expected_run_id` (opt, #360): when set, the newest successful run
+  must be EXACTLY that row — the wire route names its restore target,
+  and a run landing between the caller's read and this check must
+  never restore a different snapshot than the one named. The sweep
+  omits it (newest is its own contract).
   """
   @spec call(Instance.t(), keyword()) :: {:ok, BackupRun.t()} | {:error, term()}
   def call(%Instance{} = instance, opts \\ []) do
-    opts = actor_authorized(opts)
+    # The fence's own opt never rides into Ash's read options (strict
+    # opts validation) — it travels to the guards by its own lane.
+    expected_run_id = Keyword.get(opts, :expected_run_id)
+    opts = actor_authorized(Keyword.delete(opts, :expected_run_id))
 
     OpenTelemetry.Tracer.with_span "instance.restore", span_attrs(instance) do
       case authorize_instance(instance, opts) do
-        {:ok, authorized} -> restore(authorized)
+        {:ok, authorized} -> restore(authorized, expected_run_id)
         {:error, _reason} = error -> error
       end
     end
@@ -198,7 +208,7 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
     Policy.exception(custom_message: @forbidden_message)
   end
 
-  defp restore(instance) do
+  defp restore(instance, expected_run_id) do
     # The FOUND status (before the :restoring flip) rides the whole
     # flow: a RETRY (found :error + :restore_failed) entered with the
     # app already down over a possibly-partial volume, and its failure
@@ -207,7 +217,7 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
     # module's own rule).
     found = instance.status
 
-    case guards(instance) do
+    case guards(instance, expected_run_id) do
       {:ok, snapshot_id} -> start(instance, snapshot_id, found)
       {:error, _reason} = error -> error
     end
@@ -220,12 +230,13 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
   # and `translate_taken_slot/1` renders its rejection as
   # `:run_in_flight` — this covers restore-over-backup and
   # restore-over-restore alike.
-  defp guards(instance) do
+  defp guards(instance, expected_run_id) do
     with :ok <- restorable(instance),
          :ok <- enabled_setting(instance),
-         {:ok, snapshot_id} <- restorable_snapshot(instance),
+         {:ok, newest_run} <- newest_successful_run(instance),
+         :ok <- expected_run(newest_run, expected_run_id),
          :ok <- deployed(instance) do
-      {:ok, snapshot_id}
+      {:ok, newest_run.snapshot_id}
     end
   end
 
@@ -266,7 +277,7 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
   # The newest succeeded backup with a snapshot id. A succeeded row
   # without one cannot happen through the sweep (it fails such a run), but
   # the filter keeps the guard honest against a hand-edited row.
-  defp restorable_snapshot(instance) do
+  defp newest_successful_run(instance) do
     newest =
       BackupRun
       |> Ash.Query.filter(
@@ -278,10 +289,22 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
       |> Ash.read!(authorize?: false)
 
     case newest do
-      [%BackupRun{snapshot_id: snapshot_id}] -> {:ok, snapshot_id}
+      [%BackupRun{} = run] -> {:ok, run}
       [] -> {:error, :nothing_to_restore}
     end
   end
+
+  # The wire route's honest-contract fence (#360): the caller named a
+  # run, so that exact row must be the newest successful one — a run
+  # landing in between refuses the call instead of silently restoring
+  # a different snapshot than the one named. nil skips the fence (the
+  # sweep's own newest-is-the-contract path).
+  defp expected_run(_run, nil), do: :ok
+
+  defp expected_run(%BackupRun{id: id}, expected_run_id) when id == expected_run_id, do: :ok
+
+  defp expected_run(%BackupRun{}, _other),
+    do: {:error, :not_latest_backup}
 
   # Both kinds: a restore in flight blocks a new backup AND a new restore
   # (ADR-0037 §1's single-writer stance — one Job per instance, whoever
