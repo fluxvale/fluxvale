@@ -60,6 +60,13 @@ defmodule FluxValeWeb.Router do
     plug(FluxValeWeb.Plugs.ApiRateLimit)
   end
 
+  # #360 slice 4: the spec this scope serves must equal the committed
+  # artifact byte-for-byte — pin its render modules on every request
+  # (the plug's moduledoc explains the cold-boot probe this cures).
+  pipeline :api_spec_pin do
+    plug(FluxValeWeb.Plugs.PinOpenApiRender)
+  end
+
   scope "/", FluxValeWeb do
     pipe_through(:api)
 
@@ -148,7 +155,7 @@ defmodule FluxValeWeb.Router do
   # the spec offline from compiled resources anyway (v1's pattern), and
   # swaggerui authenticates through the session fallback in dev.
   scope "/api/v1" do
-    pipe_through([:api, :api_auth])
+    pipe_through([:api, :api_auth, :api_spec_pin])
 
     forward("/swaggerui", OpenApiSpex.Plug.SwaggerUI,
       path: "/api/v1/open_api",

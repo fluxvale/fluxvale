@@ -11,7 +11,10 @@ Status: Accepted (see [adr/](adr/) — ADRs [00002](adr/00002-single-ash-livevie
 - **App**: single Phoenix 1.8 + Ash app — LiveView UI + first-class
   **JSON:API + hosted MCP endpoint** in one OTP release, one image
   ([ADR-0019](adr/00019-machine-first-api-cli-mcp.md)). No SPA; no
-  OpenAPI→frontend types pipeline — the spec feeds CLI/MCP clients.
+  OpenAPI→frontend types pipeline — the spec feeds CLI/MCP clients;
+  its committed dump lives at `apps/platform/priv/open_api.json`
+  (regenerate: `cd apps/platform && mix flux_vale.open_api`; a
+  staleness test in `mix ci` fails on drift).
 - **Auth**: AshAuthentication — passwordless email one-time codes for
   web login; bearer tokens/PATs for machine access
   ([ADR-0003](adr/00003-ashauthentication-drop-authentik.md),
