@@ -82,6 +82,8 @@ for (const [name, path, selector, target] of footerShots) {
 // ---- Top-up notice: element clip, light + dark (needs the session) ----
 // The notice lives on the wizard's amount step; the details form comes
 // first — fill it and submit (local UI action; no payment is started).
+// #370: the country field is a searchable combobox — type to open the
+// listbox, click a match (select-country sets the hidden input).
 if (token) {
   for (const mode of ["light", "dark"]) {
     await page.goto(`${BASE}/billing/topup`, { waitUntil: "networkidle" });
@@ -92,24 +94,20 @@ if (token) {
         "#topup-details-form input[name='details[email]']",
         "jane@example.com",
       );
-      await page.fill("#topup-details-form input[name='details[country]']", "DE");
+      await page.fill("[data-testid='topup-country-input']", "Germany");
+      await page
+        .locator("[data-testid='topup-country-listbox'] li[role='option']")
+        .first()
+        .click();
       await page.locator("#topup-details-form").dispatchEvent("submit");
       await page.waitForURL(/topup/, { timeout: 15000 });
     }
     await page.locator("[data-testid='topup-notice']").first().waitFor({ timeout: 15000 });
     await page.waitForTimeout(300);
-    const notice = page.locator("[data-testid='topup-notice']").first();
-    await notice.scrollIntoViewIfNeeded();
-    const box = await notice.boundingBox();
-    await page.screenshot({
-      path: `${outdir}/topup-${mode}.png`,
-      clip: {
-        x: Math.max(0, box.x - 24),
-        y: Math.max(0, box.y - 24),
-        width: Math.min(1440, box.width + 48),
-        height: box.height + 48,
-      },
-    });
+    // Full page, not a notice-only clip: the after-shot must show the
+    // notice inside the current wizard (the #370 redesign moved the
+    // details step's chrome around it).
+    await page.screenshot({ path: `${outdir}/topup-${mode}.png`, fullPage: true });
     console.log(`captured topup-${mode}.png`);
   }
 } else {
