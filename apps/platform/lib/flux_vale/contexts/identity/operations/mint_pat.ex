@@ -9,6 +9,7 @@ defmodule FluxVale.Identity.Operations.MintPat do
   anyone (the settings/access panel consumes this later).
   """
 
+  alias FluxVale.Api
   alias FluxVale.Api.Scopes
   alias FluxVale.Identity.PersonalAccessToken
 
@@ -69,6 +70,16 @@ defmodule FluxVale.Identity.Operations.MintPat do
           Logger.info(
             "PAT minted: user=#{pat.user_id} token=#{pat.id} scopes=#{Enum.join(pat.scopes, ",")}"
           )
+
+          # The audit row names the OPERATOR (an admin minting for a
+          # member differs from self-service); nil on the no-actor
+          # operator path. Guarded — a failed row never fails a
+          # minted token.
+          Api.record_audit_event(%{
+            kind: :mint,
+            personal_access_token_id: pat.id,
+            actor_id: actor && actor.id
+          })
 
           {:ok, %{token: raw, pat: pat}}
 

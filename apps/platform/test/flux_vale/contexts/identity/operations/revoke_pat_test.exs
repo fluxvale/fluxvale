@@ -99,4 +99,35 @@ defmodule FluxVale.Identity.Operations.RevokePatTest do
       assert {:ok, []} = PersonalAccessToken.list_for_user(member.id, actor: stranger)
     end
   end
+
+  describe "the audit trail (#360 slice 5)" do
+    test "a revoke appends an audit row naming the operator" do
+      admin = admin!("revoke-auditor@fluxvale.com")
+      member = member!("revoke-audited@fluxvale.com")
+      pat = mint!(member.id)
+
+      assert {:ok, _revoked} = Identity.revoke_pat(admin, pat)
+
+      assert [%{kind: :mint, actor_id: nil}, %{kind: :revoke} = row] = audit_rows(pat.id)
+      assert row.personal_access_token_id == pat.id
+      assert row.actor_id == admin.id
+    end
+
+    test "the idempotent second revoke records the ask too" do
+      member = member!("revoke-twice-audit@fluxvale.com")
+      pat = mint!(member.id)
+
+      {:ok, revoked} = Identity.revoke_pat(member, pat)
+      assert {:ok, _same} = Identity.revoke_pat(member, revoked)
+
+      assert [%{kind: :mint}, %{kind: :revoke}, %{kind: :revoke}] = audit_rows(pat.id)
+    end
+  end
+
+  defp audit_rows(token_id) do
+    FluxVale.Api.AuditEvent
+    |> Ash.Query.for_read(:by_token, %{token_id: token_id})
+    |> Ash.Query.sort([:created_at, :id])
+    |> Ash.read!(authorize?: false)
+  end
 end

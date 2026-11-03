@@ -55,5 +55,7 @@ catalog`; `wallet`/`catalog` read-only for now), enforced at the
 `/api/v1` boundary inside the 401/403 contract — resource policies
 stay scope-unaware. Session auth on `/api/v1` is read-only (CSRF:
 writes are token-only). Per-token rate limits landed (#360: fixed
-window per token, 300/min default, 429 + `Retry-After`); audit
-remains a later slice.
+window per token, 300/min default, 429 + `Retry-After`); every
+PAT-authenticated call and each mint/revoke lands an append-only
+audit row (token id, method, path, status — never the token value),
+90-day retention.

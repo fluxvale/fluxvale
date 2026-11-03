@@ -170,6 +170,38 @@ defmodule FluxVale.Identity.Operations.MintPatTest do
     end
   end
 
+  describe "the audit trail (#360 slice 5)" do
+    test "a mint appends an audit row naming the operator" do
+      admin = admin!("mint-auditor@fluxvale.com")
+      member = member!("mint-audited@fluxvale.com")
+
+      assert {:ok, %{pat: pat}} =
+               Identity.mint_pat(admin, %{user_id: member.id, name: "audited", scopes: []})
+
+      assert [%{kind: :mint} = row] = audit_rows(pat.id)
+
+      assert row.personal_access_token_id == pat.id
+      assert row.actor_id == admin.id
+
+      # No HTTP shape on a lifecycle row.
+      assert row.method == nil
+      assert row.path == nil
+      assert row.status_code == nil
+    end
+
+    test "the no-actor operator path records a nil actor" do
+      member = member!("mint-noactor@fluxvale.com")
+
+      assert {:ok, %{pat: pat}} =
+               Identity.mint_pat(nil, %{user_id: member.id, name: "op", scopes: []},
+                 authorize?: false
+               )
+
+      assert [%{kind: :mint} = row] = audit_rows(pat.id)
+      assert row.actor_id == nil
+    end
+  end
+
   describe "the resource-level catalog guard" do
     # The operation validates first; the resource guard is what stops a
     # caller that bypasses it — same invariant, second door.
@@ -206,5 +238,12 @@ defmodule FluxVale.Identity.Operations.MintPatTest do
 
       assert {:error, %Ash.Error.Invalid{}} = Ash.create(changeset, authorize?: false)
     end
+  end
+
+  defp audit_rows(token_id) do
+    FluxVale.Api.AuditEvent
+    |> Ash.Query.for_read(:by_token, %{token_id: token_id})
+    |> Ash.Query.sort([:created_at, :id])
+    |> Ash.read!(authorize?: false)
   end
 end
