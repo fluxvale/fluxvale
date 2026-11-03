@@ -18,7 +18,12 @@ defmodule FluxVale.Api.Operations.BumpRequestWindowConcurrencyTest do
   alias FluxVale.Identity.User
   alias FluxVale.Repo
 
-  @bumps 8
+  # Real connections are a scarce resource: the test's own sandboxed
+  # checkout plus every worker must fit the CI pool (schedulers × 2 —
+  # 8 on a 4-vCPU runner). Three writers + the sandbox = 4, the
+  # smallest pool floor, and three simultaneous first-writers still
+  # prove the arbiter (a lost update needs only two).
+  @bumps 3
 
   test "concurrent bumps lose nothing — the max equals the bump count" do
     %{pat_id: pat_id} = seeded!()
