@@ -211,8 +211,11 @@ defmodule FluxValeWeb.Router do
     get("/about", PageController, :about)
 
     # #140: the published policies — public and anonymous-OK; the top-up
-    # flow links the refund policy before payment.
+    # flow links the refund policy before payment. #365 adds the Terms
+    # of Service and the Acceptable Use Policy beside it.
     get("/policies/refund", PolicyController, :refund)
+    get("/policies/terms", PolicyController, :terms)
+    get("/policies/acceptable-use", PolicyController, :acceptable_use)
   end
 
   scope "/", FluxValeWeb do

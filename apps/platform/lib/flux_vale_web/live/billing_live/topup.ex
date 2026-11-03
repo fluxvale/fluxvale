@@ -791,6 +791,12 @@ defmodule FluxValeWeb.BillingLive.Topup do
           class="underline underline-offset-2 hover:text-ink"
         >
           refund policy
+        </.link>. By topping up you accept the <.link
+          navigate={~p"/policies/terms"}
+          data-testid="topup-terms"
+          class="underline underline-offset-2 hover:text-ink"
+        >
+          Terms of Service
         </.link>.
       </p>
     </.card>
@@ -858,6 +864,12 @@ defmodule FluxValeWeb.BillingLive.Topup do
           class="underline underline-offset-2 hover:text-ink"
         >
           refund policy
+        </.link>. By topping up you accept the <.link
+          navigate={~p"/policies/terms"}
+          data-testid="topup-terms"
+          class="underline underline-offset-2 hover:text-ink"
+        >
+          Terms of Service
         </.link>.
       </p>
 

@@ -66,11 +66,13 @@ defmodule FluxValeWeb.SitemapControllerTest do
     refute xml =~ "/catalog/app-"
   end
 
-  test "the published policy page is a static URL (#140)", %{conn: conn} do
+  test "the published policy pages are static URLs (#140, #365)", %{conn: conn} do
     conn = get(conn, ~p"/sitemap.xml")
     xml = response(conn, 200)
 
     assert xml =~ "<loc>https://fluxvale.com/policies/refund</loc>"
+    assert xml =~ "<loc>https://fluxvale.com/policies/terms</loc>"
+    assert xml =~ "<loc>https://fluxvale.com/policies/acceptable-use</loc>"
   end
 
   test "the blog index is static and posts carry their dates (ADR-00025 §1)", %{conn: conn} do

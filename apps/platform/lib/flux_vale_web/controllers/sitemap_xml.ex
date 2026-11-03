@@ -35,7 +35,9 @@ defmodule FluxValeWeb.SitemapXML do
       Seo.canonical_origin() <> "/",
       Seo.canonical_origin() <> "/catalog",
       Seo.canonical_origin() <> "/blog",
-      Seo.canonical_origin() <> "/policies/refund"
+      Seo.canonical_origin() <> "/policies/refund",
+      Seo.canonical_origin() <> "/policies/terms",
+      Seo.canonical_origin() <> "/policies/acceptable-use"
     ]
 
     [

@@ -1,0 +1,80 @@
+<Layouts.public flash={@flash} current_user={@current_user}>
+  <div class="mx-auto max-w-2xl space-y-8">
+    <.header>
+      Acceptable Use Policy
+      <:subtitle>What you may and may not run on FluxVale.</:subtitle>
+    </.header>
+
+    <p class="text-xs text-ink-subtle">
+      Last updated: <!-- set at merge -->
+    </p>
+
+    <%!-- #365: the AUP's text of record. Plain English, not gettext —
+        this template is the policy's wording. The banned classes and the
+        enforcement stance are the maintainer's decisions (Nov 3 2026).
+        Advisory edits land here. --%>
+    <.card class="space-y-4" data-testid="acceptable-use-policy">
+      <h2 class="text-base font-medium text-ink">The short version</h2>
+      <p class="text-sm text-ink-muted">
+        This policy is part of the Terms of Service. It applies to
+        everything you run on FluxVale — every instance, every app. Run
+        your own things; don't use FluxVale to hurt people, networks, or
+        the platform itself.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Not allowed on FluxVale</h2>
+      <ul class="list-disc space-y-1 pl-5 text-sm text-ink-muted">
+        <li>Anything illegal under the laws that apply to you or to us.</li>
+        <li>
+          Cryptocurrency mining — including mining pools and token
+          farming.
+        </li>
+        <li>
+          Torrents, P2P file sharing, and warez — distributing unlicensed
+          content.
+        </li>
+        <li>Bulk email, spamming, and unsolicited messaging.</li>
+        <li>
+          Scraping and bulk automated harvesting that burdens the
+          platform or third parties.
+        </li>
+        <li>
+          Malware — hosting or distributing malware, ransomware, botnets,
+          or command-and-control infrastructure.
+        </li>
+        <li>
+          Stress-testing tooling — DDoS and booter services, or
+          load-testing systems you don't own or don't have permission to
+          test.
+        </li>
+        <li>
+          Circumventing platform limits or security, or interfering with
+          other instances or the platform itself.
+        </li>
+      </ul>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Enforcement</h2>
+      <p class="text-sm text-ink-muted">
+        We can investigate suspected violations. We can suspend or terminate
+        accounts and instances that break this policy.
+      </p>
+      <p class="text-sm text-ink-muted">
+        When an account is terminated for breaking this policy, credits
+        stay non-refundable — that is part of the refund policy's stance,
+        and it applies here too.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Reports</h2>
+      <p class="text-sm text-ink-muted">
+        Seen something that breaks this policy? Tell us:
+        admin@fluxvale.com
+      </p>
+    </.card>
+  </div>
+</Layouts.public>

@@ -1,0 +1,202 @@
+<Layouts.public flash={@flash} current_user={@current_user}>
+  <div class="mx-auto max-w-2xl space-y-8">
+    <.header>
+      Terms of Service
+      <:subtitle>The agreement between you and FluxVale.</:subtitle>
+    </.header>
+
+    <p class="text-xs text-ink-subtle">
+      Last updated: <!-- set at merge -->
+    </p>
+
+    <%!-- #365: the terms' text of record. Plain English, not gettext —
+        this template is the contract's wording. The decided parameters
+        (entity, Philippines law and venue, admin@fluxvale.com, the
+        12-month liability cap, the non-committal data-deletion line)
+        are the maintainer's, Nov 3 2026 — they are decisions, not
+        placeholders. Advisory edits land here. --%>
+    <.card class="space-y-4" data-testid="terms-of-service">
+      <h2 class="text-base font-medium text-ink">About these terms</h2>
+      <p class="text-sm text-ink-muted">
+        These terms are an agreement between you and FLUXVALE INFORMATION
+        SOLUTIONS OPC, a Philippine One Person Corporation ("FluxVale",
+        "we", "us").
+      </p>
+      <p class="text-sm text-ink-muted">
+        You accept them when you create an account or top up your wallet.
+        If you use FluxVale on behalf of someone else, you accept them
+        for that person too.
+      </p>
+      <p class="text-sm text-ink-muted">
+        We may change these terms. We give notice before a change applies
+        — by email or a note in the app. Changes required by law, or
+        needed to keep the service safe, can apply sooner.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">The service</h2>
+      <p class="text-sm text-ink-muted">
+        FluxVale is a managed cloud platform for open source apps. You
+        pick an app from our curated catalog, deploy it in one guided
+        flow, and we run it for you: platform-managed runtimes, updates,
+        monitoring, TLS, and backups. Each instance runs at the resource
+        size you choose. There is no root or server access — managing
+        the servers is our job.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Networking: a public instance serves at a fluxvale.app subdomain.
+        A private instance has no public address at all — it is reachable
+        only through your own private network, from your own devices.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Your account</h2>
+      <p class="text-sm text-ink-muted">
+        Give accurate information and keep your credentials safe. You are
+        responsible for what happens through your account. You must be
+        able to form a binding contract where you live.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Credits and payment</h2>
+      <p class="text-sm text-ink-muted">
+        FluxVale runs on a prepaid wallet. You top up, we deduct credits
+        as your instances run, and credits never expire. Credits are
+        non-refundable —
+        <.link
+          navigate={~p"/policies/refund"}
+          class="underline underline-offset-2 hover:text-ink"
+        >
+          the refund policy
+        </.link>
+        is the full stance and is part of these terms.
+      </p>
+      <p class="text-sm text-ink-muted">
+        We don't store card details on the platform — payments run
+        through a payment provider.
+      </p>
+      <p class="text-sm text-ink-muted">
+        An exhausted balance suspends your instances instead of accruing debt.
+        Nothing is ever charged recurrently; a top-up happens only
+        when you complete one yourself.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Acceptable use</h2>
+      <p class="text-sm text-ink-muted">
+        You must follow the <.link
+          navigate={~p"/policies/acceptable-use"}
+          class="underline underline-offset-2 hover:text-ink"
+        >
+          Acceptable Use Policy
+        </.link>. It is part of these terms. We can suspend or terminate
+        accounts that break it.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Your apps and data</h2>
+      <p class="text-sm text-ink-muted">
+        Your content stays yours. You are responsible for what you deploy
+        and for what you do with it.
+      </p>
+      <p class="text-sm text-ink-muted">
+        The apps in the catalog are open-source projects under their own
+        licenses. Meeting those licenses for your use is your
+        responsibility.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Suspension and termination</h2>
+      <p class="text-sm text-ink-muted">
+        We can suspend or terminate your account or an instance for
+        breaking the Acceptable Use Policy, for an exhausted balance, or
+        for a long-abandoned account. You can stop using FluxVale at any
+        time and take your data with you.
+      </p>
+      <p class="text-sm text-ink-muted">
+        When an account or instance ends, it stops serving.
+        We may delete your data after termination.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Changes to the service</h2>
+      <p class="text-sm text-ink-muted">
+        The catalog and the service change over time: apps join, apps
+        leave, features improve. We give notice where practical, and we
+        warn you before retiring an app you run.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Intellectual property</h2>
+      <p class="text-sm text-ink-muted">
+        The platform — the site, the catalog, the tooling — belongs to
+        FluxVale. Your apps and your data belong to you. The open-source
+        apps keep their own licenses and belong to their projects.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Disclaimers</h2>
+      <p class="text-sm text-ink-muted">
+        The service is provided as-is. We work hard to keep it running,
+        but we don't promise uninterrupted or error-free service.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Limitation of liability</h2>
+      <p class="text-sm text-ink-muted">
+        To the extent the law allows, FluxVale is not liable for indirect
+        or consequential damages. Our total liability for a claim is
+        capped at the amounts you paid us in the
+        12 months before that claim.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Indemnity</h2>
+      <p class="text-sm text-ink-muted">
+        If your use of FluxVale breaks the law, the Acceptable Use
+        Policy, or someone else's rights, you cover the resulting claims
+        against us.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Governing law and disputes</h2>
+      <p class="text-sm text-ink-muted">
+        These terms follow the laws of the Philippines. Disputes go to
+        the courts of the Philippines.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">General</h2>
+      <p class="text-sm text-ink-muted">
+        We send notices to the email on your account. These terms, the
+        Acceptable Use Policy, and the refund policy are the whole
+        agreement between you and us.
+      </p>
+      <p class="text-sm text-ink-muted">
+        You can't assign this agreement without our OK; we can assign it
+        as part of the business. If a term turns out unenforceable, the
+        rest still applies.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Contact</h2>
+      <p class="text-sm text-ink-muted">
+        Questions about these terms: admin@fluxvale.com
+      </p>
+    </.card>
+  </div>
+</Layouts.public>

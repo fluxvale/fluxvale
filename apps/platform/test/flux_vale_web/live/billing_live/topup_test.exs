@@ -672,6 +672,13 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
                "a[data-testid='topup-refund-policy'][href='/policies/refund']",
                "refund policy"
              )
+
+      # #365: the amount step states acceptance of the Terms of Service.
+      assert has_element?(
+               view,
+               "a[data-testid='topup-terms'][href='/policies/terms']",
+               "Terms of Service"
+             )
     end
 
     test "a fractional or empty amount keeps the step", %{conn: conn} do
@@ -740,6 +747,13 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
                view,
                "a[data-testid='topup-refund-policy'][href='/policies/refund']",
                "refund policy"
+             )
+
+      # #365: the acceptance sentence rides the payment step too.
+      assert has_element?(
+               view,
+               "a[data-testid='topup-terms'][href='/policies/terms']",
+               "Terms of Service"
              )
     end
 
