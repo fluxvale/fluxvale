@@ -29,7 +29,7 @@ defmodule FluxValeWeb.PageController do
   def about(conn, _params), do: landing(conn, "/")
 
   # :page_title carries the brand because the root layout's <title> swaps
-  # its default for this assign — "Managed hosting…" alone would drop
+  # its default for this assign — "Managed cloud platform…" alone would drop
   # "FluxVale" from the tab title. :page_description is the SEO hook; the
   # root layout will render it as a meta tag with the SEO slice (#164).
   defp landing(conn, canonical_path) do
@@ -37,7 +37,7 @@ defmodule FluxValeWeb.PageController do
     |> assign(:canonical_path, canonical_path)
     |> assign(
       :page_title,
-      gettext("FluxVale — Managed hosting for open source applications")
+      gettext("FluxVale — Managed cloud platform for open source applications")
     )
     |> assign(
       :page_description,

@@ -27,7 +27,7 @@
   apps:
     - name: Forgejo
       slug: forgejo
-      tagline: Self-hosted Git forge with issues, pull requests, and Actions CI
+      tagline: Git forge with issues, pull requests, and Actions CI
       description: |
         Repositories, issues, pull requests, wiki, and Forgejo Actions CI in
         a lightweight, 100% free-software package. Git over HTTPS only;
@@ -116,11 +116,11 @@
     name: Media & Entertainment
     slug: media
     description: >-
-      Self-hosted media and reading servers for your own library.
+      Media and reading servers for your own library.
   apps:
     - name: Kavita
       slug: kavita
-      tagline: Self-hosted digital library for comics, manga, and ebooks
+      tagline: Digital library for comics, manga, and ebooks
       description: |
         A fast, cross-platform reading server for a personal digital
         library — comics, manga, and ebooks with a polished in-browser

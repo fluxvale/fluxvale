@@ -63,7 +63,7 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert entry.category == %{
                name: "Media & Entertainment",
                slug: "media",
-               description: "Self-hosted media and reading servers for your own library."
+               description: "Media and reading servers for your own library."
              }
 
       assert [%{slug: "kavita"} = app] = entry.apps

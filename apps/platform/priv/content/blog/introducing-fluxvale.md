@@ -1,12 +1,12 @@
 ---
 title: Introducing FluxVale
-description: FluxVale is a platform for self-hosted apps. Your apps sleep until you need them, and stay reachable only by you if that's what you want.
+description: FluxVale is a managed platform for open-source apps. Your apps sleep until you need them, and stay reachable only by you if that's what you want.
 date: 2026-10-31
 slug: introducing-fluxvale
 author: Terence Ponce
 ---
 
-This is the first post on the FluxVale blog. Short version of what we are: a platform where you deploy the self-hosted apps you already use, and we run them for you.
+This is the first post on the FluxVale blog. Short version of what we are: a platform where you deploy the open-source apps you already use, and we run them for you.
 
 The apps sleep until someone uses them. A visit wakes one up in under a minute, and it goes back to sleep when the traffic stops. You are not paying to keep an idle app running.
 

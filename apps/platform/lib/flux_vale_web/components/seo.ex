@@ -12,7 +12,7 @@ defmodule FluxValeWeb.Seo do
   use FluxValeWeb, :html
 
   @site_name "FluxVale"
-  @default_title "Managed hosting for open source apps"
+  @default_title "Managed cloud platform for open source apps"
   @default_description @default_title
   @og_image_path "/images/og-default.png"
 

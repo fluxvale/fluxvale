@@ -27,10 +27,10 @@ test("anon-landing: signed-out / shows the marketing landing", async ({
   page,
 }) => {
   await page.goto("/");
-  await expect(page).toHaveTitle(/Managed hosting for open source applications/);
+  await expect(page).toHaveTitle(/Managed cloud platform for open source applications/);
   await expect(
     page.getByRole("heading", { level: 1 }),
-  ).toHaveText(/Managed hosting for open source applications/);
+  ).toHaveText(/Managed cloud platform for open source applications/);
   await expect(
     page.getByRole("banner").getByRole("link", { name: /Sign in/ }),
   ).toBeVisible();
@@ -56,10 +56,10 @@ test("authed-dashboard: signed-in / shows the dashboard", async ({
 
   // The landing is still reachable for the session (its permalink).
   await page.goto("/about");
-  await expect(page).toHaveTitle(/Managed hosting/);
+  await expect(page).toHaveTitle(/Managed cloud platform/);
   await expect(
     page.getByRole("heading", { level: 1 }),
-  ).toHaveText(/Managed hosting for open source applications/);
+  ).toHaveText(/Managed cloud platform for open source applications/);
 });
 
 test("user-menu: signed-in nav shows the user menu, not Sign in", async ({
@@ -99,5 +99,5 @@ test("user-menu: signed-in nav shows the user menu, not Sign in", async ({
   await page.goto("/");
   await expect(
     page.getByRole("heading", { level: 1 }),
-  ).toHaveText(/Managed hosting for open source applications/);
+  ).toHaveText(/Managed cloud platform for open source applications/);
 });

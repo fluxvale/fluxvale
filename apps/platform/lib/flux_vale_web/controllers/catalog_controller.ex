@@ -14,7 +14,7 @@ defmodule FluxValeWeb.CatalogController do
   alias FluxVale.Catalog.Category
   alias FluxValeWeb.Seo
 
-  @catalog_description "Managed hosting for open source apps"
+  @catalog_description "A curated catalog of open source apps, ready to run in minutes."
 
   def index(conn, _params) do
     categories =

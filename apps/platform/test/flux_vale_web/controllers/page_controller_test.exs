@@ -17,8 +17,8 @@ defmodule FluxValeWeb.PageControllerTest do
     html = html_response(conn, 200)
     body = landing_body(html)
 
-    assert html =~ ~r/<h1[^>]*>\s*Managed hosting for open source applications/
-    assert html =~ "FluxVale — Managed hosting for open source applications"
+    assert html =~ ~r/<h1[^>]*>\s*Managed cloud platform for open source applications/
+    assert html =~ "FluxVale — Managed cloud platform for open source applications"
     assert html =~ ~s(href="/catalog")
     assert html =~ ~s(href="/sign-in")
     # The sign-in redirect target is this page — its flash must render here.
@@ -38,7 +38,7 @@ defmodule FluxValeWeb.PageControllerTest do
     refute body =~ "Phoenix Framework"
     refute body =~ "Peace of mind from prototype to production"
 
-    assert conn.assigns[:page_title] =~ "Managed hosting for open source applications"
+    assert conn.assigns[:page_title] =~ "Managed cloud platform for open source applications"
     assert conn.assigns[:page_description] =~ "deploy"
   end
 
@@ -118,7 +118,7 @@ defmodule FluxValeWeb.PageControllerTest do
     assert html =~ ~s(data-testid="dashboard-balance")
     assert html =~ ~s(data-testid="dashboard-runway")
     # The landing hero is gone; the signed-in chrome carries the user menu.
-    refute html =~ ~r/<h1[^>]*>\s*Managed hosting for open source applications/
+    refute html =~ ~r/<h1[^>]*>\s*Managed cloud platform for open source applications/
     assert html =~ to_string(user.email)
     assert html =~ ~s(data-testid="user-menu")
     assert conn.assigns[:page_title] == "FluxVale — Dashboard"
@@ -128,7 +128,7 @@ defmodule FluxValeWeb.PageControllerTest do
     conn = get(conn, ~p"/about")
     html = html_response(conn, 200)
 
-    assert html =~ ~r/<h1[^>]*>\s*Managed hosting for open source applications/
+    assert html =~ ~r/<h1[^>]*>\s*Managed cloud platform for open source applications/
     assert html =~ ~s(rel="canonical" href="https://fluxvale.com/")
   end
 
@@ -138,7 +138,7 @@ defmodule FluxValeWeb.PageControllerTest do
     conn = get(session_conn, ~p"/about")
     html = html_response(conn, 200)
 
-    assert html =~ ~r/<h1[^>]*>\s*Managed hosting for open source applications/
+    assert html =~ ~r/<h1[^>]*>\s*Managed cloud platform for open source applications/
     assert html =~ ~s(data-testid="user-menu")
     assert html =~ to_string(user.email)
     # The signed-in landing points inward, not at sign-in.
