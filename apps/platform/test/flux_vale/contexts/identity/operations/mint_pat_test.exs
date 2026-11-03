@@ -69,6 +69,22 @@ defmodule FluxVale.Identity.Operations.MintPatTest do
       assert short.expires_at == DateTime.truncate(explicit, :second)
     end
 
+    test "a far-future explicit expires_at is capped at the one-year bound" do
+      member = member!("far-future@fluxvale.com")
+      before_mint = DateTime.utc_now()
+      beyond = DateTime.add(DateTime.utc_now(), 10 * 365 * 24 * 60 * 60, :second)
+
+      assert {:ok, %{pat: pat}} =
+               Identity.mint_pat(admin!(), %{
+                 user_id: member.id,
+                 name: "decade",
+                 expires_at: beyond
+               })
+
+      # The documented worst case holds: the bound, never the ask.
+      assert_in_delta DateTime.diff(pat.expires_at, before_mint), 365 * 24 * 60 * 60, 5
+    end
+
     test "a user mints their own PAT (self-service shape)" do
       member = member!("self@fluxvale.com")
 

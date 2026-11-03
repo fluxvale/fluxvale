@@ -23,7 +23,8 @@ defmodule FluxVale.Identity.Operations.MintPat do
   Mints a PAT for `params.user_id`.
 
   `params`: `%{user_id:, name:, scopes:}` (empty scopes allowed;
-  optional `expires_at` overrides the 1-year default). Returns
+  optional `expires_at` overrides the 1-year default — a longer value
+  is capped to it). Returns
   `{:ok, %{token: raw_value, pat: %PersonalAccessToken{}}}` — the
   caller shows the value once (or never); there is no way to recover
   it later. Off-catalog or duplicate scopes are refused before
@@ -41,7 +42,7 @@ defmodule FluxVale.Identity.Operations.MintPat do
         |> Base.url_encode64(padding: false)
 
       raw = @token_prefix <> random
-      expires_at = params[:expires_at] || default_expiry()
+      expires_at = expiry(params[:expires_at])
       create_opts = Keyword.put(opts, :actor, actor)
 
       changeset =
@@ -75,6 +76,17 @@ defmodule FluxVale.Identity.Operations.MintPat do
           {:error, error}
       end
     end
+  end
+
+  # The override may shorten, never lengthen: the one-year bound is
+  # the worst case the resource's moduledoc promises (the compromise
+  # window a leak buys), so a far-future value is capped to it.
+  defp expiry(nil), do: default_expiry()
+
+  defp expiry(expires_at) do
+    cap = default_expiry()
+
+    if DateTime.after?(expires_at, cap), do: cap, else: expires_at
   end
 
   defp default_expiry do
