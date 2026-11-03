@@ -1,8 +1,9 @@
 defmodule FluxValeWeb.Plugs.ApiAudit do
   @moduledoc """
-  One audit row per PAT-authenticated `/api/v1` call (#360 slice 5,
-  ADR-0019 Am. 1): method, path, status — enough to answer "what did
-  this token do", never the token value.
+  One audit row per PAT-authenticated API call (#360 slice 5,
+  ADR-0019 Am. 1) — the `/api/v1` routes and the `/mcp` transport
+  (#361): method, path, status — enough to answer "what did this
+  token do", never the token value.
 
   Registers the write on `register_before_send`, so the FINAL
   response status is what lands — 200s, policy 403s, scope 403s,
