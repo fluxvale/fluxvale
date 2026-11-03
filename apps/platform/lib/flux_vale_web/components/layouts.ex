@@ -256,6 +256,25 @@ defmodule FluxValeWeb.Layouts do
             <li :if={@current_user}>
               <.link navigate={~p"/"} class="text-sm text-ink-muted hover:text-ink">Dashboard</.link>
             </li>
+            <%!-- #365: the legal pages ride every chrome'd surface. --%>
+            <li>
+              <.link
+                navigate={~p"/policies/terms"}
+                class="text-sm text-ink-muted hover:text-ink"
+                data-testid="footer-terms"
+              >
+                Terms
+              </.link>
+            </li>
+            <li>
+              <.link
+                navigate={~p"/policies/acceptable-use"}
+                class="text-sm text-ink-muted hover:text-ink"
+                data-testid="footer-acceptable-use"
+              >
+                Acceptable use
+              </.link>
+            </li>
           </ul>
         </nav>
       </div>

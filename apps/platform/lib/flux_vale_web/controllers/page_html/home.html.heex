@@ -321,6 +321,14 @@ layout's flex contract while scoping the landing styles. --%>
           <li :if={@current_user}>
             <a href={~p"/"}>{gettext("Dashboard")}</a>
           </li>
+          <li>
+            <a href={~p"/policies/terms"} data-testid="footer-terms">{gettext("Terms")}</a>
+          </li>
+          <li>
+            <a href={~p"/policies/acceptable-use"} data-testid="footer-acceptable-use">
+              {gettext("Acceptable use")}
+            </a>
+          </li>
         </ul>
       </nav>
     </div>
