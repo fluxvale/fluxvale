@@ -92,12 +92,26 @@ defmodule FluxValeWeb.Plugs.ApiRateLimit do
     max(DateTime.diff(window_end, now), 1)
   end
 
-  defp window_seconds do
-    Application.get_env(:flux_vale, __MODULE__, [])[:window_seconds] || @default_window_seconds
-  end
+  defp window_seconds, do: config!(:window_seconds, @default_window_seconds)
 
-  defp max_requests do
-    Application.get_env(:flux_vale, __MODULE__, [])[:max_requests] || @default_max_requests
+  defp max_requests, do: config!(:max_requests, @default_max_requests)
+
+  # Fail at the config boundary, not mid-request: a string limit
+  # (term ordering: numbers < binaries) would silently disable the
+  # check, and a zero window would ArithmeticError every PAT call —
+  # the runtime_config.exs posture for malformed env.
+  defp config!(key, default) do
+    case Application.get_env(:flux_vale, __MODULE__, [])[key] do
+      nil ->
+        default
+
+      value when is_integer(value) and value > 0 ->
+        value
+
+      other ->
+        raise ArgumentError,
+              "#{inspect(__MODULE__)} #{key} must be a positive integer, got: #{inspect(other)}"
+    end
   end
 
   # AuthorizeApiScopes' exact rendering posture: JSON:API error
