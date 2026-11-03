@@ -4,9 +4,16 @@
  * the files; theme is re-selected before EVERY shot and animations are
  * settled first so no shot catches content mid-reveal.
  *
+ * #364 adds the country combobox's own shots: topup-step1-details is
+ * the closed control, topup-country-filtered is the open listbox mid-
+ * search ("phi" typed, the Philippines row highlighted). The wizard's
+ * country field is driven through the combobox (type → listbox →
+ * click), never a raw fill.
+ *
  * The wizard is driven through its real forms (details → amount →
  * payment); the receipt state rides the completed top-up row seeded by
- * /tmp/opencode/s9_seed.exs (reference pr_s9_capture).
+ * the capture seed script (reference in FV_RECEIPT_REF, default
+ * pr_s9_capture).
  *
  * Usage: node s9_capture.mjs <outdir>   (FV_BASE, FV_TOKEN required)
  */
@@ -74,11 +81,26 @@ await live(page);
 // advance waits for the DESTINATION's element, not a fixed delay — a
 // slow submission used to leave the previous step under the next
 // step's filename (CodeRabbit #351).
+//
+// The country is picked through the combobox (#364): type the query,
+// wait for the listbox, click the first row, and wait for the stored
+// code to land in the hidden input before advancing.
+const pickCountry = async (query) => {
+  await page.locator("#country-query").fill(query);
+  await page.locator("#country-listbox").waitFor();
+  await page.locator("#country-option-0").click();
+  // The stored code lands in the hidden input — attached, not visible
+  // (a hidden input never passes the default visibility wait).
+  await page
+    .locator("[data-testid='topup-country-value'][value='DE']")
+    .waitFor({ state: "attached" });
+};
+
 const gotoStep = async (n) => {
   await live(page);
   if (n > 1) {
     await page.locator("#topup-details-form input[name='details[name]']").fill("Jane Doe");
-    await page.locator("#topup-details-form input[name='details[country]']").fill("DE");
+    await pickCountry("germany");
     await page.locator("#topup-details-next").click();
     await page.locator("#topup-amount-form").waitFor();
   }
@@ -100,15 +122,37 @@ const SURFACES = [
   [
     "org-billing",
     async () =>
-      await page.goto(`${BASE}/organizations/acme-robotics/billing`, { waitUntil: "networkidle" }),
+      await page.goto(
+        `${BASE}/organizations/${process.env.FV_ORG_SLUG ?? "acme-robotics"}/billing`,
+        { waitUntil: "networkidle" },
+      ),
   ],
   ["topup-step1-details", async () => { await page.goto(`${BASE}/billing/topup`, { waitUntil: "networkidle" }); await gotoStep(1); }],
+  [
+    // #364: the combobox open mid-search — "phi" typed, the
+    // Philippines row on top with the keyboard highlight.
+    "topup-country-filtered",
+    async () => {
+      await page.goto(`${BASE}/billing/topup`, { waitUntil: "networkidle" });
+      await gotoStep(1);
+      await page.locator("#topup-details-form input[name='details[name]']").fill("Jane Doe");
+      await page.locator("#country-query").fill("phi");
+      await page.locator("#country-listbox").waitFor();
+      // The shot's subject is the Philippines row highlighted — fail
+      // loudly if a dataset regression put anything else on top.
+      await page
+        .locator("#country-option-0")
+        .filter({ hasText: "Philippines" })
+        .waitFor({ timeout: 5_000 });
+      await settle(page);
+    },
+  ],
   ["topup-step2-amount", async () => { await page.goto(`${BASE}/billing/topup`, { waitUntil: "networkidle" }); await gotoStep(2); }],
   ["topup-step3-payment", async () => { await page.goto(`${BASE}/billing/topup`, { waitUntil: "networkidle" }); await gotoStep(3); }],
   [
     "topup-receipt",
     async () =>
-      await page.goto(`${BASE}/billing/topup/return?reference=pr_s9_capture`, {
+      await page.goto(`${BASE}/billing/topup/return?reference=${process.env.FV_RECEIPT_REF ?? "pr_s9_capture"}`, {
         waitUntil: "networkidle",
       }),
   ],
