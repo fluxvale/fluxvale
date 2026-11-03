@@ -6,9 +6,9 @@ defmodule FluxVale.Billing.Providers.HitPay do
   Test mode first (the registrations gate blocks production charges):
   `base_url` defaults to the sandbox; production flips via
   `HITPAY_BASE_URL` when the gate lifts (#142). Config block
-  `config :flux_vale, :hitpay` — `api_key`, `webhook_salt`, `base_url` —
-  resolved from env by runtime.exs (BWS in cluster, ADR-0021), never
-  committed.
+  `config :flux_vale, :hitpay` — `api_key`, `webhook_salt`, `base_url`,
+  `payment_methods` — resolved from env by runtime.exs (BWS in cluster,
+  ADR-0021), never committed.
 
   ## Webhook signature
 
@@ -25,7 +25,11 @@ defmodule FluxVale.Billing.Providers.HitPay do
   The API is form-encoded (`amount` is a decimal string like "12.00")
   and auth rides `X-BUSINESS-API-KEY` — not Bearer. Checkout creation
   sends `allow_repeated_payments=false` so exactly one payment can land
-  per request; the idempotency key names that payment.
+  per request; the idempotency key names that payment. The hosted page
+  offers exactly the configured methods — one repeatable
+  `payment_methods[]` entry per entry of
+  `config :flux_vale, :hitpay, :payment_methods` (#364); none
+  configured means the key is omitted and the account default decides.
   """
 
   @behaviour FluxVale.Billing.PaymentProvider
@@ -60,7 +64,7 @@ defmodule FluxVale.Billing.Providers.HitPay do
       req = Req.new(base_url: base_url, headers: [{"x-business-api-key", api_key}])
 
       req
-      |> Req.post(url: "/v1/payment-requests", form: checkout_form(request))
+      |> Req.post(url: "/v1/payment-requests", form: checkout_form(request, config))
       |> handle_checkout_response()
     end
   end
@@ -137,7 +141,7 @@ defmodule FluxVale.Billing.Providers.HitPay do
   # A succeeded payment without a usable amount — treat as absent.
   defp normalize_succeeded(_payment), do: :none
 
-  defp checkout_form(request) do
+  defp checkout_form(request, config) do
     form = [
       {"amount", format_amount(request.amount_cents)},
       {"currency", request.currency},
@@ -145,6 +149,16 @@ defmodule FluxVale.Billing.Providers.HitPay do
       {"redirect_url", request.redirect_url},
       {"allow_repeated_payments", "false"}
     ]
+
+    # The hosted page offers exactly the configured methods (#364) —
+    # one repeatable `payment_methods[]` entry per method. Absent or
+    # empty sends none: the account default decides, which is exactly
+    # the shape that stranded the first sandbox top-up on a
+    # physical-terminal wait.
+    method_fields =
+      config
+      |> Keyword.get(:payment_methods, [])
+      |> Enum.map(&{"payment_methods[]", &1})
 
     buyer_fields = [
       {"email", request[:email]},
@@ -154,6 +168,7 @@ defmodule FluxVale.Billing.Providers.HitPay do
     buyer_fields
     |> Enum.filter(fn {_key, value} -> is_binary(value) and value != "" end)
     |> Enum.concat(form)
+    |> Enum.concat(method_fields)
   end
 
   # "12.00" from integer cents — string math, never floats near money.

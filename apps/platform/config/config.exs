@@ -239,7 +239,13 @@ config :flux_vale,
   # (runtime.exs, ADR-0021) — never here.
   payments_provider: FluxVale.Billing.Providers.HitPay,
   hitpay: [
-    base_url: "https://api.sandbox.hit-pay.com"
+    base_url: "https://api.sandbox.hit-pay.com",
+    # Checkout offers exactly these methods, sent as repeatable
+    # payment_methods[] entries (#364). Cards-only is the owner
+    # decision (Nov 2026) and stays the default even after the account
+    # activates more — widening is an explicit config change, never a
+    # default flip. HITPAY_PAYMENT_METHODS overrides at runtime.
+    payment_methods: ["card"]
   ],
   # SEO canonical identity (#164, ADR-00025): canonical links, og:url, the
   # sitemap and the noindex host check all read these — the prod origin is
