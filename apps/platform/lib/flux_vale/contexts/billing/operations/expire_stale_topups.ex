@@ -6,10 +6,12 @@ defmodule FluxVale.Billing.Operations.ExpireStaleTopups do
   confirmation view can say so.
 
   Not a failure verdict: a gateway `expired` answer is a failure report
-  (ReconcileTopup → FailTopup) — that path is untouched. Money that
-  lands after local expiry still completes and credits:
-  CompleteTopup's bulk guard accepts `:expired` rows (webhook retries
-  can lag past the TTL).
+  (ReconcileTopup → FailTopup) — that path is untouched, and a late
+  failure report on a row already swept answers `:already_terminal`:
+  the row keeps its `:expired` provenance (both terminal, both
+  truthfully no-charge). Money that lands after local expiry still
+  completes and credits: CompleteTopup's bulk guard accepts `:expired`
+  rows (webhook retries can lag past the TTL).
 
   Terminal-once via the status filter riding the UPDATE's WHERE (the
   FailTopup guard shape): a row completed mid-sweep loses, never
