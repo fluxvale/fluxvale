@@ -41,7 +41,8 @@ config :flux_vale,
     FluxVale.Ops,
     FluxVale.Catalog,
     FluxVale.Infrastructure,
-    FluxVale.Pricing
+    FluxVale.Pricing,
+    FluxVale.Api
   ],
   generators: [timestamp_type: :utc_datetime],
   # AccessRules snapshot TTL (#26, settled): 60s — the cross-node
@@ -337,6 +338,10 @@ config :flux_vale, Oban,
     {Oban.Plugins.Cron,
      crontab: [
        {"0 3 * * *", FluxVale.Janitor.PruneExpiredTokens},
+       # #360 slice 3: the rate-limit window sweep, daily at 03:15 —
+       # off the 03:00 token prune (queue concurrency is 1; the stagger
+       # keeps the pair from bunching behind one lock).
+       {"15 3 * * *", FluxVale.Janitor.PruneRequestWindows},
        # #124's ladder sweep, hourly at :07 — off the top-of-hour rush
        # (#113's stance; the reconciler minute-tick and smoke crons sit
        # there).

@@ -73,3 +73,12 @@ config :flux_vale, :storybook_enabled, true
 
 # ADR-0039: access gateway namespace config
 config :flux_vale, :access_gateway, namespace: "fluxvale-access"
+
+# #360 slice 3: tiny hammer limits for the rate-limit suites — the
+# window is a full day so every request in a test run floors into the
+# same window (a 1s window would straddle second boundaries and flake);
+# rollover is exercised by backdating window rows, never by sleeping.
+# Defaults (60s / 300) live in the plug.
+config :flux_vale, FluxValeWeb.Plugs.ApiRateLimit,
+  window_seconds: 86_400,
+  max_requests: 3
