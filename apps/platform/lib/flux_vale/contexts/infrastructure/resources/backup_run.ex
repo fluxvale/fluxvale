@@ -30,10 +30,39 @@ defmodule FluxVale.Infrastructure.BackupRun do
     otp_app: :flux_vale,
     domain: FluxVale.Infrastructure,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshJsonApi.Resource],
     authorizers: [Ash.Policy.Authorizer],
     notifiers: [Ash.Notifier.PubSub]
 
   alias FluxVale.Infrastructure.BackupRun.OutcomeMarkers
+
+  # #360 (ADR-0019 §1): the run history's wire contract — the panel's
+  # "Recent runs" list. Rows are system-written; the API reads only.
+  json_api do
+    type("backup_run")
+
+    routes do
+      # backups:read — the history read the panel uses; ?limit= rides
+      # the action's own limit argument (1..100, default 20).
+      index(:recent_for_instance,
+        route: "/instances/:instance_id/backup-runs",
+        default_fields: [
+          :id,
+          :instance_id,
+          :kind,
+          :status,
+          :snapshot_id,
+          :bytes_processed,
+          :bytes_added,
+          :bytes_restored,
+          :error_summary,
+          :restored_from,
+          :started_at,
+          :finished_at
+        ]
+      )
+    end
+  end
 
   postgres do
     table("backup_runs")

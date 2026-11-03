@@ -35,10 +35,11 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     otp_app: :flux_vale,
     domain: FluxVale.Infrastructure,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshOban, AshAdmin.Resource],
+    extensions: [AshOban, AshAdmin.Resource, AshJsonApi.Resource],
     authorizers: [Ash.Policy.Authorizer],
     notifiers: [Ash.Notifier.PubSub]
 
+  alias Ash.Error.Changes.InvalidArgument
   alias FluxVale.Infrastructure.AccessGateway.GenerateHostname
   alias FluxVale.Infrastructure.AccessGateway.PerformSettle
   alias FluxVale.Infrastructure.AccessGateway.PerformTeardown
@@ -49,11 +50,62 @@ defmodule FluxVale.Infrastructure.AccessGateway do
 
   require Ash.Query
 
-  admin do
-    # The operator table: whose gateway, where it serves, what state
-    # it is in, what it costs. Secrets refs and claim maps stay on the
-    # record page.
-    table_columns [:organization, :hostname, :tailnet_domain, :state, :monthly_cents]
+  # #360 (ADR-0019 §1): the gateway family's wire contract — the Access
+  # tab's own surface. Secrets refs and claim maps are private by design
+  # and stay off every field list.
+  json_api do
+    type("access_gateway")
+
+    routes do
+      # gateways:read — the panel's status read.
+      get(:get_for_organization,
+        route: "/organizations/:organization_id/access-gateway",
+        default_fields: [
+          :id,
+          :organization_id,
+          :hostname,
+          :tailnet_domain,
+          :provider,
+          :state,
+          :status_message,
+          :monthly_cents,
+          :provisioned_at
+        ]
+      )
+
+      # gateways:write — org is pinned from the actor by the action's
+      # own change; the auth key rides the body and never comes back.
+      post(:create,
+        route: "/access-gateways",
+        default_fields: [
+          :id,
+          :organization_id,
+          :hostname,
+          :tailnet_domain,
+          :provider,
+          :state,
+          :status_message,
+          :monthly_cents
+        ]
+      )
+
+      # gateways:write — the funded resume after suspension.
+      patch(:resume,
+        route: "/access-gateways/:id/resume",
+        default_fields: [
+          :id,
+          :organization_id,
+          :hostname,
+          :state,
+          :status_message,
+          :monthly_cents
+        ]
+      )
+
+      # gateways:write — the pairing verbs (the panel's attach/detach).
+      route(:post, "access-gateways/:gateway_id/attachments", :attach_instance)
+      route(:delete, "access-gateways/:gateway_id/attachments/:instance_id", :detach_instance)
+    end
   end
 
   oban do
@@ -110,6 +162,13 @@ defmodule FluxVale.Infrastructure.AccessGateway do
         scheduler_module_name(__MODULE__.Teardown.Scheduler)
       end
     end
+  end
+
+  admin do
+    # The operator table: whose gateway, where it serves, what state
+    # it is in, what it costs. Secrets refs and claim maps stay on the
+    # record page.
+    table_columns([:organization, :hostname, :tailnet_domain, :state, :monthly_cents])
   end
 
   postgres do
@@ -206,6 +265,14 @@ defmodule FluxVale.Infrastructure.AccessGateway do
 
     policy action(:delete) do
       description("Ownership is enforced by the authorized get_by_id read inside the action")
+      authorize_if(actor_present())
+    end
+
+    # #360: the API's pairing verbs — the :delete posture. Ownership of
+    # BOTH rows bites inside the run (authorized get_by_id reads for the
+    # gateway and the instance, the panel's exact call path).
+    policy action([:attach_instance, :detach_instance]) do
+      description("Ownership is enforced by the authorized get_by_id reads inside the action")
       authorize_if(actor_present())
     end
 
@@ -380,20 +447,35 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       description("""
       Opts the org in (ADR-0039): writes the row as :provisioning and
       enqueues the cluster work. The hostname is minted here — opaque,
-      never derived from org or app names (§1). The monthly rate is the
-      caller's (the pricing lane's figure); the row stores it as the
-      billing snapshot.
+      never derived from org or app names (§1). The monthly rate comes
+      from the :access_gateway config and is stored as the billing
+      snapshot — it is never caller-supplied (#360: a wire caller must
+      not price their own gateway).
       """)
 
-      accept([:organization_id, :monthly_cents, :tailnet_domain])
+      accept([:tailnet_domain])
 
-      # The org is the ACTOR's (the Instance create's contract): the
-      # attribute stays acceptable for the actorless system path
-      # (`authorize?: false`), but with an actor present this change
-      # forces the actor's own org, so a member of a funded org can no
-      # longer create a gateway owned by a different org (which that org
-      # would then pay for), and `ActorOrgWalletFunded` and the row can
-      # never disagree about whose wallet is in play.
+      # #360: organization_id arrives as a compat ARGUMENT for the
+      # actorless system path only (`authorize?: false` — the fixtures'
+      # shape); with an actor present the SetOrganizationFromActor
+      # change below forces the actor's own org, so the API body never
+      # steers ownership.
+      argument(:organization_id, :uuid, allow_nil?: true)
+
+      change(fn changeset, _context ->
+        Ash.Changeset.force_change_attribute(
+          changeset,
+          :organization_id,
+          Ash.Changeset.get_argument(changeset, :organization_id)
+        )
+      end)
+
+      # The org is the ACTOR's (the Instance create's contract): with
+      # an actor this change forces the actor's own org, so a member of
+      # a funded org can no longer create a gateway owned by a
+      # different org (which that org would then pay for), and
+      # `ActorOrgWalletFunded` and the row can never disagree about
+      # whose wallet is in play.
       change({FluxVale.Infrastructure.Instance.SetOrganizationFromActor, []})
 
       change(GenerateHostname)
@@ -401,6 +483,18 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       # The provider's credential arrives as an argument, not a column:
       # provision writes it to the Secret and stores only the ref.
       argument(:auth_key, :string, allow_nil?: false, sensitive?: true)
+
+      # #360: the price is the platform's, never the caller's — every
+      # existing caller (the panel, the fixtures) sends the config
+      # figure anyway; the argument keeps those payloads parsing while
+      # the change pins the config value for everyone.
+      argument(:monthly_cents, :integer, allow_nil?: true, sensitive?: false)
+
+      change(fn changeset, _context ->
+        monthly_cents = Application.fetch_env!(:flux_vale, :access_gateway)[:monthly_cents]
+
+        Ash.Changeset.force_change_attribute(changeset, :monthly_cents, monthly_cents)
+      end)
 
       change(ProvisionCluster)
     end
@@ -663,6 +757,55 @@ defmodule FluxVale.Infrastructure.AccessGateway do
 
       change(StateMarkers)
     end
+
+    # #360: the Access tab's pairing verbs over the wire — the panel's
+    # exact call path. Both records are re-read through their authorized
+    # get_by_id actions (the cross-org fence the panel rides), then the
+    # domain seam owns the cluster work and its own guards.
+    action :attach_instance, :struct do
+      description("Attaches a private instance to the gateway — the pairing row comes back.")
+
+      argument(:gateway_id, :uuid, allow_nil?: false, public?: true)
+      argument(:instance_id, :uuid, allow_nil?: false, public?: true)
+      constraints(instance_of: AccessRoute)
+
+      run(fn input, %{actor: actor, authorize?: authorize?} ->
+        with {:ok, gateway} <-
+               get_by_id(input.arguments.gateway_id, actor: actor, authorize?: authorize?),
+             {:ok, instance} <-
+               Instance.get_by_id(input.arguments.instance_id,
+                 actor: actor,
+                 authorize?: authorize?
+               ) do
+          case FluxVale.Infrastructure.attach_instance(gateway, instance) do
+            {:ok, route} -> {:ok, route}
+            {:error, reason} -> {:error, pairing_error(reason)}
+          end
+        end
+      end)
+    end
+
+    action :detach_instance do
+      description("Detaches an instance from the gateway — idempotent, like the panel's.")
+
+      argument(:gateway_id, :uuid, allow_nil?: false, public?: true)
+      argument(:instance_id, :uuid, allow_nil?: false, public?: true)
+
+      run(fn input, %{actor: actor, authorize?: authorize?} ->
+        with {:ok, gateway} <-
+               get_by_id(input.arguments.gateway_id, actor: actor, authorize?: authorize?),
+             {:ok, instance} <-
+               Instance.get_by_id(input.arguments.instance_id,
+                 actor: actor,
+                 authorize?: authorize?
+               ) do
+          case FluxVale.Infrastructure.detach_instance(gateway, instance) do
+            :ok -> :ok
+            {:error, reason} -> {:error, pairing_error(reason)}
+          end
+        end
+      end)
+    end
   end
 
   code_interface do
@@ -701,6 +844,28 @@ defmodule FluxVale.Infrastructure.AccessGateway do
   defp enqueue_teardown!(gateway) do
     AshOban.run_trigger(gateway, :teardown)
   end
+
+  # #360: the pairing operations' refusal atoms get plain words; the
+  # provider/K8s error structs pass through untouched (the Instance
+  # :delete action's stance).
+  defp pairing_error(reason) when is_atom(reason) do
+    message =
+      case reason do
+        :not_private -> "the instance is not private — attach needs a private instance"
+        :gateway_not_active -> "the gateway is not serving right now — try again later"
+        :different_organization -> "the instance belongs to another organization"
+        :not_deployed -> "the instance has not finished setting up yet"
+        # Defensive: AttachInstance returns exactly these four atoms
+        # today; a future op guard must never leak a raw atom to the
+        # wire.
+        # coveralls-ignore-next-line
+        other -> "pairing refused: #{other}"
+      end
+
+    InvalidArgument.exception(message: message)
+  end
+
+  defp pairing_error(reason), do: reason
 
   # The instances attached to this gateway — teardown's detach list and
   # the settle's pairing sanity. `authorize?: false`: the ops seam.

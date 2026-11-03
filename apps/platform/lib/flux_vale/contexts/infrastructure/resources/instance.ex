@@ -57,10 +57,12 @@ defmodule FluxVale.Infrastructure.Instance do
     otp_app: :flux_vale,
     domain: FluxVale.Infrastructure,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshOban, AshAdmin.Resource],
+    extensions: [AshOban, AshAdmin.Resource, AshJsonApi.Resource],
     authorizers: [Ash.Policy.Authorizer],
     notifiers: [Ash.Notifier.PubSub]
 
+  alias Ash.Error.Changes.InvalidArgument
+  alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.Instance.AdoptCurrentRow
   alias FluxVale.Infrastructure.Instance.AdoptCurrentRowOnSleep
   alias FluxVale.Infrastructure.Instance.DeriveFromAppVersion
@@ -83,11 +85,78 @@ defmodule FluxVale.Infrastructure.Instance do
   alias FluxVale.Infrastructure.Operations.StartInstance
   alias FluxVale.Infrastructure.Operations.StopInstance
 
-  admin do
-    # The operator table: whose instance, its name, its lifecycle
-    # status, and where it lives. The dense operational fields stay on
-    # the record page.
-    table_columns [:organization, :name, :status, :namespace]
+  # #360 (ADR-0019 §1): the instance family's wire contract — each
+  # route's field list is deliberate, public attributes only. Scope
+  # names in the route comments map slice 1's gate table. Timestamps
+  # are private attributes (off every list); the uuidv7 id carries the
+  # ordering. The detail set is the instance page's own surface; the
+  # PATCH verbs return the same list.
+  @detail_fields [
+    :id,
+    :name,
+    :slug,
+    :namespace,
+    :status,
+    :exposure,
+    :always_on,
+    :image,
+    :port,
+    :healthcheck_path,
+    :storage_mount_path,
+    :file_access,
+    :cpu_cores,
+    :memory_mb,
+    :storage_gb,
+    :deployed_at
+  ]
+
+  json_api do
+    type("instance")
+
+    # #179/#360: the raw status_message is the admin-only technical
+    # trail (the page derives plain copy from the status atom — "the
+    # raw status_message never renders to non-admins"), and env_vars
+    # carries whatever the deployer typed, credentials included — no
+    # page renders it back. hide_fields takes both off EVERY response
+    # (default lists and ?fields[instance]= sparse requests alike);
+    # the API is an all-audiences surface.
+    hide_fields([:status_message, :env_vars])
+
+    routes do
+      # instances:read
+      index(:list_for_actor,
+        route: "/instances",
+        default_fields: [
+          :id,
+          :name,
+          :slug,
+          :namespace,
+          :status,
+          :exposure,
+          :always_on,
+          :deployed_at
+        ]
+      )
+
+      # instances:read
+      get(:get_by_id, route: "/instances/:id", default_fields: @detail_fields)
+
+      # instances:write — the update actions accept no/limited input;
+      # the body may carry an empty attributes object.
+      patch(:deploy, route: "/instances/:id/deploy", default_fields: @detail_fields)
+      patch(:stop, route: "/instances/:id/stop", default_fields: @detail_fields)
+      patch(:start, route: "/instances/:id/start", default_fields: @detail_fields)
+      patch(:set_always_on, route: "/instances/:id/always-on", default_fields: @detail_fields)
+      patch(:set_exposure, route: "/instances/:id/exposure", default_fields: @detail_fields)
+
+      # instances:write — the generic :delete the UI calls (async
+      # teardown), NOT destroy :destroy.
+      route(:delete, "instances/:id", :delete)
+
+      # backups:write — the panel's "Back up now" / "Restore latest".
+      route(:post, "instances/:id/backup-runs", :run_backup)
+      route(:post, "instances/:id/backup-runs/:backup_run_id/restore", :restore_backup)
+    end
   end
 
   oban do
@@ -130,6 +199,13 @@ defmodule FluxVale.Infrastructure.Instance do
         scheduler_module_name(__MODULE__.Teardown.Scheduler)
       end
     end
+  end
+
+  admin do
+    # The operator table: whose instance, its name, its lifecycle
+    # status, and where it lives. The dense operational fields stay on
+    # the record page.
+    table_columns([:organization, :name, :status, :namespace])
   end
 
   postgres do
@@ -218,6 +294,14 @@ defmodule FluxVale.Infrastructure.Instance do
     end
 
     policy action(:delete) do
+      description("Ownership is enforced by the authorized get_by_id read inside the action")
+      authorize_if(actor_present())
+    end
+
+    # #360: the API's backup verbs — the :delete posture. Ownership and
+    # the wallet gates bite inside the run (the authorized get_by_id,
+    # then the operation's own guards).
+    policy action([:run_backup, :restore_backup]) do
       description("Ownership is enforced by the authorized get_by_id read inside the action")
       authorize_if(actor_present())
     end
@@ -860,6 +944,62 @@ defmodule FluxVale.Infrastructure.Instance do
       end)
     end
 
+    # #360: the panel's "Back up now" over the wire. The UI's exact call
+    # path: the page's authorized get_by_id read, then the domain seam.
+    # The wallet gates (paid-once + funded) bite inside the operation —
+    # one code path for the click and the nightly sweep.
+    action :run_backup, :struct do
+      description("Runs a manual backup now — the newest-run history row comes back.")
+
+      argument(:id, :uuid, allow_nil?: false, public?: true)
+      constraints(instance_of: BackupRun)
+
+      run(fn input, %{actor: actor, authorize?: authorize?} ->
+        case get_by_id(input.arguments.id, actor: actor, authorize?: authorize?) do
+          {:ok, instance} ->
+            # The domain is the public seam (never the operation direct).
+            case FluxVale.Infrastructure.run_instance_backup(instance, :manual) do
+              {:ok, run} -> {:ok, run}
+              {:error, reason} -> {:error, backup_error(reason)}
+            end
+
+          {:error, _reason} = error ->
+            error
+        end
+      end)
+    end
+
+    # #360: the panel's "Restore latest" over the wire. The operation
+    # restores the NEWEST successful snapshot (no by-id restore exists,
+    # ADR-0037 §5) — the route's :backup_run_id rides as
+    # expected_run_id, and the OPERATION refuses a mismatch (fence and
+    # restore in one read, no gap for a racing run to slip through).
+    # The actor rides the call (the operation re-reads ownership
+    # through its authorized get_by_id).
+    action :restore_backup, :struct do
+      description("Restores the newest successful backup — the run row comes back.")
+
+      argument(:id, :uuid, allow_nil?: false, public?: true)
+      argument(:backup_run_id, :uuid, allow_nil?: false, public?: true)
+      constraints(instance_of: BackupRun)
+
+      run(fn input, %{actor: actor, authorize?: authorize?} ->
+        case get_by_id(input.arguments.id, actor: actor, authorize?: authorize?) do
+          {:ok, instance} ->
+            case FluxVale.Infrastructure.restore_instance_backup(instance,
+                   actor: actor,
+                   expected_run_id: input.arguments.backup_run_id
+                 ) do
+              {:ok, run} -> {:ok, run}
+              {:error, reason} -> {:error, backup_error(reason)}
+            end
+
+          {:error, _reason} = error ->
+            error
+        end
+      end)
+    end
+
     update :perform_deploy do
       description("The :deploy trigger's body — see Operations.DeployInstance.")
       require_atomic?(false)
@@ -996,6 +1136,30 @@ defmodule FluxVale.Infrastructure.Instance do
   defp cluster_managed?(%{status: status}) when status in [:lost, :deleting], do: false
 
   defp cluster_managed?(_instance), do: true
+
+  # --- the API backup verbs' helpers (#360) ---------------------------
+
+  # The operations' guard atoms carry no message of their own; give them
+  # the panel's plain words. Anything else (an Ash error, a K8s error)
+  # passes through untouched — the :delete action's stance.
+  @backup_refusals %{
+    no_settings: "backups are not configured for this instance",
+    backups_disabled: "backups are paused — resume them first",
+    not_deployed: "backups can be used once the app has finished setting up",
+    run_in_flight: "a backup or restore is already running — try again shortly",
+    nothing_to_restore: "there is no finished backup to restore yet",
+    not_restorable: "the app is busy right now — try again in a moment",
+    not_latest_backup: "is not the latest successful backup — restore targets the latest one",
+    wallet_unfunded: "top up to run a backup — keep a positive wallet balance"
+  }
+
+  defp backup_error(reason) when is_atom(reason) do
+    message = Map.get(@backup_refusals, reason, "backup refused: #{reason}")
+
+    InvalidArgument.exception(message: message)
+  end
+
+  defp backup_error(reason), do: reason
 
   # The status write commits before the job insert (separate writes), so
   # a raising insert would strand the row in :deleting with no job — and

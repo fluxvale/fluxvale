@@ -25,31 +25,28 @@ defmodule FluxVale.Billing.Wallet do
     domain: FluxVale.Billing,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshAdmin.Resource]
+    extensions: [AshAdmin.Resource, AshJsonApi.Resource]
 
   alias FluxVale.Billing.LedgerEntry
 
-  # The admin surface (#140): reads for wallet discovery (the goodwill
-  # credit) plus the ONE admin write — the paywall waiver flip below,
-  # rendered by AshAdmin as the edit form's checkbox. Everything else
-  # stays off the mount deliberately (ADR-0027 Am. 1): AshAdmin's
-  # authorizing toggle defaults OFF, so actions through the mount run
-  # authorize?: false — a trusted-operator superuser surface must not
-  # offer provisioning/carryover/ladder forms at all. On every direct
-  # (non-mount) path the policies below forbid those writes to any
-  # actor, admins included (pinned in WalletTest).
-  admin do
-    create_actions([])
-    update_actions([:set_waiver])
-    destroy_actions([])
-  end
+  # #360 (ADR-0019 §1): the wallet's wire contract — read-only by
+  # design (the issue's scope table: no wallet writes over the API).
+  # The balance aggregate rides the default fields; carryover and the
+  # ladder markers are private system state.
+  json_api do
+    type("wallet")
 
-  admin do
-    # The operator table: org-first (the way an operator looks for a
-    # wallet), the paywall waiver, and the ladder's decision state.
-    # :balance is the live sum aggregate; the full field set stays on
-    # the record page.
-    table_columns [:organization, :balance, :paywall_waived, :negative_since]
+    routes do
+      # wallet:read — the balance aggregate rides along; timestamps are
+      # private attributes.
+      get(:get_by_organization,
+        route: "/organizations/:organization_id/wallet",
+        default_fields: [:id, :organization_id, :balance, :paywall_waived]
+      )
+
+      # wallet:read — the billing page's projection.
+      route(:get, "organizations/:organization_id/wallet/runway", :runway)
+    end
   end
 
   policies do
@@ -92,6 +89,41 @@ defmodule FluxVale.Billing.Wallet do
       description("System-only: carryover + ladder writes (authorize?: false)")
       forbid_if(always())
     end
+
+    # #360: the runway read over the wire — the :delete posture. The
+    # member-or-admin read policy bites inside (the authorized
+    # get_by_organization), so the projection answers to the same
+    # membership fence as the wallet itself.
+    policy action(:runway) do
+      description(
+        "Membership/admin is enforced by the authorized get_by_organization read inside the action"
+      )
+
+      authorize_if(actor_present())
+    end
+  end
+
+  # The admin surface (#140): reads for wallet discovery (the goodwill
+  # credit) plus the ONE admin write — the paywall waiver flip below,
+  # rendered by AshAdmin as the edit form's checkbox. Everything else
+  # stays off the mount deliberately (ADR-0027 Am. 1): AshAdmin's
+  # authorizing toggle defaults OFF, so actions through the mount run
+  # authorize?: false — a trusted-operator superuser surface must not
+  # offer provisioning/carryover/ladder forms at all. On every direct
+  # (non-mount) path the policies below forbid those writes to any
+  # actor, admins included (pinned in WalletTest).
+  admin do
+    create_actions([])
+    update_actions([:set_waiver])
+    destroy_actions([])
+  end
+
+  admin do
+    # The operator table: org-first (the way an operator looks for a
+    # wallet), the paywall waiver, and the ladder's decision state.
+    # :balance is the live sum aggregate; the full field set stays on
+    # the record page.
+    table_columns([:organization, :balance, :paywall_waived, :negative_since])
   end
 
   postgres do
@@ -218,6 +250,39 @@ defmodule FluxVale.Billing.Wallet do
       argument(:organization_id, :uuid, allow_nil?: false)
       filter(expr(organization_id == ^arg(:organization_id)))
     end
+
+    # #360: the billing UI's runway figure over the wire. The domain
+    # seam (never the operation direct) computes the projection; the
+    # action returns the three-key map (the op's struct has no JSON
+    # encoder — the map is also the explicit wire contract):
+    # balance_cents (whole cents), burn_micro_cents_per_hour (µ¢/h),
+    # runway_hours (float, or the atom name "infinity" when the org
+    # burns nothing).
+    action :runway, :map do
+      description("The wallet's projected runway — balance ÷ burn rate.")
+
+      argument(:organization_id, :uuid, allow_nil?: false, public?: true)
+
+      run(fn input, %{actor: actor, authorize?: authorize?} ->
+        case get_by_organization(input.arguments.organization_id,
+               actor: actor,
+               authorize?: authorize?
+             ) do
+          {:ok, wallet} ->
+            with {:ok, runway} <- FluxVale.Billing.compute_runway(wallet) do
+              {:ok,
+               %{
+                 balance_cents: runway.balance_cents,
+                 burn_micro_cents_per_hour: runway.burn_micro_cents_per_hour,
+                 runway_hours: runway.runway_hours
+               }}
+            end
+
+          {:error, _reason} = error ->
+            error
+        end
+      end)
+    end
   end
 
   code_interface do
@@ -233,7 +298,9 @@ defmodule FluxVale.Billing.Wallet do
   end
 
   aggregates do
-    # The balance IS the ledger — never a column (product.md).
-    sum(:balance, :entries, :amount, default: 0)
+    # The balance IS the ledger — never a column (product.md). Public
+    # since #360: the wallet's headline wire field (and AshAdmin's
+    # table already showed it).
+    sum(:balance, :entries, :amount, default: 0, public?: true)
   end
 end
