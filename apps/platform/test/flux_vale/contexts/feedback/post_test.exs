@@ -5,6 +5,7 @@ defmodule FluxVale.Feedback.PostTest do
 
   alias FluxVale.Accounts.Membership
   alias FluxVale.Feedback.Post
+  alias FluxVale.Feedback.Post.AuthorStatusMail
   alias FluxVale.Feedback.Post.DeriveSlug
   alias FluxVale.Feedback.Post.RejectReferencedOriginal
   alias FluxVale.Feedback.Post.SetActorDefaults
@@ -619,6 +620,7 @@ defmodule FluxVale.Feedback.PostTest do
       refute DeriveSlug.atomic?()
       refute SetActorDefaults.atomic?()
       refute SetStatus.atomic?()
+      refute AuthorStatusMail.atomic?()
       refute RejectReferencedOriginal.atomic?()
       refute SetCastDefaults.atomic?()
       refute BumpPostVoteCount.atomic?()

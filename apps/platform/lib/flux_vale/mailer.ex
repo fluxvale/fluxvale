@@ -135,11 +135,54 @@ defmodule FluxVale.Mailer do
     {"Your FluxVale top-up expired", "Your top-up expired without being completed."}
   end
 
+  @doc """
+  The post author's status notification (fluxvale/fluxvale#412 T7): the
+  board moves their post and the author hears it from us first. Plain
+  body, the status phrase and the title, where to follow it — the same
+  transactional minimalism as the other mails. One mail per fresh
+  transition; the set_status trigger (`Feedback.Post.AuthorStatusMail`)
+  owns the once.
+  """
+  @spec deliver_feedback_status_changed(String.t(), atom(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def deliver_feedback_status_changed(to, status, title, slug) do
+    phrase = status_phrase(status)
+
+    %Swoosh.Email{}
+    |> Swoosh.Email.to(to)
+    |> Swoosh.Email.from({"FluxVale", "no-reply@fluxvale.com"})
+    |> Swoosh.Email.subject("Your FluxVale feedback post #{phrase}")
+    |> Swoosh.Email.text_body("""
+    Your feedback post "#{title}" #{phrase}.
+
+    You can follow it at #{feedback_post_url(slug)}.
+    """)
+    |> deliver()
+  end
+
+  # The status reads as prose, not an atom dump — the same copy-pair
+  # shape as not_completed_copy above. One clause per declared status
+  # (Post's one_of constraint is the front door): a new status must land
+  # here with its words, and the missing clause fails loudly rather than
+  # mailing broken English.
+  defp status_phrase(:open), do: "is open again"
+  defp status_phrase(:planned), do: "is now planned"
+  defp status_phrase(:started), do: "is now started"
+  defp status_phrase(:completed), do: "is now complete"
+  defp status_phrase(:duplicate), do: "was marked as a duplicate"
+  defp status_phrase(:declined), do: "has been declined"
+
   # Emails carry the canonical origin (the prod URL is the truth
   # regardless of the sending host, the same stance as the SEO seam).
   defp topup_url do
     origin = Application.get_env(:flux_vale, :canonical_origin, "https://fluxvale.com")
     origin <> "/billing/topup"
+  end
+
+  # ADR-0026 §4 pins /feedback/:slug as the post page's shape.
+  defp feedback_post_url(slug) do
+    origin = Application.get_env(:flux_vale, :canonical_origin, "https://fluxvale.com")
+    origin <> "/feedback/" <> slug
   end
 
   # The recipient split (ADR-0003 Am. 2). Overriding the mailer macro's
