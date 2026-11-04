@@ -105,6 +105,10 @@ defmodule FluxValeWeb.BillingLive.TopupOrgTest do
                "← Billing"
              )
 
+      # The copy names THIS org's wallet (the apostrophe rides HTML
+      # escaping).
+      assert render(view) =~ "Prepaid balance for #{org.name}&#39;s instances."
+
       assert has_element?(view, "#topup-pay")
 
       _result = render_click(view, "pay")
@@ -174,7 +178,9 @@ defmodule FluxValeWeb.BillingLive.TopupOrgTest do
         live(conn, ~p"/organizations/#{org.slug}/billing/topup/return?reference=pr_org")
 
       assert has_element?(view, "[data-testid='topup-confirmation-completed']")
-      assert has_element?(view, "[data-testid='topup-confirmation-balance']", "$5.00")
+      assert balance = render(element(view, "[data-testid='topup-confirmation-balance']"))
+      assert balance =~ "#{org.name}&#39;s balance is now"
+      assert balance =~ "$5.00"
 
       # The landing's way out is the org's billing page.
       assert has_element?(
@@ -234,6 +240,10 @@ defmodule FluxValeWeb.BillingLive.TopupOrgTest do
 
       assert has_element?(view, "[data-testid='topup-confirmation']")
       assert render(view) =~ "We couldn&#39;t find that top-up"
+      # The hint names THIS organization — the reference is recognized
+      # for the actor's account (it's their other org's), just not
+      # this org's.
+      assert render(view) =~ "wasn&#39;t recognized for this organization"
 
       assert has_element?(
                view,
@@ -269,8 +279,12 @@ defmodule FluxValeWeb.BillingLive.TopupOrgTest do
     test "redirects flash-free to the personal wizard (S5)", %{conn: conn, user: user} do
       personal = AccountsFixtures.personal_org!(user)
 
-      assert {:error, {:live_redirect, %{to: "/billing/topup"}}} =
+      # The flash map is pinned: this arm's contract is flash-FREE
+      # (nothing failed) — a future put_flash here must fail this test.
+      assert {:error, {:live_redirect, %{to: "/billing/topup", flash: flash}}} =
                live(conn, ~p"/organizations/#{personal.slug}/billing/topup")
+
+      assert flash == %{}
     end
   end
 

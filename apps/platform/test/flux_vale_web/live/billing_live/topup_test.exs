@@ -52,6 +52,7 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       assert has_element?(view, "[data-testid='topup-step-details']")
       assert has_element?(view, "[data-testid='topup-stepper']")
       assert has_element?(view, "a[href='/billing']", "← Billing")
+      assert render(view) =~ "Prepaid balance for your instances."
     end
 
     # #285 T4 teeth: after the REAL operations promote a verified
@@ -1339,6 +1340,7 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
         live(conn, ~p"/billing/topup/return?reference=pr_other&status=completed")
 
       assert render(view) =~ "We couldn&#39;t find that top-up"
+      assert render(view) =~ "wasn&#39;t recognized for your account"
     end
 
     test "a stranger's reference shows the not-found card (policy, not silence)", %{

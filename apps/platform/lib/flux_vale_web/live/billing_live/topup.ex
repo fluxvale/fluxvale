@@ -168,19 +168,30 @@ defmodule FluxValeWeb.BillingLive.Topup do
 
   # The surfaces around the wizard ride the mount arm: on the org
   # route the back link, the gateway return, and the confirmation's
-  # back button are the org's billing page and its return route; the
-  # personal arm keeps today's /billing shape (S5: the personal org's
-  # billing surface IS /billing — no org page of its own).
+  # back button are the org's billing page and its return route, and
+  # the copy names THIS org's wallet; the personal arm keeps today's
+  # /billing shape and copy verbatim (S5: the personal org's billing
+  # surface IS /billing — no org page of its own).
   defp surface_paths(:org, org) do
     [
       billing_path: "/organizations/#{org.slug}/billing",
       return_path: "/organizations/#{org.slug}/billing/topup/return",
-      current_org: org
+      current_org: org,
+      wizard_subtitle: "Prepaid balance for #{org.name}'s instances.",
+      not_found_hint: "The payment reference wasn't recognized for this organization.",
+      balance_prefix: "#{org.name}'s balance is now"
     ]
   end
 
   defp surface_paths(_personal, _org) do
-    [billing_path: "/billing", return_path: "/billing/topup/return", current_org: nil]
+    [
+      billing_path: "/billing",
+      return_path: "/billing/topup/return",
+      current_org: nil,
+      wizard_subtitle: "Prepaid balance for your instances.",
+      not_found_hint: "The payment reference wasn't recognized for your account.",
+      balance_prefix: "Your balance is now"
+    ]
   end
 
   @impl Phoenix.LiveView
@@ -197,8 +208,11 @@ defmodule FluxValeWeb.BillingLive.Topup do
     show_confirmation(socket, payment_request_id)
   end
 
-  # The wizard steps don't ride the URL (a refresh restarts); only the
-  # gateway's return carries params.
+  # The wizard steps don't ride the URL (a refresh restarts the
+  # wizard). The gateway's return is the flow that carries params; a
+  # crafted ?reference= anywhere else just resolves (or not-finds,
+  # the fetch stays arm-scoped) — it renders a confirmation, which is
+  # what that param means, never a wizard step.
   def handle_params(_params, _uri, socket) do
     {:noreply, socket}
   end
@@ -516,7 +530,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
                 <p class="eyebrow mt-4">Billing</p>
                 <h1 class="page-title mt-1">Add credits</h1>
                 <p class="mt-2 text-base text-ink-muted">
-                  Prepaid balance for your instances.
+                  {@wizard_subtitle}
                 </p>
 
                 <div class="mt-6">
@@ -533,6 +547,8 @@ defmodule FluxValeWeb.BillingLive.Topup do
                 state={@confirmation_state}
                 confirmation_balance={@confirmation_balance}
                 billing_path={@billing_path}
+                not_found_hint={@not_found_hint}
+                balance_prefix={@balance_prefix}
               />
             </div>
           </section>
@@ -571,7 +587,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
                 <p class="eyebrow mt-4">Billing</p>
                 <h1 class="page-title mt-1">Add credits</h1>
                 <p class="mt-2 text-base text-ink-muted">
-                  Prepaid balance for your instances.
+                  {@wizard_subtitle}
                 </p>
 
                 <div class="mt-6">
@@ -1050,6 +1066,8 @@ defmodule FluxValeWeb.BillingLive.Topup do
   attr(:state, :atom, required: true)
   attr(:confirmation_balance, :integer, default: nil)
   attr(:billing_path, :string, required: true)
+  attr(:not_found_hint, :string, required: true)
+  attr(:balance_prefix, :string, required: true)
 
   defp confirmation(%{topup: nil} = assigns) do
     ~H"""
@@ -1057,7 +1075,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
       <.card class="space-y-4">
         <h2 class="text-base font-medium text-ink">We couldn't find that top-up</h2>
         <p class="text-sm text-ink-muted">
-          The payment reference wasn't recognized for your account.
+          {@not_found_hint}
         </p>
         <div>
           <.button navigate={@billing_path} size="sm">
@@ -1086,7 +1104,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
           </p>
           <%= if @confirmation_balance do %>
             <p class="text-sm text-ink-muted" data-testid="topup-confirmation-balance">
-              Your balance is now <span class="font-mono">{Pricing.format_usd(@confirmation_balance)}</span>.
+              {@balance_prefix} <span class="font-mono">{Pricing.format_usd(@confirmation_balance)}</span>.
             </p>
           <% end %>
         <% end %>
