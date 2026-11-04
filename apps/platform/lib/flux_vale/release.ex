@@ -57,7 +57,9 @@ defmodule FluxVale.Release do
   is check-then-insert, so overlapping `bin/seed` runs race the identity
   (operator bring-up path, not the advisory-locked init container).
   Per-env FeatureFlag and AccessRule values are AshAdmin-administered,
-  never seeded (docs/deployment.md).
+  never seeded (docs/deployment.md). Demo feedback-board content seeds
+  only where the runtime opts in (`DEMO_SEEDS_ENABLED`): prod launches
+  the board honestly empty.
   """
   @spec seed :: :ok
   def seed do
