@@ -57,10 +57,11 @@ test("the sitemap is served and mentions the catalog", async ({ page }) => {
 //
 // Demo rows come from the promotable seed, which is gated OFF for prod
 // (the #412 ruling: fabricated votes are invented social proof; prod
-// launches honestly empty). So content assertions run only on
-// seeding runtimes (local, review, staging) via the suite's runtime
-// split; the prod leg asserts the shell — the page renders, the
-// chrome's link exists, the sitemap lists the board.
+// launches honestly empty). Content assertions run on the seeding
+// runtimes — local, review, and staging (the runtime helper classifies
+// review.fluxvale.app hosts staging-class); the prod leg asserts the
+// shell: the page renders, the chrome's link exists, the sitemap lists
+// the board.
 const runtime = runtimeFor(process.env.BASE_URL);
 const seedsDemoContent = runtime !== "production";
 

@@ -139,11 +139,26 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       refute html =~ "Unknown status duplicate"
     end
 
-    test "an empty filtered view renders the empty state", %{conn: conn} do
+    test "an empty filtered view renders the filtered empty state", %{conn: conn} do
       html = html_response(get(conn, ~p"/feedback?status=completed"), 200)
 
-      assert html =~ "No posts yet."
+      assert html =~ "No posts with this status yet."
       refute html =~ "data-testid=\"feedback-post-"
+    end
+
+    test "a zero-match filter on a populated board keeps the filtered copy", %{conn: conn} do
+      # The empty-DB tests cannot catch copy that lies the other way: a
+      # populated board whose filter matches nothing must not claim the
+      # board has no posts.
+      post!(%{title: "Populated board open request", description: "x"})
+
+      html = html_response(get(conn, ~p"/feedback?status=completed"), 200)
+
+      assert html =~ "No posts with this status yet."
+      refute html =~ "No posts yet."
+      # The board is populated — the row is filtered out, not absent.
+      refute html =~ "Populated board open request"
+      assert html =~ "Open"
     end
 
     test "an unfiltered empty board renders the same empty state (prod at launch)", %{
@@ -152,6 +167,7 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       html = html_response(get(conn, ~p"/feedback"), 200)
 
       assert html =~ "No posts yet."
+      refute html =~ "No posts with this status yet."
       refute html =~ "data-testid=\"feedback-post-"
       # The chrome stays: the footer's board link and the sort/filter
       # toolbar render even with nothing to list.

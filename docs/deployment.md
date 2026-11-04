@@ -203,8 +203,8 @@ re-run changes nothing except reverting admin edits to the shipped
 YAML rows (edit the YAML, not the row). Demo feedback-board content
 (#412) is gated: non-prod runtimes seed it (dev by config, staging and
 review environments by setting `DEMO_SEEDS_ENABLED`), prod never does —
-the board launches honestly empty and the AccessRule invite cohort
-fills it.
+the flag is inert on a production `PLATFORM_ENV` boot — so the board
+launches honestly empty and the AccessRule invite cohort fills it.
 
 Readiness backstops the seed: `/health/ready` fails 503 with an error
 log naming any missing invariant (pricing, catalog, exactly one

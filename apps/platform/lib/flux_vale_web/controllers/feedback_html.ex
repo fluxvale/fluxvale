@@ -99,6 +99,15 @@ defmodule FluxValeWeb.FeedbackHTML do
   @doc "Counted noun phrase: count_label(3, :vote) reads as 3 votes."
   def count_label(count, unit), do: "#{count} #{unit}#{plural_suffix(count)}"
 
+  @doc """
+  The board's empty-state title. An empty BOARD and a FILTER that
+  matched nothing are different sentences: "No posts yet." is only true
+  of the unfiltered board (prod at launch), while a populated board with
+  a zero-match status filter must not claim there are no posts.
+  """
+  def empty_title(nil), do: "No posts yet."
+  def empty_title(_filtered), do: "No posts with this status yet."
+
   # Board URL for a view state; defaults collapse to the bare
   # /feedback so the canonical shape never accumulates query noise.
   # The keyword list rides into encode_query unconverted, so param

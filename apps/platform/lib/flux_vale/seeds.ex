@@ -369,11 +369,13 @@ defmodule FluxVale.Seeds do
   # runtime (the TestInbox/Storybook gated-release shape): dev's config
   # sets it true so `mix setup` ships a living board, prod-mode releases
   # (staging/review) flip DEMO_SEEDS_ENABLED where the fleet attaches
-  # them, and prod NEVER sets it. The architect's #412 ruling: fabricated
-  # vote counts on a public indexed board are invented social proof the
-  # (not-yet-existing) Vote table cannot back, and real votes would
-  # compound from a fake base — prod launches honestly empty and the
-  # AccessRule invite cohort fills it.
+  # them, and prod NEVER sets it — and runtime.exs additionally refuses
+  # the flag on a production PLATFORM_ENV boot, so an overlay typo alone
+  # cannot publish fabricated votes. The architect's #412 ruling:
+  # fabricated vote counts on a public indexed board are invented social
+  # proof the (not-yet-existing) Vote table cannot back, and real votes
+  # would compound from a fake base — prod launches honestly empty and
+  # the AccessRule invite cohort fills it.
   defp seed_feedback_if_demo! do
     if Application.get_env(:flux_vale, :seed_demo_content, false) do
       seed_feedback!()

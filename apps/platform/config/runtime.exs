@@ -504,8 +504,12 @@ end
 # (staging, review environments) — dev defaults it on in config/dev.exs
 # and prod leaves this unset, so the board launches honestly empty. Same
 # gated-release shape as the TestInbox above: gate on the VALUE, not the
-# var's presence.
-if System.get_env("DEMO_SEEDS_ENABLED") in ["true", "1"] do
+# var's presence. AND the flag only ever applies outside production: the
+# PLATFORM_ENV above is required and validated at every prod-mode boot,
+# so one overlay typo on DEMO_SEEDS_ENABLED alone cannot publish
+# fabricated votes on a production release (#426 fix round 2).
+if System.get_env("DEMO_SEEDS_ENABLED") in ["true", "1"] and
+     Application.get_env(:flux_vale, :platform_env) != "production" do
   config :flux_vale, :seed_demo_content, true
 end
 

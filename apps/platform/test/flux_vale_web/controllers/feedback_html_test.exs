@@ -113,6 +113,18 @@ defmodule FluxValeWeb.FeedbackHTMLTest do
     end
   end
 
+  describe "empty_title/1" do
+    test "the unfiltered board reads No posts yet" do
+      assert FeedbackHTML.empty_title(nil) == "No posts yet."
+    end
+
+    test "a filtered view that matched nothing keeps the filtered copy" do
+      for status <- Post.status_values() do
+        assert FeedbackHTML.empty_title(status) == "No posts with this status yet."
+      end
+    end
+  end
+
   describe "board_href/3" do
     test "defaults collapse to the bare board URL" do
       assert FeedbackHTML.board_href("top", nil, 1) == "/feedback"
