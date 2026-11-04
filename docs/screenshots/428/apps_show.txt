@@ -1,9 +1,7 @@
 name         Forgejo
 slug         forgejo
 tagline      Git forge with issues, pull requests, and Actions CI
-description  Repositories, issues, pull requests, wiki, and Forgejo Actions CI in
-a lightweight, 100% free-software package. Git over HTTPS only;
-repositories and metadata live on a dedicated volume.
+description  Repositories, issues, pull requests, wiki, and Forgejo Actions CI in a lightweight, 100% free-software package. Git over HTTPS only; repositories and metadata live on a dedicated volume.
 file access  no
 docs         https://forgejo.org/docs/latest/
 source       https://codeberg.org/forgejo/forgejo

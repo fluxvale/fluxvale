@@ -246,14 +246,15 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
 /// One trailing newline, added here and nowhere else: the renderers
 /// end their last line bare, and this closes it. A closed pipe
 /// (`fluxvale … | head`) is how machine output gets consumed — not an
-/// error to panic on; write failures end the command quietly.
+/// error; every other stdout failure (ENOSPC, EIO) propagates.
 fn print(line: anyhow::Result<String>) -> anyhow::Result<()> {
     use std::io::Write as _;
     let text = line?;
     let mut stdout = std::io::stdout().lock();
-    let _ = writeln!(stdout, "{text}");
-    let _ = stdout.flush();
-    Ok(())
+    match writeln!(stdout, "{text}").and_then(|()| stdout.flush()) {
+        Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        other => other.map_err(Into::into),
+    }
 }
 
 /// `auth status` runs locally: config + stored token, no network.

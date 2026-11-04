@@ -7,11 +7,16 @@ use crate::cli::Output;
 use serde_json::Value;
 
 /// One cell's human form: absent or null reads "-", strings print
-/// bare, the rest print as their plain JSON selves.
+/// bare except control characters (a newline would break the column
+/// alignment; an ESC byte would speak to the terminal) — JSON mode
+/// keeps the raw attrs, so nothing is lost.
 pub fn cell(value: Option<&Value>) -> String {
     match value {
         None | Some(Value::Null) => "-".to_string(),
-        Some(Value::String(s)) => s.clone(),
+        Some(Value::String(s)) => s
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect(),
         Some(other) => other.to_string(),
     }
 }
@@ -159,6 +164,15 @@ mod tests {
         assert_eq!(cell(Some(&json!(true))), "true");
         assert_eq!(cell(Some(&json!(512))), "512");
         assert_eq!(cell(Some(&json!([1, 2]))), "[1,2]");
+    }
+
+    #[test]
+    fn cell_strips_control_characters() {
+        // A newline would break the column alignment; an ESC byte
+        // would address the terminal. JSON output keeps the raw value.
+        assert_eq!(cell(Some(&json!("a\nb"))), "a b");
+        assert_eq!(cell(Some(&json!("a\u{1b}[31mb"))), "a [31mb");
+        assert_eq!(cell(Some(&json!("tab\there"))), "tab here");
     }
 
     #[test]
