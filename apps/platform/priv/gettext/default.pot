@@ -16,38 +16,38 @@ msgstr ""
 msgid "Actions"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:387
-#: lib/flux_vale_web/components/layouts.ex:402
+#: lib/flux_vale_web/components/layouts.ex:395
+#: lib/flux_vale_web/components/layouts.ex:410
 #, elixir-autogen, elixir-format
 msgid "Attempting to reconnect"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:458
+#: lib/flux_vale_web/components/layouts.ex:466
 #, elixir-autogen, elixir-format
 msgid "Dark theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:431
+#: lib/flux_vale_web/components/layouts.ex:439
 #, elixir-autogen, elixir-format
 msgid "Follow system theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:446
+#: lib/flux_vale_web/components/layouts.ex:454
 #, elixir-autogen, elixir-format
 msgid "Light theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:394
+#: lib/flux_vale_web/components/layouts.ex:402
 #, elixir-autogen, elixir-format
 msgid "Something went wrong!"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:419
+#: lib/flux_vale_web/components/layouts.ex:427
 #, elixir-autogen, elixir-format
 msgid "Theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:379
+#: lib/flux_vale_web/components/layouts.ex:387
 #, elixir-autogen, elixir-format
 msgid "We can't find the internet"
 msgstr ""
@@ -234,8 +234,10 @@ msgstr ""
 msgid "%{rate}/mo per verified domain, billed hourly"
 msgstr ""
 
+#: lib/flux_vale_web/controllers/catalog_html.ex:29
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:60
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:95
+#: lib/flux_vale_web/live/catalog_live/show.ex:221
 #: lib/flux_vale_web/live/pricing_calculator_live.ex:185
 #, elixir-autogen, elixir-format
 msgid "%{rate}/mo while stopped"
@@ -429,4 +431,16 @@ msgstr ""
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:91
 #, elixir-autogen, elixir-format
 msgid "Pick an open source app, deploy it in minutes, and FluxVale keeps it running, updates and monitoring included."
+msgstr ""
+
+#: lib/flux_vale_web/controllers/catalog_html/show.html.heex:99
+#: lib/flux_vale_web/live/catalog_live/show.ex:184
+#, elixir-autogen, elixir-format
+msgid "See all sizes"
+msgstr ""
+
+#: lib/flux_vale_web/controllers/catalog_html/index.html.heex:69
+#: lib/flux_vale_web/live/catalog_live/index.ex:154
+#, elixir-autogen, elixir-format
+msgid "from %{rate}"
 msgstr ""
