@@ -102,14 +102,18 @@
       </ul>
     </section>
 
-    <%!-- The interactive calculator's mount point (#396, fills in #397):
-    deliberately empty in this slice — the calculator issue greps here.
+    <%!-- The interactive calculator (#397): a controller-embedded child
+    LiveView — SSR'd here in place, so crawlers see the formed state.
+    The :id pins the child's DOM identity for reconnects; the conn
+    session rides the embed (Static.render merges it), which the child
+    uses only to re-resolve the locale in mount.
     --%>
     <section
       id="calculator"
       data-testid="pricing-calculator-slot"
       aria-label={gettext("Cost calculator")}
     >
+      {live_render(@conn, FluxValeWeb.PricingCalculatorLive, id: "pricing-calculator")}
     </section>
 
     <section aria-labelledby="other-services-title" class="space-y-4">

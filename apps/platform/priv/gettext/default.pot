@@ -16,38 +16,38 @@ msgstr ""
 msgid "Actions"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:387
-#: lib/flux_vale_web/components/layouts.ex:402
+#: lib/flux_vale_web/components/layouts.ex:376
+#: lib/flux_vale_web/components/layouts.ex:391
 #, elixir-autogen, elixir-format
 msgid "Attempting to reconnect"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:458
+#: lib/flux_vale_web/components/layouts.ex:447
 #, elixir-autogen, elixir-format
 msgid "Dark theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:431
+#: lib/flux_vale_web/components/layouts.ex:420
 #, elixir-autogen, elixir-format
 msgid "Follow system theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:446
+#: lib/flux_vale_web/components/layouts.ex:435
 #, elixir-autogen, elixir-format
 msgid "Light theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:394
+#: lib/flux_vale_web/components/layouts.ex:383
 #, elixir-autogen, elixir-format
 msgid "Something went wrong!"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:419
+#: lib/flux_vale_web/components/layouts.ex:408
 #, elixir-autogen, elixir-format
 msgid "Theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:379
+#: lib/flux_vale_web/components/layouts.ex:368
 #, elixir-autogen, elixir-format
 msgid "We can't find the internet"
 msgstr ""
@@ -76,7 +76,7 @@ msgstr ""
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:97
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:201
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:254
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:193
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:197
 #, elixir-autogen, elixir-format
 msgid "Browse apps"
 msgstr ""
@@ -134,6 +134,7 @@ msgid "One guided flow from app to live URL — no YAML, no servers to babysit."
 msgstr ""
 
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:177
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:111
 #, elixir-autogen, elixir-format
 msgid "Pick an app"
 msgstr ""
@@ -238,18 +239,19 @@ msgstr ""
 msgid "Terms"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:130
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:134
 #, elixir-autogen, elixir-format
 msgid "%{rate}/mo per gateway, billed hourly"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:144
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:148
 #, elixir-autogen, elixir-format
 msgid "%{rate}/mo per verified domain, billed hourly"
 msgstr ""
 
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:60
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:95
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:176
 #, elixir-autogen, elixir-format
 msgid "%{rate}/mo while stopped"
 msgstr ""
@@ -260,27 +262,28 @@ msgstr ""
 msgid "CPU"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:111
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:114
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:73
 #, elixir-autogen, elixir-format
 msgid "Cost calculator"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:138
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:142
 #, elixir-autogen, elixir-format
 msgid "Custom domain"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:194
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:198
 #, elixir-autogen, elixir-format
 msgid "Get started"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:152
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:156
 #, elixir-autogen, elixir-format
 msgid "Hostnames under fluxvale.app, public exposure, DNS, and resolution are free."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:158
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:162
 #, elixir-autogen, elixir-format
 msgid "How billing works"
 msgstr ""
@@ -296,7 +299,7 @@ msgstr ""
 msgid "Memory"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:170
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:174
 #, elixir-autogen, elixir-format
 msgid "New accounts start with %{amount} in credits."
 msgstr ""
@@ -306,12 +309,12 @@ msgstr ""
 msgid "One row per size. The running rate is a monthly equivalent, billed hourly while the instance runs."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:117
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:121
 #, elixir-autogen, elixir-format
 msgid "Other services"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:189
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:193
 #, elixir-autogen, elixir-format
 msgid "Pick an app from the catalog and run it at any size above."
 msgstr ""
@@ -333,7 +336,7 @@ msgstr ""
 msgid "Pricing"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:124
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:128
 #, elixir-autogen, elixir-format
 msgid "Private access gateway"
 msgstr ""
@@ -348,7 +351,7 @@ msgstr ""
 msgid "See full pricing"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:140
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:144
 #, elixir-autogen, elixir-format
 msgid "Serve your apps under your own domain name"
 msgstr ""
@@ -358,7 +361,7 @@ msgstr ""
 msgid "Size"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:186
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:190
 #, elixir-autogen, elixir-format
 msgid "Start in minutes"
 msgstr ""
@@ -374,7 +377,7 @@ msgstr ""
 msgid "Storage"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:165
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:169
 #, elixir-autogen, elixir-format
 msgid "You pay with prepaid credits. One credit is one US cent, and every rate above is a monthly equivalent billed hourly from your credit balance. There are no subscriptions."
 msgstr ""
@@ -389,17 +392,37 @@ msgstr ""
 msgid "Sizes start at %{rate}/mo, billed hourly while running"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:126
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:130
 #, elixir-autogen, elixir-format
 msgid "One gateway serves every app in your organization"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:176
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:180
 #, elixir-autogen, elixir-format
 msgid "When your credit balance runs out, your apps stop running and their charges stop with them. Stopped apps keep their storage fee, and a balance left negative for 30 days deletes your data. We email warnings 7 days and 1 day before."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:352
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:145
 #, elixir-autogen, elixir-format
-msgid "Privacy"
+msgid "%{app} recommends"
+msgstr ""
+
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:149
+#, elixir-autogen, elixir-format
+msgid "%{app} recommends a size these sliders don't cover. That size prices at %{rate}."
+msgstr ""
+
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:76
+#, elixir-autogen, elixir-format
+msgid "Price any allocation with the sliders, or snap to a size or an app below."
+msgstr ""
+
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:83
+#, elixir-autogen, elixir-format
+msgid "Sizes"
+msgstr ""
+
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:135
+#, elixir-autogen, elixir-format
+msgid "The price depends only on the allocation, never the app."
 msgstr ""
