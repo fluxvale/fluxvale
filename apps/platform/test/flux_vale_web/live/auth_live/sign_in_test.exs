@@ -24,6 +24,30 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
     assert html =~ "email-form"
   end
 
+  # #409: the sign-in surface rides the minimal auth layout — the mark
+  # links home, the app chrome (header and nav) is gone, the flash
+  # group stays. Both steps are states of this one LiveView, so the
+  # frame is re-asserted on the code step too.
+  test "renders the minimal auth layout on both steps", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/sign-in")
+
+    assert has_element?(view, ~s(a[aria-label="FluxVale"][href="/"]))
+    assert has_element?(view, "#flash-group")
+    refute has_element?(view, "header")
+    refute has_element?(view, ~s(nav[aria-label="Primary"]))
+
+    result =
+      view
+      |> form("#email-form", email: @email)
+      |> render_submit()
+
+    # The flash path rides the minimal layout's flash group
+    assert result =~ "code-form"
+    assert result =~ "Code sent"
+    assert has_element?(view, ~s(a[aria-label="FluxVale"][href="/"]))
+    refute has_element?(view, "header")
+  end
+
   test "full flow: request, verify, session write via trigger-action POST", %{
     conn: conn
   } do
