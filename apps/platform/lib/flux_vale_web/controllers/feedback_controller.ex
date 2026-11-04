@@ -2,10 +2,10 @@ defmodule FluxValeWeb.FeedbackController do
   @moduledoc """
   The public feedback board's SSR surface (fluxvale/fluxvale#412,
   [ADR-0026](../../../../../docs/adr/00026-feedback-board.md) §4): `/feedback`
-  board and `/feedback/:slug` post pages — plain controller+HEEx, never
-  LiveView, so crawlers get the full document with zero JS (the
-  blog/catalog pattern). Reads ride the public read policy
-  (`actor: nil`, the catalog posture); this slice is deliberately
+  board, `/feedback/:slug` post pages, and `/roadmap` (T9) — plain
+  controller+HEEx, never LiveView, so crawlers get the full document
+  with zero JS (the blog/catalog pattern). Reads ride the public read
+  policy (`actor: nil`, the catalog posture); this slice is deliberately
   read-only — no vote button, no comment form, no composer. The
   interactive layer mounts on these same pages in a later slice.
 
@@ -29,6 +29,13 @@ defmodule FluxValeWeb.FeedbackController do
   @sorts ["top", "new"]
   @board_description "Feature requests and bug reports from the FluxVale community"
   @description_chars 160
+
+  # The roadmap's columns (T9): the three forward-looking statuses. Open
+  # is the untriaged backlog (the board's job), declined is the "no",
+  # duplicates fold into their originals' presence — none of them are
+  # roadmap states.
+  @roadmap_statuses [:planned, :started, :completed]
+  @roadmap_description "What FluxVale is building next, and what has shipped"
 
   def index(conn, params) do
     sort = sort(params)
@@ -67,6 +74,28 @@ defmodule FluxValeWeb.FeedbackController do
     |> render(:index)
   end
 
+  # The roadmap (T9): a VIEW over post statuses, no new domain
+  # machinery. One read feeds all three columns.
+  def roadmap(conn, _params) do
+    columns =
+      Post
+      |> Ash.Query.for_read(:read, %{}, actor: nil)
+      |> Ash.Query.filter(status in @roadmap_statuses)
+      # Unbounded read, conscious acceptance: the roadmap shows only the
+      # three forward-looking statuses, but they are user-generated rows.
+      # Revisit at growth (per-column pagination or a display cap), the
+      # sitemap's marker posture.
+      |> Ash.read!(actor: nil)
+      |> roadmap_columns()
+
+    conn
+    |> assign(:page_title, "Roadmap · FluxVale")
+    |> assign(:page_description, @roadmap_description)
+    |> assign(:canonical_path, "/roadmap")
+    |> assign(:columns, columns)
+    |> render(:roadmap)
+  end
+
   def show(conn, %{"slug" => slug}) do
     case by_slug(slug) do
       {:ok, %Post{} = post} ->
@@ -77,6 +106,45 @@ defmodule FluxValeWeb.FeedbackController do
       _missing ->
         raise Phoenix.Router.NoRouteError, conn: conn, router: FluxValeWeb.Router
     end
+  end
+
+  # The roadmap's per-column ordering rule (T9): Planned reads in DEMAND
+  # order — vote_count DESC with created_at DESC breaking ties (the
+  # board's "top" rule, so the column signals momentum). Started and
+  # Completed read freshest-first — status_changed_at DESC (it doubles
+  # as the completed-when date). The orders differ per column, so the
+  # sort happens here, not in the SQL.
+  defp roadmap_columns(posts) do
+    by_status = Enum.group_by(posts, & &1.status)
+
+    [
+      %{status: :planned, posts: sort_by_votes(by_status[:planned] || [])},
+      %{status: :started, posts: sort_by_recency(by_status[:started] || [])},
+      %{status: :completed, posts: sort_by_recency(by_status[:completed] || [])}
+    ]
+  end
+
+  defp sort_by_votes(planned) do
+    # A plain comparator: vote_count wins, the fresher post breaks ties.
+    # (The {:desc, :desc} tuple-of-shorthands is not a valid Enum.sort_by
+    # sorter — bare atoms inside a tuple are read as compare modules.)
+    # Full ties keep NO guaranteed order — Enum.sort with a comparator
+    # is not stable — so nothing may rely on tie order.
+    Enum.sort(planned, fn left, right ->
+      if left.vote_count != right.vote_count do
+        left.vote_count > right.vote_count
+      else
+        DateTime.compare(left.created_at, right.created_at) == :gt
+      end
+    end)
+  end
+
+  # A post reaches the roadmap only through :set_status, which always
+  # stamps status_changed_at — the coalesce just keeps a stamp-less row
+  # (seeds force timestamps the actions do not accept) from crashing the
+  # DateTime compare, falling back to the created age.
+  defp sort_by_recency(posts) do
+    Enum.sort_by(posts, &(&1.status_changed_at || &1.created_at), {:desc, DateTime})
   end
 
   # The default view is every status EXCEPT duplicates (the folded

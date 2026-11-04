@@ -41,5 +41,17 @@ defmodule FluxVale.TestSupport.FeedbackFixtures do
     |> Ash.update!(authorize?: false)
   end
 
+  @doc """
+  Backdates the status-change stamp to a chosen instant (the roadmap's
+  recency ordering + the sitemap lastmod need controlled pasts; no
+  action accepts timestamps, the seeds' forced-attribute posture).
+  """
+  def set_status_changed_at!(post, changed_at) do
+    post
+    |> Ash.Changeset.for_update(:update, %{}, authorize?: false)
+    |> Ash.Changeset.force_change_attribute(:status_changed_at, changed_at)
+    |> Ash.update!(authorize?: false)
+  end
+
   defp admin, do: AccountsFixtures.platform_admin!()
 end

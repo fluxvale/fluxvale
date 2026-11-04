@@ -1,0 +1,71 @@
+<%!-- Roadmap (#412 T9): a public SSR VIEW over the feedback posts'
+statuses — three Fider-style columns (Planned, Started, Completed) on
+the public chrome. No new domain machinery: open, declined and
+duplicate posts never render (duplicates fold into their originals'
+presence), and there are no tag chips yet (the tags slice adds them
+later). Static like the board — crawlers get the full document with
+zero JS. --%>
+<Layouts.public flash={@flash} current_user={@current_user}>
+  <div class="space-y-8">
+    <.header>
+      {gettext("Roadmap")}
+      <:subtitle>
+        {gettext("What we are building next. Every item links to its post on the feedback board.")}
+      </:subtitle>
+      <:actions>
+        <.lane_tabs current={:roadmap} />
+      </:actions>
+    </.header>
+
+    <div class="grid grid-cols-1 gap-6 md:grid-cols-3">
+      <section
+        :for={column <- @columns}
+        data-testid={"roadmap-column-#{column.status}"}
+        class="min-w-0"
+        aria-label={roadmap_column_label(column.status)}
+      >
+        <div class="mb-3 flex items-center gap-2">
+          <h2 class="text-sm font-semibold uppercase tracking-wide text-ink-muted">
+            {roadmap_column_label(column.status)}
+          </h2>
+          <span
+            data-testid={"roadmap-count-#{column.status}"}
+            class="rounded-full border border-line bg-panel-raised px-2 py-0.5 text-xs font-medium text-ink-muted"
+          >
+            {length(column.posts)}
+          </span>
+        </div>
+
+        <div class="space-y-3">
+          <.link
+            :for={post <- column.posts}
+            href={~p"/feedback/#{post.slug}"}
+            data-testid={"roadmap-post-#{post.slug}"}
+            class="group block rounded-panel border border-line bg-panel p-4 transition-[border-color,box-shadow] duration-(--motion-base) ease-(--motion-ease-out) hover:border-line-strong hover:shadow-sm"
+          >
+            <h3 class="text-sm font-semibold leading-snug text-ink transition-colors duration-(--motion-fast) group-hover:text-link [overflow-wrap:anywhere]">
+              {post.title}
+            </h3>
+            <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-muted">
+              <span>{status_changed_label(post)}</span>
+              <span class="flex items-center gap-1">
+                <.icon name="hero-hand-thumb-up" class="size-3.5" />
+                {count_label(post.vote_count, "vote")}
+              </span>
+              <span class="flex items-center gap-1">
+                <.icon name="hero-chat-bubble-oval-left-ellipsis" class="size-3.5" />
+                {count_label(post.comment_count, "comment")}
+              </span>
+            </div>
+          </.link>
+
+          <.empty_state
+            :if={column.posts == []}
+            title={empty_column_copy(column.status)}
+            class="py-10"
+          />
+        </div>
+      </section>
+    </div>
+  </div>
+</Layouts.public>
