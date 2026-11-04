@@ -243,6 +243,14 @@ defmodule FluxVale.Seeds do
   # reads the row by size_id) — so the delete refuses loudly, naming
   # every blocker at once, until the references move first. Nothing is
   # destroyed when the guard fires.
+  #
+  # The FKs themselves are the hard backstop: with NO ACTION a destroy
+  # past the guard still fails at the DB rather than corrupting. This
+  # guard is the human-readable refusal that names the blockers, so the
+  # operator never has to read a constraint violation. Deletes commit
+  # per-row, so a mid-loop failure can leave a half-converged table —
+  # deliberate for deploy-time single-process seeding: the next seed
+  # run finishes the convergence, so no transaction wrap.
   defp delete_removed_sizes!(entries) do
     kept = MapSet.new(entries, & &1.slug)
 

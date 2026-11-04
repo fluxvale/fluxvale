@@ -86,7 +86,7 @@ defmodule FluxVale.Seeds.PricingSeedTest do
       # and aiming the derive at this exact row would drag the whole
       # actor/org deploy funnel into a seed precondition. Ash.seed! is
       # the sanctioned escape (same posture as the org-instance helper
-      # in home_test.exs).
+      # in test/flux_vale_web/live/org_live/home_test.exs).
       Ash.Seed.seed!(Instance, %{
         name: "On the removed size",
         slug: "inst-#{System.unique_integer([:positive])}",
