@@ -36,14 +36,13 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
     refute has_element?(view, "header")
     refute has_element?(view, ~s(nav[aria-label="Primary"]))
 
-    result =
-      view
-      |> form("#email-form", email: @email)
-      |> render_submit()
+    view
+    |> form("#email-form", email: @email)
+    |> render_submit()
 
     # The flash path rides the minimal layout's flash group
-    assert result =~ "code-form"
-    assert result =~ "Code sent"
+    assert has_element?(view, "#code-form")
+    assert has_element?(view, "#flash-group", "Code sent")
     assert has_element?(view, ~s(a[aria-label="FluxVale"][href="/"]))
     refute has_element?(view, "header")
   end
