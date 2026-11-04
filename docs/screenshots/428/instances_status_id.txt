@@ -1,0 +1,17 @@
+id                01a1a78b-7d20-7532-9819-33a3c65164ee
+name              Blog
+slug              green-violet-5296
+status            running
+exposure          public
+always on         no
+image             codeberg.org/forgejo/forgejo:16.0.5
+port              3000
+cpu cores         0.5
+memory (MB)       512
+storage (GB)      10
+storage mount     /data
+healthcheck path  /api/healthz
+file access       no
+deployed          3h ago (2026-11-04T14:11:39.149579Z)
+namespace         fluxvale-app-green-violet-5296
+Running — your app is up.

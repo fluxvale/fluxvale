@@ -1,0 +1,3 @@
+balance  $8.00
+burn     $0.005/hr
+runway   64d 22h

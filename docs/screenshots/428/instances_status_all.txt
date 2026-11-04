@@ -1,0 +1,3 @@
+NAME         SLUG               NAMESPACE                       STATUS   EXPOSURE  ALWAYS-ON  DEPLOYED  ID
+Docs Mirror  shy-water-5616     fluxvale-app-shy-water-5616     stopped  public    no         2d ago    01a1a7ae-828c-7218-af82-57c435c5b992
+Blog         winter-cloud-0721  fluxvale-app-winter-cloud-0721  running  public    no         3h ago    01a1a7ae-8249-704d-bbf0-cd94cfeac585

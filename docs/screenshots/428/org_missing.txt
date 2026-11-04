@@ -1,0 +1,1 @@
+error: no organization id — pass --org <id>, or set organization_id in the config file

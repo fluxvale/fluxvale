@@ -1,0 +1,6 @@
+{
+  "email": "admin@fluxvale.com",
+  "id": "01a1a71e-27c6-7a76-bef6-15a8d6ea14aa",
+  "platform_role": "admin",
+  "username": "admin-2"
+}
