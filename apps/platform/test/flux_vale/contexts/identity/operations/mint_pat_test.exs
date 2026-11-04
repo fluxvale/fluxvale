@@ -69,6 +69,51 @@ defmodule FluxVale.Identity.Operations.MintPatTest do
       assert short.expires_at == DateTime.truncate(explicit, :second)
     end
 
+    test "metadata defaults to an empty map; a passed record lands verbatim (#362's provenance)" do
+      member = member!("metadata@fluxvale.com")
+
+      assert {:ok, %{pat: bare}} =
+               Identity.mint_pat(admin!(), %{user_id: member.id, name: "bare", scopes: []})
+
+      assert bare.metadata == %{}
+
+      provenance = %{
+        "client_id" => "fluxvale-cli",
+        "grant_type" => "device_flow",
+        "scopes" => ["instances:read"],
+        "minted_via" => "device"
+      }
+
+      assert {:ok, %{pat: pat}} =
+               Identity.mint_pat(admin!(), %{
+                 user_id: member.id,
+                 name: "provenance",
+                 scopes: ["instances:read"],
+                 metadata: provenance
+               })
+
+      assert pat.metadata == provenance
+    end
+
+    test "metadata is operation-supplied — the create action's accept surface can't stamp it" do
+      member = member!("metadata-guard@fluxvale.com")
+
+      # The token_hash shape verbatim: the argument is private, so a
+      # caller that bypasses the operation cannot stamp provenance.
+      changeset =
+        PersonalAccessToken
+        |> Ash.Changeset.new()
+        |> Ash.Changeset.set_argument(:token_hash, PersonalAccessToken.token_hash("fvpat_x"))
+        |> Ash.Changeset.for_create(:create, %{
+          user_id: member.id,
+          name: "forged",
+          expires_at: DateTime.add(DateTime.utc_now(), 60, :second),
+          metadata: %{"minted_via" => "forged"}
+        })
+
+      assert {:error, %Ash.Error.Invalid{}} = Ash.create(changeset, authorize?: false)
+    end
+
     test "a far-future explicit expires_at is capped at the one-year bound" do
       member = member!("far-future@fluxvale.com")
       before_mint = DateTime.utc_now()

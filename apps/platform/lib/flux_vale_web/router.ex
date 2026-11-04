@@ -200,6 +200,22 @@ defmodule FluxValeWeb.Router do
     post("/polar", PolarController, :create)
   end
 
+  # #362 (T3, OQ #9): the RFC 8628 device-flow wire — PLAIN JSON, not
+  # JSON:API: the bodies are bare application/json (RFC 8628 §3.1/§3.5)
+  # and the callers are unauthenticated BY DESIGN (the device has no
+  # token yet — the flow is how it earns one). So: mounted outside the
+  # ash_json_api router, BEFORE the /api/v1 forward below (route match
+  # is source order and that forward is a catch-all), on the plain
+  # :api pipeline. No ApiAudit/ApiRateLimit — both key on a PAT, which
+  # the flow doesn't have; the controller logs its own lines (never a
+  # code or token value). IP limiting is v1's named follow-up.
+  scope "/api/v1/device", FluxValeWeb do
+    pipe_through(:api)
+
+    post("/code", Api.DeviceFlowController, :create_code)
+    post("/token", Api.DeviceFlowController, :poll_token)
+  end
+
   # /api/v1 — the versioned JSON:API surface (#24 settles OQ #9: URL-prefix
   # versioning; the scaffold's /api/json named the format, not a version,
   # and died while zero clients existed). Everything under the prefix rides
@@ -350,6 +366,18 @@ defmodule FluxValeWeb.Router do
       # crafted query string mount the org frame on this route.
       live("/settings/access", OrganizationLive.Access, :personal)
     end
+  end
+
+  # #362: the device flow's verification_uri target — a controller
+  # redirect to the access panel at the Device sign-ins section (the
+  # fragment). Outside the live_session above on purpose: a plain GET
+  # can't ride on_mount gates, and the controller checks the same
+  # session chain (UserAuth.resolve_user) — anonymous visitors go to
+  # sign-in, the panel's own gate would bounce them there anyway.
+  scope "/", FluxValeWeb do
+    pipe_through(:browser)
+
+    get("/settings/access/device", DeviceFlowEntryController, :entry)
   end
 
   # Other scopes may use custom stacks.

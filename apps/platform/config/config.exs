@@ -287,6 +287,12 @@ config :flux_vale,
 # a config/runtime.exs override (staging, PR envs) needs no rebuild.
 config :flux_vale, :mcp_origins, [canonical_origin]
 
+# #362 (OQ #9): the single seeded first-party device-flow client — the
+# CLI's constant. There is no client registry table (OQ #9's deferred
+# upgrade half); until it lands this value IS the registry, and the
+# device endpoints validate against it (FirstPartyClient).
+config :flux_vale, :device_flow_client_id, "fluxvale-cli"
+
 # Configure the endpoint
 config :flux_vale, FluxValeWeb.Endpoint,
   url: [host: "localhost"],
@@ -378,6 +384,10 @@ config :flux_vale, Oban,
        # 03:00 (token prune) and 03:15 (windows) for the same reason;
        # the janitor trio staggers behind one queue lock.
        {"30 3 * * *", FluxVale.Janitor.PruneAuditEvents},
+       # #362: the device-code sweep, daily at 03:45 — off 03:00/03:15/
+       # 03:30 (same queue, same one-lock stance; the janitor quartet
+       # staggers).
+       {"45 3 * * *", FluxVale.Janitor.PruneDeviceCodes},
        # #124's ladder sweep, hourly at :07 — off the top-of-hour rush
        # (#113's stance; the reconciler minute-tick and smoke crons sit
        # there).
