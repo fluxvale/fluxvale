@@ -329,6 +329,13 @@ defmodule FluxValeWeb.Router do
       # #276: the org billing view — the /billing shape scoped to the
       # URL's org; slug-keyed like the catalog.
       live("/organizations/:slug/billing", OrganizationLive.Billing)
+      # #408: the org-context top-up — the wizard mounted for the URL's
+      # org; the return route is its gateway landing. Named action (:org)
+      # so the mount arms stay apart (/settings/access's posture:
+      # LiveView merges query params into mount params, and the personal
+      # wizard's contract is no slug).
+      live("/organizations/:slug/billing/topup", BillingLive.Topup, :org)
+      live("/organizations/:slug/billing/topup/return", BillingLive.Topup, :org)
       # #276: the org home — the switcher rows' target, slug-keyed like
       # the catalog.
       live("/organizations/:slug", OrganizationLive.Home)

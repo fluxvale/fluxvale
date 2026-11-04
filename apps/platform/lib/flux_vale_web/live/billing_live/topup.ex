@@ -19,6 +19,16 @@ defmodule FluxValeWeb.BillingLive.Topup do
   buyer didn't see. "Final taxes at checkout" is gone: the wizard
   prices the charge.
 
+  The wizard mounts under two routes (#408): the personal one
+  (`/billing/topup` — the wallet is the actor's personal org) and the
+  org-context one (`/organizations/:slug/billing/topup` — the wallet is
+  the URL org's, any member may top up, money in). Unknown slug and
+  non-member read as "not here", the org pages' posture; the personal
+  org's slug redirects to the personal wizard (S5). The surfaces around
+  the steps ride the mount arm: back link, gateway return, and the
+  confirmation's back button are the org's billing page on the org
+  route.
+
   Steps 1–3 are LiveView state (a refresh restarts the wizard — the
   buyer hasn't paid anything until the gateway redirect). Step 4 is the
   gateway's return landing (`/billing/topup/return?reference=…` —
@@ -34,12 +44,14 @@ defmodule FluxValeWeb.BillingLive.Topup do
   use FluxValeWeb, :live_view
 
   alias FluxVale.Accounts
+  alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
   alias FluxVale.Billing.Countries
   alias FluxVale.Billing.Tax
   alias FluxVale.Billing.Topup
   alias FluxVale.Billing.TopupOutcomeMail
   alias FluxVale.Pricing
+  alias FluxValeWeb.PersonalOrg
 
   require Ash.Query
   require Logger
@@ -61,51 +73,42 @@ defmodule FluxValeWeb.BillingLive.Topup do
   @poll_max_attempts 5
 
   @impl Phoenix.LiveView
+  # The :org route's contract is the URL's slug, but LiveView merges
+  # query params into mount params — the named heads are what keep a
+  # crafted ?slug= from mounting the org frame on the personal route
+  # (/settings/access's posture): the personal head ignores params
+  # entirely.
+  def mount(params, session, %{assigns: %{live_action: :org}} = socket) do
+    user = socket.assigns.current_user
+
+    case Organization.get_by_slug(params["slug"], actor: user) do
+      {:ok, org} ->
+        if PersonalOrg.personal?(socket, org) do
+          # S5: the personal org's wizard IS /billing/topup — flash-free
+          # redirect (nothing failed).
+          {:ok, push_navigate(socket, to: ~p"/billing/topup")}
+        else
+          # Money in: any member may top up the org's wallet (the
+          # wallet read policy is org members).
+          {:ok, mount_wizard(socket, org, user, session)}
+        end
+
+      # Unknown slug and non-member land here together: the read policy
+      # denies a stranger exactly as a miss does — no enumeration signal.
+      _error ->
+        {:ok,
+         socket
+         |> put_flash(:error, "Organization not found.")
+         |> push_navigate(to: ~p"/")}
+    end
+  end
+
   def mount(_params, session, socket) do
     user = socket.assigns.current_user
 
     case Accounts.personal_org_for_user(user.id, actor: user) do
       {:ok, org} ->
-        {:ok, wallet} = Billing.ensure_wallet(org)
-        {:ok, balance} = Billing.balance(wallet, actor: user)
-
-        socket =
-          socket
-          |> assign(org: org, wallet: wallet, balance: balance)
-          |> assign(step: :details)
-          |> assign(
-            details: %{
-              name: "",
-              # #285 T4: the buyer email prefills from the account's
-              # PRIMARY address — `users.email` is the frozen mirror and
-              # goes stale at SetPrimaryEmail. Nil primary (old-pod
-              # straggler) falls back to the mirror — see
-              # User.primary_email.
-              email: to_string(user.primary_email || user.email),
-              country: "",
-              state: "",
-              customer_type: :consumer,
-              vat_number: ""
-            }
-          )
-          # The second location signal rides the session (the edge geo
-          # header, CaptureIpCountry). Absent is fine — recorded, never
-          # blocking; the billing address decides the rate.
-          |> assign(ip_country: session["ip_country"])
-          |> assign(tax_rate_bp: 0, reverse_charge?: false)
-          |> assign(amount_dollars: nil)
-          # The country combobox's open state (#364): the query the
-          # buyer typed, the matches on display (capped), the keyboard
-          # highlight, and whether the listbox shows at all.
-          |> assign(
-            country_query: "",
-            country_matches: [],
-            country_total: 0,
-            country_active: 0,
-            country_open: false
-          )
-
-        {:ok, socket}
+        {:ok, mount_wizard(socket, org, user, session)}
 
       :none ->
         # Same posture as the billing page: unreachable for
@@ -115,6 +118,80 @@ defmodule FluxValeWeb.BillingLive.Topup do
          |> put_flash(:error, "No organization found for this account.")
          |> push_navigate(to: ~p"/apps")}
     end
+  end
+
+  # The wizard body both mount arms share: THIS org's wallet and
+  # facts, and the arm's surrounding surfaces (see surface_paths/2).
+  defp mount_wizard(socket, org, user, session) do
+    {:ok, wallet} = Billing.ensure_wallet(org)
+    {:ok, balance} = Billing.balance(wallet, actor: user)
+
+    socket =
+      socket
+      |> assign(org: org, wallet: wallet, balance: balance)
+      |> assign(surface_paths(socket.assigns.live_action, org))
+      |> assign(step: :details)
+      |> assign(
+        details: %{
+          name: "",
+          # #285 T4: the buyer email prefills from the account's
+          # PRIMARY address — `users.email` is the frozen mirror and
+          # goes stale at SetPrimaryEmail. Nil primary (old-pod
+          # straggler) falls back to the mirror — see
+          # User.primary_email.
+          email: to_string(user.primary_email || user.email),
+          country: "",
+          state: "",
+          customer_type: :consumer,
+          vat_number: ""
+        }
+      )
+      # The second location signal rides the session (the edge geo
+      # header, CaptureIpCountry). Absent is fine — recorded, never
+      # blocking; the billing address decides the rate.
+      |> assign(ip_country: session["ip_country"])
+      |> assign(tax_rate_bp: 0, reverse_charge?: false)
+      |> assign(amount_dollars: nil)
+      # The country combobox's open state (#364): the query the
+      # buyer typed, the matches on display (capped), the keyboard
+      # highlight, and whether the listbox shows at all.
+      |> assign(
+        country_query: "",
+        country_matches: [],
+        country_total: 0,
+        country_active: 0,
+        country_open: false
+      )
+
+    socket
+  end
+
+  # The surfaces around the wizard ride the mount arm: on the org
+  # route the back link, the gateway return, and the confirmation's
+  # back button are the org's billing page and its return route, and
+  # the copy names THIS org's wallet; the personal arm keeps today's
+  # /billing shape and copy verbatim (S5: the personal org's billing
+  # surface IS /billing — no org page of its own).
+  defp surface_paths(:org, org) do
+    [
+      billing_path: "/organizations/#{org.slug}/billing",
+      return_path: "/organizations/#{org.slug}/billing/topup/return",
+      current_org: org,
+      wizard_subtitle: "Prepaid balance for #{org.name}'s instances.",
+      not_found_hint: "The payment reference wasn't recognized for this organization.",
+      balance_prefix: "#{org.name}'s balance is now"
+    ]
+  end
+
+  defp surface_paths(_personal, _org) do
+    [
+      billing_path: "/billing",
+      return_path: "/billing/topup/return",
+      current_org: nil,
+      wizard_subtitle: "Prepaid balance for your instances.",
+      not_found_hint: "The payment reference wasn't recognized for your account.",
+      balance_prefix: "Your balance is now"
+    ]
   end
 
   @impl Phoenix.LiveView
@@ -131,8 +208,11 @@ defmodule FluxValeWeb.BillingLive.Topup do
     show_confirmation(socket, payment_request_id)
   end
 
-  # The wizard steps don't ride the URL (a refresh restarts); only the
-  # gateway's return carries params.
+  # The wizard steps don't ride the URL (a refresh restarts the
+  # wizard). The gateway's return is the flow that carries params; a
+  # crafted ?reference= anywhere else just resolves (or not-finds,
+  # the fetch stays arm-scoped) — it renders a confirmation, which is
+  # what that param means, never a wizard step.
   def handle_params(_params, _uri, socket) do
     {:noreply, socket}
   end
@@ -343,7 +423,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
 
     params = %{
       amount_cents: amount_cents,
-      redirect_url: redirect_url(),
+      redirect_url: redirect_url(socket),
       buyer_email: details.email,
       buyer_name: details.name,
       billing_country: details.country,
@@ -433,6 +513,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
         personal_org_id={@personal_org_id}
         username={@username}
         nav_section={@nav_section}
+        current_org={@current_org}
         bare
       >
         <%!-- The gateway return wears the same band frame as the wizard
@@ -442,14 +523,14 @@ defmodule FluxValeWeb.BillingLive.Topup do
           <section class="band">
             <div class="wrap pt-8 pb-10">
               <div class="rise">
-                <.button variant="ghost" size="sm" navigate={~p"/billing"} class="-ml-2">
+                <.button variant="ghost" size="sm" navigate={@billing_path} class="-ml-2">
                   &larr; Billing
                 </.button>
 
                 <p class="eyebrow mt-4">Billing</p>
                 <h1 class="page-title mt-1">Add credits</h1>
                 <p class="mt-2 text-base text-ink-muted">
-                  Prepaid balance for your instances.
+                  {@wizard_subtitle}
                 </p>
 
                 <div class="mt-6">
@@ -465,6 +546,9 @@ defmodule FluxValeWeb.BillingLive.Topup do
                 topup={@topup}
                 state={@confirmation_state}
                 confirmation_balance={@confirmation_balance}
+                billing_path={@billing_path}
+                not_found_hint={@not_found_hint}
+                balance_prefix={@balance_prefix}
               />
             </div>
           </section>
@@ -480,6 +564,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
         personal_org_id={@personal_org_id}
         username={@username}
         nav_section={@nav_section}
+        current_org={@current_org}
         bare
       >
         <%!-- App-wide grammar page (S9): `bare` main + .appgram — the
@@ -495,14 +580,14 @@ defmodule FluxValeWeb.BillingLive.Topup do
           <section class="band">
             <div class="wrap pt-8 pb-10">
               <div class="rise">
-                <.button variant="ghost" size="sm" navigate={~p"/billing"} class="-ml-2">
+                <.button variant="ghost" size="sm" navigate={@billing_path} class="-ml-2">
                   &larr; Billing
                 </.button>
 
                 <p class="eyebrow mt-4">Billing</p>
                 <h1 class="page-title mt-1">Add credits</h1>
                 <p class="mt-2 text-base text-ink-muted">
-                  Prepaid balance for your instances.
+                  {@wizard_subtitle}
                 </p>
 
                 <div class="mt-6">
@@ -980,6 +1065,9 @@ defmodule FluxValeWeb.BillingLive.Topup do
   attr(:topup, :map, default: nil)
   attr(:state, :atom, required: true)
   attr(:confirmation_balance, :integer, default: nil)
+  attr(:billing_path, :string, required: true)
+  attr(:not_found_hint, :string, required: true)
+  attr(:balance_prefix, :string, required: true)
 
   defp confirmation(%{topup: nil} = assigns) do
     ~H"""
@@ -987,10 +1075,10 @@ defmodule FluxValeWeb.BillingLive.Topup do
       <.card class="space-y-4">
         <h2 class="text-base font-medium text-ink">We couldn't find that top-up</h2>
         <p class="text-sm text-ink-muted">
-          The payment reference wasn't recognized for your account.
+          {@not_found_hint}
         </p>
         <div>
-          <.button navigate={~p"/billing"} size="sm">
+          <.button navigate={@billing_path} size="sm">
             Back to billing
           </.button>
         </div>
@@ -1016,7 +1104,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
           </p>
           <%= if @confirmation_balance do %>
             <p class="text-sm text-ink-muted" data-testid="topup-confirmation-balance">
-              Your balance is now <span class="font-mono">{Pricing.format_usd(@confirmation_balance)}</span>.
+              {@balance_prefix} <span class="font-mono">{Pricing.format_usd(@confirmation_balance)}</span>.
             </p>
           <% end %>
         <% end %>
@@ -1058,7 +1146,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
         <% end %>
 
         <div>
-          <.button navigate={~p"/billing"} size="sm" id="topup-back-to-billing">
+          <.button navigate={@billing_path} size="sm" id="topup-back-to-billing">
             Back to billing
           </.button>
         </div>
@@ -1125,7 +1213,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
   # garbage reference renders the not-found card, never a crash),
   # reconcile a pending row once, then arm the presentation extras.
   defp show_confirmation(socket, payment_request_id) do
-    topup = fetch_topup(payment_request_id, socket.assigns.current_user)
+    topup = fetch_topup(payment_request_id, socket)
     state = confirmation_state(topup)
 
     {:noreply,
@@ -1192,15 +1280,30 @@ defmodule FluxValeWeb.BillingLive.Topup do
     end
   end
 
-  defp fetch_topup(payment_request_id, user) do
-    result =
+  # The actor's member-scoped policy reads every org's topups they
+  # belong to, so the fetch itself pins the arm: the org route is ONE
+  # org's landing, and a reference from another of the actor's orgs
+  # reads as not-found there — never as another org's charge wearing
+  # this org's chrome (the sibling org pages' posture: the page bills
+  # the URL org). The personal arm keeps today's shape (any
+  # actor-readable reference).
+  defp fetch_topup(payment_request_id, socket) do
+    user = socket.assigns.current_user
+
+    readable =
       Topup
       |> Ash.Query.for_read(:read, %{}, actor: user)
       |> Ash.Query.filter(payment_request_id == ^payment_request_id)
       |> Ash.Query.limit(1)
-      |> Ash.read()
 
-    case result do
+    query =
+      if socket.assigns.live_action == :org do
+        Ash.Query.filter(readable, organization_id == ^socket.assigns.org.id)
+      else
+        readable
+      end
+
+    case Ash.read(query) do
       {:ok, [topup | _rest]} -> topup
       _none -> nil
     end
@@ -1401,8 +1504,11 @@ defmodule FluxValeWeb.BillingLive.Topup do
   defp present(value), do: value
 
   # The gateway appends its reference/status query args to this; the
-  # endpoint's configured host is the externally reachable one.
-  defp redirect_url do
-    FluxValeWeb.Endpoint.url() <> "/billing/topup/return"
+  # endpoint's configured host is the externally reachable one. The
+  # path rides the mount arm (surface_paths/2): the org wizard's
+  # return lands on the org route, whose confirmation is the org's
+  # billing page's sibling.
+  defp redirect_url(socket) do
+    FluxValeWeb.Endpoint.url() <> socket.assigns.return_path
   end
 end

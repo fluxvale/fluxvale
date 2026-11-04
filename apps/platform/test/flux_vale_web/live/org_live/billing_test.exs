@@ -69,11 +69,16 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
     assert has_element?(view, "[data-testid='org-switcher-button']", org.name)
   end
 
-  test "no top-up CTA — top-ups start from the personal billing page", %{conn: conn, org: org} do
+  test "the Add credits CTA opens the org-scoped wizard", %{conn: conn, org: org} do
     {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
 
-    refute has_element?(view, "#add-credits")
-    assert has_element?(view, "a[data-testid='topup-link'][href='/billing']")
+    # The wizard this CTA opens bills THIS org's wallet (#408) — the
+    # org-scoped route, not the personal one.
+    assert has_element?(
+             view,
+             "a#add-credits[href='/organizations/#{org.slug}/billing/topup']",
+             "Add credits"
+           )
   end
 
   test "the ledger is scoped to the viewed org — another org's rows never appear", %{

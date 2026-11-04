@@ -6,12 +6,10 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
   policy denials read as "not here" — one arm, one answer, so a
   non-member's probe is indistinguishable from a typo (no enumeration).
 
-  No "Add credits" CTA on purpose: the top-up wizard resolves the
-  actor's personal org in its mount, so a CTA here would be a lie for
-  any future non-personal org — org-context top-up is a future lane.
-  The page links to `/billing` instead. The personal org has no view
-  here at all (S5): its URL redirects to `/billing` — one wallet, one
-  surface.
+  The band's Add credits CTA opens the org-scoped top-up wizard
+  (#408): a top-up credits the URL org's wallet. The personal org has
+  no view here at all (S5): its URL redirects to `/billing` — one
+  wallet, one surface.
   """
 
   use FluxValeWeb, :live_view
@@ -124,33 +122,32 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
         <section class="band">
           <div class="wrap pt-8 pb-10">
             <div class="rise">
-              <div class="min-w-0">
-                <p class="eyebrow">{@org.name}</p>
-                <h1 class="page-title mt-1.5">Billing</h1>
-                <p class="mt-2 text-base text-ink-muted">
-                  Prepaid credits fund {@org.name}'s instances.
-                </p>
+              <%!-- The band shape the personal billing page set (S9):
+              identity left, the Add-credits CTA right — the wizard it
+              opens bills THIS org's wallet (#408). --%>
+              <div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+                <div class="min-w-0">
+                  <p class="eyebrow">{@org.name}</p>
+                  <h1 class="page-title mt-1.5">Billing</h1>
+                  <p class="mt-2 text-base text-ink-muted">
+                    Prepaid credits fund {@org.name}'s instances.
+                  </p>
+                </div>
+
+                <div class="flex shrink-0 gap-2">
+                  <.button
+                    navigate={~p"/organizations/#{@org.slug}/billing/topup"}
+                    variant="secondary"
+                    id="add-credits"
+                  >
+                    Add credits
+                  </.button>
+                </div>
               </div>
 
               <div class="mt-9">
                 <BillingComponents.wallet_facts facts={@runway} />
               </div>
-
-              <p class="mt-6 text-xs text-ink-subtle">
-                <%!-- No "Add credits" here: the top-up wizard resolves the
-                    actor's personal org in its mount, so a wizard CTA on an
-                    org page would top up the wrong wallet the moment this
-                    route serves a non-personal org. Org-context top-up is a
-                    future lane; until it lands, top-ups start from the
-                    personal billing page. --%>
-                Top up from <.link
-                  navigate={~p"/billing"}
-                  data-testid="topup-link"
-                  class="underline underline-offset-2 hover:text-ink"
-                >
-                  Billing
-                </.link>.
-              </p>
             </div>
           </div>
         </section>
