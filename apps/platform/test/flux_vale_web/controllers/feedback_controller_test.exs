@@ -356,6 +356,7 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       # The :browser pipeline's SeoNoindex plug covers the new route
       # (the test conn's host is not the canonical prod host).
       assert get_resp_header(conn, "x-robots-tag") == ["noindex, nofollow"]
+      assert html =~ ~s(name="robots" content="noindex, nofollow">)
     end
 
     test "columns carry exactly the planned, started, completed posts", %{conn: conn} do
@@ -447,18 +448,34 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       assert position(html, "Shipped last week") < position(html, "Shipped long ago")
     end
 
-    test "a column item with no status stamp still renders, ordered by age", %{conn: conn} do
-      # The coalesce in the recency sort keeps a stamp-less row from
-      # crashing the DateTime compare (the seeds force timestamps the
-      # actions do not accept, so a stamp-less moved row is a fixture
-      # posture, not an action state).
-      post = post!(%{title: "Unstamped planned request", description: "x"})
-      move_status!(post, :planned)
-      set_status_changed_at!(post, nil)
+    test "a stamp-less started item falls back to its created age in the recency sort", %{
+      conn: conn
+    } do
+      # The coalesce in the recency sort (Started/Completed only —
+      # Planned sorts by votes) keeps a stamp-less row from crashing the
+      # DateTime compare: the row then orders by its created age. A
+      # stamp-less MOVED row is a fixture posture (the seeds force
+      # timestamps the actions do not accept), so the probe clears the
+      # stamp on a :started post beside stamped ones and asserts the
+      # fallback ordering.
+      stamped_old = post!(%{title: "Stamped started old", description: "x"})
+      stamped_fresh = post!(%{title: "Stamped started fresh", description: "x"})
+      move_status!(stamped_old, :started)
+      move_status!(stamped_fresh, :started)
+      set_status_changed_at!(stamped_old, days_ago(30))
+      set_status_changed_at!(stamped_fresh, days_ago(1))
+
+      unstamped = post!(%{title: "Unstamped started newest", description: "x"})
+      move_status!(unstamped, :started)
+      set_status_changed_at!(unstamped, nil)
 
       html = html_response(get(conn, ~p"/roadmap"), 200)
 
-      assert html =~ "Unstamped planned request"
+      # The unstamped post was created LAST, so under the created-at
+      # fallback it sorts ahead of both stamped ones.
+      assert position(html, "Unstamped started newest") < position(html, "Stamped started fresh")
+
+      assert position(html, "Stamped started fresh") < position(html, "Stamped started old")
     end
 
     test "items link their board pages and carry counts and the status age", %{conn: conn} do

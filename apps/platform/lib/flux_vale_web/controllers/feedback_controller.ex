@@ -81,6 +81,10 @@ defmodule FluxValeWeb.FeedbackController do
       Post
       |> Ash.Query.for_read(:read, %{}, actor: nil)
       |> Ash.Query.filter(status in @roadmap_statuses)
+      # Unbounded read, conscious acceptance: the roadmap shows only the
+      # three forward-looking statuses, but they are user-generated rows.
+      # Revisit at growth (per-column pagination or a display cap), the
+      # sitemap's marker posture.
       |> Ash.read!(actor: nil)
       |> roadmap_columns()
 
@@ -124,6 +128,8 @@ defmodule FluxValeWeb.FeedbackController do
     # A plain comparator: vote_count wins, the fresher post breaks ties.
     # (The {:desc, :desc} tuple-of-shorthands is not a valid Enum.sort_by
     # sorter — bare atoms inside a tuple are read as compare modules.)
+    # Full ties keep NO guaranteed order — Enum.sort with a comparator
+    # is not stable — so nothing may rely on tie order.
     Enum.sort(planned, fn left, right ->
       if left.vote_count != right.vote_count do
         left.vote_count > right.vote_count

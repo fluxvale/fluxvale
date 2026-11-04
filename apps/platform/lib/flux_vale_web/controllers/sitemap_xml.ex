@@ -16,8 +16,9 @@ defmodule FluxValeWeb.SitemapXML do
   post appears (board pages are public and indexed from launch,
   ADR-0026 §4): declined and duplicate posts included, lastmod from
   `updated_at`. The roadmap (#412 T9) joins the static slice with a
-  lastmod: the latest `status_changed_at` across posts (a status move
-  is the only thing that reshapes the board).
+  lastmod: the latest `status_changed_at` across posts (every move
+  stamps it; the moves that reshape the roadmap's columns are all but
+  the two open exits, decline and duplicate fold).
   """
 
   alias FluxVale.Blog.Post
@@ -94,8 +95,9 @@ defmodule FluxValeWeb.SitemapXML do
   end
 
   # #412 T9: the roadmap row — a static URL WITH a lastmod, the latest
-  # status_changed_at across posts (a status move is the only thing
-  # that reshapes the board). No moved post yet renders it like the
+  # status_changed_at across posts (every move stamps it; the moves that
+  # reshape the roadmap's columns are all but the two open exits,
+  # decline and duplicate fold). No moved post yet renders it like the
   # other statics: bare loc, no lastmod.
   defp roadmap_url(feedback_posts) do
     loc = Seo.canonical_origin() <> "/roadmap"
