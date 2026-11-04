@@ -45,6 +45,19 @@ defmodule FluxValeWeb.PageControllerTest do
     assert conn.assigns[:page_description] =~ "deploy"
   end
 
+  # fv332 D5: the landing's own footer (foot-links, distinct from the
+  # chrome footer) carries the legal set — privacy lands beside terms
+  # and acceptable use.
+  test "GET / footer links the legal pages including privacy", %{conn: conn} do
+    conn = get(conn, ~p"/")
+    html = html_response(conn, 200)
+
+    assert html =~ ~s(data-testid="footer-terms")
+    assert html =~ ~s(data-testid="footer-acceptable-use")
+    assert html =~ ~s(data-testid="footer-privacy")
+    assert html =~ ~s(href="/policies/privacy")
+  end
+
   # Brand drop-in (#277): the nav carries the mark pair — the dark render
   # is the hero treatment, flipped by the Tailwind `dark:` variant — and
   # the root layout's head carries the favicon set (SVG pair + PNGs + ICO).

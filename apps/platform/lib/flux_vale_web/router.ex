@@ -277,10 +277,13 @@ defmodule FluxValeWeb.Router do
 
     # #140: the published policies — public and anonymous-OK; the top-up
     # flow links the refund policy before payment. #365 adds the Terms
-    # of Service and the Acceptable Use Policy beside it.
+    # of Service and the Acceptable Use Policy beside it. fv332 D5 adds
+    # the privacy policy (Google sign-in branding asks for it, and it
+    # should exist on its own merits).
     get("/policies/refund", PolicyController, :refund)
     get("/policies/terms", PolicyController, :terms)
     get("/policies/acceptable-use", PolicyController, :acceptable_use)
+    get("/policies/privacy", PolicyController, :privacy)
   end
 
   scope "/", FluxValeWeb do

@@ -337,6 +337,17 @@ defmodule FluxValeWeb.Layouts do
                 Acceptable use
               </.link>
             </li>
+            <%!-- fv332 D5: privacy rides every chrome'd surface beside
+            the other legal pages, and the landing footer mirrors it. --%>
+            <li>
+              <.link
+                navigate={~p"/policies/privacy"}
+                class="text-sm text-ink-muted hover:text-ink"
+                data-testid="footer-privacy"
+              >
+                Privacy
+              </.link>
+            </li>
           </ul>
         </nav>
       </div>

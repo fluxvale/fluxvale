@@ -129,4 +129,103 @@ defmodule FluxValeWeb.PolicyControllerTest do
       assert conn.assigns.canonical_path == "/policies/acceptable-use"
     end
   end
+
+  describe "GET /policies/privacy" do
+    # fv332 D5: the privacy text of record. The load-bearing wording is
+    # asserted verbatim: the entity, the never-collect claims (verified
+    # against the code — no analytics exists, card data never touches
+    # the platform), the BYO-backup posture, the financial-records
+    # retention stance (docs/data-deletion.md), and the PH-law framing
+    # consistent with the terms.
+    test "states the privacy stance for anonymous visitors", %{conn: conn} do
+      conn = get(conn, ~p"/policies/privacy")
+      html = html_response(conn, 200)
+
+      # Source wrapping splits phrases across lines; assert against a
+      # whitespace-flattened copy (HTML collapses it at render anyway).
+      flat = String.replace(html, ~r/\s+/, " ")
+
+      assert html =~ "Privacy policy"
+      assert html =~ "Last updated:"
+      assert flat =~ "FLUXVALE INFORMATION SOLUTIONS OPC"
+
+      # The never-collect claims, stated as facts about the platform.
+      assert flat =~ "never see your card details"
+      assert flat =~ "no analytics and no advertising trackers"
+      assert flat =~ "The site sets no tracking cookies"
+      assert flat =~ "do not read, scan, or mine"
+
+      # App data: isolated per instance, backups go to storage the
+      # customer brings, control backups exclude app data.
+      assert flat =~ "its own isolated space"
+      assert flat =~ "storage you bring"
+      assert flat =~ "do not contain your app data"
+
+      # Billing collection includes the checkout's buyer and tax
+      # evidence (the topup resource's fields, verified).
+      assert flat =~ "buyer name and email"
+      assert flat =~ "the country your connection came from"
+
+      # Email is transactional only; codes are hashed, single use, and
+      # short-lived.
+      assert flat =~ "no marketing mailing list"
+      assert flat =~ "single use"
+      assert flat =~ "expire ten minutes"
+      assert flat =~ "Postmark"
+
+      # Logs: honest about IP addresses, bounded retention, named
+      # monitoring service.
+      assert flat =~ "IP addresses"
+      assert flat =~ "limited window"
+      assert flat =~ "Grafana Cloud"
+
+      # Retention: the one category that outlives an account, said
+      # plainly (the data-deletion stance).
+      assert flat =~ "Bookkeeping law in the Philippines"
+      assert flat =~ "amounts and references, never"
+
+      # Deletion: instance destroy is real deletion; account deletion
+      # goes through admin@ with the retention caveat repeated.
+      assert flat =~ "deletes it and its data for good"
+      assert flat =~ "write to admin@fluxvale.com"
+
+      # Security + choices + law: hashes for codes and PATs (sessions
+      # are signed, revocable — the claim stops where the code stops),
+      # settings-level self-service only (no surface-less promises).
+      assert flat =~ "cryptographic hashes"
+      assert flat =~ "revoke instantly"
+      assert flat =~ "from the app's settings"
+      refute flat =~ "sign out of every session"
+      refute flat =~ "revoke personal access tokens yourself"
+      assert flat =~ "support@fluxvale.com"
+      assert flat =~ "laws of the Philippines"
+      assert flat =~ "Data Privacy Act"
+
+      # The page's one outbound cross-link rides the sibling shape.
+      assert html =~ ~s(href="/policies/terms")
+      assert html =~ ~s(data-testid="privacy-policy")
+    end
+
+    test "carries the SEO assigns the root layout renders", %{conn: conn} do
+      conn = get(conn, ~p"/policies/privacy")
+
+      assert conn.assigns.page_title == "Privacy policy · FluxVale"
+
+      assert conn.assigns.page_description ==
+               "What FluxVale collects, what it never collects, and how your data is handled"
+
+      assert conn.assigns.canonical_path == "/policies/privacy"
+    end
+
+    test "links from the chrome footer beside the other legal pages", %{conn: conn} do
+      conn = get(conn, ~p"/policies/privacy")
+      html = html_response(conn, 200)
+
+      # Layouts.public renders the shared footer (#365 posture): privacy
+      # rides every chrome'd surface.
+      assert html =~ ~s(data-testid="footer-privacy")
+      assert html =~ ~s(href="/policies/privacy")
+      assert html =~ ~s(data-testid="footer-terms")
+    end
+  end
 end

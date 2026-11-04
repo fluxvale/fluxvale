@@ -1,0 +1,213 @@
+<Layouts.public flash={@flash} current_user={@current_user}>
+  <div class="mx-auto max-w-2xl space-y-8">
+    <.header>
+      Privacy policy
+      <:subtitle>What we collect, what we never collect, and how your data is handled.</:subtitle>
+    </.header>
+
+    <p class="text-xs text-ink-subtle">
+      Last updated: November 4, 2026
+      <%!-- set at the pre-merge push; the
+      final push after sign-off re-verifies the date --%>
+    </p>
+
+    <%!-- fv332 D5: the privacy text of record. Plain English, not
+        gettext — this template is the policy's wording, same as the
+        terms. Every statement below describes what the platform
+        actually does today (verified against the code, Nov 4 2026).
+        Advisory edits land here. The copy rules apply: plain
+        sentences, no em-dashes, no semicolons. --%>
+    <.card class="space-y-4" data-testid="privacy-policy">
+      <h2 class="text-base font-medium text-ink">About this policy</h2>
+      <p class="text-sm text-ink-muted">
+        This policy explains how FLUXVALE INFORMATION SOLUTIONS OPC
+        ("FluxVale", "we", "us") handles personal data when you use
+        FluxVale, our managed cloud platform for open source apps.
+      </p>
+      <p class="text-sm text-ink-muted">
+        It covers the platform itself. The apps you deploy are
+        independent open source projects, and they may have their own
+        accounts and their own policies for the data you give them.
+      </p>
+      <p class="text-sm text-ink-muted">
+        FluxVale is not offered to children. You must be able to form a
+        binding contract to hold an account, as the
+        <.link navigate={~p"/policies/terms"} class="underline underline-offset-2 hover:text-ink">
+          Terms of Service
+        </.link>
+        say.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">What we collect</h2>
+      <p class="text-sm text-ink-muted">
+        Account data: your email address or addresses, which one is
+        primary, the username on your account, and your sign-in
+        history.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Billing data: your wallet balance, the record of credit and
+        usage entries on it, the order references a payment gives us,
+        and the billing details a checkout reports, such as the buyer
+        name and email, the billing state, a business buyer type, a
+        VAT number, and the country your connection came from for tax
+        evidence.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Instance data: which apps you deploy, their names and chosen
+        sizes, their exposure settings, and their current status.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Operational data: server logs that keep the platform running.
+        They include IP addresses, browser details, timestamps, and
+        the pages and paths requested.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">What we never collect</h2>
+      <p class="text-sm text-ink-muted">
+        We never see your card details. Payments run through a payment
+        provider, and only the provider handles them. What reaches us
+        is the payment's outcome and its order reference.
+      </p>
+      <p class="text-sm text-ink-muted">
+        The site runs no analytics and no advertising trackers, and no
+        third-party trackers ride our pages. The site sets no tracking
+        cookies. The everyday cookies are your signed-in session and
+        the standard request token that protects forms.
+      </p>
+      <p class="text-sm text-ink-muted">
+        We do not read, scan, or mine the data inside your apps. Your
+        app data belongs to you, and we do not sell, share, or use it
+        for our own purposes.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Where your app data lives</h2>
+      <p class="text-sm text-ink-muted">
+        Each instance runs in its own isolated space with its own
+        storage. That is where the app's own data lives, such as a
+        forge's repositories or a library app's catalog.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Instance backups, when you turn them on, go to storage you
+        bring. You supply the bucket and the keys, so those copies stay
+        under your control.
+      </p>
+      <p class="text-sm text-ink-muted">
+        We keep our own backups of the platform's control data, which
+        covers accounts, billing, and instance settings. Those backups
+        do not contain your app data.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Email we send</h2>
+      <p class="text-sm text-ink-muted">
+        Every email we send is transactional, tied to something you
+        did: a sign-in code, a payment receipt, a notice about your
+        account. There is no marketing mailing list.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Sign-in codes are single use, stored only as cryptographic
+        hashes, and they expire ten minutes after we send them.
+        Delivery runs through Postmark, our email provider.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Logs and monitoring</h2>
+      <p class="text-sm text-ink-muted">
+        We keep server and application logs to operate the platform
+        and to debug problems. Logs hold IP addresses, browser
+        details, and request paths for a limited window, and then they
+        age out.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Operational metrics and logs are sent to Grafana Cloud, our
+        monitoring service, for the same purpose. We do not use them
+        to profile you.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">How long we keep data</h2>
+      <p class="text-sm text-ink-muted">
+        Account, billing, and instance data stays while your account
+        exists. Sign-in codes are destroyed the moment they are used,
+        or when they expire. Logs age out after their limited window.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Financial records are the one category that outlives an
+        account. Bookkeeping law in the Philippines requires us to
+        keep them for a set period, so those records remain after an
+        account is deleted. They carry amounts and references, never
+        app data or message content.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Deleting your data</h2>
+      <p class="text-sm text-ink-muted">
+        You can destroy an instance at any time. Destroying an
+        instance deletes it and its data for good. Stopping an
+        instance only pauses it, and its storage stays.
+      </p>
+      <p class="text-sm text-ink-muted">
+        To delete your account, write to admin@fluxvale.com. Deleting
+        an account destroys its instances and removes its sign-in
+        access. The financial records described above are kept for the
+        period the law requires, and we say so plainly instead of
+        implying total erasure.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Security</h2>
+      <p class="text-sm text-ink-muted">
+        Traffic to and from the platform is encrypted in transit.
+        Sign-in codes and personal access tokens are stored as
+        cryptographic hashes, not as readable values. Sessions ride
+        signed tokens that we can revoke instantly on our side.
+        Operational secrets live in a hardened vault, not in code or
+        configuration files.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Every action on the platform passes an authorization check, so
+        one account cannot read or change another account's data.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Your choices</h2>
+      <p class="text-sm text-ink-muted">
+        You can add or remove email addresses on your account and
+        rename it from the app's settings. You can destroy any
+        instance you no longer want, and its data goes with it.
+      </p>
+      <p class="text-sm text-ink-muted">
+        To ask what we hold about you, to correct it, or to ask for
+        its deletion, write to admin@fluxvale.com. For product help,
+        write to support@fluxvale.com.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">The law and changes to this policy</h2>
+      <p class="text-sm text-ink-muted">
+        We handle personal data under the laws of the Philippines,
+        including its Data Privacy Act.
+      </p>
+      <p class="text-sm text-ink-muted">
+        We may change this policy. We give notice before a change
+        applies, by email or a note in the app.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Questions about privacy: admin@fluxvale.com
+      </p>
+    </.card>
+  </div>
+</Layouts.public>
