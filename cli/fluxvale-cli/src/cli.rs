@@ -264,6 +264,22 @@ pub enum WalletCommand {
         #[arg(long, value_name = "ID")]
         org: Option<String>,
     },
+    /// Show the wallet's ledger entries
+    Ledger {
+        /// The organization ID (default: organization_id from the config file)
+        #[arg(long, value_name = "ID")]
+        org: Option<String>,
+        /// How many entries to fetch (default 25)
+        #[arg(long, value_name = "N")]
+        limit: Option<u32>,
+        /// Fetch entries older than this opaque cursor (from a previous
+        /// page's next-page hint)
+        #[arg(long, value_name = "CURSOR", conflicts_with = "after")]
+        before: Option<String>,
+        /// Fetch entries newer than this opaque cursor
+        #[arg(long, value_name = "CURSOR")]
+        after: Option<String>,
+    },
     /// Show how long your balance lasts at current spend
     Runway {
         /// The organization ID (default: organization_id from the config file)
@@ -421,7 +437,7 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
         Command::Access { command } => match command {
             AccessCommand::Status { org } => {
                 let (client, _) = reads::read_client(&config)?;
-                let org_id = reads::resolve_org(&config, org.as_deref())?;
+                let org_id = reads::resolve_org(&config, org.as_deref(), &client)?;
                 print(writes::access_status(&client, &org_id, cli.output))
             }
             AccessCommand::Attach { gateway, instance } => {
@@ -445,12 +461,27 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
         Command::Wallet { command } => match command {
             WalletCommand::Balance { org } => {
                 let (client, _) = reads::read_client(&config)?;
-                let org_id = reads::resolve_org(&config, org.as_deref())?;
+                let org_id = reads::resolve_org(&config, org.as_deref(), &client)?;
                 print(reads::wallet_balance(&client, &org_id, cli.output))
+            }
+            WalletCommand::Ledger {
+                org,
+                limit,
+                before,
+                after,
+            } => {
+                let (client, _) = reads::read_client(&config)?;
+                let org_id = reads::resolve_org(&config, org.as_deref(), &client)?;
+                let page = reads::LedgerPage {
+                    limit: *limit,
+                    before: before.clone(),
+                    after: after.clone(),
+                };
+                print(reads::wallet_ledger(&client, &org_id, page, cli.output))
             }
             WalletCommand::Runway { org } => {
                 let (client, _) = reads::read_client(&config)?;
-                let org_id = reads::resolve_org(&config, org.as_deref())?;
+                let org_id = reads::resolve_org(&config, org.as_deref(), &client)?;
                 print(reads::wallet_runway(&client, &org_id, cli.output))
             }
         },
@@ -788,6 +819,36 @@ mod tests {
                 "{action} must parse"
             );
         }
+        // The ledger's flags parse, and --before/--after are exclusive.
+        match parse(&["wallet", "ledger", "--org", "01JORG", "--limit", "5"]).command {
+            Command::Wallet {
+                command:
+                    WalletCommand::Ledger {
+                        org,
+                        limit,
+                        before,
+                        after,
+                    },
+            } => {
+                assert_eq!(org.as_deref(), Some("01JORG"));
+                assert_eq!(limit, Some(5));
+                assert_eq!(before, None);
+                assert_eq!(after, None);
+            }
+            other => panic!("wrong: {other:?}"),
+        }
+        match parse(&["wallet", "ledger", "--after", "CUR1"]).command {
+            Command::Wallet {
+                command: WalletCommand::Ledger { after, .. },
+            } => assert_eq!(after.as_deref(), Some("CUR1")),
+            other => panic!("wrong: {other:?}"),
+        }
+        assert!(
+            Cli::try_parse_from([
+                "fluxvale", "wallet", "ledger", "--before", "A", "--after", "B"
+            ])
+            .is_err()
+        );
         // The wallet org flag and the topup --open flag.
         match parse(&["wallet", "balance", "--org", "01JORG"]).command {
             Command::Wallet {

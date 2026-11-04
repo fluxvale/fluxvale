@@ -164,6 +164,8 @@ pub struct AccessGatewayFilter {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub or: ::std::option::Option<::std::vec::Vec<AccessGatewayFilter>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub organization: ::std::option::Option<OrganizationFilter>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub organization_id: ::std::option::Option<AccessGatewayFilterOrganizationId>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub provider: ::std::option::Option<AccessGatewayFilterProvider>,
@@ -1738,7 +1740,26 @@ pub struct AccessGatewayFilterTailnetDomain {
 ///A relationships object for a access_gateway
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
 #[serde(deny_unknown_fields)]
-pub struct AccessGatewayRelationships {}
+pub struct AccessGatewayRelationships {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub organization: ::std::option::Option<AccessGatewayRelationshipsOrganization>,
+}
+///`AccessGatewayRelationshipsOrganization`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+pub struct AccessGatewayRelationshipsOrganization {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub data: ::std::option::Option<AccessGatewayRelationshipsOrganizationData>,
+}
+///An identifier for organization
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AccessGatewayRelationshipsOrganizationData {
+    pub id: ::std::string::String,
+    #[serde(default, skip_serializing_if = "::serde_json::Map::is_empty")]
+    pub meta: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
 ///A "Resource object" representing a app
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
@@ -6927,6 +6948,8 @@ pub struct InstanceFilter {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub or: ::std::option::Option<::std::vec::Vec<InstanceFilter>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub organization: ::std::option::Option<OrganizationFilter>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub organization_id: ::std::option::Option<InstanceFilterOrganizationId>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub port: ::std::option::Option<InstanceFilterPort>,
@@ -9144,6 +9167,8 @@ pub struct InstanceFilterStorageMountPath {
 pub struct InstanceRelationships {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub app_version: ::std::option::Option<InstanceRelationshipsAppVersion>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub organization: ::std::option::Option<InstanceRelationshipsOrganization>,
 }
 ///`InstanceRelationshipsAppVersion`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
@@ -9155,6 +9180,22 @@ pub struct InstanceRelationshipsAppVersion {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct InstanceRelationshipsAppVersionData {
+    pub id: ::std::string::String,
+    #[serde(default, skip_serializing_if = "::serde_json::Map::is_empty")]
+    pub meta: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
+///`InstanceRelationshipsOrganization`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+pub struct InstanceRelationshipsOrganization {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub data: ::std::option::Option<InstanceRelationshipsOrganizationData>,
+}
+///An identifier for organization
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct InstanceRelationshipsOrganizationData {
     pub id: ::std::string::String,
     #[serde(default, skip_serializing_if = "::serde_json::Map::is_empty")]
     pub meta: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
@@ -11383,6 +11424,195 @@ impl ::std::convert::From<::std::collections::HashMap<::std::string::String, Lin
         Self(value)
     }
 }
+///A "Resource object" representing a organization
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Organization {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub attributes: ::std::option::Option<OrganizationAttributes>,
+    pub id: ::std::string::String,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub relationships: ::std::option::Option<OrganizationRelationships>,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
+///An attributes object for a organization
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct OrganizationAttributes {
+    ///Field included by default.
+    pub name: ::std::string::String,
+    ///Field included by default.
+    pub slug: ::std::string::String,
+}
+///Filters the query to results matching the given filter object
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct OrganizationFilter {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub and: ::std::option::Option<::std::vec::Vec<OrganizationFilter>>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub id: ::std::option::Option<OrganizationFilterId>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub members: ::std::option::Option<UserFilter>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub name: ::std::option::Option<OrganizationFilterName>,
+    #[serde(default)]
+    pub not: ::std::boxed::Box<::std::option::Option<OrganizationFilter>>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub or: ::std::option::Option<::std::vec::Vec<OrganizationFilter>>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub slug: ::std::option::Option<OrganizationFilterSlug>,
+}
+///`OrganizationFilterId`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct OrganizationFilterId {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_adjacent: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_contains: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_overlaps: ::std::option::Option<::std::string::String>,
+}
+///`OrganizationFilterName`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct OrganizationFilterName {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub contains: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub ilike: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub like: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_adjacent: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_contains: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_overlaps: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub string_ends_with: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub string_starts_with: ::std::option::Option<::std::string::String>,
+}
+///`OrganizationFilterSlug`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct OrganizationFilterSlug {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub contains: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub ilike: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub like: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_adjacent: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_contains: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_overlaps: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub string_ends_with: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub string_starts_with: ::std::option::Option<::std::string::String>,
+}
+///A relationships object for a organization
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct OrganizationRelationships {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub members: ::std::option::Option<OrganizationRelationshipsMembers>,
+}
+///`OrganizationRelationshipsMembers`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+pub struct OrganizationRelationshipsMembers {
+    ///Relationship data for members
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub data: ::std::option::Option<::std::vec::Vec<OrganizationRelationshipsMembersDataItem>>,
+}
+///Resource identifiers for members
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct OrganizationRelationshipsMembersDataItem {
+    pub id: ::std::string::String,
+    #[serde(default, skip_serializing_if = "::serde_json::Map::is_empty")]
+    pub meta: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
 ///A "Resource object" representing a user
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
@@ -11468,8 +11698,8 @@ pub struct UserFilter {
     pub email: ::std::option::Option<UserFilterEmail>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub id: ::std::option::Option<UserFilterId>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub not: ::std::option::Option<::std::boxed::Box<UserFilter>>,
+    #[serde(default)]
+    pub not: ::std::boxed::Box<::std::option::Option<UserFilter>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub or: ::std::option::Option<::std::vec::Vec<UserFilter>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -12242,6 +12472,8 @@ pub struct WalletFilter {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub or: ::std::option::Option<::std::vec::Vec<WalletFilter>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub organization: ::std::option::Option<OrganizationFilter>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub organization_id: ::std::option::Option<WalletFilterOrganizationId>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub paywall_waived: ::std::option::Option<WalletFilterPaywallWaived>,
@@ -12392,6 +12624,8 @@ pub struct WalletFilterPaywallWaived {
 pub struct WalletRelationships {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub entries: ::std::option::Option<WalletRelationshipsEntries>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub organization: ::std::option::Option<WalletRelationshipsOrganization>,
 }
 ///`WalletRelationshipsEntries`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
@@ -12404,6 +12638,22 @@ pub struct WalletRelationshipsEntries {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct WalletRelationshipsEntriesDataItem {
+    pub id: ::std::string::String,
+    #[serde(default, skip_serializing_if = "::serde_json::Map::is_empty")]
+    pub meta: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
+///`WalletRelationshipsOrganization`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+pub struct WalletRelationshipsOrganization {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub data: ::std::option::Option<WalletRelationshipsOrganizationData>,
+}
+///An identifier for organization
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct WalletRelationshipsOrganizationData {
     pub id: ::std::string::String,
     #[serde(default, skip_serializing_if = "::serde_json::Map::is_empty")]
     pub meta: ::serde_json::Map<::std::string::String, ::serde_json::Value>,

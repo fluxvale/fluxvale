@@ -17,8 +17,9 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_profile: Option<String>,
     /// The organization id the wallet commands use when no --org flag
-    /// is passed. The HTTP API has no org-list route, so the id comes
-    /// from the operator (the panel or a wallet API URL).
+    /// is passed. Optional since #362 T6a: `resolve_org` auto-resolves
+    /// a single-org account via GET /organizations; pin one here when
+    /// you belong to several.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub organization_id: Option<String>,
 }
