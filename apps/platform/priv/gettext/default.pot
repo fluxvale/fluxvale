@@ -16,38 +16,38 @@ msgstr ""
 msgid "Actions"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:376
-#: lib/flux_vale_web/components/layouts.ex:391
+#: lib/flux_vale_web/components/layouts.ex:387
+#: lib/flux_vale_web/components/layouts.ex:402
 #, elixir-autogen, elixir-format
 msgid "Attempting to reconnect"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:447
+#: lib/flux_vale_web/components/layouts.ex:458
 #, elixir-autogen, elixir-format
 msgid "Dark theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:420
+#: lib/flux_vale_web/components/layouts.ex:431
 #, elixir-autogen, elixir-format
 msgid "Follow system theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:435
+#: lib/flux_vale_web/components/layouts.ex:446
 #, elixir-autogen, elixir-format
 msgid "Light theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:383
+#: lib/flux_vale_web/components/layouts.ex:394
 #, elixir-autogen, elixir-format
 msgid "Something went wrong!"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:408
+#: lib/flux_vale_web/components/layouts.ex:419
 #, elixir-autogen, elixir-format
 msgid "Theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:368
+#: lib/flux_vale_web/components/layouts.ex:379
 #, elixir-autogen, elixir-format
 msgid "We can't find the internet"
 msgstr ""
@@ -397,4 +397,9 @@ msgstr ""
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:176
 #, elixir-autogen, elixir-format
 msgid "When your credit balance runs out, your apps stop running and their charges stop with them. Stopped apps keep their storage fee, and a balance left negative for 30 days deletes your data. We email warnings 7 days and 1 day before."
+msgstr ""
+
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:352
+#, elixir-autogen, elixir-format
+msgid "Privacy"
 msgstr ""
