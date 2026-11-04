@@ -21,6 +21,7 @@ defmodule FluxValeWeb.Mcp.TransportTest do
   alias FluxValeWeb.MCP.Router
 
   @tool_names MapSet.new([
+                # the slice-1 reads
                 "whoami",
                 "list_instances",
                 "get_instance",
@@ -29,8 +30,38 @@ defmodule FluxValeWeb.Mcp.TransportTest do
                 "list_backup_runs",
                 "get_gateway",
                 "get_wallet",
-                "list_ledger_entries"
+                "list_ledger_entries",
+                # the slice-2 writes
+                "deploy_instance",
+                "stop_instance",
+                "start_instance",
+                "set_instance_always_on",
+                "set_instance_exposure",
+                "destroy_instance",
+                "configure_backups",
+                "run_backup",
+                "restore_backup",
+                "attach_instance",
+                "detach_instance",
+                "create_gateway",
+                "resume_gateway"
               ])
+
+  @write_tool_names MapSet.new([
+                      "deploy_instance",
+                      "stop_instance",
+                      "start_instance",
+                      "set_instance_always_on",
+                      "set_instance_exposure",
+                      "destroy_instance",
+                      "configure_backups",
+                      "run_backup",
+                      "restore_backup",
+                      "attach_instance",
+                      "detach_instance",
+                      "create_gateway",
+                      "resume_gateway"
+                    ])
 
   describe "POST /mcp without a token" do
     test "answers the protocol 401 with a Bearer challenge", %{conn: conn} do
@@ -64,7 +95,7 @@ defmodule FluxValeWeb.Mcp.TransportTest do
   end
 
   describe "POST /mcp with a full-scope PAT" do
-    test "lists the slice's nine read tools over SSE", %{conn: conn} do
+    test "lists the full tool catalog over SSE", %{conn: conn} do
       {_user, pat} = ApiPat.member!()
 
       conn = list_tools(conn, pat)
@@ -79,9 +110,49 @@ defmodule FluxValeWeb.Mcp.TransportTest do
       names = Enum.map(tools, &Map.fetch!(&1, "name"))
       assert MapSet.new(names) == @tool_names
 
-      # The agent-facing annotations ride the listing: every slice-1
-      # tool is a read.
-      assert Enum.all?(tools, fn tool -> tool["annotations"]["readOnlyHint"] == true end)
+      # The agent-facing annotations ride the listing: the slice-1
+      # reads hint read-only; the writes don't — and the two
+      # destructive pair members carry the destructive hint.
+      {reads, writes} =
+        Enum.split_with(tools, fn tool ->
+          annotations = tool["annotations"]
+          annotations["readOnlyHint"] == true
+        end)
+
+      read_names =
+        reads
+        |> Enum.map(& &1["name"])
+        |> MapSet.new()
+
+      assert read_names ==
+               MapSet.new([
+                 "whoami",
+                 "list_instances",
+                 "get_instance",
+                 "list_apps",
+                 "get_backup_settings",
+                 "list_backup_runs",
+                 "get_gateway",
+                 "get_wallet",
+                 "list_ledger_entries"
+               ])
+
+      write_names =
+        writes
+        |> Enum.map(& &1["name"])
+        |> MapSet.new()
+
+      assert write_names == @write_tool_names
+
+      destructive =
+        tools
+        |> Enum.filter(fn tool ->
+          annotations = tool["annotations"]
+          annotations["destructiveHint"] == true
+        end)
+        |> Enum.map(& &1["name"])
+
+      assert MapSet.new(destructive) == MapSet.new(["restore_backup", "destroy_instance"])
 
       # Descriptions are agent-facing prose, never nil.
       assert Enum.all?(tools, fn tool -> is_binary(tool["description"]) end)

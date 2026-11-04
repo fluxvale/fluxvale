@@ -49,9 +49,13 @@ defmodule FluxVale.TestSupport.Mcp do
     # 2026-07-28 validates the protocol version from BOTH the header
     # and the per-request `_meta`, and the meta must also carry the
     # client's capabilities object — a stateless POST carries all three.
+    # `:capabilities` deepens the defaults (the confirmation tests
+    # declare elicitation support — an input_required result refuses
+    # without it).
     meta = %{
       "io.modelcontextprotocol/protocolVersion" => @proto,
-      "io.modelcontextprotocol/clientCapabilities" => %{}
+      "io.modelcontextprotocol/clientCapabilities" =>
+        Map.merge(%{}, Keyword.get(opts, :capabilities, %{}))
     }
 
     base_post(conn, pat, method, params,
@@ -155,10 +159,30 @@ defmodule FluxVale.TestSupport.Mcp do
     post(conn, pat, "tools/list", %{}, opts)
   end
 
-  @doc "Calls one tool through the transport."
-  def call_tool(conn, pat, name, args) do
-    post(conn, pat, "tools/call", %{"name" => name, "arguments" => args})
+  @doc """
+  Calls one tool through the transport. The confirmation tools'
+  follow-up call rides `:input_responses` (the answers keyed by the
+  input request) and `:request_state` (the encrypted blob from the
+  `input_required` result) — both land at params level, exactly where
+  the spec puts them. `:capabilities` deepens the client capability
+  object (`%{"elicitation" => %{}}` for the confirm round-trips).
+  """
+  def call_tool(conn, pat, name, args, opts \\ []) do
+    params =
+      %{"name" => name, "arguments" => args}
+      |> maybe_put_param("inputResponses", opts[:input_responses])
+      |> maybe_put_param("requestState", opts[:request_state])
+
+    post_opts =
+      opts
+      |> Keyword.take([:legacy, :protocol_version, :authorization, :id, :capabilities])
+      |> Keyword.put(:capabilities, Keyword.get(opts, :capabilities, %{}))
+
+    post(conn, pat, "tools/call", params, post_opts)
   end
+
+  defp maybe_put_param(params, _key, nil), do: params
+  defp maybe_put_param(params, key, value), do: Map.put(params, key, value)
 
   @doc """
   The decoded JSON-RPC messages from the SSE stream — one per
