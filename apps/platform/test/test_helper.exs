@@ -16,6 +16,11 @@ if Mix.env() == :test do
   # the delivery process isn't the test's own (the LiveView reconcile)
   # or the failure arm is asserted.
   Mimic.copy(FluxVale.Mailer)
+  # The org-context top-up suite (#408) stubs the provider seam (the
+  # Tailscale stance) so its LiveView tests stay async — the personal
+  # wizard suite's Req-level stubs ride the :hitpay app-env block and
+  # keep async: false.
+  Mimic.copy(FluxVale.Billing.Providers.HitPay)
   # HitPay adapter tests stub Req the same way (v1's Dodo pattern: the
   # client translates HTTP/network failures; tests assert the atoms)
   Mimic.copy(Req)
