@@ -254,12 +254,14 @@ defmodule FluxValeWeb.Router do
     # better shared URL.
     get("/roadmap", FeedbackController, :roadmap)
 
+    # #412 T5: the composer — the fixed path the comment below reserved,
+    # declared BEFORE :show's /feedback/:slug (router clauses compile in
+    # source order, and a later fixed route would be eaten by the :slug
+    # route — the /blog/feed lesson).
+    live("/feedback/new", FeedbackLive.Composer)
+
     # #412 T4: the public feedback board — the same SSR pattern as the
-    # catalog above. If a FIXED path under /feedback ever joins (a
-    # composer at /feedback/new, say), declare it BEFORE :show's
-    # /feedback/:slug below — router clauses compile in source order,
-    # and a later fixed route would be eaten by the :slug route (the
-    # /blog/feed lesson).
+    # catalog above.
     get("/feedback", FeedbackController, :index)
     get("/feedback/:slug", FeedbackController, :show)
   end

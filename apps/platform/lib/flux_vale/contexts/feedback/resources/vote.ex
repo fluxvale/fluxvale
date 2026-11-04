@@ -128,6 +128,10 @@ defmodule FluxVale.Feedback.Vote do
     domain(FluxVale.Feedback)
 
     define(:cast)
+
+    # The island's retract rides the seam like cast (T5); AshAdmin's
+    # row delete keeps the primary :destroy.
+    define(:retract)
   end
 
   identities do

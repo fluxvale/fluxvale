@@ -40,6 +40,13 @@ defmodule FluxVale.Accounts do
     to: FluxVale.Accounts.Operations.OrganizationsForUser,
     as: :call
 
+  # The orgs a user OWNS (the feedback islands' picker, #412 T5) —
+  # distinct from organizations_for_user above: mere membership is not
+  # the write gate, ownership is.
+  defdelegate owned_orgs_for_user(user_id, opts \\ []),
+    to: FluxVale.Accounts.Operations.OwnedOrgsForUser,
+    as: :call
+
   defdelegate create_organization(user, params),
     to: FluxVale.Accounts.Operations.CreateOrganization,
     as: :call
