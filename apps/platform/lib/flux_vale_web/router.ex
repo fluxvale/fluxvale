@@ -72,6 +72,52 @@ defmodule FluxValeWeb.Router do
     plug(FluxValeWeb.Plugs.PinOpenApiRender)
   end
 
+  # #361 (ADR-0019 §3): the MCP transport — stateless POST /mcp,
+  # protocol rev 2026-07-28 only. PAT bearer resolves in Authenticate;
+  # audit + rate limit ride exactly as on /api/v1 (every
+  # PAT-authenticated call is counted, denials included). NO
+  # RequireActor: the protocol-correct 401 (WWW-Authenticate challenge)
+  # comes from the MCP router's connect/2. NO AuthorizeApiScopes:
+  # path-keyed scopes are meaningless for one path — scopes gate at the
+  # tool layer (connect/2 filters the session's tool list; handlers
+  # re-check per dispatch).
+  pipeline :mcp do
+    plug(:accepts, ["json", "sse"])
+    # Authenticate's session fallback reads the session unconditionally
+    # (no PAT bearer ⇒ the cookie lookup) — the fetch rides like on
+    # :api_auth. MCP is PAT-only de facto: connect/2 requires the PAT
+    # row, so a session-resolved user still answers 401.
+    plug(:fetch_session)
+
+    # NO Plug.Parsers here — the endpoint already parsed the body
+    # (pass ["*/*"], RawBody body_reader). phantom refuses to dispatch
+    # an unparsed body, and enforces its own 1 MiB request cap via
+    # max_request_size on the forward below.
+    plug(FluxValeWeb.Plugs.Authenticate)
+    plug(FluxValeWeb.Plugs.ApiAudit)
+    plug(FluxValeWeb.Plugs.ApiRateLimit)
+  end
+
+  scope "/mcp" do
+    pipe_through(:mcp)
+
+    forward("/", Phantom.Plug,
+      router: FluxValeWeb.MCP.Router,
+      # Browsers are the DNS-rebinding surface; MCP clients send no
+      # Origin at all (phantom allows its absence). Validation rides
+      # prod builds only — dev/test tools shouldn't need origin
+      # gymnastics. The allowlist is application env (config.exs
+      # canonical default; runtime.exs override per deployment):
+      # the MFA resolves it per request, so a runtime override needs
+      # no rebuild.
+      validate_origin: Mix.env() == :prod,
+      origins: {FluxValeWeb.MCP.Origins, :allowed?, []},
+      # phantom's own body cap (1 MiB) — pinned explicitly so the
+      # limit is visible where the pipeline lives.
+      max_request_size: 1_000_000
+    )
+  end
+
   scope "/", FluxValeWeb do
     pipe_through(:api)
 

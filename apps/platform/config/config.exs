@@ -7,9 +7,16 @@
 # General application configuration
 import Config
 
+# "sse" is phantom_mcp's streaming media type (#361): the :mcp pipeline
+# negotiates it through accepts/2. Both entries share ONE types map — a
+# second config call's :types REPLACES this one (no deep merge across
+# calls), which would silently drop the JSON:API mapping Mime compiles
+# for `Accept: application/vnd.api+json`. Mime compiles this table, so
+# it must exist before the first build (adding it later needs
+# `mix deps.clean mime --build`).
 config :mime,
   extensions: %{"json" => "application/vnd.api+json"},
-  types: %{"application/vnd.api+json" => ["json"]}
+  types: %{"application/vnd.api+json" => ["json"], "text/event-stream" => ["sse"]}
 
 config :ash_json_api,
   show_public_calculations_when_loaded?: false,
@@ -257,13 +264,23 @@ config :flux_vale,
     # charge; the no-real-charge e2e enables it per the runbook.
     allow_discount_codes: false,
     server: "sandbox"
-  ],
-  # SEO canonical identity (#164, ADR-00025): canonical links, og:url, the
-  # sitemap and the noindex host check all read these — the prod origin is
-  # the truth regardless of the serving host (staging serves prod URLs by
-  # design). One place; helpers never hardcode either value.
-  canonical_origin: "https://fluxvale.com",
+  ]
+
+# SEO canonical identity (#164, ADR-00025): canonical links, og:url, the
+# sitemap and the noindex host check all read these — the prod origin is
+# the truth regardless of the serving host (staging serves prod URLs by
+# design). One place; helpers never hardcode either value.
+canonical_origin = "https://fluxvale.com"
+
+config :flux_vale,
+  canonical_origin: canonical_origin,
   canonical_host: "fluxvale.com"
+
+# #361 (ADR-0019 §3): the MCP endpoint's browser-origin allowlist.
+# Default: the canonical prod origin only. The deployment serves this
+# list per request (FluxValeWeb.MCP.Origins, phantom's origins MFA), so
+# a config/runtime.exs override (staging, PR envs) needs no rebuild.
+config :flux_vale, :mcp_origins, [canonical_origin]
 
 # Configure the endpoint
 config :flux_vale, FluxValeWeb.Endpoint,

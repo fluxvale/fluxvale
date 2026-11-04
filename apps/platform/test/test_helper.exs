@@ -61,6 +61,9 @@ if Mix.env() == :test do
   Mimic.copy(FluxVale.Infrastructure.Operations.RenderAccessDNS)
   Mimic.copy(FluxVale.Clients.K8s.Resources.Pod)
   Mimic.copy(FluxVale.Clients.K8s.Resources.ConfigMap)
+  # The MCP transport suite stubs the AccessRules re-check (the
+  # mid-request rule-landing window).
+  Mimic.copy(FluxVale.Ops.AccessRules)
 
   Ecto.Adapters.SQL.Sandbox.mode(FluxVale.Repo, :manual)
 end

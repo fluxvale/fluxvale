@@ -8,6 +8,8 @@
     :ecto,
     :ecto_sql,
     :phoenix,
+    # keeps the MCP router DSL (#361) paren-free, like the app's
+    :phantom_mcp,
     # keeps the storybook DSL (#178) paren-free, like the app's
     :phoenix_storybook
   ],
