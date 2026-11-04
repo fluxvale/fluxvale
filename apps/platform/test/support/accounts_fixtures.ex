@@ -39,8 +39,8 @@ defmodule FluxVale.TestSupport.AccountsFixtures do
   redirect to the personal account's surfaces), so tests exercising
   those pages ride a real org. Org + `:owner` membership ride the
   actions with `authorize?: false` — the bootstrap posture, mirroring
-  seeds (memberships are system-created; nothing in the system makes a
-  team org yet).
+  seeds (system writers only; the actor-reachable `create_with_owner`
+  path exists but these preconditions stay authorize-free).
   """
   @spec owned_org!(User.t()) :: FluxVale.Accounts.Organization.t()
   def owned_org!(%User{} = user) do

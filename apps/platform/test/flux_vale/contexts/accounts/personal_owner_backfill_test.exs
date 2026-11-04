@@ -82,6 +82,24 @@ defmodule FluxVale.Accounts.Organization.PersonalOwnerBackfillTest do
       assert marked_owner(org) == Enum.min([one.id, two.id])
     end
 
+    test "a :member-only row is never a candidate — the later owned org derives" do
+      # The PR #420 hostile-review shape: the user's EARLIEST org holds
+      # only a :member grant. The candidates CTE reads :owner rows
+      # alone, so the :member row proposes nothing — the derivation
+      # lands on the later org, the only one they own.
+      user = orgless_user!("member-first")
+      earlier = backdated_org!("member-earlier", @t0)
+      later = backdated_org!("owner-later", DateTime.add(@t0, 1, :second))
+
+      seeded_membership!(earlier, user, @t0, :member)
+      owner_membership!(user, later)
+
+      :ok = PersonalOwnerBackfill.run()
+
+      assert marked_owner(earlier) == nil
+      assert marked_owner(later) == user.id
+    end
+
     test "a user with no owned org stays unmarked" do
       user = orgless_user!("orgless")
 
@@ -172,12 +190,13 @@ defmodule FluxVale.Accounts.Organization.PersonalOwnerBackfillTest do
 
   # Forced join times: created_at is a write-time timestamp actions
   # cannot set, and the winner rule orders on it — seed! territory
-  # (members_test's posture).
-  defp seeded_membership!(org, user, created_at) do
+  # (members_test's posture). Role defaults to :owner; the :member arm
+  # pins the backfill's owner-only candidate filter.
+  defp seeded_membership!(org, user, created_at, role \\ :owner) do
     Ash.Seed.seed!(Membership, %{
       organization_id: org.id,
       user_id: user.id,
-      role: :owner,
+      role: role,
       created_at: created_at,
       updated_at: created_at
     })

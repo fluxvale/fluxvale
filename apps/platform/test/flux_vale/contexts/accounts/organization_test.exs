@@ -39,6 +39,25 @@ defmodule FluxVale.Accounts.OrganizationTest do
     end
   end
 
+  describe "create_with_owner policy (the #408 actor path)" do
+    test "no actor is forbidden" do
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Organization
+               |> Ash.Changeset.for_create(:create_with_owner, %{name: "Nope", slug: "no-actor"})
+               |> Ash.create(actor: nil)
+    end
+
+    test "a non-user actor shape stays forbidden (the cap check pins the User struct)" do
+      # actor_present() passes for any non-nil actor, so the cap check
+      # is what must refuse: it counts orgs for %User{} actors only —
+      # a duck-typed map would own zero orgs and slip through.
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Organization
+               |> Ash.Changeset.for_create(:create_with_owner, %{name: "Nope", slug: "map-actor"})
+               |> Ash.create(actor: %{id: Ash.UUID.generate()})
+    end
+  end
+
   describe "reads" do
     test "members read their orgs; strangers see only their own" do
       user = AccountsFixtures.user!()
