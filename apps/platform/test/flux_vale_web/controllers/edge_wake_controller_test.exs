@@ -143,7 +143,7 @@ defmodule FluxValeWeb.EdgeWakeControllerTest do
       |> put_req_header(@header, instance.id)
       |> post("/_fluxvale_edge/edge-wake-path", %{"form" => "data"})
 
-    assert response(conn, 503) =~ "resend"
+    assert response(conn, 503) =~ "Resend the request shortly"
     assert get_resp_header(conn, "retry-after") == ["3"]
 
     waking = Instance.get_by_id!(instance.id, authorize?: false)
@@ -171,7 +171,7 @@ defmodule FluxValeWeb.EdgeWakeControllerTest do
       |> put_req_header(@header, running.id)
       |> post("/_fluxvale_edge/path", %{})
 
-    assert response(running_conn, 503) =~ "resend"
+    assert response(running_conn, 503) =~ "Resend the request shortly"
 
     ghost = "00000000-0000-7000-8000-000000000000"
 
@@ -350,7 +350,7 @@ defmodule FluxValeWeb.EdgeWakeControllerTest do
       |> put_req_header(@header, restoring.id)
       |> post("/_fluxvale_edge/path", %{})
 
-    assert response(conn, 503) =~ "resend"
+    assert response(conn, 503) =~ "Resend the request shortly"
     assert Instance.get_by_id!(restoring.id, authorize?: false).status == :restoring
   end
 
@@ -370,7 +370,7 @@ defmodule FluxValeWeb.EdgeWakeControllerTest do
       |> put_req_header(@header, instance.id)
       |> get("/_fluxvale_edge/edge-wake-path")
 
-    assert response(conn, 503) =~ "retrying the switch"
+    assert response(conn, 503) =~ "Retrying the switch"
   end
 
   # Through the real endpoint dispatch: the EdgeHost plug rewrites a

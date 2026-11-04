@@ -64,7 +64,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.RepasteCredential do
           )
 
           Ash.Changeset.add_error(changeset,
-            message: "Couldn't update the access key — try again"
+            message: "Couldn't update the access key. Try again"
           )
       end
     end)

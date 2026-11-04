@@ -109,7 +109,7 @@ defmodule FluxValeWeb.MCP.Router do
       enum: ["yes", "no"],
       required: true,
       title: "Confirm",
-      description: "yes runs it; no cancels without changing anything"
+      description: "Yes runs it. No cancels without changing anything"
     }
   ]
 
@@ -828,7 +828,7 @@ defmodule FluxValeWeb.MCP.Router do
          {:ok, _gone} <- instance_action(:delete, %{id: id}, user) do
       {:reply,
        Phantom.Tool.text(
-         "destroy accepted — teardown is queued; a deployed instance reads :deleting until its volume data and Kubernetes resources are removed, then the row goes; a never-deployed row is gone now"
+         "destroy accepted. Teardown is queued. A deployed instance reads :deleting until its volume data and Kubernetes resources are removed, then the row goes. A never-deployed row is gone now"
        ), session}
     else
       other -> tool_error(session, other)
@@ -838,7 +838,7 @@ defmodule FluxValeWeb.MCP.Router do
   # Any other resume answer — the form's "no", a decline, a cancel —
   # ends the call with nothing touched.
   def destroy_instance(_params, %Phantom.Session{state: %{step: :confirming_destroy}} = session) do
-    {:reply, Phantom.Tool.text("cancelled — nothing was changed"), session}
+    {:reply, Phantom.Tool.text("cancelled. Nothing was changed"), session}
   end
 
   # First call: resolve the instance (the not-found posture surfaces
@@ -849,7 +849,7 @@ defmodule FluxValeWeb.MCP.Router do
            Instance.get_by_id(params["id"], actor: session.assigns.user, authorize?: true) do
       ask_confirm(session, :confirming_destroy, %{instance_id: instance.id},
         message:
-          "destroy instance #{instance.name} (#{instance.slug}) — all data is deleted; confirm?"
+          "destroy instance #{instance.name} (#{instance.slug}). All data is deleted. Confirm?"
       )
     else
       other -> tool_error(session, other)
@@ -1001,7 +1001,7 @@ defmodule FluxValeWeb.MCP.Router do
   end
 
   def restore_backup(_params, %Phantom.Session{state: %{step: :confirming_restore}} = session) do
-    {:reply, Phantom.Tool.text("cancelled — nothing was changed"), session}
+    {:reply, Phantom.Tool.text("cancelled. Nothing was changed"), session}
   end
 
   def restore_backup(params, session) do
@@ -1014,7 +1014,7 @@ defmodule FluxValeWeb.MCP.Router do
         %{instance_id: instance.id, backup_run_id: params["backup_run_id"]},
         message:
           "restore snapshot #{params["backup_run_id"]} onto instance #{instance.name} " <>
-            "(#{instance.slug}) — the current volume state is OVERWRITTEN; confirm?"
+            "(#{instance.slug}). The current volume state is OVERWRITTEN. Confirm?"
       )
     else
       other -> tool_error(session, other)
@@ -1165,7 +1165,7 @@ defmodule FluxValeWeb.MCP.Router do
     reason.errors
     |> Enum.map(&leaf_message/1)
     |> Enum.uniq()
-    |> Enum.join("; ")
+    |> Enum.join("\n")
   end
 
   # The leaves render through their own words: most carry a message

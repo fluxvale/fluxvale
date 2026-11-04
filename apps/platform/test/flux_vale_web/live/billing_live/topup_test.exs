@@ -260,7 +260,7 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
 
       assert has_element?(view, "#country-option-7")
       refute has_element?(view, "#country-option-8")
-      assert render(element(view, "[data-testid='topup-country-more']")) =~ "more — keep typing"
+      assert render(element(view, "[data-testid='topup-country-more']")) =~ "more. Keep typing"
     end
 
     test "clicking an option stores the exact code and closes the list", %{conn: conn} do
@@ -334,7 +334,7 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       # Nothing chosen yet: the list reopens on the top of the dataset.
       keydown(view, "ArrowDown")
       assert has_element?(view, "#country-listbox")
-      assert render(element(view, "[data-testid='topup-country-more']")) =~ "more — keep typing"
+      assert render(element(view, "[data-testid='topup-country-more']")) =~ "more. Keep typing"
       keydown(view, "Escape")
 
       # After a selection it reopens filtered to the stored code.

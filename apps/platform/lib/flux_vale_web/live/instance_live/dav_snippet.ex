@@ -86,7 +86,7 @@ defmodule FluxValeWeb.InstanceLive.DavSnippet do
       %{
         title: "Install rclone (only if needed)",
         command: "winget install Rclone.Rclone",
-        note: "PowerShell — or scoop install rclone · choco install rclone."
+        note: "PowerShell. Or scoop install rclone, or choco install rclone."
       },
       %{
         title: "Create the local source",
@@ -108,7 +108,7 @@ defmodule FluxValeWeb.InstanceLive.DavSnippet do
       %{
         title: "Install rclone (only if needed)",
         command: "brew install rclone",
-        note: "Via Homebrew (brew.sh) — rclone.org has direct downloads."
+        note: "Via Homebrew (brew.sh). rclone.org has direct downloads."
       },
       %{title: "Create the local source", command: "mkdir -p ~/Books", note: source_note()},
       connect_step(values, :continued),
@@ -312,12 +312,12 @@ defmodule FluxValeWeb.InstanceLive.DavSnippet do
       <div class="space-y-1 text-xs text-ink-subtle">
         <p>
           <span class="font-medium text-ink-muted">Keeping it updated:</span>
-          <code>rclone copy</code> is incremental and never deletes — re-run it after adding or
-          changing files locally; new and changed files upload.
+          <code>rclone copy</code> is incremental and never deletes. Re-run it after adding or
+          changing files locally, and new and changed files upload.
         </p>
         <p>
           <span class="font-medium text-ink-muted">After uploading:</span>
-          tell the app — register the folder in its settings and trigger a scan (Kavita:
+          tell the app. Register the folder in its settings and trigger a scan (Kavita:
           Settings → Libraries → add the path, then Scan).
         </p>
       </div>
@@ -371,11 +371,11 @@ defmodule FluxValeWeb.InstanceLive.DavSnippet do
     %{
       title: "Verify",
       command: "rclone lsd #{values.remote}:",
-      note: "Lists the instance's root directories — auth and URL proven before any transfer."
+      note: "Lists the instance's root directories. Auth and URL proven before any transfer."
     }
   end
 
   defp source_note do
-    "Books is an example — any local folder works; the copy step uses the same one."
+    "Books is an example. Any local folder works, and the copy step uses the same one."
   end
 end

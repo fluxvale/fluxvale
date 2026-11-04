@@ -1491,7 +1491,7 @@ defmodule FluxValeWeb.CoreComponents do
   # degenerate address is "" (#308 review), the same dangling
   # "Personal — " hazard as nil (#285 T6 review).
   defp personal_label(username) when username in [nil, ""], do: "Personal"
-  defp personal_label(username), do: "Personal — #{username}"
+  defp personal_label(username), do: "Personal · #{username}"
 
   # The personal row IS the user's account (S5) — it targets the
   # dashboard, the surface its instances and balance already live on;

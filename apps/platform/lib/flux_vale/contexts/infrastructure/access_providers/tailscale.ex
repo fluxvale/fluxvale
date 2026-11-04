@@ -943,7 +943,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
           {:ok,
            %{
              state: :needs_attention,
-             message: "Not connected — your access setup was lost; reconnect with a fresh key"
+             message: "Not connected. Your access setup was lost. Reconnect with a fresh key"
            }}
         end
 
@@ -963,7 +963,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
       {:ok, %{state: :active, message: "Connected to your tailnet"}}
     else
       {:ok,
-       %{state: :needs_attention, message: "Not connected — check the access key and reconnect"}}
+       %{state: :needs_attention, message: "Not connected. Check the access key and reconnect"}}
     end
   end
 
@@ -981,10 +981,10 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # 403 (:forbidden): authenticated but scope-less — the copy NAMES the
   # three scopes claiming needs, because a fresh key without them
   # fails the same way again.
-  @token_rejected_message "Your Tailscale API key was rejected — paste a fresh one"
+  @token_rejected_message "Your Tailscale API key was rejected. Paste a fresh one"
 
   @token_scope_message ~s(Your Tailscale API key is missing the permissions FluxVale needs ) <>
-                         ~s(dns, devices:routes, devices:core:read — paste a fresh key with them)
+                         ~s(dns, devices:routes, devices:core:read. Paste a fresh key with them)
 
   @spec token_drift_message(:unauthorized | :forbidden) :: String.t()
   def token_drift_message(:unauthorized), do: @token_rejected_message

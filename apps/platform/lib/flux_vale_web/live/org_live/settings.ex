@@ -125,10 +125,10 @@ defmodule FluxValeWeb.OrganizationLive.Settings do
             put_flash(
               socket,
               :error,
-              "This organization changed underneath you — reload to continue."
+              "This organization changed underneath you. Reload to continue."
             )
           else
-            put_flash(socket, :error, "Could not save — check the errors below.")
+            put_flash(socket, :error, "Could not save. Check the errors below.")
           end
 
         {:noreply, assign(socket, form: form, pending_slug: nil)}

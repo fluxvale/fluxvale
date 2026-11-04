@@ -108,7 +108,7 @@ defmodule FluxValeWeb.Api.DeviceFlowController do
       {:error, :slow_down} ->
         Logger.info("device poll: slow_down")
 
-        oauth_error(conn, :slow_down, "polled sooner than the interval — back off 5 seconds")
+        oauth_error(conn, :slow_down, "polled sooner than the interval. Back off 5 seconds")
 
       {:error, :access_denied} ->
         Logger.info("device poll: access_denied")

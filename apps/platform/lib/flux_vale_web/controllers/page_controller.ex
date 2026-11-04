@@ -38,7 +38,7 @@ defmodule FluxValeWeb.PageController do
     |> assign(:canonical_path, canonical_path)
     |> assign(
       :page_title,
-      gettext("FluxVale — Managed cloud platform for open source applications")
+      gettext("FluxVale, managed cloud platform for open source applications")
     )
     |> assign(
       :page_description,
@@ -61,7 +61,7 @@ defmodule FluxValeWeb.PageController do
 
   defp dashboard(conn) do
     conn
-    |> assign(:page_title, "FluxVale — Dashboard")
+    |> assign(:page_title, "FluxVale Dashboard")
     |> assign(:page_description, "Your instances, balance, and runway at a glance.")
     |> live_render(DashboardLive, session: get_session(conn))
   end

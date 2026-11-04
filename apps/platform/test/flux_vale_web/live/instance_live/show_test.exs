@@ -432,7 +432,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
 
     assert has_element?(view, "[data-testid=status-badge]", "Submitted")
-    assert has_element?(view, "[data-testid='status-message']", "setup will begin shortly")
+    assert has_element?(view, "[data-testid='status-message']", "Setup will begin shortly")
 
     deploying = InstanceFixtures.walk_to!(instance, :deploying)
     render(view)
@@ -1375,7 +1375,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       assert has_element?(
                view,
                "[data-testid='dav-client-hint']",
-               "browsers can't browse this endpoint"
+               "Browsers can't browse this endpoint"
              )
 
       assert has_element?(

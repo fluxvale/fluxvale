@@ -777,7 +777,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
 
       assert marked.state == :needs_attention
       assert marked.needs_attention_since
-      assert marked.status_message =~ "try connecting again"
+      assert marked.status_message =~ "Try connecting again"
     end
 
     test ":teardown exhaustion stays :destroying so billing cannot resurrect it", %{org: org} do
@@ -790,7 +790,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       # that state, so a failed removal would be re-observed as a live
       # gateway and start billing the org that just opted out.
       assert marked.state == :destroying
-      assert marked.status_message =~ "retry removing"
+      assert marked.status_message =~ "Removal failed. Retry removing"
     end
   end
 

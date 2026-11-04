@@ -140,20 +140,10 @@ msgstr ""
 msgid "One flat rate, no surprises"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:210
-#, elixir-autogen, elixir-format
-msgid "One guided flow from app to live URL — no YAML, no servers to babysit."
-msgstr ""
-
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:177
 #: lib/flux_vale_web/live/pricing_calculator_live.ex:120
 #, elixir-autogen, elixir-format
 msgid "Pick an app"
-msgstr ""
-
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:91
-#, elixir-autogen, elixir-format
-msgid "Pick an open source app, deploy it in minutes, and FluxVale keeps it running — updates and monitoring included."
 msgstr ""
 
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:44
@@ -220,11 +210,6 @@ msgstr ""
 msgid "Digital library for comics, manga, and ebooks"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_controller.ex:41
-#, elixir-autogen, elixir-format
-msgid "FluxVale — Managed cloud platform for open source applications"
-msgstr "xx: FluxVale — Managed cloud platform for open source applications"
-
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:187
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:241
 #, elixir-autogen, elixir-format
@@ -261,7 +246,7 @@ msgstr ""
 msgid "%{rate}/mo per verified domain, billed hourly"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/catalog_html.ex:37
+#: lib/flux_vale_web/controllers/catalog_html.ex:29
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:60
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:95
 #: lib/flux_vale_web/live/catalog_live/show.ex:221
@@ -443,6 +428,21 @@ msgstr ""
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:352
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Privacy"
+msgstr ""
+
+#: lib/flux_vale_web/controllers/page_controller.ex:41
+#, elixir-autogen, elixir-format
+msgid "FluxVale, managed cloud platform for open source applications"
+msgstr "xx: FluxVale, managed cloud platform for open source applications"
+
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:210
+#, elixir-autogen, elixir-format, fuzzy
+msgid "One guided flow from app to live URL. No YAML, no servers to babysit."
+msgstr ""
+
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:91
+#, elixir-autogen, elixir-format, fuzzy
+msgid "Pick an open source app, deploy it in minutes, and FluxVale keeps it running, updates and monitoring included."
 msgstr ""
 
 #: lib/flux_vale_web/controllers/catalog_html/show.html.heex:99

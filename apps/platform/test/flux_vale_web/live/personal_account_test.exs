@@ -147,7 +147,7 @@ defmodule FluxValeWeb.PersonalAccountTest do
     assert has_element?(
              view,
              "[data-testid='access-explainer']",
-             "every app on your account"
+             "every app in your organization"
            )
 
     # The panel bills the personal org: the top-up hint (drained below)

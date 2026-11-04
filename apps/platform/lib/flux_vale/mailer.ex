@@ -50,7 +50,7 @@ defmodule FluxVale.Mailer do
     |> Swoosh.Email.text_body("""
     #{coverage}
 
-    Add credits from the Billing page to keep your instances running. At zero, running instances stop automatically — your data stays, and they start again once the balance is positive.
+    Add credits from the Billing page to keep your instances running. At zero, running instances stop automatically. Your data stays, and they start again once the balance is positive.
     """)
     |> deliver()
   end
@@ -73,7 +73,7 @@ defmodule FluxVale.Mailer do
     |> Swoosh.Email.text_body("""
     Your wallet balance has been negative with your instances stopped, and the redemption window is closing.
 
-    On #{date} the stopped instances — and the data they store — will be deleted for good. Top up the wallet before then to keep them; they start again as soon as the balance is positive.
+    On #{date} the stopped instances, and the data they store, will be deleted for good. Top up the wallet before then to keep them. They start again as soon as the balance is positive.
     """)
     |> deliver()
   end

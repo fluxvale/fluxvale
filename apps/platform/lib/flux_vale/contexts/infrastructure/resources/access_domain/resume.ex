@@ -86,7 +86,7 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
   # The one honest copy the provider does not own (Tailscale carries
   # the REJECTED-key copy; a MISSING key has no provider verdict to
   # quote — this module owns it, the constants rule).
-  @missing_token_message "Your Tailscale API key is missing — paste one to reconnect access"
+  @missing_token_message "Your Tailscale API key is missing. Paste one to reconnect access"
 
   # The drift kind threads from the after_action hook to the
   # after_transaction hook through the process dictionary: both run on

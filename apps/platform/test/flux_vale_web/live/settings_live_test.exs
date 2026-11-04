@@ -90,7 +90,7 @@ defmodule FluxValeWeb.SettingsLiveTest do
     # the chrome follows: the menu's name line AND the switcher's
     # Personal row read the new handle
     assert has_element?(view, "[data-testid='user-menu-panel']", "brand-new-handle")
-    assert has_element?(view, "[data-testid='org-switcher-panel']", "Personal — brand-new-handle")
+    assert has_element?(view, "[data-testid='org-switcher-panel']", "Personal · brand-new-handle")
   end
 
   test "an invalid rename shows the field error and never arms", %{conn: conn, user: user} do
@@ -463,7 +463,7 @@ defmodule FluxValeWeb.SettingsLiveTest do
       |> form("#add-email-form", address: denied)
       |> render_submit()
 
-    assert result =~ "ask an admin for access"
+    assert result =~ "Ask an admin for access"
     assert [] == mine_rows(user, denied)
     refute_received {:email, %Swoosh.Email{}}
   end
@@ -497,7 +497,7 @@ defmodule FluxValeWeb.SettingsLiveTest do
       |> form("#add-email-form", address: address)
       |> render_submit()
 
-    assert result =~ "please wait a minute, then try again"
+    assert result =~ "Please wait a minute, then try again"
     assert [] == mine_rows(user, address)
   end
 

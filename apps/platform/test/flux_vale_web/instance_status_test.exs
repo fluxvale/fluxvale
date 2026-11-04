@@ -65,7 +65,7 @@ defmodule FluxValeWeb.InstanceStatusTest do
       instance = InstanceFixtures.instance!(version, user)
 
       assert InstanceStatus.message(instance) ==
-               "We've got your request — setup will begin shortly."
+               "We've got your request. Setup will begin shortly."
 
       running = InstanceFixtures.walk_to!(instance, :running)
       assert InstanceStatus.message(running) == "Your app is up and running."
@@ -91,7 +91,7 @@ defmodule FluxValeWeb.InstanceStatusTest do
         )
 
       assert InstanceStatus.message(stale) ==
-               "This is taking longer than usual — we're still working on it."
+               "This is taking longer than usual. We're still working on it."
     end
 
     test "a start (no deployed_at) reads its clock off updated_at", %{version: version} do
@@ -194,7 +194,7 @@ defmodule FluxValeWeb.InstanceStatusTest do
         )
 
       assert InstanceStatus.message(failed) ==
-               "Something went wrong on our side. Try again — if it keeps happening, we're on it."
+               "Something went wrong on our side. Try again. If it keeps happening, we're on it."
     end
 
     # #196: the lost copy says what happened, that billing stopped, and

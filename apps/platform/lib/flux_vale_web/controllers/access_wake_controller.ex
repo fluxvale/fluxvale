@@ -167,7 +167,7 @@ defmodule FluxValeWeb.AccessWakeController do
     respond(
       conn,
       :service_unavailable,
-      "This app is having a backup restored — it will be back when that finishes.",
+      "This app is having a backup restored. It will be back when that finishes.",
       refresh_seconds: @status_refresh_seconds
     )
   end
@@ -325,16 +325,16 @@ defmodule FluxValeWeb.AccessWakeController do
     if html_client?(conn) do
       wake_page(conn, instance)
     else
-      respond(conn, :service_unavailable, "waking up — retry shortly")
+      respond(conn, :service_unavailable, "waking up. Retry shortly")
     end
   end
 
   defp retry_signal(conn) do
-    respond(conn, :service_unavailable, "waking up — resend the request shortly")
+    respond(conn, :service_unavailable, "waking up. Resend the request shortly")
   end
 
   defp unfunded_signal(conn) do
-    respond(conn, :service_unavailable, "asleep — the owner's balance needs a top-up to wake it")
+    respond(conn, :service_unavailable, "asleep. The owner's balance needs a top-up to wake it")
   end
 
   # The interstitial: JS-free (meta refresh re-requests this endpoint

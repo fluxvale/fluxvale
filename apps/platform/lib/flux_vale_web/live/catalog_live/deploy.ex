@@ -234,7 +234,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
               </script>
 
               <p :if={@schema == []} class="text-sm text-ink-muted">
-                Nothing to configure for this app — continue.
+                Nothing to configure for this app. Continue.
               </p>
 
               <form
@@ -290,7 +290,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                 >
                   {@selected.default_cpu_cores} CPU · {@selected.default_memory_mb} MB · {@selected.default_storage_gb} GB
                 </span>
-                for this version — allocate more, or less at your own risk.
+                for this version. Allocate more, or less at your own risk.
               </p>
 
               <form
@@ -354,7 +354,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                   data-testid="below-recommendation-warning"
                 >
                   <p class="font-medium text-ink">
-                    This is below what {@app.name} recommends — it may run slowly or fail.
+                    This is below what {@app.name} recommends. It may run slowly or fail.
                   </p>
                   <label
                     for="below-recommendation-ack"
@@ -367,7 +367,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                       checked={@below_ack}
                       class="size-4 accent-warning"
                       data-testid="below-recommendation-ack"
-                    /> I understand — deploy with less than the recommended resources
+                    /> I understand, deploy with less than the recommended resources
                   </label>
                 </.callout>
 
@@ -443,7 +443,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                   data-testid="instance-name"
                 />
                 <p class="text-xs text-ink-subtle">
-                  We'll generate the subdomain — the name is yours to change later, nothing else.
+                  We'll generate the subdomain. The name is yours to change later, nothing else.
                 </p>
                 <div class="flex justify-end gap-3 pt-2">
                   <.button variant="ghost" size="sm" type="button" phx-click="back-resources">
@@ -701,7 +701,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
         {:noreply,
          socket
-         |> put_flash(:info, "Deploying #{deploying.slug} — tracking its progress.")
+         |> put_flash(:info, "Deploying #{deploying.slug}. Tracking its progress.")
          |> push_navigate(to: ~p"/instances/#{deploying.id}")}
 
       {:error, form} ->

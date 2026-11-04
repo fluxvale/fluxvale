@@ -116,17 +116,17 @@ defmodule FluxValeWeb.SettingsLive do
          |> assign(add_form: to_form(%{"address" => ""}), emails: present(mine(user), user))
          |> put_flash(
            :info,
-           "We sent a sign-in code to #{address} — enter it below to verify."
+           "We sent a sign-in code to #{address}. Enter it below to verify."
          )}
 
       {:error, :throttled} ->
         error(socket, "Please wait a minute before requesting another code.")
 
       {:error, :not_allowed} ->
-        error(socket, "That address can't sign in yet — ask an admin for access.")
+        error(socket, "That address can't sign in yet. Ask an admin for access.")
 
       {:error, :delivery_failed} ->
-        error(socket, "We couldn't send the email — please wait a minute, then try again.")
+        error(socket, "We couldn't send the email. Please wait a minute, then try again.")
 
       # The resource refused the claim itself: the cap (a distinct
       # message from EnforceEmailCap), a malformed address, or the
@@ -137,18 +137,18 @@ defmodule FluxValeWeb.SettingsLive do
             error(
               socket,
               "You've reached the limit of #{UserEmail.max_emails_per_user()} email " <>
-                "addresses — remove one first."
+                "addresses. Remove one first."
             )
 
           UserEmail.valid_address?(address) ->
             error(
               socket,
-              "That address is already claimed — if it's yours and the code expired, " <>
+              "That address is already claimed. If it's yours and the code expired, " <>
                 "remove the pending claim and add it again."
             )
 
           true ->
-            error(socket, "That doesn't look like an email address — check it and try again.")
+            error(socket, "That doesn't look like an email address. Check it and try again.")
         end
     end
   end
@@ -169,7 +169,7 @@ defmodule FluxValeWeb.SettingsLive do
       {:error, :no_active_code} ->
         error(
           socket,
-          "That code has expired — remove the address and add it again for a fresh code."
+          "That code has expired. Remove the address and add it again for a fresh code."
         )
 
       {:error, :wrong_code} ->
@@ -178,14 +178,14 @@ defmodule FluxValeWeb.SettingsLive do
       {:error, :locked_out} ->
         error(
           socket,
-          "Too many attempts — remove the address and add it again for a fresh code."
+          "Too many attempts. Remove the address and add it again for a fresh code."
         )
 
       {:error, :not_found} ->
-        error(socket, "That address claim is gone — refresh the page.")
+        error(socket, "That address claim is gone. Refresh the page.")
 
       {:error, _other} ->
-        error(socket, "Something went wrong — try again.")
+        error(socket, "Something went wrong. Try again.")
     end
   end
 
@@ -200,10 +200,10 @@ defmodule FluxValeWeb.SettingsLive do
          |> put_flash(:info, "Primary address updated.")}
 
       {:error, :not_found} ->
-        error(socket, "That address is gone — refresh the page.")
+        error(socket, "That address is gone. Refresh the page.")
 
       {:error, refused} ->
-        error(socket, "Couldn't promote — the address #{refusal_message(refused)}")
+        error(socket, "Couldn't promote. The address #{refusal_message(refused)}")
     end
   end
 
@@ -218,10 +218,10 @@ defmodule FluxValeWeb.SettingsLive do
          |> put_flash(:info, "Address removed.")}
 
       {:error, :not_found} ->
-        error(socket, "That address is gone — refresh the page.")
+        error(socket, "That address is gone. Refresh the page.")
 
       {:error, refused} ->
-        error(socket, "Couldn't remove — the address #{refusal_message(refused)}")
+        error(socket, "Couldn't remove. The address #{refusal_message(refused)}")
     end
   end
 
@@ -254,12 +254,12 @@ defmodule FluxValeWeb.SettingsLive do
     found = Enum.find(errors, &is_binary(Map.get(&1, :message)))
 
     case found do
-      nil -> "was refused — try again"
+      nil -> "was refused. Try again"
       refusal -> Map.get(refusal, :message)
     end
   end
 
-  defp refusal_message(_other), do: "was refused — try again"
+  defp refusal_message(_other), do: "was refused. Try again"
 
   defp error(socket, message), do: {:noreply, put_flash(socket, :error, message)}
 
@@ -361,8 +361,8 @@ defmodule FluxValeWeb.SettingsLive do
               <div>
                 <h2 class="text-base font-medium text-ink">Username</h2>
                 <p class="mt-1 text-sm text-ink-muted">
-                  Your handle across FluxVale. The old handle is released for anyone to claim —
-                  no reservations.
+                  Your handle across FluxVale. The old handle is released for anyone to claim.
+                  No reservations.
                 </p>
               </div>
 
@@ -390,7 +390,7 @@ defmodule FluxValeWeb.SettingsLive do
                 >
                   <p>
                     Your handle becomes <span class="font-mono">{@pending_username}</span>. The old
-                    handle is released immediately and no redirect is created — anything that
+                    handle is released immediately and no redirect is created. Anything that
                     addressed it stops.
                   </p>
                   <div class="flex gap-3 pt-1">
@@ -426,7 +426,7 @@ defmodule FluxValeWeb.SettingsLive do
               <div>
                 <h2 class="text-base font-medium text-ink">Email addresses</h2>
                 <p class="mt-1 text-sm text-ink-muted">
-                  Any verified address signs you in; the primary is where billing writes to.
+                  Any verified address signs you in. The primary is where billing writes to.
                 </p>
               </div>
 
@@ -541,7 +541,7 @@ defmodule FluxValeWeb.SettingsLive do
                   </.button>
                 </div>
                 <p class="text-xs text-ink-subtle">
-                  We'll send a sign-in code to the new address — enter it here to verify you own
+                  We'll send a sign-in code to the new address. Enter it here to verify you own
                   the inbox. A pending claim expires after {UserEmail.claim_ttl_minutes()} minutes.
                 </p>
               </.form>

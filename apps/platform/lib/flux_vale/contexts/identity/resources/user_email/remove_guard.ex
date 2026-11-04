@@ -74,7 +74,7 @@ defmodule FluxVale.Identity.UserEmail.RemoveGuard do
           changeset,
           field: :address,
           message:
-            "is the account's signup address (frozen into users.email) — it must keep a row until that column is dropped"
+            "is the account's signup address (frozen into users.email). It must keep a row until that column is dropped"
         )
 
       # The invariant is about verified addresses: removing a pending
@@ -84,14 +84,14 @@ defmodule FluxVale.Identity.UserEmail.RemoveGuard do
         Ash.Changeset.add_error(
           changeset,
           field: :verified_at,
-          message: "is the only verified address — add and verify another first"
+          message: "is the only verified address. Add and verify another first"
         )
 
       fresh.is_primary ->
         Ash.Changeset.add_error(
           changeset,
           field: :is_primary,
-          message: "is the primary address — make another address primary first"
+          message: "is the primary address. Make another address primary first"
         )
 
       true ->

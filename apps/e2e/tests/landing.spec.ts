@@ -7,7 +7,7 @@ import { expect, test } from "@playwright/test";
 test("landing page renders hero and CTAs", async ({ page }) => {
   await page.goto("/");
   // Landing-specific: the default layout title must not satisfy this.
-  await expect(page).toHaveTitle(/Managed cloud platform for open source applications/);
+  await expect(page).toHaveTitle(/managed cloud platform for open source applications/);
 
   const h1 = page.getByRole("heading", { level: 1 });
   await expect(h1).toBeVisible();
