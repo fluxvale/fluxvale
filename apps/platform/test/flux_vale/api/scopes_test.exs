@@ -102,6 +102,9 @@ defmodule FluxVale.Api.ScopesTest do
     test "scopeless routes answer :any" do
       assert {:ok, :any} = Scopes.required_scope("GET", ["me"])
       assert {:ok, :any} = Scopes.required_scope("GET", ["open_api"])
+
+      # The actor's own orgs (#362 T6a) — membership IS the policy.
+      assert {:ok, :any} = Scopes.required_scope("GET", ["organizations"])
     end
 
     test "instance routes" do

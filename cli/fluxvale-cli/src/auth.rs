@@ -717,12 +717,20 @@ mod tests {
         })
     }
 
+    // The greet's discovery read (T6a): whoami rides /organizations
+    // after /me. Empty keeps the greet line exactly the /me sentence —
+    // whoami prints no org section when the list is empty.
+    fn orgs_body() -> serde_json::Value {
+        json!({"data": []})
+    }
+
     #[test]
     fn login_end_to_end_stores_the_token_and_greets() {
         let server = script(vec![
             respond("200 OK", &mint_body("WXYZ-VKLM")),
             respond("200 OK", &grant_body()),
             respond("200 OK", &me_body()),
+            respond("200 OK", &orgs_body()),
         ]);
         let dir = temp_dir();
         let rec = recorder();
@@ -766,7 +774,8 @@ mod tests {
             "Debug leaked"
         );
 
-        // The /me read rode the minted token.
+        // The /me read rode the minted token — and the discovery read
+        // (T6a) followed it.
         let me_head = &captured_requests(&server)[2];
         assert!(
             me_head.starts_with("get /api/v1/me http/1.1"),
@@ -775,6 +784,11 @@ mod tests {
         assert!(
             me_head.contains("authorization: bearer fvpat_raw_token_value_from_the_wire"),
             "me: {me_head}"
+        );
+        let orgs_head = &captured_requests(&server)[3];
+        assert!(
+            orgs_head.starts_with("get /api/v1/organizations http/1.1"),
+            "orgs: {orgs_head}"
         );
     }
 
@@ -785,6 +799,7 @@ mod tests {
                 respond("200 OK", &mint_body("OPEN-CODE")),
                 respond("200 OK", &grant_body()),
                 respond("200 OK", &me_body()),
+                respond("200 OK", &orgs_body()),
             ]);
             let dir = temp_dir();
             let rec = recorder();

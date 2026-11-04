@@ -51,23 +51,47 @@ pub(crate) fn safe_segment(thing: &str, value: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `whoami` — GET /me. The HTTP route returns the user WITHOUT scopes
-/// or organizations (those are MCP-only surfaces), so the scope answer
-/// is the panel, not an invented field.
+/// `whoami` — GET /me, plus GET /organizations (#362 T6a): the wallet
+/// and access commands need an org id, and /me alone doesn't carry one
+/// (the MCP whoami rides the same pair of reads). An older backend
+/// without the orgs route degrades to the old output — a 404 there is
+/// "no discovery surface", not an error; anything else propagates.
 pub fn whoami(
     client: &ApiClient,
     location: TokenLocation,
     output: Output,
 ) -> anyhow::Result<String> {
-    whoami_rendered(client.get("/me")?, location, output)
+    let me = client.get("/me")?;
+    let orgs = match client.get("/organizations") {
+        Ok(document) => document,
+        Err(ApiError::NotFound) => Document {
+            data: Some(Value::Array(Vec::new())),
+            meta: None,
+            links: None,
+        },
+        Err(err) => return Err(err.into()),
+    };
+    whoami_rendered(me, orgs, location, output)
 }
 
 fn whoami_rendered(
     document: Document,
+    orgs: Document,
     location: TokenLocation,
     output: Output,
 ) -> anyhow::Result<String> {
     let resource = one_resource(document, "user")?;
+    let org_rows: Vec<Value> = orgs
+        .resources()
+        .iter()
+        .map(|org| {
+            json!({
+                "id": org.id,
+                "slug": org.attributes.get("slug"),
+                "name": org.attributes.get("name"),
+            })
+        })
+        .collect();
     Ok(match output {
         Output::Table => {
             let email = resource
@@ -85,9 +109,35 @@ fn whoami_rendered(
             {
                 line.push_str("\nplatform role: admin");
             }
+            // The org list — the discovery the wallet/access commands
+            // ride. Empty (or a backend without the route) prints
+            // nothing: there is no id to point at. Slug column aligned
+            // so the ids read as a pair.
+            if !org_rows.is_empty() {
+                let width = org_rows
+                    .iter()
+                    .map(|org| org["slug"].as_str().unwrap_or("-").chars().count())
+                    .max()
+                    .unwrap_or(0);
+                line.push_str("\norganizations:");
+                for org in &org_rows {
+                    let slug = org["slug"].as_str().unwrap_or("-");
+                    line.push_str(&format!(
+                        "\n  {slug:<width$}  {}",
+                        org["id"].as_str().unwrap_or("-")
+                    ));
+                }
+                line.push_str("\nuse an organization id for wallet/access commands (--org)");
+            }
             line
         }
-        Output::Json => crate::render::to_pretty(&with_id(&resource)),
+        Output::Json => {
+            let mut attrs = with_id(&resource);
+            if let Value::Object(map) = &mut attrs {
+                map.insert("organizations".to_string(), Value::Array(org_rows.clone()));
+            }
+            crate::render::to_pretty(&attrs)
+        }
     })
 }
 
@@ -281,18 +331,49 @@ pub fn status_line(status: &str) -> String {
     .to_string()
 }
 
-/// The org id for wallet commands: the flag wins over the config file;
-/// neither → where to set it. (The HTTP API has no org-list route and
-/// no instance field exposes the org id, so the CLI can't discover it.)
-pub fn resolve_org(config: &Config, flag: Option<&str>) -> anyhow::Result<String> {
-    flag.or(config.organization_id.as_deref())
-        .map(str::to_owned)
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "no organization id — pass --org <id>, or set organization_id in the \
-                 config file"
-            )
-        })
+/// The org id for wallet/access commands (#362 T6a): the flag wins
+/// over the config file; with neither, the orgs route answers —
+/// exactly one org is used silently, several are listed with the
+/// --org hint. (Before GET /organizations existed the CLI could only
+/// tell the operator where to type the id — the panel URL shows just
+/// the slug.)
+pub fn resolve_org(
+    config: &Config,
+    flag: Option<&str>,
+    client: &ApiClient,
+) -> anyhow::Result<String> {
+    if let Some(org) = flag.or(config.organization_id.as_deref()) {
+        return Ok(org.to_owned());
+    }
+    let document = client.get("/organizations")?;
+    org_from_resources(&document.resources())
+}
+
+/// The auto arm of [`resolve_org`]: exactly one org answers itself;
+/// zero or several are a loud, friendly error (several listing
+/// slug → id pairs, so the operator can pick one for --org).
+pub(crate) fn org_from_resources(resources: &[Resource]) -> anyhow::Result<String> {
+    match resources {
+        [one] => Ok(one.id.clone()),
+        [] => anyhow::bail!(
+            "no organization found for your account — pass --org <id>, or set \
+             organization_id in the config file"
+        ),
+        many => {
+            let mut message = String::from(
+                "you belong to several organizations — pass --org <id> (or set \
+                 organization_id in the config file):",
+            );
+            for org in many {
+                let slug = org.attributes.get("slug").and_then(Value::as_str);
+                match slug {
+                    Some(slug) => message.push_str(&format!("\n  {slug}  {}", org.id)),
+                    None => message.push_str(&format!("\n  {}", org.id)),
+                }
+            }
+            anyhow::bail!(message)
+        }
+    }
 }
 
 /// `wallet balance` — GET /organizations/:id/wallet.
@@ -348,6 +429,102 @@ fn money_cell(value: Option<&Value>) -> String {
         Some(cents) => human::money(cents),
         None => "-".to_string(),
     }
+}
+
+/// `wallet ledger`'s pagination flags as parsed.
+pub struct LedgerPage {
+    pub limit: Option<u32>,
+    pub before: Option<String>,
+    pub after: Option<String>,
+}
+
+/// The ledger route's own default page size (LedgerEntry.list_for_wallet's
+/// default_limit) — the wire REQUIRES page[limit] (T6's finding), so the
+/// CLI always sends one.
+pub(crate) const LEDGER_DEFAULT_LIMIT: u32 = 25;
+
+/// `wallet ledger` — the org's wallet ledger entries. The ledger route
+/// takes a WALLET id, so the wallet rides the org first (the same read
+/// `wallet balance` makes).
+pub fn wallet_ledger(
+    client: &ApiClient,
+    org_id: &str,
+    page: LedgerPage,
+    output: Output,
+) -> anyhow::Result<String> {
+    safe_segment("organization id", org_id)?;
+    // The limit flag's fence: the wire 500s on page[limit]=0 (the
+    // keyset query can't run) — checked here so a bad value never
+    // rides the wire (the retention fence's posture).
+    let limit = match page.limit {
+        Some(0) => anyhow::bail!("invalid --limit 0: must be at least 1"),
+        Some(n) => n,
+        None => LEDGER_DEFAULT_LIMIT,
+    };
+    let query = ledger_query(limit, page.before.as_deref(), page.after.as_deref());
+    let wallet = one_resource(
+        get_or_404(client, &format!("/organizations/{org_id}/wallet"), "wallet")?,
+        "wallet",
+    )?;
+    let document = get_or_404(
+        client,
+        &format!("/wallets/{}/ledger-entries{}", wallet.id, query),
+        "wallet",
+    )?;
+    wallet_ledger_rendered(document, output)
+}
+
+/// The ledger route's query — the keyset params exactly as the wire
+/// names them (LedgerEntry.list_for_wallet's pagination:
+/// `page[limit]`/`page[after]`/`page[before]`), plus the caller-owned
+/// sort (`-id` newest first, the route's own tests' shape). Cursors
+/// pass through VERBATIM: they are opaque server strings, already
+/// query-safe in the form `links.next` carries them.
+pub(crate) fn ledger_query(limit: u32, before: Option<&str>, after: Option<&str>) -> String {
+    let mut query = format!("?page[limit]={limit}&sort=-id");
+    if let Some(after) = after {
+        query.push_str("&page[after]=");
+        query.push_str(after);
+    }
+    if let Some(before) = before {
+        query.push_str("&page[before]=");
+        query.push_str(before);
+    }
+    query
+}
+
+fn wallet_ledger_rendered(document: Document, output: Output) -> anyhow::Result<String> {
+    let mut rows = Rows::new(&["TYPE", "REASON", "AMOUNT"], "no ledger entries yet");
+    for resource in document.resources() {
+        let attrs = &resource.attributes;
+        rows.push(
+            vec![
+                cell(attrs.get("type")),
+                cell(attrs.get("reason")),
+                money_cell(attrs.get("amount")),
+            ],
+            with_id(&resource),
+        );
+    }
+    let mut rendered = rows.render(output);
+    if output == Output::Table
+        && let Some(next) = next_after_cursor(&document)
+    {
+        rendered.push_str(&format!("\nmore entries — rerun with --after {next}"));
+    }
+    Ok(rendered)
+}
+
+/// The next page's opaque cursor, lifted out of the document's own
+/// `links.next` URL (raw query value) — the `--after` hint's source.
+/// None when there is no next page (or the link omits the cursor).
+pub(crate) fn next_after_cursor(document: &Document) -> Option<String> {
+    let next = document.links.as_ref()?.get("next")?.as_str()?;
+    let query = next.split_once('?')?.1;
+    query
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("page[after]="))
+        .map(str::to_owned)
 }
 
 /// `topup` — the panel's top-up URL; `--open` hands it to the OS
@@ -456,6 +633,21 @@ mod tests {
 
     // ---- fixture-render tests: the envelope -> the unwrap -> the render
 
+    fn empty_orgs() -> Document {
+        document(json!({"data": []}))
+    }
+
+    fn orgs_doc() -> Document {
+        document(json!({
+            "data": [
+                {"type": "organization", "id": "01JORG1",
+                 "attributes": {"slug": "personal", "name": "Personal"}},
+                {"type": "organization", "id": "01JORG2",
+                 "attributes": {"slug": "acme", "name": "Acme"}}
+            ]
+        }))
+    }
+
     #[test]
     fn whoami_renders_the_signed_in_line() {
         let location = TokenLocation::Keychain;
@@ -466,11 +658,19 @@ mod tests {
                                         "platform_role": "user",
                                         "username": "me"}}
             })),
+            orgs_doc(),
             location,
             Output::Table,
         )
         .unwrap();
-        assert_eq!(line, "signed in as me@example.com via the OS keychain");
+        assert_eq!(
+            line,
+            "signed in as me@example.com via the OS keychain\n\
+             organizations:\n\
+             \x20 personal  01JORG1\n\
+             \x20 acme      01JORG2\n\
+             use an organization id for wallet/access commands (--org)"
+        );
     }
 
     #[test]
@@ -481,24 +681,28 @@ mod tests {
                          "attributes": {"email": "me@example.com",
                                         "platform_role": "admin"}}
             })),
+            orgs_doc(),
             TokenLocation::FallbackFile,
             Output::Table,
         )
         .unwrap();
-        assert_eq!(
-            line,
-            "signed in as me@example.com via the credentials file\nplatform role: admin"
+        assert!(
+            line.starts_with(
+                "signed in as me@example.com via the credentials file\nplatform role: admin"
+            ),
+            "line: {line}"
         );
     }
 
     #[test]
-    fn whoami_json_is_the_raw_attrs() {
+    fn whoami_json_is_the_raw_attrs_plus_the_orgs() {
         let rendered = whoami_rendered(
             document(json!({
                 "data": {"type": "user", "id": "01H",
                          "attributes": {"email": "me@example.com",
                                         "platform_role": "user"}}
             })),
+            orgs_doc(),
             TokenLocation::Keychain,
             Output::Json,
         )
@@ -506,6 +710,8 @@ mod tests {
         let attrs: serde_json::Value = serde_json::from_str(&rendered).unwrap();
         assert_eq!(attrs["email"], "me@example.com");
         assert_eq!(attrs["platform_role"], "user");
+        assert_eq!(attrs["organizations"][0]["id"], "01JORG1");
+        assert_eq!(attrs["organizations"][0]["slug"], "personal");
     }
 
     #[test]
@@ -516,10 +722,12 @@ mod tests {
                 "data": {"type": "user", "id": "01H",
                          "attributes": {"email": null, "platform_role": "user"}}
             })),
+            empty_orgs(),
             TokenLocation::Keychain,
             Output::Table,
         )
         .unwrap();
+        // No orgs — no org section to point at.
         assert_eq!(line, "signed in as (no verified email) via the OS keychain");
     }
 
@@ -837,7 +1045,7 @@ mod tests {
         assert_eq!(human::runway_hours(&json!("infinity")), "∞ (no burn)");
     }
 
-    // ---- org resolution, topup
+    // ---- org resolution ladder, ledger query, topup
 
     #[test]
     fn org_id_resolution_flag_wins_over_config() {
@@ -845,20 +1053,161 @@ mod tests {
             organization_id: Some("from-config".into()),
             ..Config::default()
         };
+        // A client pointed at a dead port — the ladder must answer
+        // from the flag WITHOUT touching the network.
+        let client = client("http://127.0.0.1:1");
         assert_eq!(
-            resolve_org(&config, Some("from-flag")).unwrap(),
+            resolve_org(&config, Some("from-flag"), &client).unwrap(),
             "from-flag"
         );
-        assert_eq!(resolve_org(&config, None).unwrap(), "from-config");
+        assert_eq!(resolve_org(&config, None, &client).unwrap(), "from-config");
     }
 
     #[test]
-    fn org_id_resolution_without_either_explains_where_to_look() {
-        let config = Config::default();
-        let err = resolve_org(&config, None).unwrap_err();
+    fn org_id_resolution_auto_uses_a_single_org_silently() {
+        let server = serve(&envelope(json!({"data": [
+            {"type": "organization", "id": "01JAUTO",
+             "attributes": {"slug": "personal", "name": "Personal"}}
+        ]})));
+        let org = resolve_org(&Config::default(), None, &client(&server.base_url)).unwrap();
+        assert_eq!(org, "01JAUTO");
+        let head = server.head(0).to_lowercase();
+        assert!(
+            head.starts_with("get /api/v1/organizations http/1.1"),
+            "request line: {head}"
+        );
+    }
+
+    #[test]
+    fn org_id_resolution_with_several_lists_them_and_hints_the_flag() {
+        let server = serve(&envelope(json!({"data": [
+            {"type": "organization", "id": "01JONE",
+             "attributes": {"slug": "personal", "name": "Personal"}},
+            {"type": "organization", "id": "01JTWO",
+             "attributes": {"slug": "acme", "name": "Acme"}}
+        ]})));
+        let err = resolve_org(&Config::default(), None, &client(&server.base_url)).unwrap_err();
         let message = err.to_string();
         assert!(message.contains("--org"), "message: {message}");
         assert!(message.contains("organization_id"), "message: {message}");
+        // Both orgs listed, slug first so the operator can pick.
+        assert!(message.contains("personal  01JONE"), "message: {message}");
+        assert!(message.contains("acme  01JTWO"), "message: {message}");
+    }
+
+    #[test]
+    fn org_id_resolution_with_zero_orgs_is_loud() {
+        let server = serve(&envelope(json!({"data": []})));
+        let err = resolve_org(&Config::default(), None, &client(&server.base_url)).unwrap_err();
+        let message = err.to_string();
+        assert!(message.contains("no organization"), "message: {message}");
+        assert!(message.contains("--org"), "message: {message}");
+    }
+
+    #[test]
+    fn ledger_query_sends_the_keyset_params_the_wire_names() {
+        // Limit is REQUIRED on the wire (T6's finding): the default
+        // rides when the flag is absent; sort is the caller's (newest
+        // first, the route's own tests' shape).
+        assert_eq!(ledger_query(25, None, None), "?page[limit]=25&sort=-id");
+        assert_eq!(ledger_query(5, None, None), "?page[limit]=5&sort=-id");
+        // The cursors pass through verbatim — opaque server strings.
+        assert_eq!(
+            ledger_query(1, None, Some("g3QAAAABZAAGaWVzc3VlZA")),
+            "?page[limit]=1&sort=-id&page[after]=g3QAAAABZAAGaWVzc3VlZA"
+        );
+        assert_eq!(
+            ledger_query(25, Some("g3QAAAABZAAHaWFzc3VlZA"), None),
+            "?page[limit]=25&sort=-id&page[before]=g3QAAAABZAAHaWFzc3VlZA"
+        );
+    }
+
+    #[test]
+    fn wallet_ledger_refuses_a_zero_limit_locally() {
+        // The wire 500s on page[limit]=0 — the CLI refuses it before
+        // anything is sent (the client points at a dead port; reaching
+        // it would mean the fence failed).
+        let client = client("http://127.0.0.1:1");
+        let err = wallet_ledger(
+            &client,
+            "org1",
+            LedgerPage {
+                limit: Some(0),
+                before: None,
+                after: None,
+            },
+            Output::Table,
+        )
+        .unwrap_err();
+        assert_eq!(err.to_string(), "invalid --limit 0: must be at least 1");
+    }
+
+    #[test]
+    fn wallet_ledger_renders_rows_in_money_and_hints_the_next_page() {
+        let rendered = wallet_ledger_rendered(
+            document(json!({
+                "data": [
+                    {"type": "ledger_entry", "id": "le2", "attributes": {
+                        "amount": 100, "type": "credit", "reason": "purchase"}},
+                    {"type": "ledger_entry", "id": "le1", "attributes": {
+                        "amount": 300, "type": "credit", "reason": "welcome"}}
+                ],
+                "links": {"next": "/api/v1/wallets/w1/ledger-entries?page[limit]=25&sort=-id&page[after]=CUR1"}}
+            )),
+            Output::Table,
+        )
+        .unwrap();
+        // Newest first (the query's own sort=-id): the purchase row leads.
+        assert_eq!(
+            rendered,
+            "TYPE    REASON    AMOUNT\n\
+             credit  purchase  $1.00\n\
+             credit  welcome   $3.00\n\
+             more entries — rerun with --after CUR1"
+        );
+    }
+
+    #[test]
+    fn wallet_ledger_json_is_raw_attrs_without_the_hint() {
+        let rendered = wallet_ledger_rendered(
+            document(json!({
+                "data": [
+                    {"type": "ledger_entry", "id": "le1", "attributes": {
+                        "amount": 300, "type": "credit", "reason": "welcome"}}
+                ],
+                "links": {"next": "/api/v1/wallets/w1/ledger-entries?page[after]=CUR1"}}
+            )),
+            Output::Json,
+        )
+        .unwrap();
+        let attrs: serde_json::Value = serde_json::from_str(&rendered).unwrap();
+        assert_eq!(attrs[0]["id"], "le1");
+        assert_eq!(attrs[0]["reason"], "welcome");
+        assert!(
+            !rendered.contains("CUR1"),
+            "next-page hint leaked: {rendered}"
+        );
+    }
+
+    #[test]
+    fn wallet_ledger_empty_reads_a_sentence_and_no_hint() {
+        let rendered =
+            wallet_ledger_rendered(document(json!({"data": []})), Output::Table).unwrap();
+        assert_eq!(rendered, "no ledger entries yet");
+    }
+
+    #[test]
+    fn next_after_cursor_lifts_the_links_value_or_none() {
+        let with_next = document(json!({
+            "data": [],
+            "links": {"next": "/api/v1/wallets/w1/ledger-entries?page[limit]=25&page[after]=CUR%2B1&sort=-id"}
+        }));
+        assert_eq!(next_after_cursor(&with_next).as_deref(), Some("CUR%2B1"));
+
+        let last = document(json!({"data": [], "links": {}}));
+        assert_eq!(next_after_cursor(&last), None);
+        let no_links = document(json!({"data": []}));
+        assert_eq!(next_after_cursor(&no_links), None);
     }
 
     #[test]
@@ -879,37 +1228,54 @@ mod tests {
     }
 
     // ---- mock-server end-to-end: the Authorization header rides, the
-    // right path goes out. The scaffold's one-shot TcpListener pattern.
+    // right path goes out. The scaffold's one-shot TcpListener pattern,
+    // extended to sequential multi-shot (whoami and wallet ledger each
+    // ride TWO reads — /me then /organizations, wallet then ledger).
 
     struct OneShot {
         base_url: String,
-        captured_head: Arc<Mutex<String>>,
+        captured_heads: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl OneShot {
+        /// The captured request head of the Nth request (0-based).
+        fn head(&self, index: usize) -> String {
+            self.captured_heads.lock().unwrap()[index].clone()
+        }
     }
 
     fn serve(response: &str) -> OneShot {
+        serve_seq(&[response.to_string()])
+    }
+
+    fn serve_seq(responses: &[String]) -> OneShot {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
-        let captured_head = Arc::new(Mutex::new(String::new()));
-        let captured = captured_head.clone();
-        let response = response.to_string();
+        let captured_heads = Arc::new(Mutex::new(Vec::new()));
+        let captured = captured_heads.clone();
+        let responses = responses.to_vec();
         std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut head = String::new();
-            let mut buf = [0u8; 4096];
-            while !head.contains("\r\n\r\n") {
-                let read = stream.read(&mut buf).unwrap();
-                if read == 0 {
+            for response in &responses {
+                let Ok((mut stream, _)) = listener.accept() else {
                     break;
+                };
+                let mut head = String::new();
+                let mut buf = [0u8; 4096];
+                while !head.contains("\r\n\r\n") {
+                    let read = stream.read(&mut buf).unwrap();
+                    if read == 0 {
+                        break;
+                    }
+                    head.push_str(&String::from_utf8_lossy(&buf[..read]));
                 }
-                head.push_str(&String::from_utf8_lossy(&buf[..read]));
+                captured.lock().unwrap().push(head);
+                let _ = stream.write_all(response.as_bytes());
+                let _ = stream.flush();
             }
-            *captured.lock().unwrap() = head;
-            let _ = stream.write_all(response.as_bytes());
-            let _ = stream.flush();
         });
         OneShot {
             base_url: format!("http://{addr}"),
-            captured_head,
+            captured_heads,
         }
     }
 
@@ -930,11 +1296,17 @@ mod tests {
     }
 
     #[test]
-    fn whoami_rides_the_bearer_token_to_me() {
-        let server = serve(&envelope(json!({
-            "data": {"type": "user", "id": "01H",
-                     "attributes": {"email": "me@example.com", "platform_role": "user"}}
-        })));
+    fn whoami_rides_the_bearer_token_to_me_then_the_orgs() {
+        let server = serve_seq(&[
+            envelope(json!({
+                "data": {"type": "user", "id": "01H",
+                         "attributes": {"email": "me@example.com", "platform_role": "user"}}
+            })),
+            envelope(json!({"data": [
+                {"type": "organization", "id": "01JORG1",
+                 "attributes": {"slug": "personal", "name": "Personal"}}
+            ]})),
+        ]);
         let rendered = whoami(
             &client(&server.base_url),
             TokenLocation::Keychain,
@@ -942,14 +1314,25 @@ mod tests {
         )
         .unwrap();
         assert!(rendered.contains("me@example.com"), "rendered: {rendered}");
-        let head = server.captured_head.lock().unwrap().to_lowercase();
         assert!(
-            head.starts_with("get /api/v1/me http/1.1"),
-            "request line: {head}"
+            rendered.contains("personal  01JORG1"),
+            "rendered: {rendered}"
         );
         assert!(
-            head.contains("authorization: bearer fvpat_testtoken"),
-            "head: {head}"
+            rendered.contains("use an organization id for wallet/access commands (--org)"),
+            "rendered: {rendered}"
+        );
+        // The pair of reads: /me first, then the orgs discovery.
+        let me = server.head(0).to_lowercase();
+        assert!(
+            me.starts_with("get /api/v1/me http/1.1")
+                && me.contains("authorization: bearer fvpat_testtoken"),
+            "request line: {me}"
+        );
+        let orgs = server.head(1).to_lowercase();
+        assert!(
+            orgs.starts_with("get /api/v1/organizations http/1.1"),
+            "request line: {orgs}"
         );
     }
 
@@ -962,7 +1345,7 @@ mod tests {
         ]})));
         let rendered = instances_list(&client(&server.base_url), Output::Table).unwrap();
         assert!(rendered.contains("web-a1b2"), "rendered: {rendered}");
-        let head = server.captured_head.lock().unwrap().to_lowercase();
+        let head = server.head(0).to_lowercase();
         assert!(
             head.starts_with("get /api/v1/instances http/1.1"),
             "request line: {head}"
@@ -981,7 +1364,7 @@ mod tests {
         })));
         let rendered = wallet_balance(&client(&server.base_url), "org1", Output::Table).unwrap();
         assert!(rendered.contains("$19.00"), "rendered: {rendered}");
-        let head = server.captured_head.lock().unwrap().to_lowercase();
+        let head = server.head(0).to_lowercase();
         assert!(
             head.starts_with("get /api/v1/organizations/org1/wallet http/1.1"),
             "request line: {head}"
@@ -996,11 +1379,74 @@ mod tests {
         ));
         let rendered = wallet_runway(&client(&server.base_url), "org1", Output::Table).unwrap();
         assert!(rendered.contains("∞ (no burn)"), "rendered: {rendered}");
-        let head = server.captured_head.lock().unwrap().to_lowercase();
+        let head = server.head(0).to_lowercase();
         assert!(
             head.starts_with("get /api/v1/organizations/org1/wallet/runway http/1.1"),
             "request line: {head}"
         );
+    }
+
+    #[test]
+    fn wallet_ledger_rides_the_wallet_then_the_keyset_query() {
+        let server = serve_seq(&[
+            envelope(json!({
+                "data": {"type": "wallet", "id": "w1", "attributes": {
+                    "organization_id": "org1", "balance": 400, "paywall_waived": false}}
+            })),
+            envelope(json!({"data": [
+                {"type": "ledger_entry", "id": "le1", "attributes": {
+                    "amount": 300, "type": "credit", "reason": "welcome"}}
+            ]})),
+        ]);
+        let rendered = wallet_ledger(
+            &client(&server.base_url),
+            "org1",
+            LedgerPage {
+                limit: Some(1),
+                before: None,
+                after: Some("CUR1".into()),
+            },
+            Output::Table,
+        )
+        .unwrap();
+        assert!(rendered.contains("$3.00"), "rendered: {rendered}");
+        // First read: the org's wallet (the ledger route takes a wallet id).
+        let wallet = server.head(0).to_lowercase();
+        assert!(
+            wallet.starts_with("get /api/v1/organizations/org1/wallet http/1.1"),
+            "request line: {wallet}"
+        );
+        // Second read: the ledger's keyset params — the route's own
+        // wire shapes (page[limit] REQUIRED, sort is the caller's),
+        // cursor verbatim. (The head is lowercased for header matching,
+        // so the expectation is too.)
+        let ledger = server.head(1).to_lowercase();
+        assert!(
+            ledger.starts_with(
+                "get /api/v1/wallets/w1/ledger-entries?page[limit]=1&sort=-id&page[after]=cur1 http/1.1"
+            ),
+            "request line: {ledger}"
+        );
+    }
+
+    #[test]
+    fn wallet_ledger_404_on_the_wallet_reads_the_friendly_line() {
+        let server = serve(&respond(
+            "404 Not Found",
+            r#"{"errors":[{"status":"404","title":"Not Found"}]}"#,
+        ));
+        let err = wallet_ledger(
+            &client(&server.base_url),
+            "org9",
+            LedgerPage {
+                limit: None,
+                before: None,
+                after: None,
+            },
+            Output::Table,
+        )
+        .unwrap_err();
+        assert_eq!(err.to_string(), "no such wallet (or it's not yours)");
     }
 
     #[test]
