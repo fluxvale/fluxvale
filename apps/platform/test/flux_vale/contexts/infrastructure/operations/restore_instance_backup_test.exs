@@ -689,7 +689,7 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackupTest do
       assert [restore] = restore_runs(instance)
       assert restore.status == :failed
       assert restore.error_summary =~ "could not stop the app"
-      assert restore.error_summary =~ "the app is unchanged"
+      assert restore.error_summary =~ "The app is unchanged"
 
       # NOT :error: nothing happened to the volume, so the app is fine and
       # the retry re-enters through the normal guard.
@@ -812,7 +812,7 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackupTest do
       assert [restore] = restore_runs(instance)
       assert restore.status == :failed
       assert restore.error_summary =~ "delete boom"
-      assert restore.error_summary =~ "the app is unchanged"
+      assert restore.error_summary =~ "The app is unchanged"
 
       # The instance was parked and stays parked — never woken, never
       # landed :error (nothing touched the volume).

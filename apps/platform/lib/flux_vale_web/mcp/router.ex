@@ -744,7 +744,7 @@ defmodule FluxValeWeb.MCP.Router do
 
     field(:always_on, :boolean,
       required: true,
-      description: "true keeps the instance from ever sleeping; false re-allows scale-to-zero"
+      description: "true keeps the instance from ever sleeping. False re-allows scale-to-zero"
     )
   end
 
