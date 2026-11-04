@@ -22,6 +22,7 @@ defmodule FluxVale.Seeds do
   alias FluxVale.Identity.User.MirrorSignupEmail
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Infrastructure.Cluster
+  alias FluxVale.Infrastructure.Instance
   alias FluxVale.Pricing.Size
   alias FluxVale.Pricing.TaxRate
   alias FluxVale.Seeds.CatalogData
@@ -208,8 +209,11 @@ defmodule FluxVale.Seeds do
 
   Idempotent — records are looked up by slug; existing rows are updated
   to the seed attrs, so re-running converges the price table to
-  pricing_data.yaml. Runs before `seed_catalog!/0` (versions reference
-  sizes by slug).
+  pricing_data.yaml. Rows whose slug is absent from the entries are
+  deleted, so the seeds carry the ladder's whole truth (#399) — the
+  delete refuses loudly while instances or versions still reference a
+  removed row. Runs before `seed_catalog!/0` (versions reference sizes
+  by slug).
   """
   @spec seed_pricing! :: :ok
   def seed_pricing!, do: seed_pricing!(PricingData.entries())
@@ -227,7 +231,61 @@ defmodule FluxVale.Seeds do
       end
     end
 
+    delete_removed_sizes!(entries)
+
     :ok
+  end
+
+  # Sizes absent from the entries leave the ladder entirely (#399): the
+  # YAML is the ladder's whole truth, so their rows are deleted, not
+  # just skipped. The instances → pricing_sizes FK has no ON DELETE —
+  # a referenced-but-deleted row is data corruption (live settlement
+  # reads the row by size_id) — so the delete refuses loudly, naming
+  # every blocker at once, until the references move first. Nothing is
+  # destroyed when the guard fires.
+  defp delete_removed_sizes!(entries) do
+    kept = MapSet.new(entries, & &1.slug)
+
+    removed =
+      Size
+      |> Ash.Query.filter(slug not in ^MapSet.to_list(kept))
+      |> Ash.read!(authorize?: false)
+
+    blockers = Enum.flat_map(removed, &reference_blockers/1)
+
+    case blockers do
+      [] ->
+        for size <- removed do
+          Ash.destroy!(size, authorize?: false)
+        end
+
+      _blocked ->
+        raise """
+        seed pricing: sizes absent from the seed data are still referenced and cannot be deleted:
+        #{Enum.map_join(blockers, "\n", &"  - #{&1}")}
+        Move or remove those references first, then re-run seeds.
+        """
+    end
+  end
+
+  # Human-named blockers: instances carry their slug, versions carry
+  # the version string plus the owning app's id.
+  defp reference_blockers(size) do
+    instance_blockers =
+      Instance
+      |> Ash.Query.filter(size_id == ^size.id)
+      |> Ash.read!(authorize?: false)
+      |> Enum.map(&"instance #{&1.slug} (#{&1.id}) references size #{inspect(size.slug)}")
+
+    version_blockers =
+      AppVersion
+      |> Ash.Query.filter(recommended_size_id == ^size.id)
+      |> Ash.read!(authorize?: false)
+      |> Enum.map(
+        &"app version #{&1.version} (app_id #{&1.app_id}) recommends size #{inspect(size.slug)}"
+      )
+
+    instance_blockers ++ version_blockers
   end
 
   @doc """

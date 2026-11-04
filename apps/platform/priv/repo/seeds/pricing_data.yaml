@@ -7,16 +7,20 @@
 # to the doc). The SG variant (×1.25) is decided but on standby: no
 # SG rows ship here until the SG box exists.
 #
-# The #233 top-rung extension (ultra, max) has no doc-decided table:
-# its cents are the same v5 curve at the new allocations, pinned as
-# literals in pricing_data_test.exs (@ladder_extension) — a PROPOSAL:
-# the owner's #233 sign-off is pending, not yet given.
+# The #233 top-rung proposal was REJECTED (#399, owner ruling): the
+# ladder stops at pro. The two proposed rows shipped under #233 and are
+# removed here — a DB seeded before the trim converges at the next
+# seed run; the seed's guarded delete refuses loudly while instances
+# or versions still reference a removed row.
 #
-# Adding or repricing a size is purely additive: append/edit an entry and
+# Adding or repricing a size is additive: append/edit an entry and
 # re-run seeds — FluxVale.Seeds.seed_pricing!/0 converges existing rows
-# to match the YAML, idempotently. Cents edits are always safe;
-# ALLOCATION edits freeze while versions reference the size — move
-# catalog_data.yaml's version defaults in the same seed run.
+# to match the YAML, idempotently. Removing a size is subtractive: drop
+# its entry and re-run seeds, and the row is deleted — the seed refuses
+# loudly while instances or versions still reference it. Cents edits
+# are always safe; ALLOCATION edits freeze while versions reference
+# the size — move catalog_data.yaml's version defaults in the same
+# seed run.
 #
 # Lookup key — never rename an existing slug: renaming orphans the old
 # row instead of converging it.
@@ -63,15 +67,3 @@
   storage_gb: 100
   monthly_cents: 1606
   stopped_monthly_cents: 228
-- slug: ultra
-  cpu_cores: "6"
-  memory_mb: 12288
-  storage_gb: 200
-  monthly_cents: 2216
-  stopped_monthly_cents: 383
-- slug: max
-  cpu_cores: "8"
-  memory_mb: 16384
-  storage_gb: 400
-  monthly_cents: 2895
-  stopped_monthly_cents: 644

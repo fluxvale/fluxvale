@@ -42,6 +42,15 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
   }
 
   setup %{conn: conn} do
+    # The wizard's ladders and quick picks are the seeded sizes, so this
+    # file seeds them up front — BEFORE the fixtures, because the
+    # fixture's version references its own fabricated size and
+    # seed_pricing!/0's guarded delete (#399) refuses to run while any
+    # version references a size absent from the YAML. Seeded for every
+    # test here (the picker tests pin against them; the other describes
+    # simply render the six quick picks they were already stepping past).
+    :ok = FluxVale.Seeds.seed_pricing!()
+
     {user, conn} = SessionHelpers.user_with_session(conn)
     cluster = InstanceFixtures.local_cluster!()
 
@@ -451,11 +460,8 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
   describe "the resource picker (#195 — selectable, never typed)" do
     setup %{conn: conn, app: app, version: version} do
-      # The quick picks are the seeded sizes (shipped business data);
-      # the shared test DB carries none until a seed test runs, so seed
-      # them for this suite's transaction.
-      :ok = FluxVale.Seeds.seed_pricing!()
-
+      # The seeded sizes come from the file's outer setup (before the
+      # fixtures — the guarded delete's ordering note there).
       {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
       to_step_2(view, version)
       to_step_3(view)
@@ -493,9 +499,9 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       # one arrow press is one rung, Home/End are the ladder's ends,
       # and the browser quantizes the thumb to whole rungs during a
       # drag: it never rests between rungs.
-      assert has_element?(view, "#resource-cpu-cores[min='0'][max='6'][step='1']")
-      assert has_element?(view, "#resource-memory-mb[min='0'][max='6'][step='1']")
-      assert has_element?(view, "#resource-storage-gb[min='0'][max='6'][step='1']")
+      assert has_element?(view, "#resource-cpu-cores[min='0'][max='4'][step='1']")
+      assert has_element?(view, "#resource-memory-mb[min='0'][max='4'][step='1']")
+      assert has_element?(view, "#resource-storage-gb[min='0'][max='4'][step='1']")
     end
 
     test "the sliders carry accessible labels and a unit-announcing readout", %{view: view} do
@@ -512,15 +518,15 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       # labeled, equally spaced tick (the index scale is equal-width),
       # the active one carries data-active, and the readout names the
       # rung's value.
-      for rung <- ~w(0.25 0.5 1 2 4 6 8) do
+      for rung <- ~w(0.25 0.5 1 2 4) do
         assert has_element?(view, "#resource-cpu-cores-ticks [data-value='#{rung}']", rung)
       end
 
-      for rung <- ~w(512 1024 2048 4096 8192 12288 16384) do
+      for rung <- ~w(512 1024 2048 4096 8192) do
         assert has_element?(view, "#resource-memory-mb-ticks [data-value='#{rung}']", rung)
       end
 
-      for rung <- ~w(5 10 20 50 100 200 400) do
+      for rung <- ~w(5 10 20 50 100) do
         assert has_element?(view, "#resource-storage-gb-ticks [data-value='#{rung}']", rung)
       end
 
@@ -663,10 +669,11 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
     test "a default above the ladder's top rung clamps down to it", %{conn: conn} do
       # Past the ladder's end there is no at-or-above rung: the floor
-      # lands on the top rung (8 CPU, #233's new top), which IS under
-      # the app's stated 10-core minimum — the heads-up honestly mounts
-      # and gates, and the user cannot improve it (8 is the most the
-      # wizard offers; a 10-core allocation is legal at the API — the
+      # lands on the top rung (4 CPU — #399 trimmed the ladder to the
+      # six shipped sizes and pro is the top), which IS under the app's
+      # stated 10-core minimum — the heads-up honestly mounts and
+      # gates, and the user cannot improve it (4 is the most the wizard
+      # offers; a 10-core allocation is legal at the API — the
       # Instance constraints, the authoritative say at save — this
       # step just never offers it).
       version =
@@ -686,8 +693,8 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       |> element("[data-testid='continue-env']")
       |> render_click()
 
-      assert has_element?(view, "#resource-cpu-cores[value='6']")
-      assert render(view) =~ ~s(aria-valuetext="8 cores")
+      assert has_element?(view, "#resource-cpu-cores[value='4']")
+      assert render(view) =~ ~s(aria-valuetext="4 cores")
       assert has_element?(view, "#below-recommendation-warning")
     end
 
@@ -755,7 +762,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
     test "the seeded sizes render as quick picks, the recommendation called out",
          %{view: view, version: version} do
-      for slug <- ~w(micro small medium standard plus pro ultra max) do
+      for slug <- ~w(micro small medium standard plus pro) do
         assert has_element?(view, "[data-testid='preset-#{slug}']")
       end
 
@@ -794,27 +801,28 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       assert has_element?(view, "[data-testid='preset-standard'][aria-pressed='true']")
     end
 
-    test "the #233 top rungs price through the curve at the ladder's new top", %{view: view} do
-      # `max` is 8 CPU / 16384 MB / 400 GB — rung index 6, the top of
-      # all three ladders (#233). Picking it parks every thumb on the
-      # new top rung and prices at the seeded max cents ($28.95, B′)
-      # — the curve's own number at that allocation, pinned by the
-      # calibration tests; a recommendation-priced or fixture-priced
-      # display here would mean the top rungs aren't really offered.
+    test "the top rung prices through the curve at the ladder's top", %{view: view} do
+      # `pro` is 4 CPU / 8192 MB / 100 GB — rung index 4, the top of
+      # all three ladders (#399 trimmed the two proposed rungs above
+      # it). Picking it parks every thumb on the top rung and prices at
+      # the seeded pro cents ($16.06, B′) — the curve's own number at
+      # that allocation, pinned by the calibration tests; a
+      # recommendation-priced or fixture-priced display here would mean
+      # the top rung isn't really offered.
       view
-      |> element("[data-testid='preset-max']")
+      |> element("[data-testid='preset-pro']")
       |> render_click()
 
-      assert has_element?(view, "#resource-cpu-cores[value='6']")
-      assert has_element?(view, "#resource-memory-mb[value='6']")
-      assert has_element?(view, "#resource-storage-gb[value='6']")
+      assert has_element?(view, "#resource-cpu-cores[value='4']")
+      assert has_element?(view, "#resource-memory-mb[value='4']")
+      assert has_element?(view, "#resource-storage-gb[value='4']")
 
       html = render(view)
-      assert html =~ ~s(aria-valuetext="8 cores")
-      assert html =~ ~s(aria-valuetext="16384 MB")
-      assert html =~ ~s(aria-valuetext="400 GB")
+      assert html =~ ~s(aria-valuetext="4 cores")
+      assert html =~ ~s(aria-valuetext="8192 MB")
+      assert html =~ ~s(aria-valuetext="100 GB")
 
-      assert has_element?(view, "[data-testid='resources-price']", "$28.95/mo · billed hourly")
+      assert has_element?(view, "[data-testid='resources-price']", "$16.06/mo · billed hourly")
 
       # Above the recommendation: no heads-up, no ack gate.
       refute has_element?(view, "#below-recommendation-warning")
