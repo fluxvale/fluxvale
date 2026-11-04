@@ -9,7 +9,7 @@ Status: Accepted (see [adr/](adr/) — ADRs [00002](adr/00002-single-ash-livevie
   ([ADR-0023](adr/00023-day-one-gates.md) Am. 2); purpose-built admin
   LiveViews only when workflow UX demands.
 - **App**: single Phoenix 1.8 + Ash app — LiveView UI + first-class
-  **JSON:API + hosted MCP endpoint** in one OTP release, one image
+  **JSON:API + the platform's MCP endpoint** in one OTP release, one image
   ([ADR-0019](adr/00019-machine-first-api-cli-mcp.md)). No SPA; no
   OpenAPI→frontend types pipeline — the spec feeds CLI/MCP clients;
   its committed dump lives at `apps/platform/priv/open_api.json`

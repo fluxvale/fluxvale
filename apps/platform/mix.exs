@@ -123,7 +123,7 @@ defmodule FluxVale.MixProject do
       {:ash_phoenix, "2.3.25"},
       {:igniter, "0.8.3", only: [:dev, :test]},
       {:phoenix, "1.8.13"},
-      # Design-system workshop (#178) — mounted at /storybook, hosted at
+      # Design-system workshop (#178) — mounted at /storybook, served at
       # storybook.fluxvale.com (fleet-routed, internal-only). Exact pin,
       # same rule as every Hex dep.
       {:phoenix_storybook, "1.5.0"},
