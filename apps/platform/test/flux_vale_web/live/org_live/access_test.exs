@@ -1646,5 +1646,28 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       {:ok, after_click} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
       assert after_click.status == :denied
     end
+
+    test "a stale DENY click (the row handled between render and click) converges too", %{
+      conn: conn,
+      owner: owner
+    } do
+      {:ok, minted} = Identity.mint_device_code(%{client_id: "fluxvale-cli", scopes: []})
+
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      # The row leaves pending underneath the panel (another tab won).
+      {:ok, pending_row} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
+      {:ok, _approved} = DeviceCode.approve(pending_row, owner.id, actor: owner)
+
+      view
+      |> element("[data-testid='device-deny']")
+      |> render_click()
+
+      # The deny was a no-op — the row stays approved (the approve won).
+      assert has_element?(view, "[data-testid='device-sign-ins-empty']")
+      {:ok, after_click} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
+      assert after_click.status == :approved
+      assert after_click.user_id == owner.id
+    end
   end
 end

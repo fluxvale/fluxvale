@@ -85,12 +85,12 @@ defmodule FluxVale.Identity.Operations.MintDeviceCode do
 
       # The unique_user_code arm — retry with a fresh draw. Any other
       # failure is a real refusal (or a DB outage): surface it.
+      # coveralls-ignore-start - the arm needs create/1 to fail inside
+      # the mint: either the 1-in-32^8 user_code collision draw (the
+      # retry) or a DB outage mid-create — the matcher is unit-tested
+      # directly; neither arm is orderable in the suite.
       {:error, error} ->
         if retries_left > 0 and user_code_taken?(error) do
-          # coveralls-ignore-start - the retry needs the mint to DRAW
-          # a user_code another row already holds: a 1-in-32^8 draw
-          # (the loop is the race-proofing, not a reachable path — the
-          # matcher below is unit-tested directly).
           create_row(%{attrs | user_code: user_code()}, retries_left - 1, opts)
         else
           {:error, error}
