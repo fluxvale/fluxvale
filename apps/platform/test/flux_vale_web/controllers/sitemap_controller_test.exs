@@ -75,6 +75,15 @@ defmodule FluxValeWeb.SitemapControllerTest do
     assert xml =~ "<loc>https://fluxvale.com/policies/acceptable-use</loc>"
   end
 
+  # #396: the published pricing rides the static slice beside the
+  # catalog — public, canonical, no lastmod.
+  test "the pricing page is a static URL (#396)", %{conn: conn} do
+    conn = get(conn, ~p"/sitemap.xml")
+    xml = response(conn, 200)
+
+    assert xml =~ "<loc>https://fluxvale.com/pricing</loc>"
+  end
+
   test "the blog index is static and posts carry their dates (ADR-00025 §1)", %{conn: conn} do
     conn = get(conn, ~p"/sitemap.xml")
     xml = response(conn, 200)

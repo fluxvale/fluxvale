@@ -641,6 +641,13 @@ body:has(.landing) {
   gap: 24px;
 }
 
+/* #396: the link row grew (Pricing joined) — row-gap covers the wrap
+ * on the narrowest phones. No effect at any width that already fit. */
+.landing .foot-links.flex-wrap {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
 .landing .foot-links a {
   color: var(--ink-subtle);
 }
