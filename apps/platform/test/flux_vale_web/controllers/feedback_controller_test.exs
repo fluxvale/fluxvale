@@ -139,6 +139,13 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       refute html =~ "Unknown status duplicate"
     end
 
+    test "an empty filtered view renders the empty state", %{conn: conn} do
+      html = html_response(get(conn, ~p"/feedback?status=completed"), 200)
+
+      assert html =~ "No posts with this status yet."
+      refute html =~ "data-testid=\"feedback-post-"
+    end
+
     test "pagination walks a page past the size boundary", %{conn: conn} do
       for n <- 1..21 do
         post!(%{title: "Bulk request #{String.pad_leading(Integer.to_string(n), 3, "0")}"})
@@ -226,6 +233,15 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       assert String.length(meta) <= 161
       assert String.ends_with?(meta, "…")
       assert String.starts_with?(meta, "word word word")
+    end
+
+    test "a meta cut with no word boundary in the head keeps the raw head", %{conn: conn} do
+      post = post!(%{title: "Unbroken head request", description: String.duplicate("x", 200)})
+
+      html = html_response(get(conn, ~p"/feedback/#{post.slug}"), 200)
+
+      [meta] = Regex.run(~r/name="description" content="([^"]*)"/, html, capture: :all_but_first)
+      assert meta == String.duplicate("x", 160) <> "…"
     end
 
     test "the description keeps its line breaks", %{conn: conn} do
