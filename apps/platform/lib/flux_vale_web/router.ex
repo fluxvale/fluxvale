@@ -247,6 +247,13 @@ defmodule FluxValeWeb.Router do
     # anonymous-OK like the catalog above.
     get("/pricing", PricingController, :show)
 
+    # #412 T9: the roadmap — a public SSR view over the board's post
+    # statuses (planned, started, completed). Top-level ON PURPOSE: a
+    # nested /feedback/roadmap would be eaten by :show's /feedback/:slug
+    # below (clauses compile in source order), and /roadmap is the
+    # better shared URL.
+    get("/roadmap", FeedbackController, :roadmap)
+
     # #412 T4: the public feedback board — the same SSR pattern as the
     # catalog above. If a FIXED path under /feedback ever joins (a
     # composer at /feedback/new, say), declare it BEFORE :show's

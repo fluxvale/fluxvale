@@ -1,7 +1,8 @@
 defmodule FluxValeWeb.SitemapController do
   @moduledoc """
   /sitemap.xml (#164, ADR-00025 §3+4): the prod-origin URL set — home,
-  the catalog index, the feedback board (#412), the blog index, one URL
+  the catalog index, the feedback board (#412), the roadmap (#412 T9,
+  lastmod = the latest post status_changed_at), the blog index, one URL
   per catalog app with its updated_at lastmod, one URL per published
   blog post (lastmod = the post's date), and one URL per feedback post
   (lastmod = updated_at; declined and duplicate posts included — public
