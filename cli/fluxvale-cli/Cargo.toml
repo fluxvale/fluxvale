@@ -5,7 +5,18 @@ edition.workspace = true
 license.workspace = true
 publish = false # workspace-internal; distribution is release binaries
 
+# The distributed binary is `fluxvale` (ADR-0019 Am. 3); the crate keeps
+# the workspace-internal fluxvale-cli name.
+[[bin]]
+name = "fluxvale"
+path = "src/main.rs"
 
-# Canary: zero dependencies on purpose. Real CLI slices add them — and
-# cargo deny's license/advisory gates already run against the lockfile.
 [dependencies]
+anyhow = "1.0.104" # top-level error plumbing (command handlers)
+clap = { version = "4.6.7", features = ["derive"] }
+keyring = "4.2.0" # OS keychain; default `v1` feature = macOS Keychain + Windows Credential Manager + Linux Secret Service
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21" # ApiError's own variants
+toml = "1.2.0"
+ureq = "3.5.1" # defaults = rustls + gzip; no native-tls anywhere

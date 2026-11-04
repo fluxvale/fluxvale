@@ -1,18 +1,9 @@
-//! Canary crate — exists only to exercise the CLI CI lane (ADR-0019
-//! Am. 3). The first real CLI slice replaces it.
+//! The FluxVale CLI (ADR-0019 Am. 3): a thin presentation layer over
+//! `/api/v1`. Serde types in [`api::types`] are generated from the
+//! committed OpenAPI artifact by `cargo xtask openapi` — never edit
+//! that file by hand.
 
-/// The canary's one trivial function; src/main.rs and the test below
-/// are its consumers.
-pub fn canary() -> &'static str {
-    "fluxvale-cli"
-}
-
-#[cfg(test)]
-mod tests {
-    use super::canary;
-
-    #[test]
-    fn canary_answers() {
-        assert_eq!(canary(), "fluxvale-cli");
-    }
-}
+pub mod api;
+pub mod cli;
+pub mod config;
+pub mod token;

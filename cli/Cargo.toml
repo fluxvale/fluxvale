@@ -3,7 +3,7 @@
 # a workspace is the shape a multi-crate CLI grows into.
 [workspace]
 resolver = "2"
-members = ["fluxvale-cli"]
+members = ["fluxvale-cli", "xtask"]
 
 [workspace.package]
 edition = "2024"

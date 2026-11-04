@@ -13,6 +13,11 @@ allow = [
     "ISC",
     "Unicode-3.0",
     "MPL-2.0",
+    # webpki-roots (ureq's default rustls root store) is DATA — Mozilla's
+    # root bundle — under this permissive data license; the crate is not
+    # separable from ureq's `rustls` feature (the scaffold PR that added
+    # ureq, T2 of #362).
+    "CDLA-Permissive-2.0",
 ]
 
 # Our own crates are FSL-1.1-ALv2 and never published (distribution is
