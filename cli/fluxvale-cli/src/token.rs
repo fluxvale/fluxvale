@@ -2,9 +2,9 @@
 //!
 //! Storage per ADR-0019 Am. 3: OS keychain (service `fluxvale`,
 //! account = the base_url host) with a 0600-file fallback
-//! (`fluxvale/credentials`) for machines without a keychain (Linux
-//! without a secret service). The token never appears in argv, logs,
-//! errors, or Debug output.
+//! (`fluxvale/credentials`) for machines without a usable keychain
+//! (Linux without a secret service, or one that refuses the write).
+//! The token never appears in argv, logs, errors, or Debug output.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -97,13 +97,28 @@ impl TokenStore {
     }
 
     /// Save the token: OS keychain where available, else the fallback
-    /// file (written 0600).
+    /// file (written 0600). A keychain that constructs but refuses the
+    /// write (locked, headless session) falls through to the file too —
+    /// the same treatment `load` gives any get_password failure; the
+    /// login status line then reports where the token actually landed.
     pub fn save(&self, host: &str, token: &Token) -> anyhow::Result<()> {
         match self.keychain_entry(host) {
-            Some(entry) => entry.set_password(token.expose()).map_err(|err| {
-                anyhow::anyhow!("the OS keychain refused the token ({err}); nothing was stored")
-            }),
             None => self.file_store().set(host, token),
+            Some(entry) => match entry.set_password(token.expose()) {
+                Ok(()) => Ok(()),
+                Err(keychain_error) => {
+                    // A still-readable stale entry would shadow the file
+                    // token (`load` checks the keychain first) — drop it,
+                    // best-effort: a locked collection refuses deletes too.
+                    let _ = entry.delete_credential();
+                    self.file_store().set(host, token).map_err(|file_error| {
+                        anyhow::anyhow!(
+                            "the OS keychain refused the token ({keychain_error}), \
+                             and the fallback file failed too: {file_error}"
+                        )
+                    })
+                }
+            },
         }
     }
 
@@ -261,6 +276,7 @@ fn set_owner_only(path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn token_debug_and_display_redact() {
@@ -346,6 +362,135 @@ mod tests {
                 .path
                 .ends_with("credentials")
         );
+    }
+
+    /// Swaps the process-global keyring default store for a fresh mock
+    /// for the guard's lifetime (restored on drop). Serialized by a
+    /// static mutex: the store is global, and the test harness runs
+    /// tests in parallel — two swappers would install under each other.
+    struct MockKeyring {
+        /// Whether the v1 facade's platform store initialized. It may
+        /// not have (headless CI has no secret service) — then entries
+        /// cannot be built and the tests assert only the file outcome.
+        platform_store_initialized: bool,
+        #[allow(dead_code)] // held for the Drop
+        guard: std::sync::MutexGuard<'static, ()>,
+        platform_store: Option<Arc<keyring_core::CredentialStore>>,
+    }
+
+    static KEYRING_SWAPS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    impl MockKeyring {
+        fn install() -> Self {
+            let guard = KEYRING_SWAPS.lock().expect("keyring swap mutex poisoned");
+            // Forces the facade's one-time platform-store init (which
+            // installs itself as the default store) before the swap.
+            let platform_store_initialized = keyring::Entry::store_status().is_ok();
+            let platform_store = keyring_core::unset_default_store();
+            keyring_core::set_default_store(
+                keyring_core::mock::Store::new().expect("mock keyring store"),
+            );
+            MockKeyring {
+                platform_store_initialized,
+                guard,
+                platform_store,
+            }
+        }
+    }
+
+    impl Drop for MockKeyring {
+        fn drop(&mut self) {
+            keyring_core::unset_default_store();
+            if let Some(platform_store) = self.platform_store.take() {
+                keyring_core::set_default_store(platform_store);
+            }
+        }
+    }
+
+    #[test]
+    fn save_falls_back_to_the_file_when_the_keychain_refuses_the_write() {
+        // Op-time failure, injected through keyring-core's mock store:
+        // MockKeyring swaps the v1 facade's platform store for a mock,
+        // so the entry `save` builds is mock-backed and its one-shot
+        // set_error makes exactly the next set_password fail —
+        // locked-keychain-at-write-time, not Entry::new unavailability.
+        // Where the platform store cannot initialize at all (headless
+        // CI), the facade's Entry::new fails instead and save reaches
+        // the same file via the unavailability arm; the injected arm
+        // itself only runs where a keychain initializes (dev machines).
+        let mock = MockKeyring::install();
+
+        let host = "refusing-keychain.test";
+        let store = TokenStore::at(temp_dir());
+        if mock.platform_store_initialized {
+            let entry =
+                keyring::Entry::new(KEYCHAIN_SERVICE, host).expect("the mock store builds entries");
+            let cred = entry
+                .inner
+                .as_any()
+                .downcast_ref::<keyring_core::mock::Cred>()
+                .expect("the mock store builds mock credentials");
+            cred.set_error(keyring_core::Error::Invalid(
+                "mock".to_string(),
+                "the keychain refuses the write".to_string(),
+            ));
+        }
+
+        store
+            .save(host, &Token::new("fvpat_fallback"))
+            .expect("a refused keychain write must fall back to the 0600 file");
+        assert_eq!(
+            store.load(host).unwrap().map(|(token, _)| token),
+            Some(Token::new("fvpat_fallback")),
+            "the token must load back from the file after the keychain refused it"
+        );
+        // The login status line reports `load`'s location — it must say
+        // the file, not claim the keychain holds the token.
+        assert_eq!(
+            store.load(host).unwrap().map(|(_, location)| location),
+            Some(TokenLocation::FallbackFile)
+        );
+    }
+
+    #[test]
+    fn save_names_both_layers_when_the_fallback_file_fails_too() {
+        // The dual-failure arm: keychain refuses the write AND the file
+        // write fails (here: the credentials path is a directory). The
+        // error must name both layers, or triage starts from nothing.
+        // Same environment split as the fallback test above — where no
+        // keychain initializes, the plain file error is already the
+        // whole story.
+        let mock = MockKeyring::install();
+
+        let host = "refusing-keychain.test";
+        let dir = temp_dir();
+        std::fs::create_dir_all(dir.join("credentials")).unwrap();
+        let store = TokenStore::at(dir);
+        if mock.platform_store_initialized {
+            let entry =
+                keyring::Entry::new(KEYCHAIN_SERVICE, host).expect("the mock store builds entries");
+            let cred = entry
+                .inner
+                .as_any()
+                .downcast_ref::<keyring_core::mock::Cred>()
+                .expect("the mock store builds mock credentials");
+            cred.set_error(keyring_core::Error::Invalid(
+                "mock".to_string(),
+                "the keychain refuses the write".to_string(),
+            ));
+        }
+
+        let err = store
+            .save(host, &Token::new("fvpat_neither"))
+            .expect_err("nothing stored: both layers failed");
+        if mock.platform_store_initialized {
+            let message = err.to_string();
+            assert!(
+                message.contains("the OS keychain refused the token")
+                    && message.contains("and the fallback file failed too"),
+                "the error must name both layers: {message}"
+            );
+        }
     }
 
     fn temp_dir() -> PathBuf {

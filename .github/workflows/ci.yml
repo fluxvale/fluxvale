@@ -69,6 +69,11 @@ jobs:
               - ".github/workflows/ci.yml"
             cli:
               - "cli/**"
+              # The generated types are checked against this artifact in
+              # cli-gates (`cargo xtask openapi --check`) — a platform PR
+              # that regenerates it must run the CLI lane, or the drift
+              # reds the next cli PR instead.
+              - "apps/platform/priv/open_api.json"
               - ".github/workflows/ci.yml"
               # The release lane drives the same assets (the tag gate
               # script, the 4-leg matrix) — a bump here is a cli change,

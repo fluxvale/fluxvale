@@ -20,3 +20,6 @@ serde_json = "1.0.154"
 thiserror = "2.0.21" # ApiError's own variants
 toml = "1.2.0"
 ureq = "3.5.1" # defaults = rustls + gzip; no native-tls anywhere
+
+[dev-dependencies]
+keyring-core = "1" # the mock store: injects the op-time set_password failure the keychain-fallback test needs
