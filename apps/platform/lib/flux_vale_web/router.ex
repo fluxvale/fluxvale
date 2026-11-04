@@ -352,6 +352,13 @@ defmodule FluxValeWeb.Router do
       # wizard's contract is no slug).
       live("/organizations/:slug/billing/topup", BillingLive.Topup, :org)
       live("/organizations/:slug/billing/topup/return", BillingLive.Topup, :org)
+      # #408: org creation — the switcher footer entry's target. The
+      # literal beats :slug by definition order; "new" rides the
+      # reservation list so the actor-create path cannot mint an org at
+      # the creation page's own address. Rename and the JIT signup path
+      # can still land an org on reserved words (ReservedSlug's
+      # moduledoc) — such an org's home serves this page; no redirect.
+      live("/organizations/new", OrganizationLive.New)
       # #276: the org home — the switcher rows' target, slug-keyed like
       # the catalog.
       live("/organizations/:slug", OrganizationLive.Home)

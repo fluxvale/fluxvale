@@ -255,8 +255,10 @@ defmodule FluxVale.Accounts.Organization do
     # Renaming — either field — frees the old slug immediately: no
     # redirects and no slug reservations ship with this flow. The
     # reserved-slug gate binds the creation flow only (#408) — renaming
-    # past a later-added reservation stays allowed (accepted asymmetry;
-    # revisit trigger: the invite flow, when org slugs become shareable).
+    # to a currently reserved slug stays allowed too, not just past
+    # later-added ones (the accepted asymmetry; ReservedSlug's moduledoc
+    # carries the full claim; revisit trigger: the invite flow, when org
+    # slugs become shareable).
     #
     # require_atomic? false: the stale-form guard below is a function
     # change, which Ash cannot run atomically — the trade the destroy

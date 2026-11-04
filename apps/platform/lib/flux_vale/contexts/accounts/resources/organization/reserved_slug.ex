@@ -15,9 +15,18 @@ defmodule FluxVale.Accounts.Organization.ReservedSlug do
   # but stay unreserved; docs, status are reserved though unserved). No
   # live collision while org slugs ride /organizations/:slug only, and
   # reservations never evict claimed slugs — so gaps set now are
-  # permanent. Revisit trigger: the day org slugs claim root-level
-  # surfaces.
-  @reserved ~w(www app api admin blog catalog docs apps instances billing settings organizations support status mail fluxvale)
+  # permanent. "new" is here for the literal /organizations/new route
+  # (definition order makes the literal beat :slug): reserving it keeps
+  # the actor-create path from minting an org at the creation page's own
+  # address. Rename and the JIT signup path can still land an org on
+  # reserved words (below) — such an org's home serves the literal, and
+  # no redirect ships. Revisit trigger: the day org slugs claim
+  # root-level surfaces.
+  #
+  # Signup provisioning predates and bypasses the list: a signup whose
+  # username is a reserved word claims it (the JIT path derives slugs
+  # upstream and never runs this validation).
+  @reserved ~w(www app api admin blog catalog docs apps instances billing settings organizations support status mail fluxvale new)
 
   @impl Ash.Resource.Validation
   def validate(changeset, _opts, _context) do
