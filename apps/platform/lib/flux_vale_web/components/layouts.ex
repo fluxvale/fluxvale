@@ -254,12 +254,6 @@ defmodule FluxValeWeb.Layouts do
             <li :if={not @apps} class="hidden sm:block">
               <.nav_link navigate={~p"/pricing"}>Pricing</.nav_link>
             </li>
-            <%!-- #412 T4: Feedback rides beside Pricing — hidden below sm
-            (the anonymous cluster is width-tuned to the mill, #277 T7);
-            the footer carries it at every width. --%>
-            <li :if={not @apps} class="hidden sm:block">
-              <.nav_link navigate={~p"/feedback"}>Feedback</.nav_link>
-            </li>
             <li><.theme_toggle /></li>
             <%!-- #205: the signed-in chrome is the user menu — the same
             component on app and public chrome; it retires both the
@@ -322,17 +316,6 @@ defmodule FluxValeWeb.Layouts do
             <li>
               <.link navigate={~p"/pricing"} class="text-sm text-ink-muted hover:text-ink">
                 Pricing
-              </.link>
-            </li>
-            <%!-- #412 T4: the feedback board joins the footer beside
-            Pricing — every public page carries it. --%>
-            <li>
-              <.link
-                navigate={~p"/feedback"}
-                class="text-sm text-ink-muted hover:text-ink"
-                data-testid="footer-feedback"
-              >
-                Feedback
               </.link>
             </li>
             <%!-- #205: the footer follows the header's session awareness —
