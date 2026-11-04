@@ -54,7 +54,9 @@ defmodule FluxVale.Billing.Providers.PolarTest do
                  "products" => ["prod_1"],
                  "amount" => 500,
                  "currency" => "usd",
-                 "success_url" => "https://app.example/billing/topup/return/topup_1",
+                 "success_url" =>
+                   "https://app.example/billing/topup/return/topup_1?checkout_id={CHECKOUT_ID}",
+                 "return_url" => "https://app.example/billing/topup/return/topup_1",
                  "metadata" => %{"topup_id" => "topup_1"},
                  "allow_discount_codes" => false,
                  "customer_email" => "buyer@example.com",
@@ -77,10 +79,53 @@ defmodule FluxVale.Billing.Providers.PolarTest do
                  "products" => ["prod_1"],
                  "amount" => 12_345,
                  "currency" => "usd",
-                 "success_url" => "https://app.example/billing/topup/return/topup_1",
+                 "success_url" =>
+                   "https://app.example/billing/topup/return/topup_1?checkout_id={CHECKOUT_ID}",
+                 "return_url" => "https://app.example/billing/topup/return/topup_1",
                  "metadata" => %{"topup_id" => "topup_1"},
                  "allow_discount_codes" => false
                }
+
+        {:ok,
+         %Req.Response{status: 200, body: %{"id" => "co_1", "url" => "https://checkout/co_1"}}}
+      end)
+
+      assert {:ok, _handle} = Polar.create_checkout(request, [])
+    end
+
+    # The {CHECKOUT_ID} substitution token (#377): Polar replaces it
+    # with the checkout session id at redirect time — the confirmation
+    # landing's correlation param. Query-string-safe, never appended
+    # twice.
+    test "joins the token onto an existing query string with &" do
+      request = %{
+        @request
+        | redirect_url: "https://app.example/billing/topup/return/topup_1?session=x"
+      }
+
+      expect(Req, :post, fn _req, opts ->
+        assert opts[:json]["success_url"] ==
+                 "https://app.example/billing/topup/return/topup_1?session=x&checkout_id={CHECKOUT_ID}"
+
+        assert opts[:json]["return_url"] ==
+                 "https://app.example/billing/topup/return/topup_1?session=x"
+
+        {:ok,
+         %Req.Response{status: 200, body: %{"id" => "co_1", "url" => "https://checkout/co_1"}}}
+      end)
+
+      assert {:ok, _handle} = Polar.create_checkout(request, [])
+    end
+
+    test "never double-appends when the caller already carries the token" do
+      request = %{
+        @request
+        | redirect_url: "https://app.example/return?checkout_id={CHECKOUT_ID}"
+      }
+
+      expect(Req, :post, fn _req, opts ->
+        assert opts[:json]["success_url"] ==
+                 "https://app.example/return?checkout_id={CHECKOUT_ID}"
 
         {:ok,
          %Req.Response{status: 200, body: %{"id" => "co_1", "url" => "https://checkout/co_1"}}}

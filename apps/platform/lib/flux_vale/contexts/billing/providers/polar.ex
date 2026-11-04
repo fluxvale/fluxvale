@@ -53,6 +53,11 @@ defmodule FluxVale.Billing.Providers.Polar do
 
   @config_key :polar
 
+  # Polar's literal substitution token for success_url — the checkout
+  # session id replaces it at redirect time (their docs), giving the
+  # return landing its correlation param (#377).
+  @checkout_id_token "checkout_id={CHECKOUT_ID}"
+
   # Polar's OpenAPI servers block — the only two URLs, never an
   # invented one.
   @base_urls %{
@@ -142,7 +147,13 @@ defmodule FluxVale.Billing.Providers.Polar do
       "products" => [product_id],
       "amount" => request.amount_cents,
       "currency" => String.downcase(request.currency),
-      "success_url" => request.redirect_url,
+      "success_url" => with_checkout_token(request.redirect_url),
+      # The checkout page's back button (abandoned purchase). Sent
+      # BARE: Polar documents {CHECKOUT_ID} substitution for
+      # success_url only (checked 2026-11-04, api 2026-10) — the
+      # return lands on the wizard as today, never mis-correlated
+      # (#377).
+      "return_url" => request.redirect_url,
       "metadata" => %{"topup_id" => request.reference},
       # #377: buyer-entered codes off by default — the webhook
       # credits the pre-discount subtotal, so a buyer-entered code
@@ -152,6 +163,20 @@ defmodule FluxVale.Billing.Providers.Polar do
     }
 
     Map.merge(base, buyer_fields(request))
+  end
+
+  # Polar substitutes the literal {CHECKOUT_ID} token into
+  # success_url at redirect time (their documented behavior) — the
+  # substituted checkout session id is what the confirmation landing
+  # correlates on (#377). Query-string-safe either way; a caller
+  # already carrying the token is never double-appended.
+  defp with_checkout_token(url) do
+    if String.contains?(url, @checkout_id_token) do
+      url
+    else
+      separator = if String.contains?(url, "?"), do: "&", else: "?"
+      url <> separator <> @checkout_id_token
+    end
   end
 
   # Polar 422s null buyer fields — only populated binaries are sent.
