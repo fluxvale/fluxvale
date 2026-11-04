@@ -20,7 +20,9 @@ defmodule FluxValeWeb.MCP.Router do
   - **Billing** — wallet balance plus projected runway (`get_wallet`)
     and the ledger history (`list_ledger_entries`).
   - **Catalog** — the deployable app catalog (`list_apps`).
-  - **`whoami`** — the identity your token carries and its scopes.
+  - **`whoami`** — the identity your token carries, its scopes, and
+    the actor's organizations (id + slug each — those ids are what
+    `get_wallet` and `get_gateway` take).
 
   Write tools require the domain's `:write` scope (`write` implies
   `read`). The destructive pair — `restore_backup` (OVERWRITES the
@@ -51,6 +53,7 @@ defmodule FluxValeWeb.MCP.Router do
     secret_key_base: {FluxValeWeb.Endpoint, :config, [:secret_key_base]},
     request_state_salt: "fluxvale mcp request_state v1"
 
+  alias FluxVale.Accounts
   alias FluxVale.Api.Scopes
   alias FluxVale.Billing.LedgerEntry
   alias FluxVale.Billing.Wallet
@@ -311,10 +314,12 @@ defmodule FluxValeWeb.MCP.Router do
   # --- the read tools ------------------------------------------------
 
   @description """
-  The identity this token carries: user id, email, platform role, and
-  the exact scope list the token was minted with. Use it first to
-  learn what the token may do — tools outside the scopes never appear
-  in tools/list.
+  The identity this token carries: user id, email, platform role, the
+  exact scope list the token was minted with, and the organizations
+  the user belongs to (id and slug each). Use it first to learn what
+  the token may do — tools outside the scopes never appear in
+  tools/list — and to get the organization ids that `get_wallet` and
+  `get_gateway` take.
   """
   tool :whoami, read_only: true do
   end
@@ -329,10 +334,16 @@ defmodule FluxValeWeb.MCP.Router do
       # renders the crash as a protocol-internal error.
       user = Ash.load!(actor, :primary_email, actor: actor, authorize?: true)
 
+      # The org switcher's read: the actor scopes the rows (policies
+      # apply), so only orgs they belong to come back — same failure
+      # posture as the load above.
+      {:ok, orgs} = Accounts.organizations_for_user(actor.id, actor: actor)
+
       attributes = %{
         email: user.primary_email,
         platform_role: user.platform_role,
-        scopes: pat.scopes
+        scopes: pat.scopes,
+        organizations: Enum.map(orgs, &%{id: &1.organization.id, slug: &1.organization.slug})
       }
 
       response = row(user, "user", attributes)
