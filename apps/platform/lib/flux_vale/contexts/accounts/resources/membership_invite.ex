@@ -19,7 +19,8 @@ defmodule FluxVale.Accounts.MembershipInvite do
   the race arbiter (an Ash identity cannot express the partial
   predicate); the invite seam's pre-check gives the friendly duplicate
   answer (the unique_slug posture). Accepted and revoked rows are
-  history — the predicate frees the address for a re-invite.
+  history; an expired row stops holding the address through the
+  supersede that rides the re-invite (`supersede_expired/2`).
 
   Deliberately no JSON:API surface (v1 stance) and no AshAdmin (the
   Accounts domain stays out of the /admin mount).
@@ -35,6 +36,9 @@ defmodule FluxVale.Accounts.MembershipInvite do
   alias FluxVale.Accounts.MembershipInvite.SetRevokedAt
   alias FluxVale.Accounts.Organization
   alias FluxVale.Accounts.Types.MembershipRole
+
+  # Ash.Query.filter is a macro (supersede_expired/2)
+  require Ash.Query
 
   # The invitation window — the mail copy reads ttl_days/0 so the
   # sentence and the row can never drift (the AuthCode TTL posture).
@@ -217,6 +221,21 @@ defmodule FluxVale.Accounts.MembershipInvite do
 
       change(set_attribute(:revoked_at, &DateTime.utc_now/0))
     end
+
+    # System supersede of EXPIRED, unstamped rows — the sanctioned
+    # entry is `supersede_expired/2` below, which scopes the bulk
+    # update to one (org, email). The re-invite flow stamps the stale
+    # row so the partial index frees the address (the index predicate
+    # cannot carry now(), so the supersede is what makes re-inviting
+    # possible — the UserEmail supersede posture). Atomic-compatible:
+    # the filter and stamp compile into the UPDATE.
+    update :supersede_expired do
+      description("Retire an expired, unstamped invite (system re-invite supersede)")
+
+      change(filter(expr(is_nil(accepted_at) and is_nil(revoked_at) and expires_at <= now())))
+
+      change(set_attribute(:revoked_at, &DateTime.utc_now/0))
+    end
   end
 
   code_interface do
@@ -289,5 +308,24 @@ defmodule FluxVale.Accounts.MembershipInvite do
     :sha256
     |> :crypto.hash(raw)
     |> Base.encode16(case: :lower)
+  end
+
+  @doc """
+  Atomically supersedes every EXPIRED, unstamped invite for one
+  (org, email) — the re-invite seam (InviteMember): the stale row
+  stops holding the address, because the partial index's predicate
+  cannot carry `now()` (the UserEmail supersede posture — the expired
+  window is the authorization, authorize?: false).
+  """
+  @spec supersede_expired(Ash.UUID.t(), String.t() | Ash.CiString.t()) :: :ok
+  def supersede_expired(organization_id, email) do
+    __MODULE__
+    |> Ash.Query.filter(
+      organization_id == ^organization_id and email == ^email and
+        is_nil(accepted_at) and is_nil(revoked_at) and expires_at <= now()
+    )
+    |> Ash.bulk_update!(:supersede_expired, %{}, authorize?: false)
+
+    :ok
   end
 end

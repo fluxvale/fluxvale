@@ -100,6 +100,48 @@ defmodule FluxVale.Accounts.Operations.InviteMemberTest do
 
       assert {:ok, _fresh} = Accounts.invite_member(owner, org, "reinvite@fluxvale.test")
     end
+
+    test "a re-invite over an expired row supersedes it and lands fresh" do
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+      invitee = AccountsFixtures.user!()
+
+      # An expired row holds the address at the index (its predicate
+      # cannot carry now()) — a state no action can produce, so the
+      # stale row rides Ash.Seed (the documented exception).
+      past = DateTime.add(DateTime.utc_now(), -1, :minute)
+
+      stale =
+        Ash.Seed.seed!(MembershipInvite, %{
+          organization_id: org.id,
+          email: invitee.email,
+          token_hash: stale_hash(),
+          expires_at: past
+        })
+
+      assert {:ok, fresh} = Accounts.invite_member(owner, org, invitee.email)
+
+      assert {:ok, mail} = mailbox_invite_mail(to_string(invitee.email))
+      raw = token_from_body!(mail)
+
+      # The fresh row answers the token; the stale row is retired
+      # (revoked) — history, not a trap.
+      assert {:ok, {:open, resolved}} = Accounts.resolve_invite(raw)
+      assert resolved.id == fresh.id
+
+      assert %{revoked_at: stamped} = Ash.load!(stale, :revoked_at, authorize?: false)
+      assert stamped
+    end
+
+    test "a malformed address is refused before anything is stored or sent" do
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+
+      assert {:error, :invalid_email} = Accounts.invite_member(owner, org, "not-an-address")
+
+      # Nothing landed and nothing was sent.
+      refute_received {:email, _}
+    end
   end
 
   describe "policies" do
@@ -168,5 +210,16 @@ defmodule FluxVale.Accounts.Operations.InviteMemberTest do
       %{organization_id: org.id, user_id: user.id, role: :member},
       authorize?: false
     )
+  end
+
+  # An arbitrary, unique digest for precondition rows — the value's
+  # shape is what matters (64-hex), not what it hashes.
+  defp stale_hash do
+    n = System.unique_integer([:positive])
+    seed = Integer.to_string(n)
+
+    :sha256
+    |> :crypto.hash(seed)
+    |> Base.encode16(case: :lower)
   end
 end

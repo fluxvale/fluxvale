@@ -92,6 +92,20 @@ defmodule FluxValeWeb.OrganizationLive.Members do
                invite_form(email: email, errors: [email: {"already has an open invitation", []}])
            )}
 
+        # The seam carries the same format fence (the operation is what
+        # every caller crosses — the RequestAuthCode posture); this arm
+        # is that fence's page face. Unreachable from THIS page today —
+        # the eager check above answers first — pinned by the operation
+        # suite; the arm keeps the page honest if the pre-check and the
+        # seam ever disagree.
+        # coveralls-ignore-next-line
+        {:error, :invalid_email} ->
+          {:noreply,
+           assign(socket,
+             invite_form:
+               invite_form(email: email, errors: [email: {"must be a valid email address", []}])
+           )}
+
         {:error, _other} ->
           # The owner policy is the authority; a refused create lands
           # here (the org gone underneath the mounted page — pinned by
@@ -103,9 +117,8 @@ defmodule FluxValeWeb.OrganizationLive.Members do
            |> refresh_invites()}
       end
     else
-      # The sign-in gate's format rule, applied before anything is
-      # stored or sent (the RequestAuthCode posture): a malformed
-      # address could never match a verified primary at accept.
+      # The same rule, checked eagerly: the field error renders without
+      # the round-trip (the settings form's validate posture).
       {:noreply,
        assign(socket,
          invite_form:
@@ -116,22 +129,24 @@ defmodule FluxValeWeb.OrganizationLive.Members do
 
   def handle_event("revoke-invite", %{"id" => id}, socket) do
     user = socket.assigns.current_user
-    org = socket.assigns.org
 
-    invite = pending_invite(org, user, id)
+    # The id is a client value: resolution happens in memory over the
+    # policy-scoped list (the Access tab posture — a crafted id must
+    # answer "no longer pending", never crash the lookup).
+    invite = Enum.find(socket.assigns.invites, &(&1.id == id))
 
     socket =
       case invite do
         nil ->
-          # Already gone (revoked elsewhere, org teardown) — the
-          # refresh below shows the page the truth.
+          # Already gone (revoked elsewhere, expired, org teardown) —
+          # the refresh below shows the page the truth.
           put_flash(socket, :error, "That invitation is no longer pending.")
 
         invite ->
           case Accounts.revoke_invite(user, invite) do
             {:ok, _revoked} -> put_flash(socket, :info, "Invitation revoked.")
             # Defensive: a found-then-refused write has no trigger
-            # today — the open-filtered read above answers every state
+            # today — the open-filtered list above answers every state
             # the row can move to, and a mounted owner's revoke passes
             # the owner policy. Revisit with slice 5's removal flow,
             # when an owner can lose the grant mid-session.
@@ -147,6 +162,7 @@ defmodule FluxValeWeb.OrganizationLive.Members do
     invites = list_invites(socket.assigns.org, socket.assigns.current_user)
 
     socket
+    |> assign(:invites, invites)
     |> assign(:invites_empty?, invites == [])
     |> stream(:invites, invites, reset: true)
   end
@@ -327,31 +343,20 @@ defmodule FluxValeWeb.OrganizationLive.Members do
   end
 
   # The OPEN invites of this org only — accepted and revoked rows are
-  # history, the list is the pending queue (the same predicate the
-  # partial unique index arbitrates). Invited-asc, then id (the
-  # list_members tiebreak posture). Policy-scoped: the read action's
-  # org-members grant carries it; the organization_id filter pins the
-  # tenant.
+  # history, and an expired row is not pending either (re-inviting
+  # supersedes it; the seam owns that), so the queue shows exactly the
+  # rows a revoke can act on. Invited-asc, then id (the list_members
+  # tiebreak posture). Policy-scoped: the read action's org-members
+  # grant carries it; the organization_id filter pins the tenant.
   defp list_invites(org, user) do
     MembershipInvite
     |> Ash.Query.for_read(:read, %{}, actor: user)
-    |> Ash.Query.filter(organization_id == ^org.id and is_nil(accepted_at) and is_nil(revoked_at))
+    |> Ash.Query.filter(
+      organization_id == ^org.id and
+        is_nil(accepted_at) and is_nil(revoked_at) and expires_at > now()
+    )
     |> Ash.Query.sort(created_at: :asc, id: :asc)
     |> Ash.read!()
-  end
-
-  # Open rows only: a row that already moved (revoked elsewhere,
-  # accepted, org teardown) reads as "no longer pending" instead of
-  # re-stamping — the idempotent revoke keeps the original stamp, but
-  # the click that did nothing new says so.
-  defp pending_invite(org, user, id) do
-    MembershipInvite
-    |> Ash.Query.for_read(:read, %{}, actor: user)
-    |> Ash.Query.filter(
-      id == ^id and organization_id == ^org.id and
-        is_nil(accepted_at) and is_nil(revoked_at)
-    )
-    |> Ash.read_one!(actor: user)
   end
 
   defp role_label(:owner), do: "Owner"

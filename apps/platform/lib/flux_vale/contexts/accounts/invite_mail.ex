@@ -53,10 +53,9 @@ defmodule FluxVale.Accounts.InviteMail do
     :ok
   end
 
-  # Emails carry the canonical origin (the prod URL is the truth
-  # regardless of the sending host — the Mailer topup_url stance).
+  # The link rides the Mailer's canonical-origin seam (the prod URL is
+  # the truth regardless of the sending host).
   defp accept_url(raw_token) do
-    origin = Application.get_env(:flux_vale, :canonical_origin, "https://fluxvale.com")
-    origin <> "/invitations/accept?token=" <> raw_token
+    Mailer.canonical_url("/invitations/accept?token=" <> raw_token)
   end
 end

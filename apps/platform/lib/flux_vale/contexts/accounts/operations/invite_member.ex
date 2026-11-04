@@ -11,7 +11,9 @@ defmodule FluxVale.Accounts.Operations.InviteMember do
   (`MembershipInvite.token_hash/1`, the MintPat posture). One OPEN
   invite per (org, email): the seam-level pre-check below gives the
   friendly duplicate answer and the partial unique index is the race
-  arbiter (the unique_slug posture).
+  arbiter (the unique_slug posture). An expired row is not a
+  duplicate — the supersede frees the address and the re-invite lands
+  fresh.
 
   Mail failure logs and never fails the invite (the TopupOutcomeMail
   discipline): the row is the truth, the owner sees it pending and can
@@ -22,6 +24,7 @@ defmodule FluxVale.Accounts.Operations.InviteMember do
   alias FluxVale.Accounts.MembershipInvite
   alias FluxVale.Accounts.Organization
   alias FluxVale.Identity.User
+  alias FluxVale.Identity.UserEmail
 
   require Ash.Query
 
@@ -30,9 +33,16 @@ defmodule FluxVale.Accounts.Operations.InviteMember do
   @token_bytes 32
 
   @spec call(User.t(), Organization.t(), String.t() | Ash.CiString.t()) ::
-          {:ok, MembershipInvite.t()} | {:error, :duplicate_invite | term()}
+          {:ok, MembershipInvite.t()}
+          | {:error, :invalid_email | :duplicate_invite | term()}
   def call(%User{} = owner, %Organization{} = org, email) do
-    with :ok <- no_open_invite?(owner, org, email) do
+    with :ok <- valid_address?(email),
+         :ok <- no_open_invite?(owner, org, email) do
+      # A stale expired row still holds the address at the index (its
+      # predicate cannot carry now()) — the supersede frees it before
+      # the new invite lands (the UserEmail re-claim posture).
+      MembershipInvite.supersede_expired(org.id, email)
+
       raw = raw_token()
 
       # The digest rides the action's private argument — set by the
@@ -58,15 +68,25 @@ defmodule FluxVale.Accounts.Operations.InviteMember do
     end
   end
 
+  # The sign-in gate's format rule, applied before anything is stored
+  # or sent (RequestAuthCode's first fence): a malformed address could
+  # never match a verified primary at accept, so inviting it would mint
+  # a permanent dead row.
+  defp valid_address?(email) do
+    if UserEmail.valid_address?(email), do: :ok, else: {:error, :invalid_email}
+  end
+
   # Policy-scoped (the owner is an org member): an unreadable invite
   # simply misses here and the create's own policy answers the caller.
+  # Open means untouched AND in-window — an expired row is not a
+  # duplicate (it gets superseded below instead).
   defp no_open_invite?(owner, org, email) do
     open? =
       MembershipInvite
       |> Ash.Query.for_read(:read, %{}, actor: owner)
       |> Ash.Query.filter(
         organization_id == ^org.id and email == ^email and
-          is_nil(accepted_at) and is_nil(revoked_at)
+          is_nil(accepted_at) and is_nil(revoked_at) and expires_at > now()
       )
       |> Ash.exists?(actor: owner)
 

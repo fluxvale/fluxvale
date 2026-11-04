@@ -11,6 +11,7 @@ defmodule FluxVale.Accounts.MembershipInviteTest do
 
   use FluxVale.DataCase, async: true
 
+  alias FluxVale.Accounts
   alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.MembershipInvite
   alias FluxVale.TestSupport.AccountsFixtures
@@ -209,6 +210,41 @@ defmodule FluxVale.Accounts.MembershipInviteTest do
       # membership.
       assert reload_with_state!(invite).state == :open
       assert org_membership_count(org, invitee.id) == 1
+    end
+
+    test "supersede_expired retires only the stale arm of one (org, email)" do
+      {org, _owner} = owned_org!()
+
+      # The stale arms: expired, unstamped rows — a state no action can
+      # produce (expiry), so they ride Ash.Seed. Two addresses pin the
+      # scoping: only the named (org, email) retires. (A same-address
+      # in-window row cannot coexist here — the partial index forbids
+      # two stampless rows for one (org, email), expiry included.)
+      past = DateTime.add(DateTime.utc_now(), -1, :hour)
+
+      stale =
+        Ash.Seed.seed!(MembershipInvite, %{
+          organization_id: org.id,
+          email: "supersede-target@fluxvale.test",
+          token_hash: arbitrary_hash(),
+          expires_at: past
+        })
+
+      other_stale =
+        Ash.Seed.seed!(MembershipInvite, %{
+          organization_id: org.id,
+          email: "other-arm@fluxvale.test",
+          token_hash: arbitrary_hash(),
+          expires_at: past
+        })
+
+      assert :ok = MembershipInvite.supersede_expired(org.id, "supersede-target@fluxvale.test")
+
+      assert %{revoked_at: stamped} = Ash.load!(stale, :revoked_at, authorize?: false)
+      assert stamped
+
+      # The other address's row stays untouched.
+      assert %{revoked_at: nil} = Ash.load!(other_stale, :revoked_at, authorize?: false)
     end
 
     test "accept and decline get no actor path — the token actions forbid under policies" do

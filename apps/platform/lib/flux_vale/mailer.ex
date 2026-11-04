@@ -203,9 +203,16 @@ defmodule FluxVale.Mailer do
 
   # Emails carry the canonical origin (the prod URL is the truth
   # regardless of the sending host, the same stance as the SEO seam).
-  defp topup_url do
+  # Public: every mailer-side link builder reads this one seam.
+  @doc "The canonical-origin URL for an email link's path"
+  @spec canonical_url(String.t()) :: String.t()
+  def canonical_url(path) do
     origin = Application.get_env(:flux_vale, :canonical_origin, "https://fluxvale.com")
-    origin <> "/billing/topup"
+    origin <> path
+  end
+
+  defp topup_url do
+    canonical_url("/billing/topup")
   end
 
   # ADR-0026 §4 pins /feedback/:slug as the post page's shape.
