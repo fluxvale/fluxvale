@@ -20,6 +20,7 @@ defmodule FluxVale.Feedback.Post do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias FluxVale.Feedback.Post.AuthorStatusMail
   alias FluxVale.Feedback.Post.DeriveSlug
   alias FluxVale.Feedback.Post.RejectReferencedOriginal
   alias FluxVale.Feedback.Post.SetActorDefaults
@@ -225,6 +226,10 @@ defmodule FluxVale.Feedback.Post do
       # makes.
       require_atomic?(false)
       change(SetStatus)
+
+      # The author notification (T7) rides after the write: a FRESH
+      # status move mails the author (the change owns the gates).
+      change(AuthorStatusMail)
     end
 
     destroy :destroy do

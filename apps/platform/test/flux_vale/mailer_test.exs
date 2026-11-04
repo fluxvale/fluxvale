@@ -162,4 +162,44 @@ defmodule FluxVale.MailerTest do
       assert body =~ "You were not charged."
     end
   end
+
+  # T7 (fluxvale/fluxvale#412): the post author's status notification.
+  # Plain sentences by the owner's copy rule — no em-dashes, no
+  # semicolons.
+  describe "deliver_feedback_status_changed/4" do
+    test "the subject names the new status, the body names the post and the board page" do
+      {:ok, _delivery} =
+        Mailer.deliver_feedback_status_changed(
+          "board-author@fluxvale.com",
+          :started,
+          "Dark mode for the dashboard",
+          "dark-mode-for-the-dashboard"
+        )
+
+      assert_receive {:email, %Swoosh.Email{subject: subject, text_body: body} = email}
+
+      assert email.to == [{"", "board-author@fluxvale.com"}]
+      assert subject == "Your FluxVale feedback post is now started"
+      assert body =~ ~s(Your feedback post "Dark mode for the dashboard" is now started.)
+
+      assert body =~
+               "You can follow it at https://fluxvale.com/feedback/dark-mode-for-the-dashboard."
+    end
+
+    test "the copy carries no em-dashes and no semicolons" do
+      {:ok, _delivery} =
+        Mailer.deliver_feedback_status_changed(
+          "copy-rule@fluxvale.com",
+          :declined,
+          "Export everything to CSV",
+          "export-everything-to-csv"
+        )
+
+      assert_receive {:email, %Swoosh.Email{subject: subject, text_body: body}}
+      refute subject =~ "—"
+      refute subject =~ ";"
+      refute body =~ "—"
+      refute body =~ ";"
+    end
+  end
 end

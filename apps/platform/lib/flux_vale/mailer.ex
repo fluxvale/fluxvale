@@ -135,11 +135,40 @@ defmodule FluxVale.Mailer do
     {"Your FluxVale top-up expired", "Your top-up expired without being completed."}
   end
 
+  @doc """
+  The post author's status notification (fluxvale/fluxvale#412 T7): the
+  board moves their post and the author hears it from us first. Plain
+  body, the status word and the title, where to follow it — the same
+  transactional minimalism as the other mails. One mail per fresh
+  transition; the set_status trigger (`Feedback.Post.AuthorStatusMail`)
+  owns the once.
+  """
+  @spec deliver_feedback_status_changed(String.t(), atom(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def deliver_feedback_status_changed(to, status, title, slug) do
+    %Swoosh.Email{}
+    |> Swoosh.Email.to(to)
+    |> Swoosh.Email.from({"FluxVale", "no-reply@fluxvale.com"})
+    |> Swoosh.Email.subject("Your FluxVale feedback post is now #{status}")
+    |> Swoosh.Email.text_body("""
+    Your feedback post "#{title}" is now #{status}.
+
+    You can follow it at #{feedback_post_url(slug)}.
+    """)
+    |> deliver()
+  end
+
   # Emails carry the canonical origin (the prod URL is the truth
   # regardless of the sending host, the same stance as the SEO seam).
   defp topup_url do
     origin = Application.get_env(:flux_vale, :canonical_origin, "https://fluxvale.com")
     origin <> "/billing/topup"
+  end
+
+  # ADR-0026 §4 pins /feedback/:slug as the post page's shape.
+  defp feedback_post_url(slug) do
+    origin = Application.get_env(:flux_vale, :canonical_origin, "https://fluxvale.com")
+    origin <> "/feedback/" <> slug
   end
 
   # The recipient split (ADR-0003 Am. 2). Overriding the mailer macro's
