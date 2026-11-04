@@ -10,7 +10,7 @@ defmodule FluxVale.Accounts.Organization do
   personal one is an explicit fact, not a derivation (#408): an org is
   that user's account-surface org exactly when `personal_owner_id`
   names them — provisioning stamps it at signup, null marks the team
-  orgs the user-created-orgs flow (#408) will produce, and
+  orgs the user-created-orgs flow produces (`create_with_owner`), and
   `unique_personal_owner` keeps one marked org per user. `slug` is the
   unique address (`[a-z0-9-]`, GitHub-style) — stable until an owner
   renames it in settings: the old slug is released immediately and no
@@ -49,12 +49,35 @@ defmodule FluxVale.Accounts.Organization do
       authorize_if(relates_to_actor_via(:members))
     end
 
-    policy action_type(:create) do
+    # System-only by policy (the JIT provisioning writer runs
+    # authorize?: false). Narrowed to action(:create), NOT
+    # action_type(:create): the type-wide form also matches
+    # :create_with_owner, and a forbid_if that matches in any
+    # applicable policy vetoes everything — the actor path could never
+    # be granted. The actor-reachable creation flow is
+    # :create_with_owner below — signed-in actors below the owned-org
+    # cap (#408).
+    policy action(:create) do
       description(
-        "System-only: JIT provisioning (authorize?: false). Actor-driven creation waits for the team-features flow that members the creator in the same transaction — without it, a created org is unreadable even by its creator."
+        "System-only: JIT provisioning (authorize?: false). Actor-driven creation is :create_with_owner — signed-in actors below the owned-org cap, members as owner in-transaction (#408)."
       )
 
       forbid_if(always())
+    end
+
+    # The actor path (#408): any signed-in user below the cap creates a
+    # team org, its owner membership written inside the action's
+    # transaction. The COMPOSITION is the load-bearing part:
+    # forbid_unless forbids a missing actor outright, and a present
+    # actor passes only if the cap check authorizes — over-cap falls
+    # off the end into the default forbidden. Two authorize_ifs would
+    # be OR (the first true wins) and let an over-cap user through on
+    # the actor-present check; the order of THESE two checks, by
+    # contrast, is not load-bearing (both orders decide alike).
+    policy action(:create_with_owner) do
+      description("Signed-in actors below the org-creation cap create team orgs (#408)")
+      forbid_unless(actor_present())
+      authorize_if(FluxVale.Checks.ActorBelowOrgCreateCap)
     end
 
     # Team features will gate destroy on the :owner role; today every
@@ -156,14 +179,67 @@ defmodule FluxVale.Accounts.Organization do
       # personal_owner_id rides accept for the one system writer
       # (provisioning stamps it, #408) — the policy forbids every actor,
       # and no update accepts it, so the marker is a create-time fact.
-      # User-created orgs (#408) simply don't pass it: null marks a team
-      # org.
+      # It rides accept ONLY while :create stays system-only: the
+      # actor-reachable creation flow (:create_with_owner) never takes
+      # the marker from input — markers are stamped server-side by
+      # provisioning alone. User-created orgs simply don't pass it: null
+      # marks a team org.
       accept([:name, :slug, :personal_owner_id])
     end
 
+    # User-created orgs (#408): the actor's org, with their owner
+    # membership written inside this action's transaction. Not primary —
+    # the JIT :create above stays provisioning's untouched path. The
+    # action's own policy is the gate for the nested membership write
+    # (authorize?: false there — the provisioning posture: the check IS
+    # the authorization), and the Membership create policy stays
+    # forbid-all for every other actor path (the self-grant gap
+    # closure).
+    create :create_with_owner do
+      accept([:name, :slug])
+
+      # Create-time slug discipline for the actor path (#408): a 39-char
+      # cap (the JIT :create above stays deliberately lenient —
+      # collision probes may exceed it) and the reservation list, on top
+      # of the shared format validation and the unique_slug identity.
+      # Action-scoped, not the global validations block: `on:` there
+      # matches action TYPES only, so only this block can scope by name.
+      validate(string_length(:slug, max: 39),
+        message: "must be at most 39 characters"
+      )
+
+      validate(FluxVale.Accounts.Organization.ReservedSlug)
+
+      # The name cap binds the actor path's initial write; the
+      # update-side cap above is the rename flow's.
+      validate(string_length(:name, max: 100),
+        message: "must be at most 100 characters"
+      )
+
+      # The actor is read at run time, not changeset-build time: the
+      # change registers a before_action hook and takes the actor from
+      # the changeset's context there — a changeset built before the
+      # actor existed (`for_create/4` first, `Ash.create(..., actor:)`
+      # second) still carries it when the hook runs. Callers cannot name
+      # members: the list is hardcoded to the one actor.
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, fn changeset ->
+          private = Map.get(changeset.context, :private, %{})
+          actor = Map.get(private, :actor)
+
+          Ash.Changeset.manage_relationship(changeset, :members, [actor],
+            type: :append,
+            authorize?: false
+          )
+        end)
+      end)
+    end
+
     # Renaming — either field — frees the old slug immediately: no
-    # redirects and no slug reservations ship with this flow. Revisit
-    # trigger: org creation or any public org surface.
+    # redirects and no slug reservations ship with this flow. The
+    # reserved-slug gate binds the creation flow only (#408) — renaming
+    # past a later-added reservation stays allowed (accepted asymmetry;
+    # revisit trigger: the invite flow, when org slugs become shareable).
     #
     # require_atomic? false: the stale-form guard below is a function
     # change, which Ash cannot run atomically — the trade the destroy
@@ -249,8 +325,10 @@ defmodule FluxVale.Accounts.Organization do
       message: "must contain only lowercase alphanumeric characters and hyphens"
     )
 
-    # The length caps bind the RENAME flow only — never the create.
-    # Create slugs start from the username (#285) — ≤39 chars from
+    # These caps bind the RENAME flow only — the JIT create stays
+    # lenient, and the actor path (:create_with_owner) carries its own
+    # create-time caps in the action block. JIT create slugs start from
+    # the username (#285) — ≤39 chars from
     # DeriveUsername, though a collision probe's suffix can push past
     # that ("-2" on a 39-char base is 41) and the create permits it.
     # The update-only scoping survives from the round-2 P1 incident:

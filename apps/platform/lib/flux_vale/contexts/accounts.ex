@@ -31,6 +31,10 @@ defmodule FluxVale.Accounts do
     to: FluxVale.Accounts.Operations.OrganizationsForUser,
     as: :call
 
+  defdelegate create_organization(user, params),
+    to: FluxVale.Accounts.Operations.CreateOrganization,
+    as: :call
+
   @doc """
   The welcome-credit grant (integer cents) a fresh personal org receives
   (defined once on the operation).
