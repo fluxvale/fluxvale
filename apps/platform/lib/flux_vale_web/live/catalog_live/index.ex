@@ -147,7 +147,7 @@ defmodule FluxValeWeb.CatalogLive.Index do
                   <%!-- #398: the ladder floor rides every card — the
                   public index's number, computed once per mount. --%>
                   <p
-                    :if={@from_price_cents}
+                    :if={not is_nil(@from_price_cents)}
                     class="mt-2 text-xs font-medium text-ink"
                     data-testid="from-price"
                   >

@@ -86,13 +86,53 @@ defmodule FluxValeWeb.CatalogLive.IndexTest do
 
     Size.update!(cheapest, %{monthly_cents: 99}, authorize?: false)
 
-    # Fresh mount — the floor is computed per mount, so the card moves.
+    # Fresh mount — the floor is computed per mount, so the card moves
+    # and the stale number is gone.
     {:ok, repriced_view, _html} = live(conn, ~p"/apps")
 
     assert has_element?(
              repriced_view,
              "#app-#{app.id} [data-testid='from-price']",
              "from #{Pricing.format_monthly_rate(99)}"
+           )
+
+    refute has_element?(
+             repriced_view,
+             "#app-#{app.id} [data-testid='from-price']",
+             "from #{Pricing.format_monthly_rate(233)}"
+           )
+  end
+
+  # The empty-table branch mirrors the controller: nil hides the line,
+  # never a crash.
+  test "cards hide the from-price line on an unseeded table", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/apps")
+
+    refute has_element?(view, "[data-testid='from-price']")
+  end
+
+  # The gate is a nil-check, not a truthy one: monthly_cents allows 0,
+  # and a $0 floor is still a floor.
+  test "a zero-priced floor still renders the from-price line", %{conn: conn} do
+    n = System.unique_integer()
+
+    category =
+      Category.create!(%{name: "Developer Tools #{n}", slug: "tools-#{n}"}, authorize?: false)
+
+    app =
+      App.create!(
+        %{name: "Forgejo #{n}", slug: "forgejo-#{n}", category_id: category.id},
+        authorize?: false
+      )
+
+    PricingFixtures.size!(monthly_cents: 0)
+
+    {:ok, view, _html} = live(conn, ~p"/apps")
+
+    assert has_element?(
+             view,
+             "#app-#{app.id} [data-testid='from-price']",
+             "from #{Pricing.format_monthly_rate(0)}"
            )
   end
 

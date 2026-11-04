@@ -62,7 +62,7 @@
             (per-app numbers would read as per-app pricing). Hidden on an
             unseeded table; the controller passes nil then. --%>
             <p
-              :if={@from_price_cents}
+              :if={not is_nil(@from_price_cents)}
               class="mt-2 text-xs font-medium text-ink"
               data-testid="from-price"
             >

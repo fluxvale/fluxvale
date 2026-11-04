@@ -161,6 +161,17 @@ defmodule FluxValeWeb.CatalogControllerTest do
       assert html =~ "App catalog"
       refute html =~ "data-testid=\"from-price\""
     end
+
+    # The gate is a nil-check, not a truthy one: monthly_cents allows 0,
+    # and a $0 floor is still a floor.
+    test "a zero-priced floor still renders the from-price line", %{conn: conn} do
+      catalog_app!()
+      PricingFixtures.size!(monthly_cents: 0)
+
+      html = html_response(get(conn, ~p"/catalog"), 200)
+
+      assert html =~ "from #{Pricing.format_monthly_rate(0)}"
+    end
   end
 
   describe "GET /catalog/:slug" do

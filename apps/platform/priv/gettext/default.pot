@@ -249,7 +249,7 @@ msgstr ""
 msgid "%{rate}/mo per verified domain, billed hourly"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/catalog_html.ex:37
+#: lib/flux_vale_web/controllers/catalog_html.ex:29
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:60
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:95
 #: lib/flux_vale_web/live/catalog_live/show.ex:221

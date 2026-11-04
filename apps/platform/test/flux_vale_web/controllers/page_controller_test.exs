@@ -274,6 +274,16 @@ defmodule FluxValeWeb.PageControllerTest do
     refute html =~ "Sizes start at"
   end
 
+  # The band's floor gate is a nil-check, not a truthy one (#398 fix
+  # round): monthly_cents allows 0, and a $0 floor is still a floor.
+  test "GET / pricing band renders a zero-priced floor", %{conn: conn} do
+    PricingFixtures.size!(monthly_cents: 0)
+
+    html = html_response(get(conn, ~p"/"), 200)
+
+    assert html =~ "Sizes start at #{Pricing.format_usd(0)}/mo"
+  end
+
   # #396: the landing carries the Pricing link in the header nav, the
   # band CTA, and the footer. Whitespace-tolerant matching: the
   # nav_link slot renders with newlines around the label.
