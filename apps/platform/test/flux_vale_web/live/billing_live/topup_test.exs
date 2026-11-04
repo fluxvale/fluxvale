@@ -1192,6 +1192,10 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
 
       assert has_element?(view, "[data-testid='topup-confirmation-completed']")
       assert render(view) =~ "$5.00"
+
+      # The resulting balance rides the reference path too (#377).
+      assert has_element?(view, "[data-testid='topup-confirmation-balance']")
+      assert render(element(view, "[data-testid='topup-confirmation-balance']")) =~ "$5.00"
     end
 
     test "a pending row reconciles through the gateway and lands completed", %{conn: conn} do
@@ -1352,6 +1356,190 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
 
       {:ok, view, _html} =
         live(conn, ~p"/billing/topup/return?reference=pr_stranger&status=completed")
+
+      assert render(view) =~ "We couldn&#39;t find that top-up"
+    end
+  end
+
+  # #377: Polar substitutes the checkout session id into the
+  # success_url's {CHECKOUT_ID} token — the return lands with
+  # ?checkout_id=<id>, which must reach the SAME confirmation
+  # machinery HitPay's reference param does (Terence's staging e2e:
+  # paid, redirected, and stranded on a wizard with no signal).
+  describe "step 4 — the Polar return (checkout_id correlation)" do
+    setup %{org: org} = context do
+      original_provider = Application.get_env(:flux_vale, :payments_provider)
+      original_polar = Application.get_env(:flux_vale, :polar)
+
+      Application.put_env(:flux_vale, :payments_provider, FluxVale.Billing.Providers.Polar)
+
+      Application.put_env(:flux_vale, :polar,
+        access_token: "sbx_token",
+        server: "sandbox",
+        product_id: "prod_1"
+      )
+
+      on_exit(fn ->
+        Application.put_env(:flux_vale, :payments_provider, original_provider)
+        Application.put_env(:flux_vale, :polar, original_polar)
+      end)
+
+      {:ok, topup} =
+        Topup.create(
+          %{
+            organization_id: org.id,
+            amount_cents: 500,
+            buyer_email: "jane@example.com",
+            billing_country: "DE"
+          },
+          authorize?: false
+        )
+
+      {:ok, attached} =
+        Topup.attach_checkout(topup, %{payment_request_id: "co_1"}, authorize?: false)
+
+      Map.put(context, :topup, attached)
+    end
+
+    defp polar_body(status) do
+      %{"id" => "co_1", "status" => status, "amount" => 500}
+    end
+
+    test "a completed row shows payment received with the resulting balance", %{
+      conn: conn,
+      wallet: wallet
+    } do
+      {:ok, _completed} =
+        Billing.complete_topup(%{
+          payment_request_id: "co_1",
+          payment_id: "co_1",
+          amount_cents: 500,
+          idempotency_key: "polar:co_1"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/billing/topup/return?checkout_id=co_1")
+
+      assert has_element?(view, "[data-testid='topup-confirmation-completed']")
+      assert render(view) =~ "$5.00"
+
+      balance = render(element(view, "[data-testid='topup-confirmation-balance']"))
+      assert balance =~ "Your balance is now"
+      assert balance =~ "$5.00"
+
+      assert {:ok, 500} = Billing.balance(wallet, authorize?: false)
+    end
+
+    test "a pending return reconciles through the active provider and lands completed", %{
+      conn: conn
+    } do
+      stub(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: polar_body("succeeded")}}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/billing/topup/return?checkout_id=co_1")
+
+      assert has_element?(view, "[data-testid='topup-confirmation-completed']")
+      assert has_element?(view, "[data-testid='topup-confirmation-balance']")
+    end
+
+    test "a still-pending checkout shows the honest confirming state", %{conn: conn} do
+      stub(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: polar_body("open")}}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/billing/topup/return?checkout_id=co_1")
+
+      assert has_element?(view, "[data-testid='topup-confirmation-pending']")
+      assert render(view) =~ "The gateway is still confirming the payment"
+    end
+
+    test "the confirming state flips to completed when the webhook wins the race", %{
+      conn: conn
+    } do
+      stub(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: polar_body("open")}}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/billing/topup/return?checkout_id=co_1")
+
+      # The delivery lands between render and the poll tick: the
+      # poll's cheap re-read sees the completed row without a gateway
+      # call.
+      {:ok, _completed} =
+        Billing.complete_topup(%{
+          payment_request_id: "co_1",
+          payment_id: "co_1",
+          amount_cents: 500,
+          idempotency_key: "polar:co_1"
+        })
+
+      send(view.pid, :poll_topup)
+
+      assert has_element?(view, "[data-testid='topup-confirmation-completed']")
+      assert render(element(view, "[data-testid='topup-confirmation-balance']")) =~ "$5.00"
+    end
+
+    test "the confirming state flips when the poll's own reconcile succeeds", %{conn: conn} do
+      stub(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: polar_body("open")}}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/billing/topup/return?checkout_id=co_1")
+
+      stub(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: polar_body("succeeded")}}
+      end)
+
+      send(view.pid, :poll_topup)
+
+      assert has_element?(view, "[data-testid='topup-confirmation-completed']")
+    end
+
+    test "a poll observing a terminal gateway failure shows that card and stops", %{
+      conn: conn,
+      wallet: wallet
+    } do
+      stub(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: polar_body("open")}}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/billing/topup/return?checkout_id=co_1")
+
+      stub(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: polar_body("failed")}}
+      end)
+
+      send(view.pid, :poll_topup)
+
+      assert has_element?(view, "[data-testid='topup-confirmation-failed']")
+      assert {:ok, 0} = Billing.balance(wallet, authorize?: false)
+    end
+
+    test "polling spends its attempts and rests on the honest confirming state", %{
+      conn: conn
+    } do
+      stub(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: polar_body("open")}}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/billing/topup/return?checkout_id=co_1")
+
+      # Five ticks — the loop reschedules on the first four and stops
+      # on the fifth; the message stays the honest confirming one.
+      for _tick <- 1..5, do: send(view.pid, :poll_topup)
+
+      assert has_element?(view, "[data-testid='topup-confirmation-pending']")
+      assert render(view) =~ "The gateway is still confirming the payment"
+    end
+
+    test "an unknown checkout_id shows the not-found card", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/billing/topup/return?checkout_id=co_other")
+
+      assert render(view) =~ "We couldn&#39;t find that top-up"
+    end
+
+    test "a garbage checkout_id renders the card, never a crash", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/billing/topup/return?checkout_id=../evil?id=1")
 
       assert render(view) =~ "We couldn&#39;t find that top-up"
     end

@@ -21,10 +21,14 @@ defmodule FluxValeWeb.BillingLive.Topup do
 
   Steps 1–3 are LiveView state (a refresh restarts the wizard — the
   buyer hasn't paid anything until the gateway redirect). Step 4 is the
-  gateway's return landing (`/billing/topup/return?reference=…`): a
-  pending row reconciles through `fetch_payment` in `handle_params` —
-  render stays side-effect-free — and the webhook stays the source of
-  truth; both paths post the same idempotent credit.
+  gateway's return landing (`/billing/topup/return?reference=…` —
+  HitPay's own param; Polar substitutes its checkout session id into
+  `checkout_id`, #377): a pending row reconciles through
+  `fetch_payment` in `handle_params` — render stays side-effect-free —
+  then arms a brief poll (a few ticks) so a slow webhook doesn't strand
+  the buyer on the confirming state; the webhook stays the source of
+  truth, the poll is presentation promptness, and both paths post the
+  same idempotent credit.
   """
 
   use FluxValeWeb, :live_view
@@ -48,6 +52,12 @@ defmodule FluxValeWeb.BillingLive.Topup do
   @country_rows 8
   # $1 credit unit × quantity (decided 2026-10-13, #137).
   @unit_cents 100
+  # The pending confirmation's brief poll loop (#377): the webhook
+  # stays the source of truth — these buys at most ~10 seconds of
+  # presentation promptness on a slow delivery, then the honest
+  # confirming message stands.
+  @poll_interval_ms 2_000
+  @poll_max_attempts 5
 
   @impl Phoenix.LiveView
   def mount(_params, session, socket) do
@@ -107,23 +117,37 @@ defmodule FluxValeWeb.BillingLive.Topup do
   end
 
   @impl Phoenix.LiveView
-  # The gateway's return: reconcile a pending row once, here — render
-  # must stay side-effect free.
-  def handle_params(%{"reference" => reference}, _uri, socket) do
-    topup = fetch_topup(reference, socket.assigns.current_user)
-    state = confirmation_state(topup)
+  # The gateway's return: correlate the row, reconcile a pending row
+  # once, here — render must stay side-effect free. HitPay appends
+  # `reference` itself; Polar substitutes the checkout session id
+  # into `checkout_id` (#377) — both are the row's
+  # payment_request_id.
+  def handle_params(%{"reference" => payment_request_id}, _uri, socket) do
+    show_confirmation(socket, payment_request_id)
+  end
 
-    {:noreply,
-     socket
-     |> assign(step: :confirmation)
-     |> assign(topup: topup)
-     |> assign(confirmation_state: state)}
+  def handle_params(%{"checkout_id" => payment_request_id}, _uri, socket) do
+    show_confirmation(socket, payment_request_id)
   end
 
   # The wizard steps don't ride the URL (a refresh restarts); only the
   # gateway's return carries params.
   def handle_params(_params, _uri, socket) do
     {:noreply, socket}
+  end
+
+  # The pending confirmation's poll tick: a cheap re-read first (the
+  # webhook may have completed the row since render), a gateway
+  # reconcile only while the row itself still says pending.
+  @impl Phoenix.LiveView
+  def handle_info(:poll_topup, socket) do
+    topup = socket.assigns.topup
+
+    if refetch_state(topup) == :pending do
+      poll_reconcile(socket, topup)
+    else
+      {:noreply, confirm_completed(socket)}
+    end
   end
 
   @impl Phoenix.LiveView
@@ -427,7 +451,11 @@ defmodule FluxValeWeb.BillingLive.Topup do
 
           <section class="wrap pt-10 pb-16">
             <div class="rise mx-auto max-w-2xl">
-              <.confirmation topup={@topup} state={@confirmation_state} />
+              <.confirmation
+                topup={@topup}
+                state={@confirmation_state}
+                confirmation_balance={@confirmation_balance}
+              />
             </div>
           </section>
         </div>
@@ -941,6 +969,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
 
   attr(:topup, :map, default: nil)
   attr(:state, :atom, required: true)
+  attr(:confirmation_balance, :integer, default: nil)
 
   defp confirmation(%{topup: nil} = assigns) do
     ~H"""
@@ -975,6 +1004,11 @@ defmodule FluxValeWeb.BillingLive.Topup do
             <span class="font-mono">{Pricing.format_usd(@topup.amount_cents)}</span> of credit
             was added to your balance.
           </p>
+          <%= if @confirmation_balance do %>
+            <p class="text-sm text-ink-muted" data-testid="topup-confirmation-balance">
+              Your balance is now <span class="font-mono">{Pricing.format_usd(@confirmation_balance)}</span>.
+            </p>
+          <% end %>
         <% end %>
 
         <%= if @state == :failed do %>
@@ -1052,6 +1086,77 @@ defmodule FluxValeWeb.BillingLive.Topup do
       # finalizing message is the safe fallback.
       # coveralls-ignore-next-line
       {:error, _gone} -> :pending
+    end
+  end
+
+  # The confirmation landing: resolve the row (a read — an unknown or
+  # garbage reference renders the not-found card, never a crash),
+  # reconcile a pending row once, then arm the presentation extras.
+  defp show_confirmation(socket, payment_request_id) do
+    topup = fetch_topup(payment_request_id, socket.assigns.current_user)
+    state = confirmation_state(topup)
+
+    {:noreply,
+     socket
+     |> assign(step: :confirmation)
+     |> assign(topup: topup)
+     |> assign(confirmation_state: state)
+     |> assign_confirmation_extras(state)}
+  end
+
+  # A completed card shows the resulting balance; a still-pending one
+  # arms the poll; terminal states need neither.
+  defp assign_confirmation_extras(socket, :completed) do
+    confirm_completed(socket)
+  end
+
+  defp assign_confirmation_extras(socket, :pending) do
+    Process.send_after(self(), :poll_topup, @poll_interval_ms)
+
+    socket
+    |> assign(confirmation_balance: nil)
+    |> assign(poll_attempt: 1)
+  end
+
+  defp assign_confirmation_extras(socket, _terminal) do
+    socket
+    |> assign(confirmation_balance: nil)
+    |> assign(poll_attempt: nil)
+  end
+
+  defp poll_reconcile(socket, topup) do
+    case confirmation_state(topup) do
+      :completed ->
+        {:noreply, confirm_completed(socket)}
+
+      :pending ->
+        {:noreply, maybe_poll_again(socket)}
+
+      terminal ->
+        {:noreply,
+         socket
+         |> assign(confirmation_state: terminal)
+         |> assign(poll_attempt: nil)}
+    end
+  end
+
+  defp confirm_completed(socket) do
+    {:ok, balance} = Billing.balance(socket.assigns.wallet, actor: socket.assigns.current_user)
+
+    socket
+    |> assign(confirmation_state: :completed)
+    |> assign(confirmation_balance: balance)
+    |> assign(poll_attempt: nil)
+  end
+
+  defp maybe_poll_again(socket) do
+    attempt = socket.assigns.poll_attempt
+
+    if attempt < @poll_max_attempts do
+      Process.send_after(self(), :poll_topup, @poll_interval_ms)
+      assign(socket, poll_attempt: attempt + 1)
+    else
+      socket
     end
   end
 
