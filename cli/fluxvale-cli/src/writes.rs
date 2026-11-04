@@ -1,23 +1,256 @@
-//! The write commands (T6 of #362): backups — configure, status, run,
-//! restore — and access — status, attach, detach, resume. Same posture
-//! as the reads (T4): a thin client over /api/v1; every decision (the
-//! guards, the wallet gates, the field validation) stays server-side
-//! and the API's own words surface verbatim (ADR-0019 Am. 3). The one
-//! destructive verb — restore, which OVERWRITES the volume — gates on
+//! The write commands: the instance lifecycle (T5 of #362) — deploy
+//! (create + the deploy PATCH), stop, start, destroy — and backups —
+//! configure, status, run, restore — and access — status, attach,
+//! detach, resume. Same posture as the reads (T4): a thin client over
+//! /api/v1; every decision (the guards, the wallet gates, the field
+//! validation) stays server-side and the API's own words surface
+//! verbatim (ADR-0019 Am. 3). The destructive verbs gate on
 //! `--confirm` locally: without the flag NOTHING is sent; the command
-//! prints what would happen and the exact re-run command. Gateway
-//! create stays out (it holds a Tailscale auth key and provisions
-//! cluster resources — the panel's flow, ADR-0039).
+//! prints what would happen and the exact re-run command (restore
+//! overwrites the volume; destroy deletes the instance and all its
+//! data). Gateway create stays out (it holds a Tailscale auth key and
+//! provisions cluster resources — the panel's flow, ADR-0039).
 
 use crate::api::jsonapi::{Document, Resource};
 use crate::api::{ApiClient, ApiError};
 use crate::cli::Output;
 use crate::human;
 use crate::reads::{
-    deployed_cell, friendly_404, get_or_404, now_secs, one_resource, safe_segment, with_id,
+    deployed_cell, friendly_404, get_or_404, now_secs, one_resource, safe_segment, status_line,
+    with_id,
 };
 use crate::render::{Detail, cell, to_pretty, yes_no};
 use serde_json::{Value, json};
+
+// ---- the instance lifecycle (T5 of #362): deploy, stop, start,
+// destroy. The version id is the wire's own currency: the app row
+// carries no versions, but GET /apps/:app_id/versions lists them
+// (newest first) — so `--version` is that route's resource id and a
+// plain `--app` deploys the newest published one, the choice always
+// named in the output.
+
+/// The `instances deploy` flags as parsed — the create body's source.
+/// `env_vars` is deliberately absent: the create route's wire schema
+/// refuses it (hide_fields strips it in both directions —
+/// instance_route_test), so the API cannot set env vars today.
+pub struct DeployFlags {
+    pub app: String,
+    pub name: Option<String>,
+    /// CPU cores — the wire's decimal rides as a string ("0.5").
+    pub cpu: Option<String>,
+    pub memory_mb: Option<i64>,
+    pub storage_gb: Option<i64>,
+    /// The app version id; `None` takes the newest published.
+    pub version: Option<String>,
+}
+
+/// `instances deploy --app <slug>` — resolve the app, resolve the
+/// version, POST the create, PATCH the deploy. The funded-gate 403
+/// surfaces verbatim (it names the wallet requirement).
+pub fn instances_deploy(
+    client: &ApiClient,
+    flags: &DeployFlags,
+    output: Output,
+) -> anyhow::Result<String> {
+    safe_segment("app slug", &flags.app)?;
+    let app = one_resource(
+        get_or_404(client, &format!("/apps/{}", flags.app), "app")?,
+        "app",
+    )?;
+    let versions = client.get(&format!("/apps/{}/versions", app.id))?;
+    let (version_id, version_label) =
+        resolve_version(&flags.app, flags.version.as_deref(), versions.resources())?;
+
+    let body = json!({
+        "data": {"type": "instance", "attributes": deploy_attributes(flags, &version_id)}
+    });
+    let created = client.send("POST", "/instances", Some(body.to_string()))?;
+    let instance = one_resource(created, "instance")?;
+    let deploy_body = json!({
+        "data": {"type": "instance", "id": instance.id, "attributes": {}}
+    });
+    let deployed = client.send(
+        "PATCH",
+        &format!("/instances/{}/deploy", instance.id),
+        Some(deploy_body.to_string()),
+    )?;
+    deploy_rendered(deployed, &flags.app, &version_label, output)
+}
+
+/// `--version` must be one of the app's own (a foreign id would deploy
+/// a different app's blueprint silently — the server derives from the
+/// version row alone). Without the flag: the newest published (the
+/// wire's own newest-first order); none published is a refusal.
+fn resolve_version(
+    slug: &str,
+    flag: Option<&str>,
+    versions: Vec<Resource>,
+) -> anyhow::Result<(String, String)> {
+    let catalog = |versions: &[Resource]| {
+        versions
+            .iter()
+            .map(|version| {
+                format!(
+                    "    {}  {}",
+                    version.id,
+                    cell(version.attributes.get("version"))
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let take = |version: &Resource| -> (String, String) {
+        (
+            version.id.clone(),
+            cell(version.attributes.get("version")).trim().to_string(),
+        )
+    };
+    match flag {
+        Some(id) => versions
+            .iter()
+            .find(|version| version.id == id)
+            .map(take)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "version {id} is not a version of {slug} — pick one:\n{}",
+                    catalog(&versions)
+                )
+            }),
+        None => match versions.len() {
+            0 => anyhow::bail!("{slug} has no published versions"),
+            _ => Ok(take(versions.first().expect("len checked above"))),
+        },
+    }
+}
+
+/// The create body's attributes: the resolved version always; the
+/// resource flags only when given, so absent keys take the version's
+/// own defaults (catalog defaults apply server-side). `env_vars` is
+/// never here — see [`DeployFlags`].
+fn deploy_attributes(flags: &DeployFlags, version_id: &str) -> Value {
+    let mut attrs = json!({"app_version_id": version_id});
+    if let Some(name) = &flags.name {
+        attrs["name"] = json!(name);
+    }
+    if let Some(cpu) = &flags.cpu {
+        attrs["cpu_cores"] = json!(cpu);
+    }
+    if let Some(memory_mb) = flags.memory_mb {
+        attrs["memory_mb"] = json!(memory_mb);
+    }
+    if let Some(storage_gb) = flags.storage_gb {
+        attrs["storage_gb"] = json!(storage_gb);
+    }
+    attrs
+}
+
+fn deploy_rendered(
+    document: Document,
+    slug: &str,
+    version_label: &str,
+    output: Output,
+) -> anyhow::Result<String> {
+    let resource = one_resource(document, "instance")?;
+    let attrs = with_id(&resource);
+    let mut detail = Detail::new(attrs.clone());
+    detail.field("id", cell(attrs.get("id")));
+    detail.field("name", cell(attrs.get("name")));
+    detail.field("slug", cell(attrs.get("slug")));
+    detail.field("status", cell(attrs.get("status")));
+    detail.field("image", cell(attrs.get("image")));
+    detail.field("cpu cores", cell(attrs.get("cpu_cores")));
+    detail.field("memory (MB)", cell(attrs.get("memory_mb")));
+    detail.field("storage (GB)", cell(attrs.get("storage_gb")));
+    let mut rendered = detail.render(output);
+    if output == Output::Table {
+        let id = attrs.get("id").and_then(Value::as_str).unwrap_or("");
+        rendered.push_str(&format!(
+            "\ndeploying {slug} {version_label} — watch with: fluxvale instances status {id}"
+        ));
+    }
+    Ok(rendered)
+}
+
+/// `instances stop <id>` / `instances start <id>` — the PATCH verbs;
+/// the response row's status IS the transition.
+pub fn instances_stop(client: &ApiClient, id: &str, output: Output) -> anyhow::Result<String> {
+    lifecycle_patch(client, id, "stop", output)
+}
+
+pub fn instances_start(client: &ApiClient, id: &str, output: Output) -> anyhow::Result<String> {
+    lifecycle_patch(client, id, "start", output)
+}
+
+fn lifecycle_patch(
+    client: &ApiClient,
+    id: &str,
+    verb: &str,
+    output: Output,
+) -> anyhow::Result<String> {
+    safe_segment("instance id", id)?;
+    let body = json!({"data": {"type": "instance", "id": id, "attributes": {}}});
+    let document = client
+        .send(
+            "PATCH",
+            &format!("/instances/{id}/{verb}"),
+            Some(body.to_string()),
+        )
+        .map_err(|err| friendly_404(err, "instance"))?;
+    let resource = one_resource(document, "instance")?;
+    let attrs = with_id(&resource);
+    let mut detail = Detail::new(attrs.clone());
+    detail.field("id", cell(attrs.get("id")));
+    detail.field("name", cell(attrs.get("name")));
+    detail.field("slug", cell(attrs.get("slug")));
+    detail.field("status", cell(attrs.get("status")));
+    let mut rendered = detail.render(output);
+    if output == Output::Table {
+        let status = attrs.get("status").and_then(Value::as_str).unwrap_or("");
+        rendered.push('\n');
+        rendered.push_str(&status_line(status));
+    }
+    Ok(rendered)
+}
+
+/// `instances destroy <id> [--confirm]` — the destructive verb.
+/// WITHOUT `--confirm` nothing is sent: the command prints what will
+/// be lost and the exact re-run command, then exits non-zero; the
+/// refusal arm spends no request (the restore gate's shape). WITH
+/// `--confirm`, the DELETE rides and the server's own answer prints
+/// (deployed rows land `deleting` — the teardown runs async).
+pub fn instances_destroy(
+    client: &ApiClient,
+    id: &str,
+    confirm: bool,
+    output: Output,
+) -> anyhow::Result<String> {
+    safe_segment("instance id", id)?;
+    if !confirm {
+        anyhow::bail!(
+            "destroy instance {id} — all data on it is deleted; nothing was sent\n\
+             re-run with --confirm to proceed:\n    \
+             fluxvale instances destroy {id} --confirm"
+        );
+    }
+    let row = client
+        .send_json("DELETE", &format!("/instances/{id}"), None)
+        .map_err(|err| friendly_404(err, "instance"))?;
+    destroy_rendered(&row, output)
+}
+
+fn destroy_rendered(row: &Value, output: Output) -> anyhow::Result<String> {
+    let mut detail = Detail::new(row.clone());
+    detail.field("id", cell(row.get("id")));
+    detail.field("name", cell(row.get("name")));
+    detail.field("status", cell(row.get("status")));
+    let mut rendered = detail.render(output);
+    if output == Output::Table {
+        let status = row.get("status").and_then(Value::as_str).unwrap_or("");
+        rendered.push('\n');
+        rendered.push_str(&status_line(status));
+    }
+    Ok(rendered)
+}
 
 /// The runs history read's query. `limit` is the read action's own
 /// argument (1..100, default 20 in Ash — but REQUIRED on the wire:
@@ -1490,5 +1723,412 @@ mod tests {
         assert_eq!(err.to_string(), "invalid gateway id: ?g=");
         let err = access_status(&client, "../org", Output::Table).unwrap_err();
         assert_eq!(err.to_string(), "invalid organization id: ../org");
+    }
+
+    // ---- the instance lifecycle (T5): the app → versions → create →
+    // deploy sequence, the verbs, the destroy gate.
+
+    fn app_row(slug: &str, app_id: &str) -> serde_json::Value {
+        json!({
+            "type": "app", "id": app_id,
+            "attributes": {"id": app_id, "name": "Forgejo", "slug": slug, "file_access": false}
+        })
+    }
+
+    fn version_row(version_id: &str, number: &str) -> serde_json::Value {
+        json!({
+            "type": "app_version", "id": version_id,
+            "attributes": {
+                "id": version_id, "app_id": "app1", "version": number,
+                "image": &format!("ghcr.io/fluxvale/apps/forgejo:{number}"),
+                "port": 3000, "default_cpu_cores": "0.5",
+                "default_memory_mb": 512, "default_storage_gb": 1
+            }
+        })
+    }
+
+    fn instance_row(id: &str, status: &str) -> serde_json::Value {
+        json!({
+            "type": "instance", "id": id,
+            "attributes": {
+                "id": id, "name": "my forgejo", "slug": "my-forgejo-a1", "namespace": &format!("fluxvale-app-{id}"),
+                "status": status, "exposure": "public", "always_on": false,
+                "image": "ghcr.io/fluxvale/apps/forgejo:1.2", "port": 3000,
+                "cpu_cores": "0.5", "memory_mb": 512, "storage_gb": 1,
+                "healthcheck_path": "/health", "storage_mount_path": "/data",
+                "file_access": false, "deployed_at": null
+            }
+        })
+    }
+
+    fn deploy_flags() -> DeployFlags {
+        DeployFlags {
+            app: "forgejo".into(),
+            name: Some("my forgejo".into()),
+            cpu: None,
+            memory_mb: None,
+            storage_gb: None,
+            version: None,
+        }
+    }
+
+    #[test]
+    fn deploy_walks_app_versions_create_deploy_in_order() {
+        let server = script(vec![
+            envelope(json!({"data": app_row("forgejo", "app1")})),
+            envelope(json!({"data": [version_row("v2", "1.2"), version_row("v1", "1.0")]})),
+            respond(
+                "201 Created",
+                &json!({"data": instance_row("i1", "pending")}).to_string(),
+            ),
+            respond(
+                "200 OK",
+                &json!({"data": instance_row("i1", "deploying")}).to_string(),
+            ),
+        ]);
+        let rendered =
+            instances_deploy(&client(&server.base_url), &deploy_flags(), Output::Table).unwrap();
+        assert!(
+            rendered.contains("status        deploying"),
+            "rendered:\n{rendered}"
+        );
+        assert!(
+            rendered.ends_with("deploying forgejo 1.2 — watch with: fluxvale instances status i1"),
+            "rendered:\n{rendered}"
+        );
+
+        let requests = captured_requests(&server);
+        assert_eq!(requests.len(), 4, "app, versions, create, deploy");
+        assert!(
+            requests[0].starts_with("get /api/v1/apps/forgejo http/1.1"),
+            "req0: {}",
+            requests[0]
+        );
+        assert!(
+            requests[1].starts_with("get /api/v1/apps/app1/versions http/1.1"),
+            "req1: {}",
+            requests[1]
+        );
+        assert!(
+            requests[2].starts_with("post /api/v1/instances http/1.1"),
+            "req2: {}",
+            requests[2]
+        );
+        assert!(
+            requests[3].starts_with("patch /api/v1/instances/i1/deploy http/1.1"),
+            "req3: {}",
+            requests[3]
+        );
+        // The create body: the newest version (the wire's own order),
+        // the given name, NO env_vars (the wire refuses it).
+        assert!(
+            requests[2].contains("\"app_version_id\":\"v2\""),
+            "req2: {}",
+            requests[2]
+        );
+        assert!(
+            requests[2].contains("\"name\":\"my forgejo\""),
+            "req2: {}",
+            requests[2]
+        );
+        assert!(
+            !requests[2].contains("env_vars"),
+            "env_vars never rides: {}",
+            requests[2]
+        );
+        assert!(
+            !requests[2].contains("cpu_cores"),
+            "unset flags stay out — catalog defaults apply: {}",
+            requests[2]
+        );
+        // The deploy body: the id + empty attributes.
+        assert!(
+            requests[3]
+                .contains("{\"data\":{\"attributes\":{},\"id\":\"i1\",\"type\":\"instance\"}}"),
+            "req3: {}",
+            requests[3]
+        );
+    }
+
+    #[test]
+    fn deploy_carries_only_the_given_resource_flags() {
+        let server = script(vec![
+            envelope(json!({"data": app_row("forgejo", "app1")})),
+            envelope(json!({"data": [version_row("v2", "1.2")]})),
+            respond(
+                "201 Created",
+                &json!({"data": instance_row("i1", "pending")}).to_string(),
+            ),
+            respond(
+                "200 OK",
+                &json!({"data": instance_row("i1", "deploying")}).to_string(),
+            ),
+        ]);
+        let flags = DeployFlags {
+            cpu: Some("1.5".into()),
+            memory_mb: Some(1024),
+            storage_gb: Some(5),
+            name: None,
+            ..deploy_flags()
+        };
+        instances_deploy(&client(&server.base_url), &flags, Output::Json).unwrap();
+        let create = &captured_requests(&server)[2];
+        assert!(create.contains("\"cpu_cores\":\"1.5\""), "create: {create}");
+        assert!(create.contains("\"memory_mb\":1024"), "create: {create}");
+        assert!(create.contains("\"storage_gb\":5"), "create: {create}");
+        assert!(!create.contains("\"name\""), "create: {create}");
+    }
+
+    #[test]
+    fn deploy_with_a_version_flag_takes_exactly_that_id() {
+        let server = script(vec![
+            envelope(json!({"data": app_row("forgejo", "app1")})),
+            envelope(json!({"data": [version_row("v2", "1.2"), version_row("v1", "1.0")]})),
+            respond(
+                "201 Created",
+                &json!({"data": instance_row("i1", "pending")}).to_string(),
+            ),
+            respond(
+                "200 OK",
+                &json!({"data": instance_row("i1", "deploying")}).to_string(),
+            ),
+        ]);
+        let flags = DeployFlags {
+            version: Some("v1".into()),
+            ..deploy_flags()
+        };
+        let rendered = instances_deploy(&client(&server.base_url), &flags, Output::Table).unwrap();
+        assert!(
+            rendered.contains("deploying forgejo 1.0 —"),
+            "rendered:\n{rendered}"
+        );
+        let create = &captured_requests(&server)[2];
+        assert!(
+            create.contains("\"app_version_id\":\"v1\""),
+            "create: {create}"
+        );
+    }
+
+    #[test]
+    fn deploy_refuses_a_foreign_version_without_creating() {
+        let server = script(vec![
+            envelope(json!({"data": app_row("forgejo", "app1")})),
+            envelope(json!({"data": [version_row("v2", "1.2")]})),
+        ]);
+        let flags = DeployFlags {
+            version: Some("other-apps-version".into()),
+            ..deploy_flags()
+        };
+        let err = instances_deploy(&client(&server.base_url), &flags, Output::Table).unwrap_err();
+        let text = err.to_string();
+        assert!(
+            text.contains("version other-apps-version is not a version of forgejo"),
+            "err: {err}"
+        );
+        assert!(text.contains("v2"), "the choices ride the error: {err}");
+        assert_eq!(captured_requests(&server).len(), 2, "no create went out");
+    }
+
+    #[test]
+    fn deploy_refuses_an_app_with_no_published_versions() {
+        let server = script(vec![
+            envelope(json!({"data": app_row("forgejo", "app1")})),
+            envelope(json!({"data": []})),
+        ]);
+        let err = instances_deploy(&client(&server.base_url), &deploy_flags(), Output::Table)
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("forgejo has no published versions"),
+            "err: {err}"
+        );
+        assert_eq!(captured_requests(&server).len(), 2, "no create went out");
+    }
+
+    #[test]
+    fn deploy_funded_gate_403_surfaces_verbatim() {
+        let server = script(vec![
+            envelope(json!({"data": app_row("forgejo", "app1")})),
+            envelope(json!({"data": [version_row("v2", "1.2")]})),
+            respond(
+                "403 Forbidden",
+                r#"{"errors":[{"status":"403","title":"Forbidden","detail":"the org wallet needs funds — top up at /billing/topup"}]}"#,
+            ),
+        ]);
+        let err = instances_deploy(&client(&server.base_url), &deploy_flags(), Output::Table)
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("403 Forbidden: the org wallet needs funds — top up at /billing/topup"),
+            "err: {err}"
+        );
+    }
+
+    #[test]
+    fn deploy_app_404_reads_the_friendly_line() {
+        let server = script(vec![respond(
+            "404 Not Found",
+            r#"{"errors":[{"status":"404","title":"Not Found"}]}"#,
+        )]);
+        let err = instances_deploy(&client(&server.base_url), &deploy_flags(), Output::Table)
+            .unwrap_err();
+        assert_eq!(err.to_string(), "no such app (or it's not yours)");
+    }
+
+    #[test]
+    fn stop_and_start_patch_the_verbs_and_print_the_transition() {
+        let server = script(vec![respond(
+            "200 OK",
+            &json!({"data": instance_row("i1", "stopped")}).to_string(),
+        )]);
+        let rendered = instances_stop(&client(&server.base_url), "i1", Output::Table).unwrap();
+        assert!(
+            rendered.contains("status  stopped"),
+            "rendered:\n{rendered}"
+        );
+        assert!(
+            rendered.ends_with("Stopped — your data is kept safe; start it again anytime."),
+            "rendered:\n{rendered}"
+        );
+        let requests = captured_requests(&server);
+        assert!(
+            requests[0].starts_with("patch /api/v1/instances/i1/stop http/1.1"),
+            "req0: {}",
+            requests[0]
+        );
+        assert!(
+            requests[0]
+                .contains("{\"data\":{\"attributes\":{},\"id\":\"i1\",\"type\":\"instance\"}}"),
+            "req0: {}",
+            requests[0]
+        );
+
+        let server = script(vec![respond(
+            "200 OK",
+            &json!({"data": instance_row("i1", "starting")}).to_string(),
+        )]);
+        let rendered = instances_start(&client(&server.base_url), "i1", Output::Table).unwrap();
+        assert!(
+            rendered.contains("status  starting"),
+            "rendered:\n{rendered}"
+        );
+        let requests = captured_requests(&server);
+        assert!(
+            requests[0].starts_with("patch /api/v1/instances/i1/start http/1.1"),
+            "req0: {}",
+            requests[0]
+        );
+    }
+
+    #[test]
+    fn lifecycle_verbs_404_read_the_friendly_instance_line() {
+        for verb in ["stop", "start"] {
+            let server = script(vec![respond(
+                "404 Not Found",
+                r#"{"errors":[{"status":"404","title":"Not Found"}]}"#,
+            )]);
+            let err = match verb {
+                "stop" => {
+                    instances_stop(&client(&server.base_url), "i9", Output::Table).unwrap_err()
+                }
+                _ => instances_start(&client(&server.base_url), "i9", Output::Table).unwrap_err(),
+            };
+            assert_eq!(err.to_string(), "no such instance (or it's not yours)");
+        }
+    }
+
+    #[test]
+    fn destroy_without_confirm_sends_nothing_and_prints_the_rerun_command() {
+        // A listener nobody answers: anything sent would hang or fail
+        // with transport noise — the accept probe after the call
+        // proves zero connections arrived (the restore gate's shape).
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let err = instances_destroy(
+            &client(&format!("http://{addr}")),
+            "i1",
+            false,
+            Output::Table,
+        )
+        .unwrap_err();
+        let text = err.to_string();
+        assert!(
+            text.contains("destroy instance i1 — all data on it is deleted"),
+            "text: {text}"
+        );
+        assert!(text.contains("nothing was sent"), "text: {text}");
+        assert!(
+            text.contains("fluxvale instances destroy i1 --confirm"),
+            "text: {text}"
+        );
+
+        listener.set_nonblocking(true).unwrap();
+        assert!(
+            matches!(listener.accept(), Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock),
+            "no request may go out without --confirm"
+        );
+    }
+
+    #[test]
+    fn destroy_with_confirm_deletes_and_prints_the_server_words() {
+        let server = script(vec![respond(
+            "200 OK",
+            r#"{"id":"i1","name":"my forgejo","slug":"my-forgejo-a1","status":"deleting"}"#,
+        )]);
+        let rendered =
+            instances_destroy(&client(&server.base_url), "i1", true, Output::Table).unwrap();
+        assert_eq!(
+            rendered,
+            "id      i1\n\
+             name    my forgejo\n\
+             status  deleting\n\
+             Deleting — cleaning up your app and its data."
+        );
+        let requests = captured_requests(&server);
+        assert!(
+            requests[0].starts_with("delete /api/v1/instances/i1 http/1.1"),
+            "req0: {}",
+            requests[0]
+        );
+
+        // JSON prints the wire answer verbatim.
+        let server = script(vec![respond(
+            "200 OK",
+            r#"{"id":"i1","status":"deleting"}"#,
+        )]);
+        let rendered =
+            instances_destroy(&client(&server.base_url), "i1", true, Output::Json).unwrap();
+        assert_eq!(
+            rendered,
+            "{\n  \"id\": \"i1\",\n  \"status\": \"deleting\"\n}"
+        );
+    }
+
+    #[test]
+    fn destroy_404_reads_the_friendly_instance_line() {
+        let server = script(vec![respond(
+            "404 Not Found",
+            r#"{"errors":[{"status":"404","title":"Not Found"}]}"#,
+        )]);
+        let err =
+            instances_destroy(&client(&server.base_url), "i9", true, Output::Table).unwrap_err();
+        assert_eq!(err.to_string(), "no such instance (or it's not yours)");
+    }
+
+    #[test]
+    fn lifecycle_ids_refuse_route_hijacking() {
+        let client = client("http://127.0.0.1:1");
+        let flags = DeployFlags {
+            app: "a/b".into(),
+            ..deploy_flags()
+        };
+        let err = instances_deploy(&client, &flags, Output::Table).unwrap_err();
+        assert_eq!(err.to_string(), "invalid app slug: a/b");
+        let err = instances_stop(&client, "a/b", Output::Table).unwrap_err();
+        assert_eq!(err.to_string(), "invalid instance id: a/b");
+        let err = instances_start(&client, "../other", Output::Table).unwrap_err();
+        assert_eq!(err.to_string(), "invalid instance id: ../other");
+        let err = instances_destroy(&client, "a b", true, Output::Table).unwrap_err();
+        assert_eq!(err.to_string(), "invalid instance id: a b");
     }
 }

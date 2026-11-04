@@ -1,13 +1,14 @@
 //! The command tree (clap derive) + dispatch. Handlers live in their
 //! own modules by slice: the read commands in [`crate::reads`] (T4),
-//! the backups + access writes in [`crate::writes`] (T6); device-flow
-//! login (T5) and the instance lifecycle writes land later — their
-//! arms still dispatch to `not_yet`.
+//! the auth commands (T5) in [`crate::auth`], and the writes — the
+//! instance lifecycle plus backups and access (T6) — in
+//! [`crate::writes`].
 
+use crate::auth;
 use crate::config::{self, Config};
 use crate::reads;
 use crate::token::TokenStore;
-use crate::writes::{self, ConfigureBackup};
+use crate::writes::{self, ConfigureBackup, DeployFlags};
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
@@ -84,11 +85,19 @@ pub enum Command {
 
 #[derive(Debug, Subcommand)]
 pub enum AuthCommand {
-    /// Sign in to FluxVale
-    Login,
+    /// Sign in — the device flow: a code to approve in the panel,
+    /// the token lands in your OS keychain
+    Login {
+        /// Comma-separated scopes (default: the full catalog)
+        #[arg(long, value_name = "SCOPE,SCOPE")]
+        scopes: Option<String>,
+        /// Don't open the approval page in a browser
+        #[arg(long)]
+        no_open: bool,
+    },
     /// Sign out and remove the stored token
     Logout,
-    /// Show whether you are signed in
+    /// Show who you are signed in as
     Status,
 }
 
@@ -112,10 +121,26 @@ pub enum InstancesCommand {
         /// The instance ID (omit for a verbose list)
         instance: Option<String>,
     },
-    /// Deploy an instance
+    /// Create an instance of a catalog app and deploy it
     Deploy {
-        /// The instance ID
-        instance: String,
+        /// The app slug (`fluxvale apps list`)
+        #[arg(long)]
+        app: String,
+        /// A name for the instance (default: the server generates one)
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
+        /// CPU cores (default: the app version's)
+        #[arg(long, value_name = "CORES")]
+        cpu: Option<String>,
+        /// Memory in MB (default: the app version's)
+        #[arg(long, value_name = "MB")]
+        memory_mb: Option<i64>,
+        /// Storage in GB (default: the app version's)
+        #[arg(long, value_name = "GB")]
+        storage_gb: Option<i64>,
+        /// The app version id (default: the newest published)
+        #[arg(long, value_name = "ID")]
+        version: Option<String>,
     },
     /// Stop a running instance
     Stop {
@@ -127,10 +152,13 @@ pub enum InstancesCommand {
         /// The instance ID
         instance: String,
     },
-    /// Destroy an instance
+    /// Destroy an instance — ALL its data is deleted
     Destroy {
         /// The instance ID
         instance: String,
+        /// Actually destroy; without this flag nothing is sent
+        #[arg(long)]
+        confirm: bool,
     },
 }
 
@@ -255,9 +283,38 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
 
     match &cli.command {
         Command::Auth { command } => match command {
-            AuthCommand::Login => not_yet("auth login"),
-            AuthCommand::Logout => not_yet("auth logout"),
-            AuthCommand::Status => auth_status(&config),
+            AuthCommand::Login { scopes, no_open } => {
+                let host = config::host_from_base_url(&config.base_url);
+                let store = TokenStore::at(TokenStore::default_dir()?);
+                let flags = auth::LoginFlags {
+                    scopes: scopes.clone(),
+                    no_open: *no_open,
+                };
+                print(auth::login(
+                    &config.base_url,
+                    &flags,
+                    |token| {
+                        store.save(&host, token)?;
+                        match store.load(&host)? {
+                            Some((_, location)) => Ok(location),
+                            None => anyhow::bail!("the token did not persist"),
+                        }
+                    },
+                    reads::open_url,
+                    std::thread::sleep,
+                    |fragment| eprint!("{fragment}"),
+                    |line| println!("{line}"),
+                ))
+            }
+            AuthCommand::Logout => {
+                let store = TokenStore::at(TokenStore::default_dir()?);
+                let host = config::host_from_base_url(&config.base_url);
+                print(auth::logout_store(&store, &host))
+            }
+            AuthCommand::Status => {
+                let (client, location) = reads::read_client(&config)?;
+                print(reads::whoami(&client, location, cli.output))
+            }
         },
         Command::Whoami => {
             let (client, location) = reads::read_client(&config)?;
@@ -285,10 +342,39 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
                     None => print(reads::instances_status_all(&client, cli.output)),
                 }
             }
-            InstancesCommand::Deploy { .. } => not_yet("instances deploy"),
-            InstancesCommand::Stop { .. } => not_yet("instances stop"),
-            InstancesCommand::Start { .. } => not_yet("instances start"),
-            InstancesCommand::Destroy { .. } => not_yet("instances destroy"),
+            InstancesCommand::Deploy {
+                app,
+                name,
+                cpu,
+                memory_mb,
+                storage_gb,
+                version,
+            } => {
+                let (client, _) = reads::read_client(&config)?;
+                let flags = DeployFlags {
+                    app: app.clone(),
+                    name: name.clone(),
+                    cpu: cpu.clone(),
+                    memory_mb: *memory_mb,
+                    storage_gb: *storage_gb,
+                    version: version.clone(),
+                };
+                print(writes::instances_deploy(&client, &flags, cli.output))
+            }
+            InstancesCommand::Stop { instance } => {
+                let (client, _) = reads::read_client(&config)?;
+                print(writes::instances_stop(&client, instance, cli.output))
+            }
+            InstancesCommand::Start { instance } => {
+                let (client, _) = reads::read_client(&config)?;
+                print(writes::instances_start(&client, instance, cli.output))
+            }
+            InstancesCommand::Destroy { instance, confirm } => {
+                let (client, _) = reads::read_client(&config)?;
+                print(writes::instances_destroy(
+                    &client, instance, *confirm, cli.output,
+                ))
+            }
         },
         Command::Backups { command } => match command {
             BackupsCommand::Configure {
@@ -386,32 +472,6 @@ fn print(line: anyhow::Result<String>) -> anyhow::Result<()> {
     }
 }
 
-/// `auth status` runs locally: config + stored token, no network.
-fn auth_status(config: &Config) -> anyhow::Result<()> {
-    let store = TokenStore::at(TokenStore::default_dir()?);
-    let host = config::host_from_base_url(&config.base_url);
-    match store.load(&host)? {
-        Some((token, location)) => {
-            println!(
-                "Signed in to {} ({}, stored in {})",
-                config.base_url,
-                token.mask(),
-                location
-            );
-        }
-        None => {
-            println!("Not signed in. Run `fluxvale auth login` to sign in.");
-        }
-    }
-    Ok(())
-}
-
-fn not_yet(command: &str) -> anyhow::Result<()> {
-    Err(anyhow::anyhow!(
-        "`fluxvale {command}` is not implemented yet"
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -431,9 +491,21 @@ mod tests {
         assert!(matches!(
             parse(&["auth", "login"]).command,
             Command::Auth {
-                command: AuthCommand::Login
+                command: AuthCommand::Login {
+                    scopes: None,
+                    no_open: false
+                }
             }
         ));
+        match parse(&["auth", "login", "--scopes", "a:b,c:d", "--no-open"]).command {
+            Command::Auth {
+                command: AuthCommand::Login { scopes, no_open },
+            } => {
+                assert_eq!(scopes.as_deref(), Some("a:b,c:d"));
+                assert!(no_open);
+            }
+            other => panic!("wrong: {other:?}"),
+        }
         assert!(matches!(
             parse(&["auth", "logout"]).command,
             Command::Auth {
@@ -472,15 +544,74 @@ mod tests {
                 command: InstancesCommand::Status { instance: None }
             }
         ));
-        match parse(&["instances", "deploy", "01ABC"]).command {
+        // deploy takes the app slug + its optional resource flags; no
+        // positional id — the command creates the instance.
+        match parse(&[
+            "instances",
+            "deploy",
+            "--app",
+            "forgejo",
+            "--name",
+            "my forgejo",
+            "--cpu",
+            "1.5",
+            "--memory-mb",
+            "1024",
+            "--storage-gb",
+            "5",
+            "--version",
+            "01JVER",
+        ])
+        .command
+        {
             Command::Instances {
-                command: InstancesCommand::Deploy { instance },
+                command:
+                    InstancesCommand::Deploy {
+                        app,
+                        name,
+                        cpu,
+                        memory_mb,
+                        storage_gb,
+                        version,
+                    },
             } => {
-                assert_eq!(instance, "01ABC")
+                assert_eq!(app, "forgejo");
+                assert_eq!(name.as_deref(), Some("my forgejo"));
+                assert_eq!(cpu.as_deref(), Some("1.5"));
+                assert_eq!(memory_mb, Some(1024));
+                assert_eq!(storage_gb, Some(5));
+                assert_eq!(version.as_deref(), Some("01JVER"));
             }
             other => panic!("wrong: {other:?}"),
         }
-        for action in ["stop", "start", "destroy"] {
+        // The bare form parses: app only, everything defaulted.
+        match parse(&["instances", "deploy", "--app", "wordpress"]).command {
+            Command::Instances {
+                command: InstancesCommand::Deploy { app, .. },
+            } => assert_eq!(app, "wordpress"),
+            other => panic!("wrong: {other:?}"),
+        }
+        assert!(
+            Cli::try_parse_from(["fluxvale", "instances", "deploy", "01ABC"]).is_err(),
+            "deploy takes --app, not a positional id"
+        );
+        // The destroy gate: --confirm parses on and off.
+        match parse(&["instances", "destroy", "01ABC"]).command {
+            Command::Instances {
+                command: InstancesCommand::Destroy { instance, confirm },
+            } => {
+                assert_eq!(instance, "01ABC");
+                assert!(!confirm);
+            }
+            other => panic!("wrong: {other:?}"),
+        }
+        match parse(&["instances", "destroy", "01ABC", "--confirm"]).command {
+            Command::Instances {
+                command: InstancesCommand::Destroy { confirm, .. },
+            } => assert!(confirm),
+            other => panic!("wrong: {other:?}"),
+        }
+        for action in ["stop", "start"] {
             assert!(
                 matches!(
                     parse(&["instances", action, "01ABC"]).command,
@@ -612,8 +743,7 @@ mod tests {
                 assert!(confirm);
             }
             other => panic!("wrong: {other:?}"),
-        }
-        // The access verbs parse with their arguments.
+        } // The access verbs parse with their arguments.
         match parse(&["access", "status", "--org", "01JORG"]).command {
             Command::Access {
                 command: AccessCommand::Status { org },
@@ -697,14 +827,5 @@ mod tests {
     fn unknown_output_is_rejected() {
         let parsed = Cli::try_parse_from(["fluxvale", "whoami", "--output", "yaml"]);
         assert!(parsed.is_err());
-    }
-
-    #[test]
-    fn unimplemented_commands_error_cleanly() {
-        let err = not_yet("instances deploy").unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "`fluxvale instances deploy` is not implemented yet"
-        );
     }
 }
