@@ -39,12 +39,10 @@ config :flux_vale,
   # (opt-in, ADR-0027 §3): Ops #25, Catalog #70, Infrastructure #72,
   # Pricing #125, Billing #140 (the goodwill-credit surface: wallet +
   # ledger only, Topup excluded), Feedback #412 (the public board's
-  # data: reads are public by policy, writes run the paying gate —
-  # the org's owner past the paid gate, the launch allowlist, or an
-  # admin — safe to render on a mount the admin gate already fronts).
-  # Identity stays
-  # admin-unexposed (User/Token are sensitive) until a concrete need
-  # appears; Accounts joins when a support flow needs it.
+  # data: reads are public by policy, posts/votes run the paying gate,
+  # comments open to any authenticated user per the owner's Nov ruling,
+  # moderation admin-gated — safe to render on a mount the admin gate
+  # already fronts). Identity stays
   ash_domains: [
     FluxVale.Identity,
     FluxVale.Accounts,

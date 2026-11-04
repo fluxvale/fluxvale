@@ -62,6 +62,12 @@ defmodule FluxVale.Feedback.Post do
         check: "vote_count >= 0",
         message: "must be zero or more"
       )
+
+      # Same idiom, same reason, for the comments' counter.
+      check_constraint(:comment_count, "comment_count_non_negative",
+        check: "comment_count >= 0",
+        message: "must be zero or more"
+      )
     end
   end
 
