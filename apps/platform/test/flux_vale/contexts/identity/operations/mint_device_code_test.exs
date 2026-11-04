@@ -8,8 +8,11 @@ defmodule FluxVale.Identity.Operations.MintDeviceCodeTest do
 
   use FluxVale.DataCase, async: true
 
+  alias Ash.Error.Changes.InvalidAttribute
+  alias Ash.Error.Invalid
   alias FluxVale.Identity
   alias FluxVale.Identity.DeviceCode
+  alias FluxVale.Identity.Operations.MintDeviceCode
   alias FluxVale.Identity.User
 
   @client "fluxvale-cli"
@@ -271,6 +274,33 @@ defmodule FluxVale.Identity.Operations.MintDeviceCodeTest do
 
       assert {:error, _not_found} =
                DeviceCode.get_by_user_code("NOPE-CODE", authorize?: false)
+    end
+  end
+
+  describe "the user_code collision matcher" do
+    # The retry loop's matcher, tested directly: the DB's
+    # unique-violation shape (probed once, pinned here) versus every
+    # other error the mint can surface. Forcing an actual collision
+    # draw is a 1-in-32^8 event — the recursion itself carries the
+    # coveralls-ignore.
+    test "matches the user_code unique violation; refuses every other shape" do
+      violation = %Invalid{
+        errors: [%InvalidAttribute{field: :user_code, message: "has already been taken"}]
+      }
+
+      assert MintDeviceCode.user_code_taken?(violation)
+
+      # Another field's unique violation is not ours.
+      other_field = %Invalid{
+        errors: [%InvalidAttribute{field: :device_code, message: "has already been taken"}]
+      }
+
+      refute MintDeviceCode.user_code_taken?(other_field)
+
+      # A different error class entirely (DB outage, invalid input).
+      empty = struct(Invalid)
+      refute MintDeviceCode.user_code_taken?(empty)
+      refute MintDeviceCode.user_code_taken?(:timeout)
     end
   end
 

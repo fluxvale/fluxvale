@@ -87,14 +87,26 @@ defmodule FluxVale.Identity.Operations.MintDeviceCode do
       # failure is a real refusal (or a DB outage): surface it.
       {:error, error} ->
         if retries_left > 0 and user_code_taken?(error) do
+          # coveralls-ignore-start - the retry needs the mint to DRAW
+          # a user_code another row already holds: a 1-in-32^8 draw
+          # (the loop is the race-proofing, not a reachable path — the
+          # matcher below is unit-tested directly).
           create_row(%{attrs | user_code: user_code()}, retries_left - 1, opts)
         else
           {:error, error}
         end
+
+        # coveralls-ignore-stop
     end
   end
 
-  defp user_code_taken?(%Ash.Error.Invalid{errors: errors}) do
+  @doc """
+  Does `error` carry the user_code unique-violation (the retry's
+  matcher)? Public so the suite can test the shape the DB hands back
+  without forcing an actual collision draw.
+  """
+  @spec user_code_taken?(term()) :: boolean()
+  def user_code_taken?(%Ash.Error.Invalid{errors: errors}) do
     Enum.any?(errors, fn
       %Ash.Error.Changes.InvalidAttribute{} = e ->
         e.field == :user_code and String.contains?("#{e.message}", "has already been taken")
@@ -104,7 +116,7 @@ defmodule FluxVale.Identity.Operations.MintDeviceCode do
     end)
   end
 
-  defp user_code_taken?(_other), do: false
+  def user_code_taken?(_other), do: false
 
   defp validate_client(client_id) do
     if client_id == FirstPartyClient.first_party_client_id() do

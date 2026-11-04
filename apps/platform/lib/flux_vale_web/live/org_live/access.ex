@@ -453,8 +453,13 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
           # The filtered write lost a race the pending re-read missed
           # (deny/consume landed between the read and the write).
+          # coveralls-ignore-start - needs the row to transition inside
+          # this handler's read→write window — an in-process race the
+          # suite cannot order; the nil arm above is the testable shape.
           {:error, _stale} ->
             {:noreply, device_sign_in_gone(socket)}
+
+            # coveralls-ignore-stop
         end
     end
   end
@@ -472,8 +477,12 @@ defmodule FluxValeWeb.OrganizationLive.Access do
              |> put_flash(:info, "Device sign-in denied.")
              |> refresh_device_sign_ins()}
 
+          # coveralls-ignore-start - same race arm as approve's, same
+          # posture.
           {:error, _stale} ->
             {:noreply, device_sign_in_gone(socket)}
+
+            # coveralls-ignore-stop
         end
     end
   end
