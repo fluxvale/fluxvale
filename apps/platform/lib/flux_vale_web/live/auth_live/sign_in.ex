@@ -30,7 +30,7 @@ defmodule FluxValeWeb.AuthLive.SignIn do
             <div class="space-y-2">
               <h1 class="text-3xl font-bold tracking-tight text-ink">Sign in to FluxVale</h1>
               <p class="text-sm leading-6 text-ink-muted">
-                Passwordless — we'll email you a one-time code.
+                Passwordless. We'll email you a one-time code.
               </p>
             </div>
 
@@ -126,7 +126,7 @@ defmodule FluxValeWeb.AuthLive.SignIn do
          socket
          |> assign(step: :code, email: email)
          |> assign(form: to_form(%{"code" => ""}))
-         |> put_flash(:info, "Code sent — check your inbox.")}
+         |> put_flash(:info, "Code sent. Check your inbox.")}
 
       {:error, :throttled} ->
         {:noreply,
@@ -143,7 +143,7 @@ defmodule FluxValeWeb.AuthLive.SignIn do
          put_flash(
            socket,
            :error,
-           "That address can't sign in yet — ask an admin for access."
+           "That address can't sign in yet. Ask an admin for access."
          )}
 
       {:error, :delivery_failed} ->
@@ -151,7 +151,7 @@ defmodule FluxValeWeb.AuthLive.SignIn do
          put_flash(
            socket,
            :error,
-           "We couldn't send the email — please wait a minute, then try again."
+           "We couldn't send the email. Please wait a minute, then try again."
          )}
 
       {:error, :invalid_address} ->
@@ -159,7 +159,7 @@ defmodule FluxValeWeb.AuthLive.SignIn do
          put_flash(
            socket,
            :error,
-           "That doesn't look like an email address — check it and try again."
+           "That doesn't look like an email address. Check it and try again."
          )}
     end
   end
@@ -174,7 +174,7 @@ defmodule FluxValeWeb.AuthLive.SignIn do
          socket
          |> assign(step: :email)
          |> assign(form: to_form(%{"email" => socket.assigns.email}))
-         |> put_flash(:error, "Too many attempts — request a fresh code.")}
+         |> put_flash(:error, "Too many attempts. Request a fresh code.")}
 
       {:error, :not_allowed} ->
         # #26: the rule changed after the code was sent — retrying that
@@ -183,7 +183,7 @@ defmodule FluxValeWeb.AuthLive.SignIn do
          socket
          |> assign(step: :email)
          |> assign(form: to_form(%{"email" => socket.assigns.email}))
-         |> put_flash(:error, "That address can't sign in yet — ask an admin for access.")}
+         |> put_flash(:error, "That address can't sign in yet. Ask an admin for access.")}
 
       {:error, _reason} ->
         # Uniform message: unknown address and wrong code look identical
