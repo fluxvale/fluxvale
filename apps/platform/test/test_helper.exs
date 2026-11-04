@@ -70,6 +70,13 @@ if Mix.env() == :test do
   Mimic.copy(FluxVale.Ops.AccessRules)
 
   Ecto.Adapters.SQL.Sandbox.mode(FluxVale.Repo, :manual)
+
+  # Boot-time snapshots (the pristine-env seam): taken after all
+  # config is merged but BEFORE ExUnit starts — no async test is
+  # running yet, so nothing has mutated the app env. Blocks listed
+  # here are the ones a shipped-config invariant certifies; runtime
+  # readers keep reading the live env.
+  FluxVale.TestSupport.PristineEnv.capture(:backups)
 end
 
 ExUnit.start(exclude: [k8s: true])

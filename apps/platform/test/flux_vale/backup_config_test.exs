@@ -10,8 +10,16 @@ defmodule FluxVale.BackupConfigTest do
 
   use ExUnit.Case, async: true
 
+  alias FluxVale.TestSupport.PristineEnv
+
+  # The shipped chain, not the ambient runtime env (owner ruling: all
+  # tests stay async). The restore suite's async tests legitimately
+  # mutate the :backups block mid-run (capture-and-restore compliant);
+  # a runtime read here would witness their zero-second overrides and
+  # fail this invariant on scheduling luck alone. The boot snapshot
+  # can't see any of it.
   setup do
-    {:ok, backups: Application.fetch_env!(:flux_vale, :backups)}
+    {:ok, backups: PristineEnv.fetch!(:backups)}
   end
 
   test "the horizon chain: stale_after > restore_timeout > timeout", %{backups: backups} do
