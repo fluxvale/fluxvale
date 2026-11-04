@@ -77,9 +77,10 @@ defmodule FluxVale.Identity.Operations.MintDeviceCode do
          |> Ash.Changeset.for_create(:create, attrs, opts)
          |> Ash.create() do
       {:ok, row} ->
-        Logger.info(
+        minted_message =
           "device code minted: client=#{row.client_id} scopes=#{Enum.join(row.scopes, ",")}"
-        )
+
+        Logger.info(minted_message)
 
         {:ok, row}
 

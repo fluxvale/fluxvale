@@ -9,6 +9,7 @@ defmodule FluxVale.Identity.Operations.MintDeviceCodeTest do
   use FluxVale.DataCase, async: true
 
   alias Ash.Error.Changes.InvalidAttribute
+  alias Ash.Error.Changes.Required
   alias Ash.Error.Invalid
   alias FluxVale.Identity
   alias FluxVale.Identity.DeviceCode
@@ -301,6 +302,14 @@ defmodule FluxVale.Identity.Operations.MintDeviceCodeTest do
       empty = struct(Invalid)
       refute MintDeviceCode.user_code_taken?(empty)
       refute MintDeviceCode.user_code_taken?(:timeout)
+
+      # A mixed list — the matcher walks every entry; only the
+      # user_code unique violation counts.
+      mixed = %Invalid{
+        errors: [%Required{field: :user_code, type: :argument}, %InvalidAttribute{field: :id}]
+      }
+
+      refute MintDeviceCode.user_code_taken?(mixed)
     end
   end
 
