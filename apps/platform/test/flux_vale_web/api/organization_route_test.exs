@@ -3,10 +3,10 @@ defmodule FluxValeWeb.Api.OrganizationRouteTest do
 
   # #362 T6a: GET /api/v1/organizations — the actor's own orgs. The CLI
   # discovery's source: wallet/access commands need an org id, the panel
-  # URL only shows the slug. Scopeless like /me (membership IS the
-  # policy — the list_for_actor filter and the read policy compose), so
-  # the refusals asserted here are policy-refusals, never the boundary
-  # scope gate.
+  # URL only shows the slug. Scopeless like /me — any live token passes
+  # the boundary gate; the membership filter IS the policy, which is why
+  # the cross-org test rides a full-scope token (a leak must surface as
+  # rows, never hide behind a scope denial).
 
   use FluxValeWeb.ConnCase, async: true
 

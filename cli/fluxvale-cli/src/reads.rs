@@ -453,17 +453,22 @@ pub fn wallet_ledger(
     output: Output,
 ) -> anyhow::Result<String> {
     safe_segment("organization id", org_id)?;
+    // The limit flag's fence: the wire 500s on page[limit]=0 (the
+    // keyset query can't run) — checked here so a bad value never
+    // rides the wire (the retention fence's posture).
+    let limit = match page.limit {
+        Some(0) => anyhow::bail!("invalid --limit 0: must be at least 1"),
+        Some(n) => n,
+        None => LEDGER_DEFAULT_LIMIT,
+    };
+    let query = ledger_query(limit, page.before.as_deref(), page.after.as_deref());
     let wallet = one_resource(
         get_or_404(client, &format!("/organizations/{org_id}/wallet"), "wallet")?,
         "wallet",
     )?;
     let document = get_or_404(
         client,
-        &format!(
-            "/wallets/{}/ledger-entries{}",
-            wallet.id,
-            ledger_query(&page)
-        ),
+        &format!("/wallets/{}/ledger-entries{}", wallet.id, query),
         "wallet",
     )?;
     wallet_ledger_rendered(document, output)
@@ -475,16 +480,13 @@ pub fn wallet_ledger(
 /// sort (`-id` newest first, the route's own tests' shape). Cursors
 /// pass through VERBATIM: they are opaque server strings, already
 /// query-safe in the form `links.next` carries them.
-pub(crate) fn ledger_query(page: &LedgerPage) -> String {
-    let mut query = format!(
-        "?page[limit]={}&sort=-id",
-        page.limit.unwrap_or(LEDGER_DEFAULT_LIMIT)
-    );
-    if let Some(after) = &page.after {
+pub(crate) fn ledger_query(limit: u32, before: Option<&str>, after: Option<&str>) -> String {
+    let mut query = format!("?page[limit]={limit}&sort=-id");
+    if let Some(after) = after {
         query.push_str("&page[after]=");
         query.push_str(after);
     }
-    if let Some(before) = &page.before {
+    if let Some(before) = before {
         query.push_str("&page[before]=");
         query.push_str(before);
     }
@@ -1107,39 +1109,37 @@ mod tests {
         // Limit is REQUIRED on the wire (T6's finding): the default
         // rides when the flag is absent; sort is the caller's (newest
         // first, the route's own tests' shape).
-        assert_eq!(
-            ledger_query(&LedgerPage {
-                limit: None,
-                before: None,
-                after: None
-            }),
-            "?page[limit]=25&sort=-id"
-        );
-        assert_eq!(
-            ledger_query(&LedgerPage {
-                limit: Some(5),
-                before: None,
-                after: None
-            }),
-            "?page[limit]=5&sort=-id"
-        );
+        assert_eq!(ledger_query(25, None, None), "?page[limit]=25&sort=-id");
+        assert_eq!(ledger_query(5, None, None), "?page[limit]=5&sort=-id");
         // The cursors pass through verbatim — opaque server strings.
         assert_eq!(
-            ledger_query(&LedgerPage {
-                limit: Some(1),
-                before: None,
-                after: Some("g3QAAAABZAAGaWVzc3VlZA".into())
-            }),
+            ledger_query(1, None, Some("g3QAAAABZAAGaWVzc3VlZA")),
             "?page[limit]=1&sort=-id&page[after]=g3QAAAABZAAGaWVzc3VlZA"
         );
         assert_eq!(
-            ledger_query(&LedgerPage {
-                limit: None,
-                before: Some("g3QAAAABZAAHaWFzc3VlZA".into()),
-                after: None
-            }),
+            ledger_query(25, Some("g3QAAAABZAAHaWFzc3VlZA"), None),
             "?page[limit]=25&sort=-id&page[before]=g3QAAAABZAAHaWFzc3VlZA"
         );
+    }
+
+    #[test]
+    fn wallet_ledger_refuses_a_zero_limit_locally() {
+        // The wire 500s on page[limit]=0 — the CLI refuses it before
+        // anything is sent (the client points at a dead port; reaching
+        // it would mean the fence failed).
+        let client = client("http://127.0.0.1:1");
+        let err = wallet_ledger(
+            &client,
+            "org1",
+            LedgerPage {
+                limit: Some(0),
+                before: None,
+                after: None,
+            },
+            Output::Table,
+        )
+        .unwrap_err();
+        assert_eq!(err.to_string(), "invalid --limit 0: must be at least 1");
     }
 
     #[test]
