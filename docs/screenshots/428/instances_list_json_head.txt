@@ -1,0 +1,10 @@
+[
+  {
+    "always_on": false,
+    "deployed_at": "2026-11-02T17:49:54.198962Z",
+    "exposure": "public",
+    "id": "01a1a7ae-828c-7218-af82-57c435c5b992",
+    "name": "Docs Mirror",
+    "namespace": "fluxvale-app-shy-water-5616",
+    "slug": "shy-water-5616",
+    "status": "stopped"

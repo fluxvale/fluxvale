@@ -38,8 +38,15 @@ impl ApiClient {
         }
     }
 
-    /// GET a collection or resource.
+    /// GET a collection or resource (a JSON:API document).
     pub fn get(&self, path: &str) -> Result<Document, ApiError> {
+        let url = self.url(path);
+        self.finish(self.headers(self.agent.get(&url)).call())
+    }
+
+    /// GET a plain JSON body — the runway projection answers a bare
+    /// object, not an envelope (wallet_route_test's contract).
+    pub fn get_json(&self, path: &str) -> Result<serde_json::Value, ApiError> {
         let url = self.url(path);
         self.finish(self.headers(self.agent.get(&url)).call())
     }
@@ -82,10 +89,10 @@ impl ApiClient {
             .header("Accept", "application/vnd.api+json")
     }
 
-    fn finish(
+    fn finish<T: serde::de::DeserializeOwned>(
         &self,
         response: Result<ureq::http::Response<ureq::Body>, ureq::Error>,
-    ) -> Result<Document, ApiError> {
+    ) -> Result<T, ApiError> {
         match response {
             Ok(mut response) => {
                 let status = response.status().as_u16();
@@ -210,6 +217,19 @@ mod tests {
         let _ = client(&base).get("/me").unwrap();
         let head = server.captured_head.lock().unwrap().clone();
         assert!(head.contains("GET /api/v1/me HTTP/1.1"), "head: {head}");
+    }
+
+    #[test]
+    fn get_json_parses_a_non_envelope_body() {
+        // The runway projection answers a bare map — no `data` wrapper.
+        let body =
+            r#"{"balance_cents":400,"burn_micro_cents_per_hour":0,"runway_hours":"infinity"}"#;
+        let server = serve(&respond("200 OK", &[], body));
+        let map = client(&server.base_url)
+            .get_json("/organizations/o/wallet/runway")
+            .unwrap();
+        assert_eq!(map["balance_cents"], 400);
+        assert_eq!(map["runway_hours"], "infinity");
     }
 
     #[test]

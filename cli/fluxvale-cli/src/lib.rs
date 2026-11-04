@@ -6,4 +6,7 @@
 pub mod api;
 pub mod cli;
 pub mod config;
+pub mod human;
+pub mod reads;
+pub mod render;
 pub mod token;

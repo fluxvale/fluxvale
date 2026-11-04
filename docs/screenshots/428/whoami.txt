@@ -1,0 +1,2 @@
+signed in as admin@fluxvale.com via the credentials file
+platform role: admin
