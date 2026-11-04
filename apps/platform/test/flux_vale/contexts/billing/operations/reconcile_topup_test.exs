@@ -23,7 +23,17 @@ defmodule FluxVale.Billing.Operations.ReconcileTopupTest do
       base_url: "https://api.example"
     )
 
-    on_exit(fn -> Application.put_env(:flux_vale, :hitpay, original) end)
+    # The suite stubs HitPay's wire, so HitPay must be the active
+    # provider (the config default is Polar since the #377 flip).
+    provider = Application.get_env(:flux_vale, :payments_provider)
+
+    Application.put_env(:flux_vale, :payments_provider, FluxVale.Billing.Providers.HitPay)
+
+    on_exit(fn ->
+      Application.put_env(:flux_vale, :hitpay, original)
+      Application.put_env(:flux_vale, :payments_provider, provider)
+    end)
+
     :ok
   end
 

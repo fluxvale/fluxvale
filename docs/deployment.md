@@ -305,13 +305,16 @@ charges aren't real by construction.
 ### Cutover (gated on the e2e above)
 
 Flip `payments_provider` to `FluxVale.Billing.Providers.Polar`
-(config commit), set the production env vars, redeploy.
-`PAYMENTS_PROVIDER=polar` is how staging runs the e2e ahead of this
-flip (production flips by config commit; the dial left unset keeps
-whatever config.exs says). `POLAR_ALLOW_DISCOUNT_CODES` stays unset in
-production — false is the default. The top-up button label follows the
-active provider. HitPay's config block stays — rollback is flipping
-back plus its env vars.
+(config commit), set the production env vars, redeploy. The flip PR is
+open and held for the review gate: it merges when Polar's production
+account review passes. `PAYMENTS_PROVIDER=polar` is how staging runs
+the e2e ahead of this flip (production flips by config commit; the
+dial left unset keeps whatever config.exs says).
+`POLAR_ALLOW_DISCOUNT_CODES` stays unset in production — false is the
+default. The top-up button label follows the active provider.
+HitPay's config block stays. Rollback is one config revert plus its
+env vars, or `PAYMENTS_PROVIDER=hitpay` per environment without a
+revert commit.
 
 **Operator note**: Polar disables a webhook endpoint after 10
 consecutive failed deliveries (retries up to 10×, 10s timeout) — a

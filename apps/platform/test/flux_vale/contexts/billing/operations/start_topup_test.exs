@@ -25,6 +25,12 @@ defmodule FluxVale.Billing.Operations.StartTopupTest do
       base_url: "https://api.example"
     )
 
+    # The suite stubs HitPay's wire, so HitPay must be the active
+    # provider (the config default is Polar since the #377 flip).
+    provider = Application.get_env(:flux_vale, :payments_provider)
+
+    Application.put_env(:flux_vale, :payments_provider, FluxVale.Billing.Providers.HitPay)
+
     # The rate table StartTopup resolves against (#260): DE at the
     # launch rate. Tests asserting 19% figures rely on it;
     # unpriced-market cases use other countries.
@@ -33,7 +39,11 @@ defmodule FluxVale.Billing.Operations.StartTopupTest do
       authorize?: false
     )
 
-    on_exit(fn -> Application.put_env(:flux_vale, :hitpay, original) end)
+    on_exit(fn ->
+      Application.put_env(:flux_vale, :hitpay, original)
+      Application.put_env(:flux_vale, :payments_provider, provider)
+    end)
+
     :ok
   end
 
