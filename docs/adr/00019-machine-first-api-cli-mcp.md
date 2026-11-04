@@ -59,3 +59,21 @@ window per token, 300/min default, 429 + `Retry-After`); every
 PAT-authenticated call and each mint/revoke lands an append-only
 audit row (token id, method, path, status — never the token value),
 90-day retention.
+
+## Amendment 2 (2026-11-04): the MCP server landed — tool surface is contract
+
+S2 of #359 shipped the hosted MCP endpoint (#361): `POST /mcp` in the
+Phoenix app (§3's stance), streamable HTTP, protocol rev 2026-07-28
+only — the stateless core, no sessions. Tools call the same Ash
+actions with the PAT-resolved actor: policies, paywall, and scopes
+enforce exactly as over `/api/v1`; the MCP layer is adapter, not
+authority. Scope enforcement is two-layered at the tool surface —
+`tools/list` is filtered by the token's grants (a read-only token
+never sees a write tool) and every handler re-checks before dispatch
+(the same scope table the route gate rides). Destructive tools
+(`restore_backup`, `destroy_instance`) confirm through the protocol's
+multi-round-trip input flow — an encrypted, stateless confirmation
+that mutates nothing until a "yes". The tool list is a compatibility
+contract in §1's sense: additive within the surface; removal or
+rename is a versioned decision. First consumer is our own agent
+fleet — dogfooding is the acceptance path (#361's note).
