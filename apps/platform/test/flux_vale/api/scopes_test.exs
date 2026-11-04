@@ -106,6 +106,7 @@ defmodule FluxVale.Api.ScopesTest do
 
     test "instance routes" do
       assert {:ok, "instances:read"} = Scopes.required_scope("GET", ["instances"])
+      assert {:ok, "instances:write"} = Scopes.required_scope("POST", ["instances"])
       assert {:ok, "instances:read"} = Scopes.required_scope("GET", ["instances", "abc"])
 
       for action <- ["deploy", "stop", "start", "always-on", "exposure"] do

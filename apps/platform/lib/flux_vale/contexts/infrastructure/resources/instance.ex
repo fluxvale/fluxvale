@@ -141,6 +141,19 @@ defmodule FluxVale.Infrastructure.Instance do
       # instances:read
       get(:get_by_id, route: "/instances/:id", default_fields: @detail_fields)
 
+      # instances:write — the generic :create (#362, the CLI's deploy
+      # command). The action's accept list is name, cpu_cores,
+      # memory_mb, storage_gb, env_vars, app_version_id — org/cluster
+      # and the deploy blueprint are derived server-side. Wire caveat
+      # (measured, not assumed): hide_fields strips env_vars from the
+      # create route's REQUEST schema too (ash_json_api applies it in
+      # both directions), so a body carrying env_vars is a 400
+      # InvalidBody — the API cannot set env vars today; a non-hidden
+      # input argument is the escape hatch (arguments answer to
+      # public?, not hide_fields). Echo is moot: it never rides the
+      # response either.
+      post(:create, route: "/instances", default_fields: @detail_fields)
+
       # instances:write — the update actions accept no/limited input;
       # the body may carry an empty attributes object.
       patch(:deploy, route: "/instances/:id/deploy", default_fields: @detail_fields)
