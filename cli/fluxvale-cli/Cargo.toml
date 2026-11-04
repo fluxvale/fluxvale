@@ -1,0 +1,11 @@
+[package]
+name = "fluxvale-cli"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish = false # workspace-internal; distribution is release binaries
+
+
+# Canary: zero dependencies on purpose. Real CLI slices add them — and
+# cargo deny's license/advisory gates already run against the lockfile.
+[dependencies]

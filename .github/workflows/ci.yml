@@ -3,7 +3,8 @@
 # and the umbrella "Wait for CI" job that ALWAYS runs. Branch protection
 # requires "Wait for CI" — the only check guaranteed present on every PR,
 # so path-skipped apps can never leave a required check pending forever.
-# Per-app jobs join here as apps grow (e2e joined at M3; cli: later).
+# Per-app jobs join here as apps grow (e2e joined at M3; cli joined
+# with the Rust lane — ADR-0019 Am. 3).
 name: CI
 
 on:
@@ -32,6 +33,7 @@ jobs:
       docs: ${{ steps.filter.outputs.docs }}
       agents: ${{ steps.filter.outputs.agents }}
       e2e: ${{ steps.filter.outputs.e2e }}
+      cli: ${{ steps.filter.outputs.cli }}
     steps:
       # persist-credentials: false — later steps run no git-authenticated ops
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -64,6 +66,9 @@ jobs:
               - "Tiltfile" # the bootstrap parses its pins — a bump here is an e2e change
               - ".github/workflows/e2e-nightly.yml" # the nightly drives the same bootstrap + suite
               - "mise.toml"
+              - ".github/workflows/ci.yml"
+            cli:
+              - "cli/**"
               - ".github/workflows/ci.yml"
 
   platform:
@@ -206,6 +211,134 @@ jobs:
           files: apps/platform/cover/excoveralls.json
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
+
+  # The Rust CLI lane (ADR-0019 Am. 3): the BEAM disciplines mirrored in
+  # Rust — fmt, clippy -D warnings, test, cargo deny (license allowlist,
+  # GPL family denied) — path-gated like every other lane. The canary is
+  # zero-dep; cargo caches land when real deps do.
+  cli-gates:
+    name: CLI gates
+    needs: check-changes
+    if: needs.check-changes.outputs.cli == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # rustup reads cli/rust-toolchain.toml (the exact stable pin) and
+      # installs it — toolchain AND the components the file declares.
+      # Plain `rustup show` would auto-install the minimal profile and
+      # `cargo fmt` would die with "'cargo-fmt' is not installed" —
+      # seen on CI (#415); the deprecated auto-install path also warns
+      # it may stop working.
+      - run: rustup toolchain install
+
+      - run: cargo fmt --check
+
+      - run: cargo clippy --all-targets -- -D warnings
+
+      - run: cargo test
+
+      # cargo install compiles the tool's dep tree (~5 min); cache the
+      # built binary instead — keyed on the exact pin, so a bump
+      # re-installs once.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-deny
+          key: cargo-deny-0.20.2
+
+      - name: Install cargo-deny
+        run: "[ -x ~/.cargo/bin/cargo-deny ] || cargo install --locked cargo-deny@0.20.2"
+
+      - run: cargo deny check licenses advisories
+
+  # Coverage: llvm-cov onto the same codecov.io integration with flag
+  # `cli` — the platform upload step's shape (same pinned action, same
+  # fail_ci_if_error watchdog: a codecov.io outage reds this step).
+  cli-coverage:
+    name: CLI coverage
+    needs: check-changes
+    if: needs.check-changes.outputs.cli == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - run: rustup toolchain install
+      # llvm-tools-preview is the component cargo-llvm-cov drives
+      # (the minimal default profile omits it).
+      - run: rustup component add llvm-tools-preview
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-llvm-cov
+          key: cargo-llvm-cov-0.9.1
+
+      - name: Install cargo-llvm-cov
+        run: "[ -x ~/.cargo/bin/cargo-llvm-cov ] || cargo install --locked cargo-llvm-cov@0.9.1"
+
+      - run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+
+      # NB: uses: steps run at the workspace root — repo-root path.
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5
+        with:
+          flags: cli
+          files: cli/lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
+
+  # The 4-target distribution matrix (ADR-0019 Am. 3): release builds,
+  # one binary artifact per target as the per-PR proof. All four legs
+  # are NATIVE runners — linux aarch64 rides the ubuntu-24.04-arm label
+  # (free for public repos, no cross toolchain), macos-latest is arm64
+  # (M1), windows-latest is x64.
+  cli-matrix:
+    name: CLI matrix (${{ matrix.leg.name }})
+    needs: check-changes
+    if: needs.check-changes.outputs.cli == 'true'
+    runs-on: ${{ matrix.leg.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        leg:
+          - name: linux-amd64
+            os: ubuntu-24.04
+            binary: target/release/fluxvale-cli
+          - name: linux-aarch64
+            os: ubuntu-24.04-arm
+            binary: target/release/fluxvale-cli
+          - name: macos-aarch64
+            os: macos-latest
+            binary: target/release/fluxvale-cli
+          - name: windows-x86_64
+            os: windows-latest
+            binary: target/release/fluxvale-cli.exe
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - run: rustup toolchain install
+
+      - run: cargo build --release
+
+      # NB: uses: steps run at the workspace root — repo-root path.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fluxvale-cli-${{ matrix.leg.name }}
+          path: cli/${{ matrix.leg.binary }}
 
   # Conventions enforcement (docs/adr/README.md): amended ADRs must be
   # marked in the index — 9 of 14 were unmarked when this landed (#36
@@ -805,7 +938,7 @@ jobs:
   # checks run — a green umbrella that proved nothing.
   wait-for-ci:
     name: Wait for CI
-    needs: [check-changes, platform, docs-lint, skills-lint, linked-issues, e2e, deploy-image, watch-deploy, smoke]
+    needs: [check-changes, platform, cli-gates, cli-coverage, cli-matrix, docs-lint, skills-lint, linked-issues, e2e, deploy-image, watch-deploy, smoke]
 
     if: always()
     runs-on: ubuntu-24.04
