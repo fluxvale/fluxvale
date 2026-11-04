@@ -38,9 +38,11 @@ config :flux_vale,
   # AshAdmin mount exposes a domain iff its `admin show?` is set
   # (opt-in, ADR-0027 §3): Ops #25, Catalog #70, Infrastructure #72,
   # Pricing #125, Billing #140 (the goodwill-credit surface: wallet +
-  # ledger only, Topup excluded). Identity stays admin-unexposed
-  # (User/Token are sensitive) until a concrete need appears; Accounts
-  # joins when a support flow needs it.
+  # ledger only, Topup excluded), Feedback #412 (the public board's
+  # data: reads are public by policy, writes admin-gated — safe to
+  # render on a mount the admin gate already fronts). Identity stays
+  # admin-unexposed (User/Token are sensitive) until a concrete need
+  # appears; Accounts joins when a support flow needs it.
   ash_domains: [
     FluxVale.Identity,
     FluxVale.Accounts,
@@ -49,7 +51,8 @@ config :flux_vale,
     FluxVale.Catalog,
     FluxVale.Infrastructure,
     FluxVale.Pricing,
-    FluxVale.Api
+    FluxVale.Api,
+    FluxVale.Feedback
   ],
   generators: [timestamp_type: :utc_datetime],
   # AccessRules snapshot TTL (#26, settled): 60s — the cross-node
