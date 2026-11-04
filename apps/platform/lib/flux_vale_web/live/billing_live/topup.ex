@@ -38,6 +38,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
   alias FluxVale.Billing.Countries
   alias FluxVale.Billing.Tax
   alias FluxVale.Billing.Topup
+  alias FluxVale.Billing.TopupOutcomeMail
   alias FluxVale.Pricing
 
   require Ash.Query
@@ -148,6 +149,15 @@ defmodule FluxValeWeb.BillingLive.Topup do
     else
       {:noreply, confirm_completed(socket)}
     end
+  end
+
+  # Not every info message is ours: in the test env the Swoosh
+  # adapter self-delivers {:email, _} into whatever process sent the
+  # mail — here, the outcome mail's reconcile. Unknown messages drop;
+  # crashing the wizard over a non-event helps nobody.
+  @impl Phoenix.LiveView
+  def handle_info(_other, socket) do
+    {:noreply, socket}
   end
 
   @impl Phoenix.LiveView
@@ -1068,14 +1078,36 @@ defmodule FluxValeWeb.BillingLive.Topup do
 
   defp confirmation_state(%Topup{status: :pending} = topup) do
     case Billing.reconcile_topup(topup.payment_request_id) do
-      {:ok, %Topup{} = fresh} -> fresh.status
-      {:ok, :already_completed} -> :completed
+      {:ok, %Topup{} = fresh} ->
+        # The reconcile's fresh row is either outcome — the email
+        # twin of this surface (#377) rides whichever transition it
+        # is, once (terminal-once guarantees no double mail against
+        # the webhook).
+        outcome_mail(fresh)
+        fresh.status
+
+      {:ok, :already_completed} ->
+        :completed
+
       # A racing delivery transitioned the row after our read — re-read
       # for the truth rather than guessing which way it went.
-      {:ok, :already_terminal} -> refetch_state(topup)
-      {:ok, :pending} -> :pending
-      {:error, _reason} -> :pending
+      {:ok, :already_terminal} ->
+        refetch_state(topup)
+
+      {:ok, :pending} ->
+        :pending
+
+      {:error, _reason} ->
+        :pending
     end
+  end
+
+  defp outcome_mail(%Topup{status: :completed} = topup) do
+    TopupOutcomeMail.deliver_completed(topup)
+  end
+
+  defp outcome_mail(%Topup{} = topup) do
+    TopupOutcomeMail.deliver_not_completed(topup)
   end
 
   defp refetch_state(topup) do

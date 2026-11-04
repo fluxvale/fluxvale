@@ -11,6 +11,7 @@ defmodule FluxVale.Workers.StaleTopupSweep do
   use Oban.Worker, queue: :billing, max_attempts: 3
 
   alias FluxVale.Billing
+  alias FluxVale.Billing.TopupOutcomeMail
 
   require Logger
 
@@ -29,8 +30,15 @@ defmodule FluxVale.Workers.StaleTopupSweep do
 
   defp safe_sweep do
     case Billing.expire_stale_topups() do
-      {:ok, _expired} -> :ok
-      {:error, reason} -> {:error, reason}
+      # The expired rows are the sweep's fresh transitions — the
+      # not-completed outcome mail rides each (#377). A mail failure
+      # logs inside the mail layer and never fails the hour's job.
+      {:ok, expired} ->
+        Enum.each(expired, &TopupOutcomeMail.deliver_not_completed/1)
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
     end
   rescue
     exception -> {:error, exception}

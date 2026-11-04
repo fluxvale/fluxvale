@@ -80,6 +80,34 @@ defmodule FluxValeWeb.Webhooks.HitPayControllerTest do
     assert completed.payment_id == "pay_1"
   end
 
+  # #377: the outcome mail rides the fresh transition — a replayed
+  # delivery credits nothing new and mails nothing new.
+  test "a completed event mails the outcome exactly once" do
+    attached_topup!(500)
+
+    conn = deliver(completed_payload("5.00"))
+    assert %{"received" => true} = json_response(conn, 200)
+
+    assert_receive {:email, %Swoosh.Email{text_body: body} = email}
+    assert email.to == [{"", "buyer@example.com"}]
+    assert body =~ "balance is now $5.00"
+
+    replay = deliver(completed_payload("5.00"))
+    assert %{"received" => true} = json_response(replay, 200)
+    refute_received {:email, _email}
+  end
+
+  test "a failed payment request mails the not-completed outcome" do
+    attached_topup!(500)
+
+    raw = Jason.encode!(%{id: "pr_1", status: "failed"})
+
+    conn = deliver(raw)
+    assert %{"received" => true} = json_response(conn, 200)
+
+    assert_receive {:email, %Swoosh.Email{subject: "Your FluxVale payment didn't go through"}}
+  end
+
   test "a replayed delivery never double-credits" do
     {topup, wallet} = attached_topup!(500)
     amount = "5.00"

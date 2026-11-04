@@ -35,6 +35,7 @@ defmodule FluxValeWeb.Webhooks.HitPayController do
 
   alias FluxVale.Billing
   alias FluxVale.Billing.Providers.HitPay
+  alias FluxVale.Billing.TopupOutcomeMail
 
   require Logger
 
@@ -104,7 +105,11 @@ defmodule FluxValeWeb.Webhooks.HitPayController do
           topup_id: payload["reference_number"]
         }
 
-        Billing.complete_topup(outcome)
+        # The outcome mail rides the fresh transition only (#377) —
+        # the operation's terminal-once guard makes replays answer
+        # :already_completed and mail nothing.
+        result = Billing.complete_topup(outcome)
+        TopupOutcomeMail.on_completion(result)
 
       :none ->
         # Completed request without a parseable succeeded payment —
@@ -118,7 +123,8 @@ defmodule FluxValeWeb.Webhooks.HitPayController do
   end
 
   defp process_event(%{"status" => "failed", "id" => payment_request_id}) do
-    Billing.fail_topup(payment_request_id)
+    result = Billing.fail_topup(payment_request_id)
+    TopupOutcomeMail.on_failure(result)
   end
 
   defp process_event(%{"status" => status} = payload) do

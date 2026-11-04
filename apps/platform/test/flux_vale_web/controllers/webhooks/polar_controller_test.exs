@@ -121,6 +121,22 @@ defmodule FluxValeWeb.Webhooks.PolarControllerTest do
     assert completed.payment_id == "co_1"
   end
 
+  # #377: the outcome mail rides the fresh transition — the replayed
+  # delivery mails nothing new.
+  test "a verified order.paid mails the outcome exactly once" do
+    {topup, _wallet} = attached_topup!(500)
+
+    conn = deliver(order_paid_payload(500, topup_id: topup.id))
+    assert %{"received" => true} = json_response(conn, 200)
+
+    assert_receive {:email, %Swoosh.Email{text_body: body}}
+    assert body =~ "balance is now $5.00"
+
+    replay = deliver(order_paid_payload(500, topup_id: topup.id))
+    assert %{"received" => true} = json_response(replay, 200)
+    refute_received {:email, _email}
+  end
+
   test "the credit outcome pins both contract points (#377)" do
     {topup, _wallet} = attached_topup!(500)
     parent = self()

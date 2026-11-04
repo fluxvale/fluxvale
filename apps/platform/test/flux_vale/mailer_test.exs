@@ -128,4 +128,38 @@ defmodule FluxVale.MailerTest do
       assert subject == "Your FluxVale instances will be deleted in 1 day"
     end
   end
+
+  # #377: the top-up outcome mail — the email twin of the in-app
+  # result state (#391). Plain sentences by the owner's copy rule.
+  describe "the top-up outcome mails" do
+    test "the completed mail carries the amount, the credit, the balance, and the Polar receipt pointer" do
+      {:ok, _delivery} = Mailer.deliver_topup_completed("outcome@fluxvale.com", 5000, 5000)
+
+      assert_receive {:email, %Swoosh.Email{subject: subject, text_body: body} = email}
+      assert subject == "Your FluxVale payment went through"
+      assert email.to == [{"", "outcome@fluxvale.com"}]
+      assert body =~ "payment of $50.00"
+      assert body =~ "Your credit was added and your balance is now $50.00."
+      assert body =~ "Your receipt arrives from Polar in a separate email."
+    end
+
+    test "the failed mail says what happened, that nothing was charged, and links the retry path" do
+      {:ok, _delivery} = Mailer.deliver_topup_not_completed("outcome@fluxvale.com", :failed)
+
+      assert_receive {:email, %Swoosh.Email{subject: subject, text_body: body}}
+      assert subject == "Your FluxVale payment didn't go through"
+      assert body =~ "Your top-up didn't go through."
+      assert body =~ "You were not charged."
+      assert body =~ "You can try again at https://fluxvale.com/billing/topup."
+    end
+
+    test "the expired mail says the window closed" do
+      {:ok, _delivery} = Mailer.deliver_topup_not_completed("outcome@fluxvale.com", :expired)
+
+      assert_receive {:email, %Swoosh.Email{subject: subject, text_body: body}}
+      assert subject == "Your FluxVale top-up expired"
+      assert body =~ "Your top-up expired without being completed."
+      assert body =~ "You were not charged."
+    end
+  end
 end
