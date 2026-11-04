@@ -89,6 +89,47 @@ defmodule FluxVale.Accounts.Organization.PersonalOwnerBackfillTest do
 
       assert orgs_marked_to(user) == []
     end
+
+    test "re-running over marked rows is a no-op — no raise, no marker moves" do
+      # The re-run shape the M6 batched sweep plans for: an
+      # already-MARKED user whose earliest-owned org is unmarked, plus
+      # an already-marked org another user's derivation points at. The
+      # marked org is backdated AND carries its marker — a state no
+      # action produces (created_at is a write-time stamp) — so it rides
+      # Ash.Seed like the other forced-time rows in this file.
+      p = orgless_user!("marked-user")
+      q = orgless_user!("challenger")
+
+      earlier = backdated_org!("earlier-of-p", @t0)
+      owner_membership!(p, earlier)
+
+      marked =
+        Ash.Seed.seed!(Organization, %{
+          name: "BF marked",
+          slug: "bf-marked-#{System.unique_integer([:positive])}",
+          personal_owner_id: p.id,
+          created_at: DateTime.add(@t0, 1, :second),
+          updated_at: DateTime.add(@t0, 1, :second)
+        })
+
+      owner_membership!(p, marked)
+      owner_membership!(q, marked)
+
+      # First pass, then the re-run the sweep plans: no raise, and the
+      # settled markers stand.
+      :ok = PersonalOwnerBackfill.run()
+      :ok = PersonalOwnerBackfill.run()
+
+      assert marked_owner(marked) == p.id
+      assert marked_owner(earlier) == nil
+
+      assert {:ok, personal} = Accounts.personal_org_for_user(p.id, authorize?: false)
+      assert personal.id == marked.id
+
+      # The challenger's derivation points at the marked org — the
+      # update guard skips it, so q keeps no personal org.
+      assert :none = Accounts.personal_org_for_user(q.id, authorize?: false)
+    end
   end
 
   # Ash.Seed.seed! — the create action JIT-provisions a marked org, and
