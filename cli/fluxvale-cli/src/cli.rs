@@ -1,6 +1,7 @@
-//! The command tree (clap derive) + dispatch. Every handler lands in
-//! its own slice (T4/T5/T6); this build carries the tree, the global
-//! flags, and the locally-implementable `auth status`.
+//! The command tree (clap derive) + dispatch. Handlers live in their
+//! own modules by slice: the read commands in [`crate::reads`] (T4);
+//! device-flow login (T5) and the write commands (T6) land later —
+//! their arms still dispatch to `not_yet`.
 
 use crate::config::{self, Config};
 use crate::reads;
@@ -243,9 +244,15 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
 }
 
 /// One trailing newline, added here and nowhere else: the renderers
-/// end their last line bare, and `println!` closes it.
+/// end their last line bare, and this closes it. A closed pipe
+/// (`fluxvale … | head`) is how machine output gets consumed — not an
+/// error to panic on; write failures end the command quietly.
 fn print(line: anyhow::Result<String>) -> anyhow::Result<()> {
-    println!("{}", line?);
+    use std::io::Write as _;
+    let text = line?;
+    let mut stdout = std::io::stdout().lock();
+    let _ = writeln!(stdout, "{text}");
+    let _ = stdout.flush();
     Ok(())
 }
 

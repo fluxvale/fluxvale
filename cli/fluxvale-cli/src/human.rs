@@ -17,9 +17,14 @@ pub fn money(cents: i64) -> String {
 /// Micro-cents per hour -> `$X.YYY/hr`. Three decimals on purpose: the
 /// burn rate's meaningful digits live below the cent (µ¢ = 10⁻⁶ USD;
 /// 1¢ = 10_000 µ¢). Integer math: thousandths of a dollar = µ¢ / 1000.
+/// A nonzero rate below the display precision reads "<$0.001/hr" —
+/// never as a zero that would contradict a finite runway.
 pub fn money_micro_per_hour(micro_cents_per_hour: i64) -> String {
     let sign = if micro_cents_per_hour < 0 { "-" } else { "" };
     let thousandths = micro_cents_per_hour.unsigned_abs() / 1000;
+    if thousandths == 0 && micro_cents_per_hour != 0 {
+        return format!("{sign}<$0.001/hr");
+    }
     format!("{sign}${}.{:03}/hr", thousandths / 1000, thousandths % 1000)
 }
 
@@ -38,21 +43,26 @@ pub fn runway_hours(value: &Value) -> String {
     }
 }
 
-/// Hours -> `3.4h` under a day, `17d 4h` past it. A negative value
-/// (an overdrawn wallet's projection) keeps the sign.
+/// Hours -> `3.4h` under a day, `17d 4h` past it. The threshold rides
+/// the DISPLAYED value, so 23.96 reads "1d 0h", never "24.0h". A
+/// negative value (an overdrawn wallet's projection) keeps the sign.
 pub fn duration_hours(hours: f64) -> String {
     let sign = if hours < 0.0 { "-" } else { "" };
     let hours = hours.abs();
-    if hours < 24.0 {
-        format!("{sign}{hours:.1}h")
+    let rounded = (hours * 10.0).round() / 10.0;
+    if rounded < 24.0 {
+        format!("{sign}{rounded:.1}h")
     } else {
-        let whole = hours as u64;
+        // Whole hours ride the rounded value: 23.96 must read
+        // "1d 0h", not truncate to "0d 23h".
+        let whole = rounded as u64;
         format!("{sign}{}d {}h", whole / 24, whole % 24)
     }
 }
 
 /// Parse the wire's ISO-8601 timestamp — `2026-11-04T12:34:56.123456Z`
-/// shape; the fraction is ignored, a `Z` or `±HH:MM` offset is applied.
+/// shape; the fraction is ignored, a `Z` or `±HH:MM`/`±HHMM` offset is
+/// applied (the offset may follow a fraction: `…:56.123456+02:00`).
 /// `None` when it doesn't parse: callers render "-" instead of guessing.
 pub fn parse_iso8601(raw: &str) -> Option<i64> {
     let (date, rest) = raw.trim().split_once(['T', ' '])?;
@@ -92,13 +102,14 @@ fn ago(delta_secs: i64) -> String {
     }
 }
 
-/// Trailing `±HH:MM`/`±HHMM` offset -> seconds east of UTC.
+/// Trailing `±HH:MM`/`±HHMM` offset -> seconds east of UTC. The time
+/// part never contains a sign, so the first one starts the offset —
+/// fraction or not.
 fn split_offset(rest: &str) -> (&str, i64) {
-    let bytes = rest.as_bytes();
-    let Some(pos) = bytes
-        .iter()
-        .position(|b| *b == b'+' || *b == b'-')
-        .filter(|pos| *pos == 8)
+    let Some(pos) = rest
+        .char_indices()
+        .find(|(_, c)| *c == '+' || *c == '-')
+        .map(|(i, _)| i)
     else {
         return (rest, 0);
     };
@@ -159,11 +170,16 @@ mod tests {
         assert_eq!(money_micro_per_hour(10_000), "$0.010/hr");
         assert_eq!(money_micro_per_hour(1_000_000), "$1.000/hr");
         assert_eq!(money_micro_per_hour(1_234_567), "$1.234/hr");
+        // A nonzero rate below the display precision never reads zero.
+        assert_eq!(money_micro_per_hour(999), "<$0.001/hr");
+        assert_eq!(money_micro_per_hour(-999), "-<$0.001/hr");
     }
 
     #[test]
     fn runway_infinity_reads_verbatim() {
         assert_eq!(runway_hours(&json!("infinity")), "∞ (no burn)");
+        // A non-infinity string is not an hours value — "-" not a guess.
+        assert_eq!(runway_hours(&json!("soon")), "-");
         assert_eq!(runway_hours(&json!(412.3)), "17d 4h");
         assert_eq!(runway_hours(&json!(null)), "-");
         assert_eq!(runway_hours(&json!(3.5)), "3.5h");
@@ -173,8 +189,10 @@ mod tests {
     fn durations_flip_to_days_past_a_day() {
         assert_eq!(duration_hours(0.0), "0.0h");
         assert_eq!(duration_hours(3.44), "3.4h");
-        // Just under a day displays under a day (24h rounds to "1d 0h").
+        // Just under a day displays under a day; a value that ROUNDS to
+        // 24.0 flips to days — "24.0h" is not a display we emit.
         assert_eq!(duration_hours(23.4), "23.4h");
+        assert_eq!(duration_hours(23.96), "1d 0h");
         assert_eq!(duration_hours(24.0), "1d 0h");
         assert_eq!(duration_hours(412.3), "17d 4h");
         assert_eq!(duration_hours(-48.0), "-2d 0h");
@@ -189,6 +207,11 @@ mod tests {
             Some(1793836800)
         );
         assert_eq!(parse_iso8601("2026-11-05T02:00:00+02:00"), Some(1793836800));
+        // A fraction BEFORE the offset must not swallow the offset.
+        assert_eq!(
+            parse_iso8601("2026-11-05T02:00:00.123456+02:00"),
+            Some(1793836800)
+        );
         assert_eq!(parse_iso8601("2026-11-04T22:00:00-0200"), Some(1793836800));
         // Leap years and era math: 1970-01-01T00:00:00Z is epoch zero.
         assert_eq!(parse_iso8601("1970-01-01T00:00:00Z"), Some(0));

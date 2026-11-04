@@ -10,7 +10,7 @@ use crate::config::{self, Config};
 use crate::human;
 use crate::render::{Detail, Rows, cell, yes_no};
 use crate::token::{TokenLocation, TokenStore};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 /// The client for a read command: token from the store (OS keychain,
 /// 0600-file fallback), its location along for `whoami`'s line.
@@ -21,6 +21,34 @@ pub fn read_client(config: &Config) -> anyhow::Result<(ApiClient, TokenLocation)
         anyhow::bail!("Not signed in. Run `fluxvale auth login` to sign in.")
     };
     Ok((ApiClient::new(&config.base_url, token), location))
+}
+
+/// The JSON:API resource-level `id` hoisted into the attrs map, so
+/// `--output json` carries it (`jq .id`) and the CLI can feed its own
+/// follow-up commands.
+fn with_id(resource: &Resource) -> Value {
+    match &resource.attributes {
+        Value::Object(map) => {
+            let mut map = map.clone();
+            map.insert("id".to_string(), json!(resource.id));
+            Value::Object(map)
+        }
+        other => other.clone(),
+    }
+}
+
+/// One URL path segment: the CLI interpolates these into request
+/// paths, so `/ ? # %` (and dot segments) are refused up front —
+/// they'd address a different route.
+fn safe_segment(thing: &str, value: &str) -> anyhow::Result<()> {
+    let bad = value.is_empty()
+        || value.contains(['/', '?', '#', '%'])
+        || value.contains("..")
+        || value.chars().any(char::is_whitespace);
+    if bad {
+        anyhow::bail!("invalid {thing}: {value}");
+    }
+    Ok(())
 }
 
 /// `whoami` — GET /me. The HTTP route returns the user WITHOUT scopes
@@ -59,7 +87,7 @@ fn whoami_rendered(
             }
             line
         }
-        Output::Json => crate::render::to_pretty(&resource.attributes),
+        Output::Json => crate::render::to_pretty(&with_id(&resource)),
     })
 }
 
@@ -74,7 +102,7 @@ fn apps_list_rendered(document: Document, output: Output) -> anyhow::Result<Stri
         let attrs = &resource.attributes;
         rows.push(
             vec![cell(attrs.get("name")), cell(attrs.get("slug"))],
-            resource.attributes,
+            with_id(&resource),
         );
     }
     Ok(rows.render(output))
@@ -82,17 +110,13 @@ fn apps_list_rendered(document: Document, output: Output) -> anyhow::Result<Stri
 
 /// `apps show <slug>` — the catalog detail (the route's own fields).
 pub fn apps_show(client: &ApiClient, slug: &str, output: Output) -> anyhow::Result<String> {
-    // The slug is one path segment on the server; a '/' here would
-    // address a different route, so refuse it up front.
-    if slug.contains('/') {
-        anyhow::bail!("invalid app slug: {slug}");
-    }
+    safe_segment("app slug", slug)?;
     apps_show_rendered(get_or_404(client, &format!("/apps/{slug}"), "app")?, output)
 }
 
 fn apps_show_rendered(document: Document, output: Output) -> anyhow::Result<String> {
     let resource = one_resource(document, "app")?;
-    let attrs = resource.attributes;
+    let attrs = with_id(&resource);
     let mut detail = Detail::new(attrs.clone());
     detail.field("name", cell(attrs.get("name")));
     detail.field("slug", cell(attrs.get("slug")));
@@ -133,6 +157,7 @@ fn instances_rendered(
                 "EXPOSURE",
                 "ALWAYS-ON",
                 "DEPLOYED",
+                "ID",
             ],
             "no instances yet — create one in the panel",
         )
@@ -151,7 +176,7 @@ fn instances_rendered(
             None => "-".to_string(),
         };
         let deployed = human::relative(attrs.get("deployed_at").and_then(Value::as_str), now);
-        let cells = match verbose {
+        let mut cells = match verbose {
             true => vec![
                 cell(attrs.get("name")),
                 cell(attrs.get("slug")),
@@ -169,7 +194,12 @@ fn instances_rendered(
                 deployed,
             ],
         };
-        rows.push(cells, resource.attributes);
+        // The resource id rides verbose tables — it is what
+        // `instances status <id>` consumes next.
+        if verbose {
+            cells.push(resource.id.clone());
+        }
+        rows.push(cells, with_id(&resource));
     }
     Ok(rows.render(output))
 }
@@ -177,9 +207,7 @@ fn instances_rendered(
 /// `instances status <id>` — the detail route's fields plus the
 /// plain-language status line.
 pub fn instances_status(client: &ApiClient, id: &str, output: Output) -> anyhow::Result<String> {
-    if id.contains('/') {
-        anyhow::bail!("invalid instance id: {id}");
-    }
+    safe_segment("instance id", id)?;
     let document = get_or_404(client, &format!("/instances/{id}"), "instance")?;
     instances_status_rendered(document, output, now_secs())
 }
@@ -190,10 +218,9 @@ fn instances_status_rendered(
     now: i64,
 ) -> anyhow::Result<String> {
     let resource = one_resource(document, "instance")?;
-    let attrs = resource.attributes;
+    let attrs = with_id(&resource);
     let mut detail = Detail::new(attrs.clone());
-    // `id` is the JSON:API resource-level field, not an attribute.
-    detail.field("id", resource.id);
+    detail.field("id", cell(attrs.get("id")));
     detail.field("name", cell(attrs.get("name")));
     detail.field("slug", cell(attrs.get("slug")));
     detail.field("status", cell(attrs.get("status")));
@@ -270,6 +297,7 @@ pub fn resolve_org(config: &Config, flag: Option<&str>) -> anyhow::Result<String
 
 /// `wallet balance` — GET /organizations/:id/wallet.
 pub fn wallet_balance(client: &ApiClient, org_id: &str, output: Output) -> anyhow::Result<String> {
+    safe_segment("organization id", org_id)?;
     wallet_balance_rendered(
         get_or_404(client, &format!("/organizations/{org_id}/wallet"), "wallet")?,
         output,
@@ -278,8 +306,9 @@ pub fn wallet_balance(client: &ApiClient, org_id: &str, output: Output) -> anyho
 
 fn wallet_balance_rendered(document: Document, output: Output) -> anyhow::Result<String> {
     let resource = one_resource(document, "wallet")?;
-    let attrs = resource.attributes;
+    let attrs = with_id(&resource);
     let mut detail = Detail::new(attrs.clone());
+    detail.field("id", cell(attrs.get("id")));
     detail.field("organization", cell(attrs.get("organization_id")));
     detail.field("balance", money_cell(attrs.get("balance")));
     detail.field("paywall waived", yes_no(attrs.get("paywall_waived")));
@@ -289,6 +318,7 @@ fn wallet_balance_rendered(document: Document, output: Output) -> anyhow::Result
 /// `wallet runway` — GET /organizations/:id/wallet/runway. The
 /// projection answers a bare JSON object, not a JSON:API envelope.
 pub fn wallet_runway(client: &ApiClient, org_id: &str, output: Output) -> anyhow::Result<String> {
+    safe_segment("organization id", org_id)?;
     let map = client
         .get_json(&format!("/organizations/{org_id}/wallet/runway"))
         .map_err(|err| friendly_404(err, "wallet"))?;
@@ -359,9 +389,11 @@ fn open_command(url: &str) -> std::process::Command {
 
 #[cfg(windows)]
 fn open_command(url: &str) -> std::process::Command {
-    // `start` is a cmd builtin, not an executable.
+    // `start` is a cmd builtin, not an executable — and its FIRST
+    // quoted argument is the window title, so the empty "" guards the
+    // URL against being swallowed as one.
     let mut command = std::process::Command::new("cmd");
-    command.args(["/C", "start"]);
+    command.args(["/C", "start", ""]);
     command.arg(url);
     command
 }
@@ -595,8 +627,8 @@ mod tests {
         .unwrap();
         assert_eq!(
             rendered,
-            "NAME  SLUG      NAMESPACE        STATUS   EXPOSURE  ALWAYS-ON  DEPLOYED\n\
-             web   web-a1b2  fluxvale-app-i1  running  public    no         2m ago"
+            "NAME  SLUG      NAMESPACE        STATUS   EXPOSURE  ALWAYS-ON  DEPLOYED  ID\n\
+             web   web-a1b2  fluxvale-app-i1  running  public    no         2m ago    i1"
         );
     }
 
@@ -718,7 +750,8 @@ mod tests {
         .unwrap();
         assert_eq!(
             rendered,
-            "organization    org1\n\
+            "id              w1\n\
+             organization    org1\n\
              balance         $19.00\n\
              paywall waived  no"
         );
@@ -734,6 +767,10 @@ mod tests {
             Output::Table,
         )
         .unwrap();
+        assert!(
+            rendered.contains("id              w1"),
+            "rendered:\n{rendered}"
+        );
         assert!(
             rendered.contains("balance         -$2.50"),
             "rendered:\n{rendered}"
@@ -1008,5 +1045,90 @@ mod tests {
     fn single_resource_document_with_wrong_arity_is_loud() {
         let err = one_resource(document(json!({"data": []})), "user").unwrap_err();
         assert_eq!(err.to_string(), "the API returned no user");
+
+        let err = one_resource(
+            document(json!({"data": [
+                {"type": "user", "id": "1", "attributes": {}},
+                {"type": "user", "id": "2", "attributes": {}}
+            ]})),
+            "user",
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "the API returned 2 user resources, expected one"
+        );
+    }
+
+    #[test]
+    fn path_segments_refuse_route_hijacking() {
+        assert!(safe_segment("app slug", "wordpress").is_ok());
+        for bad in ["", "a/b", "a?b", "a#b", "a%2Fb", "..", "a..b", "a b"] {
+            assert!(
+                safe_segment("app slug", bad).is_err(),
+                "{bad:?} must be refused"
+            );
+        }
+        let err = safe_segment("organization id", "x/y").unwrap_err();
+        assert_eq!(err.to_string(), "invalid organization id: x/y");
+        // The wallet commands guard their org id too.
+        let client = client("http://127.0.0.1:1");
+        let err = wallet_balance(&client, "../wallet", Output::Table).unwrap_err();
+        assert_eq!(err.to_string(), "invalid organization id: ../wallet");
+        let err = wallet_runway(&client, "?org=", Output::Table).unwrap_err();
+        assert_eq!(err.to_string(), "invalid organization id: ?org=");
+        let err = apps_show(&client, "a/b", Output::Table).unwrap_err();
+        assert_eq!(err.to_string(), "invalid app slug: a/b");
+        let err = instances_status(&client, "a/b", Output::Table).unwrap_err();
+        assert_eq!(err.to_string(), "invalid instance id: a/b");
+    }
+
+    #[test]
+    fn deployed_cell_keeps_the_raw_stamp_when_unparseable() {
+        assert_eq!(deployed_cell(Some(&json!("nonsense")), NOW), "nonsense");
+        assert_eq!(
+            deployed_cell(Some(&json!("2026-11-04T21:00:00Z")), NOW),
+            "3h ago (2026-11-04T21:00:00Z)"
+        );
+        assert_eq!(deployed_cell(Some(&Value::Null), NOW), "-");
+        assert_eq!(deployed_cell(None, NOW), "-");
+    }
+
+    #[test]
+    fn json_rows_carry_the_resource_level_id() {
+        let rendered = apps_list_rendered(
+            document(json!({"data": [
+                {"type": "app", "id": "app-1", "attributes": {"name": "WordPress", "slug": "wordpress"}}
+            ]})),
+            Output::Json,
+        )
+        .unwrap();
+        let attrs: serde_json::Value = serde_json::from_str(&rendered).unwrap();
+        assert_eq!(attrs[0]["id"], "app-1");
+
+        let rendered = instances_status_rendered(
+            document(json!({
+                "data": {"type": "instance", "id": "i1", "attributes": {"status": "running"}}
+            })),
+            Output::Json,
+            NOW,
+        )
+        .unwrap();
+        let attrs: serde_json::Value = serde_json::from_str(&rendered).unwrap();
+        assert_eq!(attrs["id"], "i1");
+    }
+
+    #[test]
+    fn non_404_errors_pass_through_get_or_404_verbatim() {
+        // A 403 must keep the scope detail, not read as "no such thing".
+        let server = serve(&respond(
+            "403 Forbidden",
+            r#"{"errors":[{"status":"403","title":"Forbidden","detail":"token lacks the instances:read scope"}]}"#,
+        ));
+        let err = instances_status(&client(&server.base_url), "i1", Output::Table).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "403 Forbidden: token lacks the instances:read scope"
+        );
     }
 }

@@ -109,7 +109,9 @@ impl Detail {
 }
 
 /// Width = the longest cell per column; two spaces between columns; no
-/// trailing padding.
+/// trailing padding. Widths are CHARACTER counts: wide glyphs (CJK)
+/// occupy two terminal columns and will misalign — a real fix is a
+/// unicode-width dep, not worth it for this table's data yet.
 fn aligned(grid: &[Vec<&str>]) -> String {
     let columns = grid.iter().map(Vec::len).max().unwrap_or(0);
     let mut widths = vec![0usize; columns];
@@ -214,7 +216,9 @@ mod tests {
     }
 
     #[test]
-    fn multibyte_cells_align_by_characters_not_bytes() {
+    fn multibyte_cells_count_characters_not_bytes() {
+        // NB: char-count widths, not terminal columns — wide glyphs
+        // misalign (see `aligned`'s doc); this pins no-panic behavior.
         let mut rows = Rows::new(&["NAME", "STATUS"], "no rows");
         rows.push(
             vec!["日本語".into(), "running".into()],
