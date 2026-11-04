@@ -491,9 +491,13 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       argument(:monthly_cents, :integer, allow_nil?: true, sensitive?: false)
 
       change(fn changeset, _context ->
-        monthly_cents = Application.fetch_env!(:flux_vale, :access_gateway)[:monthly_cents]
-
-        Ash.Changeset.force_change_attribute(changeset, :monthly_cents, monthly_cents)
+        # __MODULE__-qualified: the DSL generates the change fn before the
+        # module's own defs are visible to bare local calls.
+        Ash.Changeset.force_change_attribute(
+          changeset,
+          :monthly_cents,
+          __MODULE__.monthly_cents()
+        )
       end)
 
       change(ProvisionCluster)
@@ -877,5 +881,28 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     |> Ash.Query.load(:instance)
     |> Ash.read!(authorize?: false)
     |> Enum.map(& &1.instance)
+  end
+
+  # The gateway's monthly rate (cents) — the ONE reader of the
+  # configured price (config :access_gateway), mirroring
+  # AccessDomain.monthly_cents/0: the create action snapshots it, the
+  # pricing surface reads it. The number is policy, never logic — a
+  # zero or negative config is a CONFIGURATION ERROR raised at the read
+  # (money paths fail closed, the domain-rate stance).
+  @doc """
+  The monthly rate a gateway bills at (integer cents), read from config :flux_vale, :access_gateway.
+  """
+  @spec monthly_cents() :: pos_integer()
+  def monthly_cents do
+    config = Application.fetch_env!(:flux_vale, :access_gateway)
+    cents = Keyword.fetch!(config, :monthly_cents)
+
+    unless is_integer(cents) and cents > 0 do
+      raise ArgumentError,
+            "config :access_gateway[:monthly_cents] must be a positive integer, " <>
+              "got #{inspect(cents)} (billing refuses to run on a mispriced config)"
+    end
+
+    cents
   end
 end

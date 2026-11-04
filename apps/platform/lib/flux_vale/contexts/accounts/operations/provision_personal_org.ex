@@ -34,6 +34,15 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrg do
   # #122: $3 of non-expiring credits (1 credit = 1 US cent, product.md).
   @welcome_grant_cents 300
 
+  # The public reader of the grant: the constant stays defined exactly
+  # once, here — the domain delegates to it, so no caller copies the
+  # number (the pricing-surface stance, #395).
+  @doc """
+  The welcome-credit grant (integer cents) a fresh personal org receives.
+  """
+  @spec welcome_grant_cents() :: pos_integer()
+  def welcome_grant_cents, do: @welcome_grant_cents
+
   @spec call(User.t()) :: {:ok, Organization.t(), boolean()} | {:error, term()}
   def call(%User{} = user) do
     # The idempotency probe runs authorize?: false — system operation, the
