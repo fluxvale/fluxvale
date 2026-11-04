@@ -51,7 +51,10 @@ defmodule FluxValeWeb.Api.DeviceFlowController do
         # the human comparison).
         Logger.info("device code minted via /device/code: client=#{row.client_id}")
 
-        json(conn, %{
+        conn
+        |> put_resp_header("cache-control", "no-store")
+        |> put_resp_header("pragma", "no-cache")
+        |> json(%{
           device_code: row.device_code,
           user_code: row.user_code,
           verification_uri: verification_uri(),
@@ -149,10 +152,14 @@ defmodule FluxValeWeb.Api.DeviceFlowController do
 
       # The one-time grant — the raw value crosses the wire HERE, on
       # this one response, and never again (the row is :consumed).
+      # RFC 6749 §5.1 / RFC 8628 §3.5: token responses are no-store.
       {:ok, %{token: raw, pat: pat, expires_in: expires_in}} ->
         Logger.info("device poll: token issued pat=#{pat.id}")
 
-        json(conn, %{
+        conn
+        |> put_resp_header("cache-control", "no-store")
+        |> put_resp_header("pragma", "no-cache")
+        |> json(%{
           access_token: raw,
           token_type: "Bearer",
           scope: Enum.join(pat.scopes, " "),

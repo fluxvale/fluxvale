@@ -170,11 +170,19 @@ defmodule FluxValeWeb.Api.DeviceFlowControllerTest do
       # The panel's click, simulated (the :approve action with the
       # actor — the same call the LiveView makes).
       {:ok, pending_row} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
-      {:ok, _approved} = DeviceCode.approve(pending_row, approver.id, actor: approver)
+      {:ok, _approved} = DeviceCode.approve(pending_row, actor: approver)
 
-      {result, body} = poll(conn, minted.device_code)
+      conn =
+        conn
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/v1/device/token", %{
+          "client_id" => @client,
+          "device_code" => minted.device_code,
+          "grant_type" => @grant
+        })
 
-      assert result == 200
+      body = json_response(conn, 200)
+
       assert body["access_token"] =~ ~r/^fvpat_[A-Za-z0-9_-]{43}$/
       assert body["token_type"] == "Bearer"
 
@@ -184,13 +192,18 @@ defmodule FluxValeWeb.Api.DeviceFlowControllerTest do
       # The PAT's remaining seconds (~1 year).
       assert body["expires_in"] > 365 * 24 * 60 * 60 - 120
 
+      # RFC 6749 §5.1: token responses are no-store.
+      assert Enum.member?(conn.resp_headers, {"cache-control", "no-store"})
+      assert Enum.member?(conn.resp_headers, {"pragma", "no-cache"})
+
       # The token crosses the wire THIS once — the immediate re-poll
-      # answers expired_token (the row is consumed), and the minted
-      # PAT authenticates the machine API for real.
-      assert {400, %{"error" => "expired_token"}} = poll(conn, minted.device_code)
+      # (a fresh conn: the first already sent) answers expired_token
+      # (the row is consumed), and the minted PAT authenticates the
+      # machine API for real.
+      assert {400, %{"error" => "expired_token"}} = poll(build_conn(), minted.device_code)
 
       me =
-        conn
+        build_conn()
         |> put_req_header("authorization", "Bearer " <> body["access_token"])
         |> get("/api/v1/me")
 
@@ -203,7 +216,7 @@ defmodule FluxValeWeb.Api.DeviceFlowControllerTest do
       {:ok, minted} = mint()
 
       {:ok, pending_row} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
-      {:ok, _approved} = DeviceCode.approve(pending_row, approver.id, actor: approver)
+      {:ok, _approved} = DeviceCode.approve(pending_row, actor: approver)
 
       {_result, body} = poll(conn, minted.device_code)
       token_hash = PersonalAccessToken.token_hash(body["access_token"])

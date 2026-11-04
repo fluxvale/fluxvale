@@ -146,9 +146,13 @@ defmodule FluxVale.Identity.PersonalAccessToken do
 
       # Mint provenance rides the same shape (#362): a private
       # argument the mint operation sets, never an accepted input —
-      # no caller surface can stamp a row's provenance directly.
-      argument(:metadata, :map, allow_nil?: true, public?: false)
-      change(set_attribute(:metadata, arg(:metadata) || %{}))
+      # no caller surface can stamp a row's provenance directly. The
+      # default keeps an omitted argument at the attribute's empty-map
+      # default (a plain arg() reference is always truthy — the `||`
+      # fallback would be dead and a bare nil write would trip the
+      # attribute's allow_nil?).
+      argument(:metadata, :map, allow_nil?: false, default: %{}, public?: false)
+      change(set_attribute(:metadata, arg(:metadata)))
 
       # The catalog guard rejects off-catalog or duplicate scopes at
       # the resource, so no caller can bypass the mint operation's own

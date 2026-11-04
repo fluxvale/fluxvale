@@ -53,7 +53,7 @@ defmodule FluxVale.Identity.Operations.PruneDeviceCodesTest do
 
       {:ok, minted} = Identity.mint_device_code(%{client_id: @client, scopes: []})
       {:ok, pending_row} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
-      {:ok, _approved} = DeviceCode.approve(pending_row, approver.id, actor: approver)
+      {:ok, _approved} = DeviceCode.approve(pending_row, actor: approver)
       {:ok, approved} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
       {:ok, _consumed} = DeviceCode.consume(approved, authorize?: false)
 
@@ -67,7 +67,7 @@ defmodule FluxVale.Identity.Operations.PruneDeviceCodesTest do
 
       {:ok, minted} = Identity.mint_device_code(%{client_id: @client, scopes: []})
       {:ok, pending_row} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
-      {:ok, _approved} = DeviceCode.approve(pending_row, approver.id, actor: approver)
+      {:ok, _approved} = DeviceCode.approve(pending_row, actor: approver)
       {:ok, approved} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
       {:ok, consumed} = DeviceCode.consume(approved, authorize?: false)
 

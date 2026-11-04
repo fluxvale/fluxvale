@@ -25,7 +25,18 @@ defmodule FluxVale.Identity.Operations.PruneDeviceCodes do
   @spec call(keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
   def call(opts \\ []) do
     cutoff = DateTime.add(DateTime.utc_now(), -@retention_seconds, :second)
-    opts = Keyword.put(opts, :return_records?, true)
+
+    # Count first, destroy without records: `return_records?` would
+    # hold every dead row in memory for the sweep, and this table's
+    # feed is unbounded (the mint endpoint is unauthenticated; IP
+    # limiting is the named follow-up). The count is a read that
+    # precedes the destroy — a row the sweep creates/finishes in that
+    # gap lands in the next day's sweep, and the janitor only logs the
+    # number.
+    {:ok, count} =
+      DeviceCode
+      |> Ash.Query.for_read(:stale, %{cutoff: cutoff})
+      |> Ash.count(authorize?: false)
 
     result =
       DeviceCode
@@ -33,8 +44,8 @@ defmodule FluxVale.Identity.Operations.PruneDeviceCodes do
       |> Ash.bulk_destroy(:expunge_stale, %{}, opts)
 
     case result do
-      %Ash.BulkResult{status: :success, records: records} ->
-        {:ok, length(records)}
+      %Ash.BulkResult{status: :success} ->
+        {:ok, count}
 
       # coveralls-ignore-start - bulk failure = DB outage mid-destroy; the
       # Oban retry policy owns recovery (AGENTS: cluster-level concern)

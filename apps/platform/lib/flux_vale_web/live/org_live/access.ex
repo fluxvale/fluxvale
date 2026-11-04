@@ -439,9 +439,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         {:noreply, device_sign_in_gone(socket)}
 
       code ->
-        case DeviceCode.approve(code, socket.assigns.current_user.id,
-               actor: socket.assigns.current_user
-             ) do
+        case DeviceCode.approve(code, actor: socket.assigns.current_user) do
           {:ok, _approved} ->
             {:noreply,
              socket

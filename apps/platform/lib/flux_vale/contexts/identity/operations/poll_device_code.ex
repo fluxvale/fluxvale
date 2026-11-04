@@ -129,22 +129,48 @@ defmodule FluxVale.Identity.Operations.PollDeviceCode do
     if too_soon?(row, now) do
       {:error, :slow_down}
     else
-      # The counted poll: stamps last_polled_at + bumps poll_count
-      # (system write — the endpoint is the only caller). The write is
-      # the poll's own record — a failure here is a DB outage, and the
-      # honest answer is an error, never a lie-by-omission
-      # authorization_pending.
-      case DeviceCode.touch_poll(row, authorize?: false) do
-        {:ok, _row} ->
-          Logger.info("device poll counted: row=#{row.id} poll_count=#{row.poll_count + 1}")
-
-          {:ok, %{status: :authorization_pending}}
-
-        {:error, error} ->
-          {:error, {:poll_write_failed, error}}
-      end
+      count_poll(row)
     end
   end
+
+  # The counted poll: stamps last_polled_at + bumps poll_count
+  # (system write — the endpoint is the only caller). The write is the
+  # poll's own record — a failure here is a DB outage, and the honest
+  # answer is an error, never a lie-by-omission authorization_pending.
+  defp count_poll(row) do
+    case DeviceCode.touch_poll(row, authorize?: false) do
+      {:ok, _row} ->
+        Logger.info("device poll counted: row=#{row.id} poll_count=#{row.poll_count + 1}")
+
+        {:ok, %{status: :authorization_pending}}
+
+      # The write's still-pending guard lost a race the read missed:
+      # approve/deny landed between decide/2's read and this write. A
+      # state move, not an outage — the next poll reads the new state
+      # (approved → the grant).
+      # coveralls-ignore-start - the in-process read→write window is
+      # not orderable in the suite.
+      {:error, %Ash.Error.Invalid{errors: errors} = error} ->
+        stale_or_error(errors, error)
+
+      # coveralls-ignore-stop
+
+      {:error, error} ->
+        {:error, {:poll_write_failed, error}}
+    end
+  end
+
+  # coveralls-ignore-start - the StaleRecord side of the race window
+  # above (the arm this helper disambiguates).
+  defp stale_or_error(errors, error) do
+    if Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1)) do
+      {:ok, %{status: :authorization_pending}}
+    else
+      {:error, {:poll_write_failed, error}}
+    end
+  end
+
+  # coveralls-ignore-stop
 
   # Second-precision stamps (:utc_datetime): "sooner than interval"
   # compares whole seconds — polls in the same second as the last

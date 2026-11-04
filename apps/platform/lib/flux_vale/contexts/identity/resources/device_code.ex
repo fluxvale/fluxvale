@@ -66,6 +66,17 @@ defmodule FluxVale.Identity.DeviceCode do
   # system callers (the endpoints' lookups, the mint, the poll's
   # stamps, the janitor) pass `authorize?: false` with comments in
   # place, the RequestWindow posture.
+  #
+  # Revisit trigger (the shared-pending-list trade): the panel lists
+  # every pending sign-in request to any signed-in user — pending rows
+  # are unattributed by construction (the mint endpoint is
+  # unauthenticated; there is nobody to scope to), approval binds the
+  # row to the clicking actor, and the single first-party client makes
+  # the list "CLI sign-ins" rather than user mail. This tightens with
+  # the client registry (OQ #9's deferred half): per-code claiming
+  # (a session-bound claim when the human enters their code, GitHub's
+  # entry step) re-scopes the list per user. Promotes alongside that
+  # registry; a measured abuse of the panel is the other trigger.
   policies do
     policy action(:pending) do
       description("The approval panel's list — signed-in users see pending sign-in requests")
@@ -220,15 +231,15 @@ defmodule FluxVale.Identity.DeviceCode do
       # stance). The guard below is a filtered UPDATE … WHERE, which
       # stays row-safe without the atomic machinery.
       require_atomic?(false)
-      # The argument is the caller's input surface (the approver
-      # passes their own id — the LiveView passes the actor's; a
-      # private argument would be unreachable from any interface).
-      argument(:user_id, :uuid, allow_nil?: false)
+      # The bind is the ACTOR — never a caller-supplied id (a
+      # caller-supplied id would let any signed-in user point a
+      # pending sign-in at someone else's account, and the poll's
+      # self-mint would hand them that user's PAT).
+      change(set_attribute(:user_id, actor(:id)))
       # Guarded write: only a still-pending row approves — a deny (or
       # a consume that somehow raced first) wins, the loser's filtered
       # write returns StaleRecord (the gateway resume posture).
       change({RequireStatus, status: :pending})
-      change(set_attribute(:user_id, arg(:user_id)))
       change(set_attribute(:status, :approved))
     end
 
@@ -292,7 +303,7 @@ defmodule FluxVale.Identity.DeviceCode do
     define(:pending)
     define(:get_by_device_code, args: [:device_code])
     define(:get_by_user_code, args: [:user_code])
-    define(:approve, args: [:user_id])
+    define(:approve)
     define(:deny)
     define(:touch_poll)
     define(:consume)

@@ -89,6 +89,12 @@ defmodule FluxVale.Identity.Operations.MintDeviceCodeTest do
   describe "the resource-level second door" do
     # The operation validates first; the resource validations stop a
     # caller that bypasses it (the PAT mint's posture, verbatim).
+    test "a direct create WITHOUT metadata succeeds (the guards refuse for their own reasons)" do
+      changeset = changeset(scopes: [])
+
+      assert {:ok, _row} = Ash.create(changeset, authorize?: false)
+    end
+
     test "a direct create with an off-catalog scope is invalid" do
       changeset = changeset(scopes: ["instances:admin"])
 
@@ -175,15 +181,29 @@ defmodule FluxVale.Identity.Operations.MintDeviceCodeTest do
   end
 
   describe "the approval actions" do
-    test "approve binds the row to the passed user (the clicking actor)" do
+    test "approve binds the row to the ACTOR (never a caller-supplied id)" do
       approver = User.create!("device-approver@fluxvale.com", %{}, authorize?: false)
 
       {:ok, minted} = Identity.mint_device_code(%{client_id: @client, scopes: ["wallet:read"]})
       {:ok, pending_row} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
 
-      assert {:ok, approved} = DeviceCode.approve(pending_row, approver.id, actor: approver)
+      assert {:ok, approved} = DeviceCode.approve(pending_row, actor: approver)
       assert approved.status == :approved
       assert approved.user_id == approver.id
+    end
+
+    test "approve has no user_id input — the bind cannot be pointed at another account" do
+      approver = User.create!("device-approver-pin@fluxvale.com", %{}, authorize?: false)
+
+      {:ok, minted} = Identity.mint_device_code(%{client_id: @client, scopes: []})
+      {:ok, pending_row} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
+
+      # The account-takeover shape (CodeRabbit round): a caller
+      # supplying someone else's id is a NoSuchInput, not a bind.
+      attempted_bind =
+        Ash.Changeset.for_update(pending_row, :approve, %{user_id: approver.id}, actor: approver)
+
+      assert {:error, %Ash.Error.Invalid{}} = Ash.update(attempted_bind)
     end
 
     test "a second approve is refused (the guard: still-pending only)" do
@@ -192,11 +212,11 @@ defmodule FluxVale.Identity.Operations.MintDeviceCodeTest do
 
       {:ok, minted} = Identity.mint_device_code(%{client_id: @client, scopes: []})
       {:ok, pending_row} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
-      {:ok, _approved} = DeviceCode.approve(pending_row, approver.id, actor: approver)
+      {:ok, _approved} = DeviceCode.approve(pending_row, actor: approver)
 
       {:ok, current} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
 
-      assert {:error, %Ash.Error.Invalid{}} = DeviceCode.approve(current, other.id, actor: other)
+      assert {:error, %Ash.Error.Invalid{}} = DeviceCode.approve(current, actor: other)
     end
 
     test "deny flips a pending row; a denied row cannot approve" do
@@ -210,7 +230,7 @@ defmodule FluxVale.Identity.Operations.MintDeviceCodeTest do
       assert denied.user_id == nil
 
       assert {:error, %Ash.Error.Invalid{}} =
-               DeviceCode.approve(denied, denier.id, actor: denier)
+               DeviceCode.approve(denied, actor: denier)
     end
 
     test "consume flips only an approved row; the approved row before it is untouched" do
@@ -223,7 +243,7 @@ defmodule FluxVale.Identity.Operations.MintDeviceCodeTest do
       assert {:error, %Ash.Error.Invalid{}} =
                DeviceCode.consume(pending_row, authorize?: false)
 
-      {:ok, _approved} = DeviceCode.approve(pending_row, approver.id, actor: approver)
+      {:ok, _approved} = DeviceCode.approve(pending_row, actor: approver)
       {:ok, approved} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
 
       assert {:ok, consumed} = DeviceCode.consume(approved, authorize?: false)
@@ -238,7 +258,7 @@ defmodule FluxVale.Identity.Operations.MintDeviceCodeTest do
       {:ok, pending_row} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
 
       assert {:error, %Ash.Error.Forbidden{}} =
-               DeviceCode.approve(pending_row, "00000000-0000-4000-8000-000000000000", actor: nil)
+               DeviceCode.approve(pending_row, actor: nil)
     end
   end
 

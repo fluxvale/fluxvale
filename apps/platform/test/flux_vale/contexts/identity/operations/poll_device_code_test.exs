@@ -84,7 +84,7 @@ defmodule FluxVale.Identity.Operations.PollDeviceCodeTest do
       {:ok, minted} = mint(scopes: ["instances:read", "wallet:read"])
 
       {:ok, pending_row} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
-      {:ok, _approved} = DeviceCode.approve(pending_row, approver.id, actor: approver)
+      {:ok, _approved} = DeviceCode.approve(pending_row, actor: approver)
 
       before = DateTime.utc_now()
 
@@ -122,7 +122,7 @@ defmodule FluxVale.Identity.Operations.PollDeviceCodeTest do
       {:ok, minted} = mint()
 
       {:ok, pending_row} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
-      {:ok, _approved} = DeviceCode.approve(pending_row, approver.id, actor: approver)
+      {:ok, _approved} = DeviceCode.approve(pending_row, actor: approver)
 
       # The suite runs at :warning — open the level for the capture
       # and restore immediately (this module runs exclusively, so no
@@ -148,7 +148,7 @@ defmodule FluxVale.Identity.Operations.PollDeviceCodeTest do
       {:ok, minted} = mint()
 
       {:ok, pending_row} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
-      {:ok, _approved} = DeviceCode.approve(pending_row, approver.id, actor: approver)
+      {:ok, _approved} = DeviceCode.approve(pending_row, actor: approver)
 
       assert {:ok, %{token: _raw}} = Identity.poll_device_code(@client, minted.device_code)
 
@@ -170,7 +170,7 @@ defmodule FluxVale.Identity.Operations.PollDeviceCodeTest do
                Identity.poll_device_code(@client, minted.device_code)
 
       {:ok, counted} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
-      {:ok, _approved} = DeviceCode.approve(counted, approver.id, actor: approver)
+      {:ok, _approved} = DeviceCode.approve(counted, actor: approver)
 
       assert {:ok, %{token: _raw}} = Identity.poll_device_code(@client, minted.device_code)
     end

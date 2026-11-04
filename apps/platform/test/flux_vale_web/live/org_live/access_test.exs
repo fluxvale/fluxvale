@@ -1657,7 +1657,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
 
       # The row leaves pending underneath the panel (another tab won).
       {:ok, pending_row} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
-      {:ok, _approved} = DeviceCode.approve(pending_row, owner.id, actor: owner)
+      {:ok, _approved} = DeviceCode.approve(pending_row, actor: owner)
 
       view
       |> element("[data-testid='device-deny']")
