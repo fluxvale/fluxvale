@@ -218,7 +218,7 @@ defmodule FluxValeWeb.PageControllerTest do
 
     assert html =~ "See full pricing"
     assert html =~ ~s(href="/pricing")
-    assert html =~ "Every app runs from #{floor}/mo"
+    assert html =~ "Sizes start at #{floor}/mo"
   end
 
   # The empty-table branch: an unseeded DB renders the band without the
@@ -228,7 +228,7 @@ defmodule FluxValeWeb.PageControllerTest do
     html = html_response(conn, 200)
 
     assert html =~ "See full pricing"
-    refute html =~ "Every app runs from"
+    refute html =~ "Sizes start at"
   end
 
   # #396: the landing carries the Pricing link in the header nav, the

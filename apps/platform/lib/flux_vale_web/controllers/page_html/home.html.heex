@@ -265,7 +265,7 @@ layout's flex contract while scoping the landing styles. --%>
           <span class="capsule">
             <span class="dot"></span>
             {gettext(
-              "Every app runs on FluxVale's own managed Kubernetes fleet — the same infrastructure we run ourselves on."
+              "Every app runs on FluxVale's own managed Kubernetes fleet, the same infrastructure we run ourselves on."
             )}
           </span>
         </div>
@@ -287,7 +287,7 @@ layout's flex contract while scoping the landing styles. --%>
               <%!-- pricing.ex's #206 invariant: a price surface never
               shows "$X/mo" without the hourly qualifier — a bare "/mo"
               on the landing would read as monthly billing. --%>
-              {gettext("Every app runs from %{rate}/mo, billed hourly while running",
+              {gettext("Sizes start at %{rate}/mo, billed hourly while running",
                 rate: FluxVale.Pricing.format_usd(@price_floor_cents)
               )}
             </p>
