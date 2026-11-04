@@ -41,11 +41,11 @@ defmodule FluxValeWeb.OrgNavTest do
     assert socket.assigns.personal_org_id == personal.id
 
     # Both memberships are :owner today (the default role) — the
-    # canonical op's pick (the org row it resolves first) is the
-    # personal org, and the row order is pinned personal-first (#276),
-    # the rest in creation order — the raw DB list carries no order to
-    # pin. The canonical tie-break for two-owned-orgs users is a T7
-    # question; this pins only that the switcher follows the resolver.
+    # canonical op's pick (the org row it resolves) is the personal
+    # org — the one the #408 marker names — and the row order is pinned
+    # personal-first (#276), the rest in creation order — the raw DB
+    # list carries no order to pin. This pins only that the switcher
+    # follows the resolver.
     assert [
              %{organization: %{id: first}},
              %{organization: %{id: second}}

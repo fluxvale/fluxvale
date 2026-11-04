@@ -75,9 +75,10 @@ defmodule FluxValeWeb.OrgNav do
   # org than the one that gets billed (#285 T6 review: for a user owning
   # two orgs, a min-membership-id derivation and the canonical op name
   # different orgs; one extra query per mount buys correctness by
-  # construction). Whether the canonical op's own tie-break for
-  # two-owned-orgs users is the right one is the identity spec's (T7) —
-  # out of scope here. The pinned row order below keys off this id.
+  # construction). The canonical op's answer is the #408 marker now —
+  # the ownership-derivation tie-break question (T7) is settled, and a
+  # team-org-only user reads :none here, degrading the pill to the bare
+  # glyph. The pinned row order below keys off this id.
   defp personal_org_id(user) do
     case Accounts.personal_org_for_user(user.id, actor: user) do
       {:ok, org} ->

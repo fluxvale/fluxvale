@@ -41,12 +41,23 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrgTest do
       assert membership.user_id == user.id
     end
 
+    test "provisioning stamps the personal-org marker (#408) — the org is this user's" do
+      user = AccountsFixtures.user!()
+      org = AccountsFixtures.personal_org!(user)
+
+      assert org.personal_owner_id == user.id
+    end
+
     test "re-provisioning is idempotent (re-login never duplicates)" do
       user = AccountsFixtures.user!()
       org = AccountsFixtures.personal_org!(user)
 
       assert {:ok, ^org, false} = Accounts.provision_personal_org(user)
       assert org_count(user) == 1
+
+      # The re-run writes nothing: a FRESH read still shows the marker
+      # the first provisioning stamped.
+      assert AccountsFixtures.personal_org!(user).personal_owner_id == user.id
     end
   end
 

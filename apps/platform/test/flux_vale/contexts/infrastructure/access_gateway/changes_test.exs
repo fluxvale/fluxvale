@@ -288,9 +288,10 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
 
     test "a never-paid member is forbidden to create and to resume", %{org: org, owner: owner} do
       # Create rides the actor's personal org (SetOrganizationFromActor
-      # pins the row there too) — the fixture org here (earliest-created
-      # org the user owns), funded by the adjustment grant but never
-      # paid: exactly the wallet the paid-once gate exists for.
+      # pins the row there too) — the fixture org here (the org the #408
+      # marker names: grant_free_org! builds it as the owner's personal
+      # org), funded by the adjustment grant but never paid: exactly the
+      # wallet the paid-once gate exists for.
       assert {:error, %Ash.Error.Forbidden{}} =
                AccessGateway.create(
                  %{monthly_cents: 200, tailnet_domain: "example.ts.net", auth_key: "tskey"},
@@ -305,7 +306,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
     test "a paid, funded member creates and resumes", %{org: org, owner: owner} do
       # The create bills the ACTOR'S PERSONAL ORG — SetOrganizationFromActor
       # pins it, and the paid+funded policy reads the same resolver's
-      # answer (earliest-created org the user owns). Assert against that
+      # answer (the org the #408 marker names). Assert against that
       # resolved org, not against the fixture org by coincidence.
       {:ok, personal} = Accounts.personal_org_for_user(owner.id, authorize?: false)
       BillingFixtures.mark_paid!(personal)
@@ -364,7 +365,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       owner: owner
     } do
       # The create bills the ACTOR'S PERSONAL ORG — the fixture org
-      # (earliest-created org the user owns), so the waiver flips on
+      # (the #408 marker names it), so the waiver flips on
       # that org's wallet: adjustment-funded, never paid.
       {:ok, wallet} = Billing.ensure_wallet(org)
       assert {:ok, _wallet} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin())

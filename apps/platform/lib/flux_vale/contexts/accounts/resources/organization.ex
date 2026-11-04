@@ -6,11 +6,16 @@ defmodule FluxVale.Accounts.Organization do
   for per-org entitlements (welcome credits, #122).
 
   Every user gets a personal org at signup (JIT, creator = owner — see
-  `FluxVale.Accounts.provision_personal_org/1`). `slug` is the unique
-  address (`[a-z0-9-]`, GitHub-style) — stable until an owner renames it
-  in settings: the old slug is released immediately and no redirect is
-  created. `name` is display-only and carries no uniqueness — two orgs
-  may be named alike, the slug cannot.
+  `FluxVale.Accounts.provision_personal_org/1`). Which org IS a user's
+  personal one is an explicit fact, not a derivation (#408): an org is
+  that user's account-surface org exactly when `personal_owner_id`
+  names them — provisioning stamps it at signup, null marks the team
+  orgs the user-created-orgs flow (#408) will produce, and
+  `unique_personal_owner` keeps one marked org per user. `slug` is the
+  unique address (`[a-z0-9-]`, GitHub-style) — stable until an owner
+  renames it in settings: the old slug is released immediately and no
+  redirect is created. `name` is display-only and carries no uniqueness
+  — two orgs may be named alike, the slug cannot.
 
   Deliberately no JSON:API surface (v1 stance — backend model until a
   consumer needs one) and no AshAdmin (no support flow needs it yet).
@@ -35,7 +40,7 @@ defmodule FluxVale.Accounts.Organization do
     # How an Organization renders wherever it appears as a relationship
     # (the wallet/gateway/instance admin tables): the name a human can
     # search, not the raw UUID.
-    relationship_display_fields [:name]
+    relationship_display_fields([:name])
   end
 
   policies do
@@ -92,6 +97,19 @@ defmodule FluxVale.Accounts.Organization do
       allow_nil?(false)
       public?(true)
     end
+
+    # The personal-org marker (#408): which user (if any) this org is the
+    # account-surface org for. Private — an internal discriminator;
+    # nothing wire-facing rides it. Null marks a team org.
+    #
+    # Deliberately no FK to users: the two writers keep the marker
+    # honest by construction (provisioning members and marks in one
+    # transaction; the backfill derives it from memberships), and a
+    # stray marker just degrades the read to :none. Revisit trigger:
+    # the first writer outside provisioning.
+    attribute :personal_owner_id, :uuid do
+      public?(false)
+    end
   end
 
   relationships do
@@ -134,7 +152,13 @@ defmodule FluxVale.Accounts.Organization do
 
     create :create do
       primary?(true)
-      accept([:name, :slug])
+
+      # personal_owner_id rides accept for the one system writer
+      # (provisioning stamps it, #408) — the policy forbids every actor,
+      # and no update accepts it, so the marker is a create-time fact.
+      # User-created orgs (#408) simply don't pass it: null marks a team
+      # org.
+      accept([:name, :slug, :personal_owner_id])
     end
 
     # Renaming — either field — frees the old slug immediately: no
@@ -204,6 +228,11 @@ defmodule FluxVale.Accounts.Organization do
 
   identities do
     identity(:unique_slug, [:slug])
+
+    # One marked org per user. Postgres unique indexes treat NULLs as
+    # distinct, so the team orgs (null marker) never conflict — only two
+    # orgs naming the same personal owner do.
+    identity(:unique_personal_owner, [:personal_owner_id])
   end
 
   validations do

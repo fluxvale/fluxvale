@@ -5,8 +5,9 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrg do
   membership + wallet + grant, or none of it.
 
   Idempotent: returns the existing org as `{:ok, org, false}` when the user
-  already owns one — re-login never duplicates, and the probe returning
-  before the create means the welcome grant never re-fires. On first call
+  already has a personal org (the probe is `PersonalOrgForUser`, which
+  reads the #408 marker) — re-login never duplicates, and the probe
+  returning before the create means the welcome grant never re-fires. On first call
   it creates the org and returns `{:ok, org, true}` — the `created?` flag
   is the caller-visible signal that provisioning (grant included) just ran.
 
@@ -73,7 +74,11 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrg do
       Organization
       |> Ash.Changeset.for_create(:create, %{
         name: user.username,
-        slug: unique_slug(user.username, 0)
+        slug: unique_slug(user.username, 0),
+        # The marker (#408): this org IS the user's personal org — the
+        # explicit fact PersonalOrgForUser reads; the earliest-owned
+        # derivation retired with the backfill.
+        personal_owner_id: user.id
       })
       |> Ash.Changeset.manage_relationship(:members, [user], type: :append, authorize?: false)
       |> Ash.Changeset.after_action(fn _changeset, org ->

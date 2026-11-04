@@ -184,7 +184,20 @@ defmodule FluxValeWeb.OrgSwitcherTest do
       is_primary: true
     })
 
-    _org = member_org!(straggler)
+    # Their personal org, marked the way provisioning marks it (#408) —
+    # the label fallback is what's under test, not the marker.
+    org =
+      Organization.create!(
+        %{
+          name: "Straggler Org",
+          slug: "straggler-#{int}",
+          personal_owner_id: straggler.id
+        },
+        authorize?: false
+      )
+
+    Membership.create!(%{organization_id: org.id, user_id: straggler.id}, authorize?: false)
+
     conn = SessionHelpers.sign_in(conn, straggler)
 
     html = dashboard_html(conn)
@@ -399,12 +412,11 @@ defmodule FluxValeWeb.OrgSwitcherTest do
   # The #285 T6 divergence probe, permanent: a user owning TWO orgs —
   # their signup-provisioned personal org plus an org that already
   # existed when they signed up (the reviewer's shape: the legacy org
-  # row predates the user). The canonical op sorts EARLIEST-CREATED
-  # first (S5: the pick is load-bearing routing, so it must be
-  # deterministic and every consumer must read the same answer) — which
-  # here names the LEGACY org: deliberately neither the min-membership-id
-  # derivation the op replaced (that named the signup org) nor "the org
-  # named personal at signup". Pinned is the agreement itself: the
+  # row predates the user). The canonical op reads the #408 marker, not
+  # creation order: the legacy org is unmarked (it is not the
+  # account-surface org), so the answer is the SIGNUP org — deliberately
+  # unlike the earliest-ORG-created derivation this test used to pin
+  # (that named the legacy org). Pinned is the agreement itself: the
   # switcher's label, the redirect branch, and the billing mount all
   # read this one org.
   test "two-owner user: the switcher's Personal label resolves the canonical org", %{
@@ -417,7 +429,7 @@ defmodule FluxValeWeb.OrgSwitcherTest do
       )
 
     user = SessionHelpers.user!()
-    _personal = AccountsFixtures.personal_org!(user)
+    personal = AccountsFixtures.personal_org!(user)
 
     # System-only create (#119) — the bootstrap posture, mirroring
     # seeds; the user now owns two orgs.
@@ -425,21 +437,11 @@ defmodule FluxValeWeb.OrgSwitcherTest do
 
     {:ok, canonical} = Accounts.personal_org_for_user(user.id, actor: user)
 
-    # Deterministic, and deliberately not the old min-membership-id
-    # derivation: the sort keys on the ORG's created_at (the legacy row
-    # predates the user), not on the membership that links them. If the
-    # semantic ever moves to earliest-OWNED, this fails loudly — the
-    # pick would flip to the signup org and the billing leg below would
-    # show its welcome-grant ledger.
-    owners =
-      Membership
-      |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.filter(user_id == ^user.id and role == :owner)
-      |> Ash.read!(authorize?: false)
-
-    min_id_pick = Enum.min_by(owners, & &1.id)
-    refute canonical.id == min_id_pick.organization_id
-    assert canonical.id == legacy.id
+    # The marker decides, not creation order: the legacy row predates
+    # the user, and the personal pick is still the org provisioning
+    # marked (#408).
+    assert canonical.id == personal.id
+    assert canonical.id != legacy.id
 
     conn = SessionHelpers.sign_in(conn, user)
 
@@ -453,18 +455,16 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     assert row_href(personal_row) == "/"
 
     # The billing mount resolves the same org the switcher labels — the
-    # seam this PR exists to pin, wallet-free: the canonical pick here
-    # is necessarily the bare legacy org (the refute above pins it is
-    # NOT the personal one, and the user owns exactly two orgs), so its
-    # ledger renders the empty state; the personal org would show its
-    # welcome-grant ledger-row instead (#308 round-3 review, P2).
+    # seam this PR exists to pin: the canonical pick is the personal
+    # org, whose ledger carries the welcome grant (#122), so a
+    # ledger-row renders (not the empty state).
     billing_html =
       conn
       |> get(~p"/billing")
       |> html_response(200)
 
-    assert billing_html =~ ~s(data-testid="ledger-empty")
-    refute billing_html =~ ~s(data-testid="ledger-row")
+    assert billing_html =~ ~s(data-testid="ledger-row")
+    refute billing_html =~ ~s(data-testid="ledger-empty")
   end
 
   # Both creates are system-only (#119) — the bootstrap posture,
