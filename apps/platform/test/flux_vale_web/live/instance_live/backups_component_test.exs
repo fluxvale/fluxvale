@@ -386,7 +386,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(
                view,
                "[data-testid=backups-config-unpaid]",
-               "Backups are blocked — top up once (at least $1) to use them"
+               "Backups are blocked. Top up once (at least $1) to use them"
              )
 
       assert has_element?(
@@ -401,7 +401,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(
                view,
                "[data-testid=backup-cadence]",
-               "Backups are blocked — the wallet cannot run them"
+               "Backups are blocked. The wallet cannot run them"
              )
 
       assert has_element?(view, "[data-testid=backups-enabled-toggle]", "Pause backups")
@@ -422,7 +422,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(
                view,
                "[data-testid=backups-config-prefund]",
-               "Backups are blocked — the balance ran out"
+               "Backups are blocked. The balance ran out"
              )
 
       refute has_element?(view, "[data-testid=backups-config-unpaid]")
@@ -430,7 +430,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(
                view,
                "[data-testid=backup-cadence]",
-               "Backups are blocked — the wallet cannot run them"
+               "Backups are blocked. The wallet cannot run them"
              )
     end
 
@@ -721,7 +721,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
 
       assert has_element?(
                view,
-               "input[name='backup[access_key_id]'][placeholder='Unchanged — ends in MPLE']"
+               "input[name='backup[access_key_id]'][placeholder='Unchanged. Ends in MPLE']"
              )
 
       refute render(view) =~ @access_key
@@ -1004,7 +1004,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(
                view,
                "[data-testid=backups-error]",
-               "Top up to run a backup — keep a positive balance in your wallet."
+               "Top up to run a backup. Keep a positive balance in your wallet."
              )
     end
 
@@ -1026,7 +1026,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(
                view,
                "[data-testid=backups-error]",
-               "Top up to run a backup — add at least $1 once, and keep a positive balance."
+               "Top up to run a backup. Add at least $1 once, and keep a positive balance."
              )
     end
 
@@ -1055,7 +1055,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(
                view,
                "[data-testid=backups-error]",
-               "Top up to run a backup — keep a positive balance in your wallet."
+               "Top up to run a backup. Keep a positive balance in your wallet."
              )
     end
   end
@@ -1171,7 +1171,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(
                view,
                "[data-testid=destructive-confirm]",
-               "Keep your backup password — you'll still need it to restore these " <>
+               "Keep your backup password. You'll still need it to restore these " <>
                  "snapshots into a new app."
              )
 

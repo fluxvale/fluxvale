@@ -74,7 +74,7 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     # page — the personal org's org-scoped URLs redirect). One row, one
     # destination.
     assert [row] = panel_rows(html)
-    assert row_text(row) == "Personal — #{user.username}"
+    assert row_text(row) == "Personal · #{user.username}"
     assert row_href(row) == "/"
   end
 
@@ -94,7 +94,7 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     assert row_href(hd(rows)) == "/"
 
     personal = Enum.find(rows, &(row_text(&1) =~ "Personal"))
-    assert row_text(personal) == "Personal — #{user.username}"
+    assert row_text(personal) == "Personal · #{user.username}"
     assert row_href(personal) == "/"
 
     # The other row stays name + slug — and both rows are distinct
@@ -203,7 +203,7 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     html = dashboard_html(conn)
 
     assert [row] = panel_rows(html)
-    assert row_text(row) == "Personal — straggler-#{int}"
+    assert row_text(row) == "Personal · straggler-#{int}"
     assert row_href(row) == "/"
   end
 
@@ -306,7 +306,7 @@ defmodule FluxValeWeb.OrgSwitcherTest do
       )
 
     assert [row] = panel_rows(single)
-    assert row_text(row) == "Personal — terence"
+    assert row_text(row) == "Personal · terence"
     assert row_href(row) == "/"
 
     both =
@@ -319,7 +319,7 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     rows = panel_rows(both)
     assert length(rows) == 2
     assert Enum.count(rows, &(row_text(&1) =~ "Personal")) == 1
-    assert row_text(Enum.at(rows, 0)) == "Personal — terence"
+    assert row_text(Enum.at(rows, 0)) == "Personal · terence"
     assert row_href(Enum.at(rows, 0)) == "/"
     assert row_text(Enum.at(rows, 1)) =~ "OSS Friends"
     assert row_text(Enum.at(rows, 1)) =~ "oss-friends"

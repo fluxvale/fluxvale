@@ -100,7 +100,7 @@ defmodule FluxValeWeb.Mcp.ConfirmTest do
           capabilities: @elicit_caps
         )
 
-      assert tool_result_text(resumed) == "cancelled — nothing was changed"
+      assert tool_result_text(resumed) == "cancelled. Nothing was changed"
 
       assert_instance_status!(instance, :running)
       assert run_still_succeeded!(run.id)
@@ -213,7 +213,7 @@ defmodule FluxValeWeb.Mcp.ConfirmTest do
           "backup_run_id" => run.id
         })
 
-      assert result_text(result) == "cancelled — nothing was changed"
+      assert result_text(result) == "cancelled. Nothing was changed"
 
       assert_instance_status!(instance, :running)
       assert run_still_succeeded!(run.id)
@@ -235,7 +235,7 @@ defmodule FluxValeWeb.Mcp.ConfirmTest do
           "backup_run_id" => run.id
         })
 
-      assert result_text(result) == "cancelled — nothing was changed"
+      assert result_text(result) == "cancelled. Nothing was changed"
       assert restore_runs!(instance.id) == []
     end
 
@@ -285,7 +285,7 @@ defmodule FluxValeWeb.Mcp.ConfirmTest do
       assert %{"elicitation" => elicit} = result["inputRequests"]
       message = elicit["params"]["message"]
       assert message =~ "destroy instance #{instance.name} (#{instance.slug})"
-      assert message =~ "all data is deleted"
+      assert message =~ "All data is deleted"
 
       # Nothing destroyed yet.
       assert still_exists?(instance.id)
@@ -348,7 +348,7 @@ defmodule FluxValeWeb.Mcp.ConfirmTest do
           capabilities: @elicit_caps
         )
 
-      assert tool_result_text(resumed) == "cancelled — nothing was changed"
+      assert tool_result_text(resumed) == "cancelled. Nothing was changed"
       assert still_exists?(instance.id)
     end
 

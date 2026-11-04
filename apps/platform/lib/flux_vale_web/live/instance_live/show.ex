@@ -326,7 +326,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
                 <%= if @instance.always_on do %>
                   Always-on instances never sleep, so they bill the full rate around the clock.
                 <% else %>
-                  Apps sleep after an hour without visitors and wake on the next visit — you pay
+                  Apps sleep after an hour without visitors and wake on the next visit. You pay
                   only storage while one sleeps.
                 <% end %>
               </p>
@@ -379,34 +379,34 @@ defmodule FluxValeWeb.InstanceLive.Show do
                 <%= if @instance.exposure == :private do %>
                   <%= cond do %>
                     <% @route && serving?(@gateway) -> %>
-                      Private instances are unreachable from the internet — this app has no
+                      Private instances are unreachable from the internet: this app has no
                       public address. It is reachable from your own devices on your tailnet,
                       and a visit wakes it when it's asleep. Exposure never changes what you pay.
                     <% @route -> %>
                       <%!-- Routes outlive serving (suspend keeps the rows; the
                       gateway is scaled to zero) — the address is paused,
                       not live, and no visit can arrive to wake anything. --%>
-                      Private instances are unreachable from the internet — this app has no
-                      public address. Its tailnet address is paused — {route_paused_reason(@gateway)}.
+                      Private instances are unreachable from the internet: this app has no
+                      public address. Its tailnet address is paused: {route_paused_reason(@gateway)}.
                       Exposure never changes what you pay.
                     <% @gateway -> %>
-                      Private instances are unreachable from the internet — this app has no
+                      Private instances are unreachable from the internet: this app has no
                       public address. You keep full control from this panel (deploy, stop,
-                      start, back up), and always-on still works — but
+                      start, back up), and always-on still works. But
                       nothing can wake a sleeping private instance: no traffic reaches it.
                       To reach it from your own devices, attach it in Settings → Access.
                       Exposure never changes what you pay.
                     <% true -> %>
-                      Private instances are unreachable from the internet — this app has no
+                      Private instances are unreachable from the internet: this app has no
                       public address. You keep full control from this panel (deploy, stop,
-                      start, back up), and always-on still works — but
+                      start, back up), and always-on still works. But
                       nothing can wake a sleeping private instance: no traffic reaches it.
                       Your organization's Settings → Access can put it on your own
                       Tailscale network. Exposure never changes what you pay.
                   <% end %>
                 <% else %>
                   Anyone on the internet can reach this app at its address. Making it private removes
-                  that address immediately — the panel keeps working either way, and exposure never
+                  that address immediately. The panel keeps working either way, and exposure never
                   changes what you pay.
                 <% end %>
               </p>
@@ -425,7 +425,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
                   <span class="font-mono" data-testid="tailnet-address">
                     {tailnet_address(@route)}
                   </span>
-                  — manage this pairing in <.link
+                  · Manage this pairing in <.link
                     :if={@access_href}
                     navigate={@access_href}
                     class="underline underline-offset-2 hover:text-ink"
@@ -449,7 +449,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
                 data-confirm={
                   if(@instance.exposure == :public,
                     do:
-                      "Make this instance private? Its public address stops working immediately — the app becomes unreachable from the internet until you make it public again. You keep full control from this panel."
+                      "Make this instance private? Its public address stops working immediately. The app becomes unreachable from the internet until you make it public again. You keep full control from this panel."
                   )
                 }
                 data-testid="exposure-toggle"
@@ -496,7 +496,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
             plain visit 405s. Name the client move before every new
             user repeats the owner's live dogfood mistake. --%>
                 <p class="text-xs text-ink-subtle" data-testid="dav-client-hint">
-                  Open with a WebDAV client — browsers can't browse this
+                  Open with a WebDAV client. Browsers can't browse this
                   endpoint (the "method not allowed" page is expected).
                   Recommended: Cyberduck (macOS/Windows) · rclone to mount
                   or script.
@@ -553,7 +553,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
                 </div>
 
                 <p class="text-xs text-ink-subtle">
-                  Mount it with rclone — parallel transfers, verified copies.
+                  Mount it with rclone. Parallel transfers, verified copies.
                   Each file uploads whole, so keep files under 100 MB through
                   this endpoint (larger library files are a coming phase):
                 </p>
@@ -575,12 +575,12 @@ defmodule FluxValeWeb.InstanceLive.Show do
                 />
 
                 <p :if={@instance.status == :stopped} class="text-xs text-ink-subtle">
-                  The endpoint is down while the instance is stopped — start it to
+                  The endpoint is down while the instance is stopped. Start it to
                   upload.
                 </p>
 
                 <p :if={@instance.status == :sleeping} class="text-xs text-ink-subtle">
-                  The endpoint sleeps with the app — it wakes on the next upload
+                  The endpoint sleeps with the app. It wakes on the next upload
                   attempt (retrying clients pick it up in a few seconds).
                 </p>
               </.card>
@@ -783,10 +783,10 @@ defmodule FluxValeWeb.InstanceLive.Show do
         {:noreply, assign(socket, :dav_password, password)}
 
       {:error, :not_deployed} ->
-        {:noreply, put_flash(socket, :error, "Deploy the instance first — no credential yet.")}
+        {:noreply, put_flash(socket, :error, "Deploy the instance first. No credential yet.")}
 
       _unavailable ->
-        {:noreply, put_flash(socket, :error, "Credential unavailable — try again shortly.")}
+        {:noreply, put_flash(socket, :error, "Credential unavailable. Try again shortly.")}
     end
   end
 
@@ -826,7 +826,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
       # coveralls-ignore-start - defensive: the action's error arms are
       # DB-level failures (the action handles every status shape)
       {:error, _error} ->
-        {:noreply, put_flash(socket, :error, "Delete failed — try again.")}
+        {:noreply, put_flash(socket, :error, "Delete failed. Try again.")}
         # coveralls-ignore-stop
     end
   end
@@ -843,7 +843,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
       # stale-view race (the row moved between render and event); the
       # K8s path reports through status, not error tuples.
       {:error, _error} ->
-        put_flash(socket, :error, "Always-on is set — open the app once to wake it now.")
+        put_flash(socket, :error, "Always-on is set. Open the app once to wake it now.")
         # coveralls-ignore-stop
     end
   end
@@ -1195,7 +1195,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
           text:
             "Keep this instance always on? It never sleeps, so it bills the full rate " <>
               "around the clock (#{FluxVale.Pricing.format_usd(running)}/mo) instead of the " <>
-              "storage-only rate while it would otherwise sleep (#{FluxVale.Pricing.format_usd(stopped)}/mo) — " <>
+              "storage-only rate while it would otherwise sleep (#{FluxVale.Pricing.format_usd(stopped)}/mo), " <>
               "monthly-equivalent, billed hourly. A sleeping instance wakes immediately."
         }
 
@@ -1270,11 +1270,11 @@ defmodule FluxValeWeb.InstanceLive.Show do
   end
 
   defp price_moved_flash(nil),
-    do: "Pricing changed since that dialog — please review and confirm again."
+    do: "Pricing changed since that dialog. Please review and confirm again."
 
   defp price_moved_flash(cents),
     do:
-      "Pricing changed — always-on would now bill #{FluxVale.Pricing.format_usd(cents)}/mo " <>
+      "Pricing changed. Always-on would now bill #{FluxVale.Pricing.format_usd(cents)}/mo " <>
         "(billed hourly) around the clock. Please confirm again."
 
   # Action results and broadcast records carry no loaded relationships;

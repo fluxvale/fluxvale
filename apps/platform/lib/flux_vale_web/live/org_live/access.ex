@@ -193,7 +193,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       {:ok, gateway} ->
         {:noreply,
          socket
-         |> put_flash(:info, "Private access is connecting — this page updates on its own.")
+         |> put_flash(:info, "Private access is connecting. This page updates on its own.")
          |> assign(gateway: gateway)
          |> assign(repaste_open?: repaste_open_for(gateway), remove_armed?: false)
          |> assign_forms()}
@@ -211,7 +211,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         else
           {:noreply,
            socket
-           |> put_flash(:error, "Couldn't enable private access — try again.")
+           |> put_flash(:error, "Couldn't enable private access. Try again.")
            |> rebuild_form_with_errors(form)}
         end
     end
@@ -225,7 +225,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       {:ok, gateway} ->
         {:noreply,
          socket
-         |> put_flash(:info, "Reconnecting with the new key — this page updates on its own.")
+         |> put_flash(:info, "Reconnecting with the new key. This page updates on its own.")
          |> assign(gateway: gateway)
          |> assign(repaste_open?: repaste_open_for(gateway))
          |> assign_forms()}
@@ -238,7 +238,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         # not echoed back (ADR-0039 §4).
         {:noreply,
          socket
-         |> put_flash(:error, "Couldn't update the access key — try again.")
+         |> put_flash(:error, "Couldn't update the access key. Try again.")
          |> rebuild_form_with_errors(form)}
     end
   end
@@ -285,7 +285,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           {:ok, gateway} ->
             {:noreply,
              socket
-             |> put_flash(:info, "Removing private access — billing stops now.")
+             |> put_flash(:info, "Removing private access. Billing stops now.")
              |> assign(gateway: gateway)
              |> assign(remove_armed?: false)
              |> assign_forms()}
@@ -293,7 +293,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           {:error, _reason} ->
             # The stale-view arm: the row vanished (teardown won the
             # race) — the next broadcast lands the empty state.
-            {:noreply, put_flash(socket, :error, "Could not remove private access — try again.")}
+            {:noreply, put_flash(socket, :error, "Could not remove private access. Try again.")}
         end
 
       _unarmed ->
@@ -314,7 +314,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       {:ok, gateway} ->
         {:noreply,
          socket
-         |> put_flash(:info, "Retrying removal — this page updates on its own.")
+         |> put_flash(:info, "Retrying removal. This page updates on its own.")
          |> assign(gateway: gateway)
          |> assign(remove_armed?: false)
          |> assign_forms()}
@@ -322,7 +322,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       {:error, _reason} ->
         # The stale-view arm: the row vanished (the in-flight teardown
         # won) — the next broadcast lands the empty state.
-        {:noreply, put_flash(socket, :error, "Could not remove private access — try again.")}
+        {:noreply, put_flash(socket, :error, "Could not remove private access. Try again.")}
     end
   end
 
@@ -333,7 +333,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       {:ok, gateway} ->
         {:noreply,
          socket
-         |> put_flash(:info, "Private access is reconnecting — this page updates on its own.")
+         |> put_flash(:info, "Private access is reconnecting. This page updates on its own.")
          |> assign(gateway: gateway)
          |> refresh_wallet_gates()
          |> assign_forms()}
@@ -349,11 +349,11 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           # would guess at a state this panel cannot see. Settings'
           # stale posture: reload, not retry.
           {:noreply,
-           put_flash(socket, :error, "This gateway changed underneath you — reload to continue.")}
+           put_flash(socket, :error, "This gateway changed underneath you. Reload to continue.")}
         else
           # A transient failure mid-resume (the scale call) — the row
           # kept :suspended, so the retry is the same button.
-          {:noreply, put_flash(socket, :error, "Could not resume private access — try again.")}
+          {:noreply, put_flash(socket, :error, "Could not resume private access. Try again.")}
         end
     end
   end
@@ -409,7 +409,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
              |> refresh_pairing()}
 
           {:error, _reason} ->
-            {:noreply, put_flash(socket, :error, "Couldn't detach — try again.")}
+            {:noreply, put_flash(socket, :error, "Couldn't detach. Try again.")}
         end
 
       _gone ->
@@ -418,7 +418,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         # that re-fails every click.
         {:noreply,
          socket
-         |> put_flash(:error, "Couldn't detach — try again.")
+         |> put_flash(:error, "Couldn't detach. Try again.")
          |> refresh_pairing()}
     end
   end
@@ -745,11 +745,11 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         <div>
           <h3 class="text-sm font-medium text-ink-muted">Private access</h3>
           <p class="mt-2 text-sm text-ink" data-testid="access-explainer">
-            Put your private apps on your own Tailscale network — reachable from your own
+            Put your private apps on your own Tailscale network, reachable from your own
             devices, never the public internet.
             <%= if @personal? do %>
-              One gateway serves every app on your account and each app gets its own address
-              on it.
+              One gateway serves every app in your organization and each app gets its own
+              address on it.
             <% else %>
               One gateway serves the whole organization and each app gets its own address on
               it.
@@ -787,7 +787,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           data-testid="access-paid-hint"
         >
           <p>
-            Private access needs a one-time top-up of at least $1 — add funds in <.link
+            Private access needs a one-time top-up of at least $1. Add funds in <.link
               navigate={@billing_path}
               class="underline underline-offset-2 hover:text-ink"
               data-testid="access-paid-link"
@@ -804,7 +804,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           data-testid="access-prefund-hint"
         >
           <p>
-            Your balance is empty — top up before enabling private access. Start from <.link
+            Your balance is empty. Top up before enabling private access. Start from <.link
               navigate={@billing_path}
               class="underline underline-offset-2 hover:text-ink"
               data-testid="access-prefund-link"
@@ -843,7 +843,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
               data-testid="access-domain-input"
             />
             <p class="text-xs text-ink-muted">
-              Your tailnet's DNS name — the part after the first dot in any of your
+              Your tailnet's DNS name, the part after the first dot in any of your
               device names, visible in your Tailscale admin console. It becomes part of
               every private app's address.
             </p>
@@ -894,8 +894,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           <p class="flex gap-4">
             <span class="w-24 shrink-0">rate:</span>
             <span class="min-w-0" data-testid="access-billing-line">
-              {Pricing.format_usd(@gateway.monthly_cents)}/month, billed hourly while connected —
-              suspended or removed, nothing accrues.
+              {Pricing.format_usd(@gateway.monthly_cents)}/month, billed hourly while
+              connected. Suspended or removed, nothing accrues.
             </span>
           </p>
         </div>
@@ -940,7 +940,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       <%= cond do %>
         <% @gateway.state == :provisioning -> %>
           <p class="text-sm text-ink-muted" data-testid="access-connecting-note">
-            Setting up access — usually under a minute; if it sticks, reconnect with
+            Setting up access, usually under a minute. If it sticks, reconnect with
             your key.
           </p>
           <.repaste_panel
@@ -960,7 +960,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         <% @gateway.state == :needs_attention -> %>
           <.callout id="access-attention-note" tone="warning" data-testid="access-attention-note">
             <p>
-              We can't reach your gateway — the key may have expired, or the node was
+              We can't reach your gateway. The key may have expired, or the node was
               removed from your Tailscale admin console. Paste a fresh key to reconnect.
             </p>
           </.callout>
@@ -1068,8 +1068,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       <%= if @armed? do %>
         <.callout id="access-remove-confirm" tone="danger" data-testid="access-remove-confirm">
           <p>
-            Remove private access? Your private apps fall back to panel-only private —
-            reachable only inside FluxVale — and billing stops.
+            Remove private access? Your private apps fall back to panel-only private,
+            reachable only inside FluxVale, and billing stops.
           </p>
           <div class="flex gap-3 pt-1">
             <.button type="button" phx-click="remove" size="sm" data-testid="access-confirm-remove">
@@ -1114,7 +1114,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     <div class="space-y-3" data-testid="access-suspended-banner">
       <.callout id="access-suspended-callout" tone="warning">
         <p>
-          Private access is suspended — the balance ran out. Your private apps stay
+          Private access is suspended. The balance ran out. Your private apps stay
           reachable only through the panel, and nothing accrues while suspended.
         </p>
       </.callout>
@@ -1124,7 +1124,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         </.button>
       <% else %>
         <p class="text-sm text-ink" data-testid="access-resume-topup">
-          Top up before resuming private access — start from <.link
+          Top up before resuming private access. Start from <.link
             navigate={@billing_path}
             class="underline underline-offset-2 hover:text-ink"
             data-testid="access-resume-topup-link"
@@ -1152,7 +1152,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       <div>
         <h3 class="text-sm font-medium text-ink-muted">Attached apps</h3>
         <p class="mt-1 text-sm text-ink-muted">
-          Each app gets its own address on your tailnet. Detaching is reversible — a
+          Each app gets its own address on your tailnet. Detaching is reversible. A
           detached app is reachable from the panel only again.
         </p>
       </div>
@@ -1169,7 +1169,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           class="font-sans text-sm text-ink-muted"
           data-testid="access-attached-empty"
         >
-          Nothing attached yet — pick an app below.
+          Nothing attached yet. Pick an app below.
         </p>
 
         <ul id="access-attached-rows" phx-update="stream" class="divide-y divide-line">
@@ -1208,7 +1208,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
               class="font-sans text-xs text-ink-muted"
               data-testid="access-attached-public-note"
             >
-              Also public — anyone can reach it at its own address too.
+              Also public. Anyone can reach it at its own address too.
             </p>
           </li>
         </ul>
@@ -1231,7 +1231,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         <h3 class="text-sm font-medium text-ink-muted">Attach an app</h3>
         <p class="mt-1 text-sm text-ink-muted">
           Give a private app an address on your tailnet. Attaching never changes an
-          app's exposure — the two switches stay independent.
+          app's exposure. The two switches stay independent.
         </p>
       </div>
 
@@ -1242,7 +1242,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       </.callout>
 
       <p :if={@attachable_empty?} class="text-sm text-ink-muted" data-testid="access-attach-empty">
-        No private apps waiting — apps show up here while they are private and not
+        No private apps waiting. Apps show up here while they are private and not
         attached yet.
       </p>
 
@@ -1443,7 +1443,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       {:ok, _route} ->
         {:noreply,
          socket
-         |> put_flash(:info, "#{instance.name} attached — its tailnet address is below.")
+         |> put_flash(:info, "#{instance.name} attached. Its tailnet address is below.")
          |> assign(attach_error: nil)
          |> refresh_pairing()}
 
@@ -1465,11 +1465,11 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   # so the flash says what the instance is actually left as — the
   # public-but-attached corner detaches back to public, not panel-only.
   defp detach_flash(%Instance{exposure: :private} = instance) do
-    "#{instance.name} detached — reachable from the panel only again."
+    "#{instance.name} detached. Reachable from the panel only again."
   end
 
   defp detach_flash(%Instance{} = instance) do
-    "#{instance.name} detached — its public address still works."
+    "#{instance.name} detached. Its public address still works."
   end
 
   # Both lists refetch wholesale: the pairing table is small, and every
@@ -1530,15 +1530,15 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   # Where the sections hide, one honest line says why (§4.1's banner:
   # attach while suspended is refused, so the section isn't offered).
   defp pairing_paused_copy(%AccessGateway{state: :suspended}) do
-    "Attaching is paused while private access is suspended — resume it to bring your apps' addresses back."
+    "Attaching is paused while private access is suspended. Resume it to bring your apps' addresses back."
   end
 
   defp pairing_paused_copy(%AccessGateway{state: :needs_attention}) do
-    "Attaching is paused while the gateway isn't connected — reconnect with a fresh key first."
+    "Attaching is paused while the gateway isn't connected. Reconnect with a fresh key first."
   end
 
   defp pairing_paused_copy(%AccessGateway{state: :destroying}) do
-    "Attaching is unavailable — private access is being removed."
+    "Attaching is unavailable. Private access is being removed."
   end
 
   # The open states render the sections instead — nil hides the note.
@@ -1546,21 +1546,21 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
   # §4.1's error map: each refusal in the operation's own words.
   defp attach_error_copy(:gateway_not_active) do
-    "Private access isn't connected yet — wait for Connected, then attach again."
+    "Private access isn't connected yet. Wait for Connected, then attach again."
   end
 
   defp attach_error_copy(:pool_exhausted) do
-    "This gateway's addresses are all in use — detach an app to free one."
+    "This gateway's addresses are all in use. Detach an app to free one."
   end
 
   # The migration-window row only: every gateway created after the
   # column lands carries its domain. The fix is the re-paste form.
   defp attach_error_copy(:tailnet_domain_missing) do
-    "This gateway needs its tailnet domain — reconnect with your key and fill it in first."
+    "This gateway needs its tailnet domain. Reconnect with your key and fill it in first."
   end
 
   defp attach_error_copy(_cluster_or_stale) do
-    "Couldn't attach — try again."
+    "Couldn't attach. Try again."
   end
 
   # ---- Device sign-ins copy (#362) ----

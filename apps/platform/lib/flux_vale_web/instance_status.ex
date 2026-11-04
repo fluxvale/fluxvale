@@ -37,15 +37,15 @@ defmodule FluxValeWeb.InstanceStatus do
   }
 
   @progress_copy %{
-    pending: "We've got your request — setup will begin shortly.",
+    pending: "We've got your request. Setup will begin shortly.",
     deploying: "Setting up your app.",
     starting: "Starting it up.",
     running: "Your app is up and running.",
     sleeping:
-      "Your app is asleep after a stretch without visitors — it wakes automatically the next time someone opens it (a few seconds), and costs only storage while it rests.",
+      "Your app is asleep after a stretch without visitors. It wakes automatically the next time someone opens it (a few seconds), and costs only storage while it rests.",
     restoring:
-      "We're putting one of your backups back in place. Your app stays off until it's done, then comes back the way you left it — this can take a while for a large app.",
-    stopped: "Your app is stopped. Your data is kept safe — start it again anytime.",
+      "We're putting one of your backups back in place. Your app stays off until it's done, then comes back the way you left it. This can take a while for a large app.",
+    stopped: "Your app is stopped. Your data is kept safe. Start it again anytime.",
     deleting: "Cleaning up your app and its data.",
     lost:
       "This app went missing on our side, and billing has been stopped. Set it up again, or delete it if you're done with it."
@@ -55,9 +55,9 @@ defmodule FluxValeWeb.InstanceStatus do
   # nil (legacy rows written before #179) reads as the generic snag.
   @failure_copy %{
     deploy_failed:
-      "We hit a snag setting up your app. Try again in a minute — if it keeps failing, we're already on it.",
+      "We hit a snag setting up your app. Try again in a minute. If it keeps failing, we're already on it.",
     rollout_failed:
-      "Your app didn't start up properly. Try again — if it keeps failing, we're on it.",
+      "Your app didn't start up properly. Try again. If it keeps failing, we're on it.",
     stuck: "Setup took too long, so we stopped it. You can try again.",
     missing: "Your app went missing on our side. Try setting it up again.",
     start_failed: "We couldn't start your app. Try again in a minute.",
@@ -66,14 +66,14 @@ defmodule FluxValeWeb.InstanceStatus do
     # previous backup rather than at a blind retry (ADR-0037 §2's
     # retention is exactly this fallback).
     restore_failed:
-      "Your app couldn't be restored, and its files may be only partly back. Try restoring again, or pick an earlier backup — the ones before it are untouched.",
+      "Your app couldn't be restored, and its files may be only partly back. Try restoring again, or pick an earlier backup. The ones before it are untouched.",
     teardown_failed:
-      "We couldn't finish deleting your app. Try the delete again — it's safe to retry."
+      "We couldn't finish deleting your app. Try the delete again. It's safe to retry."
   }
 
-  @generic_failure_copy "Something went wrong on our side. Try again — if it keeps happening, we're on it."
+  @generic_failure_copy "Something went wrong on our side. Try again. If it keeps happening, we're on it."
 
-  @slow_copy "This is taking longer than usual — we're still working on it."
+  @slow_copy "This is taking longer than usual. We're still working on it."
 
   @doc "The badge label for a state-machine status (#179's arc vocabulary)."
   @spec label(atom()) :: String.t()

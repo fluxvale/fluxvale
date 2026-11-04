@@ -34,7 +34,7 @@ defmodule FluxValeWeb.SessionController do
     else
       _error ->
         conn
-        |> put_flash(:error, "Sign-in failed — request a new code.")
+        |> put_flash(:error, "Sign-in failed. Request a new code.")
         |> redirect(to: ~p"/sign-in")
     end
   end

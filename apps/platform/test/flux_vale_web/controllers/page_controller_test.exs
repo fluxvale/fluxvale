@@ -21,7 +21,7 @@ defmodule FluxValeWeb.PageControllerTest do
     body = landing_body(html)
 
     assert html =~ ~r/<h1[^>]*>\s*Managed cloud platform for open source applications/
-    assert html =~ "FluxVale — Managed cloud platform for open source applications"
+    assert html =~ "FluxVale, managed cloud platform for open source applications"
     assert html =~ ~s(href="/catalog")
     assert html =~ ~s(href="/sign-in")
     # The sign-in redirect target is this page — its flash must render here.
@@ -31,7 +31,7 @@ defmodule FluxValeWeb.PageControllerTest do
     assert body =~ ~r/>Sign in/
     assert body =~ "How it works"
     assert body =~ "Pick an app"
-    assert body =~ "no YAML"
+    assert body =~ "No YAML"
     assert body =~ "We run it"
     assert body =~ "Simple pricing"
     assert body =~ "welcome credits"
@@ -41,7 +41,7 @@ defmodule FluxValeWeb.PageControllerTest do
     refute body =~ "Phoenix Framework"
     refute body =~ "Peace of mind from prototype to production"
 
-    assert conn.assigns[:page_title] =~ "Managed cloud platform for open source applications"
+    assert conn.assigns[:page_title] =~ "managed cloud platform for open source applications"
     assert conn.assigns[:page_description] =~ "deploy"
   end
 
@@ -137,7 +137,7 @@ defmodule FluxValeWeb.PageControllerTest do
     refute html =~ ~r/<h1[^>]*>\s*Managed cloud platform for open source applications/
     assert html =~ to_string(user.email)
     assert html =~ ~s(data-testid="user-menu")
-    assert conn.assigns[:page_title] == "FluxVale — Dashboard"
+    assert conn.assigns[:page_title] == "FluxVale Dashboard"
   end
 
   test "GET /about renders the landing for anonymous visitors, canonical to /", %{conn: conn} do

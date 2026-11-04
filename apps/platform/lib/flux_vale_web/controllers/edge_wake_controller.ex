@@ -106,11 +106,11 @@ defmodule FluxValeWeb.EdgeWakeController do
   end
 
   defp retry_signal(conn) do
-    respond(conn, :service_unavailable, "waking up — resend the request shortly")
+    respond(conn, :service_unavailable, "waking up. Resend the request shortly")
   end
 
   defp unfunded_signal(conn) do
-    respond(conn, :service_unavailable, "asleep — the owner's balance needs a top-up to wake it")
+    respond(conn, :service_unavailable, "asleep. The owner's balance needs a top-up to wake it")
   end
 
   # PR #267 review round 2 (P2-2): the private gate, before any status
@@ -130,7 +130,7 @@ defmodule FluxValeWeb.EdgeWakeController do
         respond(
           conn,
           :service_unavailable,
-          "asleep — the owner's balance needs a top-up to wake it"
+          "asleep. The owner's balance needs a top-up to wake it"
         )
     end
   end
@@ -152,7 +152,7 @@ defmodule FluxValeWeb.EdgeWakeController do
       {:error, _error} ->
         # Failed flip: the retry hint, not a redirect onto a route that
         # still points here (the next window retries the apply).
-        respond(conn, :service_unavailable, "almost there — retrying the switch")
+        respond(conn, :service_unavailable, "almost there. Retrying the switch")
     end
   end
 
@@ -164,7 +164,7 @@ defmodule FluxValeWeb.EdgeWakeController do
     respond(
       conn,
       :service_unavailable,
-      "This app is having a backup restored — it will be back when that finishes.",
+      "This app is having a backup restored. It will be back when that finishes.",
       refresh_seconds: @status_refresh_seconds
     )
   end
@@ -202,7 +202,7 @@ defmodule FluxValeWeb.EdgeWakeController do
     if html_client?(conn) do
       wake_page(conn, instance)
     else
-      respond(conn, :service_unavailable, "waking up — retry shortly")
+      respond(conn, :service_unavailable, "waking up. Retry shortly")
     end
   end
 

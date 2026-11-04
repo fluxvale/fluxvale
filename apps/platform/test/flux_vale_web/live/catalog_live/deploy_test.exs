@@ -994,7 +994,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       |> render_change()
 
       assert has_element?(view, "#below-recommendation-warning")
-      assert render(view) =~ "it may run slowly or fail"
+      assert render(view) =~ "It may run slowly or fail"
 
       # A channel-level continue without the ack stays put (the disabled
       # button is client-side only).

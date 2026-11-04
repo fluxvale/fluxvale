@@ -423,7 +423,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       assert {:ok,
               %{
                 state: :needs_attention,
-                message: "Not connected — your access setup was lost; reconnect with a fresh key"
+                message: "Not connected. Your access setup was lost. Reconnect with a fresh key"
               }} = Tailscale.gateway_status(gateway)
     end
   end

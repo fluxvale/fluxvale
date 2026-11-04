@@ -449,7 +449,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
          |> assign_tax(assigns.details)
          |> put_flash(
            :error,
-           "The VAT rate changed — nothing was charged. The total below is updated; review and pay again."
+           "The VAT rate changed. Nothing was charged. The total below is updated, so review and pay again."
          )}
 
       {:error, :missing_config} ->
@@ -467,7 +467,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
          put_flash(
            socket,
            :error,
-           "The checkout couldn't be opened. Nothing was charged — try again."
+           "The checkout couldn't be opened. Nothing was charged. Try again."
          )}
     end
   end
@@ -777,7 +777,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
                   data-testid="topup-country-more"
                   aria-live="polite"
                 >
-                  …and {@country_total - length(@country_matches)} more — keep typing
+                  …and {@country_total - length(@country_matches)} more. Keep typing
                 </p>
               <% end %>
               <%= if @country_total == 0 do %>
@@ -786,7 +786,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
                   data-testid="topup-country-empty"
                   aria-live="polite"
                 >
-                  No matching country — keep typing, or check the spelling.
+                  No matching country. Keep typing, or check the spelling.
                 </p>
               <% end %>
             </div>
@@ -908,7 +908,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
       <% end %>
 
       <p class="text-xs text-ink-subtle" data-testid="topup-notice">
-        Credits can be used for any app, never expire, and are non-refundable — <.link
+        Credits can be used for any app, never expire, and are non-refundable. See the <.link
           navigate={~p"/policies/refund"}
           data-testid="topup-refund-policy"
           class="underline underline-offset-2 hover:text-ink"
@@ -981,7 +981,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
       </div>
 
       <p class="text-xs text-ink-subtle" data-testid="topup-notice">
-        Credits can be used for any app, never expire, and are non-refundable — <.link
+        Credits can be used for any app, never expire, and are non-refundable. See the <.link
           navigate={~p"/policies/refund"}
           data-testid="topup-refund-policy"
           class="underline underline-offset-2 hover:text-ink"
@@ -1141,7 +1141,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
           </h2>
           <p class="text-sm text-ink-muted">
             The gateway is still confirming the payment. Your credit lands
-            the moment it does — nothing more to do here.
+            the moment it does. Nothing more to do here.
           </p>
         <% end %>
 

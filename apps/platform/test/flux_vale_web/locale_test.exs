@@ -83,7 +83,7 @@ defmodule FluxValeWeb.LocaleTest do
       |> LazyHTML.query("title")
       |> LazyHTML.text()
 
-    assert title =~ "xx: FluxVale — Managed cloud platform for open source applications"
+    assert title =~ "xx: FluxVale, managed cloud platform for open source applications"
     assert body =~ ~s(lang="xx")
   end
 

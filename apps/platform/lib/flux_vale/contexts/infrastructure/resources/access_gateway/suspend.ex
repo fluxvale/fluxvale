@@ -69,7 +69,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.Suspend do
         |> Ash.Changeset.force_change_attribute(:state, :suspended)
         |> Ash.Changeset.force_change_attribute(
           :status_message,
-          "Access paused — top up to resume"
+          "Access paused. Top up to resume"
         )
         # Park the cursor: the suspended interval must not bill on
         # resume (the instance running-anchor fold, same reasoning).

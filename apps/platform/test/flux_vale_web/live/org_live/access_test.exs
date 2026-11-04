@@ -408,7 +408,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       assert has_element?(
                view,
                "[data-testid='access-connecting-note']",
-               "if it sticks, reconnect with your key"
+               "If it sticks, reconnect with your key"
              )
 
       assert has_element?(view, "[data-testid='access-repaste-toggle']", "Re-paste key")
@@ -443,7 +443,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
 
       assert has_element?(view, "[data-testid=status-badge]", "Suspended")
       assert has_element?(view, "[data-testid='access-suspended-banner']")
-      assert has_element?(view, "[data-testid='access-suspended-banner']", "the balance ran out")
+      assert has_element?(view, "[data-testid='access-suspended-banner']", "The balance ran out")
       assert has_element?(view, "[data-testid='access-resume']")
       refute has_element?(view, "[data-testid='access-resume-topup']")
       assert has_element?(view, "[data-testid='access-remove']")
@@ -1040,7 +1040,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       assert has_element?(
                view,
                "[data-testid='access-status-message']",
-               "try connecting again"
+               "Try connecting again"
              )
     end
 
@@ -1182,7 +1182,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       |> element("[data-testid='access-attach-button']")
       |> render_click()
 
-      assert has_element?(view, "[data-testid='access-attach-error']", "wait for Connected")
+      assert has_element?(view, "[data-testid='access-attach-error']", "Wait for Connected")
     end
 
     test "an exhausted pool lands its honest copy", %{conn: conn, owner: owner, org: org} do
@@ -1282,7 +1282,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       |> element("[data-testid='access-detach']")
       |> render_click()
 
-      assert has_element?(view, "#flash-info", "reachable from the panel only again")
+      assert has_element?(view, "#flash-info", "Reachable from the panel only again")
       refute has_element?(view, "[data-testid='access-attached-row']")
       assert has_element?(view, "[data-testid='access-attach-row']", instance.name)
 
@@ -1347,7 +1347,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       |> element("[data-testid='access-detach']")
       |> render_click()
 
-      assert has_element?(view, "#flash-info", "its public address still works")
+      assert has_element?(view, "#flash-info", "Its public address still works")
     end
 
     test "a suspended gateway hides the pairing sections and says why", %{conn: conn, org: org} do
@@ -1372,7 +1372,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       assert has_element?(
                view,
                "[data-testid='access-pairing-paused']",
-               "reconnect with a fresh key"
+               "Reconnect with a fresh key"
              )
     end
 

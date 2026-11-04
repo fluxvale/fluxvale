@@ -33,7 +33,7 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
 
   @domain_name "apps.customer.com"
   @resolver_ip "10.43.0.20"
-  @missing_token_copy "Your Tailscale API key is missing — paste one to reconnect access"
+  @missing_token_copy "Your Tailscale API key is missing. Paste one to reconnect access"
 
   setup do
     InstanceFixtures.local_cluster!()

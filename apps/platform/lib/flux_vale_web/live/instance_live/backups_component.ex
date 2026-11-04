@@ -131,7 +131,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
          |> assign(
            error: nil,
            confirm: nil,
-           notice: "Backup started — this page updates as it runs."
+           notice: "Backup started. This page updates as it runs."
          )
          |> refresh()}
 
@@ -168,7 +168,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
          |> assign(
            confirm: nil,
            error: nil,
-           notice: "Restoring now — the app is off until it's done."
+           notice: "Restoring now. The app is off until it's done."
          )
          |> refresh()}
 
@@ -208,12 +208,10 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
         {:noreply, assign(socket, repo_password: password, error: nil)}
 
       {:error, :not_deployed} ->
-        {:noreply,
-         assign(socket, error: "Set the app up first — there's no backup password yet.")}
+        {:noreply, assign(socket, error: "Set the app up first. There's no backup password yet.")}
 
       _unavailable ->
-        {:noreply,
-         assign(socket, error: "Couldn't read the backup password — try again shortly.")}
+        {:noreply, assign(socket, error: "Couldn't read the backup password. Try again shortly.")}
     end
   end
 
@@ -391,7 +389,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
     save would be refused anyway, so the card says so before the form. --%>
     <.callout :if={!@org_paid?} tone="warning" data-testid="backups-unpaid">
       <p class="text-sm text-ink-muted">
-        Backups need a one-time top-up of at least $1 in your wallet — add
+        Backups need a one-time top-up of at least $1 in your wallet. Add
         funds in <.link
           navigate={@billing_path}
           class="underline underline-offset-2 hover:text-ink"
@@ -404,9 +402,9 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
 
     <.callout tone="info" data-testid="backups-unconfigured">
       <p class="text-sm text-ink-muted">
-        Backups go to your own S3-compatible bucket — Cloudflare R2, or any
-        MinIO or S3 endpoint. You pay your provider for storage; FluxVale
-        charges no fee for backups — the one-time top-up is a wallet
+        Backups go to your own S3-compatible bucket, Cloudflare R2, or any
+        MinIO or S3 endpoint. You pay your provider for storage. FluxVale
+        charges no fee for backups. The one-time top-up is a wallet
         minimum, not a charge.
       </p>
     </.callout>
@@ -466,7 +464,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
     silently skipped — the same shapes the due pass skips benignly. --%>
     <.callout :if={!@org_paid?} tone="warning" data-testid="backups-config-unpaid">
       <p class="text-sm text-ink-muted">
-        Backups are blocked — top up once (at least $1) to use them. Add funds
+        Backups are blocked. Top up once (at least $1) to use them. Add funds
         in <.link
           navigate={@billing_path}
           class="underline underline-offset-2 hover:text-ink"
@@ -483,8 +481,8 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
       data-testid="backups-config-prefund"
     >
       <p class="text-sm text-ink-muted">
-        Backups are blocked — the balance ran out. Top up to use them again —
-        add funds in <.link
+        Backups are blocked. The balance ran out. Top up to use them again.
+        Add funds in <.link
           navigate={@billing_path}
           class="underline underline-offset-2 hover:text-ink"
           data-testid="backups-config-prefund-link"
@@ -650,7 +648,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
       :if={@confirm == :remove}
       title="Stop backing this app up?"
       body="This app stops backing up and the schedule is removed. Snapshots already in your bucket stay there."
-      note="Keep your backup password — you'll still need it to restore these snapshots into a new app."
+      note="Keep your backup password. You'll still need it to restore these snapshots into a new app."
       action="Yes, stop backing up"
       event="remove-settings"
       action_testid="stop-backups-confirm"
@@ -703,7 +701,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
       <p class="text-xs text-ink-muted">
         <span class="font-medium text-ink">Keep this somewhere safe.</span>
         You need it to restore these backups into a new app if this one is
-        deleted — it isn't shown anywhere else.
+        deleted. It isn't shown anywhere else.
       </p>
     </div>
 
@@ -720,7 +718,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
         <.backup_run_row :for={run <- @runs} run={run} now={@now} />
       </div>
       <p :if={@runs == []} class="text-xs text-ink-subtle" data-testid="backups-no-runs">
-        No runs yet — the first one lands at tonight's scheduled time, or press
+        No runs yet. The first one lands at tonight's scheduled time, or press
         "Back up now".
       </p>
     </div>
@@ -777,7 +775,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
     <.callout tone="warning" data-testid="backups-unavailable">
       <p class="text-sm text-ink-muted">
         Backup settings live with the app, and this app went missing on our
-        side. Re-deploy it to reconnect its backups — the snapshots in your
+        side. Re-deploy it to reconnect its backups. The snapshots in your
         bucket are untouched.
       </p>
     </.callout>
@@ -1018,7 +1016,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   defp access_key_placeholder(nil), do: "AKIAIOSF…"
 
   defp access_key_placeholder(key),
-    do: "Unchanged — ends in #{String.slice(mask_secret(key), -4, 4)}"
+    do: "Unchanged. Ends in #{String.slice(mask_secret(key), -4, 4)}"
 
   # The stored secret never renders, so the placeholder can only say
   # THAT one exists — no fragment of it, ever.
@@ -1066,12 +1064,12 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
 
   defp mask_secret(_value), do: "••••"
 
-  defp cadence_label(_enabled, false), do: "Backups are blocked — the wallet cannot run them"
+  defp cadence_label(_enabled, false), do: "Backups are blocked. The wallet cannot run them"
   defp cadence_label(true, true), do: "Backing up daily"
   defp cadence_label(false, true), do: "Backups paused"
 
   defp toggle_notice(true), do: "Backups resumed."
-  defp toggle_notice(false), do: "Backups paused — nothing is uploaded until you resume."
+  defp toggle_notice(false), do: "Backups paused. Nothing is uploaded until you resume."
 
   # The wallet copy's precondition: a row this actor can still read AND
   # an unpaid ledger. Anything else — row gone, membership revoked, a
@@ -1084,16 +1082,16 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   end
 
   defp copy_for(:run_in_flight), do: "A backup or restore is already running. Give it a minute."
-  defp copy_for(:backups_disabled), do: "Backups are paused — resume them first."
+  defp copy_for(:backups_disabled), do: "Backups are paused. Resume them first."
 
   defp copy_for(:nothing_to_restore), do: "There's no finished backup to restore yet."
-  defp copy_for(:not_restorable), do: "The app is busy right now — try again in a moment."
+  defp copy_for(:not_restorable), do: "The app is busy right now. Try again in a moment."
 
   defp copy_for(:not_deployed),
     do: "Backups can be configured once the app has finished setting up."
 
   defp copy_for(:secret_access_key_required), do: "Add your secret access key."
-  defp copy_for(:secret_corrupt), do: "The stored credentials look damaged — re-enter your keys."
+  defp copy_for(:secret_corrupt), do: "The stored credentials look damaged. Re-enter your keys."
 
   # The resume toggle's paid refusal — the resource policy has no
   # message of its own, so the panel names the fix (the save path's
@@ -1119,10 +1117,10 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   # org keeps the $1-once education, a paid-or-waived org at zero gets
   # the balance-only line. The up-front callouts stay population-gated.
   defp copy_for(:wallet_unfunded, false),
-    do: "Top up to run a backup — add at least $1 once, and keep a positive balance."
+    do: "Top up to run a backup. Add at least $1 once, and keep a positive balance."
 
   defp copy_for(:wallet_unfunded, _paid_or_waived),
-    do: "Top up to run a backup — keep a positive balance in your wallet."
+    do: "Top up to run a backup. Keep a positive balance in your wallet."
 
   defp copy_for(reason, _org_paid?), do: copy_for(reason)
 

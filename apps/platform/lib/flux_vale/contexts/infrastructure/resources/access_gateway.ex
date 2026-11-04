@@ -728,7 +728,7 @@ defmodule FluxVale.Infrastructure.AccessGateway do
         |> Ash.Changeset.force_change_attribute(:state, :needs_attention)
         |> Ash.Changeset.force_change_attribute(
           :status_message,
-          "Access setup failed unexpectedly — try connecting again"
+          "Access setup failed unexpectedly. Try connecting again"
         )
         |> Ash.Changeset.force_change_attribute(:needs_attention_since, DateTime.utc_now())
       end)
@@ -757,7 +757,7 @@ defmodule FluxVale.Infrastructure.AccessGateway do
         |> Ash.Changeset.force_change_attribute(:state, :destroying)
         |> Ash.Changeset.force_change_attribute(
           :status_message,
-          "Removal failed — retry removing access"
+          "Removal failed. Retry removing access"
         )
       end)
 
@@ -857,8 +857,8 @@ defmodule FluxVale.Infrastructure.AccessGateway do
   defp pairing_error(reason) when is_atom(reason) do
     message =
       case reason do
-        :not_private -> "the instance is not private — attach needs a private instance"
-        :gateway_not_active -> "the gateway is not serving right now — try again later"
+        :not_private -> "the instance is not private. Attach needs a private instance"
+        :gateway_not_active -> "the gateway is not serving right now. Try again later"
         :different_organization -> "the instance belongs to another organization"
         :not_deployed -> "the instance has not finished setting up yet"
         # Defensive: AttachInstance returns exactly these four atoms

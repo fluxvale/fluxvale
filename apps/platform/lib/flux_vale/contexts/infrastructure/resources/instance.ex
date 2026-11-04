@@ -1157,13 +1157,13 @@ defmodule FluxVale.Infrastructure.Instance do
   # passes through untouched — the :delete action's stance.
   @backup_refusals %{
     no_settings: "backups are not configured for this instance",
-    backups_disabled: "backups are paused — resume them first",
+    backups_disabled: "backups are paused. Resume them first",
     not_deployed: "backups can be used once the app has finished setting up",
-    run_in_flight: "a backup or restore is already running — try again shortly",
+    run_in_flight: "a backup or restore is already running. Try again shortly",
     nothing_to_restore: "there is no finished backup to restore yet",
-    not_restorable: "the app is busy right now — try again in a moment",
-    not_latest_backup: "is not the latest successful backup — restore targets the latest one",
-    wallet_unfunded: "top up to run a backup — keep a positive wallet balance"
+    not_restorable: "the app is busy right now. Try again in a moment",
+    not_latest_backup: "is not the latest successful backup. Restore targets the latest one",
+    wallet_unfunded: "top up to run a backup. Keep a positive wallet balance"
   }
 
   defp backup_error(reason) when is_atom(reason) do

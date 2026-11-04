@@ -96,7 +96,7 @@ defmodule FluxValeWeb.InstanceLive.IndexTest do
     assert has_element?(
              view,
              "[data-testid='instance-status-message']",
-             "setup will begin shortly"
+             "Setup will begin shortly"
            )
 
     assert html =~ app.name

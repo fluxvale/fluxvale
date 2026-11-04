@@ -214,7 +214,7 @@ defmodule FluxValeWeb.DashboardLive do
               tone="info"
               title="Welcome credits ready"
             >
-              You have {format_usd(@wallet.balance_cents)} in credits — your first deploy is on us.
+              You have {format_usd(@wallet.balance_cents)} in credits. Your first deploy is on us.
             </.callout>
 
             <%!-- The concept's row language: monogram chip, name + mono

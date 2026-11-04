@@ -661,7 +661,7 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
 
       conn = post(conn, wake_url(gateway, instance), %{"form" => "data"})
 
-      assert response(conn, 503) =~ "resend"
+      assert response(conn, 503) =~ "Resend the request shortly"
       assert get_resp_header(conn, "retry-after") == ["3"]
 
       waking = Instance.get_by_id!(instance.id, authorize?: false)
@@ -687,7 +687,7 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
 
       conn = post(conn, wake_url(gateway, instance))
 
-      assert response(conn, 503) =~ "resend"
+      assert response(conn, 503) =~ "Resend the request shortly"
 
       assert_received {:secret_create, _ns, _name, %{"serve.json" => json}}
       assert json =~ "app.#{instance.namespace}.svc.cluster.local:80"
@@ -704,7 +704,7 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
 
       conn = post(conn, wake_url(gateway, instance))
 
-      assert response(conn, 503) =~ "resend"
+      assert response(conn, 503) =~ "Resend the request shortly"
 
       assert Instance.get_by_id!(instance.id, authorize?: false).status == :starting
     end
