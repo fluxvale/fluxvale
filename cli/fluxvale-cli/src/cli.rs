@@ -3,6 +3,7 @@
 //! flags, and the locally-implementable `auth status`.
 
 use crate::config::{self, Config};
+use crate::reads;
 use crate::token::TokenStore;
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
@@ -71,7 +72,11 @@ pub enum Command {
         command: WalletCommand,
     },
     /// Top up your wallet
-    Topup,
+    Topup {
+        /// Open the top-up page in your browser
+        #[arg(long)]
+        open: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -99,10 +104,10 @@ pub enum AppsCommand {
 pub enum InstancesCommand {
     /// List your instances
     List,
-    /// Show one instance's status
+    /// Show one instance's status (verbose list when no id is given)
     Status {
-        /// The instance ID
-        instance: String,
+        /// The instance ID (omit for a verbose list)
+        instance: Option<String>,
     },
     /// Deploy an instance
     Deploy {
@@ -151,9 +156,17 @@ pub enum AccessCommand {
 #[derive(Debug, Subcommand)]
 pub enum WalletCommand {
     /// Show your wallet balance
-    Balance,
+    Balance {
+        /// The organization ID (default: organization_id from the config file)
+        #[arg(long, value_name = "ID")]
+        org: Option<String>,
+    },
     /// Show how long your balance lasts at current spend
-    Runway,
+    Runway {
+        /// The organization ID (default: organization_id from the config file)
+        #[arg(long, value_name = "ID")]
+        org: Option<String>,
+    },
 }
 
 /// Dispatch. Returns Ok(()) on success; errors print one line to
@@ -171,14 +184,32 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
             AuthCommand::Logout => not_yet("auth logout"),
             AuthCommand::Status => auth_status(&config),
         },
-        Command::Whoami => not_yet("whoami"),
+        Command::Whoami => {
+            let (client, location) = reads::read_client(&config)?;
+            print(reads::whoami(&client, location, cli.output))
+        }
         Command::Apps { command } => match command {
-            AppsCommand::List => not_yet("apps list"),
-            AppsCommand::Show { .. } => not_yet("apps show"),
+            AppsCommand::List => {
+                let (client, _) = reads::read_client(&config)?;
+                print(reads::apps_list(&client, cli.output))
+            }
+            AppsCommand::Show { slug } => {
+                let (client, _) = reads::read_client(&config)?;
+                print(reads::apps_show(&client, slug, cli.output))
+            }
         },
         Command::Instances { command } => match command {
-            InstancesCommand::List => not_yet("instances list"),
-            InstancesCommand::Status { .. } => not_yet("instances status"),
+            InstancesCommand::List => {
+                let (client, _) = reads::read_client(&config)?;
+                print(reads::instances_list(&client, cli.output))
+            }
+            InstancesCommand::Status { instance } => {
+                let (client, _) = reads::read_client(&config)?;
+                match instance {
+                    Some(id) => print(reads::instances_status(&client, id, cli.output)),
+                    None => print(reads::instances_status_all(&client, cli.output)),
+                }
+            }
             InstancesCommand::Deploy { .. } => not_yet("instances deploy"),
             InstancesCommand::Stop { .. } => not_yet("instances stop"),
             InstancesCommand::Start { .. } => not_yet("instances start"),
@@ -196,11 +227,26 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
             AccessCommand::Detach => not_yet("access detach"),
         },
         Command::Wallet { command } => match command {
-            WalletCommand::Balance => not_yet("wallet balance"),
-            WalletCommand::Runway => not_yet("wallet runway"),
+            WalletCommand::Balance { org } => {
+                let (client, _) = reads::read_client(&config)?;
+                let org_id = reads::resolve_org(&config, org.as_deref())?;
+                print(reads::wallet_balance(&client, &org_id, cli.output))
+            }
+            WalletCommand::Runway { org } => {
+                let (client, _) = reads::read_client(&config)?;
+                let org_id = reads::resolve_org(&config, org.as_deref())?;
+                print(reads::wallet_runway(&client, &org_id, cli.output))
+            }
         },
-        Command::Topup => not_yet("topup"),
+        Command::Topup { open } => print(reads::topup(&config.base_url, *open)),
     }
+}
+
+/// One trailing newline, added here and nowhere else: the renderers
+/// end their last line bare, and `println!` closes it.
+fn print(line: anyhow::Result<String>) -> anyhow::Result<()> {
+    println!("{}", line?);
+    Ok(())
 }
 
 /// `auth status` runs locally: config + stored token, no network.
@@ -282,6 +328,13 @@ mod tests {
                 command: InstancesCommand::List
             }
         ));
+        // status parses with and without the id.
+        assert!(matches!(
+            parse(&["instances", "status"]).command,
+            Command::Instances {
+                command: InstancesCommand::Status { instance: None }
+            }
+        ));
         match parse(&["instances", "deploy", "01ABC"]).command {
             Command::Instances {
                 command: InstancesCommand::Deploy { instance },
@@ -290,7 +343,7 @@ mod tests {
             }
             other => panic!("wrong: {other:?}"),
         }
-        for action in ["status", "stop", "start", "destroy"] {
+        for action in ["stop", "start", "destroy"] {
             assert!(
                 matches!(
                     parse(&["instances", action, "01ABC"]).command,
@@ -317,7 +370,27 @@ mod tests {
                 "{action} must parse"
             );
         }
-        assert!(matches!(parse(&["topup"]).command, Command::Topup));
+        // The wallet org flag and the topup --open flag.
+        match parse(&["wallet", "balance", "--org", "01JORG"]).command {
+            Command::Wallet {
+                command: WalletCommand::Balance { org },
+            } => assert_eq!(org.as_deref(), Some("01JORG")),
+            other => panic!("wrong: {other:?}"),
+        }
+        match parse(&["wallet", "runway"]).command {
+            Command::Wallet {
+                command: WalletCommand::Runway { org },
+            } => assert_eq!(org, None),
+            other => panic!("wrong: {other:?}"),
+        }
+        assert!(matches!(
+            parse(&["topup", "--open"]).command,
+            Command::Topup { open: true }
+        ));
+        assert!(matches!(
+            parse(&["topup"]).command,
+            Command::Topup { open: false }
+        ));
     }
 
     #[test]

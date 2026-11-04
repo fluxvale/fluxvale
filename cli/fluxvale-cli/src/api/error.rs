@@ -13,6 +13,11 @@ pub enum ApiError {
     #[error("{0}")]
     Forbidden(String),
 
+    /// 404 — nothing lives at this address (or the caller can't see
+    /// it); commands render the thing-specific friendly line.
+    #[error("not found")]
+    NotFound,
+
     /// 429 — `Retry-After` in seconds when the server sent one.
     #[error("rate limited, retry in {0}s")]
     RateLimited(u64),
@@ -70,13 +75,14 @@ pub(crate) fn map_response(status: u16, retry_after: Option<&str>, body: &str) -
     let document: Option<ErrorDocument> = serde_json::from_str(body).ok();
     match status {
         401 => ApiError::Unauthorized,
-        // The 403 detail names the missing scope — verbatim, not paraphrased.
+        // 403 detail names the missing scope — verbatim, not paraphrased.
         403 => ApiError::Forbidden(
             document
                 .as_ref()
                 .and_then(ErrorDocument::first_message)
                 .unwrap_or_else(|| "forbidden".to_string()),
         ),
+        404 => ApiError::NotFound,
         429 => match retry_after.and_then(parse_retry_after) {
             Some(seconds) => ApiError::RateLimited(seconds),
             None => ApiError::RateLimitedUnknown,
@@ -131,6 +137,12 @@ mod tests {
             err.to_string(),
             "403 Forbidden: token lacks the wallet scope"
         );
+    }
+
+    #[test]
+    fn not_found_is_its_own_variant() {
+        let err = map_response(404, None, r#"{"errors":[{"status":"404"}]}"#);
+        assert!(matches!(err, ApiError::NotFound), "got: {err:?}");
     }
 
     #[test]

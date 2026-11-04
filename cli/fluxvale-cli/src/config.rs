@@ -16,6 +16,11 @@ pub struct Config {
     /// Name of the active profile, when one is set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_profile: Option<String>,
+    /// The organization id the wallet commands use when no --org flag
+    /// is passed. The HTTP API has no org-list route, so the id comes
+    /// from the operator (the panel or a wallet API URL).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub organization_id: Option<String>,
 }
 
 fn default_base_url() -> String {
@@ -27,6 +32,7 @@ impl Default for Config {
         Config {
             base_url: default_base_url(),
             active_profile: None,
+            organization_id: None,
         }
     }
 }
@@ -151,6 +157,7 @@ mod tests {
         let config = Config {
             base_url: "https://staging.fluxvale.com".to_string(),
             active_profile: Some("staging".to_string()),
+            organization_id: Some("01JORG".to_string()),
         };
         config.save(&path).unwrap();
         let loaded = Config::load(&path).unwrap();
@@ -162,6 +169,7 @@ mod tests {
         let config = Config::default();
         let raw = toml::to_string_pretty(&config).unwrap();
         assert!(!raw.contains("active_profile"));
+        assert!(!raw.contains("organization_id"));
         assert!(raw.contains("https://fluxvale.com"));
     }
 
