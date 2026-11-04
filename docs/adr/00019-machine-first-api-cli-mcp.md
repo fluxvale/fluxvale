@@ -82,3 +82,29 @@ is our own agent fleet — dogfooding is the acceptance path (#361's
 note). Audit granularity note: MCP tool calls audit as `POST /mcp`
 rows (token, status) — the tool NAME is not yet an audit field, so
 per-tool attribution over MCP is a named follow-up.
+
+## Amendment 3 (2026-11-04): the CLI is Rust — OQ #9's CLI half closes
+
+The CLI's language + distribution are decided: **Rust**, distributed
+as per-OS static binaries from a cross-compile matrix (linux
+amd64/arm64, macOS, Windows) published to GitHub Releases. The
+decision is a deliberate trade of monorepo fluency for distribution
+quality: one static binary per target, a mature cross-compile story,
+and a first-class CI matrix — the strongest distribution posture for
+a tool end users run on arbitrary machines.
+
+The Elixir recommendation (same stack, one author, Burrito binaries —
+recorded in #362's research) is the rejected alternative: it kept
+repo fluency but bet distribution on a packaging toolchain with less
+proven reach than Rust's. Revisit trigger unchanged: external
+contributors or a plugin ecosystem.
+
+The client is a thin presentation layer over `/api/v1` — all logic
+stays server-side; serde types are generated from the committed
+OpenAPI artifact (§2's dump), so API changes flag the CLI at build
+time. Login is the RFC 8628 device flow (OQ #9's pre-decided wire);
+tokens live in the OS keychain where available, 0600 file fallback.
+The CI lane mirrors the BEAM disciplines in Rust — fmt + clippy
+`-D warnings` + test + `cargo deny` (license allowlist; GPL family
+denied) + llvm-cov on codecov + the 4-target matrix on every PR,
+path-isolated from the BEAM lanes.
