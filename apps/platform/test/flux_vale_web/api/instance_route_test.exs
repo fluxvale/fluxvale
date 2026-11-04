@@ -137,6 +137,155 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
     end
   end
 
+  describe "POST /api/v1/instances" do
+    # #362 (the CLI's deploy command): the generic :create joins the
+    # route set. Welcome credits fund a JIT-provisioned org — the
+    # funded gate is balance > 0, paid-once is not this gate.
+    test "a funded member creates an instance — the detail field set, env_vars never echoed", %{
+      conn: conn
+    } do
+      {user, _pat} = ApiPat.member!()
+      version = InstanceFixtures.app_version!()
+      InstanceFixtures.local_cluster!()
+      pat = ApiPat.mint!(user.email, ["instances:write"])
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v1/instances", %{
+          "data" => %{
+            "type" => "instance",
+            "attributes" => %{"name" => "CLI Deployed", "app_version_id" => version.id}
+          }
+        })
+
+      assert %{"data" => row} = json_response(conn, 201)
+      assert row["attributes"]["name"] == "CLI Deployed"
+      assert row["attributes"]["status"] == "pending"
+      # :id renders as the JSON:API identifier, not an attribute —
+      # same shape as GET /api/v1/instances/:id.
+      assert is_binary(row["id"])
+
+      # The response is the detail set — the same surface as
+      # GET /api/v1/instances/:id.
+      keys = Map.keys(row["attributes"])
+
+      assert MapSet.new(keys) ==
+               MapSet.new([
+                 "name",
+                 "slug",
+                 "namespace",
+                 "status",
+                 "exposure",
+                 "always_on",
+                 "image",
+                 "port",
+                 "healthcheck_path",
+                 "storage_mount_path",
+                 "file_access",
+                 "cpu_cores",
+                 "memory_mb",
+                 "storage_gb",
+                 "deployed_at"
+               ])
+
+      # env_vars never rides the wire in either direction (hide_fields
+      # strips it from this route's request schema too — see the
+      # rejection test below), and the raw status_message is the
+      # admin-only trail.
+      refute Map.has_key?(row["attributes"], "env_vars")
+      refute Map.has_key?(row["attributes"], "status_message")
+    end
+
+    # Ground truth pinned (#362's open question): the action's accept
+    # list includes env_vars, but hide_fields strips it from the
+    # create route's REQUEST schema as well — ash_json_api applies
+    # hide_fields in both directions — so the API cannot set env vars
+    # at create. If the CLI epic needs env-var input, that is a
+    # design change — a non-hidden :create argument mapped in by a
+    # change (show_fields is resource-level and cannot overlap
+    # hide_fields) — decided on #362.
+    test "a body carrying env_vars is refused — the route cannot set env vars today", %{
+      conn: conn
+    } do
+      {user, _pat} = ApiPat.member!()
+      version = InstanceFixtures.app_version!()
+      InstanceFixtures.local_cluster!()
+      pat = ApiPat.mint!(user.email, ["instances:write"])
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v1/instances", %{
+          "data" => %{
+            "type" => "instance",
+            "attributes" => %{
+              "name" => "Env Attempt",
+              "app_version_id" => version.id,
+              "env_vars" => %{"API_KEY" => "sekrit"}
+            }
+          }
+        })
+
+      assert %{"errors" => [error]} = json_response(conn, 400)
+      assert error["title"] == "InvalidBody"
+      assert get_in(error, ["source", "pointer"]) == "/data/attributes/env_vars"
+    end
+
+    test "a read-only token gets the scope-gate 403, not a policy 403", %{conn: conn} do
+      {user, _pat} = ApiPat.member!(["instances:read"])
+      version = InstanceFixtures.app_version!()
+      InstanceFixtures.local_cluster!()
+      pat = ApiPat.mint!(user.email, ["instances:read"])
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v1/instances", %{
+          "data" => %{
+            "type" => "instance",
+            "attributes" => %{"name" => "Nope", "app_version_id" => version.id}
+          }
+        })
+
+      # The boundary gate names the missing scope — a different failure
+      # from Ash policy refusals (the paywall suite's distinction).
+      assert %{"errors" => [error]} = json_response(conn, 403)
+      assert error["detail"] == "token is missing the required scope instances:write"
+    end
+
+    test "a bad app_version_id errors cleanly on the field", %{conn: conn} do
+      {user, _pat} = ApiPat.member!()
+      InstanceFixtures.local_cluster!()
+      pat = ApiPat.mint!(user.email, ["instances:write"])
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v1/instances", %{
+          "data" => %{
+            "type" => "instance",
+            "attributes" => %{
+              "name" => "Bogus Version",
+              "app_version_id" => Ecto.UUID.generate()
+            }
+          }
+        })
+
+      # ash_json_api renders InvalidAttribute as 400 with the field
+      # pointer — the derive's own refusal, cleanly on the field.
+      assert %{"errors" => errors} = json_response(conn, 400)
+
+      assert Enum.any?(errors, fn error ->
+               get_in(error, ["source", "pointer"]) == "/data/attributes/app_version_id"
+             end)
+    end
+  end
+
   describe "PATCH /api/v1/instances/:id/deploy" do
     test "enqueues the deploy — the inline trigger lands :starting (K8s stubbed)", %{conn: conn} do
       stub_k8s()

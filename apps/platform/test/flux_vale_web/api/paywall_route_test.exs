@@ -93,5 +93,31 @@ defmodule FluxValeWeb.Api.PaywallRouteTest do
 
       assert %{"errors" => [%{"status" => "403"} | _rest]} = json_response(conn, 403)
     end
+
+    # #362: creation joined the wire — the same gate, proven at the new
+    # front door (the zero-balance proof is about CREATE here).
+    test "create is refused by the funded gate (403)", %{conn: conn} do
+      user = elem(ApiPat.member!(), 0)
+      org = BillingFixtures.mark_user_paid!(user)
+      :ok = BillingFixtures.drain_wallet!(org)
+
+      version = InstanceFixtures.app_version!()
+      InstanceFixtures.local_cluster!()
+
+      pat = ApiPat.mint!(user.email, ["instances:write", "backups:write", "gateways:write"])
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v1/instances", %{
+          "data" => %{
+            "type" => "instance",
+            "attributes" => %{"name" => "Zero Balance", "app_version_id" => version.id}
+          }
+        })
+
+      assert %{"errors" => [%{"status" => "403"} | _rest]} = json_response(conn, 403)
+    end
   end
 end

@@ -40,6 +40,7 @@ defmodule FluxVale.Api.Scopes do
     {{"GET", ["open_api"]}, :any},
     # Instances.
     {{"GET", ["instances"]}, "instances:read"},
+    {{"POST", ["instances"]}, "instances:write"},
     {{"GET", ["instances", :_]}, "instances:read"},
     {{"PATCH", ["instances", :_, "deploy"]}, "instances:write"},
     {{"PATCH", ["instances", :_, "stop"]}, "instances:write"},

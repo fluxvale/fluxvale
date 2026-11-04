@@ -17,6 +17,7 @@ defmodule FluxValeWeb.Api.RouteInventoryTest do
     {:get, "/me"},
     # instances:read / instances:write
     {:get, "/instances"},
+    {:post, "/instances"},
     {:get, "/instances/:id"},
     {:patch, "/instances/:id/deploy"},
     {:patch, "/instances/:id/stop"},
