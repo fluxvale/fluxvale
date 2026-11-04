@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { runtimeFor } from "./helpers/runtime";
 
 // Read-only surface checks — safe on every runtime including
 // production (ADR-0024's read-only subset: no side effects, no
@@ -52,15 +53,31 @@ test("the sitemap is served and mentions the catalog", async ({ page }) => {
 });
 
 // #412: the public feedback board — same read-only subset: GETs only,
-// the board list, one post page, and the sitemap rows. The seeded
-// starter posts ride the promotable seed, so every runtime has them.
+// the board shell, one post page, and the sitemap rows.
+//
+// Demo rows come from the promotable seed, which is gated OFF for prod
+// (the #412 ruling: fabricated votes are invented social proof; prod
+// launches honestly empty). So content assertions run only on
+// seeding runtimes (local, review, staging) via the suite's runtime
+// split; the prod leg asserts the shell — the page renders, the
+// chrome's link exists, the sitemap lists the board.
+const runtime = runtimeFor(process.env.BASE_URL);
+const seedsDemoContent = runtime !== "production";
+
+test("the feedback board renders the shell (header, footer link)", async ({ page }) => {
+  await page.goto("/feedback");
+  await expect(page.getByRole("heading", { name: "Feedback" })).toBeVisible();
+  await expect(page.getByTestId("footer-feedback")).toBeVisible();
+});
 
 test("the feedback board renders post rows", async ({ page }) => {
+  test.skip(!seedsDemoContent, "prod launches unseeded: no fabricated rows to assert");
   await page.goto("/feedback");
   await expect(page.locator("[data-testid^='feedback-post-']").first()).toBeVisible();
 });
 
 test("clicking a board row opens the public post page", async ({ page }) => {
+  test.skip(!seedsDemoContent, "prod launches unseeded: no rows to click through");
   await page.goto("/feedback");
   await page.locator("[data-testid^='feedback-post-']").first().click();
   // URL + a board-specific element — the h1 alone would also match the

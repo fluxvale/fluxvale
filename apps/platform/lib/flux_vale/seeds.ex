@@ -43,6 +43,12 @@ defmodule FluxVale.Seeds do
   the catalog — versions reference a size by slug. The `local` Cluster
   row is deliberately NOT here — `seed_local_cluster!/0` stays
   dev/local-only (local_seeds.exs).
+
+  Demo feedback-board content (`seed_feedback!/0`) rides only when the
+  runtime opted in (`:seed_demo_content`): dev via config, staging/
+  review via DEMO_SEEDS_ENABLED. Prod never opts in — the board launches
+  honestly empty (the #412 architect ruling: fabricated votes are
+  invented social proof).
   """
   @spec seed :: :ok
   def seed do
@@ -51,7 +57,7 @@ defmodule FluxVale.Seeds do
     seed_pricing!()
     seed_tax_rates!()
     seed_catalog!()
-    seed_feedback!()
+    seed_feedback_if_demo!()
   end
 
   @doc """
@@ -359,9 +365,28 @@ defmodule FluxVale.Seeds do
     end
   end
 
+  # Demo board content is gated OFF everywhere and opted into per
+  # runtime (the TestInbox/Storybook gated-release shape): dev's config
+  # sets it true so `mix setup` ships a living board, prod-mode releases
+  # (staging/review) flip DEMO_SEEDS_ENABLED where the fleet attaches
+  # them, and prod NEVER sets it. The architect's #412 ruling: fabricated
+  # vote counts on a public indexed board are invented social proof the
+  # (not-yet-existing) Vote table cannot back, and real votes would
+  # compound from a fake base — prod launches honestly empty and the
+  # AccessRule invite cohort fills it.
+  defp seed_feedback_if_demo! do
+    if Application.get_env(:flux_vale, :seed_demo_content, false) do
+      seed_feedback!()
+    else
+      :ok
+    end
+  end
+
   # The board's starter content (#412 T4): real-looking requests across
   # the whole status workflow so the public board reads as living at
-  # first bring-up. Get-or-create by the derived slug (lookup first —
+  # first bring-up. NON-PROD ONLY (see seed_feedback_if_demo!/0 — the
+  # gate decides; this function itself stays ungated so tests can drive
+  # it directly). Get-or-create by the derived slug (lookup first —
   # slug is derived from the title, so the attrs below are authored to
   # derive it deterministically). age_days/status_age_days backdate the
   # display timestamps through forced attribute changes: the actions
@@ -467,20 +492,40 @@ defmodule FluxVale.Seeds do
 
   @doc """
   Seeds a starter set of feedback posts (fluxvale/fluxvale#412, T4) so
-  the public board ships with living content. Idempotent — get-or-create
-  by the derived slug; existing rows are never converged (an admin's
-  edits are data, not drift). A duplicate's original is listed before it
-  in the entries, so the merge pointer always resolves.
+  non-prod boards ship with living content. Demo data, deliberately
+  gated OFF for prod (fabricated votes are invented social proof) —
+  `seed/0` calls it only when the runtime opted in; this function stays
+  ungated for tests. Idempotent — get-or-create by the derived slug;
+  existing rows are never converged (an admin's edits are data, not
+  drift). A duplicate's original is listed before it in the entries, so
+  the merge pointer always resolves.
 
   authorize?: false — bootstrap, the seed posture. Counters and the
   display timestamps ride forced attribute changes (no action accepts
   them; the vote/comment slices do not exist yet).
   """
   @spec seed_feedback! :: :ok
-  def seed_feedback! do
+  def seed_feedback!, do: seed_feedback!(@feedback_entries)
+
+  @doc """
+  Seeds a starter set of feedback posts (fluxvale/fluxvale#412, T4) so
+  non-prod boards ship with living content. Demo data, deliberately
+  gated OFF for prod (fabricated votes are invented social proof) —
+  `seed/0` calls it only when the runtime opted in; this function stays
+  ungated for tests. Idempotent — get-or-create by the derived slug;
+  existing rows are never converged (an admin's edits are data, not
+  drift). A duplicate's original must be listed before it in the
+  entries, so the merge pointer always resolves.
+
+  The 1-arity takes entries directly — the test suite also drives it
+  with fixture entries to cover the guard machinery beyond the shipped
+  set (the seed_catalog!/1 shape).
+  """
+  @spec seed_feedback!([map()]) :: :ok
+  def seed_feedback!(entries) do
     admin = User.get_by_email!(@admin_email, authorize?: false)
 
-    for entry <- @feedback_entries do
+    for entry <- entries do
       case find_feedback_post(entry.slug) do
         nil -> seed_feedback_post!(entry, admin)
         _post -> :ok
@@ -504,6 +549,13 @@ defmodule FluxVale.Seeds do
         authorize?: false
       )
 
+    # The authored slug is the get-or-create key: a future entry whose
+    # title no longer derives to it would mint an unfindable duplicate
+    # on every re-run. Fail the seed loudly instead.
+    if created.slug != entry.slug do
+      raise "seed feedback: #{inspect(entry.title)} derived slug #{inspect(created.slug)}, expected #{inspect(entry.slug)} — fix the entry's title to derive it"
+    end
+
     moved =
       if entry.status == :open do
         created
@@ -512,8 +564,7 @@ defmodule FluxVale.Seeds do
 
         status_args =
           if Map.has_key?(entry, :duplicate_of) do
-            original = find_feedback_post(entry.duplicate_of)
-            Map.put(status_args, :duplicate_of_id, original.id)
+            Map.put(status_args, :duplicate_of_id, duplicate_of_id!(entry))
           else
             status_args
           end
@@ -525,6 +576,19 @@ defmodule FluxVale.Seeds do
     # display signal ("Posted N ago"), so only moved rows are backdated.
     display_patch = patch_changeset(moved, entry)
     Ash.update!(display_patch, authorize?: false)
+  end
+
+  # A missing original is seed-data corruption (entries are ordered, so
+  # the original must already exist) — name the operator's fix instead
+  # of crashing on a bare nil.
+  defp duplicate_of_id!(entry) do
+    case find_feedback_post(entry.duplicate_of) do
+      nil ->
+        raise "seed feedback: duplicate entry #{inspect(entry.slug)} references missing original #{inspect(entry.duplicate_of)} — list the original entry before the duplicate"
+
+      original ->
+        original.id
+    end
   end
 
   defp patch_changeset(post, entry) do

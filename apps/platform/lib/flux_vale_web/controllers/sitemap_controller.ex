@@ -33,6 +33,9 @@ defmodule FluxValeWeb.SitemapController do
       Post
       |> Ash.Query.for_read(:read, %{}, actor: nil)
       |> Ash.Query.sort(:slug)
+      # Unbounded read, conscious acceptance: the first user-generated
+      # table in this query, but day-one row counts are small. Revisit
+      # at growth (pagination or a sitemap index).
       |> Ash.read!()
 
     conn

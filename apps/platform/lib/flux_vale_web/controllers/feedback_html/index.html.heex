@@ -93,7 +93,7 @@ pages must look finished as they are). --%>
       </.link>
     </div>
 
-    <.empty_state :if={@posts == []} title="No posts with this status yet." />
+    <.empty_state :if={@posts == []} title="No posts yet." />
 
     <nav :if={@total_pages > 1} aria-label="Pagination" class="flex items-center justify-between">
       <.link

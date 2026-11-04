@@ -200,7 +200,11 @@ after `migrate` — [ADR-0033](adr/00033-auto-seed-on-deploy.md); dev
 `FluxVale.Seeds.seed/0`) and converges bring-up data: platform admin
 (+ its personal org), prices, tax rates, catalog. Idempotent — a
 re-run changes nothing except reverting admin edits to the shipped
-YAML rows (edit the YAML, not the row).
+YAML rows (edit the YAML, not the row). Demo feedback-board content
+(#412) is gated: non-prod runtimes seed it (dev by config, staging and
+review environments by setting `DEMO_SEEDS_ENABLED`), prod never does —
+the board launches honestly empty and the AccessRule invite cohort
+fills it.
 
 Readiness backstops the seed: `/health/ready` fails 503 with an error
 log naming any missing invariant (pricing, catalog, exactly one

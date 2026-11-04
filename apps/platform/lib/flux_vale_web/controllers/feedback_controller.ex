@@ -1,7 +1,7 @@
 defmodule FluxValeWeb.FeedbackController do
   @moduledoc """
   The public feedback board's SSR surface (fluxvale/fluxvale#412,
-  [ADR-0026](../../docs/adr/00026-feedback-board.md) §4): `/feedback`
+  [ADR-0026](../../../../../docs/adr/00026-feedback-board.md) §4): `/feedback`
   board and `/feedback/:slug` post pages — plain controller+HEEx, never
   LiveView, so crawlers get the full document with zero JS (the
   blog/catalog pattern). Reads ride the public read policy
@@ -21,15 +21,23 @@ defmodule FluxValeWeb.FeedbackController do
   require Ash.Query
 
   @page_size 20
+  # The offset arithmetic rides Postgrex's int8 bind: a huge page number
+  # (a 19-digit ?page= parses fine as an integer) overflows the multiply
+  # and 500s the board. No board needs page 10,000 — clamp and keep the
+  # deep ranges answering 200 with an empty window.
+  @max_page 10_000
   @sorts ["top", "new"]
-  @statuses [:open, :planned, :started, :completed, :duplicate, :declined]
   @board_description "Feature requests and bug reports from the FluxVale community"
   @description_chars 160
 
   def index(conn, params) do
     sort = sort(params)
     status = status_filter(params)
-    page = page_number(params)
+
+    page =
+      params
+      |> page_number()
+      |> min(@max_page)
 
     filtered =
       Post
@@ -85,10 +93,12 @@ defmodule FluxValeWeb.FeedbackController do
   defp sort(%{"sort" => sort}) when sort in @sorts, do: sort
   defp sort(_params), do: "top"
 
-  # Declared atoms only — the declared list is matched by string, so no
-  # input path ever builds an atom dynamically (the resource's own rule).
+  # Declared atoms only — the list comes from the resource (the single
+  # source the HTML module derives from too), and the declared list is
+  # matched by string, so no input path ever builds an atom dynamically
+  # (the resource's own rule).
   defp status_filter(%{"status" => raw}) when is_binary(raw) do
-    Enum.find(@statuses, fn status -> Atom.to_string(status) == raw end)
+    Enum.find(Post.status_values(), fn status -> Atom.to_string(status) == raw end)
   end
 
   defp status_filter(_params), do: nil

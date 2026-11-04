@@ -28,6 +28,14 @@ defmodule FluxVale.Feedback.Post do
 
   @statuses [:open, :planned, :started, :completed, :duplicate, :declined]
 
+  @doc """
+  The declared status vocabulary — the board's single source for the
+  public surface's filter chips, badges and labels (FeedbackHTML and
+  FeedbackController derive from this; a new status lands here first).
+  """
+  @spec status_values() :: [atom()]
+  def status_values, do: @statuses
+
   postgres do
     table("feedback_posts")
     repo(FluxVale.Repo)

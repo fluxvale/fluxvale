@@ -142,8 +142,20 @@ defmodule FluxValeWeb.FeedbackControllerTest do
     test "an empty filtered view renders the empty state", %{conn: conn} do
       html = html_response(get(conn, ~p"/feedback?status=completed"), 200)
 
-      assert html =~ "No posts with this status yet."
+      assert html =~ "No posts yet."
       refute html =~ "data-testid=\"feedback-post-"
+    end
+
+    test "an unfiltered empty board renders the same empty state (prod at launch)", %{
+      conn: conn
+    } do
+      html = html_response(get(conn, ~p"/feedback"), 200)
+
+      assert html =~ "No posts yet."
+      refute html =~ "data-testid=\"feedback-post-"
+      # The chrome stays: the footer's board link and the sort/filter
+      # toolbar render even with nothing to list.
+      assert html =~ "data-testid=\"footer-feedback\""
     end
 
     test "pagination walks a page past the size boundary", %{conn: conn} do
@@ -179,6 +191,23 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       # A repeated/indexed page key is not a number either.
       indexed = html_response(get(conn, "/feedback?page[]=2"), 200)
       assert row_count(indexed) == 20
+    end
+
+    test "a huge page number clamps to the cap instead of 500ing", %{conn: conn} do
+      # 20 digits parses as an arbitrary-precision integer; the raw
+      # offset would overflow Postgrex's int8 bind (the #426 hostile
+      # finding). The clamp keeps the request a 200.
+      for n <- 1..21 do
+        post!(%{title: "Clamp page request #{String.pad_leading(Integer.to_string(n), 3, "0")}"})
+      end
+
+      huge = html_response(get(conn, "/feedback?page=99999999999999999999"), 200)
+
+      assert huge =~ "Page 10000 of"
+
+      # At the cap the window is empty, so the page reads honestly.
+      assert huge =~ "No posts yet."
+      refute huge =~ "data-testid=\"feedback-post-"
     end
   end
 

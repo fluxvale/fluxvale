@@ -500,6 +500,15 @@ if System.get_env("STORYBOOK_ENABLED") in ["true", "1"] do
   config :flux_vale, :storybook_enabled, true
 end
 
+# Demo feedback-board content (#412): the opt-in for prod-mode releases
+# (staging, review environments) — dev defaults it on in config/dev.exs
+# and prod leaves this unset, so the board launches honestly empty. Same
+# gated-release shape as the TestInbox above: gate on the VALUE, not the
+# var's presence.
+if System.get_env("DEMO_SEEDS_ENABLED") in ["true", "1"] do
+  config :flux_vale, :seed_demo_content, true
+end
+
 # Repo connection: DATABASE_URL wins; otherwise discrete DB_* vars compose
 # it (the in-cluster shape — Kubernetes can't template a URL from Secret
 # refs, so the Deployment passes DB_USER/DB_PASSWORD via secretKeyRef).

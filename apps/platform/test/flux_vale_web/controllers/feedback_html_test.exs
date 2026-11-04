@@ -5,6 +5,7 @@ defmodule FluxValeWeb.FeedbackHTMLTest do
 
   use ExUnit.Case, async: true
 
+  alias FluxVale.Feedback.Post
   alias FluxValeWeb.FeedbackHTML
 
   describe "time_ago/1" do
@@ -101,8 +102,12 @@ defmodule FluxValeWeb.FeedbackHTMLTest do
     assert FeedbackHTML.count_label(0, "comment") == "0 comments"
   end
 
-  test "status labels and tones cover every declared status" do
-    for status <- FeedbackHTML.status_options() do
+  test "status labels and tones cover every status the resource declares" do
+    # The iteration source is the RESOURCE's declared list, not this
+    # module's own: adding a status to the resource without a label and
+    # tone fails here, instead of 500ing the public board at render
+    # (Map.fetch! is the loud renderer by design).
+    for status <- Post.status_values() do
       assert is_binary(FeedbackHTML.status_label(status))
       assert is_binary(FeedbackHTML.status_tone(status))
     end

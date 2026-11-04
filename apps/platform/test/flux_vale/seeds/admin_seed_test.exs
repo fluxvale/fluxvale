@@ -22,6 +22,7 @@ defmodule FluxVale.Seeds.AdminSeedTest do
   alias FluxVale.Billing
   alias FluxVale.Billing.LedgerEntry
   alias FluxVale.Catalog.Category
+  alias FluxVale.Feedback.Post
   alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Repo
@@ -336,6 +337,11 @@ defmodule FluxVale.Seeds.AdminSeedTest do
       |> Ash.read!(authorize?: false)
     end
 
+    # The demo-flag tests' restore arm: put back what was there, delete
+    # when the runtime had nothing (the test env's default).
+    defp restore_demo_flag(nil), do: Application.delete_env(:flux_vale, :seed_demo_content)
+    defp restore_demo_flag(value), do: Application.put_env(:flux_vale, :seed_demo_content, value)
+
     defp welcome_entries(wallet) do
       LedgerEntry
       |> Ash.Query.for_read(:read, %{})
@@ -354,6 +360,36 @@ defmodule FluxVale.Seeds.AdminSeedTest do
       assert {:ok, _forgejo} = Category.get_by_slug("developer-tools", authorize?: false)
 
       assert {:ok, _kavita} = Category.get_by_slug("media", authorize?: false)
+    end
+
+    test "the demo-board gate is closed by default (prod posture: honestly empty)" do
+      # Global app env — the stub_build_sha posture: flip, restore on
+      # exit. async: false keeps the window file-local.
+      original = Application.get_env(:flux_vale, :seed_demo_content)
+      Application.delete_env(:flux_vale, :seed_demo_content)
+
+      on_exit(fn -> restore_demo_flag(original) end)
+
+      :ok = Seeds.seed()
+
+      assert 0 ==
+               Post
+               |> Ash.Query.filter(true)
+               |> Ash.count!(authorize?: false)
+    end
+
+    test "an opted-in runtime seeds the demo board content" do
+      original = Application.get_env(:flux_vale, :seed_demo_content)
+      Application.put_env(:flux_vale, :seed_demo_content, true)
+
+      on_exit(fn -> restore_demo_flag(original) end)
+
+      :ok = Seeds.seed()
+
+      assert {:ok, _post} =
+               Post
+               |> Ash.Query.filter(slug == "suspend-an-instance-from-the-cli")
+               |> Ash.read_one(authorize?: false)
     end
 
     test "heals a pre-#119 admin through the promotable path" do

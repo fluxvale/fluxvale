@@ -1,9 +1,10 @@
 defmodule FluxVale.Seeds.FeedbackSeedTest do
   @moduledoc """
-  The feedback seed flow (`FluxVale.Seeds.seed_feedback!/0`, #412 T4)
+  The feedback seed flow (`FluxVale.Seeds.seed_feedback!`, #412 T4)
   against a sandboxed DB — the shipped starter entries, statuses moved
   through the real action, counters and display timestamps riding forced
-  attribute changes, and get-or-create idempotency.
+  attribute changes, get-or-create idempotency, and the entry guards
+  driven by fixture entries (the seed_catalog!/1 shape).
   """
 
   use FluxVale.DataCase, async: true
@@ -73,6 +74,49 @@ defmodule FluxVale.Seeds.FeedbackSeedTest do
 
       # A post that never moved keeps the nil signal ("Posted N ago").
       assert is_nil(fresh.status_changed_at)
+    end
+  end
+
+  describe "seed_feedback!/1 (fixture entries — the guards)" do
+    test "a title that derives off the authored slug fails naming both slugs" do
+      assert :ok == Seeds.seed_admin!()
+
+      entry = %{
+        slug: "authored-slug",
+        title: "Completely different words here",
+        description: "x",
+        status: :open,
+        votes: 0,
+        comments: 0,
+        age_days: 1,
+        status_age_days: 0
+      }
+
+      error = assert_raise(RuntimeError, fn -> Seeds.seed_feedback!([entry]) end)
+
+      assert error.message =~ "authored-slug"
+      assert error.message =~ "completely-different-words-here"
+    end
+
+    test "a duplicate referencing a missing original fails naming the operator's fix" do
+      assert :ok == Seeds.seed_admin!()
+
+      entry = %{
+        slug: "dupe-entry",
+        title: "Dupe entry",
+        description: "x",
+        status: :duplicate,
+        duplicate_of: "missing-original-slug",
+        votes: 0,
+        comments: 0,
+        age_days: 1,
+        status_age_days: 0
+      }
+
+      error = assert_raise(RuntimeError, fn -> Seeds.seed_feedback!([entry]) end)
+
+      assert error.message =~ "missing-original-slug"
+      assert error.message =~ "list the original entry before the duplicate"
     end
   end
 

@@ -1,17 +1,21 @@
 defmodule FluxValeWeb.FeedbackHTML do
   @moduledoc """
   Templates and display helpers for the public feedback board
-  (fluxvale/fluxvale#412, [ADR-0026](../../../../docs/adr/00026-feedback-board.md)).
+  (fluxvale/fluxvale#412, [ADR-0026](../../../../../docs/adr/00026-feedback-board.md)).
   """
 
   use FluxValeWeb, :html
 
+  alias FluxVale.Feedback.Post
+
   embed_templates("feedback_html/*")
 
-  @statuses [:open, :planned, :started, :completed, :duplicate, :declined]
-
-  # The board's status vocabulary (the resource's atoms, user-facing
-  # labels — never the raw atom).
+  # The status vocabulary derives from the resource's declared list (the
+  # single source — the controller's filter reads it too), so a new
+  # status shows up as a chip without this module being edited. The
+  # label/tone maps below are the display contract: FeedbackHTMLTest
+  # iterates the resource's list against them, so adding a status
+  # without a label + tone fails the suite instead of 500ing the board.
   @status_labels %{
     open: "Open",
     planned: "Planned",
@@ -35,7 +39,7 @@ defmodule FluxValeWeb.FeedbackHTML do
   }
 
   @doc "The filter chips' status list (order is the render order)."
-  def status_options, do: @statuses
+  def status_options, do: Post.status_values()
 
   @doc "User-facing label for a post status."
   def status_label(status), do: Map.fetch!(@status_labels, status)
