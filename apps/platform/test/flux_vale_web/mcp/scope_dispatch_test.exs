@@ -38,6 +38,19 @@ defmodule FluxValeWeb.Mcp.ScopeDispatchTest do
       [%{"error" => error}] = sse_messages(conn)
       assert error["code"] == -32_602
     end
+
+    # The slice-2 write tools ride the same gate: a read-only token's
+    # direct write call is unresolvable before any handler runs.
+    test "a read-only token's direct write call is unresolvable too", %{conn: conn} do
+      {_user, pat} = ApiPat.member!(["instances:read"])
+
+      conn = call_tool(conn, pat, "stop_instance", %{"id" => Ecto.UUID.generate()})
+
+      assert conn.status == 200
+
+      [%{"error" => error}] = sse_messages(conn)
+      assert error["code"] == -32_602
+    end
   end
 
   describe "a filtered-out tool called at the handler" do
@@ -123,6 +136,57 @@ defmodule FluxValeWeb.Mcp.ScopeDispatchTest do
 
       assert %{isError: true, content: [%{text: text}]} = result
       assert text == "this token lacks the wallet:read scope"
+    end
+
+    # The slice-2 writes re-check the WRITE scope at the handler —
+    # one per family.
+    test "stop_instance refuses a token without instances:write" do
+      {user, raw} = ApiPat.member!(["instances:read"])
+
+      session =
+        Phantom.Test.build_session(Router,
+          assigns: %{user: user, pat: pat_row!(raw)},
+          protocol_version: "2026-07-28"
+        )
+
+      result = Phantom.Test.call_tool(session, :stop_instance, %{id: Ecto.UUID.generate()})
+
+      assert %{isError: true, content: [%{text: text}]} = result
+      assert text == "this token lacks the instances:write scope"
+    end
+
+    test "run_backup refuses a token without backups:write" do
+      {user, raw} = ApiPat.member!(["backups:read"])
+
+      session =
+        Phantom.Test.build_session(Router,
+          assigns: %{user: user, pat: pat_row!(raw)},
+          protocol_version: "2026-07-28"
+        )
+
+      result = Phantom.Test.call_tool(session, :run_backup, %{id: Ecto.UUID.generate()})
+
+      assert %{isError: true, content: [%{text: text}]} = result
+      assert text == "this token lacks the backups:write scope"
+    end
+
+    test "create_gateway refuses a token without gateways:write" do
+      {user, raw} = ApiPat.member!(["gateways:read"])
+
+      session =
+        Phantom.Test.build_session(Router,
+          assigns: %{user: user, pat: pat_row!(raw)},
+          protocol_version: "2026-07-28"
+        )
+
+      result =
+        Phantom.Test.call_tool(session, :create_gateway, %{
+          tailnet_domain: "example.ts.net",
+          auth_key: "tskey-test"
+        })
+
+      assert %{isError: true, content: [%{text: text}]} = result
+      assert text == "this token lacks the gateways:write scope"
     end
   end
 
