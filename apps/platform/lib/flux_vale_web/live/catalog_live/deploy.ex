@@ -19,14 +19,15 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   (#221, the owner's call closing #195's control-shape question): the
   seeded `Size` rows are quick-pick buttons and each dimension's slider
   steps through that ladder's rungs — index-based
-  (`resource_dimensions/0`), so one arrow press is one rung and the
-  thumb never rests between rungs. No text control renders on this
-  step, and every allocation the state can hold is a rung by
-  construction: `initial_resources/1` floors the version default to
-  the next rung at or above it, `preset_sizes/1` filters the picks to
-  representable sizes, and `resource_strings/1` maps slider indices
-  back to rungs — a crafted index that names no rung is silence, like
-  an unknown preset slug. The form cast on save stays the
+  (`AllocationSliders.resource_dimensions/0`), so one arrow press is
+  one rung and the thumb never rests between rungs. No text control
+  renders on this step, and every allocation the state can hold is a
+  rung by construction: `initial_resources/1` floors the version
+  default to the next rung at or above it, `preset_sizes/1` filters
+  the picks to representable sizes, and
+  `AllocationSliders.resource_strings/1` maps slider indices back to
+  rungs — a crafted index that names no rung is silence, like an
+  unknown preset slug. The form cast on save stays the
   authoritative say.
 
   Pricing follows the allocation (#186): at the recommendation the
@@ -49,43 +50,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   alias FluxVale.Catalog
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Pricing.Size
-
-  # The sliders' rungs (#221): each dimension's ladder is the seeded
-  # Size rows' distinct values for it (micro…max — the same business
-  # data the quick picks and pricing carry; top rungs grown on #233),
-  # ascending; a test pins the arrays to the seeds. The sliders
-  # address rungs by index (a range input can only step uniformly),
-  # so the LiveView — not the browser — owns the value arrays. Values
-  # outside the ladder stay legal at the API (the Instance attribute
-  # constraints, unchanged); this step just never offers them.
-  defp resource_dimensions do
-    [
-      %{
-        key: "cpu_cores",
-        id: "resource-cpu-cores",
-        label: "CPU cores",
-        testid: "resource-cpu",
-        values: ["0.25", "0.5", "1", "2", "4", "6", "8"],
-        unit: "cores"
-      },
-      %{
-        key: "memory_mb",
-        id: "resource-memory-mb",
-        label: "Memory",
-        testid: "resource-memory",
-        values: ["512", "1024", "2048", "4096", "8192", "12288", "16384"],
-        unit: "MB"
-      },
-      %{
-        key: "storage_gb",
-        id: "resource-storage-gb",
-        label: "Storage",
-        testid: "resource-storage",
-        values: ["5", "10", "20", "50", "100", "200", "400"],
-        unit: "GB"
-      }
-    ]
-  end
+  alias FluxValeWeb.AllocationSliders
 
   @impl Phoenix.LiveView
   def mount(%{"slug" => slug}, _session, socket) do
@@ -379,19 +344,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                   </div>
                 </div>
 
-                <div class="space-y-4 border-t border-line pt-5">
-                  <p class="text-sm font-medium text-ink">Fine-tune</p>
-                  <.slider
-                    :for={dimension <- resource_dimensions()}
-                    id={dimension.id}
-                    name={"resources[#{dimension.key}]"}
-                    label={dimension.label}
-                    value={@resources[dimension.key]}
-                    values={dimension.values}
-                    unit={dimension.unit}
-                    data-testid={dimension.testid}
-                  />
-                </div>
+                <AllocationSliders.sliders resources={@resources} />
 
                 <.callout
                   :if={@below_recommendation?}
@@ -664,7 +617,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   # Live: every slider move or preset pick re-renders the
   # below-recommendation warning and keeps the ack coherent (a change
   # that leaves the recommendation band drops a stale ack). A crafted
-  # index that names no rung is dropped in resource_strings/1, so a
+  # index that names no rung is dropped in AllocationSliders.resource_strings/1, so a
   # partial or hostile payload just keeps the current allocation.
   def handle_event("resources-change", %{"resources" => params}, socket) do
     # Crafted events before a version is picked must not crash on the
@@ -841,9 +794,9 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
   # --- Resources step (#180) ------------------------------------------------
   # Input state is rung strings end to end (#221): the sliders emit
-  # indices, resource_strings/1 maps them back to rungs, and nothing
-  # off-ladder can enter the state. The form cast on save is the
-  # authoritative say.
+  # indices, AllocationSliders.resource_strings/1 maps them back to
+  # rungs, and nothing off-ladder can enter the state. The form cast
+  # on save is the authoritative say.
 
   # The quick picks (#195): the seeded Sizes, cheapest first — business
   # data (admin-editable, ADR-0027), read once at mount like the rest of
@@ -872,7 +825,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
       "storage_gb" => Integer.to_string(size.storage_gb)
     }
 
-    dimensions = resource_dimensions()
+    dimensions = AllocationSliders.resource_dimensions()
 
     Enum.all?(dimensions, fn dimension -> size_values[dimension.key] in dimension.values end)
   end
@@ -942,7 +895,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
       "storage_gb" => Integer.to_string(version.default_storage_gb)
     }
 
-    dimensions = resource_dimensions()
+    dimensions = AllocationSliders.resource_dimensions()
 
     Map.new(dimensions, fn dimension ->
       {dimension.key, floor_rung(dimension, defaults[dimension.key])}
@@ -978,34 +931,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   # sees all three rungs.
   defp merged_resources(socket, params) do
     base = socket.assigns.resources || initial_resources(socket.assigns.selected)
-    Map.merge(base, resource_strings(params))
-  end
-
-  # The sliders' wire format (#221): indices into the dimension's
-  # rungs, translated here — only a well-formed index of the
-  # dimension's own ladder becomes state, and every other index VALUE
-  # (a crafted event: out of range, negative, fractional, non-numeric,
-  # a non-string) is silence, exactly like an unknown preset slug. A
-  # non-map `resources` payload is a malformed event like any other
-  # unmatched shape (save without "instance" — main's posture). Absent
-  # keys carry no opinion (a browser sends every input; LiveViewTest
-  # sends the ones under test), so the caller merges over the current
-  # state.
-  defp resource_strings(params) do
-    resource_dimensions()
-    |> Map.new(fn dimension ->
-      {dimension.key, rung_at(dimension, Map.get(params, dimension.key))}
-    end)
-    |> Map.reject(fn {_key, value} -> is_nil(value) end)
-  end
-
-  defp rung_at(_dimension, index) when not is_binary(index), do: nil
-
-  defp rung_at(dimension, index) do
-    case Integer.parse(index) do
-      {i, ""} when i >= 0 -> Enum.at(dimension.values, i)
-      _crafted_or_malformed -> nil
-    end
+    Map.merge(base, AllocationSliders.resource_strings(params))
   end
 
   # The checkbox rides the form's phx-change; its presence is the state.
