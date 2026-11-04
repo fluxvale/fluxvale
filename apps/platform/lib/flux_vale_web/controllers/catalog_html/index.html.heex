@@ -57,6 +57,20 @@
               />
             </div>
             <p :if={app.tagline} class="mt-2.5 text-sm text-ink-muted">{app.tagline}</p>
+            <%!-- #398: the ladder floor rides every card — any app at the
+            same size costs the same, so one computed number serves all
+            (per-app numbers would read as per-app pricing). Hidden on an
+            unseeded table; the controller passes nil then. --%>
+            <p
+              :if={not is_nil(@from_price_cents)}
+              class="mt-2 text-xs font-medium text-ink"
+              data-testid="from-price"
+            >
+              {gettext(
+                "from %{rate}",
+                rate: FluxVale.Pricing.format_monthly_rate(@from_price_cents)
+              )}
+            </p>
           </div>
         </.link>
       </div>

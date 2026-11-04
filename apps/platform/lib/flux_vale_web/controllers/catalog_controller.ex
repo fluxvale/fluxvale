@@ -12,6 +12,7 @@ defmodule FluxValeWeb.CatalogController do
 
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.Category
+  alias FluxVale.Pricing
   alias FluxValeWeb.Seo
 
   @catalog_description "A curated catalog of open source apps, ready to run in minutes."
@@ -29,6 +30,9 @@ defmodule FluxValeWeb.CatalogController do
     |> assign(:page_description, @catalog_description)
     |> assign(:canonical_path, "/catalog")
     |> assign(:categories, categories)
+    # The card from-price (#398): the ladder floor, computed once per
+    # request — every card carries the same number.
+    |> assign(:from_price_cents, Pricing.from_price_cents())
     |> render(:index)
   end
 

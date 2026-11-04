@@ -1159,7 +1159,7 @@ defmodule FluxValeWeb.CoreComponents do
 
   attr(:app_links, :boolean,
     default: false,
-    doc: "surface Catalog/Instances below sm (app chrome, #255)"
+    doc: "surface Catalog/Instances/Pricing below sm (app chrome, #255)"
   )
 
   # The chrome's active-nav section (#319): below sm the header links
@@ -1243,6 +1243,17 @@ defmodule FluxValeWeb.CoreComponents do
           ]}
         >
           Billing
+        </.link>
+        <%!-- #398: the header Pricing link's below-sm mirror — gated on
+        app_links like Catalog/Instances (the public chrome's footer
+        carries Pricing there). No section, so no active state; href,
+        not navigate, the same close-on-click posture (#205). --%>
+        <.link
+          :if={@app_links}
+          href={~p"/pricing"}
+          class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink sm:hidden"
+        >
+          Pricing
         </.link>
         <%!-- #285 T5: account settings — a link row like the others;
         href, not navigate, the same close-on-click posture (#205). --%>

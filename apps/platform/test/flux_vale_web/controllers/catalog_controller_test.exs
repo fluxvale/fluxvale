@@ -5,7 +5,10 @@ defmodule FluxValeWeb.CatalogControllerTest do
 
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.Category
+  alias FluxVale.Pricing
+  alias FluxVale.Pricing.Size
   alias FluxVale.TestSupport.InstanceFixtures
+  alias FluxVale.TestSupport.PricingFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
   # Catalog fixture, mirroring the CatalogLive tests: actions with
@@ -105,6 +108,70 @@ defmodule FluxValeWeb.CatalogControllerTest do
       assert get_resp_header(conn, "x-robots-tag") == []
       refute html =~ "noindex"
     end
+
+    # #398: the cards carry the ladder floor — "from $X/mo · billed
+    # hourly", the same computed number on every card (any app at the
+    # same size costs the same). Expectation from a Size read, never a
+    # literal.
+    test "cards carry the computed from-price floor", %{conn: conn} do
+      catalog_app!()
+      PricingFixtures.size!(monthly_cents: 701)
+      PricingFixtures.size!(monthly_cents: 233)
+
+      sizes =
+        Size
+        |> Ash.Query.for_read(:read, %{}, actor: nil)
+        |> Ash.read!()
+
+      cheapest = Enum.min_by(sizes, & &1.monthly_cents)
+
+      conn = get(conn, ~p"/catalog")
+      html = html_response(conn, 200)
+
+      assert html =~ "from #{Pricing.format_monthly_rate(cheapest.monthly_cents)}"
+      assert html =~ ~s(data-testid="from-price")
+    end
+
+    # The reprice follows: a fixture Size update moves the card number —
+    # the floor is computed at request time, never cached or literal.
+    test "the from-price follows a fixture reprice", %{conn: conn} do
+      catalog_app!()
+      cheapest = PricingFixtures.size!(monthly_cents: 233)
+      PricingFixtures.size!(monthly_cents: 701)
+
+      assert html_response(get(conn, ~p"/catalog"), 200) =~
+               "from #{Pricing.format_monthly_rate(233)}"
+
+      Size.update!(cheapest, %{monthly_cents: 99}, authorize?: false)
+
+      html = html_response(get(conn, ~p"/catalog"), 200)
+
+      assert html =~ "from #{Pricing.format_monthly_rate(99)}"
+      refute html =~ "from #{Pricing.format_monthly_rate(233)}"
+    end
+
+    # The empty-table branch: an unseeded table renders the cards
+    # without the from-price line (the controller passes nil), never a
+    # crash.
+    test "cards hide the from-price line on an unseeded table", %{conn: conn} do
+      catalog_app!()
+
+      html = html_response(get(conn, ~p"/catalog"), 200)
+
+      assert html =~ "App catalog"
+      refute html =~ "data-testid=\"from-price\""
+    end
+
+    # The gate is a nil-check, not a truthy one: monthly_cents allows 0,
+    # and a $0 floor is still a floor.
+    test "a zero-priced floor still renders the from-price line", %{conn: conn} do
+      catalog_app!()
+      PricingFixtures.size!(monthly_cents: 0)
+
+      html = html_response(get(conn, ~p"/catalog"), 200)
+
+      assert html =~ "from #{Pricing.format_monthly_rate(0)}"
+    end
   end
 
   describe "GET /catalog/:slug" do
@@ -141,8 +208,39 @@ defmodule FluxValeWeb.CatalogControllerTest do
       assert html =~ ~s(href="/apps/#{app.slug}/deploy")
       assert html =~ ~s(data-testid="price-#{version.version}")
       assert html =~ "$1.00/mo · billed hourly"
+
+      # #398: the stopped rate rides the price badge, and the published
+      # ladder is one hop away. Expectation from the size read.
+      size = Ash.load!(version, :recommended_size, authorize?: false).recommended_size
+
+      assert html =~ "#{Pricing.format_usd(size.stopped_monthly_cents)}/mo while stopped"
+      assert html =~ ~s(data-testid="stopped-price-#{version.version}")
+      assert html =~ ~s(href="/pricing#sizes")
+      assert html =~ "See all sizes"
+
       assert html =~ "Published"
       assert html =~ "First FluxVale catalog release."
+    end
+
+    # A sizeless version (the pre-#125 shape) shows neither price line;
+    # the ladder link stays — the table exists regardless.
+    test "a version without a recommended size shows no price lines", %{conn: conn} do
+      version = InstanceFixtures.app_version!()
+      app = Ash.load!(version, :app, authorize?: false).app
+
+      # States actions can't produce: the pre-#125 shape — nil size.
+      Ash.Seed.seed!(FluxVale.Catalog.AppVersion, %{
+        version: "0.9.0",
+        image: "test/image:0.9",
+        port: 3000,
+        app_id: app.id
+      })
+
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
+
+      refute html =~ ~s(data-testid="price-0.9.0")
+      refute html =~ ~s(data-testid="stopped-price-0.9.0")
+      assert html =~ ~s(href="/pricing#sizes")
     end
 
     test "meta: branded title, description, canonical, and the JSON-LD payload", %{conn: conn} do

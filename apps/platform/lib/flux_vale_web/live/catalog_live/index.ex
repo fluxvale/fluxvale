@@ -11,6 +11,7 @@ defmodule FluxValeWeb.CatalogLive.Index do
 
   alias FluxVale.Catalog.Category
   alias FluxVale.Observability.WakeStats
+  alias FluxVale.Pricing
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
@@ -28,6 +29,9 @@ defmodule FluxValeWeb.CatalogLive.Index do
     {:ok,
      assign(socket,
        catalog_apps: catalog_apps,
+       # The card from-price (#398): the ladder floor, computed once per
+       # mount — every card carries the same number.
+       from_price_cents: Pricing.from_price_cents(),
        wake_estimates: safe_wake_estimates()
      )}
   end
@@ -139,6 +143,18 @@ defmodule FluxValeWeb.CatalogLive.Index do
                     class="mt-2.5 line-clamp-2 min-h-10 text-sm text-ink-muted"
                   >
                     {app.tagline}
+                  </p>
+                  <%!-- #398: the ladder floor rides every card — the
+                  public index's number, computed once per mount. --%>
+                  <p
+                    :if={not is_nil(@from_price_cents)}
+                    class="mt-2 text-xs font-medium text-ink"
+                    data-testid="from-price"
+                  >
+                    {gettext(
+                      "from %{rate}",
+                      rate: FluxVale.Pricing.format_monthly_rate(@from_price_cents)
+                    )}
                   </p>
                   <%= if estimate = @wake_estimates[app.slug] do %>
                     <p

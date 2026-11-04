@@ -283,7 +283,7 @@ layout's flex contract while scoping the landing styles. --%>
                 "Prices follow the resources an app gets, not the app itself. New accounts start with welcome credits. Top up when you're ready."
               )}
             </p>
-            <p :if={@price_floor_cents} class="sub reveal">
+            <p :if={not is_nil(@price_floor_cents)} class="sub reveal">
               <%!-- pricing.ex's #206 invariant: a price surface never
               shows "$X/mo" without the hourly qualifier — a bare "/mo"
               on the landing would read as monthly billing. --%>

@@ -7,20 +7,30 @@ defmodule FluxValeWeb.CatalogHTML do
 
   use FluxValeWeb, :html
 
-  embed_templates "catalog_html/*"
+  embed_templates("catalog_html/*")
 
   # ADR-0028's live estimate. Hidden rather than crash on a nil size:
   # pre-#125 rows heal through seed convergence, not a backfill.
   # Mirrors CatalogLive.Show's price badge.
   def price_badge(assigns) do
     ~H"""
-    <span
-      :if={@version.recommended_size}
-      class="badge badge-primary badge-outline"
-      data-testid={"price-#{@version.version}"}
-    >
+    <.badge :if={@version.recommended_size} tone="primary" data-testid={"price-#{@version.version}"}>
       {FluxVale.Pricing.format_monthly_rate(@version.recommended_size.monthly_cents)}
-    </span>
+    </.badge>
+    """
+  end
+
+  # #398: the storage-only fee beside the running rate — ADR-0028 §2,
+  # in the /pricing table's "%{rate}/mo while stopped" idiom. Hidden
+  # with the price badge on a sizeless version.
+  def stopped_rate(assigns) do
+    ~H"""
+    <.badge :if={@version.recommended_size} data-testid={"stopped-price-#{@version.version}"}>
+      {gettext(
+        "%{rate}/mo while stopped",
+        rate: FluxVale.Pricing.format_usd(@version.recommended_size.stopped_monthly_cents)
+      )}
+    </.badge>
     """
   end
 
