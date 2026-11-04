@@ -152,7 +152,7 @@ defmodule FluxValeWeb.PolicyControllerTest do
       # The never-collect claims, stated as facts about the platform.
       assert flat =~ "never see your card details"
       assert flat =~ "no analytics and no advertising trackers"
-      assert flat =~ "no tracking cookies"
+      assert flat =~ "The site sets no tracking cookies"
       assert flat =~ "do not read, scan, or mine"
 
       # App data: isolated per instance, backups go to storage the
@@ -160,6 +160,11 @@ defmodule FluxValeWeb.PolicyControllerTest do
       assert flat =~ "its own isolated space"
       assert flat =~ "storage you bring"
       assert flat =~ "do not contain your app data"
+
+      # Billing collection includes the checkout's buyer and tax
+      # evidence (the topup resource's fields, verified).
+      assert flat =~ "buyer name and email"
+      assert flat =~ "the country your connection came from"
 
       # Email is transactional only; codes are hashed, single use, and
       # short-lived.
@@ -184,14 +189,20 @@ defmodule FluxValeWeb.PolicyControllerTest do
       assert flat =~ "deletes it and its data for good"
       assert flat =~ "write to admin@fluxvale.com"
 
-      # Security + choices + law.
+      # Security + choices + law: hashes for codes and PATs (sessions
+      # are signed, revocable — the claim stops where the code stops),
+      # settings-level self-service only (no surface-less promises).
       assert flat =~ "cryptographic hashes"
-      assert flat =~ "sign out of every session"
-      assert flat =~ "revoke personal access tokens"
+      assert flat =~ "revoke instantly"
+      assert flat =~ "from the app's settings"
+      refute flat =~ "sign out of every session"
+      refute flat =~ "revoke personal access tokens yourself"
       assert flat =~ "support@fluxvale.com"
       assert flat =~ "laws of the Philippines"
       assert flat =~ "Data Privacy Act"
 
+      # The page's one outbound cross-link rides the sibling shape.
+      assert html =~ ~s(href="/policies/terms")
       assert html =~ ~s(data-testid="privacy-policy")
     end
 
