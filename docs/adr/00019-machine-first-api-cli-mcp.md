@@ -69,11 +69,16 @@ actions with the PAT-resolved actor: policies, paywall, and scopes
 enforce exactly as over `/api/v1`; the MCP layer is adapter, not
 authority. Scope enforcement is two-layered at the tool surface —
 `tools/list` is filtered by the token's grants (a read-only token
-never sees a write tool) and every handler re-checks before dispatch
-(the same scope table the route gate rides). Destructive tools
-(`restore_backup`, `destroy_instance`) confirm through the protocol's
-multi-round-trip input flow — an encrypted, stateless confirmation
-that mutates nothing until a "yes". The tool list is a compatibility
-contract in §1's sense: additive within the surface; removal or
-rename is a versioned decision. First consumer is our own agent
-fleet — dogfooding is the acceptance path (#361's note).
+never sees a write tool) and every handler re-checks before dispatch,
+against the same scope catalog and implication rule the route gate
+rides (the route table maps paths, the tool table maps tools —
+necessarily distinct tables, kept honest by set-equality tests).
+Destructive tools (`restore_backup`, `destroy_instance`) confirm
+through the protocol's multi-round-trip input flow — an encrypted,
+stateless confirmation that mutates nothing until a "yes". The tool
+list is a compatibility contract in §1's sense: additive within the
+surface; removal or rename is a versioned decision. First consumer
+is our own agent fleet — dogfooding is the acceptance path (#361's
+note). Audit granularity note: MCP tool calls audit as `POST /mcp`
+rows (token, status) — the tool NAME is not yet an audit field, so
+per-tool attribution over MCP is a named follow-up.
