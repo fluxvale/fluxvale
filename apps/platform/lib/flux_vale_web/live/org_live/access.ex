@@ -445,7 +445,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
              socket
              |> put_flash(
                :info,
-               "Device approved — finish the sign-in from your terminal."
+               "Device approved. Finish the sign-in from your terminal."
              )
              |> refresh_device_sign_ins()}
 
@@ -663,7 +663,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
                 <h3 class="text-sm font-medium text-ink-muted">Device sign-ins</h3>
                 <p class="mt-1 text-sm text-ink-muted">
                   Signing in to the FluxVale CLI? Approve the request whose code matches
-                  your terminal — the CLI token is minted for your account.
+                  your terminal. The CLI token is minted for your account.
                 </p>
               </div>
 
@@ -688,7 +688,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
                         {code.user_code}
                       </p>
                       <p class="text-xs text-ink-muted" data-testid="device-meta">
-                        {scope_line(code)} — {device_client_label(code)}, expires in {expires_in_label(
+                        {scope_line(code)}: {device_client_label(code)}, expires in {expires_in_label(
                           code
                         )}
                       </p>
