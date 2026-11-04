@@ -317,7 +317,11 @@ defmodule FluxValeWeb.Mcp.ConfirmTest do
           capabilities: @elicit_caps
         )
 
-      assert tool_result_text(resumed) =~ "destroyed"
+      # The truthful success shape (the review fix): teardown-queued
+      # language — never a promise that the row is gone (a deployed
+      # instance lingers in :deleting until teardown finishes).
+      assert tool_result_text(resumed) =~ "destroy accepted"
+      assert tool_result_text(resumed) =~ "never-deployed row is gone now"
       refute still_exists?(instance.id)
     end
 
