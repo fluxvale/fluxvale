@@ -817,7 +817,7 @@ defmodule FluxValeWeb.MCP.Router do
          {:ok, _gone} <- instance_action(:delete, %{id: id}, user) do
       {:reply,
        Phantom.Tool.text(
-         "destroyed — the row is gone and its volume data and Kubernetes resources are being torn down"
+         "destroy accepted — teardown is queued; a deployed instance reads :deleting until its volume data and Kubernetes resources are removed, then the row goes; a never-deployed row is gone now"
        ), session}
     else
       other -> tool_error(session, other)
