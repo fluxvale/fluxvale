@@ -35,8 +35,9 @@ defmodule FluxVale.Feedback.Post do
     migration_defaults(id: "nil")
 
     custom_indexes do
-      # Slice 2's gate axis: the paying check reads the actor's org's
-      # posts, so every gate query is a lookup on this column.
+      # Org-scoped views and queries are the near-term consumers
+      # (moderation lists, an org's post pages). The write gate does
+      # NOT read posts by org — it resolves memberships and the wallet.
       index([:organization_id])
 
       # The duplicate-merge lookup: which post points at the original.
@@ -51,6 +52,15 @@ defmodule FluxVale.Feedback.Post do
       check_constraint(:status, "status_matches_duplicate_of",
         check: "(status = 'duplicate') = (duplicate_of_id IS NOT NULL)",
         message: "must carry duplicate_of_id exactly when status is duplicate"
+      )
+
+      # The counter's race backstop (the same idiom): vote_count only
+      # moves through the vote actions' SQL-atomic increments, so a bug
+      # driving it negative is refused by the DB clause — the mapping
+      # answers field-scoped, never a published negative count.
+      check_constraint(:vote_count, "vote_count_non_negative",
+        check: "vote_count >= 0",
+        message: "must be zero or more"
       )
     end
   end

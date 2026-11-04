@@ -212,6 +212,41 @@ defmodule FluxVale.Feedback.PostTest do
 
       assert post.organization_id == org.id
     end
+
+    test "anonymous naming an org answers Forbidden — the gate, not a field error" do
+      # The named org is pinned even without an actor (SetActorDefaults),
+      # so the changeset is valid and the write gate answers. A field
+      # error here would mean the gate never saw the write.
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Post.create(
+                 %{
+                   title: "Anonymous request",
+                   description: "Refused.",
+                   organization_id: org.id
+                 },
+                 authorize?: true
+               )
+    end
+
+    test "a system caller (no actor, authorize?: false) bootstraps a post for a named org" do
+      org = AccountsFixtures.owned_org!(AccountsFixtures.user!())
+
+      assert {:ok, post} =
+               Post.create(
+                 %{
+                   title: "System bootstrap post",
+                   description: "Seeded.",
+                   organization_id: org.id
+                 },
+                 authorize?: false
+               )
+
+      assert post.organization_id == org.id
+      assert is_nil(post.created_by_user_id)
+    end
   end
 
   describe "set_status" do

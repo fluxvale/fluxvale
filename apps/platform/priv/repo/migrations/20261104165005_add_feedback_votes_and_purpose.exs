@@ -8,99 +8,137 @@ defmodule FluxVale.Repo.Migrations.AddFeedbackVotesAndPurpose do
   use Ecto.Migration
 
   def up do
-    drop_if_exists unique_index(:access_rules, [:domain],
-                     name: "access_rules_unique_domain_index"
-                   )
+    # Index swap, not additive: the composites allow cross-purpose duplicates
+    # the singles forbid, so both shapes cannot share a window, and every existing
+    # row backfills purpose = "auth", making the composite equal to the old singles
+    # on all upgrade-time data. Pre-prod table: no prod deploy exists to replay this.
+    drop_if_exists(
+      unique_index(:access_rules, [:domain], name: "access_rules_unique_domain_index")
+    )
 
-    drop_if_exists unique_index(:access_rules, [:email], name: "access_rules_unique_email_index")
+    drop_if_exists(unique_index(:access_rules, [:email], name: "access_rules_unique_email_index"))
 
     alter table(:access_rules) do
-      add :purpose, :text, null: false, default: "auth"
+      add(:purpose, :text, null: false, default: "auth")
     end
 
-    create unique_index(:access_rules, [:purpose, :domain],
-             name: "access_rules_unique_domain_index"
-           )
+    create(
+      unique_index(:access_rules, [:purpose, :domain], name: "access_rules_unique_domain_index")
+    )
 
-    create unique_index(:access_rules, [:purpose, :email],
-             name: "access_rules_unique_email_index"
-           )
+    create(
+      unique_index(:access_rules, [:purpose, :email], name: "access_rules_unique_email_index")
+    )
 
     create table(:feedback_votes, primary_key: false) do
-      add :id, :uuid, null: false, primary_key: true
+      add(:id, :uuid, null: false, primary_key: true)
 
-      add :created_at, :utc_datetime_usec,
+      add(:created_at, :utc_datetime_usec,
         null: false,
         default: fragment("(now() AT TIME ZONE 'utc')")
+      )
 
-      add :updated_at, :utc_datetime_usec,
+      add(:updated_at, :utc_datetime_usec,
         null: false,
         default: fragment("(now() AT TIME ZONE 'utc')")
+      )
 
-      add :post_id,
-          references(:feedback_posts,
-            column: :id,
-            name: "feedback_votes_post_id_fkey",
-            type: :uuid,
-            prefix: "public"
-          ),
-          null: false
+      add(
+        :post_id,
+        references(:feedback_posts,
+          column: :id,
+          name: "feedback_votes_post_id_fkey",
+          type: :uuid,
+          prefix: "public"
+        ),
+        null: false
+      )
 
-      add :organization_id,
-          references(:organizations,
-            column: :id,
-            name: "feedback_votes_organization_id_fkey",
-            type: :uuid,
-            prefix: "public"
-          )
+      add(
+        :organization_id,
+        references(:organizations,
+          column: :id,
+          name: "feedback_votes_organization_id_fkey",
+          type: :uuid,
+          prefix: "public"
+        )
+      )
     end
 
-    create unique_index(:feedback_votes, [:post_id, :organization_id],
-             name: "feedback_votes_unique_vote_per_org_index"
-           )
+    create(
+      unique_index(:feedback_votes, [:post_id, :organization_id],
+        name: "feedback_votes_unique_vote_per_org_index"
+      )
+    )
 
     alter table(:feedback_votes) do
-      add :cast_by_user_id,
-          references(:users,
-            column: :id,
-            name: "feedback_votes_cast_by_user_id_fkey",
-            type: :uuid,
-            prefix: "public"
-          )
+      add(
+        :cast_by_user_id,
+        references(:users,
+          column: :id,
+          name: "feedback_votes_cast_by_user_id_fkey",
+          type: :uuid,
+          prefix: "public"
+        )
+      )
     end
   end
 
   def down do
-    drop constraint(:feedback_votes, "feedback_votes_cast_by_user_id_fkey")
+    drop(constraint(:feedback_votes, "feedback_votes_cast_by_user_id_fkey"))
 
-    drop constraint(:feedback_votes, "feedback_votes_organization_id_fkey")
+    drop(constraint(:feedback_votes, "feedback_votes_organization_id_fkey"))
 
-    drop constraint(:feedback_votes, "feedback_votes_post_id_fkey")
+    drop(constraint(:feedback_votes, "feedback_votes_post_id_fkey"))
 
     alter table(:feedback_votes) do
-      remove :cast_by_user_id
+      remove(:cast_by_user_id)
     end
 
-    drop_if_exists unique_index(:feedback_votes, [:post_id, :organization_id],
-                     name: "feedback_votes_unique_vote_per_org_index"
-                   )
+    drop_if_exists(
+      unique_index(:feedback_votes, [:post_id, :organization_id],
+        name: "feedback_votes_unique_vote_per_org_index"
+      )
+    )
 
-    drop table(:feedback_votes)
+    drop(table(:feedback_votes))
 
-    drop_if_exists unique_index(:access_rules, [:purpose, :email],
-                     name: "access_rules_unique_email_index"
-                   )
+    drop_if_exists(
+      unique_index(:access_rules, [:purpose, :email], name: "access_rules_unique_email_index")
+    )
 
-    drop_if_exists unique_index(:access_rules, [:purpose, :domain],
-                     name: "access_rules_unique_domain_index"
-                   )
+    drop_if_exists(
+      unique_index(:access_rules, [:purpose, :domain], name: "access_rules_unique_domain_index")
+    )
+
+    # Downgrade drops the feedback allowlist, and that is inherent: the
+    # composites sanctioned cross-purpose duplicates the singles forbid,
+    # so the :feedback half of any pair colliding with an :auth row is
+    # deleted here (the :auth row keeps its seat) before the singles can
+    # build. Without this the recreate fails on duplicate keys.
+    execute("""
+    DELETE FROM access_rules AS fb
+    WHERE fb.purpose = 'feedback'
+      AND (
+        EXISTS (
+          SELECT 1 FROM access_rules AS auth
+          WHERE auth.purpose = 'auth' AND auth.email IS NOT NULL AND fb.email IS NOT NULL
+            AND auth.email = fb.email
+        )
+        OR EXISTS (
+          SELECT 1 FROM access_rules AS auth
+          WHERE auth.purpose = 'auth' AND auth.domain IS NOT NULL AND fb.domain IS NOT NULL
+            AND auth.domain = fb.domain
+        )
+      )
+    """)
 
     alter table(:access_rules) do
-      remove :purpose
+      remove(:purpose)
     end
 
-    create unique_index(:access_rules, [:email], name: "access_rules_unique_email_index")
+    create(unique_index(:access_rules, [:email], name: "access_rules_unique_email_index"))
 
-    create unique_index(:access_rules, [:domain], name: "access_rules_unique_domain_index")
+    create(unique_index(:access_rules, [:domain], name: "access_rules_unique_domain_index"))
   end
 end

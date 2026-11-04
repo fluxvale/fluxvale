@@ -177,6 +177,10 @@ defmodule FluxVale.Feedback.VoteTest do
                Vote.cast(%{post_id: post.id}, actor: user)
 
       assert Enum.any?(errors, &(&1.field == :post_id and &1.message == "has already been taken"))
+
+      # The identity failure rolls the whole cast transaction back —
+      # the counter's +1 rides the same unit and must not leak.
+      assert count!(post) == 1
     end
 
     test "a second org votes the same post freely" do
@@ -236,6 +240,19 @@ defmodule FluxVale.Feedback.VoteTest do
 
       assert :ok = Ash.destroy(vote, actor: admin())
       assert count!(post) == 0
+    end
+
+    test "a Forbidden retract leaves the cached count unchanged" do
+      post = post!()
+      user = AccountsFixtures.user!()
+      BillingFixtures.mark_user_paid!(user)
+      {:ok, vote} = Vote.cast(%{post_id: post.id}, actor: user)
+      assert count!(post) == 1
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Ash.destroy(vote, actor: AccountsFixtures.user!())
+
+      assert count!(post) == 1
     end
   end
 
@@ -317,6 +334,26 @@ defmodule FluxVale.Feedback.VoteTest do
 
       assert is_nil(vote.cast_by_user_id)
       assert count!(post) == 1
+    end
+  end
+
+  describe "post deletion takes its votes (cascade)" do
+    test "destroying a post with votes succeeds and the votes are gone" do
+      post = post!()
+      user = AccountsFixtures.user!()
+      BillingFixtures.mark_user_paid!(user)
+      {:ok, vote} = Vote.cast(%{post_id: post.id}, actor: user)
+      assert count!(post) == 1
+
+      # Moderation deletes the post; the votes are its dependent records
+      # (on_delete :delete on the FK) — one statement, no count drift,
+      # because the counter's row is the post itself.
+      assert :ok = Ash.destroy(post, actor: admin())
+
+      assert {:error, _gone} = Ash.get(Vote, vote.id, authorize?: false)
+
+      # Sandbox isolation: this test's only vote rode the destroyed post.
+      assert {:ok, []} = Ash.read(Vote)
     end
   end
 

@@ -29,6 +29,15 @@ defmodule FluxVale.Feedback.Vote do
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
     migration_defaults(id: "nil")
+
+    # on_delete :delete on the post FK (the PAT-precedent posture): the
+    # votes are the post's dependent records — moderation's delete
+    # takes them along in one statement (blocking the delete on fifty
+    # retracts is not a workflow, and the counter's row IS the post, so
+    # no drift).
+    references do
+      reference(:post, on_delete: :delete)
+    end
   end
 
   policies do

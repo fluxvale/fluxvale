@@ -165,6 +165,38 @@ defmodule FluxVale.Checks.ActorOwnsPaidOrgTest do
       refute ActorOwnsPaidOrg.match?(AccountsFixtures.user!(), %{subject: subject}, [])
     end
 
+    test "a tampered REAL row still answers on the fresh row's org" do
+      # The changeset claims an org the actor OWNS and has PAID — under
+      # a trust-the-changeset regression this actor passes both arms —
+      # while the fresh row's org is a stranger's. The gate must not
+      # care what the struct claims: a destroy re-reads the ROW, and
+      # the fresh row's org is what answers (pins
+      # reload-doesn't-trust-the-struct against future refactors).
+      caster = AccountsFixtures.user!()
+      caster_org = BillingFixtures.mark_user_paid!(caster)
+
+      post =
+        Post.create!(%{title: "Tamper probe post", description: "x"},
+          actor: AccountsFixtures.platform_admin!(),
+          authorize?: false
+        )
+
+      {:ok, vote} = Vote.cast(%{post_id: post.id, organization_id: caster_org.id}, actor: caster)
+
+      tamperer_user = AccountsFixtures.user!()
+      tamperer_org = BillingFixtures.mark_user_paid!(tamperer_user)
+      changeset = Ash.Changeset.for_destroy(vote, :retract, %{}, actor: tamperer_user)
+
+      tampered =
+        Ash.Changeset.force_change_attribute(changeset, :organization_id, tamperer_org.id)
+
+      refute ActorOwnsPaidOrg.match?(tamperer_user, %{subject: tampered}, [])
+      assert {:error, %Ash.Error.Forbidden{}} = Ash.destroy(tampered)
+
+      # The refused tamper broke nothing real: the honest retract works.
+      assert :ok = Ash.destroy(vote, actor: caster)
+    end
+
     test "a struct naming no row fails closed — the gate must not trust caller-controlled data" do
       org = BillingFixtures.mark_user_paid!(AccountsFixtures.user!())
 
