@@ -109,6 +109,51 @@ defmodule FluxValeWeb.Layouts do
     """
   end
 
+  @doc """
+  Minimal chrome for the auth surface (#409): the FluxVale mark above
+  the content and nothing else — no nav, no footer, no user menu. The
+  auth flow communicates through flashes, so the flash group stays in
+  the layout like every other frame.
+  """
+
+  attr(:flash, :map, required: true, doc: "the map of flash messages")
+
+  slot(:inner_block, required: true)
+
+  def auth(assigns) do
+    ~H"""
+    <main class="flex flex-1 flex-col items-center justify-center px-4 py-12">
+      <div class="w-full max-w-sm">
+        <%!-- The quiet corner: the surface's one brand element — the
+        theme-correct mark pair linking home, the landing footer's
+        pattern at the chrome mark's 26px. The link's aria-label
+        carries the name, both imgs are decorative. --%>
+        <.link href={~p"/"} class="mx-auto mb-8 flex w-fit items-center" aria-label="FluxVale">
+          <img
+            src={~p"/images/mark.svg"}
+            width="26"
+            height="26"
+            alt=""
+            aria-hidden="true"
+            class="dark:hidden"
+          />
+          <img
+            src={~p"/images/mark-dark.svg"}
+            width="26"
+            height="26"
+            alt=""
+            aria-hidden="true"
+            class="hidden dark:block"
+          />
+        </.link>
+        {render_slot(@inner_block)}
+      </div>
+    </main>
+
+    <.flash_group flash={@flash} />
+    """
+  end
+
   attr(:flash, :map, required: true)
   attr(:current_user, :map, default: nil)
   attr(:actor_orgs, :list, default: [])

@@ -24,6 +24,29 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
     assert html =~ "email-form"
   end
 
+  # #409: the sign-in surface rides the minimal auth layout — the mark
+  # links home, the app chrome (header and nav) is gone, the flash
+  # group stays. Both steps are states of this one LiveView, so the
+  # frame is re-asserted on the code step too.
+  test "renders the minimal auth layout on both steps", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/sign-in")
+
+    assert has_element?(view, ~s(a[aria-label="FluxVale"][href="/"]))
+    assert has_element?(view, "#flash-group")
+    refute has_element?(view, "header")
+    refute has_element?(view, ~s(nav[aria-label="Primary"]))
+
+    view
+    |> form("#email-form", email: @email)
+    |> render_submit()
+
+    # The flash path rides the minimal layout's flash group
+    assert has_element?(view, "#code-form")
+    assert has_element?(view, "#flash-group", "Code sent")
+    assert has_element?(view, ~s(a[aria-label="FluxVale"][href="/"]))
+    refute has_element?(view, "header")
+  end
+
   test "full flow: request, verify, session write via trigger-action POST", %{
     conn: conn
   } do
@@ -121,7 +144,7 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
       |> form("#email-form", email: "outsider-#{System.unique_integer()}@example.com")
       |> render_submit()
 
-    assert result =~ "ask an admin for access"
+    assert result =~ "Ask an admin for access"
     assert result =~ "email-form"
     refute result =~ "code-form"
     refute_received {:email, %Swoosh.Email{}}
@@ -149,7 +172,7 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
       |> form("#code-form", code: code)
       |> render_submit()
 
-    assert result =~ "ask an admin for access"
+    assert result =~ "Ask an admin for access"
     assert result =~ "email-form"
     refute result =~ "code-form"
   end
@@ -166,7 +189,7 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
 
     # NB: apostrophe arrives HTML-escaped — assert on the stable tail
     assert html =~ "send the email"
-    assert html =~ "please wait a minute, then try again."
+    assert html =~ "Please wait a minute, then try again."
   end
 
   test "lockout on verify resets to the email step with the why", %{conn: conn} do
@@ -186,7 +209,7 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
       |> form("#code-form", code: "123456")
       |> render_submit()
 
-    assert html =~ "Too many attempts — request a fresh code."
+    assert html =~ "Too many attempts. Request a fresh code."
     assert html =~ "email-form"
   end
 end

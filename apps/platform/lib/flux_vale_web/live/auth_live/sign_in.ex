@@ -18,105 +18,97 @@ defmodule FluxValeWeb.AuthLive.SignIn do
   on_mount({FluxValeWeb.Locale, :set_locale})
 
   def render(assigns) do
-    # The anonymous shell: no actor, so no org facts — these explicit
-    # nils are the decision required: true demands (a default would let
-    # an authenticated caller drop the assigns silently). Bound as
-    # assigns, not literals, so the attrs' :string type check passes.
-    assigns = assign(assigns, personal_org_id: nil, username: nil)
-
     ~H"""
-    <Layouts.app flash={@flash} personal_org_id={@personal_org_id} username={@username}>
-      <%!-- T3 (#277): the form panel rides the chrome language. T7: the
-      landing hero's gradient mat wraps the panel (replacing the h-1
-      edge strip) — the hero-adjacent moment, same rule as the hero
-      mock: no text sits on the gradient. --%>
-      <div class="mx-auto max-w-sm py-12 sm:py-16">
-        <div class="bg-brand-gradient rounded-panel p-2 shadow-lg">
-          <div class="overflow-hidden rounded-panel border border-line-strong bg-panel shadow-sm">
-            <div class="space-y-6 p-6 sm:p-8">
-              <div class="space-y-2">
-                <h1 class="text-3xl font-bold tracking-tight text-ink">Sign in to FluxVale</h1>
-                <p class="text-sm leading-6 text-ink-muted">
-                  Passwordless — we'll email you a one-time code.
-                </p>
-              </div>
+    <Layouts.auth flash={@flash}>
+      <%!-- #409: the auth surface rides Layouts.auth — the mark over
+      the panel, no marketing chrome. T3 (#277): the panel keeps the
+      landing hero's gradient mat (the hero-adjacent moment, same rule
+      as the hero mock: no text sits on the gradient). --%>
+      <div class="bg-brand-gradient rounded-panel p-2 shadow-lg">
+        <div class="overflow-hidden rounded-panel border border-line-strong bg-panel shadow-sm">
+          <div class="space-y-6 p-6 sm:p-8">
+            <div class="space-y-2">
+              <h1 class="text-3xl font-bold tracking-tight text-ink">Sign in to FluxVale</h1>
+              <p class="text-sm leading-6 text-ink-muted">
+                Passwordless. We'll email you a one-time code.
+              </p>
+            </div>
+
+            <.form
+              :if={@step == :email}
+              for={@form}
+              id="email-form"
+              phx-submit="request-code"
+              class="space-y-4"
+            >
+              <.input
+                field={@form[:email]}
+                type="email"
+                label="Email address"
+                placeholder="you@example.com"
+                required
+                autofocus
+                data-testid="sign-in-email"
+              />
+              <.button
+                type="submit"
+                class="w-full"
+                phx-disable-with="Sending…"
+                data-testid="send-code"
+              >
+                Send code
+              </.button>
+            </.form>
+
+            <div :if={@step == :code} class="space-y-4">
+              <p class="text-sm text-ink-muted">
+                We sent a 6-digit code to <span class="break-words font-medium text-ink">{@email}</span>.
+                It expires in 10 minutes.
+              </p>
 
               <.form
-                :if={@step == :email}
                 for={@form}
-                id="email-form"
-                phx-submit="request-code"
+                id="code-form"
+                phx-submit="verify"
+                action={~p"/auth/session"}
+                method="post"
+                phx-trigger-action={@trigger_submit}
                 class="space-y-4"
               >
+                <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
+                <input type="hidden" name="token" value={@token} />
                 <.input
-                  field={@form[:email]}
-                  type="email"
-                  label="Email address"
-                  placeholder="you@example.com"
+                  field={@form[:code]}
+                  type="text"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  maxlength="6"
+                  label="Sign-in code"
                   required
                   autofocus
-                  data-testid="sign-in-email"
+                  data-testid="sign-in-code"
                 />
                 <.button
                   type="submit"
                   class="w-full"
-                  phx-disable-with="Sending…"
-                  data-testid="send-code"
+                  phx-disable-with="Signing in…"
+                  data-testid="verify-code"
                 >
-                  Send code
+                  Verify &amp; sign in
                 </.button>
               </.form>
 
-              <div :if={@step == :code} class="space-y-4">
-                <p class="text-sm text-ink-muted">
-                  We sent a 6-digit code to <span class="break-words font-medium text-ink">{@email}</span>.
-                  It expires in 10 minutes.
-                </p>
-
-                <.form
-                  for={@form}
-                  id="code-form"
-                  phx-submit="verify"
-                  action={~p"/auth/session"}
-                  method="post"
-                  phx-trigger-action={@trigger_submit}
-                  class="space-y-4"
-                >
-                  <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
-                  <input type="hidden" name="token" value={@token} />
-                  <.input
-                    field={@form[:code]}
-                    type="text"
-                    inputmode="numeric"
-                    autocomplete="one-time-code"
-                    maxlength="6"
-                    label="Sign-in code"
-                    required
-                    autofocus
-                    data-testid="sign-in-code"
-                  />
-                  <.button
-                    type="submit"
-                    class="w-full"
-                    phx-disable-with="Signing in…"
-                    data-testid="verify-code"
-                  >
-                    Verify &amp; sign in
-                  </.button>
-                </.form>
-
-                <button
-                  phx-click="change-email"
-                  class="text-sm font-medium text-link transition-colors hover:text-link-hover"
-                >
-                  Use a different email
-                </button>
-              </div>
+              <button
+                phx-click="change-email"
+                class="text-sm font-medium text-link transition-colors hover:text-link-hover"
+              >
+                Use a different email
+              </button>
             </div>
           </div>
         </div>
       </div>
-    </Layouts.app>
+    </Layouts.auth>
     """
   end
 
@@ -134,7 +126,7 @@ defmodule FluxValeWeb.AuthLive.SignIn do
          socket
          |> assign(step: :code, email: email)
          |> assign(form: to_form(%{"code" => ""}))
-         |> put_flash(:info, "Code sent — check your inbox.")}
+         |> put_flash(:info, "Code sent. Check your inbox.")}
 
       {:error, :throttled} ->
         {:noreply,
@@ -151,7 +143,7 @@ defmodule FluxValeWeb.AuthLive.SignIn do
          put_flash(
            socket,
            :error,
-           "That address can't sign in yet — ask an admin for access."
+           "That address can't sign in yet. Ask an admin for access."
          )}
 
       {:error, :delivery_failed} ->
@@ -159,7 +151,7 @@ defmodule FluxValeWeb.AuthLive.SignIn do
          put_flash(
            socket,
            :error,
-           "We couldn't send the email — please wait a minute, then try again."
+           "We couldn't send the email. Please wait a minute, then try again."
          )}
 
       {:error, :invalid_address} ->
@@ -167,7 +159,7 @@ defmodule FluxValeWeb.AuthLive.SignIn do
          put_flash(
            socket,
            :error,
-           "That doesn't look like an email address — check it and try again."
+           "That doesn't look like an email address. Check it and try again."
          )}
     end
   end
@@ -182,7 +174,7 @@ defmodule FluxValeWeb.AuthLive.SignIn do
          socket
          |> assign(step: :email)
          |> assign(form: to_form(%{"email" => socket.assigns.email}))
-         |> put_flash(:error, "Too many attempts — request a fresh code.")}
+         |> put_flash(:error, "Too many attempts. Request a fresh code.")}
 
       {:error, :not_allowed} ->
         # #26: the rule changed after the code was sent — retrying that
@@ -191,7 +183,7 @@ defmodule FluxValeWeb.AuthLive.SignIn do
          socket
          |> assign(step: :email)
          |> assign(form: to_form(%{"email" => socket.assigns.email}))
-         |> put_flash(:error, "That address can't sign in yet — ask an admin for access.")}
+         |> put_flash(:error, "That address can't sign in yet. Ask an admin for access.")}
 
       {:error, _reason} ->
         # Uniform message: unknown address and wrong code look identical
