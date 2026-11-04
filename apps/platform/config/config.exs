@@ -7,15 +7,16 @@
 # General application configuration
 import Config
 
+# "sse" is phantom_mcp's streaming media type (#361): the :mcp pipeline
+# negotiates it through accepts/2. Both entries share ONE types map — a
+# second config call's :types REPLACES this one (no deep merge across
+# calls), which would silently drop the JSON:API mapping Mime compiles
+# for `Accept: application/vnd.api+json`. Mime compiles this table, so
+# it must exist before the first build (adding it later needs
+# `mix deps.clean mime --build`).
 config :mime,
   extensions: %{"json" => "application/vnd.api+json"},
-  types: %{"application/vnd.api+json" => ["json"]}
-
-# "sse" is phantom_mcp's streaming media type (#361): the :mcp pipeline
-# negotiates it through accepts/2. Mime compiles this table, so it must
-# exist before the first build (adding it later needs
-# `mix deps.clean mime --build`).
-config :mime, types: %{"text/event-stream" => ["sse"]}
+  types: %{"application/vnd.api+json" => ["json"], "text/event-stream" => ["sse"]}
 
 config :ash_json_api,
   show_public_calculations_when_loaded?: false,

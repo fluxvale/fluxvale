@@ -119,7 +119,6 @@ defmodule FluxValeWeb.Mcp.TransportTest do
       {:ok, pat} = PersonalAccessToken.get_by_token_hash(hash, authorize?: false)
       session = struct(Phantom.Session, id: "probe")
 
-      Mimic.copy(AccessRules)
       stub(AccessRules, :ensure_allowed_user, fn _user -> {:error, :not_allowed} end)
 
       conn = %Plug.Conn{
