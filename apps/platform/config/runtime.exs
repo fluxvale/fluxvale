@@ -404,6 +404,25 @@ case System.get_env("POLAR_ALLOW_DISCOUNT_CODES") do
     :ok
 end
 
+# Active payments provider (#377 decision (c), ADR-0029): a staging-only
+# dial — the Polar e2e runs with Polar active while production stays on
+# HitPay; the production flip stays the runbook's config-commit cutover.
+# Whitelist map to the modules, never String.to_atom on env input; unset
+# or invalid keeps config.exs's default — a typo must fall back, not
+# error the boot.
+case System.get_env("PAYMENTS_PROVIDER") do
+  provider when provider in ["hitpay", "polar"] ->
+    providers = %{
+      "hitpay" => FluxVale.Billing.Providers.HitPay,
+      "polar" => FluxVale.Billing.Providers.Polar
+    }
+
+    config :flux_vale, :payments_provider, Map.fetch!(providers, provider)
+
+  _default ->
+    :ok
+end
+
 # Postmark mailer (ADR-0003 Am. 1, #165): POSTMARK_API_KEY moves delivery
 # off the Local adapter (config.exs) onto Postmark's API. nil and "" (the
 # classic empty-Secret shape) both mean unconfigured — a prod release
