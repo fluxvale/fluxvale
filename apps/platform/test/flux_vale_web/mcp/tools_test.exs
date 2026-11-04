@@ -13,6 +13,7 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
 
   import FluxVale.TestSupport.Mcp
 
+  alias FluxVale.Accounts.Membership
   alias FluxVale.Billing
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.Category
@@ -21,9 +22,12 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
   alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.TestSupport.AccessFixtures
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.ApiPat
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
+
+  require Ash.Query
 
   describe "whoami" do
     test "returns the token's identity, role, and exact scopes", %{conn: conn} do
@@ -42,6 +46,62 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
                  "scopes" => ["instances:read", "wallet:read"]
                }
              } = structured(conn)
+    end
+
+    test "surfaces the actor's organizations — id and slug each", %{conn: conn} do
+      {user, pat} = ApiPat.member!()
+      personal = AccountsFixtures.personal_org!(user)
+      team = AccountsFixtures.owned_org!(user)
+
+      conn = call_tool(conn, pat, "whoami", %{})
+
+      assert %{"attributes" => %{"organizations" => orgs}} = structured(conn)
+
+      personal_id = personal.id
+      personal_slug = personal.slug
+      team_id = team.id
+      team_slug = team.slug
+
+      assert %{^personal_slug => ^personal_id, ^team_slug => ^team_id} =
+               Map.new(orgs, &{&1["slug"], &1["id"]})
+
+      assert length(orgs) == 2
+
+      # Each row is exactly {id, slug} — whoami is the only tool that
+      # hands you an org id without demanding one as input, which is
+      # what get_wallet / get_gateway take.
+      for row <- orgs do
+        keys = Map.keys(row)
+        assert MapSet.new(keys) == MapSet.new(~w(id slug))
+      end
+    end
+
+    test "a zero-scope token still gets whoami — the tool is scopeless", %{conn: conn} do
+      user = AccountsFixtures.user!()
+      org = AccountsFixtures.personal_org!(user)
+      pat = ApiPat.mint!(user.email, [])
+
+      conn = call_tool(conn, pat, "whoami", %{})
+
+      org_id = org.id
+
+      assert %{
+               "attributes" => %{"scopes" => [], "organizations" => [%{"id" => ^org_id}]}
+             } = structured(conn)
+    end
+
+    test "a member-less actor ships an empty organizations list", %{conn: conn} do
+      {user, pat} = ApiPat.member!()
+      org = AccountsFixtures.personal_org!(user)
+
+      # Unreachable through actions (signup's JIT provisioning members
+      # the creator) — the system posture stages the seeded/legacy
+      # state the operation answers with {:ok, []}.
+      drop_membership!(user, org)
+
+      conn = call_tool(conn, pat, "whoami", %{})
+
+      assert %{"attributes" => %{"organizations" => []}} = structured(conn)
     end
   end
 
@@ -456,5 +516,17 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
       authorize?: false
     )
     |> Ash.update!()
+  end
+
+  # System posture (bootstrap, mirroring seeds) — the membership destroy
+  # is system-only (#119), staging the seeded/legacy member-less state.
+  defp drop_membership!(user, org) do
+    membership =
+      Membership
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(user_id == ^user.id and organization_id == ^org.id)
+      |> Ash.read_one!(authorize?: false)
+
+    Ash.destroy!(membership, authorize?: false)
   end
 end
