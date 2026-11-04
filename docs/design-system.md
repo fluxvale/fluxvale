@@ -5,7 +5,7 @@ ramp, v2's component set. The living reference is the **storybook**:
 `/storybook` in dev, [storybook.fluxvale.com](https://storybook.fluxvale.com)
 on staging (fleet-routed, internal-only, `STORYBOOK_ENABLED`-gated).
 
-![Storybook](design/screenshots/storybook-overview.png)
+![Storybook](screenshots/design/storybook-overview.png)
 
 ## Tokens (`apps/platform/assets/css/app.css`)
 
@@ -72,7 +72,7 @@ readout names the stopped value.
 
 ## The resource picker (#195, rungs-only #221)
 
-![Resources step, light](design/screenshots/resource-picker/resources-picker-light.png)
+![Resources step, light](screenshots/design/resource-picker/resources-picker-light.png)
 
 The deploy wizard's resources step is **selectable, never typed**:
 seeded sizes are quick-pick buttons and each dimension is a rung slider
@@ -80,9 +80,9 @@ over the seeded ladder's values — index-stepped, so keyboard and drag
 both stop on the labeled rungs (never between), with the active tick
 highlighted and the rung's value in the readout. The picker's states —
 light, dark, below-recommendation, and a slider custom — live in
-[design/screenshots/resource-picker/](design/screenshots/resource-picker/).
+[screenshots/design/resource-picker/](screenshots/design/resource-picker/).
 The wave-2 record's two resources-step frames
-(`docs/design/screenshots/wave2/deploy-step3-light.png`,
+(`docs/screenshots/design/wave2/deploy-step3-light.png`,
 `deploy-step3-warning-light.png`) are re-captured with the picker
 (rungs-only #221 state), so the surface record shows what ships.
 
@@ -114,10 +114,10 @@ disabled-Continue, Configuration card width); instance show **GOOD**
 step-ids never matched the atom step and Elixir's term order painted
 every step done, sandbox serif pinned to Inter, paired wizard
 actions). Final screenshots:
-[docs/design/screenshots/wave2/](design/screenshots/wave2/).
+[docs/screenshots/design/wave2/](screenshots/design/wave2/).
 
 Session-aware root (#205): one ephemeral lane agent (Kimi K3) over
 the same loop — round 1 caught the public footer still offering
 "Sign in" to a signed-in visitor (the header had swapped, the footer
 hadn't); round 2 converged — **GOOD**. Final screenshots:
-[docs/design/screenshots/root/](design/screenshots/root/).
+[docs/screenshots/design/root/](screenshots/design/root/).
