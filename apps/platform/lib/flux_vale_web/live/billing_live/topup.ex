@@ -1195,7 +1195,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
   # garbage reference renders the not-found card, never a crash),
   # reconcile a pending row once, then arm the presentation extras.
   defp show_confirmation(socket, payment_request_id) do
-    topup = fetch_topup(payment_request_id, socket.assigns.current_user)
+    topup = fetch_topup(payment_request_id, socket)
     state = confirmation_state(topup)
 
     {:noreply,
@@ -1262,15 +1262,30 @@ defmodule FluxValeWeb.BillingLive.Topup do
     end
   end
 
-  defp fetch_topup(payment_request_id, user) do
-    result =
+  # The actor's member-scoped policy reads every org's topups they
+  # belong to, so the fetch itself pins the arm: the org route is ONE
+  # org's landing, and a reference from another of the actor's orgs
+  # reads as not-found there — never as another org's charge wearing
+  # this org's chrome (the sibling org pages' posture: the page bills
+  # the URL org). The personal arm keeps today's shape (any
+  # actor-readable reference).
+  defp fetch_topup(payment_request_id, socket) do
+    user = socket.assigns.current_user
+
+    readable =
       Topup
       |> Ash.Query.for_read(:read, %{}, actor: user)
       |> Ash.Query.filter(payment_request_id == ^payment_request_id)
       |> Ash.Query.limit(1)
-      |> Ash.read()
 
-    case result do
+    query =
+      if socket.assigns.live_action == :org do
+        Ash.Query.filter(readable, organization_id == ^socket.assigns.org.id)
+      else
+        readable
+      end
+
+    case Ash.read(query) do
       {:ok, [topup | _rest]} -> topup
       _none -> nil
     end

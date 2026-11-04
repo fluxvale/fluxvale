@@ -16,6 +16,8 @@ defmodule FluxValeWeb.BillingLive.TopupOrgTest do
 
   import Phoenix.LiveViewTest
 
+  alias FluxVale.Accounts.Membership
+  alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
   alias FluxVale.Billing.Providers.HitPay
   alias FluxVale.Billing.Topup
@@ -182,6 +184,65 @@ defmodule FluxValeWeb.BillingLive.TopupOrgTest do
 
       assert {:ok, 500} = Billing.balance(wallet, authorize?: false)
     end
+
+    test "a reference from another of the actor's orgs reads as not-found on the org route", %{
+      conn: conn,
+      user: user,
+      org: org
+    } do
+      # The discriminating shape (the org billing suite's posture): the
+      # SAME actor belongs to two orgs, and the read policy would let
+      # either org's rows through — so the fetch itself pins the URL
+      # org. No flow creates a second org yet, so both rows ride the
+      # actions with authorize?: false (the #279 bootstrap posture).
+      other_org =
+        Organization.create!(%{name: "Other Org", slug: "topup-other-org"}, authorize?: false)
+
+      Membership.create!(%{organization_id: other_org.id, user_id: user.id, role: :owner},
+        authorize?: false
+      )
+
+      {:ok, _other_wallet} = Billing.ensure_wallet(other_org)
+
+      {:ok, topup} =
+        Topup.create(
+          %{
+            organization_id: other_org.id,
+            amount_cents: 700,
+            buyer_email: "jane@example.com",
+            billing_country: "DE"
+          },
+          authorize?: false
+        )
+
+      {:ok, _attached} =
+        Topup.attach_checkout(topup, %{payment_request_id: "pr_other_org"}, authorize?: false)
+
+      {:ok, _completed} =
+        Billing.complete_topup(%{
+          payment_request_id: "pr_other_org",
+          payment_id: "pay_other",
+          amount_cents: 700,
+          idempotency_key: "hitpay:pay_other"
+        })
+
+      # The org route's return renders the not-found card — the other
+      # org's charge never wears this org's chrome — and its way out is
+      # THIS org's billing page.
+      {:ok, view, _html} =
+        live(conn, ~p"/organizations/#{org.slug}/billing/topup/return?reference=pr_other_org")
+
+      assert has_element?(view, "[data-testid='topup-confirmation']")
+      assert render(view) =~ "We couldn&#39;t find that top-up"
+
+      assert has_element?(
+               view,
+               "a[href='/organizations/#{org.slug}/billing']",
+               "Back to billing"
+             )
+
+      refute has_element?(view, "[data-testid='topup-confirmation-balance']")
+    end
   end
 
   describe "the org route — the not-found posture" do
@@ -262,6 +323,54 @@ defmodule FluxValeWeb.BillingLive.TopupOrgTest do
       # /billing, not the org's billing page.
       assert has_element?(view, "a[href='/billing']", "← Billing")
       refute has_element?(view, "a[href='/organizations/#{org.slug}/billing']")
+    end
+
+    test "a reference from another org still renders on the personal surface (today's shape)", %{
+      conn: conn,
+      user: user
+    } do
+      # The personal arm keeps its existing fetch: any actor-readable
+      # reference renders. This pins the intentional asymmetry the org
+      # arm introduces — tightening the personal surface is a behavior
+      # change to today's flow, not this PR's to make.
+      other_org =
+        Organization.create!(%{name: "Other Org 2", slug: "topup-other-org-2"}, authorize?: false)
+
+      Membership.create!(%{organization_id: other_org.id, user_id: user.id, role: :owner},
+        authorize?: false
+      )
+
+      {:ok, _other_wallet} = Billing.ensure_wallet(other_org)
+
+      {:ok, topup} =
+        Topup.create(
+          %{
+            organization_id: other_org.id,
+            amount_cents: 700,
+            buyer_email: "jane@example.com",
+            billing_country: "DE"
+          },
+          authorize?: false
+        )
+
+      {:ok, _attached} =
+        Topup.attach_checkout(topup, %{payment_request_id: "pr_other_personal"},
+          authorize?: false
+        )
+
+      {:ok, _completed} =
+        Billing.complete_topup(%{
+          payment_request_id: "pr_other_personal",
+          payment_id: "pay_other_personal",
+          amount_cents: 700,
+          idempotency_key: "hitpay:pay_other_personal"
+        })
+
+      {:ok, view, _html} =
+        live(conn, ~p"/billing/topup/return?reference=pr_other_personal")
+
+      assert has_element?(view, "[data-testid='topup-confirmation-completed']")
+      assert has_element?(view, "a#topup-back-to-billing[href='/billing']")
     end
   end
 end
