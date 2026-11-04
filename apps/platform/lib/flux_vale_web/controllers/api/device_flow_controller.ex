@@ -57,7 +57,7 @@ defmodule FluxValeWeb.Api.DeviceFlowController do
         |> json(%{
           device_code: row.device_code,
           user_code: row.user_code,
-          verification_uri: verification_uri(),
+          verification_uri: verification_uri(conn),
           expires_in: DeviceCode.ttl_seconds(),
           interval: PollDeviceCode.poll_interval_seconds()
         })
@@ -176,11 +176,16 @@ defmodule FluxValeWeb.Api.DeviceFlowController do
     |> json(%{error: to_string(error), error_description: description})
   end
 
-  # The approval panel's URL, on the canonical origin (the SEO
-  # config's stance: the prod origin is the truth regardless of the
-  # serving host — a staging CLI still points its human at prod, and
-  # a local override via config lands the human locally).
-  defp verification_uri do
-    Application.fetch_env!(:flux_vale, :canonical_origin) <> "/settings/access/device"
+  # The approval panel's URL on the REQUESTING environment's origin —
+  # the host the CLI talked to. The user_code lives in this
+  # environment's DB, so the human must open this environment's page:
+  # prod's canonical origin is the SEO posture (ADR-00025), not a DB
+  # pointer. conn.host is the same request fact EdgeHost dispatches
+  # on (#203); Traefik passes it through untouched. Scheme is always
+  # https — every served environment terminates TLS at the edge (the
+  # local k3d stack included); a bare-http dev server would print an
+  # https URL no browser opens.
+  defp verification_uri(conn) do
+    "https://" <> conn.host <> "/settings/access/device"
   end
 end
