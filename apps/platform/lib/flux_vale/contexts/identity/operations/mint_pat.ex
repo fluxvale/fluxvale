@@ -25,7 +25,10 @@ defmodule FluxVale.Identity.Operations.MintPat do
 
   `params`: `%{user_id:, name:, scopes:}` (empty scopes allowed;
   optional `expires_at` overrides the 1-year default — a longer value
-  is capped to it). Returns
+  is capped to it; optional `metadata` carries the mint provenance,
+  #362's device-flow shape — system-written, never accepted from a
+  policy-facing caller surface beyond this operation's argument).
+  Returns
   `{:ok, %{token: raw_value, pat: %PersonalAccessToken{}}}` — the
   caller shows the value once (or never); there is no way to recover
   it later. Off-catalog or duplicate scopes are refused before
@@ -53,6 +56,9 @@ defmodule FluxVale.Identity.Operations.MintPat do
         # argument — set by the system, never an accepted input (the
         # before-for_create pattern Ash itself prescribes).
         |> Ash.Changeset.set_argument(:token_hash, PersonalAccessToken.token_hash(raw))
+        # The provenance record rides the same private-argument shape
+        # (#362): set by the operation, never an accepted input.
+        |> Ash.Changeset.set_argument(:metadata, params[:metadata] || %{})
         |> Ash.Changeset.for_create(
           :create,
           %{

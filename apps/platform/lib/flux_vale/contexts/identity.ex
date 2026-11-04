@@ -16,6 +16,7 @@ defmodule FluxVale.Identity do
 
   resources do
     resource(FluxVale.Identity.AuthCode)
+    resource(FluxVale.Identity.DeviceCode)
     resource(FluxVale.Identity.PersonalAccessToken)
     resource(FluxVale.Identity.Token)
     resource(FluxVale.Identity.User)
@@ -61,5 +62,21 @@ defmodule FluxVale.Identity do
 
   defdelegate revoke_pat(actor, pat_or_id, opts \\ []),
     to: FluxVale.Identity.Operations.RevokePat,
+    as: :call
+
+  # Device flow (#362 T3, RFC 8628): mint the sign-in request, run the
+  # poll machine (see PollDeviceCode for the answer order), sweep dead
+  # rows. Unauthenticated endpoints are the callers — the device_code
+  # is the credential.
+  defdelegate mint_device_code(params, opts \\ []),
+    to: FluxVale.Identity.Operations.MintDeviceCode,
+    as: :call
+
+  defdelegate poll_device_code(client_id, device_code, opts \\ []),
+    to: FluxVale.Identity.Operations.PollDeviceCode,
+    as: :call
+
+  defdelegate prune_device_codes(opts \\ []),
+    to: FluxVale.Identity.Operations.PruneDeviceCodes,
     as: :call
 end

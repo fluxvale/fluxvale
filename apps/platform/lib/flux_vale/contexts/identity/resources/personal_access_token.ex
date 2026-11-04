@@ -95,6 +95,19 @@ defmodule FluxVale.Identity.PersonalAccessToken do
       public?(true)
     end
 
+    # Mint provenance (#362 T3, OQ #9): who/what the token was minted
+    # for — the device flow stamps client_id, grant_type, the granted
+    # scopes (self-describing provenance; the column above is the
+    # enforcement half) and minted_via. System-written at mint only:
+    # no update action accepts it, so it never drifts from mint time.
+    # No JSON:API surface exposes it (not a machine-API resource; the
+    # AshAdmin stance covers Identity wholesale, ADR-0027 §3).
+    attribute :metadata, :map do
+      allow_nil?(false)
+      default(%{})
+      public?(false)
+    end
+
     attribute(:last_used_at, :utc_datetime)
 
     # nil = live. The auth lookup refuses rows with a stamp — instant
@@ -130,6 +143,12 @@ defmodule FluxVale.Identity.PersonalAccessToken do
       # input, only the system's digest of the generated value.
       argument(:token_hash, :string, allow_nil?: false, sensitive?: true, public?: false)
       change(set_attribute(:token_hash, arg(:token_hash)))
+
+      # Mint provenance rides the same shape (#362): a private
+      # argument the mint operation sets, never an accepted input —
+      # no caller surface can stamp a row's provenance directly.
+      argument(:metadata, :map, allow_nil?: true, public?: false)
+      change(set_attribute(:metadata, arg(:metadata) || %{}))
 
       # The catalog guard rejects off-catalog or duplicate scopes at
       # the resource, so no caller can bypass the mint operation's own

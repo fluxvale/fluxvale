@@ -16,6 +16,8 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
   alias FluxVale.Accounts.Membership
   alias FluxVale.Billing
   alias FluxVale.Clients.K8s
+  alias FluxVale.Identity
+  alias FluxVale.Identity.DeviceCode
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
@@ -1529,5 +1531,120 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
   defp welcome_only!(org) do
     {:ok, wallet} = Billing.ensure_wallet(org)
     {:ok, _welcome} = Billing.grant_credits(wallet, 300)
+  end
+
+  # ---- Device sign-ins (#362 T3): the approval surface ----
+
+  describe "the device sign-ins section" do
+    test "the section renders with its empty line when nothing is pending", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      assert has_element?(view, "[data-testid='device-sign-ins']")
+      assert has_element?(view, "[data-testid='device-sign-ins-empty']")
+      assert has_element?(view, "#device-sign-ins")
+      refute has_element?(view, "[data-testid='device-sign-in-row']")
+    end
+
+    test "a pending sign-in renders its user_code, scopes, client and expiry", %{
+      conn: conn
+    } do
+      {:ok, _row} =
+        Identity.mint_device_code(%{client_id: "fluxvale-cli", scopes: ["instances:read"]})
+
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      row_html = render(element(view, "[data-testid='device-sign-in-row']"))
+      assert row_html =~ ~r/[A-HJ-KM-NP-Z2-9]{4}-[A-HJ-KM-NP-Z2-9]{4}/
+      assert has_element?(view, "[data-testid='device-user-code']")
+      assert has_element?(view, "[data-testid='device-meta']")
+
+      meta = render(element(view, "[data-testid='device-meta']"))
+      assert meta =~ "instances:read"
+      assert meta =~ "client fluxvale-cli"
+      assert meta =~ "expires in"
+
+      assert has_element?(view, "[data-testid='device-approve']")
+      assert has_element?(view, "[data-testid='device-deny']")
+      refute has_element?(view, "[data-testid='device-sign-ins-empty']")
+    end
+
+    test "empty scopes render as full access (OQ #9's first-party shape)", %{
+      conn: conn
+    } do
+      {:ok, _row} = Identity.mint_device_code(%{client_id: "fluxvale-cli", scopes: []})
+
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      assert render(element(view, "[data-testid='device-meta']")) =~ "all scopes (full access)"
+    end
+
+    test "approving binds the row to the clicking user — the poll then mints for them", %{
+      conn: conn,
+      owner: owner
+    } do
+      {:ok, row} =
+        Identity.mint_device_code(%{client_id: "fluxvale-cli", scopes: ["wallet:read"]})
+
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      view
+      |> element("[data-testid='device-approve']")
+      |> render_click()
+
+      # The row approved with the actor as the approver.
+      {:ok, approved_row} = DeviceCode.get_by_device_code(row.device_code, authorize?: false)
+      assert approved_row.status == :approved
+      assert approved_row.user_id == owner.id
+
+      # The list refreshes (the row leaves pending).
+      refute has_element?(view, "[data-testid='device-sign-in-row']")
+      assert has_element?(view, "[data-testid='device-sign-ins-empty']")
+
+      # The next poll mints the PAT FOR the clicking user.
+      assert {:ok, %{pat: pat}} =
+               Identity.poll_device_code("fluxvale-cli", approved_row.device_code)
+
+      assert pat.user_id == owner.id
+    end
+
+    test "denying the sign-in leaves the row denied", %{conn: conn} do
+      {:ok, minted} = Identity.mint_device_code(%{client_id: "fluxvale-cli", scopes: []})
+
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      view
+      |> element("[data-testid='device-deny']")
+      |> render_click()
+
+      {:ok, denied_row} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
+      assert denied_row.status == :denied
+      assert denied_row.user_id == nil
+
+      refute has_element?(view, "[data-testid='device-sign-in-row']")
+    end
+
+    test "a stale click (the row handled between render and click) converges without crashing", %{
+      conn: conn,
+      owner: owner
+    } do
+      {:ok, minted} = Identity.mint_device_code(%{client_id: "fluxvale-cli", scopes: []})
+
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      # The row leaves pending underneath the panel.
+      {:ok, pending_row} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
+      {:ok, _denied} = DeviceCode.deny(pending_row, actor: owner)
+
+      view
+      |> element("[data-testid='device-approve']")
+      |> render_click()
+
+      # The stale-view answer: the list refetched, no crash.
+      assert has_element?(view, "[data-testid='device-sign-ins-empty']")
+      {:ok, after_click} = DeviceCode.get_by_device_code(minted.device_code, authorize?: false)
+      assert after_click.status == :denied
+    end
   end
 end

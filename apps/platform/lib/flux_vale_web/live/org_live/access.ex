@@ -39,6 +39,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   alias FluxVale.Checks.ActorIsOrganizationOwner
   alias FluxVale.Checks.ActorOrgHasPaid
   alias FluxVale.Checks.ActorOrgWalletFunded
+  alias FluxVale.Identity.DeviceCode
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessRoute
@@ -162,9 +163,11 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     |> assign(attach_error: nil)
     |> stream_configure(:attached, dom_id: &"access-attached-#{&1.route.id}")
     |> stream_configure(:attachable, dom_id: &"access-attach-#{&1.id}")
+    |> stream_configure(:device_sign_ins, dom_id: &"device-sign-in-#{&1.id}")
     |> refresh_wallet_gates()
     |> assign_forms()
     |> refresh_pairing()
+    |> refresh_device_sign_ins()
   end
 
   # The top-up links inside the panel: a real org bills at its org URL,
@@ -422,6 +425,85 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
   def handle_event("detach", _params, socket), do: {:noreply, socket}
 
+  # ---- Device sign-ins (#362 T3): approve / deny the device flow ----
+
+  # Approve binds the row to the CLICKING user (the :approve action's
+  # contract — the argument rides the actor, never form params), and
+  # the CLI's next poll mints the PAT for them. The stale arms (the
+  # row was approved/denied elsewhere, or expired, between render and
+  # click) find nothing pending and converge through the refetch —
+  # the remove family's no-op posture.
+  def handle_event("approve-device", %{"id" => id}, socket) do
+    case find_pending_device_sign_in(socket, id) do
+      nil ->
+        {:noreply, device_sign_in_gone(socket)}
+
+      code ->
+        case DeviceCode.approve(code, socket.assigns.current_user.id,
+               actor: socket.assigns.current_user
+             ) do
+          {:ok, _approved} ->
+            {:noreply,
+             socket
+             |> put_flash(
+               :info,
+               "Device approved — finish the sign-in from your terminal."
+             )
+             |> refresh_device_sign_ins()}
+
+          # The filtered write lost a race the pending re-read missed
+          # (deny/consume landed between the read and the write).
+          {:error, _stale} ->
+            {:noreply, device_sign_in_gone(socket)}
+        end
+    end
+  end
+
+  def handle_event("deny-device", %{"id" => id}, socket) do
+    case find_pending_device_sign_in(socket, id) do
+      nil ->
+        {:noreply, device_sign_in_gone(socket)}
+
+      code ->
+        case DeviceCode.deny(code, actor: socket.assigns.current_user) do
+          {:ok, _denied} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Device sign-in denied.")
+             |> refresh_device_sign_ins()}
+
+          {:error, _stale} ->
+            {:noreply, device_sign_in_gone(socket)}
+        end
+    end
+  end
+
+  # Only a still-pending row acts — the pending re-read IS the guard
+  # (the :pending read filters status and expiry), so a crafted or
+  # stale id is a quiet no-op + refresh, never a crash.
+  defp find_pending_device_sign_in(socket, id) do
+    pending = DeviceCode.pending!(actor: socket.assigns.current_user)
+    Enum.find(pending, &(&1.id == id))
+  end
+
+  defp device_sign_in_gone(socket) do
+    socket
+    |> put_flash(:error, "That sign-in request is no longer pending.")
+    |> refresh_device_sign_ins()
+  end
+
+  # The actor's pending sign-in requests — the same list on the org
+  # and personal panels (rows are unattributed until an approval
+  # binds one to the clicking user; the human compares the on-screen
+  # user_code with their terminal's before clicking, the gh posture).
+  defp refresh_device_sign_ins(socket) do
+    pending = DeviceCode.pending!(actor: socket.assigns.current_user)
+
+    socket
+    |> stream(:device_sign_ins, pending, reset: true)
+    |> assign(device_sign_ins_empty?: pending == [])
+  end
+
   @impl Phoenix.LiveView
   # The per-org topic's catch-all: every gateway write lands here (the
   # observer's tick, a state change from another tab, the create) and so
@@ -561,6 +643,74 @@ defmodule FluxValeWeb.OrganizationLive.Access do
                 price_cents={@price_cents}
               />
             <% end %>
+
+            <%!-- #362: the device flow's approval surface — the actor's
+                pending sign-in requests. The rows are unattributed
+                until an approval binds one to the clicking user; the
+                copy carries the human check (compare the code with
+                your terminal). Section id is the verification_uri
+                fragment's target (/settings/access/device lands
+                here). --%>
+            <div class="space-y-3" id="device-sign-ins" data-testid="device-sign-ins">
+              <div>
+                <h3 class="text-sm font-medium text-ink-muted">Device sign-ins</h3>
+                <p class="mt-1 text-sm text-ink-muted">
+                  Signing in to the FluxVale CLI? Approve the request whose code matches
+                  your terminal — the CLI token is minted for your account.
+                </p>
+              </div>
+
+              <div class="mono-panel min-w-0">
+                <p
+                  :if={@device_sign_ins_empty?}
+                  class="font-sans text-sm text-ink-muted"
+                  data-testid="device-sign-ins-empty"
+                >
+                  No device sign-ins waiting.
+                </p>
+
+                <ul id="device-sign-in-rows" phx-update="stream" class="divide-y divide-line">
+                  <li
+                    :for={{dom_id, code} <- @streams.device_sign_ins}
+                    id={dom_id}
+                    class="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
+                    data-testid="device-sign-in-row"
+                  >
+                    <div class="min-w-0 space-y-1">
+                      <p class="font-mono text-sm font-medium text-ink" data-testid="device-user-code">
+                        {code.user_code}
+                      </p>
+                      <p class="text-xs text-ink-muted" data-testid="device-meta">
+                        {scope_line(code)} — {device_client_label(code)}, expires in {expires_in_label(
+                          code
+                        )}
+                      </p>
+                    </div>
+                    <div class="flex gap-3">
+                      <.button
+                        type="button"
+                        phx-click="approve-device"
+                        phx-value-id={code.id}
+                        size="sm"
+                        data-testid="device-approve"
+                      >
+                        Approve
+                      </.button>
+                      <.button
+                        type="button"
+                        phx-click="deny-device"
+                        phx-value-id={code.id}
+                        variant="ghost"
+                        size="sm"
+                        data-testid="device-deny"
+                      >
+                        Deny
+                      </.button>
+                    </div>
+                  </li>
+                </ul>
+              </div>
+            </div>
           </div>
         </section>
       </div>
@@ -1404,6 +1554,23 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
   defp attach_error_copy(_cluster_or_stale) do
     "Couldn't attach — try again."
+  end
+
+  # ---- Device sign-ins copy (#362) ----
+
+  # Empty scopes is the catalog's "full access" shape (OQ #9's
+  # single first-party client) — say so plainly; a scoped request
+  # names its entries.
+  defp scope_line(%DeviceCode{scopes: []}), do: "all scopes (full access)"
+  defp scope_line(%DeviceCode{scopes: scopes}), do: Enum.join(scopes, ", ")
+
+  defp device_client_label(%DeviceCode{client_id: client_id}), do: "client #{client_id}"
+
+  defp expires_in_label(%DeviceCode{expires_at: expires_at}) do
+    expires_at
+    |> DateTime.diff(DateTime.utc_now(), :minute)
+    |> max(0)
+    |> then(&"#{&1} min")
   end
 
   # §4.1's address shape: hostname + tailnet domain + route_key. The
