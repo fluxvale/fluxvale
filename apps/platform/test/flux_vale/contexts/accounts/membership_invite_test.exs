@@ -140,7 +140,7 @@ defmodule FluxVale.Accounts.MembershipInviteTest do
         Ash.Seed.seed!(MembershipInvite, %{
           organization_id: org.id,
           email: "state-expired@fluxvale.test",
-          token_hash: String.duplicate("5", 64),
+          token_hash: arbitrary_hash(),
           expires_at: DateTime.add(DateTime.utc_now(), -1, :hour)
         })
 
@@ -180,7 +180,7 @@ defmodule FluxVale.Accounts.MembershipInviteTest do
         Ash.Seed.seed!(MembershipInvite, %{
           organization_id: org.id,
           email: "accept-expired@fluxvale.test",
-          token_hash: String.duplicate("6", 64),
+          token_hash: arbitrary_hash(),
           expires_at: DateTime.add(DateTime.utc_now(), -1, :minute)
         })
 
@@ -283,6 +283,17 @@ defmodule FluxVale.Accounts.MembershipInviteTest do
 
   # ---- helpers ---------------------------------------------------------
 
+  # An arbitrary, unique digest for precondition rows — the value's
+  # shape is what matters (64-hex), not what it hashes.
+  defp arbitrary_hash do
+    n = System.unique_integer([:positive])
+    seed = Integer.to_string(n)
+
+    :sha256
+    |> :crypto.hash(seed)
+    |> Base.encode16(case: :lower)
+  end
+
   defp owned_org! do
     owner = AccountsFixtures.user!()
     {AccountsFixtures.owned_org!(owner), owner}
@@ -293,7 +304,7 @@ defmodule FluxVale.Accounts.MembershipInviteTest do
   # (the MintPat shape). Actorless precondition calls run authorize?:
   # false (the bootstrap posture); actor calls run the policies.
   defp create_invite(attrs, opts \\ []) do
-    {token_hash, attrs} = Map.pop(attrs, :token_hash, String.duplicate("9", 64))
+    {token_hash, attrs} = Map.pop(attrs, :token_hash, arbitrary_hash())
 
     opts =
       if Keyword.has_key?(opts, :actor) do

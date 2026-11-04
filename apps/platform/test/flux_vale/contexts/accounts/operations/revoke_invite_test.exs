@@ -24,17 +24,30 @@ defmodule FluxVale.Accounts.Operations.RevokeInviteTest do
     assert Ash.load!(revoked, :state, authorize?: false).state == :revoked
   end
 
-  test "revoking twice keeps the original stamp" do
+  test "revoking keeps a pre-existing stamp — the idempotence contract" do
     owner = AccountsFixtures.user!()
     org = AccountsFixtures.owned_org!(owner)
     invitee = AccountsFixtures.user!()
 
     assert {:ok, invite} = Accounts.invite_member(owner, org, invitee.email)
 
-    assert {:ok, first} = Accounts.revoke_invite(owner, invite)
-    assert {:ok, second} = Accounts.revoke_invite(owner, invite)
+    # A backdated revoked_at is a state no action can produce (the
+    # change always stamps now) — seed! territory, the documented
+    # exception. It pins the KEEP arm deterministically: second-probe
+    # stamps truncated to the second would compare equal by accident.
+    seeded_stamp = ~U[2024-06-01 12:00:00Z]
 
-    assert DateTime.compare(second.revoked_at, first.revoked_at) == :eq
+    seeded =
+      Ash.Seed.seed!(FluxVale.Accounts.MembershipInvite, %{
+        organization_id: org.id,
+        email: invitee.email,
+        token_hash: String.duplicate("b", 64),
+        revoked_at: seeded_stamp,
+        expires_at: invite.expires_at
+      })
+
+    assert {:ok, revoked} = Accounts.revoke_invite(owner, seeded)
+    assert revoked.revoked_at == seeded_stamp
   end
 
   test "a member who is not the owner cannot revoke" do

@@ -54,6 +54,13 @@ defmodule FluxValeWeb.OrganizationLive.InviteAccept do
     String.downcase(primary_email) == String.downcase(invited)
   end
 
+  # Unreachable for any signed-in visitor: the session gate demands a
+  # verified address (AccessRules.ensure_allowed_user), and a verified
+  # row IS a primary (the create mirror stamps it verified from birth;
+  # SetPrimary/RemoveGuard keep one). The arm keeps the page crash-free
+  # if that invariant ever breaks.
+  #
+  # coveralls-ignore-next-line
   defp email_matches?(_no_verified_primary, _invited), do: false
 
   defp to_socket({state, invited, invite}, socket, token) do

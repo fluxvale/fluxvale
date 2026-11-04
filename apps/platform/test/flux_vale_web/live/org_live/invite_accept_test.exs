@@ -122,6 +122,45 @@ defmodule FluxValeWeb.OrganizationLive.InviteAcceptTest do
     end
   end
 
+  describe "the raced click arms" do
+    test "an accept on a window that closed elsewhere answers and does not join twice", %{
+      conn: conn,
+      invitee: invitee,
+      token: token,
+      org: org
+    } do
+      {:ok, view, _html} = live(conn, ~p"/invitations/accept?token=#{token}")
+
+      # The invite completes elsewhere (another tab, a raced click)
+      # between this page's mount and the click.
+      assert {:ok, _accepted} = Accounts.accept_invite(token, invitee)
+
+      view
+      |> element("[data-testid='invite-accept']")
+      |> render_click()
+
+      assert has_element?(view, "#flash-error", "This invitation can no longer be accepted.")
+
+      # Exactly one membership — the raced click joined nobody extra.
+      assert length(memberships(org, invitee)) == 1
+    end
+
+    test "a decline on a window that closed elsewhere answers plainly", %{
+      conn: conn,
+      token: token
+    } do
+      {:ok, view, _html} = live(conn, ~p"/invitations/accept?token=#{token}")
+
+      assert {:ok, _declined} = Accounts.decline_invite(token)
+
+      view
+      |> element("[data-testid='invite-decline']")
+      |> render_click()
+
+      assert has_element?(view, "#flash-error", "This invitation can no longer be declined.")
+    end
+  end
+
   describe "terminal states render one plain sentence" do
     test "accepted", %{conn: conn, invitee: invitee, token: token, org: org} do
       assert {:ok, _accepted} = Accounts.accept_invite(token, invitee)

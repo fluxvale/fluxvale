@@ -94,8 +94,9 @@ defmodule FluxValeWeb.OrganizationLive.Members do
 
         {:error, _other} ->
           # The owner policy is the authority; a refused create lands
-          # here (a member's crafted submit, a raced write). The list
-          # refreshes so the page shows the row's truth.
+          # here (the org gone underneath the mounted page — pinned by
+          # the gone-org submit test). The list refreshes so the page
+          # shows the row's truth.
           {:noreply,
            socket
            |> put_flash(:error, "Could not send the invitation.")
@@ -129,6 +130,12 @@ defmodule FluxValeWeb.OrganizationLive.Members do
         invite ->
           case Accounts.revoke_invite(user, invite) do
             {:ok, _revoked} -> put_flash(socket, :info, "Invitation revoked.")
+            # Defensive: a found-then-refused write has no trigger
+            # today — the open-filtered read above answers every state
+            # the row can move to, and a mounted owner's revoke passes
+            # the owner policy. Revisit with slice 5's removal flow,
+            # when an owner can lose the grant mid-session.
+            # coveralls-ignore-next-line
             {:error, _refused} -> put_flash(socket, :error, "Could not revoke the invitation.")
           end
       end

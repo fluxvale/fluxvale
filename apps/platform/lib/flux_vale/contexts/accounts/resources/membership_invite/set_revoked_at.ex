@@ -9,14 +9,12 @@ defmodule FluxVale.Accounts.MembershipInvite.SetRevokedAt do
 
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
-    case Ash.Changeset.get_attribute(changeset, :revoked_at) do
-      nil ->
-        Ash.Changeset.change_attribute(changeset, :revoked_at, DateTime.utc_now())
-
+    if is_nil(Ash.Changeset.get_attribute(changeset, :revoked_at)) do
+      Ash.Changeset.change_attribute(changeset, :revoked_at, DateTime.utc_now())
+    else
       # Already retired: no change at all — the action succeeds as a
       # no-op, which is the idempotency contract.
-      _already_revoked ->
-        changeset
+      changeset
     end
   end
 end

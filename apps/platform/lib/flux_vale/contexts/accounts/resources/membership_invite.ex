@@ -232,6 +232,14 @@ defmodule FluxVale.Accounts.MembershipInvite do
     # for_update + set_argument).
   end
 
+  identities do
+    # The token seam's lookup resolves by hash (get_by_token_hash is a
+    # get? read — at most one row may answer). Unique by construction:
+    # a collision would need a SHA-256 break (the PersonalAccessToken
+    # posture).
+    identity(:unique_token_hash, [:token_hash])
+  end
+
   calculations do
     # The accept page's whole state axis — one definition so the page,
     # the accept seam, and the decline seam cannot drift (order matters:

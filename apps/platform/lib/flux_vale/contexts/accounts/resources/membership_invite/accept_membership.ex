@@ -30,23 +30,17 @@ defmodule FluxVale.Accounts.MembershipInvite.AcceptMembership do
     invite = changeset.data
     user_id = Ash.Changeset.get_argument(changeset, :user_id)
 
-    # The error is ADDED, not raised: the accept action returns
-    # {:error, _} and the transaction unwinds whole (the caller never
-    # sees a half-join as a crash).
-    case Membership.create(
-           %{organization_id: invite.organization_id, user_id: user_id, role: invite.role},
-           authorize?: false
-         ) do
-      {:ok, _membership} ->
-        changeset
+    # A duplicate join raises through (Ash surfaces the constraint
+    # violation as the accept action's {:error, _}), rolling the whole
+    # transaction back — no accepted_at without a membership, never a
+    # half-join. The membership unique_user_per_org identity is the
+    # race arbiter behind the operation's friendly pre-check (the
+    # unique_slug posture).
+    Membership.create!(
+      %{organization_id: invite.organization_id, user_id: user_id, role: invite.role},
+      authorize?: false
+    )
 
-      {:error, error} ->
-        Ash.Changeset.add_error(changeset, error)
-    end
+    changeset
   end
-
-  # The before_action hook cannot run atomically (the set_primary
-  # trade — declared on the :accept action).
-  @impl Ash.Resource.Change
-  def atomic?, do: false
 end

@@ -389,6 +389,28 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     assert has_element?(view, "#flash-error", "no longer pending")
   end
 
+  test "a submit after the org is gone refuses — the actions are the authority", %{
+    conn: conn,
+    owner: owner,
+    org: org
+  } do
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    # The org dies underneath the mounted page (teardown elsewhere).
+    # System posture: the destroy policy already gated the caller, and
+    # the precondition is bootstrap (the seeds' authorize?: false).
+    assert :ok = Ash.destroy(org, authorize?: false)
+
+    view
+    |> form("#invite-form", invite: %{email: "afterlife@fluxvale.test"})
+    |> render_submit()
+
+    # The owner policy answers through the dead org: no row, no flash
+    # of success.
+    assert has_element?(view, "#flash-error", "Could not send the invitation.")
+    assert has_element?(view, "#invite-form")
+  end
+
   # Sanctioned precondition: nothing in the system creates :member rows
   # yet, so the row rides the action with authorize?: false.
   defp seed_member!(org, user) do
