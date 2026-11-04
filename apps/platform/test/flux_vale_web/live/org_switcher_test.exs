@@ -33,12 +33,24 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     |> html_response(200)
   end
 
-  # The panel's rows, off the whole rendered page — the selector scopes
-  # to the panel div, so page links around it stay out of the count.
+  # The panel's org rows, off the whole rendered page — the selector
+  # scopes to the panel div and rejects the create footer entry, so page
+  # links around it and the entry itself stay out of the row count.
   defp panel_rows(html) do
     html
     |> LazyHTML.from_fragment()
     |> LazyHTML.query(~s([data-testid="org-switcher-panel"] a))
+    |> Enum.reject(fn row ->
+      "org-switcher-create" in LazyHTML.attribute(row, "data-testid")
+    end)
+    |> Enum.to_list()
+  end
+
+  # The create entry itself — the panel's footer link.
+  defp create_entry(html) do
+    html
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query(~s([data-testid="org-switcher-create"]))
     |> Enum.to_list()
   end
 
@@ -72,10 +84,14 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     # suppression — the one membership IS the personal context, labeled
     # Personal and targeting the dashboard (S5: the account, not an org
     # page — the personal org's org-scoped URLs redirect). One row, one
-    # destination.
+    # destination. The create entry rides below it (#408).
     assert [row] = panel_rows(html)
     assert row_text(row) == "Personal · #{user.username}"
     assert row_href(row) == "/"
+
+    assert [entry] = create_entry(html)
+    assert row_text(entry) == "Create an Organization"
+    assert row_href(entry) == "/organizations/new"
   end
 
   test "two orgs: one row per membership, exactly one Personal-labeled", %{
@@ -125,6 +141,11 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     assert html =~ ~s(data-testid="org-switcher")
     refute html =~ ~s(>Personal</span>)
     assert panel_rows(html) == []
+
+    # The create entry survives the degraded panel (#408): creating an
+    # org is exactly how a zero-org actor stops being org-less.
+    assert [entry] = create_entry(html)
+    assert row_href(entry) == "/organizations/new"
   end
 
   # The member-only shape (#285 T6 review) — the same class: a user
@@ -376,6 +397,44 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     assert [row] = panel_rows(html)
     assert row_text(row) =~ "Team Org"
     assert row_href(row) == "/organizations/team"
+  end
+
+  # The create entry at the component level (#408): it needs no org
+  # data — callers that pass no orgs (and the zero-org actor's empty
+  # panel, asserted against the live chrome above) still get it. It
+  # renders LAST, after the rows, under its own divider.
+  test "the create entry renders with no orgs, last in the panel" do
+    empty = render_component(&FluxValeWeb.CoreComponents.org_switcher/1, orgs: [])
+
+    assert [entry] = create_entry(empty)
+    assert row_text(entry) == "Create an Organization"
+    assert row_href(entry) == "/organizations/new"
+    assert panel_rows(empty) == []
+
+    acme = %{organization: %{id: "org-acme", name: "Acme Collective", slug: "acme"}}
+    oss = %{organization: %{id: "org-oss", name: "OSS Friends", slug: "oss-friends"}}
+
+    both =
+      render_component(&FluxValeWeb.CoreComponents.org_switcher/1,
+        orgs: [acme, oss],
+        personal_org_id: "org-acme",
+        username: "terence"
+      )
+
+    all_links =
+      both
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(~s([data-testid="org-switcher-panel"] a))
+      |> Enum.to_list()
+
+    # Personal row, org row, then the create entry — additive, in that
+    # order; the rows' own assertions above pin their shape.
+    assert length(all_links) == 3
+    assert row_href(Enum.at(all_links, 0)) == "/"
+    assert row_href(Enum.at(all_links, 1)) == "/organizations/oss-friends"
+
+    assert row_text(Enum.at(all_links, 2)) == "Create an Organization"
+    assert row_href(Enum.at(all_links, 2)) == "/organizations/new"
   end
 
   # The hook's unique-DOM-id contract stays caller-owned: the default

@@ -133,8 +133,10 @@ defmodule FluxVale.Accounts.Operations.CreateOrganizationTest do
     test "reserved slugs fail with 'is reserved'" do
       user = AccountsFixtures.user!()
 
-      # A few middles plus both ends of the list ("www" … "fluxvale").
-      for slug <- ["www", "api", "billing", "organizations", "fluxvale"] do
+      # Middles plus the ends of the list ("www" opens it, "new" closes
+      # it — the literal /organizations/new route's word, the route is
+      # why it is reserved).
+      for slug <- ["www", "api", "billing", "organizations", "fluxvale", "new"] do
         assert {:error, %Ash.Error.Invalid{errors: errors}} =
                  Accounts.create_organization(user, %{name: "Reserved", slug: slug}),
                "expected #{slug} to be reserved"

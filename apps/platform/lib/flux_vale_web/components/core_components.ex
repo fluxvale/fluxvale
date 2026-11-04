@@ -1460,6 +1460,24 @@ defmodule FluxValeWeb.CoreComponents do
             </span>
           <% end %>
         </.link>
+        <%!-- The create entry (#408): after the rows, the panel's own
+        divider idiom above. Unconditional on the orgs — the entry needs
+        no org data, and the zero-org actor's empty panel is exactly who
+        needs it (creating an org is how such an actor stops being
+        org-less). Every site that mounts this switcher sits behind a
+        current_user (the chrome's `apps and current_user` guard;
+        component-level callers are signed-in contexts by contract), so
+        no per-user gate rides here. href, not navigate — the rows'
+        full-page-load reason above. --%>
+        <div class="mt-1 border-t border-line" aria-hidden="true"></div>
+        <.link
+          href={~p"/organizations/new"}
+          data-testid="org-switcher-create"
+          class="mt-1 flex items-center gap-2 rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+        >
+          <.icon name="hero-plus-micro" class="size-4 shrink-0 text-ink-subtle" />
+          <span class="truncate">Create an Organization</span>
+        </.link>
       </div>
     </details>
     """
