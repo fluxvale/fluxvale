@@ -74,6 +74,15 @@ defmodule FluxValeWeb.OrganizationLive.NewTest do
       |> render_change()
 
       assert slug_value(view) == String.duplicate("a", 39)
+
+      # The cap cut can land right after a hyphen — the trailing-hyphen
+      # trim is what keeps the hint submittable (38 a's + "-b" cuts to a
+      # trailing "-", trimmed to 38 a's).
+      view
+      |> form("#org-new-form", organization: %{name: String.duplicate("a", 38) <> "-b"})
+      |> render_change()
+
+      assert slug_value(view) == String.duplicate("a", 38)
     end
 
     test "an all-invalid name derives the empty field, not an error", %{conn: conn} do

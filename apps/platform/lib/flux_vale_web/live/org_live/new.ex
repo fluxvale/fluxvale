@@ -12,8 +12,8 @@ defmodule FluxValeWeb.OrganizationLive.New do
   Elixir in this LiveView, never a JS fork of the slug regex): the
   server's validations stay the authority, the hint can still collide or
   hit a reserved word, and the user can edit the slug freely. The cap
-  refusal (over ten owned orgs) is not a field problem — it surfaces as
-  a friendly flash instead.
+  refusal (an actor at the ten-org cap) is not a field problem — it
+  surfaces as a friendly flash instead.
   """
 
   use FluxValeWeb, :live_view
@@ -62,10 +62,11 @@ defmodule FluxValeWeb.OrganizationLive.New do
           # The cap refusal rides no field (Forbidden.Policy implements
           # no AshPhoenix.FormData.Error), so field-scoped errors take
           # precedence — the flash must not misdiagnose an at-cap
-          # user's bad-format submit. Classification asks the check's
-          # own predicate: the same query the refusing policy just ran
-          # (actor-present is the only other :create_with_owner check,
-          # and the live_session guarantees the actor).
+          # user's bad-format submit. Classification re-runs the cap
+          # count the refusing policy just used (ActorBelowOrgCreateCap.
+          # below_cap?/1). A membership removed in that re-run gap
+          # reclassifies the refusal as silent — cosmetic only; the
+          # gate is and stays the policy's.
           #
           # Copy ties to ActorBelowOrgCreateCap's @org_create_cap — the
           # NewTest flash assertion catches drift between the two.
@@ -126,7 +127,17 @@ defmodule FluxValeWeb.OrganizationLive.New do
 
   defp build_form(user) do
     Organization
-    |> AshPhoenix.Form.for_create(:create_with_owner, actor: user, as: "organization")
+    |> AshPhoenix.Form.for_create(:create_with_owner,
+      actor: user,
+      as: "organization",
+      # The cap refusal is an expected path here, and it is the ONE
+      # error this form can produce that no field can carry
+      # (Forbidden.Policy implements no FormData.Error) — the default
+      # warn-on-unhandled would log ops-visible warning noise + policy
+      # breadcrumbs on every refusal, reading like a production bug.
+      # Field errors implement the protocol and are unaffected.
+      warn_on_unhandled_errors?: false
+    )
     |> to_form()
   end
 
