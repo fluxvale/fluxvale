@@ -36,6 +36,13 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
 
     allocation = small_allocation()
 
+    # The live figures announce their updates (the top-up wizard's
+    # aria-live pattern).
+    assert has_element?(
+             view,
+             "[data-testid='calculator-price'] span[aria-live='polite']"
+           )
+
     assert has_element?(
              view,
              "[data-testid='calculator-price-running']",
@@ -137,6 +144,21 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     assert has_element?(view, "#size-chip-micro[aria-pressed='false']")
   end
 
+  test "an off-ladder size gets no chip and its slug is silence", %{conn: conn} do
+    # 3 cores, 3000 MB, 7 GB: none of the three names a rung.
+    off_ladder =
+      PricingFixtures.size!(cpu_cores: Decimal.new("3"), memory_mb: 3000, storage_gb: 7)
+
+    {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
+
+    refute has_element?(view, "[data-testid='size-chip-#{off_ladder.slug}']")
+
+    render_click(view, "pick-size", %{"slug" => off_ladder.slug})
+
+    assert_running_and_stopped(view, small_allocation())
+    assert has_element?(view, "#resource-cpu-cores[value='1']")
+  end
+
   test "a crafted size slug is silence", %{conn: conn} do
     {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
 
@@ -218,6 +240,40 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     assert has_element?(view, "#resource-storage-gb[value='1']")
     assert_running_and_stopped(view, small_allocation())
     assert has_element?(view, "[data-testid='app-chip-#{slug}'][aria-pressed='true']")
+  end
+
+  test "a version with no recommended size is a silent no-op", %{conn: conn} do
+    # The fixture's actions always attach a size, and both create and
+    # update validate present(:recommended_size_id) — the pre-#125 nil
+    # state is only Ash.Seed's to produce (the sanctioned case).
+    fixture = InstanceFixtures.app_version!()
+    app = Ash.load!(fixture, :app, authorize?: false).app
+
+    Ash.Seed.seed!(AppVersion, %{
+      # "9.0.0" sorts above the fixture's "1.0.N" — the nil-size version
+      # must be the app's latest, the one whose recommendation the
+      # chooser reads.
+      version: "9.0.0",
+      image: "registry.example.com/app:9.0.0",
+      port: 3000,
+      default_cpu_cores: Decimal.new("1"),
+      default_memory_mb: 1024,
+      default_storage_gb: 20,
+      app_id: app.id
+    })
+
+    {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
+    pick_chip(view, "app-chip-#{app.slug}")
+
+    # Nothing raises, the rungs stay at small, no line renders, and the
+    # chip does not press — there is no rate to show and nothing to
+    # snap to.
+    assert has_element?(view, "#resource-cpu-cores[value='1']")
+    assert has_element?(view, "#resource-memory-mb[value='0']")
+    assert has_element?(view, "#resource-storage-gb[value='1']")
+    assert_running_and_stopped(view, small_allocation())
+    refute has_element?(view, "[data-testid='calculator-app-recommendation']")
+    assert has_element?(view, "#app-chip-#{app.slug}[aria-pressed='false']")
   end
 
   test "the latest version's recommendation is the one that snaps", %{conn: conn} do

@@ -15,6 +15,15 @@ defmodule FluxValeWeb.PricingCalculatorLive do
   session the embed rode is used only to re-resolve the locale — this
   view sits in no live_session, so no on_mount carries the hook.
 
+  Size quick-pick chips are the seeded Sizes the sliders can state,
+  cheapest first — an admin-edited off-ladder size gets no chip, a pick
+  the surface cannot express being worse than no pick (the wizard's
+  stance). The chooser snaps to the app's latest version's recommended
+  size when representable, shows the recommended rate as a static line
+  when it is off-ladder, and renders no line at all when the version
+  carries no recommendation (the column is deliberately nullable,
+  pre-#125).
+
   The sliders are FluxValeWeb.AllocationSliders verbatim (the deploy
   wizard's component); its DOM ids are page-unique by contract, and the
   wizard is a different page, so the calculator reuses them as-is.
@@ -165,7 +174,7 @@ defmodule FluxValeWeb.PricingCalculatorLive do
           <span class="font-mono text-ink-muted" data-testid="calculator-allocation">
             {allocation_text(@resources)}
           </span>
-          <span class="text-right">
+          <span class="text-right" aria-live="polite">
             <span
               class="block text-base font-semibold text-ink"
               data-testid="calculator-price-running"
@@ -205,7 +214,7 @@ defmodule FluxValeWeb.PricingCalculatorLive do
   def handle_event("pick-size", %{"slug" => slug}, socket) do
     case Enum.find(socket.assigns.sizes, &(&1.slug == slug)) do
       nil ->
-        # A crafted slug (or a size deleted mid-session): the rendered
+        # A crafted slug (or a size filtered off the chips): the rendered
         # buttons can't produce one. Nothing to read, nothing changes.
         {:noreply, socket}
 
@@ -217,20 +226,26 @@ defmodule FluxValeWeb.PricingCalculatorLive do
   # The app chooser: snap to the app's latest version's recommended size
   # when the sliders can state it. When they can't, the sliders stay put
   # and the render shows the recommended rate as a static line — a snap
-  # the sliders can't express would lie about what they set.
+  # the sliders can't express would lie about what they set. A version
+  # with no recommendation at all is a silent no-op.
   def handle_event("pick-app", %{"slug" => slug}, socket) do
     case Enum.find(socket.assigns.apps, &(&1.app.slug == slug)) do
       nil ->
         {:noreply, socket}
 
       chooser ->
-        socket = assign(socket, :app_slug, slug)
-        recommended = chooser.version.recommended_size
+        case recommendation(chooser.version.recommended_size) do
+          {:snap, size} ->
+            {:noreply,
+             socket
+             |> assign(:app_slug, slug)
+             |> assign(:resources, size_resources(size))}
 
-        if representable_size?(recommended) do
-          {:noreply, assign(socket, :resources, size_resources(recommended))}
-        else
-          {:noreply, socket}
+          {:static, _size} ->
+            {:noreply, assign(socket, :app_slug, slug)}
+
+          :none ->
+            {:noreply, socket}
         end
     end
   end
@@ -238,12 +253,17 @@ defmodule FluxValeWeb.PricingCalculatorLive do
   # --- Reads -----------------------------------------------------------------
 
   # The size chips' source (#397): the seeded Size rows, cheapest first
-  # — the same public read the page's rate table renders.
+  # — the same public read the page's rate table renders. The chips and
+  # the pick-size lookup share this one list, filtered to sizes the
+  # sliders can state: an off-ladder size gets no chip — a pick the
+  # surface cannot express is worse than no pick (the wizard's stance) —
+  # and a crafted slug naming one is silence.
   defp sorted_sizes do
     Size
     |> Ash.Query.for_read(:read, %{}, actor: nil)
     |> Ash.Query.sort(:monthly_cents)
     |> Ash.read!()
+    |> Enum.filter(&representable_size?/1)
   end
 
   # The app chips' source (#397): the catalog's public browse read, each
@@ -306,6 +326,20 @@ defmodule FluxValeWeb.PricingCalculatorLive do
     end)
   end
 
+  # The chooser's verdict on a version's recommendation: snap when the
+  # sliders can state it, a static rate line when they can't, and no
+  # line at all when the version carries no recommendation — the column
+  # is deliberately nullable (pre-#125 rows heal via seed convergence),
+  # and a nil recommendation has no rate to show either. One classifier
+  # for the event and the render, so the two cannot disagree.
+  defp recommendation(recommended) do
+    cond do
+      is_nil(recommended) -> :none
+      representable_size?(recommended) -> {:snap, recommended}
+      true -> {:static, recommended}
+    end
+  end
+
   # --- Render derives ----------------------------------------------------------
 
   defp size_chips(assigns) do
@@ -347,12 +381,14 @@ defmodule FluxValeWeb.PricingCalculatorLive do
   end
 
   defp recommendation_view(chooser) do
-    recommended = chooser.version.recommended_size
-
-    if representable_size?(recommended) do
-      %{app: chooser.app, snap: true, allocation: size_allocation(recommended)}
-    else
-      %{app: chooser.app, snap: false, monthly_cents: recommended.monthly_cents}
+    case recommendation(chooser.version.recommended_size) do
+      {:snap, size} -> %{app: chooser.app, snap: true, allocation: size_allocation(size)}
+      {:static, size} -> %{app: chooser.app, snap: false, monthly_cents: size.monthly_cents}
+      # pick-app's :none arm is a full no-op (app_slug stays unset), so
+      # this verdict cannot reach the render; the clause keeps the
+      # classifier's total honored here too — no line, never a crash.
+      # coveralls-ignore-next-line — defensive: unreachable while the no-op contract holds
+      :none -> nil
     end
   end
 

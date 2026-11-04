@@ -2,8 +2,9 @@ defmodule FluxValeWeb.PageController do
   use FluxValeWeb, :controller
 
   # The library-instructed import for controller-rendered LiveViews
-  # (Phoenix.LiveView.Controller's docs): the dashboard below is the
-  # app's one live_render caller.
+  # (Phoenix.LiveView.Controller's docs): the dashboard below is one of
+  # the app's two live_render callers (the /pricing calculator is the
+  # other, #397).
   import Phoenix.LiveView.Controller
 
   alias FluxValeWeb.DashboardLive
