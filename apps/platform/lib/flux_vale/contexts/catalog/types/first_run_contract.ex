@@ -19,7 +19,7 @@ defmodule FluxVale.Catalog.Types.FirstRunContract do
       what to do on first open, and what to close after setup.
 
   Like `EnvVarSpec`, casting and validation live here so seeds,
-  AshAdmin, and the future API enforce one contract. In memory a
+  AshAdmin, and the API enforce one contract. In memory a
   struct; in storage (jsonb) a string-keyed map — atoms don't survive
   the round-trip, so `cast_stored/1` re-casts on every read.
   """
@@ -247,5 +247,19 @@ defmodule FluxVale.Catalog.Types.FirstRunContract do
       {:error,
        "env and forbidden_env must not overlap (#{Enum.join(overlap, ", ")} appears in both)"}
     end
+  end
+end
+
+# Same story as EnvVarSpec's encoder (#362): `first_run` is a public
+# attribute on the app-version routes, rendered with Jason — the storage
+# form (dump/1, `pattern` as a string) is the wire form.
+defimpl Jason.Encoder, for: FluxVale.Catalog.Types.FirstRunContract do
+  alias FluxVale.Catalog.Types.FirstRunContract
+
+  @impl Jason.Encoder
+  def encode(contract, opts) do
+    contract
+    |> FirstRunContract.dump()
+    |> Jason.Encoder.encode(opts)
   end
 end

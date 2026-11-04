@@ -163,4 +163,88 @@ defmodule FluxVale.Catalog.Types.EnvVarSpecTest do
       assert msg =~ "type must be one of"
     end
   end
+
+  # The API renders `configurable_env_vars` values with Jason (#362) —
+  # without the impl, any route exposing the schema 500s on a real spec.
+  describe "Jason encoding" do
+    test "round-trips the storage shape: type as a string, spec fields honest" do
+      {:ok, spec} =
+        EnvVarSpec.new(%{
+          "label" => "SMTP port",
+          "description" => "Port of the SMTP server.",
+          "type" => "integer",
+          "default" => 587
+        })
+
+      encoded =
+        spec
+        |> Jason.encode!()
+        |> Jason.decode!()
+
+      assert encoded == %{
+               "label" => "SMTP port",
+               "description" => "Port of the SMTP server.",
+               "type" => "integer",
+               "default" => 587,
+               "required" => false,
+               "secret" => false
+             }
+    end
+
+    test "a secret spec keeps its marker (input spec, not a value)" do
+      {:ok, spec} =
+        EnvVarSpec.new(%{"label" => "SMTP password", "type" => "string", "secret" => true})
+
+      encoded =
+        spec
+        |> Jason.encode!()
+        |> Jason.decode!()
+
+      assert %{"secret" => true} = encoded
+    end
+
+    test "boolean false defaults ride" do
+      {:ok, spec} =
+        EnvVarSpec.new(%{"label" => "Enable email", "type" => "boolean", "default" => false})
+
+      encoded =
+        spec
+        |> Jason.encode!()
+        |> Jason.decode!()
+
+      assert %{"default" => false} = encoded
+    end
+
+    test "absent optionals stay absent (storage form)" do
+      {:ok, spec} = EnvVarSpec.new(%{"label" => "x", "type" => "string"})
+
+      encoded =
+        spec
+        |> Jason.encode!()
+        |> Jason.decode!()
+
+      refute Map.has_key?(encoded, "description")
+      refute Map.has_key?(encoded, "default")
+    end
+
+    test "a schema map of specs encodes (the attribute's actual shape)" do
+      {:ok, host} = EnvVarSpec.new(%{"label" => "SMTP host", "type" => "string"})
+
+      {:ok, port} =
+        EnvVarSpec.new(%{"label" => "SMTP port", "type" => "integer", "default" => 587})
+
+      encoded =
+        %{"SMTP_HOST" => host, "SMTP_PORT" => port}
+        |> Jason.encode!()
+        |> Jason.decode!()
+
+      assert encoded["SMTP_PORT"] == %{
+               "label" => "SMTP port",
+               "type" => "integer",
+               "default" => 587,
+               "required" => false,
+               "secret" => false
+             }
+    end
+  end
 end

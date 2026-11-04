@@ -2,7 +2,7 @@ defmodule FluxVale.Catalog.Types.EnvVarSpec do
   @moduledoc """
   One deploy-time env variable's spec — what a user may set on an AppVersion
   (#70). The in-memory shape of every `configurable_env_vars` value; casting
-  and validation live here so seeds, AshAdmin, and the future API all enforce
+  and validation live here so seeds, AshAdmin, and the API all enforce
   the same contract (v1 validated only at YAML load).
 
   `type` is an atom in memory, a string in storage (jsonb round-trip);
@@ -195,4 +195,20 @@ defmodule FluxVale.Catalog.Types.EnvVarSpec do
 
   defp put_if_present(map, _key, nil), do: map
   defp put_if_present(map, key, value), do: Map.put(map, key, value)
+end
+
+# ash_json_api renders attribute values with Jason, so the struct needs an
+# encoder: without one, any route exposing `configurable_env_vars` 500s on
+# the first version carrying a real spec (#362). The storage form (dump/1)
+# is the wire form — string keys, `type` as a string — so storage and API
+# stay one shape; the env-var name rides as the schema map's key.
+defimpl Jason.Encoder, for: FluxVale.Catalog.Types.EnvVarSpec do
+  alias FluxVale.Catalog.Types.EnvVarSpec
+
+  @impl Jason.Encoder
+  def encode(spec, opts) do
+    spec
+    |> EnvVarSpec.dump()
+    |> Jason.Encoder.encode(opts)
+  end
 end

@@ -214,4 +214,31 @@ defmodule FluxVale.Catalog.Types.FirstRunContractTest do
       assert message =~ ~s(unknown pattern "nope")
     end
   end
+
+  # `first_run` is a public attribute on the app-version routes, rendered
+  # with Jason (#362) — the seeded Forgejo contract masked behind the
+  # env-spec crash until EnvVarSpec got its encoder.
+  describe "Jason encoding" do
+    test "round-trips the storage shape: pattern as a string" do
+      {:ok, contract} =
+        FirstRunContract.new(%{
+          "pattern" => "first_registered_user_admin",
+          "env" => %{"APP__security__INSTALL_LOCK" => "true"},
+          "forbidden_env" => ["APP__service__DISABLE_REGISTRATION"],
+          "guidance" => "Register first — the first account becomes the admin."
+        })
+
+      encoded =
+        contract
+        |> Jason.encode!()
+        |> Jason.decode!()
+
+      assert encoded == %{
+               "pattern" => "first_registered_user_admin",
+               "env" => %{"APP__security__INSTALL_LOCK" => "true"},
+               "forbidden_env" => ["APP__service__DISABLE_REGISTRATION"],
+               "guidance" => "Register first — the first account becomes the admin."
+             }
+    end
+  end
 end
