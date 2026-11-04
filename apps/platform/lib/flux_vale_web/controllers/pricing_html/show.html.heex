@@ -1,0 +1,202 @@
+<Layouts.public flash={@flash} current_user={@current_user}>
+  <%!-- #396: the published rate table — the cost-truth surface. Every
+  PRICE renders from the Size rows or the config-backed accessors the
+  controller assigns (the billing card's prose constants are copy, not
+  rendered data); the table renders whatever rows the seeds carry
+  (never a hardcoded count). The interactive calculator fills the
+  marked empty section in its own slice. Mobile: the table folds into
+  per-size cards below sm — no horizontal scrolling anywhere. --%>
+  <div class="space-y-10">
+    <div class="space-y-2">
+      <h1 class="text-3xl font-semibold tracking-tight text-ink">{gettext("Pricing")}</h1>
+      <p class="max-w-2xl text-ink-muted">
+        {gettext(
+          "Prices follow the resources an app gets, not the app itself. Any app at the same size costs the same."
+        )}
+      </p>
+    </div>
+
+    <section id="sizes" aria-labelledby="sizes-title" class="space-y-4">
+      <div class="space-y-1">
+        <h2 id="sizes-title" class="text-lg font-semibold tracking-tight text-ink">
+          {gettext("Instance sizes")}
+        </h2>
+        <p class="text-sm text-ink-muted">
+          {gettext(
+            "One row per size. The running rate is a monthly equivalent, billed hourly while the instance runs."
+          )}
+        </p>
+      </div>
+
+      <%!-- The published table (sm and up): one row per Size, sorted by
+      monthly rate — the read is already sorted asc. A plain div, not
+      .card, because the table wants zero card padding and a Tailwind
+      p-0 override on .card's own p-5 would not win the stylesheet race.
+      --%>
+      <div class="hidden rounded-panel border border-line-strong bg-panel shadow-sm sm:block">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-line bg-panel-raised text-left text-xs uppercase tracking-wide text-ink-subtle">
+              <th scope="col" class="px-4 py-2.5 font-medium">{gettext("Size")}</th>
+              <th scope="col" class="px-4 py-2.5 font-medium">{gettext("CPU")}</th>
+              <th scope="col" class="px-4 py-2.5 font-medium">{gettext("Memory")}</th>
+              <th scope="col" class="px-4 py-2.5 font-medium">{gettext("Storage")}</th>
+              <th scope="col" class="px-4 py-2.5 font-medium">{gettext("Running")}</th>
+              <th scope="col" class="px-4 py-2.5 font-medium">{gettext("Stopped")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={size <- @sizes} class="border-b border-line last:border-b-0">
+              <th scope="row" class="px-4 py-2.5 text-left font-mono font-medium text-ink">
+                {size.slug}
+              </th>
+              <td class="px-4 py-2.5 text-ink-muted">{Decimal.to_string(size.cpu_cores)}</td>
+              <td class="px-4 py-2.5 text-ink-muted">{size.memory_mb} MB</td>
+              <td class="px-4 py-2.5 text-ink-muted">{size.storage_gb} GB</td>
+              <td class="px-4 py-2.5 font-medium text-ink">
+                {Pricing.format_monthly_rate(size.monthly_cents)}
+              </td>
+              <td class="px-4 py-2.5 text-ink-muted">
+                {gettext(
+                  "%{rate}/mo while stopped",
+                  rate: Pricing.format_usd(size.stopped_monthly_cents)
+                )}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <%!-- Mobile (below sm): the same rows as stacked per-size cards. --%>
+      <ul class="space-y-3 sm:hidden">
+        <li :for={size <- @sizes}>
+          <.card id={"size-#{size.slug}"} class="space-y-3">
+            <div class="flex items-baseline justify-between gap-3">
+              <span class="font-mono font-medium text-ink">{size.slug}</span>
+              <span class="text-sm font-medium text-ink">
+                {Pricing.format_monthly_rate(size.monthly_cents)}
+              </span>
+            </div>
+            <dl class="grid grid-cols-3 gap-2 text-sm">
+              <div>
+                <dt class="text-xs text-ink-subtle">{gettext("CPU")}</dt>
+                <dd class="text-ink-muted">{Decimal.to_string(size.cpu_cores)}</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-ink-subtle">{gettext("Memory")}</dt>
+                <dd class="text-ink-muted">{size.memory_mb} MB</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-ink-subtle">{gettext("Storage")}</dt>
+                <dd class="text-ink-muted">{size.storage_gb} GB</dd>
+              </div>
+            </dl>
+            <p class="text-sm text-ink-muted">
+              {gettext(
+                "%{rate}/mo while stopped",
+                rate: Pricing.format_usd(size.stopped_monthly_cents)
+              )}
+            </p>
+          </.card>
+        </li>
+      </ul>
+    </section>
+
+    <%!-- The interactive calculator's mount point (#396): deliberately
+    empty in this slice — the calculator issue fills it. --%>
+    <section
+      id="calculator"
+      data-testid="pricing-calculator-slot"
+      aria-label={gettext("Cost calculator")}
+    >
+    </section>
+
+    <section aria-labelledby="other-services-title" class="space-y-4">
+      <h2 id="other-services-title" class="text-lg font-semibold tracking-tight text-ink">
+        {gettext("Other services")}
+      </h2>
+      <%!-- Same no-padding race as the table: a plain surface div with
+      divide-y rows. --%>
+      <div class="divide-y divide-line rounded-panel border border-line-strong bg-panel shadow-sm">
+        <div class="flex flex-wrap items-center justify-between gap-2 p-5">
+          <div class="min-w-0">
+            <p class="font-medium text-ink">{gettext("Private access gateway")}</p>
+            <p class="text-sm text-ink-muted">
+              {gettext("One gateway serves every app on your account")}
+            </p>
+          </div>
+          <p class="text-sm font-medium text-ink">
+            {gettext(
+              "%{rate}/mo per gateway, billed hourly",
+              rate: Pricing.format_usd(@gateway_monthly_cents)
+            )}
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center justify-between gap-2 p-5">
+          <div class="min-w-0">
+            <p class="font-medium text-ink">{gettext("Custom domain")}</p>
+            <p class="text-sm text-ink-muted">
+              {gettext("Serve your apps under your own domain name")}
+            </p>
+          </div>
+          <p class="text-sm font-medium text-ink">
+            {gettext(
+              "%{rate}/mo per verified domain, billed hourly",
+              rate: Pricing.format_usd(@domain_monthly_cents)
+            )}
+          </p>
+        </div>
+      </div>
+      <p class="text-sm text-ink-muted">
+        {gettext("Hostnames under fluxvale.app, public exposure, DNS, and resolution are free.")}
+      </p>
+    </section>
+
+    <section aria-labelledby="billing-title" class="space-y-4">
+      <h2 id="billing-title" class="text-lg font-semibold tracking-tight text-ink">
+        {gettext("How billing works")}
+      </h2>
+      <%!-- Prose mirror of sweep_zero_balance.ex's ladder — its window
+      constants are private module attributes with no public reader, so
+      a ladder change must update this copy by hand. --%>
+      <.card class="space-y-4" data-testid="pricing-billing-model">
+        <p class="text-sm leading-relaxed text-ink-muted">
+          {gettext(
+            "You pay with prepaid credits. One credit is one US cent, and every rate above is a monthly equivalent billed hourly from your credit balance. There are no subscriptions."
+          )}
+        </p>
+        <p class="text-sm leading-relaxed text-ink-muted">
+          {gettext(
+            "New accounts start with %{amount} in credits.",
+            amount: Pricing.format_usd(@welcome_grant_cents)
+          )}
+        </p>
+        <p class="text-sm leading-relaxed text-ink-muted">
+          {gettext(
+            "When your credit balance runs out, your apps stop running rather than accruing debt. Top up to start them again."
+          )}
+        </p>
+        <p class="text-sm leading-relaxed text-ink-muted">
+          {gettext(
+            "Your data is deleted only if your credit balance stays negative for 30 days. We email warnings 7 days and 1 day before."
+          )}
+        </p>
+      </.card>
+    </section>
+
+    <.card class="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+      <div>
+        <h2 class="text-lg font-semibold tracking-tight text-ink">
+          {gettext("Start in minutes")}
+        </h2>
+        <p class="text-sm text-ink-muted">
+          {gettext("Pick an app from the catalog and run it at any size above.")}
+        </p>
+      </div>
+      <div class="flex flex-wrap gap-3">
+        <.button navigate={~p"/catalog"}>{gettext("Browse apps")}</.button>
+        <.button navigate={~p"/sign-in"} variant="ghost">{gettext("Get started")}</.button>
+      </div>
+    </.card>
+  </div>
+</Layouts.public>

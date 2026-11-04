@@ -47,6 +47,9 @@ layout's flex contract while scoping the landing styles. --%>
             <.nav_link href="/catalog">{gettext("Apps")}</.nav_link>
           </li>
           <li class="hidden min-[480px]:block">
+            <.nav_link href="/pricing">{gettext("Pricing")}</.nav_link>
+          </li>
+          <li class="hidden min-[480px]:block">
             <.nav_link href="/blog">{gettext("Blog")}</.nav_link>
           </li>
           <li :if={is_nil(@current_user)}>
@@ -271,16 +274,28 @@ layout's flex contract while scoping the landing styles. --%>
             <h2 id="pricing-title" class="reveal">
               {gettext("One flat rate, no surprises")}
             </h2>
+            <%!-- #396: the band points at /pricing now — the sub-copy is
+            resource-framed and semicolon-free, and the floor line
+            renders the cheapest seeded size's rate (hidden on an
+            unseeded table; the controller passes nil then). --%>
             <p class="sub reveal">
               {gettext(
-                "Pay per app and size, month to month. New accounts start with welcome credits; top up when you're ready."
+                "Prices follow the resources an app gets, not the app itself. New accounts start with welcome credits. Top up when you're ready."
+              )}
+            </p>
+            <p :if={@price_floor_cents} class="sub reveal">
+              <%!-- pricing.ex's #206 invariant: a price surface never
+              shows "$X/mo" without the hourly qualifier — a bare "/mo"
+              on the landing would read as monthly billing. --%>
+              {gettext("Every app runs from %{rate}/mo, billed hourly while running",
+                rate: FluxVale.Pricing.format_usd(@price_floor_cents)
               )}
             </p>
           </div>
           <div class="pricing-side reveal">
             <span class="eyebrow">{gettext("Simple pricing")}</span>
-            <.button href="/catalog" class="lift">
-              {gettext("See the apps and prices")}
+            <.button href="/pricing" class="lift">
+              {gettext("See full pricing")}
             </.button>
           </div>
         </div>
@@ -312,8 +327,12 @@ layout's flex contract while scoping the landing styles. --%>
         <span>{gettext("© %{year} FluxVale", year: Date.utc_today().year)}</span>
       </span>
       <nav aria-label={gettext("Footer")}>
-        <ul class="foot-links">
+        <%!-- flex-wrap: the row grew with #396's Pricing link — on the
+        narrowest phones it wraps instead of scrolling. No wrap at any
+        width that already fit. --%>
+        <ul class="foot-links flex-wrap">
           <li><a href="/catalog">{gettext("Apps")}</a></li>
+          <li><a href="/pricing">{gettext("Pricing")}</a></li>
           <li><a href="/blog">{gettext("Blog")}</a></li>
           <li :if={is_nil(@current_user)}>
             <a href={~p"/sign-in"}>{gettext("Sign in")}</a>

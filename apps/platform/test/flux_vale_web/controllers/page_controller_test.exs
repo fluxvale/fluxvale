@@ -1,6 +1,9 @@
 defmodule FluxValeWeb.PageControllerTest do
   use FluxValeWeb.ConnCase, async: true
 
+  alias FluxVale.Pricing
+  alias FluxVale.Pricing.Size
+  alias FluxVale.TestSupport.PricingFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
   # The root layout's <title> suffix is " · Phoenix Framework" — boilerplate
@@ -194,5 +197,53 @@ defmodule FluxValeWeb.PageControllerTest do
     refute panel =~ ~s(href="/apps")
     refute panel =~ ~s(href="/instances")
     assert panel =~ ~s(href="/billing")
+  end
+
+  # #396: the band points at /pricing and renders the cheapest seeded
+  # size's rate — expectation computed from a Size read, never a literal.
+  test "GET / pricing band links at /pricing with the computed floor rate (#396)", %{conn: conn} do
+    PricingFixtures.size!(monthly_cents: 401)
+    PricingFixtures.size!(monthly_cents: 177)
+
+    sizes =
+      Size
+      |> Ash.Query.for_read(:read, %{}, actor: nil)
+      |> Ash.Query.sort(:monthly_cents)
+      |> Ash.read!()
+
+    floor = Pricing.format_usd(Enum.min_by(sizes, & &1.monthly_cents).monthly_cents)
+
+    conn = get(conn, ~p"/")
+    html = html_response(conn, 200)
+
+    assert html =~ "See full pricing"
+    assert html =~ ~s(href="/pricing")
+    assert html =~ "Every app runs from #{floor}/mo"
+  end
+
+  # The empty-table branch: an unseeded DB renders the band without the
+  # floor line (the controller passes nil), never a crash.
+  test "GET / pricing band hides the floor line on an unseeded table (#396)", %{conn: conn} do
+    conn = get(conn, ~p"/")
+    html = html_response(conn, 200)
+
+    assert html =~ "See full pricing"
+    refute html =~ "Every app runs from"
+  end
+
+  # #396: the landing carries the Pricing link in the header nav, the
+  # band CTA, and the footer. Whitespace-tolerant matching: the
+  # nav_link slot renders with newlines around the label.
+  test "GET / carries the Pricing nav, band CTA, and footer links (#396)", %{conn: conn} do
+    conn = get(conn, ~p"/")
+    html = html_response(conn, 200)
+
+    body =
+      html
+      |> String.split("<body>")
+      |> List.last()
+
+    assert length(String.split(body, ~s(href="/pricing"))) - 1 == 3
+    assert body =~ ~r/href="\/pricing"[^>]*>\s*Pricing\s*<\/a>/
   end
 end

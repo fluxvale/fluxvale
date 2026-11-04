@@ -22,18 +22,20 @@ defmodule FluxValeWeb.SitemapXML do
   @urlset_xmlns "http://www.sitemaps.org/schemas/sitemap/0.9"
 
   @doc """
-  Builds the urlset for `home + /catalog + /blog + published policy
-  pages + one URL per app (lastmod = the app's updated_at date) + one
-  URL per published post (lastmod = the post's date)`.
+  Builds the urlset for `home + /catalog + /pricing + /blog + published
+  policy pages + one URL per app (lastmod = the app's updated_at date)
+  + one URL per published post (lastmod = the post's date)`.
   """
   @spec build([struct()], [Post.t()]) :: iodata()
   def build(apps, posts) do
     # ADR-00025 §3's static slice: the landing, the catalog index, the
-    # blog index, and the published policy pages (#140) — canonical
-    # public URLs without a lastmod (nothing timestamped to show).
+    # pricing page (#396), the blog index, and the published policy
+    # pages (#140) — canonical public URLs without a lastmod (nothing
+    # timestamped to show).
     static_urls = [
       Seo.canonical_origin() <> "/",
       Seo.canonical_origin() <> "/catalog",
+      Seo.canonical_origin() <> "/pricing",
       Seo.canonical_origin() <> "/blog",
       Seo.canonical_origin() <> "/policies/refund",
       Seo.canonical_origin() <> "/policies/terms",

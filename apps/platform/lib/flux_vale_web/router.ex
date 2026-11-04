@@ -226,6 +226,10 @@ defmodule FluxValeWeb.Router do
 
     get("/catalog", CatalogController, :index)
     get("/catalog/:slug", CatalogController, :show)
+
+    # #396: the published pricing — the cost-truth surface, public and
+    # anonymous-OK like the catalog above.
+    get("/pricing", PricingController, :show)
   end
 
   scope "/", FluxValeWeb do

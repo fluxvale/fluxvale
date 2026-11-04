@@ -45,7 +45,29 @@ defmodule FluxValeWeb.PageController do
         "Browse a curated catalog of open source apps, deploy one in minutes, and let FluxVale keep it running for you."
       )
     )
+    |> assign(:price_floor_cents, price_floor_cents())
     |> render(:home)
+  end
+
+  # The landing pricing band's floor (#396): the cheapest size's monthly
+  # rate, from the same public Size read the /pricing table renders.
+  # nil on an empty table (unseeded dev/test) — the band hides the line.
+  #
+  # Accepted trade: the landing (the crawler surface) gains a DB
+  # dependency — `read!` 500s where the page previously rendered DB-free.
+  # Same failure envelope as CatalogController on the same SEO scope.
+  # Revisit trigger: if the landing ever must render during a DB outage.
+  defp price_floor_cents do
+    sizes =
+      FluxVale.Pricing.Size
+      |> Ash.Query.for_read(:read, %{}, actor: nil)
+      |> Ash.Query.sort(:monthly_cents)
+      |> Ash.read!()
+
+    case sizes do
+      [] -> nil
+      [cheapest | _rest] -> cheapest.monthly_cents
+    end
   end
 
   defp dashboard(conn) do

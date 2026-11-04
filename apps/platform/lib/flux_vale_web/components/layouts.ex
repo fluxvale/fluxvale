@@ -235,8 +235,16 @@ defmodule FluxValeWeb.Layouts do
             <li :if={@apps} class="hidden sm:block">
               <.nav_link navigate={~p"/billing"} active={@nav_section == :billing}>Billing</.nav_link>
             </li>
+            <%!-- #396: Pricing rides the public nav beside Apps at sm and
+            up — the anonymous cluster is width-tuned to the mill
+            (#277 T7), so below sm the link hides and the footer (on
+            every public page) carries it instead. Apps keeps its
+            always-visible rendering. --%>
             <li :if={not @apps}>
               <.nav_link navigate={~p"/catalog"}>Apps</.nav_link>
+            </li>
+            <li :if={not @apps} class="hidden sm:block">
+              <.nav_link navigate={~p"/pricing"}>Pricing</.nav_link>
             </li>
             <li><.theme_toggle /></li>
             <%!-- #205: the signed-in chrome is the user menu — the same
@@ -289,9 +297,18 @@ defmodule FluxValeWeb.Layouts do
       <div class="mx-auto flex max-w-5xl flex-col items-center justify-between gap-4 sm:flex-row">
         <p class="text-sm text-ink-subtle">© {Date.utc_today().year} FluxVale</p>
         <nav aria-label="Footer">
-          <ul class="flex items-center gap-4">
+          <%!-- flex-wrap: the link row grew with #396's Pricing link —
+          on the narrowest phones it wraps instead of scrolling (no
+          horizontal scrolling anywhere). No wrap happens at any width
+          that already fit. --%>
+          <ul class="flex flex-wrap items-center gap-x-4 gap-y-2">
             <li>
               <.link navigate={~p"/catalog"} class="text-sm text-ink-muted hover:text-ink">Apps</.link>
+            </li>
+            <li>
+              <.link navigate={~p"/pricing"} class="text-sm text-ink-muted hover:text-ink">
+                Pricing
+              </.link>
             </li>
             <%!-- #205: the footer follows the header's session awareness —
             inward for a session, sign-in for a visitor. --%>
