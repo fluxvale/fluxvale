@@ -107,16 +107,22 @@ impl TokenStore {
             Some(entry) => match entry.set_password(token.expose()) {
                 Ok(()) => Ok(()),
                 Err(keychain_error) => {
-                    // A still-readable stale entry would shadow the file
-                    // token (`load` checks the keychain first) — drop it,
-                    // best-effort: a locked collection refuses deletes too.
-                    let _ = entry.delete_credential();
+                    // Write the file BEFORE dropping a stale keychain
+                    // entry: if the write fails, the previous keychain
+                    // credential is still the only stored token — never
+                    // removed by a failed save. A stale entry left
+                    // readable would shadow the file token (`load`
+                    // checks the keychain first), so drop it only after
+                    // the write succeeds — best-effort: a locked
+                    // collection refuses deletes too.
                     self.file_store().set(host, token).map_err(|file_error| {
                         anyhow::anyhow!(
                             "the OS keychain refused the token ({keychain_error}), \
                              and the fallback file failed too: {file_error}"
                         )
-                    })
+                    })?;
+                    let _ = entry.delete_credential();
+                    Ok(())
                 }
             },
         }
