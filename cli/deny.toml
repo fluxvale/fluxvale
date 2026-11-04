@@ -1,0 +1,29 @@
+# The CLI's cargo-deny gates (ADR-0019 Am. 3): license allowlist +
+# RustSec advisories.
+[licenses]
+# The allowlist is the whole contract: anything not listed is denied
+# by default — the GPL family (GPL/LGPL/AGPL) included. GNU licenses
+# match exactly (cargo-deny 0.18.4+), so `-only`/`-or-later` variants
+# cannot slip through an allow entry.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "MPL-2.0",
+]
+
+# Our own crates are FSL-1.1-ALv2 and never published (distribution is
+# per-OS binaries from GitHub Releases) — skipped here so the allowlist
+# stays the third-party-only contract.
+[licenses.private]
+ignore = true
+
+[advisories]
+# Vulnerabilities are always errors in current cargo-deny (the old
+# per-lint levels were removed) — no field to set.
+# Unmaintained: the "warn" level no longer exists; values are
+# all/workspace/transitive/none. `none` is the non-blocking equivalent.
+unmaintained = "none"
