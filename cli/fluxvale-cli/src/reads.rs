@@ -26,7 +26,7 @@ pub fn read_client(config: &Config) -> anyhow::Result<(ApiClient, TokenLocation)
 /// The JSON:API resource-level `id` hoisted into the attrs map, so
 /// `--output json` carries it (`jq .id`) and the CLI can feed its own
 /// follow-up commands.
-fn with_id(resource: &Resource) -> Value {
+pub(crate) fn with_id(resource: &Resource) -> Value {
     match &resource.attributes {
         Value::Object(map) => {
             let mut map = map.clone();
@@ -40,7 +40,7 @@ fn with_id(resource: &Resource) -> Value {
 /// One URL path segment: the CLI interpolates these into request
 /// paths, so `/ ? # %` (and dot segments) are refused up front —
 /// they'd address a different route.
-fn safe_segment(thing: &str, value: &str) -> anyhow::Result<()> {
+pub(crate) fn safe_segment(thing: &str, value: &str) -> anyhow::Result<()> {
     let bad = value.is_empty()
         || value.contains(['/', '?', '#', '%'])
         || value.contains("..")
@@ -247,7 +247,7 @@ fn instances_status_rendered(
 
 /// The deployed timestamp reads relative with the raw stamp kept for
 /// honesty ("3h ago (2026-11-04T12:34:56Z)"); "-" when never deployed.
-fn deployed_cell(value: Option<&Value>, now: i64) -> String {
+pub(crate) fn deployed_cell(value: Option<&Value>, now: i64) -> String {
     let Some(raw) = value.and_then(Value::as_str) else {
         return "-".to_string();
     };
@@ -407,7 +407,7 @@ fn open_command(url: &str) -> std::process::Command {
 
 /// One resource or a loud error — a silently-empty document must not
 /// render as an empty table.
-fn one_resource(document: Document, type_name: &str) -> anyhow::Result<Resource> {
+pub(crate) fn one_resource(document: Document, type_name: &str) -> anyhow::Result<Resource> {
     let mut resources = document.resources();
     match resources.len() {
         1 => Ok(resources.remove(0)),
@@ -420,20 +420,20 @@ fn one_resource(document: Document, type_name: &str) -> anyhow::Result<Resource>
 }
 
 /// GET with the 404 remapped to the thing's friendly line.
-fn get_or_404(client: &ApiClient, path: &str, thing: &str) -> anyhow::Result<Document> {
+pub(crate) fn get_or_404(client: &ApiClient, path: &str, thing: &str) -> anyhow::Result<Document> {
     client.get(path).map_err(|err| friendly_404(err, thing))
 }
 
 /// 404 → "no such <thing> (or it's not yours)" — the API can't tell a
 /// missing row from a foreign one, and neither should we.
-fn friendly_404(err: ApiError, thing: &str) -> anyhow::Error {
+pub(crate) fn friendly_404(err: ApiError, thing: &str) -> anyhow::Error {
     match err {
         ApiError::NotFound => anyhow::anyhow!("no such {thing} (or it's not yours)"),
         other => other.into(),
     }
 }
 
-fn now_secs() -> i64 {
+pub(crate) fn now_secs() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)

@@ -1,0 +1,5 @@
+$ fluxvale backups restore 01a1a7ae-8249-704d-bbf0-cd94cfeac585 --from 01a1a7ae-0000-0000-0000-000000000000
+error: restore run 01a1a7ae-0000-0000-0000-000000000000 onto instance 01a1a7ae-8249-704d-bbf0-cd94cfeac585 — the current volume state is OVERWRITTEN; nothing was sent
+re-run with --confirm to proceed:
+    fluxvale backups restore 01a1a7ae-8249-704d-bbf0-cd94cfeac585 --from 01a1a7ae-0000-0000-0000-000000000000 --confirm
+exit=1

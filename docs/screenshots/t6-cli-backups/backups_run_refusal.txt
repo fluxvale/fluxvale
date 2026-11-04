@@ -1,0 +1,3 @@
+$ fluxvale backups run 01a1a7ae-828c-7218-af82-57c435c5b992   (the unconfigured instance)
+error: 400 InvalidArgument: backups are not configured for this instance
+exit=1

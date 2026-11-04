@@ -1,0 +1,4 @@
+$ fluxvale backups status 01a1a7ae-828c-7218-af82-57c435c5b992
+backups are not configured for this instance
+no backup runs yet
+exit=0

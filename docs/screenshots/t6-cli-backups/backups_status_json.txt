@@ -1,0 +1,15 @@
+$ fluxvale backups status 01a1a7ae-8249-704d-bbf0-cd94cfeac585 --output json
+{
+  "backup_setting": {
+    "access_key_id": "AKIA****EXAMPLE",
+    "bucket": "fluxvale-winter-cloud",
+    "enabled": true,
+    "endpoint": "https://account.r2.cloudflarestorage.com",
+    "id": "01a1a7fa-57af-7084-9a18-db51cb36181c",
+    "instance_id": "01a1a7ae-8249-704d-bbf0-cd94cfeac585",
+    "prefix": "fluxvale/app",
+    "retention_keep": 14
+  },
+  "latest_run": null
+}
+exit=0

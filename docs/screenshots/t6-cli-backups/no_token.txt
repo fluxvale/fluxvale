@@ -1,0 +1,3 @@
+$ fluxvale backups run 01a1a7ae-8249-704d-bbf0-cd94cfeac585   (no token stored)
+error: Not signed in. Run `fluxvale auth login` to sign in.
+exit=1
