@@ -67,8 +67,9 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
 
       assert length(orgs) == 2
 
-      # Each row is exactly {id, slug} — the id is the get_wallet /
-      # get_gateway argument no other tool returns.
+      # Each row is exactly {id, slug} — whoami is the only tool that
+      # hands you an org id without demanding one as input, which is
+      # what get_wallet / get_gateway take.
       for row <- orgs do
         keys = Map.keys(row)
         assert MapSet.new(keys) == MapSet.new(~w(id slug))
@@ -102,16 +103,6 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
 
       assert %{"attributes" => %{"organizations" => []}} = structured(conn)
     end
-  end
-
-  defp drop_membership!(user, org) do
-    membership =
-      Membership
-      |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.filter(user_id == ^user.id and organization_id == ^org.id)
-      |> Ash.read_one!(authorize?: false)
-
-    Ash.destroy!(membership, authorize?: false)
   end
 
   describe "list_instances / get_instance" do
@@ -525,5 +516,17 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
       authorize?: false
     )
     |> Ash.update!()
+  end
+
+  # System posture (bootstrap, mirroring seeds) — the membership destroy
+  # is system-only (#119), staging the seeded/legacy member-less state.
+  defp drop_membership!(user, org) do
+    membership =
+      Membership
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(user_id == ^user.id and organization_id == ^org.id)
+      |> Ash.read_one!(authorize?: false)
+
+    Ash.destroy!(membership, authorize?: false)
   end
 end
