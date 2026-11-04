@@ -23,6 +23,7 @@ defmodule FluxVale.Seeds.AdminSeedTest do
   alias FluxVale.Billing.LedgerEntry
   alias FluxVale.Catalog.Category
   alias FluxVale.Feedback.Post
+  alias FluxVale.Feedback.Tag
   alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Repo
@@ -376,6 +377,22 @@ defmodule FluxVale.Seeds.AdminSeedTest do
                Post
                |> Ash.Query.filter(true)
                |> Ash.count!(authorize?: false)
+
+      # The gate reading (T10): the vocabulary is PROMOTABLE seed
+      # content, not demo content — the demo gate guards fabricated
+      # activity (posts and their votes), while a tag row claims nothing
+      # happened, and the board renders only tags in use. So the
+      # promotable path arms the vocabulary even with the gate closed.
+      slugs =
+        Tag
+        |> Ash.read!(authorize?: false)
+        |> Enum.map(& &1.slug)
+
+      assert "platform" in slugs
+      assert "app-request" in slugs
+      # And the catalog's apps joined it (the catalog seeded above).
+      assert "forgejo" in slugs
+      assert "kavita" in slugs
     end
 
     test "an opted-in runtime seeds the demo board content" do

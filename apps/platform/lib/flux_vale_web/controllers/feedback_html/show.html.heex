@@ -33,6 +33,22 @@ read-only surface. --%>
       <h1 class="text-balance text-3xl font-semibold tracking-tight text-ink [overflow-wrap:anywhere]">
         {@post.title}
       </h1>
+      <%!-- Tag chips (T10): each links to the board filtered by the tag;
+      a chip whose slug matches a catalog app rides the /apps/:slug
+      cross-link below (the display convention). --%>
+      <div
+        :if={@post.tags != []}
+        data-testid="post-tags"
+        class="flex flex-wrap items-center gap-2"
+      >
+        <.feedback_tag_link :for={tag <- @post.tags} tag={tag} />
+      </div>
+      <div
+        :if={app_linked_tags(@post.tags, @app_slugs) != []}
+        class="flex flex-wrap items-center gap-x-4 gap-y-1"
+      >
+        <.feedback_app_link :for={tag <- app_linked_tags(@post.tags, @app_slugs)} tag={tag} />
+      </div>
     </header>
 
     <div

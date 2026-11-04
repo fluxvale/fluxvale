@@ -73,16 +73,23 @@ defmodule FluxVale.Feedback.Post.DeriveSlug do
     unique(derived, 0, free?)
   end
 
+  # The shared sanitize RULES: downcase, non-alphanumerics collapse to
+  # hyphens, hyphen edges trimmed. Public because the tag vocabulary
+  # derives with the same rules (Tag.DeriveSlug, T10) — one rule, two
+  # readers, so the URL shapes cannot fork.
+  @spec sanitize(String.t()) :: String.t()
+  def sanitize(value) do
+    value
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9]+/, "-")
+    |> String.trim("-")
+  end
+
   # Sanitize the title, truncate to 140, re-trim the hyphen the cut can
   # expose, and fall back to the neutral base when too little survives
   # (a 4-char all-punctuation title sanitizes to nothing).
   defp base(title) do
-    sanitized =
-      title
-      |> String.downcase()
-      |> String.replace(~r/[^a-z0-9]+/, "-")
-      |> String.trim("-")
-
+    sanitized = sanitize(title)
     truncated = String.slice(sanitized, 0, @max_length)
     trimmed = String.trim(truncated, "-")
 

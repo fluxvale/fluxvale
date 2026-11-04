@@ -494,4 +494,23 @@ msgstr ""
 #: lib/flux_vale_web/controllers/feedback_html/roadmap.html.heex:13
 #, elixir-autogen, elixir-format
 msgid "What we are building next. Every item links to its post on the feedback board."
+#: lib/flux_vale_web/controllers/feedback_html.ex:136
+#, elixir-autogen, elixir-format
+msgid "%{name} in the app catalog"
+msgstr ""
+
+#: lib/flux_vale_web/controllers/feedback_html.ex:186
+#, elixir-autogen, elixir-format
+msgid "No posts with this status yet."
+msgstr ""
+
+#: lib/flux_vale_web/controllers/feedback_html.ex:185
+#: lib/flux_vale_web/controllers/feedback_html.ex:187
+#, elixir-autogen, elixir-format
+msgid "No posts with this tag yet."
+msgstr ""
+
+#: lib/flux_vale_web/controllers/feedback_html.ex:184
+#, elixir-autogen, elixir-format
+msgid "No posts yet."
 msgstr ""
