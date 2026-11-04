@@ -243,6 +243,11 @@ jobs:
 
       - run: cargo test
 
+      # The release-tag gate (#362 T7) proven here on every
+      # cli-touching PR — the test-script shape the linked-issues lane
+      # uses for its own lint.
+      - run: ./scripts/test-check-tag-version.sh
+
       # OpenAPI drift guard (ADR-0019 Am. 3): regenerate the typed
       # structs from the committed artifact and diff — the committed
       # spec is the contract, so committed types must match it.

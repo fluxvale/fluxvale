@@ -1,0 +1,232 @@
+# The CLI's release engineering (#362 T7, ADR-0019 Am. 3): the same
+# 4-target matrix ci.yml builds per PR, riding to GitHub Releases as
+# per-target archives — distribution via GitHub Releases is the decided
+# posture (ADR-0019 Am. 3).
+#
+# The tag scheme is NAMESPACED: `cli-v*` only, so the BEAM side's own
+# release scheme (whatever it lands on — `platform-v*`, bare `v*`) can
+# never collide with the CLI's trigger.
+#
+# Version wiring: the tag NAMES the release; the BINARY's version comes
+# from cli/fluxvale-cli/Cargo.toml (clap wires it into `--version`).
+# check-tag fails the release when they disagree, and every build leg
+# asserts the binary itself reports the release version — lazy tags and
+# stale binaries can't ship.
+#
+# workflow_dispatch is the DRY RUN by construction: no tag, so check-tag
+# is skipped and publish never fires — build + archive + checksums land
+# as run artifacts and nothing publishes. The tag path is entered only
+# by pushing a `cli-v*` tag.
+name: CLI release
+
+on:
+  push:
+    tags:
+      - "cli-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-tag:
+    name: Tag matches Cargo.toml version
+    if: startsWith(github.ref, 'refs/tags/cli-v')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Assert the tag's version equals the binary's version source
+        run: cli/scripts/check-tag-version.sh "$GITHUB_REF_NAME"
+
+  build:
+    name: Build + archive (${{ matrix.leg.name }})
+    runs-on: ${{ matrix.leg.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Same four legs as ci.yml's cli-matrix — the per-PR proof and
+        # the release build are one shape, two triggers. All NATIVE
+        # runners (linux aarch64 on the free arm label, macos-latest is
+        # arm64, windows-latest is x64).
+        leg:
+          - name: linux-amd64
+            os: ubuntu-24.04
+            binary: fluxvale
+          - name: linux-aarch64
+            os: ubuntu-24.04-arm
+            binary: fluxvale
+          - name: macos-aarch64
+            os: macos-latest
+            binary: fluxvale
+          - name: windows-x86_64
+            os: windows-latest
+            binary: fluxvale.exe
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Same install as ci.yml: rustup reads cli/rust-toolchain.toml
+      # (the exact pin + the components — the minimal default profile
+      # would leave cargo-fmt missing; #415).
+      - run: rustup toolchain install
+
+      - run: cargo build --release
+
+      # The release version: the tag's, in tag mode (check-tag already
+      # asserted Cargo.toml equality); Cargo.toml's in the dispatch dry
+      # run (no tag — and that is the same source clap wires into
+      # --version). shell: bash on every leg so the sed is one dialect.
+      # The charset guard (digits + dots only) keeps a crafted tag name
+      # from becoming anything but a dead value downstream.
+      - name: Parse the release version
+        id: version
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version="${GITHUB_REF_NAME#cli-v}"
+          else
+            version="$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' fluxvale-cli/Cargo.toml | head -1)"
+          fi
+          case "$version" in
+            *[!0-9.]*) echo "::error::release version '$version' is not digits-and-dots"; exit 1 ;;
+          esac
+          test -n "$version"
+          echo "release version: $version"
+          {
+            echo "version<<EOF"
+            echo "$version"
+            echo "EOF"
+          } >>"$GITHUB_OUTPUT"
+
+      # The end-to-end version proof, per leg: the binary that goes in
+      # the archive must self-report the release version. VERSION is
+      # env-indirected, not ${{ }}-inline — the house posture for
+      # caller-influenced values (the tag name is one).
+      - name: Assert the binary reports the release version
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          actual="$(./target/release/${{ matrix.leg.binary }} --version)"
+          echo "binary reports: $actual"
+          case "$actual" in
+            *" $VERSION") echo "matches the release version" ;;
+            *) echo "::error::fluxvale --version ($actual) does not carry the release version ($VERSION)"; exit 1 ;;
+          esac
+
+      # Archive: fluxvale-<version>-<target>.tar.gz on unix, .zip on
+      # Windows. The windows step uses the runner's bsdtar (System32
+      # tar.exe; -a picks zip from the extension) — Git Bash's GNU tar
+      # cannot write zip, hence the explicit pwsh.
+      - name: Archive the binary (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          stage="fluxvale-$VERSION-${{ matrix.leg.name }}"
+          mkdir "$stage"
+          cp target/release/${{ matrix.leg.binary }} "$stage/${{ matrix.leg.binary }}"
+          tar -czf "$stage.tar.gz" "$stage"
+
+      - name: Archive the binary (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $stage = "fluxvale-$env:VERSION-${{ matrix.leg.name }}"
+          New-Item -ItemType Directory $stage | Out-Null
+          Copy-Item target/release/${{ matrix.leg.binary }} "$stage/"
+          tar -a -cf "$stage.zip" $stage
+
+      # Per-leg checksum file (SHA256SUMS.<target>); the publish job
+      # concatenates the parts and runs `sha256sum -c` over the whole
+      # set before anything attaches to a release. shasum is macOS's
+      # fallback (same `<hash>  <file>` format).
+      - name: Checksum the archive
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          archive="fluxvale-$VERSION-${{ matrix.leg.name }}.tar.gz"
+          [ -f "$archive" ] || archive="fluxvale-$VERSION-${{ matrix.leg.name }}.zip"
+          test -f "$archive" || { echo "::error::no archive for this leg"; exit 1; }
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$archive" > "SHA256SUMS.${{ matrix.leg.name }}"
+          else
+            shasum -a 256 "$archive" > "SHA256SUMS.${{ matrix.leg.name }}"
+          fi
+          cat "SHA256SUMS.${{ matrix.leg.name }}"
+
+      # `fluxvale-*` is deliberately NOT the glob — it would also match
+      # the fluxvale-cli crate directory. Exact extensions only.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ matrix.leg.name }}
+          path: |
+            cli/fluxvale-*.tar.gz
+            cli/fluxvale-*.zip
+            cli/SHA256SUMS.*
+          if-no-files-found: error
+
+  # Tag pushes only — check-tag is tag-only and skipped in the dispatch
+  # dry run, and a failed build auto-skips this job, so the conjunction
+  # below is exact: publish fires on a green, version-checked tag run.
+  publish:
+    name: Publish GitHub Release
+    needs: [check-tag, build]
+    if: always() && needs.build.result == 'success' && needs.check-tag.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+
+      - name: Merge and verify the checksums
+        run: |
+          cd dist
+          cat SHA256SUMS.* > SHA256SUMS
+          rm SHA256SUMS.*
+          cat SHA256SUMS
+          sha256sum -c SHA256SUMS
+
+      # v3.0.3 — pinned to commit: mutable tags execute unreviewed code.
+      # Notes: a short hand-written section, then GitHub's auto-generated
+      # commit list for the tag (fine for v0).
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          name: fluxvale CLI ${{ github.ref_name }}
+          files: |
+            dist/fluxvale-*.tar.gz
+            dist/fluxvale-*.zip
+            dist/SHA256SUMS
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body: |
+            The **FluxVale CLI** — install apps from the catalog, manage your instances, backups, access, and wallet from the command line. One static binary, no runtime: download the archive for your machine, unpack, put `fluxvale` on your PATH.
+
+            **Sign in** (the device flow):
+
+            ```
+            fluxvale auth login     # prints a code and opens the approval page
+                                    # compare the code, click Approve
+                                    # the token lands in your OS keychain — done
+            ```
+
+            Then `fluxvale apps list`, `fluxvale instances deploy --app <slug>`, and you are running. Verify your download against `SHA256SUMS`:
+
+            ```
+            grep <your-archive> SHA256SUMS | sha256sum -c -
+            ```
