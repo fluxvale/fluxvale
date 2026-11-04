@@ -296,10 +296,12 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     assert has_element?(view, "#calculator-app-select option[value=''][selected]")
   end
 
-  test "a non-string app_slug payload is silence", %{conn: conn} do
+  test "a crafted app_slug payload shape is silence", %{conn: conn} do
     {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
 
-    render_change(view, "pick-app", %{"app_slug" => 42})
+    # A non-binary app_slug (a crafted map — the select can only send a
+    # string) names no clause's shape: silence, the rungs stay put.
+    render_change(view, "pick-app", %{"app_slug" => %{"nested" => "value"}})
 
     assert_total(view, small_allocation())
     assert has_element?(view, "#calculator-app-select option[value=''][selected]")

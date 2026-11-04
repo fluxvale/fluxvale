@@ -377,6 +377,57 @@ msgstr ""
 msgid "Pick an open source app, deploy it in minutes, and FluxVale keeps it running, updates and monitoring included."
 msgstr ""
 
+#: lib/flux_vale_web/controllers/feedback_html.ex:110
+#, elixir-autogen, elixir-format
+msgid "Board"
+msgstr ""
+
+#: lib/flux_vale_web/controllers/feedback_html.ex:58
+#, elixir-autogen, elixir-format
+msgid "Completed"
+msgstr ""
+
+#: lib/flux_vale_web/controllers/feedback_html.ex:98
+#, elixir-autogen, elixir-format
+msgid "Feedback views"
+msgstr ""
+
+#: lib/flux_vale_web/controllers/feedback_html.ex:64
+#, elixir-autogen, elixir-format
+msgid "Nothing planned yet."
+msgstr ""
+
+#: lib/flux_vale_web/controllers/feedback_html.ex:66
+#, elixir-autogen, elixir-format
+msgid "Nothing shipped yet."
+msgstr ""
+
+#: lib/flux_vale_web/controllers/feedback_html.ex:65
+#, elixir-autogen, elixir-format
+msgid "Nothing underway yet."
+msgstr ""
+
+#: lib/flux_vale_web/controllers/feedback_html.ex:56
+#, elixir-autogen, elixir-format
+msgid "Planned"
+msgstr ""
+
+#: lib/flux_vale_web/controllers/feedback_html.ex:122
+#: lib/flux_vale_web/controllers/feedback_html/roadmap.html.heex:11
+#, elixir-autogen, elixir-format
+msgid "Roadmap"
+msgstr ""
+
+#: lib/flux_vale_web/controllers/feedback_html.ex:57
+#, elixir-autogen, elixir-format
+msgid "Started"
+msgstr ""
+
+#: lib/flux_vale_web/controllers/feedback_html/roadmap.html.heex:13
+#, elixir-autogen, elixir-format
+msgid "What we are building next. Every item links to its post on the feedback board."
+msgstr ""
+
 #: lib/flux_vale_web/live/pricing_calculator_live.ex:115
 #, elixir-autogen, elixir-format
 msgid "Choose an app"
