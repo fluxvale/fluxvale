@@ -11,6 +11,20 @@ const page = await ctx.newPage();
 await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
 const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
 await page.request.post(`${BASE}/auth/session`, { form: { token: TOKEN }, headers: { "x-csrf-token": csrf } });
+
+// Reject failed sign-ins before capturing: an expired FV_TOKEN gets the
+// session POST's failure redirect, and "/" would then silently save the
+// anonymous landing as the dashboard shots. Require a dashboard-only
+// element before any capture.
+await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
+try {
+  await page.locator("[data-testid='dashboard-balance']").waitFor({ timeout: 10_000 });
+} catch {
+  console.error(
+    "Sign-in failed: no dashboard rendered after the session POST — is FV_TOKEN expired or wrong? (the failure arm redirects to /sign-in, and '/' serves the anonymous landing)"
+  );
+  process.exit(1);
+}
 for (const mode of ["light", "dark"]) {
   await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
   await page.evaluate((m) => {

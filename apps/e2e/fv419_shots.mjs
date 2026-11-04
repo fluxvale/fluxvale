@@ -50,17 +50,33 @@ async function instanceHref(page) {
 const mainInstance = await instanceHref(main.page);
 const davInstance = await instanceHref(dav.page);
 
+// A missing instance link means the seeded actor has no matching row —
+// .filter(Boolean) below would silently drop the backups or DAV pair
+// from the captures. Fail loudly before any capture starts.
+if (!mainInstance || !davInstance) {
+  console.error(
+    `Instance listing missing a required row: main=${mainInstance ?? "none"} dav=${davInstance ?? "none"} — seed both actors' instances (see the #419 seed script) before capturing.`,
+  );
+  process.exit(1);
+}
+
 const shots = [
   { page: main.page, name: "settings", path: "/settings", wait: "[data-testid='settings-title']" },
   { page: main.page, name: "dashboard", path: "/", wait: null },
-  mainInstance && { page: main.page, name: "backups", path: mainInstance, wait: "[data-testid='backups-panel']" },
-  davInstance && { page: dav.page, name: "dav", path: davInstance, wait: "[data-testid='file-access-panel']" },
-].filter(Boolean);
+  { page: main.page, name: "backups", path: mainInstance, wait: "[data-testid='backups-panel']" },
+  { page: dav.page, name: "dav", path: davInstance, wait: "[data-testid='file-access-panel']" },
+];
+
+// The dashboard <title> is itself a swept string, so it must be read
+// while main.page still shows the dashboard — later navigations
+// (backups, DAV) replace it.
+let dashboardTitle = null;
 
 for (const { page, name, path, wait } of shots) {
   for (const mode of ["light", "dark"]) {
     await page.goto(`${BASE}${path}`, { waitUntil: "networkidle" });
     if (wait) await page.locator(wait).waitFor();
+    if (name === "dashboard") dashboardTitle = await page.title();
     // The theme flip rides the root script's own attrs; a reload-free
     // set + settle, same as the #178 captures.
     await page.evaluate((m) => {
@@ -74,8 +90,7 @@ for (const { page, name, path, wait } of shots) {
   }
 }
 
-// The dashboard <title> for both runs — the title string is the change.
-const title = await main.page.title();
-console.log(`DASHBOARD_TITLE=${title}`);
+// The title captured during the dashboard shot (the capture above).
+console.log(`DASHBOARD_TITLE=${dashboardTitle}`);
 
 await browser.close();
