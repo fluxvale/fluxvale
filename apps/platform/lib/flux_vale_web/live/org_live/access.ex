@@ -1429,6 +1429,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   defp state_of(%AccessGateway{state: state}), do: state
 
   defp monthly_cents do
-    Application.fetch_env!(:flux_vale, :access_gateway)[:monthly_cents]
+    # The panel's rate display reads the platform's one accessor —
+    # never the config directly.
+    AccessGateway.monthly_cents()
   end
 end

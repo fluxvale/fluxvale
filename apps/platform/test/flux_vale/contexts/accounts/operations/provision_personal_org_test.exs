@@ -10,6 +10,7 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrgTest do
 
   alias FluxVale.Accounts
   alias FluxVale.Accounts.Membership
+  alias FluxVale.Accounts.Operations.ProvisionPersonalOrg
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
   alias FluxVale.Billing.LedgerEntry
@@ -162,6 +163,25 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrgTest do
 
       assert {:ok, 300} = Billing.balance(wallet_one, authorize?: false)
       assert {:ok, 300} = Billing.balance(wallet_two, authorize?: false)
+    end
+  end
+
+  describe "welcome grant accessor (#395's pricing seam)" do
+    test "the domain seam exposes the amount a fresh org actually receives" do
+      # The seam and the operation's reader agree (the delegation is
+      # the wiring this pins).
+      assert Accounts.welcome_grant_cents() ==
+               ProvisionPersonalOrg.welcome_grant_cents()
+
+      user = AccountsFixtures.user!()
+      org = AccountsFixtures.personal_org!(user)
+      {:ok, wallet} = Billing.ensure_wallet(org)
+
+      # The accessor is ground truth for the grant, so no literal
+      # here: the wallet must end up holding exactly what the seam
+      # says the grant is.
+      granted = Accounts.welcome_grant_cents()
+      assert {:ok, ^granted} = Billing.balance(wallet, authorize?: false)
     end
   end
 

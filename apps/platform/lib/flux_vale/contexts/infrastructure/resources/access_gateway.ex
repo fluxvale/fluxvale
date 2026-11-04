@@ -406,7 +406,9 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     # design: the price the owner opted in at is the price they keep —
     # the instance grandfathered-* stance's simpler cousin, because a
     # gateway has one number and no allocation to re-price. Suspended
-    # rows keep it so resume bills the same rate.
+    # rows keep it so resume bills the same rate. The row-level min
+    # stays looser than the config floor: the accessor enforces the
+    # strict bound at the read, while legacy/zero-cent rows must load.
     attribute :monthly_cents, :integer do
       allow_nil?(false)
       public?(true)
@@ -491,9 +493,13 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       argument(:monthly_cents, :integer, allow_nil?: true, sensitive?: false)
 
       change(fn changeset, _context ->
-        monthly_cents = Application.fetch_env!(:flux_vale, :access_gateway)[:monthly_cents]
-
-        Ash.Changeset.force_change_attribute(changeset, :monthly_cents, monthly_cents)
+        # Explicit module call inside the DSL-lifted closure: the change
+        # pins the config figure through the module's one accessor.
+        Ash.Changeset.force_change_attribute(
+          changeset,
+          :monthly_cents,
+          __MODULE__.monthly_cents()
+        )
       end)
 
       change(ProvisionCluster)
@@ -877,5 +883,31 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     |> Ash.Query.load(:instance)
     |> Ash.read!(authorize?: false)
     |> Enum.map(& &1.instance)
+  end
+
+  # The gateway's monthly rate (cents) — the one RUNTIME reader of the
+  # configured price (config :access_gateway), mirroring
+  # AccessDomain.monthly_cents/0: the create action snapshots it, the
+  # panel displays it. (The MCP router reads the same config at COMPILE
+  # time for its tool descriptions, on purpose — its own comment names
+  # the trade.) The number is policy, never logic — a missing config, a
+  # missing key, or a zero or negative value is a CONFIGURATION ERROR
+  # raised at the read (money paths fail closed, the domain-rate
+  # stance).
+  @doc """
+  The monthly rate a gateway bills at (integer cents), read from config :flux_vale, :access_gateway.
+  """
+  @spec monthly_cents() :: pos_integer()
+  def monthly_cents do
+    config = Application.fetch_env!(:flux_vale, :access_gateway)
+    cents = Keyword.fetch!(config, :monthly_cents)
+
+    unless is_integer(cents) and cents > 0 do
+      raise ArgumentError,
+            "config :access_gateway[:monthly_cents] must be a positive integer, " <>
+              "got #{inspect(cents)} (billing refuses to run on a mispriced config)"
+    end
+
+    cents
   end
 end
