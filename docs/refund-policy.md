@@ -18,8 +18,10 @@ decision record.
 - **Chargebacks are handled structurally**, per
   [ADR-0029](adr/00029-payments-adapter-selfmor.md)'s accepted
   mitigation — small prepaid amounts, no recurring billing, access
-  gating (an exhausted balance suspends instances rather than accruing
-  debt; #124's zero-balance lifecycle). The policy states this plainly.
+  gating (an exhausted balance stops running instances, stopped apps
+  keep their storage fee, and a negative balance starts a 30-day
+  deletion clock; #124's zero-balance lifecycle). The policy states
+  this plainly.
 - **Goodwill credit is the only override path**: a manual exception a
   platform admin posts through the ledger's existing grant seam
   (`LedgerEntry :grant_goodwill` → `GrantCredits`, reason
