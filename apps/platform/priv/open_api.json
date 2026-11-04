@@ -94,7 +94,34 @@
           "relationships": {
             "additionalProperties": false,
             "description": "A relationships object for a access_gateway",
-            "properties": {},
+            "properties": {
+              "organization": {
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "description": "An identifier for organization",
+                    "nullable": true,
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "meta": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "id"
+                    ],
+                    "type": "object"
+                  }
+                }
+              }
+            },
             "type": "object"
           },
           "type": {
@@ -137,6 +164,9 @@
             },
             "type": "array",
             "uniqueItems": true
+          },
+          "organization": {
+            "$ref": "#/components/schemas/organization-filter"
           },
           "organization_id": {
             "$ref": "#/components/schemas/access_gateway-filter-organization_id"
@@ -4950,6 +4980,32 @@
                     "type": "object"
                   }
                 }
+              },
+              "organization": {
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "description": "An identifier for organization",
+                    "nullable": true,
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "meta": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "id"
+                    ],
+                    "type": "object"
+                  }
+                }
               }
             },
             "type": "object"
@@ -5027,6 +5083,9 @@
             },
             "type": "array",
             "uniqueItems": true
+          },
+          "organization": {
+            "$ref": "#/components/schemas/organization-filter"
           },
           "organization_id": {
             "$ref": "#/components/schemas/instance-filter-organization_id"
@@ -7541,6 +7600,301 @@
         },
         "type": "object"
       },
+      "organization": {
+        "additionalProperties": false,
+        "description": "A \"Resource object\" representing a organization",
+        "properties": {
+          "attributes": {
+            "additionalProperties": false,
+            "description": "An attributes object for a organization",
+            "properties": {
+              "name": {
+                "description": "Field included by default.",
+                "type": "string"
+              },
+              "slug": {
+                "description": "Field included by default.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "slug"
+            ],
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "relationships": {
+            "additionalProperties": false,
+            "description": "A relationships object for a organization",
+            "properties": {
+              "members": {
+                "properties": {
+                  "data": {
+                    "description": "Relationship data for members",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "Resource identifiers for members",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "meta": {
+                          "additionalProperties": true,
+                          "type": "object"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                }
+              }
+            },
+            "type": "object"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "type": "object"
+      },
+      "organization-filter": {
+        "additionalProperties": false,
+        "description": "Filters the query to results matching the given filter object",
+        "example": "",
+        "properties": {
+          "and": {
+            "items": {
+              "$ref": "#/components/schemas/organization-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "id": {
+            "$ref": "#/components/schemas/organization-filter-id"
+          },
+          "members": {
+            "$ref": "#/components/schemas/user-filter"
+          },
+          "name": {
+            "$ref": "#/components/schemas/organization-filter-name"
+          },
+          "not": {
+            "$ref": "#/components/schemas/organization-filter"
+          },
+          "or": {
+            "items": {
+              "$ref": "#/components/schemas/organization-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "slug": {
+            "$ref": "#/components/schemas/organization-filter-slug"
+          }
+        },
+        "type": "deepObject"
+      },
+      "organization-filter-id": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "range_adjacent": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "range_contains": {
+            "type": "string"
+          },
+          "range_overlaps": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "organization-filter-name": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "range_adjacent": {
+            "type": "string"
+          },
+          "range_contains": {
+            "type": "string"
+          },
+          "range_overlaps": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "organization-filter-slug": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "range_adjacent": {
+            "type": "string"
+          },
+          "range_contains": {
+            "type": "string"
+          },
+          "range_overlaps": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "user": {
         "additionalProperties": false,
         "description": "A \"Resource object\" representing a user",
@@ -7990,6 +8344,32 @@
                     "uniqueItems": true
                   }
                 }
+              },
+              "organization": {
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "description": "An identifier for organization",
+                    "nullable": true,
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "meta": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "id"
+                    ],
+                    "type": "object"
+                  }
+                }
               }
             },
             "type": "object"
@@ -8034,6 +8414,9 @@
             },
             "type": "array",
             "uniqueItems": true
+          },
+          "organization": {
+            "$ref": "#/components/schemas/organization-filter"
           },
           "organization_id": {
             "$ref": "#/components/schemas/wallet-filter-organization_id"
@@ -8471,7 +8854,34 @@
                         "relationships": {
                           "additionalProperties": false,
                           "description": "A relationships object for a access_gateway",
-                          "properties": {},
+                          "properties": {
+                            "organization": {
+                              "properties": {
+                                "data": {
+                                  "additionalProperties": false,
+                                  "description": "An identifier for organization",
+                                  "nullable": true,
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "meta": {
+                                      "additionalProperties": true,
+                                      "type": "object"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "id"
+                                  ],
+                                  "type": "object"
+                                }
+                              }
+                            }
+                          },
                           "type": "object"
                         },
                         "type": {
@@ -8847,7 +9257,34 @@
                         "relationships": {
                           "additionalProperties": false,
                           "description": "A relationships object for a access_gateway",
-                          "properties": {},
+                          "properties": {
+                            "organization": {
+                              "properties": {
+                                "data": {
+                                  "additionalProperties": false,
+                                  "description": "An identifier for organization",
+                                  "nullable": true,
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "meta": {
+                                      "additionalProperties": true,
+                                      "type": "object"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "id"
+                                  ],
+                                  "type": "object"
+                                }
+                              }
+                            }
+                          },
                           "type": "object"
                         },
                         "type": {
@@ -10535,6 +10972,32 @@
                                     "type": "object"
                                   }
                                 }
+                              },
+                              "organization": {
+                                "properties": {
+                                  "data": {
+                                    "additionalProperties": false,
+                                    "description": "An identifier for organization",
+                                    "nullable": true,
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "meta": {
+                                        "additionalProperties": true,
+                                        "type": "object"
+                                      },
+                                      "type": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "id"
+                                    ],
+                                    "type": "object"
+                                  }
+                                }
                               }
                             },
                             "type": "object"
@@ -10922,6 +11385,32 @@
                                   "type": "object"
                                 }
                               }
+                            },
+                            "organization": {
+                              "properties": {
+                                "data": {
+                                  "additionalProperties": false,
+                                  "description": "An identifier for organization",
+                                  "nullable": true,
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "meta": {
+                                      "additionalProperties": true,
+                                      "type": "object"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "id"
+                                  ],
+                                  "type": "object"
+                                }
+                              }
                             }
                           },
                           "type": "object"
@@ -11252,6 +11741,32 @@
                                 "data": {
                                   "additionalProperties": false,
                                   "description": "An identifier for app_version",
+                                  "nullable": true,
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "meta": {
+                                      "additionalProperties": true,
+                                      "type": "object"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "id"
+                                  ],
+                                  "type": "object"
+                                }
+                              }
+                            },
+                            "organization": {
+                              "properties": {
+                                "data": {
+                                  "additionalProperties": false,
+                                  "description": "An identifier for organization",
                                   "nullable": true,
                                   "properties": {
                                     "id": {
@@ -11621,6 +12136,32 @@
                                 "data": {
                                   "additionalProperties": false,
                                   "description": "An identifier for app_version",
+                                  "nullable": true,
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "meta": {
+                                      "additionalProperties": true,
+                                      "type": "object"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "id"
+                                  ],
+                                  "type": "object"
+                                }
+                              }
+                            },
+                            "organization": {
+                              "properties": {
+                                "data": {
+                                  "additionalProperties": false,
+                                  "description": "An identifier for organization",
                                   "nullable": true,
                                   "properties": {
                                     "id": {
@@ -12083,6 +12624,32 @@
                                   "type": "object"
                                 }
                               }
+                            },
+                            "organization": {
+                              "properties": {
+                                "data": {
+                                  "additionalProperties": false,
+                                  "description": "An identifier for organization",
+                                  "nullable": true,
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "meta": {
+                                      "additionalProperties": true,
+                                      "type": "object"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "id"
+                                  ],
+                                  "type": "object"
+                                }
+                              }
                             }
                           },
                           "type": "object"
@@ -12436,6 +13003,32 @@
                                 "data": {
                                   "additionalProperties": false,
                                   "description": "An identifier for app_version",
+                                  "nullable": true,
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "meta": {
+                                      "additionalProperties": true,
+                                      "type": "object"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "id"
+                                  ],
+                                  "type": "object"
+                                }
+                              }
+                            },
+                            "organization": {
+                              "properties": {
+                                "data": {
+                                  "additionalProperties": false,
+                                  "description": "An identifier for organization",
                                   "nullable": true,
                                   "properties": {
                                     "id": {
@@ -12814,6 +13407,32 @@
                                   "type": "object"
                                 }
                               }
+                            },
+                            "organization": {
+                              "properties": {
+                                "data": {
+                                  "additionalProperties": false,
+                                  "description": "An identifier for organization",
+                                  "nullable": true,
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "meta": {
+                                      "additionalProperties": true,
+                                      "type": "object"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "id"
+                                  ],
+                                  "type": "object"
+                                }
+                              }
                             }
                           },
                           "type": "object"
@@ -13152,6 +13771,32 @@
                                 "data": {
                                   "additionalProperties": false,
                                   "description": "An identifier for app_version",
+                                  "nullable": true,
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "meta": {
+                                      "additionalProperties": true,
+                                      "type": "object"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "id"
+                                  ],
+                                  "type": "object"
+                                }
+                              }
+                            },
+                            "organization": {
+                              "properties": {
+                                "data": {
+                                  "additionalProperties": false,
+                                  "description": "An identifier for organization",
                                   "nullable": true,
                                   "properties": {
                                     "id": {
@@ -14110,6 +14755,180 @@
         ]
       }
     },
+    "/api/v1/organizations": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "The actor's own organizations (the org switcher's read)",
+        "parameters": [
+          {
+            "description": "Filters the query to results with attributes matching the given filter object",
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/organization-filter"
+            },
+            "style": "deepObject"
+          },
+          {
+            "description": "Sort order to apply to the results",
+            "explode": false,
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|slug|-slug|\\+\\+slug|--slug)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|slug|-slug|\\+\\+slug|--slug))*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "organization": "id,name,slug"
+              },
+              "properties": {
+                "organization": {
+                  "description": "Comma separated field names for organization",
+                  "example": "id,name,slug",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "description": "An array of resource objects representing a organization",
+                      "items": {
+                        "additionalProperties": false,
+                        "description": "A \"Resource object\" representing a organization",
+                        "properties": {
+                          "attributes": {
+                            "additionalProperties": false,
+                            "description": "An attributes object for a organization",
+                            "properties": {
+                              "name": {
+                                "description": "Field included by default.",
+                                "type": "string"
+                              },
+                              "slug": {
+                                "description": "Field included by default.",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "name",
+                              "slug"
+                            ],
+                            "type": "object"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "relationships": {
+                            "additionalProperties": false,
+                            "description": "A relationships object for a organization",
+                            "properties": {
+                              "members": {
+                                "properties": {
+                                  "data": {
+                                    "description": "Relationship data for members",
+                                    "items": {
+                                      "additionalProperties": false,
+                                      "description": "Resource identifiers for members",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string"
+                                        },
+                                        "meta": {
+                                          "additionalProperties": true,
+                                          "type": "object"
+                                        },
+                                        "type": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "type",
+                                        "id"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    "type": "array",
+                                    "uniqueItems": true
+                                  }
+                                }
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "id"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "organization"
+        ]
+      }
+    },
     "/api/v1/organizations/{organization_id}/access-gateway": {
       "get": {
         "callbacks": {},
@@ -14248,7 +15067,34 @@
                         "relationships": {
                           "additionalProperties": false,
                           "description": "A relationships object for a access_gateway",
-                          "properties": {},
+                          "properties": {
+                            "organization": {
+                              "properties": {
+                                "data": {
+                                  "additionalProperties": false,
+                                  "description": "An identifier for organization",
+                                  "nullable": true,
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "meta": {
+                                      "additionalProperties": true,
+                                      "type": "object"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "id"
+                                  ],
+                                  "type": "object"
+                                }
+                              }
+                            }
+                          },
                           "type": "object"
                         },
                         "type": {
@@ -14414,6 +15260,32 @@
                                   },
                                   "type": "array",
                                   "uniqueItems": true
+                                }
+                              }
+                            },
+                            "organization": {
+                              "properties": {
+                                "data": {
+                                  "additionalProperties": false,
+                                  "description": "An identifier for organization",
+                                  "nullable": true,
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "meta": {
+                                      "additionalProperties": true,
+                                      "type": "object"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "id"
+                                  ],
+                                  "type": "object"
                                 }
                               }
                             }

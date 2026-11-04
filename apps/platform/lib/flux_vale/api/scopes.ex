@@ -38,6 +38,11 @@ defmodule FluxVale.Api.Scopes do
     # /me and the OpenAPI document are scopeless — any live token.
     {{"GET", ["me"]}, :any},
     {{"GET", ["open_api"]}, :any},
+    # The actor's own orgs (#362 T6a): identity-adjacent like /me —
+    # membership IS the policy (the action filters on the actor's
+    # memberships), so the route takes no domain scope. Any live token
+    # may learn which orgs it belongs to.
+    {{"GET", ["organizations"]}, :any},
     # Instances.
     {{"GET", ["instances"]}, "instances:read"},
     {{"POST", ["instances"]}, "instances:write"},

@@ -6,11 +6,15 @@ defmodule FluxVale.Accounts do
   creator = owner); users reach orgs through memberships, which is what
   policies resolve against.
 
-  Deliberately no JSON:API exposure — a backend model until a consumer
-  needs one (v1 stance).
+  The Organization list route (GET /api/v1/organizations, #362 T6a)
+  rides AshJsonApi.Domain (#360): the resource-level json_api block
+  joins the machine API through AshJsonApiRouter — routes are
+  contract-tested, never inferred.
   """
 
-  use Ash.Domain, otp_app: :flux_vale
+  use Ash.Domain,
+    otp_app: :flux_vale,
+    extensions: [AshJsonApi.Domain]
 
   resources do
     resource(FluxVale.Accounts.Membership)

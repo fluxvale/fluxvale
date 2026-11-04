@@ -17,8 +17,9 @@ defmodule FluxVale.Accounts.Organization do
   redirect is created. `name` is display-only and carries no uniqueness
   — two orgs may be named alike, the slug cannot.
 
-  Deliberately no JSON:API surface (v1 stance — backend model until a
-  consumer needs one) and no AshAdmin (no support flow needs it yet).
+  Deliberately no AshAdmin domain mount (no support flow needs it yet);
+  the JSON:API surface is one identity-adjacent route — the actor's own
+  orgs (GET /api/v1/organizations, #362 T6a) — nothing org-scoped.
   """
 
   use Ash.Resource,
@@ -30,17 +31,26 @@ defmodule FluxVale.Accounts.Organization do
     # block below) — the Accounts domain stays out of the /admin mount
     # (the config.exs domain opt-in governs what shows; this extension
     # only teaches the resource how to render when referenced).
-    extensions: [AshAdmin.Resource]
+    # AshJsonApi.Resource serves the one route below (#362 T6a).
+    extensions: [AshAdmin.Resource, AshJsonApi.Resource]
 
   alias FluxVale.Accounts.Membership
 
   require Ash.Query
 
-  admin do
-    # How an Organization renders wherever it appears as a relationship
-    # (the wallet/gateway/instance admin tables): the name a human can
-    # search, not the raw UUID.
-    relationship_display_fields([:name])
+  # #362 T6a: the one org route — the actor's own orgs for the CLI's
+  # discovery (`wallet balance` needs an org id; the API had none).
+  # Identity-adjacent like /me: the switcher's fields (id, slug, name)
+  # and nothing org-internal.
+  json_api do
+    type("organization")
+
+    routes do
+      index(:list_for_actor,
+        route: "/organizations",
+        default_fields: [:id, :slug, :name]
+      )
+    end
   end
 
   policies do
@@ -95,6 +105,13 @@ defmodule FluxVale.Accounts.Organization do
       description("Owners update their organization (display name and slug)")
       authorize_if(FluxVale.Checks.ActorIsOrganizationOwner)
     end
+  end
+
+  admin do
+    # How an Organization renders wherever it appears as a relationship
+    # (the wallet/gateway/instance admin tables): the name a human can
+    # search, not the raw UUID.
+    relationship_display_fields([:name])
   end
 
   postgres do
@@ -291,6 +308,17 @@ defmodule FluxVale.Accounts.Organization do
       argument(:slug, :string, allow_nil?: false)
       filter(expr(slug == ^arg(:slug)))
     end
+
+    # The actor-scoped collection read (#362 T6a): Instance.list_for_actor's
+    # shape — a resource read with the membership filter baked in (the
+    # operation OrganizationsForUser rides Membership rows for the switcher's
+    # org+role pairs; the wire route needs bare orgs, so the filter lives at
+    # the resource). Membership IS the policy: the read policy's
+    # relates_to_actor_via(:members) composes with the filter.
+    read :list_for_actor do
+      description("The actor's own organizations (the org switcher's read)")
+      filter(expr(exists(memberships, user_id == ^actor(:id))))
+    end
   end
 
   code_interface do
@@ -300,6 +328,7 @@ defmodule FluxVale.Accounts.Organization do
     define(:update)
     define(:get_by_id, args: [:id])
     define(:get_by_slug, args: [:slug])
+    define(:list_for_actor)
   end
 
   identities do

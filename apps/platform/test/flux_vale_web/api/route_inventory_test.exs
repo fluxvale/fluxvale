@@ -15,6 +15,8 @@ defmodule FluxValeWeb.Api.RouteInventoryTest do
   # paths are the assertion.
   @expected [
     {:get, "/me"},
+    # The actor's own orgs (#362 T6a) — scopeless like /me.
+    {:get, "/organizations"},
     # instances:read / instances:write
     {:get, "/instances"},
     {:post, "/instances"},

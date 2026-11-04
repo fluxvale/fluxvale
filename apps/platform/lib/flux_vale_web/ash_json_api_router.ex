@@ -10,7 +10,8 @@ defmodule FluxValeWeb.AshJsonApiRouter do
       FluxVale.Identity,
       FluxVale.Infrastructure,
       FluxVale.Billing,
-      FluxVale.Catalog
+      FluxVale.Catalog,
+      FluxVale.Accounts
     ],
     prefix: "/api/v1",
     open_api: "/open_api"
