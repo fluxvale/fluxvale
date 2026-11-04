@@ -6,8 +6,8 @@ defmodule FluxValeWeb.PricingController do
   renders from the pricing ground truth at request time — the Size
   rows' public read (the rate table) and the config-backed accessors
   (gateway, custom domain, welcome grant) — so no price literal ships
-  in a template. The interactive calculator mounts in the page's
-  marked empty section in its own slice.
+  in a template. The interactive calculator renders in the page's
+  marked section: the controller-embedded PricingCalculatorLive (#397).
   """
 
   use FluxValeWeb, :controller

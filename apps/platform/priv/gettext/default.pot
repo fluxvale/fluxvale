@@ -68,7 +68,7 @@ msgstr ""
 msgid "Apps"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_controller.ex:44
+#: lib/flux_vale_web/controllers/page_controller.ex:45
 #, elixir-autogen, elixir-format
 msgid "Browse a curated catalog of open source apps, deploy one in minutes, and let FluxVale keep it running for you."
 msgstr ""
@@ -134,6 +134,7 @@ msgid "One guided flow from app to live URL — no YAML, no servers to babysit."
 msgstr ""
 
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:177
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:120
 #, elixir-autogen, elixir-format
 msgid "Pick an app"
 msgstr ""
@@ -207,7 +208,7 @@ msgstr ""
 msgid "Digital library for comics, manga, and ebooks"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_controller.ex:40
+#: lib/flux_vale_web/controllers/page_controller.ex:41
 #, elixir-autogen, elixir-format
 msgid "FluxVale — Managed cloud platform for open source applications"
 msgstr ""
@@ -250,6 +251,7 @@ msgstr ""
 
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:60
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:95
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:185
 #, elixir-autogen, elixir-format
 msgid "%{rate}/mo while stopped"
 msgstr ""
@@ -260,7 +262,7 @@ msgstr ""
 msgid "CPU"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:111
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:82
 #, elixir-autogen, elixir-format
 msgid "Cost calculator"
 msgstr ""
@@ -397,6 +399,31 @@ msgstr ""
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:176
 #, elixir-autogen, elixir-format
 msgid "When your credit balance runs out, your apps stop running and their charges stop with them. Stopped apps keep their storage fee, and a balance left negative for 30 days deletes your data. We email warnings 7 days and 1 day before."
+msgstr ""
+
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:154
+#, elixir-autogen, elixir-format
+msgid "%{app} recommends"
+msgstr ""
+
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:158
+#, elixir-autogen, elixir-format
+msgid "%{app} recommends a size these sliders don't cover. That size prices at %{rate}."
+msgstr ""
+
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:85
+#, elixir-autogen, elixir-format
+msgid "Price any allocation with the sliders, or snap to a size or an app below."
+msgstr ""
+
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:92
+#, elixir-autogen, elixir-format
+msgid "Sizes"
+msgstr ""
+
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:144
+#, elixir-autogen, elixir-format
+msgid "The price depends only on the allocation, never the app."
 msgstr ""
 
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:352

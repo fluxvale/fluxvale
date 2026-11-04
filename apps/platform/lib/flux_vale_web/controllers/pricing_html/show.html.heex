@@ -3,8 +3,8 @@
   PRICE renders from the Size rows or the config-backed accessors the
   controller assigns (the billing card's prose constants are copy, not
   rendered data); the table renders whatever rows the seeds carry
-  (never a hardcoded count). The interactive calculator fills the
-  marked empty section in its own slice. Mobile: the table folds into
+  (never a hardcoded count). The interactive calculator renders in the
+  marked section below (#397). Mobile: the table folds into
   per-size cards below sm — no horizontal scrolling anywhere. --%>
   <div class="space-y-10">
     <div class="space-y-2">
@@ -102,14 +102,14 @@
       </ul>
     </section>
 
-    <%!-- The interactive calculator's mount point (#396, fills in #397):
-    deliberately empty in this slice — the calculator issue greps here.
+    <%!-- The interactive calculator (#397): a controller-embedded child
+    LiveView — SSR'd here in place, so crawlers see the formed state.
+    The :id pins the child's DOM identity for reconnects; the conn
+    session rides the embed (Static.render merges it), which the child
+    uses only to re-resolve the locale in mount.
     --%>
-    <section
-      id="calculator"
-      data-testid="pricing-calculator-slot"
-      aria-label={gettext("Cost calculator")}
-    >
+    <section id="calculator" data-testid="pricing-calculator-slot">
+      {live_render(@conn, FluxValeWeb.PricingCalculatorLive, id: "pricing-calculator")}
     </section>
 
     <section aria-labelledby="other-services-title" class="space-y-4">

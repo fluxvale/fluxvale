@@ -106,10 +106,32 @@ defmodule FluxValeWeb.PricingControllerTest do
     assert html =~ "warnings 7 days and 1 day before"
   end
 
-  test "GET /pricing marks the empty calculator mount point", %{conn: conn} do
-    conn = get(conn, ~p"/pricing")
+  # #397: the calculator fills the mount point — the child LiveView's
+  # SSR, so crawlers see the formed state: the default price, the chips,
+  # and the sliders, plus the session div the client boots from.
+  test "GET /pricing renders the calculator's SSR inside the mount point", %{conn: conn} do
+    :ok = FluxVale.Seeds.seed_pricing!()
 
-    assert html_response(conn, 200) =~ ~s(id="calculator")
+    conn = get(conn, ~p"/pricing")
+    html = html_response(conn, 200)
+
+    assert html =~ ~s(id="calculator")
+    assert html =~ "Cost calculator"
+    assert html =~ ~s(id="pricing-calculator")
+    assert html =~ "data-phx-session"
+
+    # The default state is small's rungs, priced through price_allocation
+    # — the allocation readout is the calculator's own copy of the numbers.
+    allocation = %{cpu_cores: Decimal.new("0.5"), memory_mb: 512, storage_gb: 10}
+    priced = Pricing.price_allocation(allocation)
+
+    assert html =~ "0.5 CPU · 512 MB · 10 GB"
+    assert html =~ Pricing.format_monthly_rate(priced.monthly_cents)
+    assert html =~ "#{Pricing.format_usd(priced.stopped_monthly_cents)}/mo while stopped"
+
+    # The chips and the sliders ride the SSR too.
+    assert html =~ ~s(data-testid="size-chip-small")
+    assert html =~ ~s(id="resource-cpu-cores")
   end
 
   test "meta: branded title, description, canonical", %{conn: conn} do
