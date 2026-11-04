@@ -195,7 +195,8 @@ defmodule FluxValeWeb.PageControllerTest do
   end
 
   # The landing chrome never had the surface links, so its menu stays
-  # fold-free — `app_links` is the app chrome's flag alone.
+  # fold-free — `app_links` is the app chrome's flag alone. Pricing is
+  # gated the same way (#398): the public chrome's footer carries it.
   test "GET /about for a signed-in visitor keeps the menu fold-free (#255)", %{conn: conn} do
     {_user, session_conn} = SessionHelpers.user_with_session(conn)
 
@@ -206,9 +207,38 @@ defmodule FluxValeWeb.PageControllerTest do
       html
       |> String.split(~s(data-testid="user-menu-panel"))
       |> List.last()
+      # Bound the panel: the unbounded tail would sweep in the landing
+      # band's own Pricing button below it.
+      |> String.split("</details>")
+      |> List.first()
 
     refute panel =~ ~s(href="/apps")
     refute panel =~ ~s(href="/instances")
+    refute panel =~ ~s(href="/pricing")
+    assert panel =~ ~s(href="/billing")
+  end
+
+  # #398: the app chrome's path to /pricing — the header nav beside the
+  # Catalog/Instances/Billing cluster, plus the below-sm folded menu row
+  # (the public nav cluster and footer Pricing rides are suppressed
+  # here).
+  test "GET / (signed in) carries Pricing in the app chrome header and menu (#398)", %{
+    conn: conn
+  } do
+    {_user, session_conn} = SessionHelpers.user_with_session(conn)
+
+    conn = get(session_conn, ~p"/")
+    html = html_response(conn, 200)
+
+    # Whitespace-tolerant: nav_link's slot renders with newlines.
+    assert html =~ ~r/href="\/pricing"[^>]*>\s*Pricing\s*<\/a>/
+
+    panel =
+      html
+      |> String.split(~s(data-testid="user-menu-panel"))
+      |> List.last()
+
+    assert panel =~ ~s(href="/pricing")
     assert panel =~ ~s(href="/billing")
   end
 

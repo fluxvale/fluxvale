@@ -235,6 +235,14 @@ defmodule FluxValeWeb.Layouts do
             <li :if={@apps} class="hidden sm:block">
               <.nav_link navigate={~p"/billing"} active={@nav_section == :billing}>Billing</.nav_link>
             </li>
+            <%!-- #398: the app chrome's path to /pricing — the public
+            nav cluster and footer it rides are suppressed here, so the
+            ladder is one hop from every app surface. No nav_section:
+            Pricing is not a working section, so the link stays quiet.
+            Below sm the user menu's folded row carries it. --%>
+            <li :if={@apps} class="hidden sm:block">
+              <.nav_link navigate={~p"/pricing"}>Pricing</.nav_link>
+            </li>
             <%!-- #396: Pricing rides the public nav beside Apps at sm and
             up — the anonymous cluster is width-tuned to the mill
             (#277 T7), so below sm the link hides and the footer (on

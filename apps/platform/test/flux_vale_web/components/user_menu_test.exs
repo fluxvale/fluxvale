@@ -12,7 +12,6 @@ defmodule FluxValeWeb.Components.UserMenuTest do
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias FluxVale.Identity
-  alias FluxVale.Identity.User
   alias FluxVale.TestSupport.AuthCodeHelpers
   alias FluxVale.TestSupport.SessionHelpers
   alias FluxValeWeb.CoreComponents
@@ -142,7 +141,7 @@ defmodule FluxValeWeb.Components.UserMenuTest do
           nav_section: :instances
         )
 
-      for label <- ["Catalog", "Billing"] do
+      for label <- ["Catalog", "Billing", "Pricing"] do
         link = row(html, label)
         assert LazyHTML.attribute(link, "aria-current") == []
 

@@ -78,6 +78,30 @@ defmodule FluxVale.Pricing do
   end
 
   @doc """
+  The ladder floor in cents (#398): the cheapest published size's monthly
+  rate — the "from" price every catalog card shows, since any app at the
+  same size costs the same. Computed over the public Size read on every
+  call (never a literal), so admin reprices move every card; nil on an
+  empty table (unseeded dev/test) — the surfaces hide the line.
+  """
+  @spec from_price_cents() :: non_neg_integer() | nil
+  def from_price_cents do
+    sizes =
+      FluxVale.Pricing.Size
+      |> Ash.Query.for_read(:read, %{}, actor: nil)
+      |> Ash.read!()
+
+    case sizes do
+      [] ->
+        nil
+
+      _seeded ->
+        cheapest = Enum.min_by(sizes, & &1.monthly_cents)
+        cheapest.monthly_cents
+    end
+  end
+
+  @doc """
   The rates an instance settles at — the one resolver (#153: settle's
   `perform_settle` and the runway projection price through it, so the
   warning fires on the rate the wallet actually bleeds at): the

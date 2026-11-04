@@ -172,6 +172,17 @@ defmodule FluxValeWeb.CatalogLive.Show do
                   <.badge>{version.default_memory_mb} MB RAM</.badge>
                   <.badge>{version.default_storage_gb} GB storage</.badge>
                   <.price_badge version={version} />
+                  <.stopped_rate version={version} />
+                  <%!-- #398: the published ladder is one hop away — the
+                  card shows this version's plan, /pricing#sizes shows
+                  every size. --%>
+                  <.link
+                    navigate={~p"/pricing#sizes"}
+                    class="self-center text-sm font-medium text-link hover:underline"
+                    data-testid={"see-all-sizes-#{version.version}"}
+                  >
+                    {gettext("See all sizes")}
+                  </.link>
                 </div>
               </.card>
             </div>
@@ -197,6 +208,20 @@ defmodule FluxValeWeb.CatalogLive.Show do
       data-testid={"price-#{@version.version}"}
     >
       {FluxVale.Pricing.format_monthly_rate(@version.recommended_size.monthly_cents)}
+    </.badge>
+    """
+  end
+
+  # #398: the storage-only fee beside the running rate — ADR-0028 §2,
+  # in the /pricing table's "%{rate}/mo while stopped" idiom. Hidden
+  # with the price badge on a sizeless version.
+  defp stopped_rate(assigns) do
+    ~H"""
+    <.badge :if={@version.recommended_size} data-testid={"stopped-price-#{@version.version}"}>
+      {gettext(
+        "%{rate}/mo while stopped",
+        rate: FluxVale.Pricing.format_usd(@version.recommended_size.stopped_monthly_cents)
+      )}
     </.badge>
     """
   end

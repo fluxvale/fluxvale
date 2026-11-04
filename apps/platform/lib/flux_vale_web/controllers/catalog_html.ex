@@ -24,5 +24,23 @@ defmodule FluxValeWeb.CatalogHTML do
     """
   end
 
+  # #398: the storage-only fee beside the running rate — ADR-0028 §2,
+  # in the /pricing table's "%{rate}/mo while stopped" idiom. Hidden
+  # with the price badge on a sizeless version.
+  def stopped_rate(assigns) do
+    ~H"""
+    <span
+      :if={@version.recommended_size}
+      class="badge"
+      data-testid={"stopped-price-#{@version.version}"}
+    >
+      {gettext(
+        "%{rate}/mo while stopped",
+        rate: FluxVale.Pricing.format_usd(@version.recommended_size.stopped_monthly_cents)
+      )}
+    </span>
+    """
+  end
+
   defp sort_by_name(apps), do: Enum.sort_by(apps, & &1.name)
 end

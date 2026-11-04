@@ -87,6 +87,17 @@
             <.badge>{version.default_memory_mb} MB RAM</.badge>
             <.badge>{version.default_storage_gb} GB storage</.badge>
             <.price_badge version={version} />
+            <.stopped_rate version={version} />
+            <%!-- #398: the published ladder is one hop away — the card
+            shows this version's plan, /pricing#sizes shows every size.
+            --%>
+            <.link
+              navigate={~p"/pricing#sizes"}
+              class="self-center text-sm font-medium text-link hover:underline"
+              data-testid={"see-all-sizes-#{version.version}"}
+            >
+              {gettext("See all sizes")}
+            </.link>
           </div>
         </.card>
       </div>

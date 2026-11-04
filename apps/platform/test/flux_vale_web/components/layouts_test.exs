@@ -112,6 +112,34 @@ defmodule FluxValeWeb.Components.LayoutsTest do
       end
     end
 
+    # #398: the app chrome's path to /pricing — the public nav cluster
+    # and footer it rides are suppressed here. Bare label beside its
+    # siblings; not a section, so it never carries the active state.
+    test "the header carries the Pricing link beside its siblings (#398)" do
+      html = render_component(&ChromeProbe.with_section/1, [])
+      doc = LazyHTML.from_fragment(html)
+
+      classes = link_classes(doc)
+      assert Map.has_key?(classes, "Pricing")
+
+      assert classes["Pricing"] =~ "text-ink-muted"
+      refute classes["Pricing"] =~ "after:"
+
+      current = aria_current(doc, "nav[aria-label='Primary'] > ul > li > a")
+      assert Map.get(current, "Pricing") == nil
+    end
+
+    test "the folded menu row carries Pricing below sm (#398)" do
+      html = render_component(&ChromeProbe.signed_in/1, [])
+      doc = LazyHTML.from_fragment(html)
+
+      rows = menu_row_classes(doc)
+      assert rows["Pricing"] =~ "text-ink-muted"
+      # The below-sm fold: the row exists so the header's hidden link
+      # leaves nothing unreachable at any width.
+      assert rows["Pricing"] =~ "sm:hidden"
+    end
+
     defp link_classes(doc) do
       doc
       # The header's own links: the user menu's folded rows hang deeper

@@ -7,6 +7,9 @@ defmodule FluxValeWeb.CatalogLive.IndexTest do
 
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.Category
+  alias FluxVale.Pricing
+  alias FluxVale.Pricing.Size
+  alias FluxVale.TestSupport.PricingFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
   setup %{conn: conn} do
@@ -53,6 +56,44 @@ defmodule FluxValeWeb.CatalogLive.IndexTest do
     assert has_element?(view, "#app-#{app.id}", "Developer Tools #{n}")
     assert has_element?(view, "#app-#{app.id} a, #app-#{app.id}")
     assert has_element?(view, "#app-#{iconed.id} img[src='https://example.com/gitea.png']")
+  end
+
+  # #398: the mosaic cards carry the ladder floor — the public index's
+  # number, computed at mount. Expectation from a Size read, never a
+  # literal, and a fixture reprice moves the card.
+  test "cards carry the computed from-price floor, following reprices", %{conn: conn} do
+    n = System.unique_integer()
+
+    category =
+      Category.create!(%{name: "Developer Tools #{n}", slug: "tools-#{n}"}, authorize?: false)
+
+    app =
+      App.create!(
+        %{name: "Forgejo #{n}", slug: "forgejo-#{n}", category_id: category.id},
+        authorize?: false
+      )
+
+    PricingFixtures.size!(monthly_cents: 701)
+    cheapest = PricingFixtures.size!(monthly_cents: 233)
+
+    {:ok, view, _html} = live(conn, ~p"/apps")
+
+    assert has_element?(
+             view,
+             "#app-#{app.id} [data-testid='from-price']",
+             "from #{Pricing.format_monthly_rate(233)}"
+           )
+
+    Size.update!(cheapest, %{monthly_cents: 99}, authorize?: false)
+
+    # Fresh mount — the floor is computed per mount, so the card moves.
+    {:ok, repriced_view, _html} = live(conn, ~p"/apps")
+
+    assert has_element?(
+             repriced_view,
+             "#app-#{app.id} [data-testid='from-price']",
+             "from #{Pricing.format_monthly_rate(99)}"
+           )
   end
 
   test "an empty catalog renders the empty state", %{conn: conn} do

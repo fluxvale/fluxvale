@@ -7,6 +7,7 @@ defmodule FluxVale.Pricing.SizeTest do
   alias FluxVale.Pricing
   alias FluxVale.Pricing.Size
   alias FluxVale.TestSupport.InstanceFixtures
+  alias FluxVale.TestSupport.PricingFixtures
 
   defp admin do
     case User.get_by_email("admin@fluxvale.com", authorize?: false) do
@@ -202,6 +203,21 @@ defmodule FluxVale.Pricing.SizeTest do
       assert Pricing.format_usd(283) == "$2.83"
       assert Pricing.format_usd(1606) == "$16.06"
       assert Pricing.format_usd(160_600) == "$1606.00"
+    end
+  end
+
+  # #398: the catalog cards' from-price — computed over the public read
+  # on every call (never a literal), so admin reprices move every card.
+  describe "from_price_cents/0" do
+    test "the cheapest published size's monthly rate" do
+      PricingFixtures.size!(monthly_cents: 701)
+      PricingFixtures.size!(monthly_cents: 233)
+
+      assert Pricing.from_price_cents() == 233
+    end
+
+    test "nil on an unseeded table — the surfaces hide the line" do
+      assert Pricing.from_price_cents() == nil
     end
   end
 end

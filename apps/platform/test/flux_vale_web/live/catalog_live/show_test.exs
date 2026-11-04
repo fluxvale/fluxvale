@@ -7,6 +7,7 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
 
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.Category
+  alias FluxVale.Pricing
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
@@ -55,6 +56,22 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
              "$1.00/mo · billed hourly"
            )
 
+    # #398: the stopped rate rides the price badge, and the published
+    # ladder is one hop away. Expectations from the size read.
+    size = Ash.load!(version, :recommended_size, authorize?: false).recommended_size
+
+    assert has_element?(
+             view,
+             "[data-testid='stopped-price-#{version.version}']",
+             "#{Pricing.format_usd(size.stopped_monthly_cents)}/mo while stopped"
+           )
+
+    assert has_element?(
+             view,
+             "[data-testid='see-all-sizes-#{version.version}'][href='/pricing#sizes']",
+             "See all sizes"
+           )
+
     assert html =~ "First FluxVale catalog release."
     assert html =~ "Published"
   end
@@ -76,6 +93,9 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
     assert has_element?(view, "[data-testid='price-#{version.version}']")
 
     refute has_element?(view, "[data-testid='price-0.9.0']")
+    # #398: the stopped line hides with the price; the ladder link stays.
+    refute has_element?(view, "[data-testid='stopped-price-0.9.0']")
+    assert has_element?(view, "[data-testid='see-all-sizes-0.9.0']")
   end
 
   test "unknown slug redirects back to the catalog with a flash", %{conn: conn} do
@@ -103,7 +123,7 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
         authorize?: false
       )
 
-    app =
+    _app =
       App.create!(
         %{name: "Bare #{n}", slug: "bare-#{n}", category_id: category.id},
         authorize?: false
