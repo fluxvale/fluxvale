@@ -1,8 +1,9 @@
 defmodule FluxVale.Infrastructure.AccessGateway.MonthlyCentsTest do
   @moduledoc """
-  #395's rate accessor: the ONE reader of the gateway's configured
-  monthly price, mirroring `AccessDomain.monthly_cents/0` (same shape,
-  same fail-closed missing/mispriced-config behavior).
+  #395's rate accessor: the one RUNTIME reader of the gateway's
+  configured monthly price, mirroring `AccessDomain.monthly_cents/0`
+  (same shape, same fail-closed missing-config, missing-key and
+  mispriced-config behavior).
   """
 
   use FluxVale.DataCase, async: false
@@ -51,6 +52,30 @@ defmodule FluxVale.Infrastructure.AccessGateway.MonthlyCentsTest do
         assert_raise ArgumentError, ~r/must be a positive integer/, fn ->
           AccessGateway.monthly_cents()
         end
+      end
+    end
+
+    test "a missing config fails closed (fetch_env!/2's ArgumentError)" do
+      previous = Application.get_env(:flux_vale, :access_gateway)
+
+      on_exit(fn -> Application.put_env(:flux_vale, :access_gateway, previous) end)
+
+      Application.delete_env(:flux_vale, :access_gateway)
+
+      assert_raise ArgumentError, fn ->
+        AccessGateway.monthly_cents()
+      end
+    end
+
+    test "a config without the key fails closed (Keyword.fetch!/2's KeyError)" do
+      previous = Application.get_env(:flux_vale, :access_gateway)
+
+      on_exit(fn -> Application.put_env(:flux_vale, :access_gateway, previous) end)
+
+      Application.put_env(:flux_vale, :access_gateway, Keyword.delete(previous, :monthly_cents))
+
+      assert_raise KeyError, fn ->
+        AccessGateway.monthly_cents()
       end
     end
   end
