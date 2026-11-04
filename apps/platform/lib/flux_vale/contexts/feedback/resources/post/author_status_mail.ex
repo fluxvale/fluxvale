@@ -4,12 +4,15 @@ defmodule FluxVale.Feedback.Post.AuthorStatusMail do
   (fluxvale/fluxvale#412 T7): when a post's status actually moves, its
   author gets the plain-text mail (`Mailer.deliver_feedback_status_changed`).
 
-  The hook rides `after_action` — the mail reports a write that happened,
-  never one still in flight. The fresh-transition gate is the before/after
-  status comparison: `changeset.data` carries the pre-write row, so
-  re-asserting the same status mails nothing. One mail per transition is
-  inherited, not re-derived — `:set_status` is the only status-moving
-  action (the `TopupOutcomeMail` once-from-one-caller shape).
+  The hook rides `after_transaction` and fires ONLY on the committed
+  `{:ok, _}` result — the mail reports a write that happened, never one
+  still in flight or rolled back. The network round-trip then runs OUT
+  of the write transaction: an `after_action` hook would hold the
+  feedback_posts row lock across the Postmark call, and a failed commit
+  would leave the author mailed about a change that never became
+  durable. One mail per transition is inherited, not re-derived —
+  `:set_status` is the only status-moving action (the `TopupOutcomeMail`
+  once-from-one-caller shape).
 
   The `TopupOutcomeMail` discipline: delivery failure logs and never fails
   the action — the status change already happened, the board state owns
@@ -18,6 +21,13 @@ defmodule FluxVale.Feedback.Post.AuthorStatusMail do
   an authorization question) and an unresolvable one (a system row with
   no author, an account without its mirror row) is an info-log skip, not
   an error.
+
+  Scope note on the fresh-transition gate: it compares `post.status` to
+  `changeset.data.status`, which is the CALLER's record — a stale admin
+  tab can produce a phantom mail or a silent skip on a DB-level
+  transition. Single-admin moderation makes that unlikely, and Post
+  carries no optimistic lock; no re-read is added, the comparison stays
+  the caller's honest before/after.
   """
 
   use Ash.Resource.Change
@@ -33,16 +43,23 @@ defmodule FluxVale.Feedback.Post.AuthorStatusMail do
 
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
-    Ash.Changeset.after_action(changeset, &notify_author/2)
+    Ash.Changeset.after_transaction(changeset, &notify_author/2)
   end
 
-  defp notify_author(changeset, post) do
+  # The fresh-transition gate: re-asserting the current status must not
+  # mail. changeset.data carries the caller's pre-write record, so the
+  # before/after comparison IS the audit fact (SetStatus stamps it; here
+  # we read it). The {:error, _} arm passes refused moves through
+  # untouched — nothing to notify about.
+  defp notify_author(changeset, {:ok, post} = result) do
     if post.status != changeset.data.status do
       deliver(post)
     end
 
-    {:ok, post}
+    result
   end
+
+  defp notify_author(_changeset, result), do: result
 
   defp deliver(post) do
     post

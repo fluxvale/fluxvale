@@ -5,7 +5,8 @@ defmodule FluxVale.Feedback.PostStatusEmailTest do
   # status move mails the post's author, a re-assertion mails nothing,
   # an unresolvable author skips quietly, and a mail failure never fails
   # the action (the TopupOutcomeMail discipline). Copy-level assertions
-  # live in mailer_test (the deliver_* split).
+  # (all six status phrases, the punctuation rule) live in mailer_test
+  # (the deliver_* split).
 
   use FluxVale.DataCase, async: true
   use Mimic
@@ -30,7 +31,7 @@ defmodule FluxVale.Feedback.PostStatusEmailTest do
 
   defp admin, do: AccountsFixtures.platform_admin!()
 
-  test "a fresh status move mails the author with the status word and title" do
+  test "a fresh status move mails the author with the status phrase and title" do
     author = AccountsFixtures.user!()
     post = authored_post!(author)
 
@@ -52,13 +53,23 @@ defmodule FluxVale.Feedback.PostStatusEmailTest do
     assert_receive {:email, _}
 
     # The caller's current record rides back from the first move — the
-    # before/after comparison (changeset.data vs result) is the fresh
+    # before/after comparison (changeset.data vs result) is the caller's
     # old/new pair, so the re-assertion stamps nothing and mails nothing.
     assert {:ok, _reasserted} = Post.set_status(moved, %{status: :planned}, actor: admin())
     refute_received {:email, _}
   end
 
-  test "an authorless system row skips quietly" do
+  test "a refused set_status mails nothing (the error passes through untouched)" do
+    author = AccountsFixtures.user!()
+    post = authored_post!(author)
+
+    assert {:error, %Ash.Error.Invalid{}} =
+             Post.set_status(post, %{status: :duplicate}, actor: admin())
+
+    refute_received {:email, _}
+  end
+
+  test "an authorless system row skips quietly with the info log" do
     owner = AccountsFixtures.user!()
     org = AccountsFixtures.owned_org!(owner)
 
@@ -73,8 +84,20 @@ defmodule FluxVale.Feedback.PostStatusEmailTest do
 
     assert is_nil(post.created_by_user_id)
 
-    assert {:ok, _moved} = Post.set_status(post, %{status: :completed}, actor: admin())
+    # The suite runs at :warning (config/test.exs), so the info line
+    # needs the level opened for this test and restored after (the
+    # mint_pat_test posture).
+    previous = Logger.level()
+    Logger.configure(level: :info)
+    on_exit(fn -> Logger.configure(level: previous) end)
+
+    {_result, log} =
+      ExUnit.CaptureLog.with_log(fn ->
+        assert {:ok, _moved} = Post.set_status(post, %{status: :completed}, actor: admin())
+      end)
+
     refute_received {:email, _}
+    assert log =~ "has no mailable author address"
   end
 
   test "an author without a resolvable primary email skips quietly" do
@@ -105,7 +128,7 @@ defmodule FluxVale.Feedback.PostStatusEmailTest do
     refute_received {:email, _}
   end
 
-  test "a delivery failure logs and never fails the action" do
+  test "a delivery failure logs the error and never fails the action" do
     author = AccountsFixtures.user!()
     post = authored_post!(author)
 
@@ -113,21 +136,14 @@ defmodule FluxVale.Feedback.PostStatusEmailTest do
       {:error, :postmark_down}
     end)
 
-    assert {:ok, moved} = Post.set_status(post, %{status: :started}, actor: admin())
-    assert moved.status == :started
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:ok, moved} = Post.set_status(post, %{status: :started}, actor: admin())
+        assert moved.status == :started
+      end)
+
     refute_received {:email, _}
-  end
-
-  test "the copy carries no em-dashes and no semicolons" do
-    author = AccountsFixtures.user!()
-    post = authored_post!(author)
-
-    assert {:ok, _moved} = Post.set_status(post, %{status: :started}, actor: admin())
-
-    assert_receive {:email, %Swoosh.Email{subject: subject, text_body: body}}
-    refute subject =~ "—"
-    refute subject =~ ";"
-    refute body =~ "—"
-    refute body =~ ";"
+    assert log =~ "author mail failed"
+    assert log =~ ":postmark_down"
   end
 end

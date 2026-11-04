@@ -186,6 +186,34 @@ defmodule FluxVale.MailerTest do
                "You can follow it at https://fluxvale.com/feedback/dark-mode-for-the-dashboard."
     end
 
+    # All SIX declared statuses, subject AND body — the status word must
+    # read as prose, never a raw atom dump.
+    test "every status word reads as natural prose in subject and body" do
+      phrases = %{
+        open: "is open again",
+        planned: "is now planned",
+        started: "is now started",
+        completed: "is now complete",
+        duplicate: "was marked as a duplicate",
+        declined: "has been declined"
+      }
+
+      for {status, phrase} <- phrases do
+        {:ok, _delivery} =
+          Mailer.deliver_feedback_status_changed(
+            "phrase-probe@fluxvale.com",
+            status,
+            "Prose copy post",
+            "prose-copy-post"
+          )
+
+        assert_receive {:email, %Swoosh.Email{subject: subject, text_body: body}}
+        assert subject == "Your FluxVale feedback post #{phrase}"
+
+        assert body =~ ~s(Your feedback post "Prose copy post" #{phrase}.)
+      end
+    end
+
     test "the copy carries no em-dashes and no semicolons" do
       {:ok, _delivery} =
         Mailer.deliver_feedback_status_changed(
