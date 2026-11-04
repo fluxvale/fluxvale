@@ -50,3 +50,32 @@ test("the sitemap is served and mentions the catalog", async ({ page }) => {
   expect(response.status()).toBe(200);
   expect(await response.text()).toContain("/catalog");
 });
+
+// #412: the public feedback board — same read-only subset: GETs only,
+// the board list, one post page, and the sitemap rows. The seeded
+// starter posts ride the promotable seed, so every runtime has them.
+
+test("the feedback board renders post rows", async ({ page }) => {
+  await page.goto("/feedback");
+  await expect(page.locator("[data-testid^='feedback-post-']").first()).toBeVisible();
+});
+
+test("clicking a board row opens the public post page", async ({ page }) => {
+  await page.goto("/feedback");
+  await page.locator("[data-testid^='feedback-post-']").first().click();
+  // URL + a board-specific element — the h1 alone would also match the
+  // sign-in page if the route ever regressed to auth-gated.
+  await expect(page).toHaveURL(/\/feedback\//);
+  await expect(page.locator("h1")).toBeVisible();
+  await expect(page.getByTestId("feedback-status")).toBeVisible();
+});
+
+test("the footer carries the feedback link on a public page", async ({ page }) => {
+  await page.goto("/feedback");
+  await expect(page.getByTestId("footer-feedback")).toBeVisible();
+});
+
+test("the sitemap mentions the feedback board", async ({ page }) => {
+  const response = await page.request.get("/sitemap.xml");
+  expect(await response.text()).toContain("/feedback");
+});

@@ -18,6 +18,7 @@ defmodule FluxVale.Seeds do
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Catalog.Category
+  alias FluxVale.Feedback.Post
   alias FluxVale.Identity.User
   alias FluxVale.Identity.User.MirrorSignupEmail
   alias FluxVale.Identity.UserEmail
@@ -50,6 +51,7 @@ defmodule FluxVale.Seeds do
     seed_pricing!()
     seed_tax_rates!()
     seed_catalog!()
+    seed_feedback!()
   end
 
   @doc """
@@ -356,6 +358,195 @@ defmodule FluxVale.Seeds do
       {:error, _not_found} -> Cluster.create!(%{name: "local"}, authorize?: false)
     end
   end
+
+  # The board's starter content (#412 T4): real-looking requests across
+  # the whole status workflow so the public board reads as living at
+  # first bring-up. Get-or-create by the derived slug (lookup first —
+  # slug is derived from the title, so the attrs below are authored to
+  # derive it deterministically). age_days/status_age_days backdate the
+  # display timestamps through forced attribute changes: the actions
+  # stamp "now" and no action accepts timestamps — the same states-
+  # actions-can't-produce posture as Ash.seed!, applied so a fresh
+  # board does not render every row as "just now".
+  @feedback_entries [
+    %{
+      slug: "terraform-provider-for-instance-management",
+      title: "Terraform provider for instance management",
+      description: """
+      We run five instances across three apps and manage everything else with Terraform.
+      A first-class provider (data sources for instances, sizes and pricing) would let us
+      treat FluxVale like the rest of our stack. Even a read-only data source set would
+      unblock our drift checks.
+      """,
+      status: :completed,
+      votes: 128,
+      comments: 21,
+      age_days: 120,
+      status_age_days: 9
+    },
+    %{
+      slug: "show-cost-estimates-in-the-deploy-wizard",
+      title: "Show cost estimates in the deploy wizard",
+      description: """
+      The deploy stepper picks a size before it shows a price. Putting the monthly estimate
+      right in the size step would save a round trip to the pricing page.
+      """,
+      status: :planned,
+      votes: 87,
+      comments: 14,
+      age_days: 34,
+      status_age_days: 12
+    },
+    %{
+      slug: "alert-on-failing-health-checks",
+      title: "Alert on failing health checks",
+      description: """
+      When an instance stops answering /health I want an email before my customers notice.
+      A simple threshold alert (failing for N minutes) with a webhook option would cover us.
+      """,
+      status: :started,
+      votes: 56,
+      comments: 9,
+      age_days: 21,
+      status_age_days: 3
+    },
+    %{
+      slug: "s3-backed-offsite-backup-exports",
+      title: "S3-backed offsite backup exports",
+      description: """
+      Restore is easy inside FluxVale, but I want a copy outside the platform for true
+      disaster recovery. Point-in-time exports to my own bucket would do it.
+      """,
+      status: :open,
+      votes: 73,
+      comments: 11,
+      age_days: 60,
+      status_age_days: 0
+    },
+    %{
+      slug: "cheaper-storage-for-backup-archives",
+      title: "Cheaper storage for backup archives",
+      description: """
+      Backup archives grow forever and bill at the hot rate. A colder tier for archives
+      older than 90 days would make long retention affordable.
+      """,
+      status: :duplicate,
+      duplicate_of: "s3-backed-offsite-backup-exports",
+      votes: 0,
+      comments: 2,
+      age_days: 15,
+      status_age_days: 6
+    },
+    %{
+      slug: "bring-back-weekly-usage-emails",
+      title: "Bring back weekly usage emails",
+      description: """
+      The weekly digest that listed instance hours and spend stopped arriving. It was the
+      one notification that kept our finance team off your support inbox.
+      """,
+      status: :declined,
+      votes: 12,
+      comments: 4,
+      age_days: 48,
+      status_age_days: 20
+    },
+    %{
+      slug: "suspend-an-instance-from-the-cli",
+      title: "Suspend an instance from the CLI",
+      description: """
+      The panel has the sleep button but the CLI only has destroy. A `fluxvale instance
+      suspend` (and wake) would fit our deploy scripts nicely.
+      """,
+      status: :open,
+      votes: 34,
+      comments: 6,
+      age_days: 5,
+      status_age_days: 0
+    }
+  ]
+
+  @doc """
+  Seeds a starter set of feedback posts (fluxvale/fluxvale#412, T4) so
+  the public board ships with living content. Idempotent — get-or-create
+  by the derived slug; existing rows are never converged (an admin's
+  edits are data, not drift). A duplicate's original is listed before it
+  in the entries, so the merge pointer always resolves.
+
+  authorize?: false — bootstrap, the seed posture. Counters and the
+  display timestamps ride forced attribute changes (no action accepts
+  them; the vote/comment slices do not exist yet).
+  """
+  @spec seed_feedback! :: :ok
+  def seed_feedback! do
+    admin = User.get_by_email!(@admin_email, authorize?: false)
+
+    for entry <- @feedback_entries do
+      case find_feedback_post(entry.slug) do
+        nil -> seed_feedback_post!(entry, admin)
+        _post -> :ok
+      end
+    end
+
+    :ok
+  end
+
+  defp find_feedback_post(slug) do
+    Post
+    |> Ash.Query.filter(slug == ^slug)
+    |> Ash.read_one!(authorize?: false)
+  end
+
+  defp seed_feedback_post!(entry, admin) do
+    created =
+      Post.create!(
+        %{title: entry.title, description: String.trim(entry.description)},
+        actor: admin,
+        authorize?: false
+      )
+
+    moved =
+      if entry.status == :open do
+        created
+      else
+        status_args = %{status: entry.status}
+
+        status_args =
+          if Map.has_key?(entry, :duplicate_of) do
+            original = find_feedback_post(entry.duplicate_of)
+            Map.put(status_args, :duplicate_of_id, original.id)
+          else
+            status_args
+          end
+
+        Post.set_status!(created, status_args, actor: admin, authorize?: false)
+      end
+
+    # An open post never moved status — its nil status_changed_at is the
+    # display signal ("Posted N ago"), so only moved rows are backdated.
+    display_patch = patch_changeset(moved, entry)
+    Ash.update!(display_patch, authorize?: false)
+  end
+
+  defp patch_changeset(post, entry) do
+    changeset =
+      post
+      |> Ash.Changeset.for_update(:update, %{}, authorize?: false)
+      |> Ash.Changeset.force_change_attribute(:vote_count, entry.votes)
+      |> Ash.Changeset.force_change_attribute(:comment_count, entry.comments)
+      |> Ash.Changeset.force_change_attribute(:created_at, days_ago(entry.age_days))
+
+    if entry.status_age_days > 0 do
+      Ash.Changeset.force_change_attribute(
+        changeset,
+        :status_changed_at,
+        days_ago(entry.status_age_days)
+      )
+    else
+      changeset
+    end
+  end
+
+  defp days_ago(days), do: DateTime.add(DateTime.utc_now(), -days * 86_400, :second)
 
   defp seed_apps!(apps, category) do
     for app_entry <- apps do

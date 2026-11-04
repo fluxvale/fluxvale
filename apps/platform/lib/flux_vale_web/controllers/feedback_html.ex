@@ -1,0 +1,122 @@
+defmodule FluxValeWeb.FeedbackHTML do
+  @moduledoc """
+  Templates and display helpers for the public feedback board
+  (fluxvale/fluxvale#412, [ADR-0026](../../../../docs/adr/00026-feedback-board.md)).
+  """
+
+  use FluxValeWeb, :html
+
+  embed_templates("feedback_html/*")
+
+  @statuses [:open, :planned, :started, :completed, :duplicate, :declined]
+
+  # The board's status vocabulary (the resource's atoms, user-facing
+  # labels — never the raw atom).
+  @status_labels %{
+    open: "Open",
+    planned: "Planned",
+    started: "Started",
+    completed: "Completed",
+    duplicate: "Duplicate",
+    declined: "Declined"
+  }
+
+  # Badge tones ride the design system's semantic color pairs, so the
+  # badge renders consistently in both modes. Open stays quiet (every
+  # fresh post wears it), duplicate folds away neutral, declined reads
+  # as the "no".
+  @status_tones %{
+    open: "neutral",
+    planned: "primary",
+    started: "warning",
+    completed: "success",
+    duplicate: "neutral",
+    declined: "danger"
+  }
+
+  @doc "The filter chips' status list (order is the render order)."
+  def status_options, do: @statuses
+
+  @doc "User-facing label for a post status."
+  def status_label(status), do: Map.fetch!(@status_labels, status)
+
+  @doc "Badge tone for a post status (see the tone map's comment)."
+  def status_tone(status), do: Map.fetch!(@status_tones, status)
+
+  @doc """
+  Renders the board's status badge.
+  """
+  attr(:status, :atom, required: true)
+
+  def feedback_status_badge(assigns) do
+    assigns =
+      assign(assigns,
+        label: status_label(assigns.status),
+        tone: status_tone(assigns.status)
+      )
+
+    ~H"""
+    <.badge tone={@tone} data-testid="feedback-status">{@label}</.badge>
+    """
+  end
+
+  @doc """
+  The post's status line: the label plus when it last moved
+  ("Started 2 days ago"). A post born open never moved, so the line
+  reads as the posted age instead ("Posted 3 days ago").
+  """
+  def status_changed_label(post) do
+    case post.status_changed_at do
+      %DateTime{} = at -> "#{status_label(post.status)} #{time_ago(at)}"
+      nil -> "Posted #{time_ago(post.created_at)}"
+    end
+  end
+
+  @doc """
+  Relative age in plain words ("2 days ago", "just now"). The only
+  prior helper in the repo is BackupsComponent's private time_ago/2 —
+  ops-terse units and a defp, not reachable here — so this owns the
+  public-page wording. Clock skew (a future timestamp) reads as fresh.
+  """
+  def time_ago(datetime) do
+    seconds = DateTime.diff(DateTime.utc_now(), datetime, :second)
+
+    cond do
+      seconds < 60 -> "just now"
+      seconds < 3_600 -> ago(div(seconds, 60), "minute")
+      seconds < 86_400 -> ago(div(seconds, 3_600), "hour")
+      seconds < 604_800 -> ago(div(seconds, 86_400), "day")
+      seconds < 2_629_800 -> ago(div(seconds, 604_800), "week")
+      seconds < 31_557_600 -> ago(div(seconds, 2_629_800), "month")
+      true -> ago(div(seconds, 31_557_600), "year")
+    end
+  end
+
+  @doc "Counted noun phrase: count_label(3, :vote) reads as 3 votes."
+  def count_label(count, unit), do: "#{count} #{unit}#{plural_suffix(count)}"
+
+  # Board URL for a view state; defaults collapse to the bare
+  # /feedback so the canonical shape never accumulates query noise.
+  # The keyword list rides into encode_query unconverted, so param
+  # order is stable (first the sort, then the status, then the page).
+  def board_href(sort, status, page) do
+    candidates = [sort: sort, status: status && Atom.to_string(status), page: page]
+    params = Enum.reject(candidates, &default_view?/1)
+
+    if params == [] do
+      "/feedback"
+    else
+      "/feedback?" <> URI.encode_query(params)
+    end
+  end
+
+  defp default_view?({_key, nil}), do: true
+  defp default_view?({_key, "top"}), do: true
+  defp default_view?({_key, 1}), do: true
+  defp default_view?(_kv), do: false
+
+  defp ago(n, unit), do: "#{n} #{unit}#{plural_suffix(n)} ago"
+
+  defp plural_suffix(1), do: ""
+  defp plural_suffix(_n), do: "s"
+end
