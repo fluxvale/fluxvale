@@ -22,9 +22,10 @@ defmodule FluxValeWeb.AllocationSliders do
   use FluxValeWeb, :html
 
   # The sliders' rungs (#221): each dimension's ladder is the seeded
-  # Size rows' distinct values for it (micro…max — the same business
-  # data the quick picks and pricing carry; top rungs grown on #233),
-  # ascending; a test pins the arrays to the seeds. The sliders
+  # Size rows' distinct values for it (micro…pro — the same business
+  # data the quick picks and pricing carry; the #233 top rungs were
+  # rejected on #399, the arrays stop at pro), ascending; a test pins
+  # the arrays to the seeds. The sliders
   # address rungs by index (a range input can only step uniformly),
   # so the LiveView — not the browser — owns the value arrays. Values
   # outside the ladder stay legal at the API (the Instance attribute
@@ -42,7 +43,7 @@ defmodule FluxValeWeb.AllocationSliders do
         id: "resource-cpu-cores",
         label: "CPU cores",
         testid: "resource-cpu",
-        values: ["0.25", "0.5", "1", "2", "4", "6", "8"],
+        values: ["0.25", "0.5", "1", "2", "4"],
         unit: "cores"
       },
       %{
@@ -50,7 +51,7 @@ defmodule FluxValeWeb.AllocationSliders do
         id: "resource-memory-mb",
         label: "Memory",
         testid: "resource-memory",
-        values: ["512", "1024", "2048", "4096", "8192", "12288", "16384"],
+        values: ["512", "1024", "2048", "4096", "8192"],
         unit: "MB"
       },
       %{
@@ -58,7 +59,7 @@ defmodule FluxValeWeb.AllocationSliders do
         id: "resource-storage-gb",
         label: "Storage",
         testid: "resource-storage",
-        values: ["5", "10", "20", "50", "100", "200", "400"],
+        values: ["5", "10", "20", "50", "100"],
         unit: "GB"
       }
     ]
