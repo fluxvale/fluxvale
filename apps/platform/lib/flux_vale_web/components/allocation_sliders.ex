@@ -11,6 +11,12 @@ defmodule FluxValeWeb.AllocationSliders do
   On the wire each slider emits `resources[KEY]` holding its rung's
   index, and `resource_strings/1` decodes a payload back to rungs — a
   crafted index that names no rung is silence.
+
+  The DOM ids and testids (`resource-cpu-cores`, `resource-memory-mb`,
+  `resource-storage-gb`, `resource-cpu`/`-memory`/`-storage`) are
+  page-unique by contract — a consumer embedding this block twice on
+  the same page must parameterize them first (the wizard and the
+  /pricing calculator are separate pages, so they stay unique today).
   """
 
   use FluxValeWeb, :html
