@@ -2,7 +2,7 @@ defmodule FluxValeWeb.Storybook do
   @moduledoc """
   The design-system workshop (#178): phoenix_storybook mounted at
   /storybook, showcasing every `FluxValeWeb.CoreComponents` component
-  on the amber token set. Hosted at storybook.fluxvale.com (fleet
+  on the amber token set. Served at storybook.fluxvale.com (fleet
   routing, internal-only; gate is `StorybookEnabled`).
 
   Stories live in `apps/platform/storybook/` (mix-project-relative
