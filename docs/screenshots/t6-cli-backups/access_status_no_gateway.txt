@@ -1,0 +1,3 @@
+$ fluxvale access status   (the org has no gateway yet)
+error: no gateway for this organization (or you're not a member)
+exit=1

@@ -11,6 +11,7 @@ pub use error::ApiError;
 
 use crate::token::Token;
 use jsonapi::Document;
+use serde_json::Value;
 use std::time::Duration;
 
 /// The `/api/v1` prefix every artifact path carries.
@@ -58,6 +59,27 @@ impl ApiClient {
         path: &str,
         body: Option<String>,
     ) -> Result<Document, ApiError> {
+        self.request(method, path, body)
+    }
+
+    /// Send a request and parse a bare JSON body — the generic-action
+    /// routes (run/restore, the gateway pairing verbs) answer flat
+    /// objects, not JSON:API envelopes (backup_route_test's contract).
+    pub fn send_json(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<String>,
+    ) -> Result<Value, ApiError> {
+        self.request(method, path, body)
+    }
+
+    fn request<T: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<String>,
+    ) -> Result<T, ApiError> {
         let url = self.url(path);
         match (method, body) {
             ("GET" | "DELETE", Some(_)) => {
@@ -65,16 +87,28 @@ impl ApiClient {
             }
             ("GET", None) => self.finish(self.headers(self.agent.get(&url)).call()),
             ("DELETE", None) => self.finish(self.headers(self.agent.delete(&url)).call()),
-            ("POST", body) => self.finish(
-                self.headers(self.agent.post(&url))
-                    .header("Content-Type", "application/vnd.api+json")
-                    .send(body.unwrap_or_default().into_bytes()),
-            ),
-            ("PATCH", body) => self.finish(
-                self.headers(self.agent.patch(&url))
-                    .header("Content-Type", "application/vnd.api+json")
-                    .send(body.unwrap_or_default().into_bytes()),
-            ),
+            // A body rides the JSON:API media type.
+            ("POST" | "PATCH", Some(body)) => {
+                let request = match method {
+                    "POST" => self.agent.post(&url),
+                    _ => self.agent.patch(&url),
+                };
+                self.finish(
+                    self.headers(request)
+                        .header("Content-Type", "application/vnd.api+json")
+                        .send(body.into_bytes()),
+                )
+            }
+            // Bodyless POST/PATCH rides like the platform's own route
+            // tests: neither body nor content type — a Content-Type
+            // with empty bytes would make the server try to parse "".
+            ("POST" | "PATCH", None) => {
+                let request = match method {
+                    "POST" => self.agent.post(&url),
+                    _ => self.agent.patch(&url),
+                };
+                self.finish(self.headers(request).send(Vec::new()))
+            }
             (other, _) => Err(ApiError::Transport(format!("unsupported method {other}"))),
         }
     }
@@ -330,5 +364,82 @@ mod tests {
         drop(listener);
         let err = client(&format!("http://{addr}")).get("/me").unwrap_err();
         assert!(matches!(err, ApiError::Transport(_)), "got: {err:?}");
+    }
+
+    #[test]
+    fn bodyless_post_rides_without_a_content_type() {
+        // The generic-action routes (run/restore) take their arguments
+        // from the path: the platform's route tests POST with neither
+        // body nor content type, and so must the client.
+        let server = serve(&respond(
+            "200 OK",
+            &[],
+            r#"{"kind":"manual","status":"running"}"#,
+        ));
+        let row = client(&server.base_url)
+            .send_json("POST", "/instances/i1/backup-runs", None)
+            .unwrap();
+        assert_eq!(row["kind"], "manual");
+        let head = server.captured_head.lock().unwrap().to_lowercase();
+        assert!(
+            head.starts_with("post /api/v1/instances/i1/backup-runs http/1.1"),
+            "request line: {head}"
+        );
+        assert!(
+            !head.contains("content-type:"),
+            "bodyless POST must not claim a media type: {head}"
+        );
+    }
+
+    #[test]
+    fn bodyless_patch_rides_without_a_content_type_too() {
+        // The PATCH None arm: same posture as the bodyless POST.
+        let server = serve(&respond("200 OK", &[], r#"{"state":"provisioning"}"#));
+        let row = client(&server.base_url)
+            .send_json("PATCH", "/access-gateways/g1/resume", None)
+            .unwrap();
+        assert_eq!(row["state"], "provisioning");
+        let head = server.captured_head.lock().unwrap().to_lowercase();
+        assert!(
+            head.starts_with("patch /api/v1/access-gateways/g1/resume http/1.1"),
+            "request line: {head}"
+        );
+        assert!(
+            !head.contains("content-type:"),
+            "bodyless PATCH must not claim a media type: {head}"
+        );
+    }
+
+    #[test]
+    fn send_json_parses_the_generic_actions_flat_body() {
+        // {"success":true} — the detach verb's whole answer.
+        let server = serve(&respond("200 OK", &[], r#"{"success":true}"#));
+        let row = client(&server.base_url)
+            .send_json("DELETE", "/access-gateways/g1/attachments/i1", None)
+            .unwrap();
+        assert_eq!(row["success"], true);
+        let head = server.captured_head.lock().unwrap().to_lowercase();
+        assert!(
+            head.starts_with("delete /api/v1/access-gateways/g1/attachments/i1 http/1.1"),
+            "request line: {head}"
+        );
+    }
+
+    #[test]
+    fn error_statuses_reject_flat_bodies_too() {
+        // A generic action's refusal (400 + the guard words) maps the
+        // same way on send_json as on the envelope reads.
+        let server = serve(&respond(
+            "400 Bad Request",
+            &[],
+            r#"{"errors":[{"detail":"backups are not configured for this instance"}]}"#,
+        ));
+        let err = client(&server.base_url)
+            .send_json("POST", "/instances/i1/backup-runs", None)
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("backups are not configured"),
+            "error: {err}"
+        );
     }
 }

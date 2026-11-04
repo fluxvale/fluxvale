@@ -1,0 +1,9 @@
+$ fluxvale backups status 01a1a7ae-8249-704d-bbf0-cd94cfeac585
+endpoint       https://account.r2.cloudflarestorage.com
+bucket         fluxvale-winter-cloud
+prefix         fluxvale/app
+access key id  AKIA****EXAMPLE
+retention      keep 14
+enabled        yes
+no backup runs yet
+exit=0

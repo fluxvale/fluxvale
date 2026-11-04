@@ -1,11 +1,13 @@
 //! The command tree (clap derive) + dispatch. Handlers live in their
-//! own modules by slice: the read commands in [`crate::reads`] (T4);
-//! device-flow login (T5) and the write commands (T6) land later —
-//! their arms still dispatch to `not_yet`.
+//! own modules by slice: the read commands in [`crate::reads`] (T4),
+//! the backups + access writes in [`crate::writes`] (T6); device-flow
+//! login (T5) and the instance lifecycle writes land later — their
+//! arms still dispatch to `not_yet`.
 
 use crate::config::{self, Config};
 use crate::reads;
 use crate::token::TokenStore;
+use crate::writes::{self, ConfigureBackup};
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
@@ -134,24 +136,96 @@ pub enum InstancesCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum BackupsCommand {
-    /// Configure backup settings for an instance
-    Configure,
+    /// Configure backup settings for an instance (creates or updates
+    /// the row — whichever applies)
+    Configure {
+        /// The instance ID
+        instance: String,
+        /// The S3 endpoint — http(s)://host[:port], no path
+        #[arg(long)]
+        endpoint: String,
+        /// The S3 bucket name
+        #[arg(long)]
+        bucket: String,
+        /// Optional key prefix inside the bucket (no leading or
+        /// trailing slash)
+        #[arg(long)]
+        prefix: Option<String>,
+        /// The S3 access key's ID — an identifier, not the secret. The
+        /// matching secret is written by the panel's save; backups
+        /// cannot run until it exists
+        #[arg(long, value_name = "ID")]
+        access_key_id: String,
+        /// How many snapshots to keep (2-30, default 7)
+        #[arg(long, value_name = "2-30")]
+        retention: Option<u8>,
+        /// Keep backups enabled (the default)
+        #[arg(long)]
+        enabled: bool,
+        /// Pause backups — the row and its credentials stay
+        #[arg(long, conflicts_with = "enabled")]
+        disabled: bool,
+    },
     /// Run a backup now
-    Run,
-    /// Show backup status
-    Status,
-    /// Restore an instance from a backup
-    Restore,
+    Run {
+        /// The instance ID
+        instance: String,
+    },
+    /// Show backup status: the settings row plus the latest run
+    Status {
+        /// The instance ID
+        instance: String,
+    },
+    /// Restore an instance's volume from a backup run — the current
+    /// volume state is OVERWRITTEN
+    Restore {
+        /// The instance ID
+        instance: String,
+        /// The backup run to restore from (the newest successful one —
+        /// see `backups status`)
+        #[arg(long, value_name = "RUN_ID")]
+        from: String,
+        /// Actually overwrite the volume; without this flag nothing is
+        /// sent and the command prints what would happen
+        #[arg(long)]
+        confirm: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
 pub enum AccessCommand {
-    /// Show private access status
-    Status,
-    /// Attach an instance to a private access gateway
-    Attach,
-    /// Detach an instance from a private access gateway
-    Detach,
+    /// Show the organization's private-access gateway
+    Status {
+        /// The organization ID (default: organization_id from the config file)
+        #[arg(long, value_name = "ID")]
+        org: Option<String>,
+    },
+    /// Attach a private instance to a gateway
+    Attach {
+        /// The gateway ID
+        gateway: String,
+        /// The instance ID
+        instance: String,
+    },
+    /// Detach an instance from a gateway (idempotent)
+    Detach {
+        /// The gateway ID
+        gateway: String,
+        /// The instance ID
+        instance: String,
+    },
+    /// Create the organization's gateway — needs a Tailscale auth key
+    /// and provisions cluster resources: use the panel
+    Create {
+        /// The tailnet's MagicDNS domain (unused — see above)
+        #[arg(long, value_name = "DOMAIN")]
+        tailnet_domain: Option<String>,
+    },
+    /// Resume a suspended gateway
+    Resume {
+        /// The gateway ID
+        gateway: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -217,15 +291,70 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
             InstancesCommand::Destroy { .. } => not_yet("instances destroy"),
         },
         Command::Backups { command } => match command {
-            BackupsCommand::Configure => not_yet("backups configure"),
-            BackupsCommand::Run => not_yet("backups run"),
-            BackupsCommand::Status => not_yet("backups status"),
-            BackupsCommand::Restore => not_yet("backups restore"),
+            BackupsCommand::Configure {
+                instance,
+                endpoint,
+                bucket,
+                prefix,
+                access_key_id,
+                retention,
+                enabled,
+                disabled,
+            } => {
+                let (client, _) = reads::read_client(&config)?;
+                let flags = ConfigureBackup {
+                    instance: instance.clone(),
+                    endpoint: endpoint.clone(),
+                    bucket: bucket.clone(),
+                    prefix: prefix.clone(),
+                    access_key_id: access_key_id.clone(),
+                    retention: *retention,
+                    enabled: writes::enabled_flag(*enabled, *disabled),
+                };
+                print(writes::backups_configure(&client, &flags, cli.output))
+            }
+            BackupsCommand::Status { instance } => {
+                let (client, _) = reads::read_client(&config)?;
+                print(writes::backups_status(&client, instance, cli.output))
+            }
+            BackupsCommand::Run { instance } => {
+                let (client, _) = reads::read_client(&config)?;
+                print(writes::backups_run(&client, instance, cli.output))
+            }
+            BackupsCommand::Restore {
+                instance,
+                from,
+                confirm,
+            } => {
+                let (client, _) = reads::read_client(&config)?;
+                print(writes::backups_restore(
+                    &client, instance, from, *confirm, cli.output,
+                ))
+            }
         },
         Command::Access { command } => match command {
-            AccessCommand::Status => not_yet("access status"),
-            AccessCommand::Attach => not_yet("access attach"),
-            AccessCommand::Detach => not_yet("access detach"),
+            AccessCommand::Status { org } => {
+                let (client, _) = reads::read_client(&config)?;
+                let org_id = reads::resolve_org(&config, org.as_deref())?;
+                print(writes::access_status(&client, &org_id, cli.output))
+            }
+            AccessCommand::Attach { gateway, instance } => {
+                let (client, _) = reads::read_client(&config)?;
+                print(writes::access_attach(
+                    &client, gateway, instance, cli.output,
+                ))
+            }
+            AccessCommand::Detach { gateway, instance } => {
+                let (client, _) = reads::read_client(&config)?;
+                print(writes::access_detach(
+                    &client, gateway, instance, cli.output,
+                ))
+            }
+            AccessCommand::Create { .. } => print(writes::access_create_unavailable()),
+            AccessCommand::Resume { gateway } => {
+                let (client, _) = reads::read_client(&config)?;
+                print(writes::access_resume(&client, gateway, cli.output))
+            }
         },
         Command::Wallet { command } => match command {
             WalletCommand::Balance { org } => {
@@ -360,17 +489,168 @@ mod tests {
                 "{action} must parse"
             );
         }
-        for action in ["configure", "run", "status", "restore"] {
-            assert!(
-                matches!(parse(&["backups", action]).command, Command::Backups { .. }),
-                "{action} must parse"
-            );
+        // The backups verbs parse with their arguments.
+        match parse(&[
+            "backups",
+            "configure",
+            "01ABC",
+            "--endpoint",
+            "https://e.example",
+            "--bucket",
+            "bucket",
+            "--prefix",
+            "a/b",
+            "--access-key-id",
+            "KEY",
+            "--retention",
+            "14",
+            "--disabled",
+        ])
+        .command
+        {
+            Command::Backups {
+                command:
+                    BackupsCommand::Configure {
+                        instance,
+                        endpoint,
+                        bucket,
+                        prefix,
+                        access_key_id,
+                        retention,
+                        enabled,
+                        disabled,
+                    },
+            } => {
+                assert_eq!(instance, "01ABC");
+                assert_eq!(endpoint, "https://e.example");
+                assert_eq!(bucket, "bucket");
+                assert_eq!(prefix.as_deref(), Some("a/b"));
+                assert_eq!(access_key_id, "KEY");
+                assert_eq!(retention, Some(14));
+                assert!(!enabled);
+                assert!(disabled);
+            }
+            other => panic!("wrong: {other:?}"),
         }
-        for action in ["status", "attach", "detach"] {
-            assert!(
-                matches!(parse(&["access", action]).command, Command::Access { .. }),
-                "{action} must parse"
-            );
+        // Neither flag folds to the tri-state None (the payload omits
+        // `enabled`).
+        match parse(&[
+            "backups",
+            "configure",
+            "i1",
+            "--endpoint",
+            "https://e.example",
+            "--bucket",
+            "bucket",
+            "--access-key-id",
+            "KEY",
+        ])
+        .command
+        {
+            Command::Backups {
+                command:
+                    BackupsCommand::Configure {
+                        enabled, disabled, ..
+                    },
+            } => {
+                assert!(!enabled);
+                assert!(!disabled);
+            }
+            other => panic!("wrong: {other:?}"),
+        }
+        // The pair is exclusive.
+        assert!(
+            Cli::try_parse_from([
+                "fluxvale",
+                "backups",
+                "configure",
+                "i1",
+                "--endpoint",
+                "https://e.example",
+                "--bucket",
+                "bucket",
+                "--access-key-id",
+                "KEY",
+                "--enabled",
+                "--disabled",
+            ])
+            .is_err()
+        );
+        match parse(&["backups", "run", "01ABC"]).command {
+            Command::Backups {
+                command: BackupsCommand::Run { instance },
+            } => assert_eq!(instance, "01ABC"),
+            other => panic!("wrong: {other:?}"),
+        }
+        match parse(&["backups", "status", "01ABC"]).command {
+            Command::Backups {
+                command: BackupsCommand::Status { instance },
+            } => assert_eq!(instance, "01ABC"),
+            other => panic!("wrong: {other:?}"),
+        }
+        // The restore gate: --confirm parses on and off.
+        match parse(&["backups", "restore", "i1", "--from", "r9"]).command {
+            Command::Backups {
+                command:
+                    BackupsCommand::Restore {
+                        instance,
+                        from,
+                        confirm,
+                    },
+            } => {
+                assert_eq!(instance, "i1");
+                assert_eq!(from, "r9");
+                assert!(!confirm);
+            }
+            other => panic!("wrong: {other:?}"),
+        }
+        match parse(&["backups", "restore", "i1", "--from", "r9", "--confirm"]).command {
+            Command::Backups {
+                command: BackupsCommand::Restore { from, confirm, .. },
+            } => {
+                assert_eq!(from, "r9");
+                assert!(confirm);
+            }
+            other => panic!("wrong: {other:?}"),
+        }
+        // The access verbs parse with their arguments.
+        match parse(&["access", "status", "--org", "01JORG"]).command {
+            Command::Access {
+                command: AccessCommand::Status { org },
+            } => assert_eq!(org.as_deref(), Some("01JORG")),
+            other => panic!("wrong: {other:?}"),
+        }
+        match parse(&["access", "attach", "g1", "i1"]).command {
+            Command::Access {
+                command: AccessCommand::Attach { gateway, instance },
+            } => {
+                assert_eq!(gateway, "g1");
+                assert_eq!(instance, "i1");
+            }
+            other => panic!("wrong: {other:?}"),
+        }
+        match parse(&["access", "detach", "g1", "i1"]).command {
+            Command::Access {
+                command: AccessCommand::Detach { gateway, instance },
+            } => {
+                assert_eq!(gateway, "g1");
+                assert_eq!(instance, "i1");
+            }
+            other => panic!("wrong: {other:?}"),
+        }
+        // The create stub accepts (and ignores) the flag the panel's
+        // flow would carry — the handler answers "use the panel".
+        assert!(matches!(
+            parse(&["access", "create", "--tailnet-domain", "example.ts.net"]).command,
+            Command::Access {
+                command: AccessCommand::Create { .. }
+            }
+        ));
+        match parse(&["access", "resume", "g1"]).command {
+            Command::Access {
+                command: AccessCommand::Resume { gateway },
+            } => assert_eq!(gateway, "g1"),
+            other => panic!("wrong: {other:?}"),
         }
         for action in ["balance", "runway"] {
             assert!(
