@@ -81,23 +81,42 @@ defmodule FluxVale.TestSupport.BillingFixtures do
 
   @doc """
   `{org, owner}` without the JIT provisioning path — no welcome grant
-  (#122), so balance math stays exact. `funded_wallet!/1` builds on it;
-  concurrency tests reuse it for the committed-row ids they clean up.
+  (#122), so balance math stays exact. The org is the owner's personal
+  org: it carries the #408 marker, because the actor-resolution paths
+  (SetOrganizationFromActor, the wallet gates) read the personal org —
+  the marker names the fixture org without firing the grant. Concurrency
+  tests reuse it for the committed-row ids they clean up.
   """
   @spec grant_free_org!() :: {Organization.t(), User.t()}
   def grant_free_org! do
+    # Ash.Seed.seed! — the sanctioned escape: the User create action
+    # JIT-provisions a personal org (and its welcome grant), and this
+    # fixture needs the owner org-less so the FIXTURE org — created
+    # marked, below — is their personal org at an exact zero balance.
+    owner =
+      Ash.Seed.seed!(User, %{
+        email: "billing-owner-#{System.unique_integer([:positive])}@fluxvale.test",
+        username: "billing-owner-#{System.unique_integer([:positive])}"
+      })
+
+    # The T1-backfill shape (see AccountsFixtures.backfill_email!/1):
+    # table-backed identity (#285 T3) — get_by_email and the PAT seam
+    # resolve through user_emails, which seed! cannot produce.
+    AccountsFixtures.backfill_email!(owner)
+
     # authorize?: false — system-op posture, the same bootstrap stance as
     # seeds (memberships are system-created; see the Membership resource).
+    # The marker (#408) rides the accepted attribute: this org is the
+    # owner's personal org.
     org =
       Organization.create!(
         %{
           name: "billing-fixture",
-          slug: "billing-#{System.unique_integer([:positive])}"
+          slug: "billing-#{System.unique_integer([:positive])}",
+          personal_owner_id: owner.id
         },
         authorize?: false
       )
-
-    owner = AccountsFixtures.user!()
 
     Membership.create!(
       %{organization_id: org.id, user_id: owner.id, role: :owner},

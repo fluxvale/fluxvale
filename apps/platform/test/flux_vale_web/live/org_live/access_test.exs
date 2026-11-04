@@ -169,9 +169,9 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
   # The ENABLE path rides the personal panel (/settings/access): the
   # create action pins every gateway to the actor's personal org
   # (SetOrganizationFromActor), so the panel whose org the created row
-  # lands in is the personal one — and the actor owns EXACTLY that org,
-  # because the canonical op's pick for a two-owner user is unordered
-  # (T7) and every assertion here reads the pick.
+  # lands in is the personal one — and the actor owns EXACTLY that org:
+  # the canonical op reads the #408 marker, which provisioning stamped
+  # on the signup org, and every assertion here reads the pick.
   describe "enabling private access" do
     setup %{conn: conn} do
       owner = AccountsFixtures.user!()

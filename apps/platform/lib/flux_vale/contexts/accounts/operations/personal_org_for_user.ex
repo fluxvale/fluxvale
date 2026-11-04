@@ -1,8 +1,16 @@
 defmodule FluxVale.Accounts.Operations.PersonalOrgForUser do
   @moduledoc """
-  Looks up the personal organization a user owns (their `:owner`
-  membership) — the org instances and wallets resolve against (#119).
-  Returns `:none` when the user owns no org.
+  Looks up a user's personal org — the account-surface org (#119): the
+  one whose `personal_owner_id` names them (#408). Returns `:none` when
+  the user has none (an org-less row, or only unmarked team orgs).
+
+  The marker is the personal-org fact's only writer: provisioning
+  stamps it at signup, and the #408 backfill stamped it once over
+  pre-existing rows — implementing the earliest-owned derivation this
+  operation used to run live. That derivation retires here: it was the
+  identity spec's deferred T7 answer, and user-created orgs (#408)
+  would break any ownership-derived pick, so the read is the explicit
+  marker now.
 
   Authorization propagates from the caller (never hard-coded): system
   contexts (metering settlement, M5) pass `authorize?: false` explicitly;
@@ -20,16 +28,9 @@ defmodule FluxVale.Accounts.Operations.PersonalOrgForUser do
     query =
       Organization
       |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.filter(memberships.user_id == ^user_id and memberships.role == :owner)
-      # S5 made this pick load-bearing ROUTING — the personal org's
-      # org-scoped URLs redirect on it — so the pick must be
-      # deterministic and every caller must read the same answer: the
-      # EARLIEST-CREATED org the user owns. For every action-created
-      # user that is the signup JIT org (provisioned at user creation,
-      # before any org they own membership in later); the seeded
-      # two-owner shapes are the only place the answer can differ from
-      # "the org named personal at signup", and there the earliest
-      # rule is still one deterministic, shared answer.
+      |> Ash.Query.filter(personal_owner_id == ^user_id)
+      # Sort + limit stay: the unique index already pins the answer to
+      # one row, and a deterministic pick costs nothing.
       |> Ash.Query.sort(created_at: :asc, id: :asc)
       |> Ash.Query.limit(1)
 

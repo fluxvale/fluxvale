@@ -709,8 +709,9 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
       {:ok, wallet} = FluxVale.Billing.ensure_wallet(org)
       {:ok, _grant} = FluxVale.Billing.grant_credits(wallet, 10_000, reason: :adjustment)
 
-      # The create resolves the actor's earliest-owned org — the fixture
-      # org (created before the user's JIT personal org) — so the row is
+      # The create resolves the actor's personal org — the fixture org
+      # (the #408 marker names it: grant_free_org! builds the owner
+      # org-less and marks the fixture org) — so the row is
       # born in the gateway's org, hostname minted with it.
       instance = deploying_for_org!(owner, attrs)
       gateway = AccessFixtures.gateway!(org)
