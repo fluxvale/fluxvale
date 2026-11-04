@@ -29,11 +29,14 @@ expect() {
   fi
 }
 
-# Green: the tag that matches the committed Cargo.toml.
+# Green: the tag that matches the committed Cargo.toml (a pre-release
+# like 0.1.0-rc1 is plain string equality — the grammar lives in
+# Cargo.toml).
 expect 0 "cli-v$cargo_version"
 
-# Red: a lazy tag one patch ahead of Cargo.toml. (9.9.9 would also do;
-# a suffix can't — pre-release Cargo versions like 0.1.0-rc1 are legit.)
+# Red: a tag carrying a value Cargo.toml does not — the lazy-tag shape
+# is any disagreement; a suffix is one that no patch-bump fixture can
+# ever collide with.
 expect 1 "cli-v$cargo_version-mismatch"
 # Red: the BEAM release namespace, not ours.
 expect 1 "v$cargo_version"
@@ -41,6 +44,22 @@ expect 1 "v$cargo_version"
 expect 1 "cli-v"
 # Red: not a version tag at all.
 expect 1 "some-branch-name"
+# Red: no argument at all (the usage guard).
+expect 1 ""
+
+# Red: a Cargo.toml with no [package] version (the seam arg makes the
+# branch reachable — data drift in the version source must be loud).
+fixture="$(mktemp)"
+printf '[package]\nname = "fluxvale-cli"\n' > "$fixture"
+if out="$(bash "$check" "cli-v$cargo_version" "$fixture" 2>&1)"; then got=0; else got=1; fi
+if [ "$got" = 1 ]; then
+  echo "ok    exit 1: Cargo.toml without a [package] version"
+  pass=$((pass + 1))
+else
+  echo "FAIL  expected exit 1 for a version-less Cargo.toml, got 0: $out"
+  fail=$((fail + 1))
+fi
+rm -f "$fixture"
 
 echo "passed: $pass, failed: $fail"
 [ "$fail" = 0 ]

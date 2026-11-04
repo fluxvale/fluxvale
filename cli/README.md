@@ -11,10 +11,16 @@ does what the web app does — for when you'd rather type.
 
 Download the archive for your machine from
 [GitHub Releases](https://github.com/fluxvale/fluxvale/releases), unpack
-it, and put `fluxvale` on your PATH. Verify the download:
+it, and put `fluxvale` on your PATH. Verify the download (unix):
 
 ```
 grep <your-archive> SHA256SUMS | sha256sum -c -
+```
+
+On Windows, compare by eye:
+
+```
+certutil -hashfile <your-archive> SHA256
 ```
 
 Archives: `linux-amd64`, `linux-aarch64`, `macos-aarch64` (Apple

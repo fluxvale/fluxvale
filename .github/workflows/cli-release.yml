@@ -13,10 +13,10 @@
 # asserts the binary itself reports the release version — lazy tags and
 # stale binaries can't ship.
 #
-# workflow_dispatch is the DRY RUN by construction: no tag, so check-tag
-# is skipped and publish never fires — build + archive + checksums land
-# as run artifacts and nothing publishes. The tag path is entered only
-# by pushing a `cli-v*` tag.
+# workflow_dispatch is the DRY RUN: build + archive + checksums land as
+# run artifacts and publish never fires — the event gate in publish's
+# `if` holds even for a dispatch pointed at a tag ref. The tag path is
+# entered only by pushing a `cli-v*` tag.
 name: CLI release
 
 on:
@@ -83,8 +83,10 @@ jobs:
       # asserted Cargo.toml equality); Cargo.toml's in the dispatch dry
       # run (no tag — and that is the same source clap wires into
       # --version). shell: bash on every leg so the sed is one dialect.
-      # The charset guard (digits + dots only) keeps a crafted tag name
-      # from becoming anything but a dead value downstream.
+      # The charset guard is injection-safety only — it accepts Cargo's
+      # whole version grammar (alnum, dots, dashes for pre-releases,
+      # plus for build metadata) because grammar policy lives in
+      # Cargo.toml via check-tag, not here.
       - name: Parse the release version
         id: version
         shell: bash
@@ -95,7 +97,7 @@ jobs:
             version="$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' fluxvale-cli/Cargo.toml | head -1)"
           fi
           case "$version" in
-            *[!0-9.]*) echo "::error::release version '$version' is not digits-and-dots"; exit 1 ;;
+            *[!0-9A-Za-z.+-]*) echo "::error::release version '$version' has characters outside Cargo's grammar"; exit 1 ;;
           esac
           test -n "$version"
           echo "release version: $version"
@@ -177,13 +179,16 @@ jobs:
             cli/SHA256SUMS.*
           if-no-files-found: error
 
-  # Tag pushes only — check-tag is tag-only and skipped in the dispatch
-  # dry run, and a failed build auto-skips this job, so the conjunction
-  # below is exact: publish fires on a green, version-checked tag run.
+  # Pushes of `cli-v*` tags only. Dispatch NEVER publishes — including
+  # a dispatch pointed at a tag ref (`gh workflow run --ref cli-v1.2.3`
+  # is legal), which is why the event gate is in the `if` below, not
+  # just the trigger. A failed build also auto-skips this job, so the
+  # conjunction below is exact: publish fires on a green,
+  # version-checked tag push, nothing else.
   publish:
     name: Publish GitHub Release
     needs: [check-tag, build]
-    if: always() && needs.build.result == 'success' && needs.check-tag.result == 'success'
+    if: github.event_name == 'push' && needs.build.result == 'success' && needs.check-tag.result == 'success'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -225,8 +230,10 @@ jobs:
                                     # the token lands in your OS keychain — done
             ```
 
-            Then `fluxvale apps list`, `fluxvale instances deploy --app <slug>`, and you are running. Verify your download against `SHA256SUMS`:
+            Then `fluxvale apps list`, `fluxvale instances deploy --app <slug>`, and you are running. Verify your download against `SHA256SUMS` (unix):
 
             ```
             grep <your-archive> SHA256SUMS | sha256sum -c -
             ```
+
+            On Windows: `certutil -hashfile <your-archive> SHA256` and compare by eye.
