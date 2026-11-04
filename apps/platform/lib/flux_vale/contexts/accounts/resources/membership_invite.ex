@@ -179,6 +179,13 @@ defmodule FluxVale.Accounts.MembershipInvite do
       description("Revoke the invitation — idempotent: a second call keeps the original stamp")
       accept([])
 
+      # An accepted invite is history, not a revoke target: the filter
+      # rides the UPDATE's WHERE (the supersede_pending posture), so a
+      # raced click after acceptance matches nothing instead of
+      # stamping revoked_at over the join. Already-revoked rows still
+      # match — the idempotence contract below keeps their stamp.
+      change(filter(expr(is_nil(accepted_at))))
+
       # SetRevokedAt reads the row's current state (idempotence) — a
       # plain change Ash cannot run atomically (the PAT revoke trade).
       require_atomic?(false)
@@ -315,7 +322,10 @@ defmodule FluxVale.Accounts.MembershipInvite do
   (org, email) — the re-invite seam (InviteMember): the stale row
   stops holding the address, because the partial index's predicate
   cannot carry `now()` (the UserEmail supersede posture — the expired
-  window is the authorization, authorize?: false).
+  window is the authorization, authorize?: false). Runs only after the
+  caller's own create lost the index: a refused caller mutates
+  nothing. The expiry math rides the same session-timezone assumption
+  the repo's other `now()` windows carry (AuthCode, DeviceCode).
   """
   @spec supersede_expired(Ash.UUID.t(), String.t() | Ash.CiString.t()) :: :ok
   def supersede_expired(organization_id, email) do

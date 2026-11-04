@@ -12,8 +12,8 @@ defmodule FluxVale.Accounts.Operations.InviteMember do
   invite per (org, email): the seam-level pre-check below gives the
   friendly duplicate answer and the partial unique index is the race
   arbiter (the unique_slug posture). An expired row is not a
-  duplicate — the supersede frees the address and the re-invite lands
-  fresh.
+  duplicate — when the index refuses the create over one, the
+  supersede retires it and the create retries once.
 
   Mail failure logs and never fails the invite (the TopupOutcomeMail
   discipline): the row is the truth, the owner sees it pending and can
@@ -38,34 +38,50 @@ defmodule FluxVale.Accounts.Operations.InviteMember do
   def call(%User{} = owner, %Organization{} = org, email) do
     with :ok <- valid_address?(email),
          :ok <- no_open_invite?(owner, org, email) do
-      # A stale expired row still holds the address at the index (its
-      # predicate cannot carry now()) — the supersede frees it before
-      # the new invite lands (the UserEmail re-claim posture).
-      MembershipInvite.supersede_expired(org.id, email)
-
       raw = raw_token()
-
-      # The digest rides the action's private argument — set by the
-      # system, never an accepted input (the MintPat shape: the code
-      # interface's input map cannot carry private arguments).
-      changeset =
-        MembershipInvite
-        |> Ash.Changeset.new()
-        |> Ash.Changeset.set_argument(:token_hash, MembershipInvite.token_hash(raw))
-        |> Ash.Changeset.for_create(:create, %{organization_id: org.id, email: email},
-          actor: owner
-        )
-
-      case Ash.create(changeset) do
-        {:ok, invite} ->
-          InviteMail.deliver(invite, raw)
-          {:ok, invite}
-
-        # The index arbitrated a race the pre-check could not see.
-        {:error, _taken} = error ->
-          error
-      end
+      land_invite(owner, org, email, raw)
     end
+  end
+
+  defp land_invite(owner, org, email, raw) do
+    case create_invite(owner, org, email, raw) do
+      {:ok, invite} ->
+        deliver(invite, raw)
+
+      # The index arbitrated a race — an open invite the pre-check
+      # could not see, or an expired row still holding the slot (its
+      # predicate cannot carry now()). The supersede retires only the
+      # expired arm; a true open duplicate stays put and the retry
+      # loses again (the error bubbles — the index is the arbiter).
+      # It runs only AFTER the create's owner policy answered: a
+      # refused caller mutates nothing.
+      {:error, _taken} ->
+        MembershipInvite.supersede_expired(org.id, email)
+
+        case create_invite(owner, org, email, raw) do
+          {:ok, invite} ->
+            deliver(invite, raw)
+
+          {:error, _refused} = error ->
+            error
+        end
+    end
+  end
+
+  defp deliver(invite, raw) do
+    InviteMail.deliver(invite, raw)
+    {:ok, invite}
+  end
+
+  # The digest rides the action's private argument — set by the
+  # system, never an accepted input (the MintPat shape: the code
+  # interface's input map cannot carry private arguments).
+  defp create_invite(owner, org, email, raw) do
+    MembershipInvite
+    |> Ash.Changeset.new()
+    |> Ash.Changeset.set_argument(:token_hash, MembershipInvite.token_hash(raw))
+    |> Ash.Changeset.for_create(:create, %{organization_id: org.id, email: email}, actor: owner)
+    |> Ash.create()
   end
 
   # The sign-in gate's format rule, applied before anything is stored

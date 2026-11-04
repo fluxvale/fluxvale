@@ -113,7 +113,7 @@ defmodule FluxVale.Accounts.MembershipInviteTest do
       assert reload_with_state!(invite).state == :open
     end
 
-    test "an accepted row reads :accepted — even when later revoked" do
+    test "an accepted row reads :accepted — a raced revoke refuses, and a row carrying both stamps still reads accepted" do
       {org, _owner} = owned_org!()
       invitee = AccountsFixtures.user!()
       invite = invite_for!(org, invitee.email)
@@ -121,8 +121,22 @@ defmodule FluxVale.Accounts.MembershipInviteTest do
       accept!(invite, invitee.id)
       assert reload_with_state!(invite).state == :accepted
 
-      MembershipInvite.revoke!(invite, authorize?: false)
-      assert reload_with_state!(invite).state == :accepted
+      # The revoke action filters accepted rows — a raced revoke
+      # refuses instead of stamping the join record (pinned in the
+      # accept block below). The calc's precedence still shows for a
+      # row that carries both stamps — a state no sanctioned path can
+      # produce, so it rides Ash.Seed (the documented exception).
+      both =
+        Ash.Seed.seed!(MembershipInvite, %{
+          organization_id: org.id,
+          email: "both-stamps@fluxvale.test",
+          token_hash: arbitrary_hash(),
+          accepted_at: DateTime.add(DateTime.utc_now(), -2, :hour),
+          revoked_at: DateTime.add(DateTime.utc_now(), -1, :hour),
+          expires_at: DateTime.add(DateTime.utc_now(), 1, :hour)
+        })
+
+      assert reload_with_state!(both).state == :accepted
     end
 
     test "a revoked row reads :revoked" do
@@ -172,6 +186,22 @@ defmodule FluxVale.Accounts.MembershipInviteTest do
 
       assert {:error, _stale} = accept(invite, AccountsFixtures.user!().id)
       assert reload_with_state!(invite).state == :revoked
+    end
+
+    test "revoking an ACCEPTED invite refuses — the join record is never stamped" do
+      {org, _owner} = owned_org!()
+      invitee = AccountsFixtures.user!()
+      invite = invite_for!(org, invitee.email)
+
+      accepted = accept!(invite, invitee.id)
+
+      assert {:error, _stale} = MembershipInvite.revoke(invite, authorize?: false)
+
+      # The accepted record keeps its stamp; the state stays accepted.
+      fresh = reload_with_state!(invite)
+      assert fresh.accepted_at == accepted.accepted_at
+      assert fresh.revoked_at == nil
+      assert fresh.state == :accepted
     end
 
     test "an expired invite cannot accept" do
@@ -245,6 +275,26 @@ defmodule FluxVale.Accounts.MembershipInviteTest do
 
       # The other address's row stays untouched.
       assert %{revoked_at: nil} = Ash.load!(other_stale, :revoked_at, authorize?: false)
+
+      # An ACCEPTED row (even a long-expired one) is never the stale
+      # arm — the accepted_at guard protects the join record.
+      invitee2 = AccountsFixtures.user!()
+
+      accepted_stale =
+        Ash.Seed.seed!(MembershipInvite, %{
+          organization_id: org.id,
+          email: invitee2.email,
+          token_hash: arbitrary_hash(),
+          accepted_at: ~U[2024-06-01 12:00:00Z],
+          expires_at: past
+        })
+
+      assert :ok = MembershipInvite.supersede_expired(org.id, invitee2.email)
+
+      assert %{revoked_at: nil, accepted_at: kept} =
+               Ash.load!(accepted_stale, [:revoked_at, :accepted_at], authorize?: false)
+
+      assert kept
     end
 
     test "accept and decline get no actor path — the token actions forbid under policies" do

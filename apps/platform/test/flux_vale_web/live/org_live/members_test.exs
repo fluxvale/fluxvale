@@ -434,6 +434,54 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     assert has_element?(view, "#flash-error", "no longer pending")
   end
 
+  test "an expired invite is not in the pending queue", %{conn: conn, owner: owner, org: org} do
+    invitee = AccountsFixtures.user!()
+
+    assert {:ok, _live_invite} = Accounts.invite_member(owner, org, invitee.email)
+
+    # Expiry is a state no action can produce — Ash.Seed (the
+    # documented exception). The stale row must not render as pending:
+    # the queue shows exactly the rows a revoke can act on.
+    past = DateTime.add(DateTime.utc_now(), -1, :hour)
+
+    Ash.Seed.seed!(FluxVale.Accounts.MembershipInvite, %{
+      organization_id: org.id,
+      email: "expired-queue@fluxvale.test",
+      token_hash: stale_hash(),
+      expires_at: past
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    refute has_element?(view, "[data-testid='pending-invite-row']", "expired-queue@fluxvale.test")
+    assert has_element?(view, "[data-testid='pending-invite-row']", to_string(invitee.email))
+  end
+
+  test "revoking an invite accepted elsewhere answers 'no longer pending'", %{
+    conn: conn,
+    owner: owner,
+    org: org
+  } do
+    invitee = AccountsFixtures.user!()
+    {:ok, invite} = Accounts.invite_member(owner, org, invitee.email)
+    raw = mailbox_token!(to_string(invitee.email))
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    # The invitee joins between this page's mount and the click — the
+    # revoke must refuse (accepted is history, never a revoke target)
+    # and leave the accepted record alone.
+    assert {:ok, _accepted} = Accounts.accept_invite(raw, invitee)
+
+    view
+    |> element("[data-testid='revoke-invite-#{invite.id}']")
+    |> render_click()
+
+    assert has_element?(view, "#flash-error", "no longer pending")
+    assert length(memberships(org, invitee)) == 1
+    assert {:ok, :accepted} = Accounts.resolve_invite(raw)
+  end
+
   # Sanctioned precondition: nothing in the system creates :member rows
   # yet, so the row rides the action with authorize?: false.
   defp seed_member!(org, user) do
@@ -494,5 +542,24 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
       Regex.run(~r{/invitations/accept\?token=([A-Za-z0-9_-]+)}, body, capture: :all_but_first)
 
     token
+  end
+
+  # Accept-side outcomes for the queue/revoke arms.
+  defp memberships(org, user) do
+    Membership
+    |> Ash.Query.for_read(:read, %{})
+    |> Ash.Query.filter(organization_id == ^org.id and user_id == ^user.id)
+    |> Ash.read!(authorize?: false)
+  end
+
+  # An arbitrary, unique digest for precondition rows — the value's
+  # shape is what matters (64-hex), not what it hashes.
+  defp stale_hash do
+    n = System.unique_integer([:positive])
+    seed = Integer.to_string(n)
+
+    :sha256
+    |> :crypto.hash(seed)
+    |> Base.encode16(case: :lower)
   end
 end

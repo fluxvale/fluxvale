@@ -138,20 +138,22 @@ defmodule FluxValeWeb.OrganizationLive.Members do
     socket =
       case invite do
         nil ->
-          # Already gone (revoked elsewhere, expired, org teardown) —
-          # the refresh below shows the page the truth.
+          # Not in the mounted list: already gone (revoked, expired,
+          # org teardown) or never real (a crafted id) — the refresh
+          # below shows the page the truth.
           put_flash(socket, :error, "That invitation is no longer pending.")
 
         invite ->
           case Accounts.revoke_invite(user, invite) do
-            {:ok, _revoked} -> put_flash(socket, :info, "Invitation revoked.")
-            # Defensive: a found-then-refused write has no trigger
-            # today — the open-filtered list above answers every state
-            # the row can move to, and a mounted owner's revoke passes
-            # the owner policy. Revisit with slice 5's removal flow,
-            # when an owner can lose the grant mid-session.
-            # coveralls-ignore-next-line
-            {:error, _refused} -> put_flash(socket, :error, "Could not revoke the invitation.")
+            {:ok, _revoked} ->
+              put_flash(socket, :info, "Invitation revoked.")
+
+            # The row moved between mount and click — accepted
+            # elsewhere (the revoke action filters accepted rows, so
+            # the write matches nothing). Same answer as the nil arm:
+            # nothing here left to revoke.
+            {:error, _refused} ->
+              put_flash(socket, :error, "That invitation is no longer pending.")
           end
       end
 
