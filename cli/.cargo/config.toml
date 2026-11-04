@@ -1,0 +1,4 @@
+# `cargo xtask openapi` runs the codegen crate (ADR-0019 Am. 3) — the
+# standard xtask pattern: no runner crate, just an alias.
+[alias]
+xtask = "run -p xtask --"

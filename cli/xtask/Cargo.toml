@@ -1,0 +1,18 @@
+[package]
+name = "xtask"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# Build-time codegen only (ADR-0019 Am. 3) — never a runtime dependency
+# of fluxvale-cli. The versions here are echoed into types.rs's
+# generated header.
+[dependencies]
+anyhow = "1.0.104"
+prettyplease = "0.3.0"
+rustfmt-wrapper = "0.2.1"
+schemars = "0.8.22"
+serde_json = "1.0.154"
+syn = "3.0.2"
+typify = "0.8.0"

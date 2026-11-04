@@ -243,6 +243,11 @@ jobs:
 
       - run: cargo test
 
+      # OpenAPI drift guard (ADR-0019 Am. 3): regenerate the typed
+      # structs from the committed artifact and diff — the committed
+      # spec is the contract, so committed types must match it.
+      - run: cargo xtask openapi --check
+
       # cargo install compiles the tool's dep tree (~5 min); cache the
       # built binary instead — keyed on the exact pin, so a bump
       # re-installs once.
@@ -312,16 +317,16 @@ jobs:
         leg:
           - name: linux-amd64
             os: ubuntu-24.04
-            binary: target/release/fluxvale-cli
+            binary: target/release/fluxvale
           - name: linux-aarch64
             os: ubuntu-24.04-arm
-            binary: target/release/fluxvale-cli
+            binary: target/release/fluxvale
           - name: macos-aarch64
             os: macos-latest
-            binary: target/release/fluxvale-cli
+            binary: target/release/fluxvale
           - name: windows-x86_64
             os: windows-latest
-            binary: target/release/fluxvale-cli.exe
+            binary: target/release/fluxvale.exe
     defaults:
       run:
         working-directory: cli
@@ -337,7 +342,7 @@ jobs:
       # NB: uses: steps run at the workspace root — repo-root path.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: fluxvale-cli-${{ matrix.leg.name }}
+          name: fluxvale-${{ matrix.leg.name }}
           path: cli/${{ matrix.leg.binary }}
 
   # Conventions enforcement (docs/adr/README.md): amended ADRs must be
