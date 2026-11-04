@@ -70,6 +70,10 @@ jobs:
             cli:
               - "cli/**"
               - ".github/workflows/ci.yml"
+              # The release lane drives the same assets (the tag gate
+              # script, the 4-leg matrix) — a bump here is a cli change,
+              # same rule as e2e-nightly.yml above.
+              - ".github/workflows/cli-release.yml"
 
   platform:
     name: Platform CI
@@ -242,6 +246,11 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
 
       - run: cargo test
+
+      # The release-tag gate (#362 T7) proven here on every
+      # cli-touching PR — the test-script shape the linked-issues lane
+      # uses for its own lint.
+      - run: ./scripts/test-check-tag-version.sh
 
       # OpenAPI drift guard (ADR-0019 Am. 3): regenerate the typed
       # structs from the committed artifact and diff — the committed
