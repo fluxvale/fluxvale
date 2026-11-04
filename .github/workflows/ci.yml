@@ -230,9 +230,12 @@ jobs:
           persist-credentials: false
 
       # rustup reads cli/rust-toolchain.toml (the exact stable pin) and
-      # installs it on first use — the file is the single source of
-      # truth, like mise.toml for the BEAM.
-      - run: rustup show
+      # installs it — toolchain AND the components the file declares.
+      # Plain `rustup show` would auto-install the minimal profile and
+      # `cargo fmt` would die with "'cargo-fmt' is not installed" —
+      # seen on CI (#415); the deprecated auto-install path also warns
+      # it may stop working.
+      - run: rustup toolchain install
 
       - run: cargo fmt --check
 
@@ -269,7 +272,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - run: rustup show
+      - run: rustup toolchain install
+      # llvm-tools-preview is the component cargo-llvm-cov drives
+      # (the minimal default profile omits it).
+      - run: rustup component add llvm-tools-preview
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -324,7 +330,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - run: rustup show
+      - run: rustup toolchain install
 
       - run: cargo build --release
 
