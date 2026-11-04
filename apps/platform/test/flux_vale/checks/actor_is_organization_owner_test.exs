@@ -57,6 +57,36 @@ defmodule FluxVale.Checks.ActorIsOrganizationOwnerTest do
     end
   end
 
+  describe "owner?/2 — the user_id/org_id form (ActorOwnsPaidOrg's seam)" do
+    test "the owner passes by ids" do
+      user = AccountsFixtures.user!()
+      org = AccountsFixtures.personal_org!(user)
+
+      assert ActorIsOrganizationOwner.owner?(user.id, org.id)
+    end
+
+    test "a :member does not, a stranger does not" do
+      user = AccountsFixtures.user!()
+      org = AccountsFixtures.personal_org!(user)
+      member = AccountsFixtures.user!()
+
+      Membership.create!(%{organization_id: org.id, user_id: member.id, role: :member},
+        authorize?: false
+      )
+
+      refute ActorIsOrganizationOwner.owner?(member.id, org.id)
+      refute ActorIsOrganizationOwner.owner?(AccountsFixtures.user!().id, org.id)
+    end
+
+    test "ids naming no membership fail closed" do
+      user = AccountsFixtures.user!()
+      org = AccountsFixtures.personal_org!(user)
+
+      refute ActorIsOrganizationOwner.owner?(user.id, Ash.UUID.generate())
+      refute ActorIsOrganizationOwner.owner?(Ash.UUID.generate(), org.id)
+    end
+  end
+
   describe "describe/1" do
     test "states the question it answers" do
       assert ActorIsOrganizationOwner.describe([]) == "actor is an owner of the organization"

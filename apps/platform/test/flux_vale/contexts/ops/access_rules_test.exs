@@ -71,6 +71,62 @@ defmodule FluxVale.Ops.AccessRulesTest do
     end
   end
 
+  describe "allowed?/2 — the purpose-aware edge (ADR-0026 §3)" do
+    test ":feedback allowlists by email row, others out" do
+      invited = "invited-#{System.unique_integer()}@example.com"
+      AccessRule.create!(%{purpose: :feedback, email: invited}, authorize?: false)
+
+      assert AccessRules.allowed?(:feedback, invited)
+      refute AccessRules.allowed?(:feedback, "outsider-#{System.unique_integer()}@example.com")
+    end
+
+    test ":feedback allowlists by domain row" do
+      AccessRule.create!(%{purpose: :feedback, domain: "invitees.example"}, authorize?: false)
+
+      assert AccessRules.allowed?(:feedback, "anyone-#{System.unique_integer()}@invitees.example")
+      refute AccessRules.allowed?(:feedback, "outsider-#{System.unique_integer()}@example.com")
+    end
+
+    test "an :auth row does not admit :feedback — disjoint allowlists" do
+      AccessRule.create!(%{purpose: :auth, domain: "auths.example"}, authorize?: false)
+
+      refute AccessRules.allowed?(:feedback, "someone-#{System.unique_integer()}@auths.example")
+    end
+
+    test ":auth keeps the staging/PAT semantics UNCHANGED — the pure core answers with no :auth rows in play",
+         %{row: row} do
+      # Hand-built row shape (decide/3 is pure — row shape is input): a
+      # table holding ONLY :feedback rows is an empty AUTH table, and an
+      # empty auth table is unrestricted entry.
+      feedback_row = rule(row, domain: "invitees.example", purpose: :feedback)
+
+      assert AccessRules.decide(:auth, [feedback_row], "anyone@example.org")
+      refute AccessRules.allowed?(:feedback, "anyone-#{System.unique_integer()}@example.org")
+    end
+
+    test "an empty :feedback table allowlists NOBODY — an empty write-gate must not become an open gate" do
+      # No :feedback rows in this test's sandbox.
+      refute AccessRules.allowed?(:feedback, "anyone-#{System.unique_integer()}@example.com")
+      refute AccessRules.decide(:feedback, [], "anyone@example.com")
+    end
+
+    test "the decision core filters by purpose before the emptiness call", %{row: row} do
+      # Hand-built row shapes (decide/3 is pure — row shape is input):
+      # an :auth-only table is an auth ALLOWLIST (exact matches only)
+      # and admits nobody to the write gate.
+      auth_row = rule(row, purpose: :auth)
+
+      assert AccessRules.decide(:auth, [auth_row], "someone@fluxvale.com")
+      refute AccessRules.decide(:auth, [auth_row], "someone@example.com")
+      refute AccessRules.decide(:feedback, [auth_row], "someone@fluxvale.com")
+
+      feedback_row = rule(row, domain: "invitees.example", purpose: :feedback)
+
+      assert AccessRules.decide(:feedback, [feedback_row], "someone@invitees.example")
+      assert AccessRules.decide(:auth, [feedback_row], "anyone@example.org")
+    end
+  end
+
   # The user-level gate (#285 T3): any VERIFIED address of the user
   # passing the allowlist keeps the account connected.
   describe "ensure_allowed_user/1 (#285 T3)" do

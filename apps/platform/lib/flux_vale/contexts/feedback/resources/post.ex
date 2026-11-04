@@ -3,12 +3,15 @@ defmodule FluxVale.Feedback.Post do
   Post — a feature request on the public feedback board (fluxvale/fluxvale#412,
   [ADR-0026](../../../../../../../docs/adr/00026-feedback-board.md)).
 
-  Reads are public (the board is a public, indexed surface); every write
-  is platform-admin-only this slice — the paying-customer gate is slice 2,
-  deliberately not built here. `slug` is the public URL stem, derived from
-  the title at create and immutable after (ADR-0026 §4). `vote_count` /
-  `comment_count` are cached counters — columns only now; the slices that
-  mint votes and comments maintain them.
+  Reads are public (the board is a public, indexed surface); writes run
+  the paying gate (ADR-0026 §2/§3): a create names an org and passes for
+  its owner past the paid gate, a launch-allowlisted actor, or a platform
+  admin — `FluxVale.Checks.ActorOwnsPaidOrg`. Content edits and the
+  status workflow stay platform-admin-only (moderation). `slug` is the
+  public URL stem, derived from the title at create and immutable after
+  (ADR-0026 §4). `vote_count` is the cached counter the votes slice
+  maintains (`Feedback.Vote`); `comment_count` stays a column until the
+  comments slice.
   """
 
   use Ash.Resource,
@@ -54,16 +57,28 @@ defmodule FluxVale.Feedback.Post do
 
   policies do
     policy action_type(:read) do
-      description(
-        "Public board (ADR-0026 §2): anonymous and any actor read; writes stay admin-gated this slice"
-      )
+      description("Public board (ADR-0026 §2): anonymous and any actor read")
 
       authorize_if(always())
     end
 
+    # THE paying gate (ADR-0026 §2/§3, ruled by the owner): a create
+    # names an org and passes only for its owner past the paid gate —
+    # or the launch-allowlist cohort, or a platform admin. The gate is
+    # the create's alone: edits and the status workflow stay moderation
+    # (the admin policy below).
+    policy action_type(:create) do
+      description(
+        "The paying gate (ADR-0026 §2/§3): the named org's owner past the paid gate, launch-allowlisted, or admin"
+      )
+
+      authorize_if(FluxVale.Checks.ActorIsPlatformAdmin)
+      authorize_if(FluxVale.Checks.ActorOwnsPaidOrg)
+    end
+
     policy FluxVale.Checks.ActorIsPlatformAdmin do
       description(
-        "Platform admins write posts this slice (the paying gate is ADR-0026 §2, a later slice)"
+        "Platform admins moderate posts — update, set_status, destroy (creates pass the paying gate above)"
       )
 
       authorize_if(always())
@@ -134,8 +149,8 @@ defmodule FluxVale.Feedback.Post do
   relationships do
     belongs_to :organization, FluxVale.Accounts.Organization do
       # allow_nil? true + presence validation: SetActorDefaults resolves
-      # it from the actor before validations run (the Instance
-      # derived-field pattern).
+      # it — the org the write names, else the actor's personal org —
+      # before validations run (the Instance derived-field pattern).
       public?(true)
     end
 
@@ -158,10 +173,13 @@ defmodule FluxVale.Feedback.Post do
     create :create do
       primary?(true)
 
-      # slug/organization_id/created_by_user_id are derived or defaulted,
-      # never accepted; :status stays at its :open default (a post is
-      # born open — statuses move through :set_status).
+      # slug/created_by_user_id are derived, :status stays at its :open
+      # default (a post is born open — statuses move through
+      # :set_status). organization_id is the org the write NAMES (the
+      # paying gate's subject — ActorOwnsPaidOrg answers on it),
+      # defaulting to the actor's personal org in SetActorDefaults.
       accept([:title, :description])
+      argument(:organization_id, :uuid, allow_nil?: true)
 
       change(SetActorDefaults)
       change(DeriveSlug)

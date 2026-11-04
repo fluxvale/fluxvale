@@ -27,14 +27,24 @@ defmodule FluxVale.Checks.ActorIsOrganizationOwner do
   The plug/LiveView-facing predicate — same answer as the policy check.
   The subject is the record in UI land, the update changeset in policy
   land; both carry the org id the membership resolves against.
+
+  The user_id/org_id form is the seam other checks resolve against
+  (`ActorOwnsPaidOrg` names its org off the write's subject, not off a
+  loaded Organization): one membership query, one notion of ownership,
+  no fork.
   """
   @spec owner?(map() | nil, Organization.t() | Ash.Changeset.t()) :: boolean()
-  def owner?(%{id: user_id}, %Organization{id: org_id}) do
+  @spec owner?(Ash.UUID.t(), Ash.UUID.t()) :: boolean()
+  def owner?(user_id, org_id) when is_binary(user_id) and is_binary(org_id) do
     owner_membership?(user_id, org_id)
   end
 
+  def owner?(%{id: user_id}, %Organization{id: org_id}) do
+    owner?(user_id, org_id)
+  end
+
   def owner?(%{id: user_id}, %Ash.Changeset{data: %Organization{id: org_id}}) do
-    owner_membership?(user_id, org_id)
+    owner?(user_id, org_id)
   end
 
   def owner?(_actor, _subject), do: false
