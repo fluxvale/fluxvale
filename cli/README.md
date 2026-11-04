@@ -1,11 +1,13 @@
 # fluxvale — the FluxVale CLI
 
 Install apps from the FluxVale catalog, manage your instances, backups,
-access, and wallet from the command line. One static binary, no runtime.
+access, and wallet from the command line. A single self-contained
+binary — no language runtime to install.
 
 FluxVale is a managed platform for open-source apps: browse the catalog,
 install, and an instance is running on its own HTTPS subdomain. The CLI
-does what the web app does — for when you'd rather type.
+does what the web app does — for when you'd rather type. A single
+self-contained binary: no language runtime to install.
 
 ## Install
 
@@ -70,10 +72,13 @@ A Rust toolchain pinned in `rust-toolchain.toml` — `rustup` reads it and
 installs the exact version. Then the gates CI runs:
 
 ```
+cd cli
 cargo build --release
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
 cargo xtask openapi --check
+# cargo-deny is a separate binary — ci.yml installs the pinned
+# cargo-deny@0.20.2
 cargo deny check licenses advisories
 ```

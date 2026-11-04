@@ -41,6 +41,11 @@ jobs:
       - name: Assert the tag's version equals the binary's version source
         run: cli/scripts/check-tag-version.sh "$GITHUB_REF_NAME"
 
+  # build deliberately does NOT need check-tag: a `needs` here would
+  # skip the matrix on branch dispatches (check-tag is ref-gated) and
+  # kill the dry run. The cost: a tag that fails check-tag still burns
+  # one matrix run — publish (which needs both) is what actually gates
+  # the release.
   build:
     name: Build + archive (${{ matrix.leg.name }})
     runs-on: ${{ matrix.leg.os }}
@@ -207,12 +212,18 @@ jobs:
           cat SHA256SUMS
           sha256sum -c SHA256SUMS
 
+      # The release title strips the cli-v namespace prefix — the tag is
+      # for the trigger and the archives, the title is for humans.
+      - name: Derive the release title
+        id: title
+        run: echo "name=fluxvale CLI ${GITHUB_REF_NAME#cli-v}" >>"$GITHUB_OUTPUT"
+
       # v3.0.3 — pinned to commit: mutable tags execute unreviewed code.
       # Notes: a short hand-written section, then GitHub's auto-generated
       # commit list for the tag (fine for v0).
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          name: fluxvale CLI ${{ github.ref_name }}
+          name: ${{ steps.title.outputs.name }}
           files: |
             dist/fluxvale-*.tar.gz
             dist/fluxvale-*.zip
@@ -220,7 +231,7 @@ jobs:
           fail_on_unmatched_files: true
           generate_release_notes: true
           body: |
-            The **FluxVale CLI** — install apps from the catalog, manage your instances, backups, access, and wallet from the command line. One static binary, no runtime: download the archive for your machine, unpack, put `fluxvale` on your PATH.
+            The **FluxVale CLI** — install apps from the catalog, manage your instances, backups, access, and wallet from the command line. A single self-contained binary, no language runtime to install: download the archive for your machine, unpack, put `fluxvale` on your PATH.
 
             **Sign in** (the device flow):
 

@@ -70,6 +70,10 @@ jobs:
             cli:
               - "cli/**"
               - ".github/workflows/ci.yml"
+              # The release lane drives the same assets (the tag gate
+              # script, the 4-leg matrix) — a bump here is a cli change,
+              # same rule as e2e-nightly.yml above.
+              - ".github/workflows/cli-release.yml"
 
   platform:
     name: Platform CI
