@@ -1442,6 +1442,39 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       assert has_element?(view, "[data-testid='topup-confirmation-balance']")
     end
 
+    # #377: the reconcile's fresh completion mails the outcome — the
+    # email twin of this surface. The LiveView runs in its own
+    # process, so the mailer stub reports through a canary message;
+    # pending never mails.
+    test "a reconcile-completed return mails the outcome, a pending one never does", %{
+      conn: conn
+    } do
+      parent = self()
+
+      stub(FluxVale.Mailer, :deliver_topup_completed, fn to, _amount, _balance ->
+        send(parent, {:completed_mail, to})
+        {:ok, %{}}
+      end)
+
+      stub(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: polar_body("open")}}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/billing/topup/return?checkout_id=co_1")
+
+      assert has_element?(view, "[data-testid='topup-confirmation-pending']")
+      refute_received {:completed_mail, _to}
+
+      stub(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: polar_body("succeeded")}}
+      end)
+
+      send(view.pid, :poll_topup)
+
+      assert has_element?(view, "[data-testid='topup-confirmation-completed']")
+      assert_receive {:completed_mail, "jane@example.com"}
+    end
+
     test "a still-pending checkout shows the honest confirming state", %{conn: conn} do
       stub(Req, :get, fn _req, _opts ->
         {:ok, %Req.Response{status: 200, body: polar_body("open")}}

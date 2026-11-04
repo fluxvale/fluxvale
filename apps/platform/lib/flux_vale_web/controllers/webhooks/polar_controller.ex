@@ -38,6 +38,7 @@ defmodule FluxValeWeb.Webhooks.PolarController do
 
   alias FluxVale.Billing
   alias FluxVale.Billing.Providers.Polar
+  alias FluxVale.Billing.TopupOutcomeMail
 
   require Logger
 
@@ -114,7 +115,11 @@ defmodule FluxValeWeb.Webhooks.PolarController do
   defp process_event(%{"type" => "order.paid", "data" => data} = payload) when is_map(data) do
     case credit_outcome(data) do
       {:ok, outcome} ->
-        Billing.complete_topup(outcome)
+        # The outcome mail rides the fresh transition only (#377) —
+        # the operation's terminal-once guard makes replays answer
+        # :already_completed and mail nothing.
+        result = Billing.complete_topup(outcome)
+        TopupOutcomeMail.on_completion(result)
 
       :none ->
         # Order.paid without a usable checkout id or subtotal —

@@ -36,6 +36,25 @@ defmodule FluxVale.Workers.StaleTopupSweepTest do
     assert reloaded.status == :expired
   end
 
+  # #377: the sweep's expired rows are fresh not-completed
+  # transitions — the outcome mail rides each.
+  test "perform/1 mails the not-completed outcome for each expired row" do
+    {org, _wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
+
+    Ash.Seed.seed!(Topup, %{
+      organization_id: org.id,
+      amount_cents: 500,
+      buyer_email: "buyer@example.com",
+      payment_request_id: "pr_stale_mail",
+      created_at: DateTime.add(DateTime.utc_now(), -25 * 3600, :second),
+      updated_at: DateTime.utc_now()
+    })
+
+    assert :ok = StaleTopupSweep.perform(%Oban.Job{})
+
+    assert_receive {:email, %Swoosh.Email{subject: "Your FluxVale top-up expired"}}
+  end
+
   test "perform/1 answers :ok on an empty pass" do
     assert :ok = StaleTopupSweep.perform(%Oban.Job{})
   end

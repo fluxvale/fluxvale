@@ -12,6 +12,10 @@ if Mix.env() == :test do
   Mimic.copy(Kubereq)
   Mimic.copy(FluxVale.Identity)
   Mimic.copy(FluxVale.Billing)
+  # The top-up outcome mail (#377): the mail layer is stubbed where
+  # the delivery process isn't the test's own (the LiveView reconcile)
+  # or the failure arm is asserted.
+  Mimic.copy(FluxVale.Mailer)
   # HitPay adapter tests stub Req the same way (v1's Dodo pattern: the
   # client translates HTTP/network failures; tests assert the atoms)
   Mimic.copy(Req)
