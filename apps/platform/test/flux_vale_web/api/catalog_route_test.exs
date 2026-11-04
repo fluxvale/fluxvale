@@ -88,4 +88,85 @@ defmodule FluxValeWeb.Api.CatalogRouteTest do
       assert row["attributes"]["default_memory_mb"] == 256
     end
   end
+
+  # #362 regression: fixtures shipped empty spec lists, so only empty-spec
+  # versions ever encoded — the seeded Forgejo's real specs (and first_run
+  # contract) 500'd both reads with "Jason.Encoder not implemented for
+  # EnvVarSpec". The fixture carries that crash shape, shaped from the
+  # seed YAML (a subset: two of its six specs, guidance shortened).
+  describe "version reads — populated env specs (#362)" do
+    setup do
+      forgejo_version =
+        InstanceFixtures.app_version!(
+          configurable_env_vars: %{
+            "FORGEJO__mailer__SMTP_PORT" => %{
+              label: "SMTP port",
+              description: "Port of the SMTP server.",
+              type: "integer",
+              default: 587
+            },
+            "FORGEJO__mailer__PASSWD" => %{label: "SMTP password", type: "string", secret: true}
+          },
+          first_run: %{
+            "pattern" => "first_registered_user_admin",
+            "env" => %{"FORGEJO__security__INSTALL_LOCK" => "true"},
+            "forbidden_env" => ["FORGEJO__service__DISABLE_REGISTRATION"],
+            "guidance" =>
+              "Open the instance URL and register — the first account becomes the admin."
+          }
+        )
+
+      pat = elem(ApiPat.member!(["catalog:read"]), 1)
+      %{forgejo_version: forgejo_version, pat: pat}
+    end
+
+    test "the versions list renders env specs as plain maps", %{
+      conn: conn,
+      forgejo_version: version,
+      pat: pat
+    } do
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/apps/#{version.app_id}/versions")
+
+      assert %{"data" => [row]} = json_response(conn, 200)
+
+      assert row["attributes"]["configurable_env_vars"]["FORGEJO__mailer__SMTP_PORT"] == %{
+               "label" => "SMTP port",
+               "description" => "Port of the SMTP server.",
+               "type" => "integer",
+               "default" => 587,
+               "required" => false,
+               "secret" => false
+             }
+
+      assert row["attributes"]["configurable_env_vars"]["FORGEJO__mailer__PASSWD"]["secret"] ==
+               true
+    end
+
+    test "the app-version get renders the contract fields too", %{
+      conn: conn,
+      forgejo_version: version,
+      pat: pat
+    } do
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/app-versions/#{version.id}")
+
+      assert %{"data" => row} = json_response(conn, 200)
+
+      assert row["attributes"]["configurable_env_vars"]["FORGEJO__mailer__SMTP_PORT"]["type"] ==
+               "integer"
+
+      assert row["attributes"]["first_run"] == %{
+               "pattern" => "first_registered_user_admin",
+               "env" => %{"FORGEJO__security__INSTALL_LOCK" => "true"},
+               "forbidden_env" => ["FORGEJO__service__DISABLE_REGISTRATION"],
+               "guidance" =>
+                 "Open the instance URL and register — the first account becomes the admin."
+             }
+    end
+  end
 end
