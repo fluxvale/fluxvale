@@ -1,12 +1,24 @@
 defmodule FluxVale.Ops.AccessRule do
   @moduledoc """
-  One allowlist row for platform access (ADR-0023 §1 + Am. 1): exactly one
-  of `domain` / `email` — a row admits either an entire domain or one
-  specific address. Semantics live in `FluxVale.Ops.AccessRules` (the only
-  sanctioned evaluator): **empty table = unrestricted; any rows =
-  allowlist** — the same mechanism flipped by data. Rows are admin-entered
-  through AshAdmin at environment bring-up, never seeded (settled on #26;
-  ADR-0023 Am. 6's empty-then-close).
+  One allowlist row, per purpose (ADR-0023 §1 + Am. 1; ADR-0026 §3):
+  exactly one of `domain` / `email`, scoped to a `purpose`:
+
+  - `:auth` — the platform entry gate (sign-in JIT, session/token
+    presentation). Fail-OPEN on an empty table: empty = unrestricted
+    (prod's pre-beta state; the staging gate and PAT auth depend on
+    it).
+  - `:feedback` — the feedback-board write gate's launch arm
+    (ADR-0026 §3): the invite cohort until the first purchase exists.
+    Fail-CLOSED on an empty table: empty = nobody allowlisted — an
+    empty write-gate must not become an open gate.
+
+  The opposite empty-table semantics are the point: entry defaults
+  open, the write gate defaults shut. Semantics live in
+  `FluxVale.Ops.AccessRules` (the only sanctioned evaluator). Rows are
+  admin-entered through AshAdmin at environment bring-up, never seeded
+  (settled on #26; ADR-0023 Am. 6's empty-then-close). Uniqueness is
+  per (purpose, email) and (purpose, domain) — the same address can
+  sit on both purposes.
 
   Mutations are platform-admin-only (AshAdmin rides the same policy) and
   bust the snapshot cache in an `after_action` hook — the mutating node
@@ -20,16 +32,16 @@ defmodule FluxVale.Ops.AccessRule do
     authorizers: [Ash.Policy.Authorizer]
 
   postgres do
-    table "access_rules"
-    repo FluxVale.Repo
+    table("access_rules")
+    repo(FluxVale.Repo)
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
-    migration_defaults id: "nil"
+    migration_defaults(id: "nil")
   end
 
   policies do
     policy FluxVale.Checks.ActorIsPlatformAdmin do
-      description "Platform admins manage access rules (ADR-0027, ADR-0030)"
+      description("Platform admins manage access rules (ADR-0027, ADR-0030)")
       authorize_if(always())
     end
 
@@ -58,22 +70,32 @@ defmodule FluxVale.Ops.AccessRule do
     attribute :email, :ci_string do
       public?(true)
     end
+
+    # The purpose the row admits for (ADR-0023 §1; ADR-0026 §3).
+    # Declared atoms only — the one_of constraint rejects anything else
+    # at the cast, so no input path ever builds an atom dynamically.
+    attribute :purpose, :atom do
+      allow_nil?(false)
+      default(:auth)
+      public?(true)
+      constraints(one_of: [:auth, :feedback])
+    end
   end
 
   actions do
     defaults([:read])
 
     create :create do
-      primary? true
-      accept([:domain, :email])
+      primary?(true)
+      accept([:domain, :email, :purpose])
       # Exactly one of domain/email — the Present builtin with exactly: 1
       validate(present([:domain, :email], exactly: 1))
       change(FluxVale.Ops.AccessRules.BustCache)
     end
 
     update :update do
-      primary? true
-      accept([:domain, :email])
+      primary?(true)
+      accept([:domain, :email, :purpose])
       validate(present([:domain, :email], exactly: 1))
       change(FluxVale.Ops.AccessRules.BustCache)
       # The BustCache after_action hook can't run atomically — acceptable
@@ -82,20 +104,24 @@ defmodule FluxVale.Ops.AccessRule do
     end
 
     destroy :destroy do
-      primary? true
+      primary?(true)
       change(FluxVale.Ops.AccessRules.BustCache)
       require_atomic?(false)
     end
   end
 
   code_interface do
-    domain FluxVale.Ops
+    domain(FluxVale.Ops)
 
     define(:create)
   end
 
   identities do
-    identity(:unique_domain, [:domain])
-    identity(:unique_email, [:email])
+    # Per-purpose uniqueness: the same address may sit on both purposes,
+    # but only one row per (purpose, shape) — a duplicate :feedback row
+    # is data integrity rot, while an :auth row never collides with a
+    # :feedback one.
+    identity(:unique_domain, [:purpose, :domain])
+    identity(:unique_email, [:purpose, :email])
   end
 end

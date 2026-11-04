@@ -4,11 +4,19 @@ defmodule FluxVale.Ops.AccessRules do
   hold an account / keep access?" (ADR-0023 §1 + Am. 1). Never read
   `AccessRule` rows ad hoc.
 
-  Semantics: **empty table = unrestricted; any row = allowlist** — an
-  address is allowed iff it matches an exact email row or its domain
-  *equals* a domain row (exact match; subdomains do not inherit).
-  Deliberately fail-open on empty: that IS prod's pre-beta state;
-  environments that must gate enter their own rows (settled on #26).
+  Semantics, per purpose (one table, disjoint allowlists — rows of the
+  other purpose never match):
+
+  - **`:auth`** — **empty :auth table = unrestricted; any rows =
+    allowlist** — an address is allowed iff it matches an exact email
+    row or its domain *equals* a domain row (exact match; subdomains do
+    not inherit). Deliberately fail-open on empty: that IS prod's
+    pre-beta state; environments that must gate enter their own rows
+    (settled on #26). This semantics is load-bearing for the staging
+    gate and PAT auth — do not change it.
+  - **`:feedback`** (the feedback-board write gate's launch arm,
+    ADR-0026 §3) — **fail-closed: an empty :feedback table = NOBODY
+    allowlisted**. An empty write-gate must not become an open gate.
 
   Enforcement boundaries (all settled on #26; #285 T3 generalizes the
   session/token edges to the user):
@@ -31,7 +39,7 @@ defmodule FluxVale.Ops.AccessRules do
   Reads consult `AccessRules.Cache` (60s snapshot, bust-on-mutation) —
   revocation latency is instant on the mutating node and TTL-bounded
   cross-node. The cache is disabled in test config (instant consistency);
-  `decide/2` is the pure core, kept public for tests and the future
+  `decide/3` is the pure core, kept public for tests and the future
   curated admin view.
   """
 
@@ -46,12 +54,25 @@ defmodule FluxVale.Ops.AccessRules do
   @type rule_row :: %AccessRule{}
 
   @doc """
-  Is `email` allowed? Case-insensitive on both the address and domain rows.
+  Is `email` allowed? The :auth purpose — the staging-entry/PAT gate
+  semantics, unchanged: case-insensitive on both the address and domain
+  rows.
   """
   @spec allowed?(String.t() | Ash.CiString.t()) :: boolean()
-  def allowed?(email) do
+  def allowed?(email), do: allowed?(:auth, email)
+
+  @doc """
+  The purpose-aware edge (fluxvale/fluxvale#412): `:auth` keeps today's
+  semantics EXACTLY — an empty :auth table is unrestricted entry (the
+  staging gate and PAT auth ride it). `:feedback` is fail-closed — an
+  empty :feedback table allowlists NOBODY. A table holding only rows of
+  the other purpose is empty FOR THAT PURPOSE: purposes are disjoint
+  allowlists over one table.
+  """
+  @spec allowed?(:auth | :feedback, String.t() | Ash.CiString.t()) :: boolean()
+  def allowed?(purpose, email) do
     snapshot = fetch_snapshot()
-    decide(snapshot, email)
+    decide(purpose, snapshot, email)
   end
 
   @doc """
@@ -99,15 +120,46 @@ defmodule FluxVale.Ops.AccessRules do
   end
 
   @doc """
-  The decision core: what do `rules` (the table snapshot) mean for `email`?
+  The decision core under :auth — what do `rules` (the table snapshot)
+  mean for `email`? The auth semantics unchanged.
 
-  Pure — no lookup, no policy, no clock. Empty list = unrestricted;
-  otherwise an exact email match or an exact domain match allows.
+  Pure — no lookup, no policy, no clock.
   """
   @spec decide([rule_row()], String.t() | Ash.CiString.t()) :: boolean()
-  def decide([], _email), do: true
+  def decide(rules, email), do: decide(:auth, rules, email)
 
-  def decide(rules, email) do
+  @doc """
+  The purpose-aware decision core: what do `rules` mean for `email`
+  under `purpose`?
+
+  Pure — no lookup, no policy, no clock. Rules are filtered to
+  `purpose` first; emptiness then means the OPPOSITE per purpose:
+  `:auth` unrestricted (the fail-open face), anything else nobody
+  (fail-closed — an empty write-gate must not open the gate; an
+  undeclared purpose fails closed with it).
+  """
+  @spec decide(:auth | :feedback | atom(), [rule_row()], String.t() | Ash.CiString.t()) ::
+          boolean()
+  # :auth's fail-open face: an empty table is unrestricted entry.
+  def decide(:auth, [], _email), do: true
+
+  # :feedback's fail-closed face: an empty write-gate is an open gate
+  # waiting to happen — nobody passes.
+  def decide(:feedback, [], _email), do: false
+
+  def decide(purpose, rules, email) do
+    purpose_rules = Enum.filter(rules, &(&1.purpose == purpose))
+
+    case purpose_rules do
+      # Only rows of the other purpose: empty FOR THIS PURPOSE. :auth
+      # stays unrestricted (the semantics the staging gate depends on);
+      # every other purpose stays shut.
+      [] -> purpose == :auth
+      _rules -> any_rule_allows?(purpose_rules, email)
+    end
+  end
+
+  defp any_rule_allows?(rules, email) do
     address =
       email
       |> to_string()

@@ -71,6 +71,50 @@ defmodule FluxVale.Ops.AccessRuleTest do
       assert {:error, %Ash.Error.Invalid{}} =
                AccessRule.create(%{email: "one@example.com"}, authorize?: false)
     end
+
+    test "defaults to the :auth purpose" do
+      assert {:ok, row} = AccessRule.create(%{domain: "fluxvale.com"}, authorize?: false)
+      assert row.purpose == :auth
+    end
+
+    test "uniqueness is per (purpose, shape) — the same address may sit on both purposes" do
+      email = "both-#{System.unique_integer()}@example.com"
+
+      assert {:ok, _auth_row} =
+               AccessRule.create(%{email: email}, authorize?: false)
+
+      assert {:ok, _feedback_row} =
+               AccessRule.create(%{email: email, purpose: :feedback}, authorize?: false)
+
+      domain = "shared-#{System.unique_integer([:positive])}.example"
+
+      assert {:ok, _auth_domain} =
+               AccessRule.create(%{domain: domain}, authorize?: false)
+
+      assert {:ok, _feedback_domain} =
+               AccessRule.create(%{domain: domain, purpose: :feedback}, authorize?: false)
+    end
+
+    test "a duplicate within one purpose is rejected" do
+      email = "dupe-#{System.unique_integer()}@example.com"
+      AccessRule.create!(%{email: email, purpose: :feedback}, authorize?: false)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               AccessRule.create(%{email: email, purpose: :feedback}, authorize?: false)
+
+      domain = "dupe-#{System.unique_integer([:positive])}.example"
+      AccessRule.create!(%{domain: domain, purpose: :feedback}, authorize?: false)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               AccessRule.create(%{domain: domain, purpose: :feedback}, authorize?: false)
+    end
+
+    test "rejects undeclared purposes — declared atoms only" do
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessRule.create(%{domain: "fluxvale.com", purpose: :bogus}, authorize?: false)
+
+      assert Enum.any?(errors, &(&1.field == :purpose))
+    end
   end
 
   describe "policy (ADR-0027: mutations ride ActorIsPlatformAdmin)" do

@@ -3,12 +3,17 @@ defmodule FluxVale.Feedback.PostTest do
 
   use FluxVale.DataCase, async: true
 
+  alias FluxVale.Accounts.Membership
   alias FluxVale.Feedback.Post
   alias FluxVale.Feedback.Post.DeriveSlug
   alias FluxVale.Feedback.Post.RejectReferencedOriginal
   alias FluxVale.Feedback.Post.SetActorDefaults
   alias FluxVale.Feedback.Post.SetStatus
+  alias FluxVale.Feedback.Vote.BumpPostVoteCount
+  alias FluxVale.Feedback.Vote.SetCastDefaults
+  alias FluxVale.Ops.AccessRule
   alias FluxVale.TestSupport.AccountsFixtures
+  alias FluxVale.TestSupport.BillingFixtures
 
   # Precondition posture (mirrors seeds): fixtures run `authorize?: false`;
   # the policy arms under test are exercised in the test bodies. The actor
@@ -112,6 +117,135 @@ defmodule FluxVale.Feedback.PostTest do
                Post.update(post, %{title: "Edited by an admin"}, actor: admin())
 
       assert edited.title == "Edited by an admin"
+    end
+  end
+
+  describe "the paying gate on create (ADR-0026 §2/§3, slice 2)" do
+    test "a paid personal org's owner creates — no admin in the loop" do
+      user = AccountsFixtures.user!()
+      BillingFixtures.mark_user_paid!(user)
+
+      assert {:ok, post} =
+               Post.create(%{title: "Owner-filed request", description: "Please."},
+                 actor: user
+               )
+
+      assert post.organization_id == AccountsFixtures.personal_org!(user).id
+    end
+
+    test "the owner names their paid team org and the post rides it" do
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+
+      {:ok, wallet} = FluxVale.Billing.ensure_wallet(org)
+      BillingFixtures.mark_paid!(wallet)
+
+      assert {:ok, post} =
+               Post.create(
+                 %{
+                   title: "Team-filed request",
+                   description: "For the org.",
+                   organization_id: org.id
+                 },
+                 actor: owner
+               )
+
+      assert post.organization_id == org.id
+    end
+
+    test "a mere member naming the paid org is Forbidden" do
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+
+      {:ok, wallet} = FluxVale.Billing.ensure_wallet(org)
+      BillingFixtures.mark_paid!(wallet)
+
+      member = AccountsFixtures.user!()
+
+      Membership.create!(%{organization_id: org.id, user_id: member.id, role: :member},
+        authorize?: false
+      )
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Post.create(
+                 %{
+                   title: "Member-filed request",
+                   description: "Refused.",
+                   organization_id: org.id
+                 },
+                 actor: member
+               )
+    end
+
+    test "an unpaid owner is Forbidden (the old admin-only refusal shape keeps its non-payers)" do
+      user = AccountsFixtures.user!()
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Post.create(%{title: "Unpaid owner request", description: "Refused."}, actor: user)
+    end
+
+    test "an allowlisted unpaid owner creates — the launch arm opens the gate" do
+      user = AccountsFixtures.user!()
+      AccessRule.create!(%{purpose: :feedback, email: user.email}, authorize?: false)
+
+      assert {:ok, post} =
+               Post.create(%{title: "Invited cohort request", description: "At launch."},
+                 actor: user
+               )
+
+      assert post.organization_id == AccountsFixtures.personal_org!(user).id
+    end
+
+    test "an admin passes everything — including naming an org they do not own" do
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+
+      assert {:ok, post} =
+               Post.create(
+                 %{
+                   title: "Admin-filed request",
+                   description: "Moderation.",
+                   organization_id: org.id
+                 },
+                 actor: admin()
+               )
+
+      assert post.organization_id == org.id
+    end
+
+    test "anonymous naming an org answers Forbidden — the gate, not a field error" do
+      # The named org is pinned even without an actor (SetActorDefaults),
+      # so the changeset is valid and the write gate answers. A field
+      # error here would mean the gate never saw the write.
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Post.create(
+                 %{
+                   title: "Anonymous request",
+                   description: "Refused.",
+                   organization_id: org.id
+                 },
+                 authorize?: true
+               )
+    end
+
+    test "a system caller (no actor, authorize?: false) bootstraps a post for a named org" do
+      org = AccountsFixtures.owned_org!(AccountsFixtures.user!())
+
+      assert {:ok, post} =
+               Post.create(
+                 %{
+                   title: "System bootstrap post",
+                   description: "Seeded.",
+                   organization_id: org.id
+                 },
+                 authorize?: false
+               )
+
+      assert post.organization_id == org.id
+      assert is_nil(post.created_by_user_id)
     end
   end
 
@@ -486,6 +620,8 @@ defmodule FluxVale.Feedback.PostTest do
       refute SetActorDefaults.atomic?()
       refute SetStatus.atomic?()
       refute RejectReferencedOriginal.atomic?()
+      refute SetCastDefaults.atomic?()
+      refute BumpPostVoteCount.atomic?()
     end
   end
 end
