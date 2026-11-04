@@ -24,7 +24,6 @@ defmodule FluxValeWeb.Api.DeviceFlowControllerTest do
 
   @client "fluxvale-cli"
   @grant "urn:ietf:params:oauth:grant-type:device_code"
-  @verification_uri "https://fluxvale.com/settings/access/device"
 
   describe "POST /api/v1/device/code" do
     test "mints: the RFC 8628 §3.1 payload, verbatim keys", %{conn: conn} do
@@ -41,10 +40,11 @@ defmodule FluxValeWeb.Api.DeviceFlowControllerTest do
       assert body["device_code"] =~ ~r/^[A-Za-z0-9_-]{43}$/
       assert body["user_code"] =~ ~r/^[A-HJ-KMNP-Z2-9]{4}-[A-HJ-KMNP-Z2-9]{4}$/
 
-      # The approval panel's URL on the canonical origin (the CLI's
-      # human follows this, so it must be the prod URL regardless of
-      # the serving host — the SEO config's stance).
-      assert body["verification_uri"] == @verification_uri
+      # The approval URL rides the REQUEST's host — the user_code
+      # lives in the requesting environment's DB, so the URL points
+      # there (never at prod's canonical origin).
+      assert body["verification_uri"] ==
+               "https://" <> conn.host <> "/settings/access/device"
 
       assert body["expires_in"] == DeviceCode.ttl_seconds()
       assert body["interval"] == 5
@@ -52,6 +52,18 @@ defmodule FluxValeWeb.Api.DeviceFlowControllerTest do
       # A pending row actually landed.
       assert {:ok, _row} =
                DeviceCode.get_by_device_code(body["device_code"], authorize?: false)
+    end
+
+    test "a staging CLI is sent to the staging origin, not prod's canonical one", %{
+      conn: conn
+    } do
+      staging = %{conn | host: "staging.fluxvale.com"}
+
+      {result, body} = post_code(staging, %{client_id: @client, scopes: []})
+
+      assert result == 200
+      assert body["verification_uri"] == "https://staging.fluxvale.com/settings/access/device"
+      refute body["verification_uri"] == "https://fluxvale.com/settings/access/device"
     end
 
     test "an unknown client answers 400 invalid_client (§5.2 shape)", %{conn: conn} do
