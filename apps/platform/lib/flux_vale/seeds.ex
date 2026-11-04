@@ -18,6 +18,7 @@ defmodule FluxVale.Seeds do
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Catalog.Category
+  alias FluxVale.Feedback.Post
   alias FluxVale.Identity.User
   alias FluxVale.Identity.User.MirrorSignupEmail
   alias FluxVale.Identity.UserEmail
@@ -42,6 +43,12 @@ defmodule FluxVale.Seeds do
   the catalog — versions reference a size by slug. The `local` Cluster
   row is deliberately NOT here — `seed_local_cluster!/0` stays
   dev/local-only (local_seeds.exs).
+
+  Demo feedback-board content (`seed_feedback!/0`) rides only when the
+  runtime opted in (`:seed_demo_content`): dev via config, staging/
+  review via DEMO_SEEDS_ENABLED. Prod never opts in — the board launches
+  honestly empty (the #412 architect ruling: fabricated votes are
+  invented social proof).
   """
   @spec seed :: :ok
   def seed do
@@ -50,6 +57,7 @@ defmodule FluxVale.Seeds do
     seed_pricing!()
     seed_tax_rates!()
     seed_catalog!()
+    seed_feedback_if_demo!()
   end
 
   @doc """
@@ -356,6 +364,255 @@ defmodule FluxVale.Seeds do
       {:error, _not_found} -> Cluster.create!(%{name: "local"}, authorize?: false)
     end
   end
+
+  # Demo board content is gated OFF everywhere and opted into per
+  # runtime (the TestInbox/Storybook gated-release shape): dev's config
+  # sets it true so `mix setup` ships a living board, prod-mode releases
+  # (staging/review) flip DEMO_SEEDS_ENABLED where the fleet attaches
+  # them, and prod NEVER sets it — and runtime.exs additionally refuses
+  # the flag on a production PLATFORM_ENV boot, so an overlay typo alone
+  # cannot publish fabricated votes. The architect's #412 ruling:
+  # fabricated vote counts on a public indexed board are invented social
+  # proof the (not-yet-existing) Vote table cannot back, and real votes
+  # would compound from a fake base — prod launches honestly empty and
+  # the AccessRule invite cohort fills it.
+  defp seed_feedback_if_demo! do
+    if Application.get_env(:flux_vale, :seed_demo_content, false) do
+      seed_feedback!()
+    else
+      :ok
+    end
+  end
+
+  # The board's starter content (#412 T4): real-looking requests across
+  # the whole status workflow so the public board reads as living at
+  # first bring-up. NON-PROD ONLY (see seed_feedback_if_demo!/0 — the
+  # gate decides; this function itself stays ungated so tests can drive
+  # it directly). Get-or-create by the derived slug (lookup first —
+  # slug is derived from the title, so the attrs below are authored to
+  # derive it deterministically). age_days/status_age_days backdate the
+  # display timestamps through forced attribute changes: the actions
+  # stamp "now" and no action accepts timestamps — the same states-
+  # actions-can't-produce posture as Ash.seed!, applied so a fresh
+  # board does not render every row as "just now".
+  @feedback_entries [
+    %{
+      slug: "terraform-provider-for-instance-management",
+      title: "Terraform provider for instance management",
+      description: """
+      We run five instances across three apps and manage everything else with Terraform.
+      A first-class provider (data sources for instances, sizes and pricing) would let us
+      treat FluxVale like the rest of our stack. Even a read-only data source set would
+      unblock our drift checks.
+      """,
+      status: :completed,
+      votes: 128,
+      comments: 21,
+      age_days: 120,
+      status_age_days: 9
+    },
+    %{
+      slug: "show-cost-estimates-in-the-deploy-wizard",
+      title: "Show cost estimates in the deploy wizard",
+      description: """
+      The deploy stepper picks a size before it shows a price. Putting the monthly estimate
+      right in the size step would save a round trip to the pricing page.
+      """,
+      status: :planned,
+      votes: 87,
+      comments: 14,
+      age_days: 34,
+      status_age_days: 12
+    },
+    %{
+      slug: "alert-on-failing-health-checks",
+      title: "Alert on failing health checks",
+      description: """
+      When an instance stops answering /health I want an email before my customers notice.
+      A simple threshold alert (failing for N minutes) with a webhook option would cover us.
+      """,
+      status: :started,
+      votes: 56,
+      comments: 9,
+      age_days: 21,
+      status_age_days: 3
+    },
+    %{
+      slug: "s3-backed-offsite-backup-exports",
+      title: "S3-backed offsite backup exports",
+      description: """
+      Restore is easy inside FluxVale, but I want a copy outside the platform for true
+      disaster recovery. Point-in-time exports to my own bucket would do it.
+      """,
+      status: :open,
+      votes: 73,
+      comments: 11,
+      age_days: 60,
+      status_age_days: 0
+    },
+    %{
+      slug: "cheaper-storage-for-backup-archives",
+      title: "Cheaper storage for backup archives",
+      description: """
+      Backup archives grow forever and bill at the hot rate. A colder tier for archives
+      older than 90 days would make long retention affordable.
+      """,
+      status: :duplicate,
+      duplicate_of: "s3-backed-offsite-backup-exports",
+      votes: 0,
+      comments: 2,
+      age_days: 15,
+      status_age_days: 6
+    },
+    %{
+      slug: "bring-back-weekly-usage-emails",
+      title: "Bring back weekly usage emails",
+      description: """
+      The weekly digest that listed instance hours and spend stopped arriving. It was the
+      one notification that kept our finance team off your support inbox.
+      """,
+      status: :declined,
+      votes: 12,
+      comments: 4,
+      age_days: 48,
+      status_age_days: 20
+    },
+    %{
+      slug: "suspend-an-instance-from-the-cli",
+      title: "Suspend an instance from the CLI",
+      description: """
+      The panel has the sleep button but the CLI only has destroy. A `fluxvale instance
+      suspend` (and wake) would fit our deploy scripts nicely.
+      """,
+      status: :open,
+      votes: 34,
+      comments: 6,
+      age_days: 5,
+      status_age_days: 0
+    }
+  ]
+
+  @doc """
+  Seeds a starter set of feedback posts (fluxvale/fluxvale#412, T4) so
+  non-prod boards ship with living content. Demo data, deliberately
+  gated OFF for prod (fabricated votes are invented social proof) —
+  `seed/0` calls it only when the runtime opted in; this function stays
+  ungated for tests. Idempotent — get-or-create by the derived slug;
+  existing rows are never converged (an admin's edits are data, not
+  drift). A duplicate's original is listed before it in the entries, so
+  the merge pointer always resolves.
+
+  authorize?: false — bootstrap, the seed posture. Counters and the
+  display timestamps ride forced attribute changes (no action accepts
+  them; the vote/comment slices do not exist yet).
+  """
+  @spec seed_feedback! :: :ok
+  def seed_feedback!, do: seed_feedback!(@feedback_entries)
+
+  @doc """
+  Seeds a starter set of feedback posts (fluxvale/fluxvale#412, T4) so
+  non-prod boards ship with living content. Demo data, deliberately
+  gated OFF for prod (fabricated votes are invented social proof) —
+  `seed/0` calls it only when the runtime opted in; this function stays
+  ungated for tests. Idempotent — get-or-create by the derived slug;
+  existing rows are never converged (an admin's edits are data, not
+  drift). A duplicate's original must be listed before it in the
+  entries, so the merge pointer always resolves.
+
+  The 1-arity takes entries directly — the test suite also drives it
+  with fixture entries to cover the guard machinery beyond the shipped
+  set (the seed_catalog!/1 shape).
+  """
+  @spec seed_feedback!([map()]) :: :ok
+  def seed_feedback!(entries) do
+    admin = User.get_by_email!(@admin_email, authorize?: false)
+
+    for entry <- entries do
+      case find_feedback_post(entry.slug) do
+        nil -> seed_feedback_post!(entry, admin)
+        _post -> :ok
+      end
+    end
+
+    :ok
+  end
+
+  defp find_feedback_post(slug) do
+    Post
+    |> Ash.Query.filter(slug == ^slug)
+    |> Ash.read_one!(authorize?: false)
+  end
+
+  defp seed_feedback_post!(entry, admin) do
+    created =
+      Post.create!(
+        %{title: entry.title, description: String.trim(entry.description)},
+        actor: admin,
+        authorize?: false
+      )
+
+    # The authored slug is the get-or-create key: a future entry whose
+    # title no longer derives to it would mint an unfindable duplicate
+    # on every re-run. Fail the seed loudly instead.
+    if created.slug != entry.slug do
+      raise "seed feedback: #{inspect(entry.title)} derived slug #{inspect(created.slug)}, expected #{inspect(entry.slug)} — fix the entry's title to derive it"
+    end
+
+    moved =
+      if entry.status == :open do
+        created
+      else
+        status_args = %{status: entry.status}
+
+        status_args =
+          if Map.has_key?(entry, :duplicate_of) do
+            Map.put(status_args, :duplicate_of_id, duplicate_of_id!(entry))
+          else
+            status_args
+          end
+
+        Post.set_status!(created, status_args, actor: admin, authorize?: false)
+      end
+
+    # An open post never moved status — its nil status_changed_at is the
+    # display signal ("Posted N ago"), so only moved rows are backdated.
+    display_patch = patch_changeset(moved, entry)
+    Ash.update!(display_patch, authorize?: false)
+  end
+
+  # A missing original is seed-data corruption (entries are ordered, so
+  # the original must already exist) — name the operator's fix instead
+  # of crashing on a bare nil.
+  defp duplicate_of_id!(entry) do
+    case find_feedback_post(entry.duplicate_of) do
+      nil ->
+        raise "seed feedback: duplicate entry #{inspect(entry.slug)} references missing original #{inspect(entry.duplicate_of)} — list the original entry before the duplicate"
+
+      original ->
+        original.id
+    end
+  end
+
+  defp patch_changeset(post, entry) do
+    changeset =
+      post
+      |> Ash.Changeset.for_update(:update, %{}, authorize?: false)
+      |> Ash.Changeset.force_change_attribute(:vote_count, entry.votes)
+      |> Ash.Changeset.force_change_attribute(:comment_count, entry.comments)
+      |> Ash.Changeset.force_change_attribute(:created_at, days_ago(entry.age_days))
+
+    if entry.status_age_days > 0 do
+      Ash.Changeset.force_change_attribute(
+        changeset,
+        :status_changed_at,
+        days_ago(entry.status_age_days)
+      )
+    else
+      changeset
+    end
+  end
+
+  defp days_ago(days), do: DateTime.add(DateTime.utc_now(), -days * 86_400, :second)
 
   defp seed_apps!(apps, category) do
     for app_entry <- apps do

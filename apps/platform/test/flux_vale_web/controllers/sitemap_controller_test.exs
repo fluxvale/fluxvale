@@ -7,6 +7,7 @@ defmodule FluxValeWeb.SitemapControllerTest do
   use FluxValeWeb.ConnCase, async: false
 
   alias FluxVale.Blog.Loader
+  alias FluxVale.TestSupport.FeedbackFixtures
   alias FluxVale.TestSupport.InstanceFixtures
   alias TestSupport.BlogFixtures
 
@@ -96,5 +97,35 @@ defmodule FluxValeWeb.SitemapControllerTest do
 
     # Drafts never ride the sitemap (ADR-00025: excluded everywhere).
     refute xml =~ "sitemap-draft"
+  end
+
+  # #412 T4: the board index is a static URL and every post rides with
+  # its updated_at lastmod — declined and duplicate included (public
+  # pages all, ADR-0026 §4).
+  test "the feedback board and every post are listed with lastmod", %{conn: conn} do
+    open = FeedbackFixtures.post!(%{title: "Sitemap open request", description: "x"})
+    declined = FeedbackFixtures.post!(%{title: "Sitemap declined request", description: "x"})
+    FeedbackFixtures.move_status!(declined, :declined)
+    original = FeedbackFixtures.post!(%{title: "Sitemap original request", description: "x"})
+    dup = FeedbackFixtures.post!(%{title: "Sitemap duplicate request", description: "x"})
+    FeedbackFixtures.move_status!(dup, :duplicate, duplicate_of: original)
+
+    xml = response(get(conn, ~p"/sitemap.xml"), 200)
+
+    assert xml =~ "<loc>https://fluxvale.com/feedback</loc>"
+
+    for post <- [open, declined, dup] do
+      lastmod =
+        post.updated_at
+        |> DateTime.to_date()
+        |> Date.to_iso8601()
+
+      assert xml =~
+               "<loc>https://fluxvale.com/feedback/#{post.slug}</loc><lastmod>#{lastmod}</lastmod>"
+    end
+
+    # Well-formedness still holds with the feedback rows in the set.
+    charlist = String.to_charlist(xml)
+    assert {_doc, []} = :xmerl_scan.string(charlist)
   end
 end
