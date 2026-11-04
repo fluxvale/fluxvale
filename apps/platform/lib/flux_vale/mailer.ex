@@ -10,6 +10,7 @@ defmodule FluxVale.Mailer do
 
   use Swoosh.Mailer, otp_app: :flux_vale
 
+  alias FluxVale.Accounts.MembershipInvite
   alias FluxVale.Pricing
   alias FluxVale.TestInbox
   alias Swoosh.Adapters.Local
@@ -123,6 +124,34 @@ defmodule FluxVale.Mailer do
     #{what} You were not charged.
 
     You can try again at #{topup_url()}.
+    """)
+    |> deliver()
+  end
+
+  @doc """
+  The org invitation (slice 4 of #408): plain body, ONE link — the
+  emailed link is the whole invitee-side credential (the row stores
+  only the token's sha256). The expiry sentence reads the window from
+  the resource so copy and row can never drift (the AuthCode TTL
+  posture).
+  """
+  @spec deliver_org_invitation(String.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def deliver_org_invitation(to, org_name, accept_url) do
+    days = MembershipInvite.ttl_days()
+
+    %Swoosh.Email{}
+    |> Swoosh.Email.to(to)
+    |> Swoosh.Email.from({"FluxVale", "no-reply@fluxvale.com"})
+    |> Swoosh.Email.subject("You are invited to #{org_name}")
+    |> Swoosh.Email.text_body("""
+    You have been invited to join #{org_name} on FluxVale.
+
+    Open this link to accept or decline:
+
+    #{accept_url}
+
+    The invite expires #{days} days after it was sent. If you were not expecting it you can ignore this email.
     """)
     |> deliver()
   end

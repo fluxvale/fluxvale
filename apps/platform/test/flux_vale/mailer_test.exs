@@ -9,6 +9,7 @@ defmodule FluxVale.MailerTest do
 
   use ExUnit.Case, async: true
 
+  alias FluxVale.Accounts.MembershipInvite
   alias FluxVale.Mailer
   alias FluxVale.TestInbox
 
@@ -226,6 +227,30 @@ defmodule FluxVale.MailerTest do
       assert_receive {:email, %Swoosh.Email{subject: subject, text_body: body}}
       refute subject =~ "—"
       refute subject =~ ";"
+    end
+  end
+
+  describe "deliver_org_invitation/3 (slice 4 of #408)" do
+    test "names the org in the subject and carries exactly one accept link" do
+      url = "https://fluxvale.com/invitations/accept?token=abc_-123"
+
+      {:ok, _delivery} = Mailer.deliver_org_invitation("mate@fluxvale.test", "Team Org", url)
+
+      assert_receive {:email, %Swoosh.Email{to: [{_, to}], subject: subject, text_body: body}}
+      assert to == "mate@fluxvale.test"
+      assert subject == "You are invited to Team Org"
+
+      # ONE link — the emailed link is the whole invitee-side credential.
+      assert length(Regex.scan(~r{/invitations/accept\?token=}, body)) == 1
+      assert body =~ "Open this link to accept or decline:"
+      assert body =~ url
+
+      # The expiry sentence reads the resource's window, so copy and row
+      # cannot drift.
+      assert body =~
+               "The invite expires #{MembershipInvite.ttl_days()} days after it was sent."
+
+      # The copy's style rule: plain sentences, no em-dashes, no semicolons.
       refute body =~ "—"
       refute body =~ ";"
     end

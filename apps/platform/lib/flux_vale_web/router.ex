@@ -354,6 +354,11 @@ defmodule FluxValeWeb.Router do
       # #276: org settings — slug-keyed like the catalog.
       live("/organizations/:slug/settings", OrganizationLive.Settings)
       live("/organizations/:slug/settings/members", OrganizationLive.Members)
+      # #408 slice 4: the invitation landing — the raw token rides the
+      # query param and IS the invitee-side credential; signed-in only
+      # (this session's gate — anonymous hits the sign-in redirect, the
+      # email names the address to sign in with).
+      live("/invitations/accept", OrganizationLive.InviteAccept)
       # #273 (ADR-0039): the private-access gateway's owner surface — the
       # Access tab. Owners-only in the panel (the UX gate); the actions'
       # own policies stay the authority.

@@ -5,14 +5,14 @@ defmodule FluxVale.Accounts.Membership do
   once per organization (`unique_user_per_org`).
 
   Creation and destruction are system operations only (the JIT signup
-  provisioning runs `authorize?: false`), and Organization's
-  `:create_with_owner` is the one other sanctioned writer of grant rows
-  — its action writes the creator's owner membership in-transaction
-  (its own policy is the gate; the nested write rides
-  `authorize?: false`). Actor-driven invitations and removals arrive
-  with team features. Until then `forbid_if always()` closes the
-  self-grant gap on Membership's own actions: no caller can make
-  themselves (or anyone) an owner through them.
+  provisioning runs `authorize?: false`), and two other sanctioned
+  system writers exist: Organization's `:create_with_owner` writes the
+  creator's owner membership in-transaction (its own policy is the
+  gate), and invitations join through the token path
+  (`MembershipInvite`'s accept transaction, slice 4 of #408) — neither
+  rides this resource's create. Removals arrive with slice 5 — so
+  `forbid_if always()` still closes the self-grant gap: no caller can
+  make themselves (or anyone) an owner here.
   """
 
   use Ash.Resource,

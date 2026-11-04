@@ -1,21 +1,27 @@
 defmodule FluxValeWeb.OrganizationLive.Members do
   @moduledoc """
   Org settings, Members tab (#276): the read-only roster — email, role,
-  joined. Slug-keyed mount like Settings; unknown slugs (and policy
-  denials) read as "not here" — never a bare 404.
+  joined — plus the owner's invite surface (slice 4 of #408): the
+  invite form and the pending-invites list with revoke. Slug-keyed
+  mount like Settings; unknown slugs (and policy denials) read as
+  "not here" — never a bare 404.
 
-  Membership create/destroy are system-only until team features arrive,
-  so the tab is a roster, not an admin console — the copy under the
-  table says so instead of promising a timeline. The personal org has
-  no members page at all (S5): exactly one member — the user — so its
-  URL redirects to `/settings`.
+  Membership create/destroy stay system-only (the invite flow joins
+  through the token path, slice 5 adds removal), so the roster itself
+  is not an admin console. The invite FORM is UX on top of the
+  actions' owner policies: those are the authority. The personal org
+  has no members page at all (S5): exactly one member — the user — so
+  its URL redirects to `/settings`.
   """
 
   use FluxValeWeb, :live_view
 
+  alias FluxVale.Accounts
   alias FluxVale.Accounts.Membership
+  alias FluxVale.Accounts.MembershipInvite
   alias FluxVale.Accounts.Organization
   alias FluxVale.Checks.ActorIsOrganizationOwner
+  alias FluxVale.Identity.UserEmail
   alias FluxValeWeb.OrgSettings
   alias FluxValeWeb.PersonalOrg
 
@@ -53,14 +59,98 @@ defmodule FluxValeWeb.OrganizationLive.Members do
       {:ok,
        socket
        |> assign(:org, org)
+       |> assign(:invite_form, invite_form())
        |> stream_configure(:members, dom_id: &"member-row-#{&1.id}")
-       |> stream(:members, list_members(org, user))}
+       |> stream(:members, list_members(org, user))
+       |> stream_configure(:invites, dom_id: &"pending-invite-#{&1.id}")
+       |> refresh_invites()}
     else
       {:ok,
        socket
        |> put_flash(:error, "Only organization owners can access settings.")
        |> push_navigate(to: ~p"/")}
     end
+  end
+
+  @impl Phoenix.LiveView
+  def handle_event("invite", %{"invite" => %{"email" => typed}}, socket) do
+    email = String.trim(typed)
+
+    if UserEmail.valid_address?(email) do
+      case Accounts.invite_member(socket.assigns.current_user, socket.assigns.org, email) do
+        {:ok, _invite} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Invitation sent to #{email}.")
+           |> assign(:invite_form, invite_form())
+           |> refresh_invites()}
+
+        {:error, :duplicate_invite} ->
+          {:noreply,
+           assign(socket,
+             invite_form:
+               invite_form(email: email, errors: [email: {"already has an open invitation", []}])
+           )}
+
+        {:error, _other} ->
+          # The owner policy is the authority; a refused create lands
+          # here (a member's crafted submit, a raced write). The list
+          # refreshes so the page shows the row's truth.
+          {:noreply,
+           socket
+           |> put_flash(:error, "Could not send the invitation.")
+           |> refresh_invites()}
+      end
+    else
+      # The sign-in gate's format rule, applied before anything is
+      # stored or sent (the RequestAuthCode posture): a malformed
+      # address could never match a verified primary at accept.
+      {:noreply,
+       assign(socket,
+         invite_form:
+           invite_form(email: email, errors: [email: {"must be a valid email address", []}])
+       )}
+    end
+  end
+
+  def handle_event("revoke-invite", %{"id" => id}, socket) do
+    user = socket.assigns.current_user
+    org = socket.assigns.org
+
+    invite = pending_invite(org, user, id)
+
+    socket =
+      case invite do
+        nil ->
+          # Already gone (revoked elsewhere, org teardown) — the
+          # refresh below shows the page the truth.
+          put_flash(socket, :error, "That invitation is no longer pending.")
+
+        invite ->
+          case Accounts.revoke_invite(user, invite) do
+            {:ok, _revoked} -> put_flash(socket, :info, "Invitation revoked.")
+            {:error, _refused} -> put_flash(socket, :error, "Could not revoke the invitation.")
+          end
+      end
+
+    {:noreply, refresh_invites(socket)}
+  end
+
+  defp refresh_invites(socket) do
+    invites = list_invites(socket.assigns.org, socket.assigns.current_user)
+
+    socket
+    |> assign(:invites_empty?, invites == [])
+    |> stream(:invites, invites, reset: true)
+  end
+
+  # The invite seam's duplicate arm is the friendly answer; this
+  # pre-check spares the network round-trip and renders the field
+  # error eagerly (the settings form's validate posture). Errors ride
+  # the gettext tuple shape the input component translates.
+  defp invite_form(opts \\ []) do
+    params = %{"email" => Keyword.get(opts, :email, "")}
+    to_form(params, as: "invite", errors: Keyword.get(opts, :errors, []))
   end
 
   @impl Phoenix.LiveView
@@ -126,9 +216,84 @@ defmodule FluxValeWeb.OrganizationLive.Members do
               </li>
             </ul>
 
-            <p class="text-xs text-ink-subtle" data-testid="members-invite-note">
-              Invitations arrive with team features.
-            </p>
+            <div class="pt-2">
+              <h2 class="text-base font-medium text-ink">Invitations</h2>
+              <p class="mt-1 text-sm text-ink-muted">
+                Invite someone by email. They accept from the link after signing in with that
+                address.
+              </p>
+            </div>
+
+            <.form
+              for={@invite_form}
+              id="invite-form"
+              phx-submit="invite"
+              data-testid="members-invite-form"
+              class="rounded-panel border border-line-strong bg-panel p-4 shadow-sm sm:p-5"
+            >
+              <div class="flex flex-wrap items-start gap-3">
+                <div class="min-w-0 flex-1">
+                  <.input
+                    field={@invite_form[:email]}
+                    type="email"
+                    label="Email address"
+                    placeholder="name@example.com"
+                    required
+                  />
+                </div>
+                <.button
+                  type="submit"
+                  data-testid="invite-submit"
+                  class="mt-0 sm:mt-6"
+                >
+                  Send invite
+                </.button>
+              </div>
+            </.form>
+
+            <div data-testid="pending-invites">
+              <ul id="pending-invites" phx-update="stream">
+                <li
+                  :for={{dom_id, invite} <- @streams.invites}
+                  id={dom_id}
+                  data-testid="pending-invite-row"
+                  class="rounded-panel border border-line-strong bg-panel p-4 shadow-sm sm:p-5"
+                >
+                  <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                    <div class="min-w-0">
+                      <p class="font-mono text-sm font-medium text-ink [overflow-wrap:anywhere]">
+                        {invite.email}
+                      </p>
+                      <p class="mt-0.5 whitespace-nowrap text-xs text-ink-subtle">
+                        <span class="sr-only">Invited </span>{Calendar.strftime(
+                          invite.created_at,
+                          "%b %d, %Y"
+                        )}
+                      </p>
+                    </div>
+                    <.button
+                      phx-click="revoke-invite"
+                      phx-value-id={invite.id}
+                      data-testid={"revoke-invite-#{invite.id}"}
+                      variant="secondary"
+                      size="sm"
+                    >
+                      Revoke
+                    </.button>
+                  </div>
+                </li>
+              </ul>
+
+              <%!-- Streams carry no empty state — the quiet shape rides
+              the tracked assign (the LiveView streams posture). --%>
+              <p
+                :if={@invites_empty?}
+                data-testid="pending-invites-empty"
+                class="py-2 text-sm text-ink-subtle"
+              >
+                No pending invitations.
+              </p>
+            </div>
           </div>
         </section>
       </div>
@@ -152,6 +317,34 @@ defmodule FluxValeWeb.OrganizationLive.Members do
       |> Ash.read!()
 
     Enum.sort_by(memberships, &{&1.role != :owner, DateTime.to_iso8601(&1.created_at), &1.id})
+  end
+
+  # The OPEN invites of this org only — accepted and revoked rows are
+  # history, the list is the pending queue (the same predicate the
+  # partial unique index arbitrates). Invited-asc, then id (the
+  # list_members tiebreak posture). Policy-scoped: the read action's
+  # org-members grant carries it; the organization_id filter pins the
+  # tenant.
+  defp list_invites(org, user) do
+    MembershipInvite
+    |> Ash.Query.for_read(:read, %{}, actor: user)
+    |> Ash.Query.filter(organization_id == ^org.id and is_nil(accepted_at) and is_nil(revoked_at))
+    |> Ash.Query.sort(created_at: :asc, id: :asc)
+    |> Ash.read!()
+  end
+
+  # Open rows only: a row that already moved (revoked elsewhere,
+  # accepted, org teardown) reads as "no longer pending" instead of
+  # re-stamping — the idempotent revoke keeps the original stamp, but
+  # the click that did nothing new says so.
+  defp pending_invite(org, user, id) do
+    MembershipInvite
+    |> Ash.Query.for_read(:read, %{}, actor: user)
+    |> Ash.Query.filter(
+      id == ^id and organization_id == ^org.id and
+        is_nil(accepted_at) and is_nil(revoked_at)
+    )
+    |> Ash.read_one!(actor: user)
   end
 
   defp role_label(:owner), do: "Owner"

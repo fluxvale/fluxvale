@@ -5,6 +5,7 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
 
   import Phoenix.LiveViewTest
 
+  alias FluxVale.Accounts
   alias FluxVale.Accounts.Membership
   alias FluxVale.Identity
   alias FluxVale.TestSupport.AccountsFixtures
@@ -80,13 +81,6 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     # label rides an sr-only span now that the roster is the row
     # language (no visible header row).
     assert has_element?(view, "#org-members-table .sr-only", "Joined")
-
-    # The domain's stance on invitations — one copy line, no promises.
-    assert has_element?(
-             view,
-             "[data-testid='members-invite-note']",
-             "Invitations arrive with team features."
-           )
   end
 
   test "roster order is chronological across a month boundary — not day-of-month", %{
@@ -267,6 +261,134 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     assert flash["error"] == "Organization not found."
   end
 
+  # ---- the invite surface (slice 4 of #408) ----------------------------
+
+  test "the old invite-note copy is retired", %{conn: conn, org: org} do
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    refute has_element?(view, "[data-testid='members-invite-note']")
+    refute render(view) =~ "Invitations arrive with team features."
+  end
+
+  test "the owner sees the invite form, an empty queue shape, and a pending row", %{
+    conn: conn,
+    owner: owner,
+    org: org
+  } do
+    invitee = AccountsFixtures.user!()
+    {:ok, _invite} = Accounts.invite_member(owner, org, invitee.email)
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    # The form rides its field and submit.
+    assert has_element?(view, "#invite-form")
+    assert has_element?(view, "[data-testid='invite-submit']", "Send invite")
+
+    # The pending row: the invited address, the invited date, revoke.
+    assert has_element?(view, "[data-testid='pending-invite-row']", to_string(invitee.email))
+    assert has_element?(view, "[data-testid='pending-invite-row'] .sr-only", "Invited")
+    assert has_element?(view, "[data-testid='pending-invite-row']", "Revoke")
+
+    # The terminal rows never surface — an accepted invite is history.
+    assert has_element?(view, "[data-testid='pending-invites']")
+  end
+
+  test "with no invites the queue renders its quiet shape", %{conn: conn, org: org} do
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    assert has_element?(view, "[data-testid='pending-invites-empty']", "No pending invitations.")
+  end
+
+  test "submitting an address sends the invite and adds the pending row", %{
+    conn: conn,
+    owner: owner,
+    org: org
+  } do
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    view
+    |> form("#invite-form", invite: %{email: "newjoiner@fluxvale.test"})
+    |> render_submit()
+
+    assert has_element?(view, "[data-testid='pending-invite-row']", "newjoiner@fluxvale.test")
+    assert has_element?(view, "#flash-info", "Invitation sent to newjoiner@fluxvale.test")
+
+    # The row landed in the database as an open :member invite — the
+    # write is the seam's, not just a UI echo.
+    token = mailbox_token!("newjoiner@fluxvale.test")
+    assert {:ok, {:open, invite}} = Accounts.resolve_invite(token)
+
+    assert invite.role == :member
+    assert invite.organization_id == org.id
+
+    # The form cleared after the success.
+    assert has_element?(view, "#invite-form")
+  end
+
+  test "a duplicate open invite renders the field error, not a success flash", %{
+    conn: conn,
+    owner: owner,
+    org: org
+  } do
+    {:ok, _invite} = Accounts.invite_member(owner, org, "doubled@fluxvale.test")
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    view
+    |> form("#invite-form", invite: %{email: "doubled@fluxvale.test"})
+    |> render_submit()
+
+    assert has_element?(view, "#invite-form", "already has an open invitation")
+    refute has_element?(view, "#flash-info")
+  end
+
+  test "a malformed address renders the field error and sends nothing", %{
+    conn: conn,
+    org: org
+  } do
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    view
+    |> form("#invite-form", invite: %{email: "not-an-address"})
+    |> render_submit()
+
+    assert has_element?(view, "#invite-form", "must be a valid email address")
+    assert has_element?(view, "[data-testid='pending-invites-empty']")
+  end
+
+  test "revoking a pending invite removes its row", %{conn: conn, owner: owner, org: org} do
+    {:ok, invite} = Accounts.invite_member(owner, org, "retract@fluxvale.test")
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    view
+    |> element("[data-testid='revoke-invite-#{invite.id}']")
+    |> render_click()
+
+    assert has_element?(view, "#flash-info", "Invitation revoked.")
+    refute has_element?(view, "[data-testid='pending-invite-row']")
+    assert has_element?(view, "[data-testid='pending-invites-empty']")
+
+    # The row's truth: revoked, not destroyed — the address is freed.
+    token = mailbox_token!("retract@fluxvale.test")
+    assert {:ok, :revoked} = Accounts.resolve_invite(token)
+  end
+
+  test "revoking an already-gone invite says so", %{conn: conn, owner: owner, org: org} do
+    {:ok, invite} = Accounts.invite_member(owner, org, "raced@fluxvale.test")
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    # The row retires elsewhere between this page's mount and the click.
+    assert {:ok, _revoked} = Accounts.revoke_invite(owner, invite)
+
+    view
+    |> element("[data-testid='revoke-invite-#{invite.id}']")
+    |> render_click()
+
+    assert has_element?(view, "#flash-error", "no longer pending")
+  end
+
   # Sanctioned precondition: nothing in the system creates :member rows
   # yet, so the row rides the action with authorize?: false.
   defp seed_member!(org, user) do
@@ -314,5 +436,18 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
 
     assert [%Membership{} = owner_membership] = matches
     owner_membership
+  end
+
+  # The seam's own property under test: the raw token exists only in
+  # the emailed link. The invite ran in setup (the test process), so
+  # the mail rides this process's mailbox.
+  defp mailbox_token!(address) do
+    address = to_string(address)
+    assert_receive {:email, %Swoosh.Email{to: [{_, ^address}], text_body: body}}, 1000
+
+    [token] =
+      Regex.run(~r{/invitations/accept\?token=([A-Za-z0-9_-]+)}, body, capture: :all_but_first)
+
+    token
   end
 end
