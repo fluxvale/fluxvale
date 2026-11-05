@@ -110,7 +110,8 @@ defmodule FluxValeWeb.SessionControllerTest do
 
   # #74: sign-out revokes the session's tokens (the store, not just the
   # cookie) and clears the session — the revoked token can't ride the
-  # session back in.
+  # session back in. #473: the destination is the landing page, not the
+  # sign-in form.
   test "delete/2 revokes the tokens and clears the session", %{conn: conn} do
     user =
       User.create!("sign-out-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
@@ -124,7 +125,8 @@ defmodule FluxValeWeb.SessionControllerTest do
       |> fetch_flash()
       |> FluxValeWeb.SessionController.delete(%{})
 
-    assert redirected_to(conn) == ~p"/sign-in"
+    assert redirected_to(conn) == ~p"/"
+    assert Phoenix.Flash.get(conn.assigns.flash, :info) == "Signed out."
     assert Plug.Conn.get_session(conn, "user_token") == nil
 
     # Ground truth: the revoked session token no longer authenticates
@@ -139,7 +141,9 @@ defmodule FluxValeWeb.SessionControllerTest do
   end
 
   # The route end-to-end (the layout's form shape): method-override POST
-  # through the browser pipeline's CSRF gate.
+  # through the browser pipeline's CSRF gate. #473: sign-out lands on
+  # the landing page with the flash visible — the landing template
+  # renders the flash group, pinned here by following the redirect.
   test "DELETE /auth/session signs out through the route", %{conn: conn} do
     user =
       User.create!("route-sign-out-#{System.unique_integer()}@fluxvale.com", %{},
@@ -155,7 +159,19 @@ defmodule FluxValeWeb.SessionControllerTest do
       |> put_req_header("x-csrf-token", Phoenix.Controller.get_csrf_token())
       |> delete(~p"/auth/session")
 
-    assert redirected_to(conn) == ~p"/sign-in"
+    assert redirected_to(conn) == ~p"/"
     assert Plug.Conn.get_session(conn, "user_token") == nil
+
+    # The landing renders the "Signed out." flash (the flash rides the
+    # cookie session through recycle).
+    landing_conn =
+      conn
+      |> recycle()
+      |> get("/")
+
+    assert html_response(landing_conn, 200) =~ "Signed out."
+
+    assert html_response(landing_conn, 200) =~
+             "Managed cloud platform for open source applications"
   end
 end
