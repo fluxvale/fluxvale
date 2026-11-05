@@ -14,10 +14,12 @@ defmodule FluxValeWeb.SessionController do
   closes re-entry with a stale token.
 
   The POST may carry a `return_to` (the sign-in LiveView rides it
-  through in its body, #462): on success the visitor lands back on the
-  local path they came from instead of the default page. The value is
-  never trusted — `ReturnPath.safe/1` re-validates it here, so a
-  crafted non-local target silently falls back to `/`.
+  through in its body, #462): the visitor lands back on the local path
+  they came from instead of the default page. The value is never
+  trusted — `ReturnPath.safe/1` re-validates it here, so a crafted
+  non-local target silently falls back to `/`. A failed session write
+  re-links sign-in with the same return path, so the retry keeps the
+  destination too.
   """
 
   use FluxValeWeb, :controller
@@ -44,7 +46,7 @@ defmodule FluxValeWeb.SessionController do
       _error ->
         conn
         |> put_flash(:error, "Sign-in failed. Request a new code.")
-        |> redirect(to: ~p"/sign-in")
+        |> redirect(to: ReturnPath.sign_in_path(return_to))
     end
   end
 

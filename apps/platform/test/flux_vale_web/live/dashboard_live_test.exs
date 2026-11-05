@@ -301,11 +301,14 @@ defmodule FluxValeWeb.DashboardLiveTest do
     case Phoenix.LiveViewTest.live_isolated(conn, FluxValeWeb.DashboardLive,
            session: %{"user_token" => "junk"}
          ) do
+      # Connected-mount arm (a live socket's connect_info carries no
+      # request conn): the gate falls back to plain /sign-in.
       {:error, {:live_redirect, %{to: to}}} ->
         assert to == ~p"/sign-in"
 
-      # #462: the gate's static-render redirect carries the return path
-      # (the test conn's request path, "/") — the default landing anyway.
+      # Static-render arm (#462): the gate's redirect carries the return
+      # path (the test conn's request path, "/") — the default landing
+      # anyway.
       {:error, {:redirect, %{to: to}}} ->
         assert to == "/sign-in?return_to=%2F"
     end

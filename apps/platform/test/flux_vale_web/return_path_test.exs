@@ -29,6 +29,12 @@ defmodule FluxValeWeb.ReturnPathTest do
       refute FluxValeWeb.ReturnPath.local?("/\\evil.com:8080/x")
       refute FluxValeWeb.ReturnPath.local?("/\\//evil.com")
       refute FluxValeWeb.ReturnPath.local?("\\\\evil.com")
+      # mid-string shapes Phoenix's redirect(to:) raises on (#462
+      # review): the guard must be sufficient, or a valid sign-in ends
+      # in a 500 instead of a redirect
+      refute FluxValeWeb.ReturnPath.local?("/feedback/a\\b")
+      refute FluxValeWeb.ReturnPath.local?("/x/%09y")
+      refute FluxValeWeb.ReturnPath.local?("/x/\ty")
       # absolute schemes, http and beyond
       refute FluxValeWeb.ReturnPath.local?("https://evil.com")
       refute FluxValeWeb.ReturnPath.local?("http://evil.com/phish")

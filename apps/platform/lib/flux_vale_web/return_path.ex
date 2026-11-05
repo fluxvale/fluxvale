@@ -23,11 +23,18 @@ defmodule FluxValeWeb.ReturnPath do
   into the authority slot the same way (verified in Chromium's URL
   parser, #462 review). Any scheme (`https://…`, `javascript:…`) fails
   the leading-slash check outright.
+
+  The trailing `String.contains?/2` arm mirrors Phoenix's own
+  `redirect(to:)` validator (`@invalid_local_url_chars`): a backslash
+  anywhere, or a `/%09`/tab-after-slash substring, would pass this
+  guard and then raise in the redirect — this predicate must be
+  *sufficient*, not just necessary.
   """
   @spec local?(term()) :: boolean()
   def local?(path) when is_binary(path) do
     String.starts_with?(path, "/") and not String.starts_with?(path, "//") and
-      not String.starts_with?(path, "/\\")
+      not String.starts_with?(path, "/\\") and
+      not String.contains?(path, ["\\", "/%09", "/\t"])
   end
 
   def local?(_path), do: false

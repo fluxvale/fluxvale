@@ -137,14 +137,41 @@ defmodule FluxValeWeb.SessionControllerTest do
 
     test "a crafted external return_to is refused and falls back to the default landing" do
       # The shapes the guard exists for: protocol-relative, its
-      # backslash twin, and an absolute scheme.
+      # backslash twin, a mid-string backslash (Phoenix's redirect
+      # would raise on it — the guard refuses first), and an absolute
+      # scheme.
       assert signed_in_redirect(build_conn(), %{"return_to" => "//evil.com"}) == ~p"/"
       assert signed_in_redirect(build_conn(), %{"return_to" => "/\\evil.com"}) == ~p"/"
+      assert signed_in_redirect(build_conn(), %{"return_to" => "/feedback/a\\b"}) == ~p"/"
       assert signed_in_redirect(build_conn(), %{"return_to" => "https://evil.com"}) == ~p"/"
     end
 
     test "no return_to keeps the default landing" do
       assert signed_in_redirect(build_conn(), %{}) == ~p"/"
+    end
+
+    # The retry arm (#462 review): a failed session write must not drop
+    # the carried return path, or the flow's own contract forks — the
+    # visitor re-requests a code on a sign-in page that forgot where
+    # they were going.
+    test "a failed session write re-links sign-in with the return path", %{conn: conn} do
+      # The describe setup's fluxvale.com allowlist refuses this address:
+      # the session write fails.
+      user =
+        User.create!("return-retry-#{System.unique_integer()}@example.com", %{},
+          authorize?: false
+        )
+
+      {:ok, token, _claims} = Jwt.token_for_user(user)
+
+      conn =
+        conn
+        |> Plug.Test.init_test_session(%{})
+        |> fetch_flash()
+        |> FluxValeWeb.SessionController.create(%{"token" => token, "return_to" => "/feedback/x"})
+
+      assert redirected_to(conn) == "/sign-in?return_to=%2Ffeedback%2Fx"
+      refute Plug.Conn.get_session(conn, "user_token")
     end
   end
 

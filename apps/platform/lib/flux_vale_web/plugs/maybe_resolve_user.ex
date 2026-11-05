@@ -18,7 +18,7 @@ defmodule FluxValeWeb.Plugs.MaybeResolveUser do
   @spec init(keyword()) :: keyword()
   def init(opts), do: opts
 
-  @doc "Assigns `:current_user` (user or nil) from the fetched session, if any."
+  @doc "Assigns `:current_user` (user or nil) from the fetched session, if any, plus `:return_to` (#462) for the public chrome's sign-in links."
   @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def call(conn, _opts) do
     # get_session/1 reads the fetched session (:browser runs first in the
