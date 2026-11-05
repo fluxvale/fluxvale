@@ -105,7 +105,7 @@ defmodule FluxValeWeb.PricingControllerTest do
 
   test "GET /pricing states the billing model from the accessors", %{conn: conn} do
     conn = get(conn, ~p"/pricing")
-    html = html_response(conn, 200) |> strip_opaque_tokens()
+    html = strip_opaque_tokens(html_response(conn, 200))
 
     welcome = Pricing.format_usd(Accounts.welcome_grant_cents())
 
