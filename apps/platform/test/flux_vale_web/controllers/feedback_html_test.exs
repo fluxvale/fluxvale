@@ -113,37 +113,79 @@ defmodule FluxValeWeb.FeedbackHTMLTest do
     end
   end
 
-  describe "empty_title/1" do
+  describe "empty_title/2" do
     test "the unfiltered board reads No posts yet" do
-      assert FeedbackHTML.empty_title(nil) == "No posts yet."
+      assert FeedbackHTML.empty_title(nil, nil) == "No posts yet."
     end
 
-    test "a filtered view that matched nothing keeps the filtered copy" do
+    test "a zero-match status filter keeps the status copy" do
       for status <- Post.status_values() do
-        assert FeedbackHTML.empty_title(status) == "No posts with this status yet."
+        assert FeedbackHTML.empty_title(status, nil) == "No posts with this status yet."
       end
+    end
+
+    test "a tag filter names the tag, alone or combined" do
+      assert FeedbackHTML.empty_title(nil, :tag) == "No posts with this tag yet."
+      assert FeedbackHTML.empty_title(:open, :tag) == "No posts with this tag yet."
     end
   end
 
-  describe "board_href/3" do
+  describe "board_href/4" do
     test "defaults collapse to the bare board URL" do
-      assert FeedbackHTML.board_href("top", nil, 1) == "/feedback"
+      assert FeedbackHTML.board_href("top", nil, 1, nil) == "/feedback"
     end
 
     test "a non-default sort rides the query" do
-      assert FeedbackHTML.board_href("new", nil, 1) == "/feedback?sort=new"
+      assert FeedbackHTML.board_href("new", nil, 1, nil) == "/feedback?sort=new"
     end
 
     test "a status filter rides the query" do
-      assert FeedbackHTML.board_href("top", :planned, 1) == "/feedback?status=planned"
+      assert FeedbackHTML.board_href("top", :planned, 1, nil) == "/feedback?status=planned"
     end
 
     test "page two rides the query" do
-      assert FeedbackHTML.board_href("top", nil, 2) == "/feedback?page=2"
+      assert FeedbackHTML.board_href("top", nil, 2, nil) == "/feedback?page=2"
     end
 
-    test "a combined view state keeps a stable param order" do
-      assert FeedbackHTML.board_href("new", :open, 2) == "/feedback?sort=new&status=open&page=2"
+    test "a tag rides the query" do
+      assert FeedbackHTML.board_href("top", nil, 1, "kavita") == "/feedback?tag=kavita"
+    end
+
+    test "the full view state keeps the stable param order (sort, status, tag, page)" do
+      assert FeedbackHTML.board_href("new", :open, 2, "kavita") ==
+               "/feedback?sort=new&status=open&tag=kavita&page=2"
+    end
+
+    test "the 3-arity default still collapses to the bare URL" do
+      assert FeedbackHTML.board_href("top", nil, 1) == "/feedback"
+    end
+  end
+
+  describe "app_linked_tags/2" do
+    @kavita %FluxVale.Feedback.Tag{slug: "kavita", name: "Kavita"}
+    @platform %FluxVale.Feedback.Tag{slug: "platform", name: "Platform"}
+
+    test "keeps only the tags whose slug matches a catalog app" do
+      app_slugs = MapSet.new(["kavita"])
+
+      assert FeedbackHTML.app_linked_tags([@kavita, @platform], app_slugs) == [@kavita]
+    end
+
+    test "an empty catalog set links nothing" do
+      assert FeedbackHTML.app_linked_tags([@kavita], MapSet.new()) == []
+    end
+  end
+
+  describe "tag_chip_active?/2" do
+    @chip %FluxVale.Feedback.Tag{slug: "kavita", name: "Kavita"}
+
+    test "no active tag means no chip is active" do
+      refute FeedbackHTML.tag_chip_active?(@chip, nil)
+    end
+
+    test "the chip matching the filter is active" do
+      assert FeedbackHTML.tag_chip_active?(@chip, @chip)
+      refute FeedbackHTML.tag_chip_active?(@chip, %FluxVale.Feedback.Tag{slug: "other"})
     end
   end
 

@@ -445,7 +445,7 @@ msgstr ""
 msgid "Pick an open source app, deploy it in minutes, and FluxVale keeps it running, updates and monitoring included."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/feedback_html.ex:110
+#: lib/flux_vale_web/controllers/feedback_html.ex:128
 #, elixir-autogen, elixir-format
 msgid "Board"
 msgstr ""
@@ -455,7 +455,7 @@ msgstr ""
 msgid "Completed"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/feedback_html.ex:98
+#: lib/flux_vale_web/controllers/feedback_html.ex:116
 #, elixir-autogen, elixir-format
 msgid "Feedback views"
 msgstr ""
@@ -480,7 +480,7 @@ msgstr ""
 msgid "Planned"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/feedback_html.ex:122
+#: lib/flux_vale_web/controllers/feedback_html.ex:140
 #: lib/flux_vale_web/controllers/feedback_html/roadmap.html.heex:11
 #, elixir-autogen, elixir-format
 msgid "Roadmap"
@@ -494,4 +494,25 @@ msgstr ""
 #: lib/flux_vale_web/controllers/feedback_html/roadmap.html.heex:13
 #, elixir-autogen, elixir-format
 msgid "What we are building next. Every item links to its post on the feedback board."
+msgstr ""
+
+#: lib/flux_vale_web/controllers/feedback_html.ex:197
+#, elixir-autogen, elixir-format
+msgid "%{name} in the app catalog"
+msgstr ""
+
+#: lib/flux_vale_web/controllers/feedback_html.ex:247
+#, elixir-autogen, elixir-format
+msgid "No posts with this status yet."
+msgstr ""
+
+#: lib/flux_vale_web/controllers/feedback_html.ex:246
+#: lib/flux_vale_web/controllers/feedback_html.ex:248
+#, elixir-autogen, elixir-format
+msgid "No posts with this tag yet."
+msgstr ""
+
+#: lib/flux_vale_web/controllers/feedback_html.ex:245
+#, elixir-autogen, elixir-format
+msgid "No posts yet."
 msgstr ""

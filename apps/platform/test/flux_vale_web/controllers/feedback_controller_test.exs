@@ -8,6 +8,9 @@ defmodule FluxValeWeb.FeedbackControllerTest do
 
   import FluxVale.TestSupport.FeedbackFixtures
 
+  alias FluxVale.Catalog.App
+  alias FluxVale.Catalog.Category
+
   defp position(html, needle) do
     assert html =~ needle
 
@@ -18,6 +21,28 @@ defmodule FluxValeWeb.FeedbackControllerTest do
   defp row_count(html) do
     segments = String.split(html, ~s(data-testid="feedback-post-))
     length(segments) - 1
+  end
+
+  # Catalog fixture for the tag cross-link convention (T10): a tag whose
+  # slug matches a catalog app rides the /apps/:slug link.
+  defp catalog_app!(slug) do
+    n = System.unique_integer()
+
+    category =
+      Category.create!(
+        %{name: "Media #{n}", slug: "media-#{n}", description: "Read things"},
+        authorize?: false
+      )
+
+    App.create!(
+      %{
+        name: String.capitalize(slug),
+        slug: slug,
+        tagline: "Reading server",
+        category_id: category.id
+      },
+      authorize?: false
+    )
   end
 
   describe "GET /feedback" do
@@ -448,6 +473,25 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       assert position(html, "Shipped last week") < position(html, "Shipped long ago")
     end
 
+    test "items carry their tag chips (display only, the item is one link)", %{conn: conn} do
+      platform = tag!(%{name: "Platform", slug: "platform"})
+      plain = post!(%{title: "Roadmap plain item", description: "x"})
+      tagged = post!(%{title: "Roadmap tagged item", description: "x"})
+      tag_post!(tagged, [platform])
+      move_status!(plain, :planned)
+      move_status!(tagged, :planned)
+
+      html = html_response(get(conn, ~p"/roadmap"), 200)
+
+      assert html =~ "Roadmap tagged item"
+      assert html =~ "data-testid=\"feedback-tag\""
+      assert html =~ "Platform"
+
+      # The untagged item renders no chip block (its div is guarded).
+      assert html =~ "Roadmap plain item"
+      assert length(String.split(html, ~s(data-testid="feedback-tag"))) - 1 == 1
+    end
+
     test "a stamp-less started item falls back to its created age in the recency sort", %{
       conn: conn
     } do
@@ -528,4 +572,195 @@ defmodule FluxValeWeb.FeedbackControllerTest do
   defp hours_ago(hours), do: DateTime.add(DateTime.utc_now(), -hours * 3_600, :second)
 
   defp days_ago(days), do: DateTime.add(DateTime.utc_now(), -days * 86_400, :second)
+
+  describe "the tag filter (T10)" do
+    test "the board renders the tags in use as filter chips", %{conn: conn} do
+      platform = tag!(%{name: "Platform", slug: "platform"})
+      post = post!(%{title: "Chip set request", description: "x"})
+      tag_post!(post, [platform])
+
+      html = html_response(get(conn, ~p"/feedback"), 200)
+
+      assert html =~ "data-testid=\"feedback-tag-chip-platform\""
+      assert html =~ "Platform"
+    end
+
+    test "a tag with no pairings renders no chip", %{conn: conn} do
+      tag!(%{name: "Unused tag", slug: "unused-tag"})
+      post!(%{title: "Untagged chip request", description: "x"})
+
+      html = html_response(get(conn, ~p"/feedback"), 200)
+
+      refute html =~ "unused-tag"
+    end
+
+    test "?tag=slug narrows the board to posts carrying the tag", %{conn: conn} do
+      platform = tag!(%{name: "Platform", slug: "platform"})
+      tagged = post!(%{title: "Carries the tag", description: "x"})
+      tag_post!(tagged, [platform])
+      post!(%{title: "Carries nothing", description: "x"})
+
+      html = html_response(get(conn, ~p"/feedback?tag=platform"), 200)
+
+      assert html =~ "Carries the tag"
+      refute html =~ "Carries nothing"
+    end
+
+    test "an unknown tag slug falls back to the unfiltered board", %{conn: conn} do
+      post!(%{title: "Unknown tag tagged", description: "x"})
+      post!(%{title: "Unknown tag plain", description: "x"})
+
+      html = html_response(get(conn, ~p"/feedback?tag=bogus-slug"), 200)
+
+      assert html =~ "Unknown tag tagged"
+      assert html =~ "Unknown tag plain"
+    end
+
+    test "the tag filter combines with the status filter", %{conn: conn} do
+      platform = tag!(%{name: "Platform", slug: "platform"})
+
+      planned = post!(%{title: "Planned and tagged", description: "x"})
+      tag_post!(planned, [platform])
+      move_status!(planned, :planned)
+
+      open = post!(%{title: "Open and tagged", description: "x"})
+      tag_post!(open, [platform])
+
+      html = html_response(get(conn, ~p"/feedback?tag=platform&status=planned"), 200)
+
+      assert html =~ "Planned and tagged"
+      refute html =~ "Open and tagged"
+    end
+
+    test "a tag filter that matches nothing reads the tag empty state", %{conn: conn} do
+      # The vocabulary row exists but no post carries it — the honest
+      # sentence is the filtered one, not "No posts yet."
+      tag!(%{name: "Empty tag", slug: "empty-tag"})
+
+      html = html_response(get(conn, ~p"/feedback?tag=empty-tag"), 200)
+
+      assert html =~ "No posts with this tag yet."
+    end
+
+    test "the board rows show their tag chips", %{conn: conn} do
+      platform = tag!(%{name: "Platform", slug: "platform"})
+      tagged = post!(%{title: "Row chips request", description: "x"})
+      tag_post!(tagged, [platform])
+
+      html = html_response(get(conn, ~p"/feedback"), 200)
+
+      assert html =~ "Row chips request"
+      assert html =~ "data-testid=\"feedback-tag\""
+    end
+
+    test "an active tag survives a sort flip", %{conn: conn} do
+      platform = tag!(%{name: "Platform", slug: "platform"})
+      tagged = post!(%{title: "Sort survival request", description: "x"})
+      tag_post!(tagged, [platform])
+
+      html = html_response(get(conn, ~p"/feedback?tag=platform"), 200)
+
+      # The sort tabs keep the filter (sort first, then the tag, in the
+      # stable param order — rendered HTML escapes the ampersand).
+      assert html =~ "href=\"/feedback?sort=new&amp;tag=platform\""
+      assert html =~ "href=\"/feedback?tag=platform\""
+    end
+
+    test "an active tag survives a status chip", %{conn: conn} do
+      platform = tag!(%{name: "Platform", slug: "platform"})
+      tagged = post!(%{title: "Status survival request", description: "x"})
+      tag_post!(tagged, [platform])
+
+      html = html_response(get(conn, ~p"/feedback?tag=platform"), 200)
+
+      # The All chip and each status chip keep the filter (the default
+      # sort collapses out of the query).
+      assert html =~ "href=\"/feedback?tag=platform\""
+      assert html =~ "href=\"/feedback?status=open&amp;tag=platform\""
+    end
+
+    test "an active tag survives the pager — page two stays filtered", %{conn: conn} do
+      platform = tag!(%{name: "Platform", slug: "platform"})
+
+      for n <- 1..21 do
+        tagged =
+          post!(%{title: "Paged tag request #{String.pad_leading(Integer.to_string(n), 3, "0")}"})
+
+        tag_post!(tagged, [platform])
+      end
+
+      untagged = post!(%{title: "Paged untagged request", description: "x"})
+
+      page_one = html_response(get(conn, ~p"/feedback?tag=platform"), 200)
+      assert page_one =~ "Page 1 of 2"
+      assert page_one =~ "href=\"/feedback?tag=platform&amp;page=2\""
+      refute page_one =~ "Paged untagged request"
+
+      # And the link's destination is still the filtered view.
+      page_two = html_response(get(conn, ~p"/feedback?tag=platform&page=2"), 200)
+      assert page_two =~ "Paged tag request 001"
+      refute page_two =~ "Paged untagged request"
+
+      assert html_response(get(conn, ~p"/feedback/#{untagged.slug}"), 200) =~
+               "Paged untagged request"
+    end
+
+    test "a huge page still clamps with the tag filter applied", %{conn: conn} do
+      platform = tag!(%{name: "Platform", slug: "platform"})
+      tagged = post!(%{title: "Clamp with tag", description: "x"})
+      tag_post!(tagged, [platform])
+
+      html = html_response(get(conn, "/feedback?tag=platform&page=99999999999999999999"), 200)
+
+      assert html =~ "No posts with this tag yet."
+      refute html =~ "Clamp with tag"
+    end
+  end
+
+  describe "post page tag chips and the catalog cross-link (T10)" do
+    test "the post page renders its tag chips linking the filtered board", %{conn: conn} do
+      kavita = tag!(%{name: "Kavita", slug: "kavita"})
+      post = post!(%{title: "Chip page request", description: "x"})
+      tag_post!(post, [kavita])
+
+      html = html_response(get(conn, ~p"/feedback/#{post.slug}"), 200)
+
+      assert html =~ "data-testid=\"post-tags\""
+      assert html =~ "data-testid=\"feedback-tag-link\""
+      assert html =~ "href=\"/feedback?tag=kavita\""
+    end
+
+    test "a tag whose slug matches a catalog app renders the /apps cross-link", %{conn: conn} do
+      catalog_app!("kavita")
+      kavita = tag!(%{name: "Kavita", slug: "kavita"})
+      post = post!(%{title: "Cross-link request", description: "x"})
+      tag_post!(post, [kavita])
+
+      html = html_response(get(conn, ~p"/feedback/#{post.slug}"), 200)
+
+      assert html =~ "data-testid=\"feedback-app-link\""
+      assert html =~ "href=\"/apps/kavita\""
+      assert html =~ "Kavita in the app catalog"
+    end
+
+    test "a tag with no catalog match renders no cross-link", %{conn: conn} do
+      platform = tag!(%{name: "Platform", slug: "platform"})
+      post = post!(%{title: "No cross-link request", description: "x"})
+      tag_post!(post, [platform])
+
+      html = html_response(get(conn, ~p"/feedback/#{post.slug}"), 200)
+
+      assert html =~ "Platform"
+      refute html =~ "data-testid=\"feedback-app-link\""
+    end
+
+    test "an untagged post renders no chips at all", %{conn: conn} do
+      post = post!(%{title: "Bare post request", description: "x"})
+
+      html = html_response(get(conn, ~p"/feedback/#{post.slug}"), 200)
+
+      refute html =~ "data-testid=\"post-tags\""
+      refute html =~ "data-testid=\"feedback-tag-link\""
+    end
+  end
 end

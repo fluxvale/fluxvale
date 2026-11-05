@@ -5,10 +5,13 @@ defmodule FluxVale.TestSupport.FeedbackFixtures do
   the admin actor (org + creator derive from it, mirroring seeds); status
   moves run the action under the actor. Counters have no minting slice
   yet, so they ride forced attribute changes (states actions cannot
-  produce, the seed posture).
+  produce, the seed posture). Tags (T10) run the admin-gated actions —
+  the vocabulary and the tagging are both moderation, the gate is the
+  tests' business where it is asserted.
   """
 
   alias FluxVale.Feedback.Post
+  alias FluxVale.Feedback.Tag
   alias FluxVale.TestSupport.AccountsFixtures
 
   @doc "A post born open (unless attrs carry overrides)."
@@ -51,6 +54,23 @@ defmodule FluxVale.TestSupport.FeedbackFixtures do
     |> Ash.Changeset.for_update(:update, %{}, authorize?: false)
     |> Ash.Changeset.force_change_attribute(:status_changed_at, changed_at)
     |> Ash.update!(authorize?: false)
+  end
+
+  @doc """
+  A curated tag (T10). Defaults derive a unique name so suites stay
+  independent; the slug derives from it. The create runs `authorize?:
+  false` — precondition, mirroring seeds (the gate itself is asserted
+  in TagTest).
+  """
+  def tag!(attrs \\ %{}) do
+    defaults = %{name: "Tag #{System.unique_integer([:positive])}"}
+    Tag.create!(Map.merge(defaults, attrs), actor: admin(), authorize?: false)
+  end
+
+  @doc "Tags a post through the moderation action (admin actor)."
+  def tag_post!(post, tags) do
+    tag_ids = Enum.map(tags, & &1.id)
+    Post.set_tags!(post, %{tag_ids: tag_ids}, actor: admin())
   end
 
   defp admin, do: AccountsFixtures.platform_admin!()

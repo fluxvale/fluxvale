@@ -11,7 +11,8 @@ defmodule FluxVale.Feedback.Post do
   public URL stem, derived from the title at create and immutable after
   (ADR-0026 §4). `vote_count` is the cached counter the votes slice
   maintains (`Feedback.Vote`); `comment_count` stays a column until the
-  comments slice.
+  comments slice. `tags` is the curated topical vocabulary (T10,
+  `Feedback.Tag`), written only through the `:set_tags` moderation action.
   """
 
   use Ash.Resource,
@@ -190,6 +191,20 @@ defmodule FluxVale.Feedback.Post do
     belongs_to :duplicate_of, FluxVale.Feedback.Post do
       public?(true)
     end
+
+    # The topical vocabulary (T10): the join rows, then the read-side
+    # many-to-many the board and the post page load. Written only
+    # through :set_tags below (moderation).
+    has_many :post_tags, FluxVale.Feedback.PostTag do
+      public?(true)
+    end
+
+    many_to_many :tags, FluxVale.Feedback.Tag do
+      through(FluxVale.Feedback.PostTag)
+      public?(true)
+      # Chip order is display order — alphabetical, everywhere.
+      sort(name: :asc)
+    end
   end
 
   actions do
@@ -240,6 +255,27 @@ defmodule FluxVale.Feedback.Post do
       change(AuthorStatusMail)
     end
 
+    update :set_tags do
+      description("Moderation: replace the post's topical tags (T10)")
+
+      # Tag ids, the curated vocabulary's identities — a dedicated
+      # moderation action (one concern per action, the :set_status
+      # shape), NOT an accepted field on :update: content edits and
+      # tagging stay apart. append_and_remove makes the list the whole
+      # truth: tags absent from it are untagged. Unknown ids fail the
+      # write loudly (manage_relationship resolves each against Tag).
+      # KNOWN GAP: no audit trail — unlike :set_status's stamps, WHO
+      # tagged and WHEN is unrecorded. Revisit the day tag changes need
+      # attribution (the join's created_at is its only trace today).
+      argument(:tag_ids, {:array, :uuid}, allow_nil?: false, default: [])
+      change(manage_relationship(:tag_ids, :tags, type: :append_and_remove))
+
+      # manage_relationship drives join-row creates/destroys — Ash
+      # cannot run it atomically; a single-row admin write, the trade
+      # :set_status makes.
+      require_atomic?(false)
+    end
+
     destroy :destroy do
       primary?(true)
 
@@ -258,6 +294,7 @@ defmodule FluxVale.Feedback.Post do
     define(:create)
     define(:update)
     define(:set_status)
+    define(:set_tags)
   end
 
   identities do

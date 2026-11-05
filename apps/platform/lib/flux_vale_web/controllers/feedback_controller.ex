@@ -9,13 +9,18 @@ defmodule FluxValeWeb.FeedbackController do
   read-only — no vote button, no comment form, no composer. The
   interactive layer mounts on these same pages in a later slice.
 
-  Board view state rides query params (sort, status filter, page), so
-  the canonical URL stays the bare `/feedback` for every view.
+  Board view state rides query params (sort, status filter, tag filter,
+  page), and every board control — the sort tabs, the status and tag
+  chips, the pager — carries the whole view state, so flipping one never
+  silently drops the others. The canonical URL stays the bare `/feedback`
+  for every view.
   """
 
   use FluxValeWeb, :controller
 
+  alias FluxVale.Catalog.App
   alias FluxVale.Feedback.Post
+  alias FluxVale.Feedback.Tag
 
   # The filter DSL is a macro (the sanctioned require, as in Seeds).
   require Ash.Query
@@ -40,6 +45,7 @@ defmodule FluxValeWeb.FeedbackController do
   def index(conn, params) do
     sort = sort(params)
     status = status_filter(params)
+    tag = tag_filter(params)
 
     page =
       params
@@ -50,6 +56,7 @@ defmodule FluxValeWeb.FeedbackController do
       Post
       |> Ash.Query.for_read(:read, %{}, actor: nil)
       |> status_scope(status)
+      |> tag_scope(tag)
 
     total = Ash.count!(filtered, actor: nil)
 
@@ -61,6 +68,9 @@ defmodule FluxValeWeb.FeedbackController do
       |> Ash.Query.offset((page - 1) * @page_size)
       |> Ash.Query.limit(@page_size)
       |> Ash.read!(actor: nil)
+      # The rows' tag chips render with them (one batched load, not one
+      # query per row).
+      |> Ash.load!(:tags, actor: nil)
 
     conn
     |> assign(:page_title, "Feedback · FluxVale")
@@ -69,13 +79,16 @@ defmodule FluxValeWeb.FeedbackController do
     |> assign(:posts, posts)
     |> assign(:sort, sort)
     |> assign(:status, status)
+    |> assign(:tag, tag)
+    |> assign(:tags_in_use, tags_in_use())
     |> assign(:page, page)
     |> assign(:total_pages, max(page_count(total), 1))
     |> render(:index)
   end
 
   # The roadmap (T9): a VIEW over post statuses, no new domain
-  # machinery. One read feeds all three columns.
+  # machinery. One read feeds all three columns. The rows' tag chips
+  # render with them (T10, one batched load).
   def roadmap(conn, _params) do
     columns =
       Post
@@ -86,6 +99,7 @@ defmodule FluxValeWeb.FeedbackController do
       # Revisit at growth (per-column pagination or a display cap), the
       # sitemap's marker posture.
       |> Ash.read!(actor: nil)
+      |> Ash.load!(:tags, actor: nil)
       |> roadmap_columns()
 
     conn
@@ -153,13 +167,11 @@ defmodule FluxValeWeb.FeedbackController do
   defp status_scope(query, nil), do: Ash.Query.filter(query, status != :duplicate)
   defp status_scope(query, status), do: Ash.Query.filter(query, status == ^status)
 
-  # top: votes win, then fresher first on ties (the DEFAULT view).
-  # new: pure recency.
-  defp sort_order("new"), do: [created_at: :desc]
-  defp sort_order(_top), do: [vote_count: :desc, created_at: :desc]
+  # The tag filter (T10) narrows to posts carrying the tag (exists
+  # semantics across the many-to-many). A nil tag filters nothing.
+  defp tag_scope(query, nil), do: query
 
-  defp sort(%{"sort" => sort}) when sort in @sorts, do: sort
-  defp sort(_params), do: "top"
+  defp tag_scope(query, tag), do: Ash.Query.filter(query, tags.slug == ^tag.slug)
 
   # Declared atoms only — the list comes from the resource (the single
   # source the HTML module derives from too), and the declared list is
@@ -170,6 +182,38 @@ defmodule FluxValeWeb.FeedbackController do
   end
 
   defp status_filter(_params), do: nil
+
+  # The tag chip's subject: the tag row for a known slug, nil otherwise.
+  # The fallback is the status filter's honest fallback — an unknown
+  # ?tag= reads as the unfiltered board, never an error and never a
+  # lying empty view. A list/map-shaped param is not a slug either.
+  defp tag_filter(%{"tag" => raw}) when is_binary(raw) do
+    case Tag.get_by_slug(raw, actor: nil) do
+      {:ok, tag} -> tag
+      {:error, _not_found} -> nil
+    end
+  end
+
+  defp tag_filter(_params), do: nil
+
+  # The chip set lists tags in use: at least one pairing row exists
+  # (exists(post_tags, true) — a join row is the pairing). Pairings on
+  # duplicates count: the duplicate chip combines with the tag filter,
+  # and their pages render their chips too.
+  defp tags_in_use do
+    Tag
+    |> Ash.Query.filter(exists(post_tags, true))
+    |> Ash.Query.sort(name: :asc)
+    |> Ash.read!(actor: nil)
+  end
+
+  # top: votes win, then fresher first on ties (the DEFAULT view).
+  # new: pure recency.
+  defp sort_order("new"), do: [created_at: :desc]
+  defp sort_order(_top), do: [vote_count: :desc, created_at: :desc]
+
+  defp sort(%{"sort" => sort}) when sort in @sorts, do: sort
+  defp sort(_params), do: "top"
 
   defp page_number(%{"page" => raw}) when is_binary(raw) do
     case Integer.parse(raw) do
@@ -192,15 +236,15 @@ defmodule FluxValeWeb.FeedbackController do
   end
 
   defp render_post(conn, post) do
-    # The merged-into banner is the only relationship this page renders:
-    # a duplicate loads its original (title + slug). The organization is
-    # NOT loaded — Organization reads are members-only (its read policy),
-    # so there is no public attribution shape this slice could render.
+    # The merged-into banner is the duplicate's one relationship (title +
+    # slug); both views load the tags (T10). The organization is NOT
+    # loaded — Organization reads are members-only (its read policy), so
+    # there is no public attribution shape this slice could render.
     post =
       if post.status == :duplicate do
-        Ash.load!(post, :duplicate_of, actor: nil)
+        Ash.load!(post, [:duplicate_of, :tags], actor: nil)
       else
-        post
+        Ash.load!(post, :tags, actor: nil)
       end
 
     conn
@@ -208,7 +252,25 @@ defmodule FluxValeWeb.FeedbackController do
     |> assign(:page_description, meta_description(post.description))
     |> assign(:canonical_path, "/feedback/#{post.slug}")
     |> assign(:post, post)
+    |> assign(:app_slugs, catalog_app_slugs(post.tags))
     |> render(:show)
+  end
+
+  # The cross-link convention (T10): a tag whose slug matches a catalog
+  # app's slug renders the /apps/:slug link. One targeted query against
+  # the catalog for exactly the post's tag slugs — the catalog is small
+  # and its reads are public (the App resource's posture).
+  defp catalog_app_slugs(tags) do
+    case Enum.map(tags, & &1.slug) do
+      [] ->
+        MapSet.new()
+
+      slugs ->
+        App
+        |> Ash.Query.filter(slug in ^slugs)
+        |> Ash.read!(actor: nil)
+        |> MapSet.new(& &1.slug)
+    end
   end
 
   # The body is plain text (max 5000); the meta description is its head

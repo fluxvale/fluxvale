@@ -1,8 +1,8 @@
-<%!-- Board index (#412 T4): the public feature-request list on the
-public chrome — sort tabs, status filter chips, one linked row per
-post, offset pager. Read-only by design this slice: no composer, no
-vote buttons (the interactive layer mounts in a later slice; these
-pages must look finished as they are). --%>
+<%!-- Board index (#412 T4, tags T10): the public feature-request list on the
+public chrome — sort tabs, status and tag filter chips, one linked row per
+post with its tag chips, offset pager. Read-only by design this slice: no
+composer, no vote buttons (the interactive layer mounts in a later slice;
+these pages must look finished as they are). --%>
 <Layouts.public flash={@flash} current_user={@current_user}>
   <div class="space-y-8">
     <.header>
@@ -19,9 +19,12 @@ pages must look finished as they are). --%>
     </.header>
 
     <div class="space-y-3">
+      <%!-- Every control carries the whole view state: a flip of sort or
+      status keeps an active tag filter (and the tag chips keep
+      sort/status), so a filtered view never silently resets. --%>
       <div class="flex items-center gap-1 rounded-control border border-line bg-panel p-1 text-sm">
         <.link
-          href={board_href("top", @status, 1)}
+          href={board_href("top", @status, 1, @tag && @tag.slug)}
           aria-current={@sort == "top" && "page"}
           class={[
             "rounded-[calc(var(--radius-control)-0.25rem)] px-3 py-1.5 font-medium transition-colors duration-(--motion-fast)",
@@ -32,7 +35,7 @@ pages must look finished as they are). --%>
           Top
         </.link>
         <.link
-          href={board_href("new", @status, 1)}
+          href={board_href("new", @status, 1, @tag && @tag.slug)}
           aria-current={@sort == "new" && "page"}
           class={[
             "rounded-[calc(var(--radius-control)-0.25rem)] px-3 py-1.5 font-medium transition-colors duration-(--motion-fast)",
@@ -46,7 +49,7 @@ pages must look finished as they are). --%>
 
       <div class="flex flex-wrap items-center gap-2" aria-label="Filter by status">
         <.link
-          href={board_href(@sort, nil, 1)}
+          href={board_href(@sort, nil, 1, @tag && @tag.slug)}
           aria-current={is_nil(@status) && "true"}
           class={[
             "rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-(--motion-fast)",
@@ -58,7 +61,7 @@ pages must look finished as they are). --%>
         </.link>
         <.link
           :for={status <- status_options()}
-          href={board_href(@sort, status, 1)}
+          href={board_href(@sort, status, 1, @tag && @tag.slug)}
           aria-current={@status == status && "true"}
           class={[
             "rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-(--motion-fast)",
@@ -67,6 +70,38 @@ pages must look finished as they are). --%>
           ]}
         >
           {status_label(status)}
+        </.link>
+      </div>
+
+      <%!-- The tag filter (T10) rides the same view state: chips list the
+      tags in use, an active chip toggles off, and sort/status ride
+      along (the other controls carry the tag in turn). Hidden until at
+      least one post is tagged (prod launches with an empty vocabulary
+      and nothing to show). --%>
+      <div
+        :if={@tags_in_use != []}
+        class="flex flex-wrap items-center gap-2"
+        aria-label="Filter by tag"
+      >
+        <.link
+          :for={tag <- @tags_in_use}
+          href={
+            board_href(
+              @sort,
+              @status,
+              1,
+              if(tag_chip_active?(tag, @tag), do: nil, else: tag.slug)
+            )
+          }
+          aria-current={tag_chip_active?(tag, @tag) && "true"}
+          data-testid={"feedback-tag-chip-#{tag.slug}"}
+          class={[
+            "rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-(--motion-fast)",
+            tag_chip_active?(tag, @tag) && "border-primary/25 bg-primary-muted text-link",
+            !tag_chip_active?(tag, @tag) && "border-line bg-panel text-ink-muted hover:text-ink"
+          ]}
+        >
+          {tag.name}
         </.link>
       </div>
     </div>
@@ -96,15 +131,20 @@ pages must look finished as they are). --%>
             {count_label(post.comment_count, "comment")}
           </span>
         </div>
+        <%!-- Display-only chips (T10): the row is one link, so these stay
+        plain spans here and link only on the post page. --%>
+        <div :if={post.tags != []} class="mt-2 flex flex-wrap items-center gap-1.5">
+          <.feedback_tag_chip :for={tag <- post.tags} tag={tag} />
+        </div>
       </.link>
     </div>
 
-    <.empty_state :if={@posts == []} title={empty_title(@status)} />
+    <.empty_state :if={@posts == []} title={empty_title(@status, @tag)} />
 
     <nav :if={@total_pages > 1} aria-label="Pagination" class="flex items-center justify-between">
       <.link
         :if={@page > 1}
-        href={board_href(@sort, @status, @page - 1)}
+        href={board_href(@sort, @status, @page - 1, @tag && @tag.slug)}
         class="text-sm font-medium text-link hover:underline"
       >
         &larr; Previous
@@ -112,7 +152,7 @@ pages must look finished as they are). --%>
       <span class="text-sm text-ink-muted">Page {@page} of {@total_pages}</span>
       <.link
         :if={@page < @total_pages}
-        href={board_href(@sort, @status, @page + 1)}
+        href={board_href(@sort, @status, @page + 1, @tag && @tag.slug)}
         class="text-sm font-medium text-link hover:underline"
       >
         Next &rarr;

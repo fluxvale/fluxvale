@@ -2,9 +2,9 @@
 statuses — three Fider-style columns (Planned, Started, Completed) on
 the public chrome. No new domain machinery: open, declined and
 duplicate posts never render (duplicates fold into their originals'
-presence), and there are no tag chips yet (the tags slice adds them
-later). Static like the board — crawlers get the full document with
-zero JS. --%>
+presence), and each item carries its tag chips (T10, display only —
+the row is one link). Static like the board — crawlers get the full
+document with zero JS. --%>
 <Layouts.public flash={@flash} current_user={@current_user}>
   <div class="space-y-8">
     <.header>
@@ -56,6 +56,11 @@ zero JS. --%>
                 <.icon name="hero-chat-bubble-oval-left-ellipsis" class="size-3.5" />
                 {count_label(post.comment_count, "comment")}
               </span>
+            </div>
+            <%!-- Tag chips (T10), the board rows' shape: display only, the
+            item is one link to the post page (where chips link). --%>
+            <div :if={post.tags != []} class="mt-2 flex flex-wrap items-center gap-1.5">
+              <.feedback_tag_chip :for={tag <- post.tags} tag={tag} />
             </div>
           </.link>
 
