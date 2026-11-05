@@ -3,11 +3,13 @@ defmodule FluxVale.TestSupport.FeedbackFixtures do
   Preconditions for the board-surface tests (#412 T4): posts built
   through the resource's actions — creates run `authorize?: false` with
   the admin actor (org + creator derive from it, mirroring seeds); status
-  moves run the action under the actor. Counters have no minting slice
-  yet, so they ride forced attribute changes (states actions cannot
-  produce, the seed posture). Tags (T10) run the admin-gated actions —
-  the vocabulary and the tagging are both moderation, the gate is the
-  tests' business where it is asserted.
+  moves run the action under the actor. Counters ride forced attribute
+  changes (states actions cannot produce, the seed posture) — since #471
+  the seed mints real Vote/Comment rows and converges counters from
+  them, so a fabricated counter here is exactly the drift that seed run
+  heals. Tags (T10) run the admin-gated actions — the vocabulary and the
+  tagging are both moderation, the gate is the tests' business where it
+  is asserted.
   """
 
   alias FluxVale.Feedback.Post
@@ -35,7 +37,7 @@ defmodule FluxVale.TestSupport.FeedbackFixtures do
     Post.set_status!(post, args, actor: admin())
   end
 
-  @doc "Fabricates the cached counters (no minting slice yet)."
+  @doc "Fabricates the cached counters (the drift the seed run heals)."
   def set_counters!(post, votes, comments) do
     post
     |> Ash.Changeset.for_update(:update, %{}, authorize?: false)
