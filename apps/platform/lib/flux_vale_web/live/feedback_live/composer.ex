@@ -206,7 +206,7 @@ defmodule FluxValeWeb.FeedbackLive.Composer do
       )
 
     ~H"""
-    <Layouts.public flash={@flash} current_user={@user}>
+    <Layouts.public flash={@flash} current_user={@user} return_to="/feedback/new">
       <article class="mx-auto w-full max-w-2xl">
         <.button variant="ghost" size="sm" navigate={~p"/feedback"} class="-ml-2 mb-4">
           &larr; Feedback

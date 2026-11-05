@@ -24,17 +24,18 @@ defmodule FluxValeWeb.ReturnPath do
   parser, #462 review). Any scheme (`https://…`, `javascript:…`) fails
   the leading-slash check outright.
 
-  The trailing `String.contains?/2` arm mirrors Phoenix's own
-  `redirect(to:)` validator (`@invalid_local_url_chars`): a backslash
-  anywhere, or a `/%09`/tab-after-slash substring, would pass this
-  guard and then raise in the redirect — this predicate must be
-  *sufficient*, not just necessary.
+  The trailing `String.contains?/2` arms mirror the validators this
+  value meets downstream: a backslash anywhere, or a `/%09`/tab-after-
+  slash substring, would raise in Phoenix's `redirect(to:)`; a newline
+  or carriage return raises in Plug's header write. This predicate must
+  be *sufficient*, not just necessary — anything it admits, the
+  redirect chain accepts.
   """
   @spec local?(term()) :: boolean()
   def local?(path) when is_binary(path) do
     String.starts_with?(path, "/") and not String.starts_with?(path, "//") and
       not String.starts_with?(path, "/\\") and
-      not String.contains?(path, ["\\", "/%09", "/\t"])
+      not String.contains?(path, ["\\", "/%09", "/\t", "\n", "\r"])
   end
 
   def local?(_path), do: false

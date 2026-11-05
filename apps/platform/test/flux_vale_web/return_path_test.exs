@@ -35,6 +35,10 @@ defmodule FluxValeWeb.ReturnPathTest do
       refute FluxValeWeb.ReturnPath.local?("/feedback/a\\b")
       refute FluxValeWeb.ReturnPath.local?("/x/%09y")
       refute FluxValeWeb.ReturnPath.local?("/x/\ty")
+      # newline shapes Plug's header write raises on (#462 CodeRabbit
+      # round): same sufficiency rule
+      refute FluxValeWeb.ReturnPath.local?("/feedback\nx")
+      refute FluxValeWeb.ReturnPath.local?("/feedback\rx")
       # absolute schemes, http and beyond
       refute FluxValeWeb.ReturnPath.local?("https://evil.com")
       refute FluxValeWeb.ReturnPath.local?("http://evil.com/phish")

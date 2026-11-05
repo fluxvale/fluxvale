@@ -137,12 +137,12 @@ defmodule FluxValeWeb.SessionControllerTest do
 
     test "a crafted external return_to is refused and falls back to the default landing" do
       # The shapes the guard exists for: protocol-relative, its
-      # backslash twin, a mid-string backslash (Phoenix's redirect
-      # would raise on it — the guard refuses first), and an absolute
-      # scheme.
+      # backslash twins (leading and mid-string), a newline (Plug's
+      # header write would raise), and an absolute scheme.
       assert signed_in_redirect(build_conn(), %{"return_to" => "//evil.com"}) == ~p"/"
       assert signed_in_redirect(build_conn(), %{"return_to" => "/\\evil.com"}) == ~p"/"
       assert signed_in_redirect(build_conn(), %{"return_to" => "/feedback/a\\b"}) == ~p"/"
+      assert signed_in_redirect(build_conn(), %{"return_to" => "/feedback\nx"}) == ~p"/"
       assert signed_in_redirect(build_conn(), %{"return_to" => "https://evil.com"}) == ~p"/"
     end
 

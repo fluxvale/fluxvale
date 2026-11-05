@@ -37,7 +37,15 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
 
     socket =
       socket
-      |> assign(user: user, post: post, form: form_for(user))
+      |> assign(
+        user: user,
+        post: post,
+        # The SSR request's own return path (#462 review): keeps the
+        # query the page was loaded with, so the CTA returns to the
+        # URL the visitor was reading, not just the path.
+        return_to: ReturnPath.safe(session["return_to"]),
+        form: form_for(user)
+      )
       |> stream_initial(post)
 
     {:ok, socket}
@@ -113,7 +121,7 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
   def render(assigns) do
     # #462: the CTA's sign-in link carries the post page back through
     # sign-in — precomputed so the guard stays in ReturnPath.
-    assigns = assign(assigns, sign_in_href: sign_in_href(assigns.post))
+    assigns = assign(assigns, sign_in_href: sign_in_href(assigns))
 
     ~H"""
     <section :if={@post} id="comments-island" data-testid="comments-island" class="mt-10">
@@ -209,15 +217,15 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
     |> to_form()
   end
 
-  # The section renders only with a post (the :if guard), so the CTA's
-  # return target is the post page itself (#462). The nil arm is dead
-  # weight like the vote island's — render still evaluates the assign
-  # when a post vanished between the SSR load and the connect.
-  defp sign_in_href(nil), do: ReturnPath.sign_in_path(nil)
+  # The CTA returns to the page the visitor was reading: the SSR
+  # request's own path (query included) when the session carried it,
+  # else the post path built from the slug. Both ride the shared guard.
+  defp sign_in_href(%{return_to: nil, post: nil}), do: ReturnPath.sign_in_path(nil)
 
-  defp sign_in_href(post) do
-    ReturnPath.sign_in_path(~p"/feedback/#{post.slug}")
-  end
+  defp sign_in_href(%{return_to: nil, post: post}),
+    do: ReturnPath.sign_in_path(~p"/feedback/#{post.slug}")
+
+  defp sign_in_href(%{return_to: return_to}), do: ReturnPath.sign_in_path(return_to)
 
   defp post_by_slug(slug) when is_binary(slug) do
     result =

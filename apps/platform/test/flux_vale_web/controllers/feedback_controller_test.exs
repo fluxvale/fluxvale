@@ -333,6 +333,22 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       assert html =~ ~s(href="/sign-in?return_to=%2Ffeedback%2F#{post.slug}")
     end
 
+    # #462 CodeRabbit round: a query-bearing page load keeps its query
+    # through every sign-in link on the page (chrome and both islands
+    # ride MaybeResolveUser's assign), so both links return the visitor
+    # to the same URL instead of forking on the query.
+    test "a query-bearing post page keeps the query in every sign-in link", %{conn: conn} do
+      post = post!()
+
+      html = html_response(get(conn, "/feedback/#{post.slug}?utm_source=test"), 200)
+
+      target = "href=\"/sign-in?return_to=%2Ffeedback%2F#{post.slug}%3Futm_source%3Dtest\""
+      assert html =~ target
+      # chrome + vote island + comments island: the same return target
+      matches = :binary.matches(html, target)
+      assert length(matches) >= 3
+    end
+
     test "an unknown slug is a real 404", %{conn: conn} do
       conn = get(conn, ~p"/feedback/no-such-request")
 

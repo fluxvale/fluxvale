@@ -438,7 +438,7 @@ msgid_plural "%{count} votes"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:157
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:165
 #, elixir-autogen, elixir-format
 msgid "Add a comment"
 msgstr ""
@@ -448,18 +448,18 @@ msgstr ""
 msgid "Already posted?"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:158
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:166
 #, elixir-autogen, elixir-format
 msgid "Be kind and stay on topic."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:157
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:161
 #, elixir-autogen, elixir-format
 msgid "Cast vote"
 msgstr ""
 
 #: lib/flux_vale_web/live/feedback_live/composer.ex:309
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:211
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:215
 #, elixir-autogen, elixir-format
 msgid "Create an organization"
 msgstr ""
@@ -469,7 +469,7 @@ msgstr ""
 msgid "Description"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:126
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:134
 #, elixir-autogen, elixir-format
 msgid "No comments yet."
 msgstr ""
@@ -490,7 +490,7 @@ msgstr ""
 msgid "Post as"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:164
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:172
 #, elixir-autogen, elixir-format
 msgid "Post comment"
 msgstr ""
@@ -511,7 +511,7 @@ msgstr ""
 msgid "Posting needs an org you own."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:163
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:171
 #: lib/flux_vale_web/live/feedback_live/composer.ex:336
 #, elixir-autogen, elixir-format
 msgid "Posting…"
@@ -522,12 +522,12 @@ msgstr ""
 msgid "Request posted."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:157
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:161
 #, elixir-autogen, elixir-format
 msgid "Retract vote"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:158
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:162
 #, elixir-autogen, elixir-format
 msgid "Saving…"
 msgstr ""
@@ -537,7 +537,7 @@ msgstr ""
 msgid "Short and specific wins the most votes."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:175
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:183
 #, elixir-autogen, elixir-format
 msgid "Sign in to comment"
 msgstr ""
@@ -547,7 +547,7 @@ msgstr ""
 msgid "Sign in to post a request."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:146
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:150
 #, elixir-autogen, elixir-format
 msgid "Sign in to vote"
 msgstr ""
@@ -567,32 +567,32 @@ msgstr ""
 msgid "Top up %{org} to post"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:350
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:358
 #, elixir-autogen, elixir-format
 msgid "Top up %{org} to vote"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:179
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:183
 #, elixir-autogen, elixir-format
 msgid "Vote as"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:347
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:355
 #, elixir-autogen, elixir-format
 msgid "Vote as %{org}"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:348
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:356
 #, elixir-autogen, elixir-format
 msgid "Voted as %{org}"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:217
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:221
 #, elixir-autogen, elixir-format
 msgid "Voting needs a paid org."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:205
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:209
 #, elixir-autogen, elixir-format
 msgid "Voting needs an org you own."
 msgstr ""
@@ -602,7 +602,7 @@ msgstr ""
 msgid "What should happen, and why it matters."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:114
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:118
 #, elixir-autogen, elixir-format
 msgid "Your vote didn't go through. Try again."
 msgstr ""
