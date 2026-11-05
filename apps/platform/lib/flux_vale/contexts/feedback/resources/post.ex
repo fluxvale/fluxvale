@@ -264,6 +264,9 @@ defmodule FluxVale.Feedback.Post do
       # tagging stay apart. append_and_remove makes the list the whole
       # truth: tags absent from it are untagged. Unknown ids fail the
       # write loudly (manage_relationship resolves each against Tag).
+      # KNOWN GAP: no audit trail — unlike :set_status's stamps, WHO
+      # tagged and WHEN is unrecorded. Revisit the day tag changes need
+      # attribution (the join's created_at is its only trace today).
       argument(:tag_ids, {:array, :uuid}, allow_nil?: false, default: [])
       change(manage_relationship(:tag_ids, :tags, type: :append_and_remove))
 

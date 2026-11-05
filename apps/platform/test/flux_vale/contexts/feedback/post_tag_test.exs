@@ -112,6 +112,29 @@ defmodule FluxVale.Feedback.PostTagTest do
 
       assert tagged.tags == []
     end
+
+    test "duplicate ids in one call are refused field-scoped, nothing written" do
+      # manage_relationship does not dedupe its input: the second
+      # identical id collides the join's unique identity and the write
+      # answers field-scoped on the pairing, with no rows written. The
+      # action is the whole-truth replace, so the caller re-sends the
+      # deduped list.
+      platform = tag!(%{name: "Platform", slug: "platform"})
+      kavita = tag!(%{name: "Kavita", slug: "kavita"})
+      post = post!()
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               Post.set_tags(post, %{tag_ids: [platform.id, kavita.id, platform.id]},
+                 actor: AccountsFixtures.platform_admin!()
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :post_id and &1.message == "has already been taken")
+             )
+
+      assert {:ok, []} = Ash.read(PostTag, authorize?: false)
+    end
   end
 
   describe "join uniqueness" do

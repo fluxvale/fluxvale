@@ -473,6 +473,25 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       assert position(html, "Shipped last week") < position(html, "Shipped long ago")
     end
 
+    test "items carry their tag chips (display only, the item is one link)", %{conn: conn} do
+      platform = tag!(%{name: "Platform", slug: "platform"})
+      plain = post!(%{title: "Roadmap plain item", description: "x"})
+      tagged = post!(%{title: "Roadmap tagged item", description: "x"})
+      tag_post!(tagged, [platform])
+      move_status!(plain, :planned)
+      move_status!(tagged, :planned)
+
+      html = html_response(get(conn, ~p"/roadmap"), 200)
+
+      assert html =~ "Roadmap tagged item"
+      assert html =~ "data-testid=\"feedback-tag\""
+      assert html =~ "Platform"
+
+      # The untagged item renders no chip block (its div is guarded).
+      assert html =~ "Roadmap plain item"
+      assert length(String.split(html, ~s(data-testid="feedback-tag"))) - 1 == 1
+    end
+
     test "a stamp-less started item falls back to its created age in the recency sort", %{
       conn: conn
     } do
@@ -553,6 +572,7 @@ defmodule FluxValeWeb.FeedbackControllerTest do
   defp hours_ago(hours), do: DateTime.add(DateTime.utc_now(), -hours * 3_600, :second)
 
   defp days_ago(days), do: DateTime.add(DateTime.utc_now(), -days * 86_400, :second)
+
   describe "the tag filter (T10)" do
     test "the board renders the tags in use as filter chips", %{conn: conn} do
       platform = tag!(%{name: "Platform", slug: "platform"})
@@ -631,6 +651,58 @@ defmodule FluxValeWeb.FeedbackControllerTest do
 
       assert html =~ "Row chips request"
       assert html =~ "data-testid=\"feedback-tag\""
+    end
+
+    test "an active tag survives a sort flip", %{conn: conn} do
+      platform = tag!(%{name: "Platform", slug: "platform"})
+      tagged = post!(%{title: "Sort survival request", description: "x"})
+      tag_post!(tagged, [platform])
+
+      html = html_response(get(conn, ~p"/feedback?tag=platform"), 200)
+
+      # The sort tabs keep the filter (sort first, then the tag, in the
+      # stable param order — rendered HTML escapes the ampersand).
+      assert html =~ "href=\"/feedback?sort=new&amp;tag=platform\""
+      assert html =~ "href=\"/feedback?tag=platform\""
+    end
+
+    test "an active tag survives a status chip", %{conn: conn} do
+      platform = tag!(%{name: "Platform", slug: "platform"})
+      tagged = post!(%{title: "Status survival request", description: "x"})
+      tag_post!(tagged, [platform])
+
+      html = html_response(get(conn, ~p"/feedback?tag=platform"), 200)
+
+      # The All chip and each status chip keep the filter (the default
+      # sort collapses out of the query).
+      assert html =~ "href=\"/feedback?tag=platform\""
+      assert html =~ "href=\"/feedback?status=open&amp;tag=platform\""
+    end
+
+    test "an active tag survives the pager — page two stays filtered", %{conn: conn} do
+      platform = tag!(%{name: "Platform", slug: "platform"})
+
+      for n <- 1..21 do
+        tagged =
+          post!(%{title: "Paged tag request #{String.pad_leading(Integer.to_string(n), 3, "0")}"})
+
+        tag_post!(tagged, [platform])
+      end
+
+      untagged = post!(%{title: "Paged untagged request", description: "x"})
+
+      page_one = html_response(get(conn, ~p"/feedback?tag=platform"), 200)
+      assert page_one =~ "Page 1 of 2"
+      assert page_one =~ "href=\"/feedback?tag=platform&amp;page=2\""
+      refute page_one =~ "Paged untagged request"
+
+      # And the link's destination is still the filtered view.
+      page_two = html_response(get(conn, ~p"/feedback?tag=platform&page=2"), 200)
+      assert page_two =~ "Paged tag request 001"
+      refute page_two =~ "Paged untagged request"
+
+      assert html_response(get(conn, ~p"/feedback/#{untagged.slug}"), 200) =~
+               "Paged untagged request"
     end
 
     test "a huge page still clamps with the tag filter applied", %{conn: conn} do

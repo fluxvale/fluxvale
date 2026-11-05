@@ -10,7 +10,10 @@ defmodule FluxValeWeb.FeedbackController do
   interactive layer mounts on these same pages in a later slice.
 
   Board view state rides query params (sort, status filter, tag filter,
-  page), so the canonical URL stays the bare `/feedback` for every view.
+  page), and every board control — the sort tabs, the status and tag
+  chips, the pager — carries the whole view state, so flipping one never
+  silently drops the others. The canonical URL stays the bare `/feedback`
+  for every view.
   """
 
   use FluxValeWeb, :controller
@@ -84,7 +87,8 @@ defmodule FluxValeWeb.FeedbackController do
   end
 
   # The roadmap (T9): a VIEW over post statuses, no new domain
-  # machinery. One read feeds all three columns.
+  # machinery. One read feeds all three columns. The rows' tag chips
+  # render with them (T10, one batched load).
   def roadmap(conn, _params) do
     columns =
       Post
@@ -95,6 +99,7 @@ defmodule FluxValeWeb.FeedbackController do
       # Revisit at growth (per-column pagination or a display cap), the
       # sitemap's marker posture.
       |> Ash.read!(actor: nil)
+      |> Ash.load!(:tags, actor: nil)
       |> roadmap_columns()
 
     conn
@@ -191,13 +196,13 @@ defmodule FluxValeWeb.FeedbackController do
 
   defp tag_filter(_params), do: nil
 
-  # The chip set lists tags in use — at least one pairing. post_id is
-  # non-nullable, so the exists reads "at least one pairing". Pairings
-  # on duplicates count: the duplicate chip combines with the tag
-  # filter, and their pages render their chips too.
+  # The chip set lists tags in use: at least one pairing row exists
+  # (exists(post_tags, true) — a join row is the pairing). Pairings on
+  # duplicates count: the duplicate chip combines with the tag filter,
+  # and their pages render their chips too.
   defp tags_in_use do
     Tag
-    |> Ash.Query.filter(exists(post_tags, not is_nil(post_id)))
+    |> Ash.Query.filter(exists(post_tags, true))
     |> Ash.Query.sort(name: :asc)
     |> Ash.read!(actor: nil)
   end

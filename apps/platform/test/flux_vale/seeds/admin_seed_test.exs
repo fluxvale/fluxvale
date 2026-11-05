@@ -407,6 +407,17 @@ defmodule FluxVale.Seeds.AdminSeedTest do
                Post
                |> Ash.Query.filter(slug == "suspend-an-instance-from-the-cli")
                |> Ash.read_one(authorize?: false)
+
+      # The demo gate's pairings ride the same arm end-to-end (T10): the
+      # vocabulary seeded on the promotable path above, and the gated
+      # post carries its tag through seed/0 itself.
+      tagged =
+        Post
+        |> Ash.Query.filter(slug == "kavita-continue-reading-sync-across-devices")
+        |> Ash.read_one!(authorize?: false)
+        |> Ash.load!(:tags, authorize?: false)
+
+      assert Enum.map(tagged.tags, & &1.slug) == ["kavita"]
     end
 
     test "heals a pre-#119 admin through the promotable path" do

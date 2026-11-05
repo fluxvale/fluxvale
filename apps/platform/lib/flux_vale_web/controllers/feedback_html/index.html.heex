@@ -19,9 +19,12 @@ these pages must look finished as they are). --%>
     </.header>
 
     <div class="space-y-3">
+      <%!-- Every control carries the whole view state: a flip of sort or
+      status keeps an active tag filter (and the tag chips keep
+      sort/status), so a filtered view never silently resets. --%>
       <div class="flex items-center gap-1 rounded-control border border-line bg-panel p-1 text-sm">
         <.link
-          href={board_href("top", @status, 1)}
+          href={board_href("top", @status, 1, @tag && @tag.slug)}
           aria-current={@sort == "top" && "page"}
           class={[
             "rounded-[calc(var(--radius-control)-0.25rem)] px-3 py-1.5 font-medium transition-colors duration-(--motion-fast)",
@@ -32,7 +35,7 @@ these pages must look finished as they are). --%>
           Top
         </.link>
         <.link
-          href={board_href("new", @status, 1)}
+          href={board_href("new", @status, 1, @tag && @tag.slug)}
           aria-current={@sort == "new" && "page"}
           class={[
             "rounded-[calc(var(--radius-control)-0.25rem)] px-3 py-1.5 font-medium transition-colors duration-(--motion-fast)",
@@ -46,7 +49,7 @@ these pages must look finished as they are). --%>
 
       <div class="flex flex-wrap items-center gap-2" aria-label="Filter by status">
         <.link
-          href={board_href(@sort, nil, 1)}
+          href={board_href(@sort, nil, 1, @tag && @tag.slug)}
           aria-current={is_nil(@status) && "true"}
           class={[
             "rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-(--motion-fast)",
@@ -58,7 +61,7 @@ these pages must look finished as they are). --%>
         </.link>
         <.link
           :for={status <- status_options()}
-          href={board_href(@sort, status, 1)}
+          href={board_href(@sort, status, 1, @tag && @tag.slug)}
           aria-current={@status == status && "true"}
           class={[
             "rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-(--motion-fast)",
@@ -71,9 +74,10 @@ these pages must look finished as they are). --%>
       </div>
 
       <%!-- The tag filter (T10) rides the same view state: chips list the
-      tags in use, an active chip toggles off, the status filter rides
-      along. Hidden until at least one post is tagged (prod launches
-      with an empty vocabulary and nothing to show). --%>
+      tags in use, an active chip toggles off, and sort/status ride
+      along (the other controls carry the tag in turn). Hidden until at
+      least one post is tagged (prod launches with an empty vocabulary
+      and nothing to show). --%>
       <div
         :if={@tags_in_use != []}
         class="flex flex-wrap items-center gap-2"
@@ -140,7 +144,7 @@ these pages must look finished as they are). --%>
     <nav :if={@total_pages > 1} aria-label="Pagination" class="flex items-center justify-between">
       <.link
         :if={@page > 1}
-        href={board_href(@sort, @status, @page - 1)}
+        href={board_href(@sort, @status, @page - 1, @tag && @tag.slug)}
         class="text-sm font-medium text-link hover:underline"
       >
         &larr; Previous
@@ -148,7 +152,7 @@ these pages must look finished as they are). --%>
       <span class="text-sm text-ink-muted">Page {@page} of {@total_pages}</span>
       <.link
         :if={@page < @total_pages}
-        href={board_href(@sort, @status, @page + 1)}
+        href={board_href(@sort, @status, @page + 1, @tag && @tag.slug)}
         class="text-sm font-medium text-link hover:underline"
       >
         Next &rarr;
