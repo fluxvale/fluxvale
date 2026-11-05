@@ -73,6 +73,46 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
     assert {:ok, _user} = Identity.User.get_by_email(@email, authorize?: false)
   end
 
+  # #462: the return path's whole arc — link param in, POST body out,
+  # session write lands the visitor back on the page they left.
+  test "the return path rides the POST and lands back on the target", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/sign-in?return_to=/feedback/some-post")
+
+    view
+    |> form("#email-form", email: @email)
+    |> render_submit()
+
+    code = deliver_and_extract_code()
+
+    # The validated value is in the verify form's body, ready for the POST
+    assert has_element?(view, "input[name='return_to'][value='/feedback/some-post']")
+
+    code_form = form(view, "#code-form", code: code)
+    render_submit(code_form)
+
+    conn = follow_trigger_action(code_form, conn)
+    assert redirected_to(conn) == "/feedback/some-post"
+  end
+
+  test "an external return_to is dropped before the form renders it", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/sign-in?return_to=//evil.com")
+
+    view
+    |> form("#email-form", email: @email)
+    |> render_submit()
+
+    code = deliver_and_extract_code()
+
+    # Silent ignore: no hidden input, so the POST cannot carry it either
+    refute has_element?(view, "input[name='return_to']")
+
+    code_form = form(view, "#code-form", code: code)
+    render_submit(code_form)
+
+    conn = follow_trigger_action(code_form, conn)
+    assert redirected_to(conn) == ~p"/"
+  end
+
   test "wrong code shows a uniform error and stays on the code step", %{
     conn: conn
   } do

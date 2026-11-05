@@ -1,4 +1,4 @@
-<Layouts.public flash={@flash} current_user={@current_user}>
+<Layouts.public flash={@flash} current_user={@current_user} return_to={@return_to}>
   <%!-- #440: the calculator IS the pricing surface — resource sliders
   in, one curve-priced total out (PikaPods pattern). No sizes table, no
   tier labels: prices follow resources, and the same slider state costs
@@ -67,7 +67,12 @@
       </div>
       <div class="flex flex-wrap gap-3">
         <.button navigate={~p"/catalog"}>{gettext("Browse apps")}</.button>
-        <.button navigate={~p"/sign-in"} variant="ghost">{gettext("Get started")}</.button>
+        <%!-- #462: the anonymous funnel entry returns to /pricing after
+        sign-in, so the Get started tour resumes where it left off —
+        the same assign the chrome's sign-in links ride. --%>
+        <.button navigate={ReturnPath.sign_in_path(@return_to)} variant="ghost">
+          {gettext("Get started")}
+        </.button>
       </div>
     </.card>
   </div>

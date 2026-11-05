@@ -328,6 +328,9 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       assert html =~ "data-testid=\"comments-island\""
       assert html =~ "A pre-rendered comment"
       assert html =~ "data-testid=\"comment-sign-in\""
+
+      # #462: the chrome's sign-in links carry the post page back too
+      assert html =~ ~s(href="/sign-in?return_to=%2Ffeedback%2F#{post.slug}")
     end
 
     test "an unknown slug is a real 404", %{conn: conn} do

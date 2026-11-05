@@ -9,6 +9,9 @@ defmodule FluxValeWeb.PricingHTML do
   use FluxValeWeb, :html
 
   alias FluxVale.Pricing
+  # The template's Get started sign-in link builds through the shared
+  # return-path guard (#462)
+  alias FluxValeWeb.ReturnPath
 
   embed_templates("pricing_html/*")
 end

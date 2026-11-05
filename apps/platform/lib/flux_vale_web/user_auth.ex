@@ -17,9 +17,13 @@ defmodule FluxValeWeb.UserAuth do
   alias AshAuthentication.Plug.Helpers
   alias FluxVale.Identity.User
   alias FluxVale.Ops.AccessRules
+  alias FluxValeWeb.ReturnPath
 
   @doc """
   Resolves the session's user or halts with a redirect to /sign-in.
+  The redirect carries the request path as `return_to` (#462) so an
+  anonymous visitor hitting a gated route directly — the catalog's
+  deploy CTA, an invitation link — comes back after sign-in.
   """
   @spec on_mount(:ensure_authenticated, map(), map(), Phoenix.LiveView.Socket.t()) ::
           {:cont, Phoenix.LiveView.Socket.t()} | {:halt, Phoenix.LiveView.Socket.t()}
@@ -29,7 +33,22 @@ defmodule FluxValeWeb.UserAuth do
         {:cont, Phoenix.Component.assign(socket, :current_user, user)}
 
       nil ->
-        {:halt, Phoenix.LiveView.redirect(socket, to: ~p"/sign-in")}
+        {:halt,
+         Phoenix.LiveView.redirect(socket, to: ReturnPath.sign_in_path(request_path(socket)))}
+    end
+  end
+
+  # The return path rides only where the BEAM knows it: a static
+  # render's connect_info IS the request conn (the anonymous first GET
+  # — the case that matters, gated calls to action land here). A
+  # connected remount's connect_info is the transport socket, which
+  # carries no path — the tab's session lapsed mid-page, and sign-in's
+  # default landing is fine there.
+  defp request_path(socket) do
+    case socket.private[:connect_info] do
+      %Plug.Conn{request_path: path, query_string: ""} -> path
+      %Plug.Conn{request_path: path, query_string: query} -> path <> "?" <> query
+      _connect_info -> nil
     end
   end
 

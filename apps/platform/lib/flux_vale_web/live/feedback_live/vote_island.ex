@@ -30,6 +30,7 @@ defmodule FluxValeWeb.FeedbackLive.VoteIsland do
   alias FluxVale.Feedback.Vote
   alias FluxValeWeb.FeedbackLive.OrgChoice
   alias FluxValeWeb.Locale
+  alias FluxValeWeb.ReturnPath
   alias FluxValeWeb.UserAuth
 
   require Ash.Query
@@ -116,7 +117,13 @@ defmodule FluxValeWeb.FeedbackLive.VoteIsland do
 
   @impl Phoenix.LiveView
   def render(assigns) do
-    assigns = assign(assigns, selected_org: selected_org(assigns))
+    # #462: the anonymous CTA carries the post page back through
+    # sign-in — precomputed so the guard stays in ReturnPath.
+    assigns =
+      assign(assigns,
+        selected_org: selected_org(assigns),
+        sign_in_href: sign_in_href(assigns.post)
+      )
 
     ~H"""
     <div
@@ -132,7 +139,7 @@ defmodule FluxValeWeb.FeedbackLive.VoteIsland do
 
       <span :if={@gate == :anonymous}>
         <.link
-          href={~p"/sign-in"}
+          href={@sign_in_href}
           data-testid="vote-sign-in"
           class="text-sm font-medium text-link hover:underline"
         >
@@ -266,6 +273,14 @@ defmodule FluxValeWeb.FeedbackLive.VoteIsland do
       end
 
     assign(socket, selected_org_id: org_id, gate: gate, voted: voted)
+  end
+
+  # The island's div renders only with a post; the nil arm is the same
+  # dead weight select_org/2 carries — keeps the assigns total.
+  defp sign_in_href(nil), do: ReturnPath.sign_in_path(nil)
+
+  defp sign_in_href(post) do
+    ReturnPath.sign_in_path(~p"/feedback/#{post.slug}")
   end
 
   # The shared predicate — the same answer the actions' policies give;

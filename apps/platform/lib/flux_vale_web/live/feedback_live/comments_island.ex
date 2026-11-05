@@ -21,6 +21,7 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
   alias FluxVale.Feedback.Comment
   alias FluxVale.Feedback.Post
   alias FluxValeWeb.Locale
+  alias FluxValeWeb.ReturnPath
   alias FluxValeWeb.UserAuth
 
   require Ash.Query
@@ -110,6 +111,10 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
 
   @impl Phoenix.LiveView
   def render(assigns) do
+    # #462: the CTA's sign-in link carries the post page back through
+    # sign-in — precomputed so the guard stays in ReturnPath.
+    assigns = assign(assigns, sign_in_href: sign_in_href(assigns.post))
+
     ~H"""
     <section :if={@post} id="comments-island" data-testid="comments-island" class="mt-10">
       <h2 id="comments-count" class="text-lg font-semibold tracking-tight text-ink">
@@ -163,7 +168,7 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
 
       <p :if={is_nil(@user)} class="mt-6 text-sm text-ink-muted">
         <.link
-          href={~p"/sign-in"}
+          href={@sign_in_href}
           data-testid="comment-sign-in"
           class="font-medium text-link hover:underline"
         >
@@ -202,6 +207,16 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
     Comment
     |> AshPhoenix.Form.for_create(:create, actor: user, as: "comment")
     |> to_form()
+  end
+
+  # The section renders only with a post (the :if guard), so the CTA's
+  # return target is the post page itself (#462). The nil arm is dead
+  # weight like the vote island's — render still evaluates the assign
+  # when a post vanished between the SSR load and the connect.
+  defp sign_in_href(nil), do: ReturnPath.sign_in_path(nil)
+
+  defp sign_in_href(post) do
+    ReturnPath.sign_in_path(~p"/feedback/#{post.slug}")
   end
 
   defp post_by_slug(slug) when is_binary(slug) do

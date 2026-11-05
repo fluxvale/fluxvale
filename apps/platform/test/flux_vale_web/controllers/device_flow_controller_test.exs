@@ -308,7 +308,9 @@ defmodule FluxValeWeb.Api.DeviceFlowControllerTest do
     test "an anonymous visitor redirects to sign-in", %{conn: conn} do
       conn = get(conn, "/settings/access/device")
 
-      assert redirected_to(conn) == "/sign-in"
+      # #462: the return path lands verification back at the section
+      assert redirected_to(conn) ==
+               "/sign-in?return_to=%2Fsettings%2Faccess%23device-sign-ins"
     end
   end
 

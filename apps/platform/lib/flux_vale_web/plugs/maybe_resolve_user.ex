@@ -25,6 +25,22 @@ defmodule FluxValeWeb.Plugs.MaybeResolveUser do
     # public pages' pipeline, so it is fetched; it raises unfetched — the
     # pipeline order is part of this plug's contract).
     session = get_session(conn)
-    assign(conn, :current_user, UserAuth.resolve_user(session))
+
+    conn
+    |> assign(:current_user, UserAuth.resolve_user(session))
+    |> assign(:return_to, return_to(conn))
+  end
+
+  # The chrome's sign-in links hand this back through the sign-in flow
+  # as the return path (#462): the page the visitor was reading, query
+  # included (an invitation link keeps its token). Conn assigns merge
+  # into controller-render template assigns, so the public templates
+  # pass it into the layout. SessionController re-validates whatever a
+  # link carries — this assign only feeds our own link builder.
+  defp return_to(conn) do
+    case conn.query_string do
+      "" -> conn.request_path
+      query -> conn.request_path <> "?" <> query
+    end
   end
 end

@@ -4,7 +4,7 @@ merged-into banner. The interactive layer mounts as live_render islands
 (T5, ADR-0026 S4): the vote island (count + cast/retract) and the
 comments island (list + form) — both SSR their initial render, so the
 document stays crawlable. --%>
-<Layouts.public flash={@flash} current_user={@current_user}>
+<Layouts.public flash={@flash} current_user={@current_user} return_to={@return_to}>
   <article class="mx-auto w-full max-w-2xl">
     <.button variant="ghost" size="sm" navigate={~p"/feedback"} class="-ml-2 mb-4">
       &larr; Feedback

@@ -3,7 +3,7 @@ feature-request list on the public chrome — sort tabs, status and tag
 filter chips, one linked row per post with its tag chips, offset pager,
 and the header CTA into the composer (the islands slice; the composer
 itself carries the honest anonymous/gate states). --%>
-<Layouts.public flash={@flash} current_user={@current_user}>
+<Layouts.public flash={@flash} current_user={@current_user} return_to={@return_to}>
   <div class="space-y-8">
     <.header>
       Feedback

@@ -12,6 +12,10 @@ defmodule FluxValeWeb.Layouts do
   # and other static content.
   embed_templates("layouts/*")
 
+  # The chrome's sign-in links build through the shared return-path
+  # guard (#462)
+  alias FluxValeWeb.ReturnPath
+
   # Shared chrome pieces (header shell, footer) live here as private
   # components so `app/1` and `public/1` render the same frame — the
   # design system's single nav bar (#178).
@@ -53,6 +57,13 @@ defmodule FluxValeWeb.Layouts do
   # the first caller.
   attr(:current_org, :map, default: nil)
 
+  # #462: the sign-in return path — the anonymous chrome's sign-in
+  # links carry it so the visitor lands back on the page they read.
+  # The public SSR templates pass MaybeResolveUser's :return_to assign
+  # through; authenticated callers have no anonymous chrome and pass
+  # nothing (nil renders the plain links, byte-identical).
+  attr(:return_to, :string, default: nil)
+
   # The chrome's active-nav section — `:catalog` / `:instances` /
   # `:billing` / nil, assigned by NavSection's on_mount on every
   # authenticated socket and passed through by the callers the same way
@@ -82,6 +93,7 @@ defmodule FluxValeWeb.Layouts do
       nav_section={@nav_section}
       bare={@bare}
       apps={true}
+      return_to={@return_to}
     >
       {render_slot(@inner_block)}
     </.chrome>
@@ -99,11 +111,22 @@ defmodule FluxValeWeb.Layouts do
 
   attr(:current_user, :map, default: nil)
 
+  # #462: the public SSR templates pass MaybeResolveUser's :return_to
+  # through — the anonymous chrome's sign-in links return the visitor
+  # to the page they were on.
+  attr(:return_to, :string, default: nil)
+
   slot(:inner_block, required: true)
 
   def public(assigns) do
     ~H"""
-    <.chrome flash={@flash} current_user={@current_user} apps={false} footer={true}>
+    <.chrome
+      flash={@flash}
+      current_user={@current_user}
+      apps={false}
+      footer={true}
+      return_to={@return_to}
+    >
       {render_slot(@inner_block)}
     </.chrome>
     """
@@ -164,6 +187,10 @@ defmodule FluxValeWeb.Layouts do
   attr(:bare, :boolean, default: false, doc: "render main unbounded (see app/1)")
   attr(:apps, :boolean, default: false, doc: "show the app-surface links (authenticated chrome)")
   attr(:footer, :boolean, default: false, doc: "render the marketing footer")
+
+  # #462: the sign-in return path (see app/1) — nil renders the plain
+  # links, byte-identical to before.
+  attr(:return_to, :string, default: nil)
   slot(:inner_block, required: true)
 
   defp chrome(assigns) do
@@ -281,7 +308,10 @@ defmodule FluxValeWeb.Layouts do
               />
             </li>
             <li :if={is_nil(@current_user)} class="ml-1">
-              <.button navigate={~p"/sign-in"} size="sm">
+              <%!-- #462: the return path rides along when the caller
+              knows the page (the public SSR templates) — anonymous
+              sign-in lands back where the visitor was reading. --%>
+              <.button navigate={ReturnPath.sign_in_path(@return_to)} size="sm">
                 Sign in
                 <%!-- decorative arrow (T7): hidden below sm — the ≤280
                 anonymous header buys 12px where the cluster is tightest. --%>
@@ -335,9 +365,13 @@ defmodule FluxValeWeb.Layouts do
               </.link>
             </li>
             <%!-- #205: the footer follows the header's session awareness —
-            inward for a session, sign-in for a visitor. --%>
+            inward for a session, sign-in for a visitor. #462: the
+            visitor's sign-in carries the return path like the header's. --%>
             <li :if={is_nil(@current_user)}>
-              <.link navigate={~p"/sign-in"} class="text-sm text-ink-muted hover:text-ink">Sign in</.link>
+              <.link
+                navigate={ReturnPath.sign_in_path(@return_to)}
+                class="text-sm text-ink-muted hover:text-ink"
+              >Sign in</.link>
             </li>
             <li :if={@current_user}>
               <.link navigate={~p"/"} class="text-sm text-ink-muted hover:text-ink">Dashboard</.link>
