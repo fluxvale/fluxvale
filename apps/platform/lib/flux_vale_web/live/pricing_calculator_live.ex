@@ -74,15 +74,18 @@ defmodule FluxValeWeb.PricingCalculatorLive do
 
   @impl Phoenix.LiveView
   def render(assigns) do
-    # The total derives here so no render can disagree with the state:
-    # the curve part prices the rungs, each enabled toggle adds its
-    # exact accessor cents.
+    # The totals derive here so no render can disagree with the state:
+    # the curve part prices the rungs, and each enabled toggle adds its
+    # exact accessor cents to both figures — gateway and domain settle
+    # continuously regardless of instance state, so the stopped line
+    # owes them too.
     price = pricing(assigns.resources)
 
     assigns =
       assign(assigns,
         price: price,
-        total_cents: price.monthly_cents + enabled_service_cents(assigns)
+        total_cents: price.monthly_cents + enabled_service_cents(assigns),
+        stopped_cents: price.stopped_monthly_cents + enabled_service_cents(assigns)
       )
 
     ~H"""
@@ -171,7 +174,10 @@ defmodule FluxValeWeb.PricingCalculatorLive do
                 </span>
               </span>
               <span class="font-medium text-ink">
-                {Pricing.format_usd(@gateway_monthly_cents)}/mo
+                {gettext(
+                  "+%{rate}/mo per gateway, billed hourly",
+                  rate: Pricing.format_usd(@gateway_monthly_cents)
+                )}
               </span>
             </label>
             <label
@@ -194,7 +200,10 @@ defmodule FluxValeWeb.PricingCalculatorLive do
                 </span>
               </span>
               <span class="font-medium text-ink">
-                {Pricing.format_usd(@domain_monthly_cents)}/mo
+                {gettext(
+                  "+%{rate}/mo per verified domain, billed hourly",
+                  rate: Pricing.format_usd(@domain_monthly_cents)
+                )}
               </span>
             </label>
           </form>
@@ -223,7 +232,7 @@ defmodule FluxValeWeb.PricingCalculatorLive do
             <p class="text-ink-muted" data-testid="calculator-price-stopped">
               {gettext(
                 "%{rate}/mo while stopped",
-                rate: Pricing.format_usd(@price.stopped_monthly_cents)
+                rate: Pricing.format_usd(@stopped_cents)
               )}
             </p>
           </div>
@@ -253,9 +262,11 @@ defmodule FluxValeWeb.PricingCalculatorLive do
   # The app chooser: a select change snaps the sliders to the latest
   # version's recommended size when the sliders can state it. Anything
   # else (a nil recommendation, an off-ladder one, a crafted slug) is a
-  # no-op: the sliders stay put and the select falls back to the prompt,
-  # so the shown selection never disagrees with the state. The empty
-  # value is the prompt option — a clear by way of the select itself.
+  # no-op: the sliders stay put and the select falls back to the prompt.
+  # The select is a start-from picker, not a promise about the rungs —
+  # after a snap the sliders can move freely while the selection stays.
+  # The empty value is the prompt option — a clear by way of the select
+  # itself.
   @impl Phoenix.LiveView
   def handle_event("pick-app", %{"app_slug" => ""}, socket) do
     {:noreply, assign(socket, :app_slug, nil)}

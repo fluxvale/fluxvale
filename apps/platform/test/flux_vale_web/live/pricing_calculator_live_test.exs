@@ -341,6 +341,16 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
 
   # --- Service toggles ---------------------------------------------------------
 
+  # The marker is template-borne — the toggle helper injects
+  # services[_marker] itself — so without this pin, deleting the input
+  # would keep every test green while an all-off untoggle froze a stale
+  # total.
+  test "the hidden marker input rides the services form", %{conn: conn} do
+    {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
+
+    assert has_element?(view, "input[name='services[_marker]']")
+  end
+
   test "the gateway toggle adds its exact accessor cents and untoggling removes them", %{
     conn: conn
   } do
@@ -463,8 +473,9 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     %{cpu_cores: Decimal.new("0.5"), memory_mb: 512, storage_gb: 10}
   end
 
-  # The hero total is the curve at the rungs plus the enabled services'
-  # exact cents; the stopped line stays the storage term alone.
+  # Both figures are the curve at the rungs plus the enabled services'
+  # exact cents — gateway and domain settle regardless of instance
+  # state, so the stopped line owes the toggles too.
   defp assert_total(view, allocation, service_cents \\ 0) do
     priced = Pricing.price_allocation(allocation)
 
@@ -477,13 +488,13 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     assert has_element?(
              view,
              "[data-testid='calculator-price-stopped']",
-             stopped_label(allocation)
+             stopped_label(allocation, service_cents)
            )
   end
 
-  defp stopped_label(allocation) do
-    rate = Pricing.format_usd(Pricing.price_allocation(allocation).stopped_monthly_cents)
-    rate <> "/mo while stopped"
+  defp stopped_label(allocation, service_cents) do
+    stopped = Pricing.price_allocation(allocation).stopped_monthly_cents + service_cents
+    Pricing.format_usd(stopped) <> "/mo while stopped"
   end
 
   # The chooser's select, driven the way the browser fires it: a change

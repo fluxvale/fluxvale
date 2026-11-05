@@ -1,11 +1,14 @@
 // #440 captures: the calculator-as-surface before/after — stills
 // (light+dark, desktop+mobile, full page) plus one GIF of the new
 // interaction on the AFTER build (dropdown select, slider move, toggle
-// on). AFTER server = the feature branch dev server (port 4000);
-// BEFORE server = main's dev server (port 4100). Same dev DB, so the
-// seeds agree; only the code differs.
+// on; the recorded webm assembles to the GIF by ffmpeg at the end,
+// fps 12, 720px lanczos, per the owner GIF rule). AFTER server = the
+// feature branch dev server (port 4000); BEFORE server = main's dev
+// server (port 4100). Same dev DB, so the seeds agree; only the code
+// differs.
 import { chromium } from "@playwright/test";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, unlinkSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 
 const AFTER = process.env.FV_AFTER ?? "http://127.0.0.1:4000";
 const BEFORE = process.env.FV_BEFORE ?? "http://127.0.0.1:4100";
@@ -83,8 +86,23 @@ await page.waitForTimeout(1200);
 await page.check('input[name="services[gateway]"]');
 await page.waitForTimeout(1500);
 
+const video = page.video();
 await page.close();
 await ctx.close();
-console.log("recorded interaction video");
+
+// The webm → GIF assembly rides in the script so the artifact is
+// reproducible from a fresh capture (the sibling GIF scripts' pattern).
+const webm = await video.path();
+const out = `${outdir}/calculator-interaction.gif`;
+execFileSync("ffmpeg", [
+  "-y",
+  "-i",
+  webm,
+  "-vf",
+  "fps=12,scale=720:-1:flags=lanczos",
+  out,
+]);
+unlinkSync(webm);
+console.log(`captured ${out}`);
 
 await browser.close();

@@ -15,7 +15,7 @@ defmodule FluxValeWeb.PricingController do
 
   alias FluxVale.Accounts
 
-  @pricing_description "Per-instance monthly rates from a published size table, prepaid credits, billed hourly."
+  @pricing_description "Prices follow the resources you choose. Estimate your monthly cost with the live calculator."
 
   def show(conn, _params) do
     conn

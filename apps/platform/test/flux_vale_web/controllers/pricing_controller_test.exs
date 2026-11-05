@@ -62,8 +62,6 @@ defmodule FluxValeWeb.PricingControllerTest do
 
     refute html =~ ~r/\b(micro|small|medium|standard|plus|pro)\b/i
     refute html =~ "size-chip"
-
-    refute html =~ "size-chip"
   end
 
   # The service toggles price from the accessors — their flat rates show
@@ -75,10 +73,15 @@ defmodule FluxValeWeb.PricingControllerTest do
     gateway_rate = Pricing.format_usd(AccessGateway.monthly_cents())
     domain_rate = Pricing.format_usd(AccessDomain.monthly_cents())
 
+    # The line items keep the #206 qualifier: the add-on rate reads
+    # "+rate/mo ..., billed hourly" on the SSR surface too.
+    gateway_line = "+#{gateway_rate}/mo per gateway, billed hourly"
+    domain_line = "+#{domain_rate}/mo per verified domain, billed hourly"
+
     assert html =~ "Private access gateway"
-    assert html =~ "#{gateway_rate}/mo"
+    assert html =~ gateway_line
     assert html =~ "Custom domain"
-    assert html =~ "#{domain_rate}/mo"
+    assert html =~ domain_line
     assert html =~ "Hostnames under fluxvale.app, public exposure, DNS, and resolution are free."
   end
 
@@ -107,7 +110,7 @@ defmodule FluxValeWeb.PricingControllerTest do
     assert title == "Pricing · FluxVale"
 
     assert html =~
-             ~s(name="description" content="Per-instance monthly rates from a published size table, prepaid credits, billed hourly.")
+             ~s(name="description" content="Prices follow the resources you choose. Estimate your monthly cost with the live calculator.")
 
     assert html =~ ~s(rel="canonical" href="https://fluxvale.com/pricing")
   end
