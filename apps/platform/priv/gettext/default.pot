@@ -228,7 +228,7 @@ msgstr ""
 #: lib/flux_vale_web/controllers/catalog_html.ex:29
 #: lib/flux_vale_web/live/catalog_live/show.ex:221
 #: lib/flux_vale_web/live/pricing_calculator_live.ex:278
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:421
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:424
 #, elixir-autogen, elixir-format
 msgid "%{rate}/mo while stopped"
 msgstr ""
@@ -253,7 +253,7 @@ msgstr ""
 msgid "New accounts start with %{amount} in credits."
 msgstr ""
 
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:297
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:300
 #, elixir-autogen, elixir-format
 msgid "Other services"
 msgstr ""
@@ -270,7 +270,7 @@ msgstr ""
 msgid "Pricing"
 msgstr ""
 
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:322
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:325
 #, elixir-autogen, elixir-format
 msgid "Private access gateway"
 msgstr ""
@@ -419,7 +419,7 @@ msgstr ""
 msgid "Clear"
 msgstr ""
 
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:411
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:414
 #, elixir-autogen, elixir-format
 msgid "Estimated total"
 msgstr ""
@@ -429,7 +429,7 @@ msgstr ""
 msgid "Pick an app from the catalog and run it with the resources you choose."
 msgstr ""
 
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:326
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:329
 #, elixir-autogen, elixir-format
 msgid "+%{rate}/mo per gateway, billed hourly"
 msgstr ""
@@ -489,7 +489,7 @@ msgstr ""
 msgid "No comments yet."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/feedback_html/index.html.heex:22
+#: lib/flux_vale_web/controllers/feedback_html/index.html.heex:29
 #: lib/flux_vale_web/live/feedback_live/composer.ex:210
 #, elixir-autogen, elixir-format
 msgid "Post a request"
@@ -647,17 +647,17 @@ msgstr ""
 msgid "Use recommended"
 msgstr ""
 
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:292
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:295
 #, elixir-autogen, elixir-format
 msgid "Add more instances"
 msgstr ""
 
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:333
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:336
 #, elixir-autogen, elixir-format
 msgid "Built on Tailscale: private access to your apps without public exposure. One gateway serves your whole organization and bills once, hourly. Set it up in Settings → Access."
 msgstr ""
 
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:347
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:350
 #, elixir-autogen, elixir-format
 msgid "Estimate"
 msgstr ""
@@ -667,7 +667,7 @@ msgstr ""
 msgid "Pick an app, set its resources, then add instances to the estimate."
 msgstr ""
 
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:394
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:397
 #, elixir-autogen, elixir-format
 msgid "Remove"
 msgstr ""

@@ -84,12 +84,17 @@
 /* commented.                                                          */
 /* ------------------------------------------------------------------ */
 :root {
-  /* Action: bright fill + dark ink — never white-on-amber. */
-  --primary: var(--color-brand-500); /* #f3821d */
-  --primary-hover: #e67511;
-  --primary-active: #d96a03;
+  /* Action — the dark pairing (#471): amber family end to end, fill
+     and ink from one ramp, so the primary button reads tonal in both
+     modes. Worst text pair 4.96:1 (ink on the active fill); rest 6.27,
+     hover 7.79. The light edge is the border: brand-600 vs panel
+     4.12:1 — fills sit under the 3:1 non-text bar in both modes (the
+     #277 T2 posture: borders carry the boundary). Never white-on-amber. */
+  --primary: var(--color-brand-400);
+  --primary-hover: var(--color-brand-300);
+  --primary-active: var(--color-brand-500);
   --primary-muted: #fef0e4;
-  --on-primary: #1c1917;
+  --on-primary: var(--color-brand-900);
   --border-primary: var(--color-brand-600); /* #c85d02 */
 
   /* Amber-family text lives here, not on --primary: bright fill amber

@@ -15,11 +15,14 @@ defmodule FluxVale.Seeds do
   """
 
   alias FluxVale.Accounts
+  alias FluxVale.Accounts.Organization
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Catalog.Category
+  alias FluxVale.Feedback.Comment
   alias FluxVale.Feedback.Post
   alias FluxVale.Feedback.Tag
+  alias FluxVale.Feedback.Vote
   alias FluxVale.Identity.User
   alias FluxVale.Identity.User.MirrorSignupEmail
   alias FluxVale.Identity.UserEmail
@@ -433,19 +436,40 @@ defmodule FluxVale.Seeds do
     end
   end
 
-  # The board's starter content (#412 T4, tags T10): real-looking
-  # requests across the whole status workflow so the public board reads
-  # as living at first bring-up. NON-PROD ONLY (see
+  # The board's starter content (#412 T4, tags T10; counters heal #471):
+  # real-looking requests across the whole status workflow so the public
+  # board reads as living at first bring-up. NON-PROD ONLY (see
   # seed_feedback_if_demo!/0 — the gate decides; this function itself
   # stays ungated so tests can drive it directly). Get-or-create by the
   # derived slug (lookup first — slug is derived from the title, so the
-  # attrs below are authored to derive it deterministically).
+  # attrs below are authored to derive it deterministically). `votes:`
+  # is how many demo orgs cast REAL votes; `comments:` bodies authored
+  # by the demo commenter pool — rows through the real actions, so a
+  # count never renders without content behind it (#471).
   # age_days/status_age_days backdate the display timestamps through
   # forced attribute changes: the actions stamp "now" and no action
   # accepts timestamps — the same states-actions-can't-produce posture
   # as Ash.seed!, applied so a fresh board does not render every row as
   # "just now". `tags` (optional) names vocabulary slugs the entry
   # carries — pairings ride the same demo gate as the posts.
+
+  # Demo comment authors: stable identities so re-runs get-or-create
+  # instead of piling on. Comments render the handle, and the username
+  # derives from the email local part, so the local part IS the handle.
+  @demo_commenters [
+    "mara@fluxvale.test",
+    "theo@fluxvale.test",
+    "priya@fluxvale.test",
+    "joss@fluxvale.test",
+    "felix@fluxvale.test"
+  ]
+
+  # One vote per org per post (the DB identity), so realistic counts
+  # draw from a pool of orgs. Ownerless on purpose: the public board
+  # shows only the count, and owned orgs would mint signups, wallets
+  # and welcome grants staging does not need.
+  @demo_voter_pool 12
+
   @feedback_entries [
     %{
       slug: "terraform-provider-for-instance-management",
@@ -457,8 +481,12 @@ defmodule FluxVale.Seeds do
       unblock our drift checks.
       """,
       status: :completed,
-      votes: 128,
-      comments: 21,
+      votes: 12,
+      comments: [
+        "Data sources alone would unblock our drift checks. Even read-only, this is the integration we keep reaching for manually.",
+        "Any timeline? We would adopt this the week it lands.",
+        "Voting from us too. Five instances, three apps, one Terraform state."
+      ],
       age_days: 120,
       status_age_days: 9,
       tags: ["platform"]
@@ -471,8 +499,11 @@ defmodule FluxVale.Seeds do
       right in the size step would save a round trip to the pricing page.
       """,
       status: :planned,
-      votes: 87,
-      comments: 14,
+      votes: 9,
+      comments: [
+        "The monthly equivalent in the size step would already be a win.",
+        "This bit us on our first deploy. The estimate landed after we had committed."
+      ],
       age_days: 34,
       status_age_days: 12,
       tags: ["platform"]
@@ -485,8 +516,11 @@ defmodule FluxVale.Seeds do
       A simple threshold alert (failing for N minutes) with a webhook option would cover us.
       """,
       status: :started,
-      votes: 56,
-      comments: 9,
+      votes: 7,
+      comments: [
+        "A webhook option would let us page straight into on-call.",
+        "Threshold plus a quiet period and this covers most of our incidents."
+      ],
       age_days: 21,
       status_age_days: 3
     },
@@ -498,8 +532,11 @@ defmodule FluxVale.Seeds do
       disaster recovery. Point-in-time exports to my own bucket would do it.
       """,
       status: :open,
-      votes: 73,
-      comments: 11,
+      votes: 8,
+      comments: [
+        "Point-in-time would be ideal, but even a weekly export puts my mind at ease.",
+        "Restic compatibility would be perfect for us."
+      ],
       age_days: 60,
       status_age_days: 0
     },
@@ -513,7 +550,9 @@ defmodule FluxVale.Seeds do
       status: :duplicate,
       duplicate_of: "s3-backed-offsite-backup-exports",
       votes: 0,
-      comments: 2,
+      comments: [
+        "Following the original request. A cold tier is exactly what we need."
+      ],
       age_days: 15,
       status_age_days: 6
     },
@@ -525,8 +564,10 @@ defmodule FluxVale.Seeds do
       one notification that kept our finance team off your support inbox.
       """,
       status: :declined,
-      votes: 12,
-      comments: 4,
+      votes: 3,
+      comments: [
+        "Shame about the digest, but the API export covers us now."
+      ],
       age_days: 48,
       status_age_days: 20
     },
@@ -538,8 +579,10 @@ defmodule FluxVale.Seeds do
       suspend` (and wake) would fit our deploy scripts nicely.
       """,
       status: :open,
-      votes: 34,
-      comments: 6,
+      votes: 5,
+      comments: [
+        "Suspend plus wake would slot straight into our nightly scripts."
+      ],
       age_days: 5,
       status_age_days: 0,
       tags: ["platform"]
@@ -553,8 +596,10 @@ defmodule FluxVale.Seeds do
       across devices would fix it.
       """,
       status: :open,
-      votes: 19,
-      comments: 5,
+      votes: 4,
+      comments: [
+        "This is the single biggest quality-of-life gap for us. Two tablets and a phone in the house."
+      ],
       age_days: 8,
       status_age_days: 0,
       tags: ["kavita"]
@@ -568,8 +613,11 @@ defmodule FluxVale.Seeds do
       cloud service.
       """,
       status: :open,
-      votes: 41,
-      comments: 8,
+      votes: 6,
+      comments: [
+        "Would drop our last rented cloud service the day this ships.",
+        "External library support is the other half of the ask."
+      ],
       age_days: 12,
       status_age_days: 0,
       tags: ["app-request"]
@@ -579,18 +627,19 @@ defmodule FluxVale.Seeds do
   @doc """
   Seeds a starter set of feedback posts (fluxvale/fluxvale#412, T4) so
   non-prod boards ship with living content. Demo data, deliberately
-  gated OFF for prod (fabricated votes are invented social proof) —
+  gated OFF for prod (fabricated activity is invented social proof) —
   `seed/0` calls it only when the runtime opted in; this function stays
-  ungated for tests. Idempotent — get-or-create by the derived slug;
-  existing rows are never converged (an admin's edits are data, not
-  drift). A duplicate's original is listed before it in the entries, so
-  the merge pointer always resolves. Entries may carry `tags`
-  (vocabulary slugs — `seed_tags!/0` runs first); the pairings ride
-  `Post.set_tags` under the admin actor, gated with the posts.
+  ungated for tests. Idempotent — get-or-create by the derived slug.
+  A duplicate's original is listed before it in the entries, so the
+  merge pointer always resolves. Entries may carry `tags` (vocabulary
+  slugs — `seed_tags!/0` runs first); the pairings ride `Post.set_tags`
+  under the admin actor, gated with the posts.
 
-  authorize?: false — bootstrap, the seed posture. Counters and the
-  display timestamps ride forced attribute changes (no action accepts
-  them; the vote/comment slices do not exist yet).
+  Demo votes and comments are REAL rows (#471) — cast/created through
+  the actions, so the counters agree with visible content by
+  construction. Posts an earlier run already seeded still get activity
+  minted and counters converged, which is what heals the pre-#471
+  environments whose counters were stamped with no rows behind them.
   """
   @spec seed_feedback! :: :ok
   def seed_feedback!, do: seed_feedback!(@feedback_entries)
@@ -598,13 +647,12 @@ defmodule FluxVale.Seeds do
   @doc """
   Seeds a starter set of feedback posts (fluxvale/fluxvale#412, T4) so
   non-prod boards ship with living content. Demo data, deliberately
-  gated OFF for prod (fabricated votes are invented social proof) —
+  gated OFF for prod (fabricated activity is invented social proof) —
   `seed/0` calls it only when the runtime opted in; this function stays
-  ungated for tests. Idempotent — get-or-create by the derived slug;
-  existing rows are never converged (an admin's edits are data, not
-  drift). A duplicate's original must be listed before it in the
-  entries, so the merge pointer always resolves. Entries may carry
-  `tags` (vocabulary slugs — `seed_tags!/0` runs first, an unknown slug
+  ungated for tests. Idempotent — get-or-create by the derived slug.
+  A duplicate's original must be listed before it in the entries, so
+  the merge pointer always resolves. Entries may carry `tags`
+  (vocabulary slugs — `seed_tags!/0` runs first, an unknown slug
   raises).
 
   The 1-arity takes entries directly — the test suite also drives it
@@ -615,12 +663,14 @@ defmodule FluxVale.Seeds do
   def seed_feedback!(entries) do
     admin = User.get_by_email!(@admin_email, authorize?: false)
 
-    for entry <- entries do
+    entries
+    |> Enum.with_index()
+    |> Enum.each(fn {entry, index} ->
       case find_feedback_post(entry.slug) do
-        nil -> seed_feedback_post!(entry, admin)
-        _post -> :ok
+        nil -> seed_feedback_post!(entry, admin, index)
+        post -> converge_feedback_post!(entry, post, index)
       end
-    end
+    end)
 
     :ok
   end
@@ -631,7 +681,7 @@ defmodule FluxVale.Seeds do
     |> Ash.read_one!(authorize?: false)
   end
 
-  defp seed_feedback_post!(entry, admin) do
+  defp seed_feedback_post!(entry, admin, index) do
     created =
       Post.create!(
         %{title: entry.title, description: String.trim(entry.description)},
@@ -677,11 +727,167 @@ defmodule FluxVale.Seeds do
         ids -> Post.set_tags!(moved, %{tag_ids: ids}, actor: admin, authorize?: false)
       end
 
+    mint_demo_activity!(entry, tagged, index)
+
     # An open post never moved status — its nil status_changed_at is the
     # display signal ("Posted N ago"), so only moved rows are backdated.
     display_patch = patch_changeset(tagged, entry)
     Ash.update!(display_patch, authorize?: false)
+
+    converge_counters!(tagged)
   end
+
+  # An already-seeded post (an earlier run put it there): mint its demo
+  # activity and converge the counters, never the content — title,
+  # body, status and timestamps are admin data (the idempotency
+  # posture). Convergence is what heals the pre-#471 environments
+  # whose counters carried numbers with no rows behind them.
+  defp converge_feedback_post!(entry, post, index) do
+    mint_demo_activity!(entry, post, index)
+    converge_counters!(post)
+  end
+
+  # Demo activity through the REAL actions (#471): votes cast by pool
+  # orgs, comments authored by the demo pool — so the counters the
+  # actions maintain always equal the visible content. Row timestamps
+  # backdate the same forced-attribute way the post's do, or a fresh
+  # board reads every vote and comment as "just now" under a post
+  # that renders "posted 120 days ago".
+  defp mint_demo_activity!(entry, post, index) do
+    if entry.votes > @demo_voter_pool do
+      raise "seed feedback: #{inspect(entry.slug)} names #{entry.votes} votes but the demo voter pool holds #{@demo_voter_pool} — one vote per org per post is a DB identity; grow the pool or trim the entry"
+    end
+
+    entry.votes
+    |> demo_voters!(index)
+    |> Enum.with_index()
+    |> Enum.each(fn {org, i} -> cast_demo_vote!(post, org, entry.age_days, i) end)
+
+    entry.comments
+    |> Enum.with_index()
+    |> Enum.each(fn {body, i} -> mint_demo_comment!(post, body, index, i, entry.age_days) end)
+  end
+
+  # A rotating slice of the pool: different posts draw different voter
+  # orgs, so no two posts carry an identical vote mix. Argument order
+  # follows the pipe in mint_demo_activity!/3: votes first, then the
+  # entry index.
+  defp demo_voters!(0, _index), do: []
+
+  defp demo_voters!(votes, index) do
+    Enum.map(1..votes, fn n ->
+      demo_voter_org!(rem(index + n - 1, @demo_voter_pool) + 1)
+    end)
+  end
+
+  # Ownerless orgs, stable slugs: a vote is public count data, and the
+  # public board renders only the count.
+  defp demo_voter_org!(n) do
+    slug = "demo-voters-#{String.pad_leading(Integer.to_string(n), 2, "0")}"
+
+    case Organization
+         |> Ash.Query.filter(slug == ^slug)
+         |> Ash.read_one!(authorize?: false) do
+      nil -> Organization.create!(%{name: "Demo voters #{n}", slug: slug}, authorize?: false)
+      org -> org
+    end
+  end
+
+  defp cast_demo_vote!(post, org, age_days, i) do
+    case find_vote(post.id, org.id) do
+      nil ->
+        # for_create opts carry the context the changes read (Ash 3.32
+        # probe: run-opts on Ash.create!/cast! never reached them), and
+        # the forced timestamp rides the same probe-verified shape —
+        # Comment and Vote carry no update action, so backdating can
+        # only happen at create.
+        vote =
+          Vote
+          |> Ash.Changeset.for_create(
+            :cast,
+            %{post_id: post.id, organization_id: org.id},
+            authorize?: false
+          )
+          |> Ash.Changeset.force_change_attribute(:created_at, backdate(age_days, i))
+          |> Ash.create!()
+
+        vote
+
+      _vote ->
+        nil
+    end
+  end
+
+  # Author rotation mixes the pool across posts (and within one), so
+  # threads do not read like one person talking to themselves.
+  defp mint_demo_comment!(post, body, entry_index, comment_index, age_days) do
+    author =
+      demo_commenter!(
+        Enum.at(@demo_commenters, rem(entry_index + comment_index, length(@demo_commenters)))
+      )
+
+    case find_comment(post.id, author.id, body) do
+      nil ->
+        Comment
+        |> Ash.Changeset.for_create(
+          :create,
+          %{post_id: post.id, body: body},
+          actor: author,
+          authorize?: false
+        )
+        |> Ash.Changeset.force_change_attribute(:created_at, backdate(age_days, comment_index))
+        |> Ash.create!()
+
+      _comment ->
+        nil
+    end
+  end
+
+  defp demo_commenter!(email) do
+    case User.get_by_email(email, authorize?: false) do
+      {:ok, user} -> user
+      {:error, _not_found} -> User.create!(email, %{}, authorize?: false)
+    end
+  end
+
+  defp find_vote(post_id, org_id) do
+    Vote
+    |> Ash.Query.filter(post_id == ^post_id and organization_id == ^org_id)
+    |> Ash.read_one!(authorize?: false)
+  end
+
+  defp find_comment(post_id, author_id, body) do
+    Comment
+    |> Ash.Query.filter(post_id == ^post_id and author_user_id == ^author_id and body == ^body)
+    |> Ash.read_one!(authorize?: false)
+  end
+
+  # The truth pass (#471): counters read the ROWS, never the other way
+  # around. Rows maintain the counters through their own actions; this
+  # only re-derives what a drift left behind.
+  defp converge_counters!(post) do
+    votes = count_rows!(Vote, post.id)
+    comments = count_rows!(Comment, post.id)
+
+    if post.vote_count != votes or post.comment_count != comments do
+      post
+      |> Ash.Changeset.for_update(:update, %{}, authorize?: false)
+      |> Ash.Changeset.force_change_attribute(:vote_count, votes)
+      |> Ash.Changeset.force_change_attribute(:comment_count, comments)
+      |> Ash.update!(authorize?: false)
+    end
+  end
+
+  defp count_rows!(resource, post_id) do
+    resource
+    |> Ash.Query.filter(post_id == ^post_id)
+    |> Ash.count!(authorize?: false)
+  end
+
+  # Vote/comment rows backdate at create (no update action exists on
+  # either resource), spread day-by-day after the post itself: i = 0
+  # lands a day after creation, later rows step forward to now.
+  defp backdate(age_days, i), do: days_ago(max(0, age_days - i - 1))
 
   # A missing tag is seed-data corruption (the vocabulary seeds before
   # the demo posts) — name the operator's fix instead of a bare NotFound.
@@ -708,12 +914,13 @@ defmodule FluxVale.Seeds do
     end
   end
 
+  # Display timestamps only: counters belong to their rows (#471) —
+  # the vote/comment actions maintain them and converge_counters!
+  # re-derives on drift.
   defp patch_changeset(post, entry) do
     changeset =
       post
       |> Ash.Changeset.for_update(:update, %{}, authorize?: false)
-      |> Ash.Changeset.force_change_attribute(:vote_count, entry.votes)
-      |> Ash.Changeset.force_change_attribute(:comment_count, entry.comments)
       |> Ash.Changeset.force_change_attribute(:created_at, days_ago(entry.age_days))
 
     if entry.status_age_days > 0 do

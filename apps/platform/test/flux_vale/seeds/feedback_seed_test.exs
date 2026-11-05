@@ -2,20 +2,25 @@ defmodule FluxVale.Seeds.FeedbackSeedTest do
   @moduledoc """
   The feedback seed flow (`FluxVale.Seeds.seed_feedback!`, #412 T4)
   against a sandboxed DB — the shipped starter entries, statuses moved
-  through the real action, counters and display timestamps riding forced
-  attribute changes, get-or-create idempotency, and the entry guards
-  driven by fixture entries (the seed_catalog!/1 shape). The T10 tag
-  vocabulary (`seed_tags!/0`) and the demo entries' tag pairings ride
-  the same file.
+  through the real action, demo votes and comments minted as REAL rows
+  through the vote/comment actions so counters agree with visible
+  content (#471), counter convergence for posts an earlier run already
+  seeded, get-or-create idempotency, and the entry guards driven by
+  fixture entries (the seed_catalog!/1 shape). The T10 tag vocabulary
+  (`seed_tags!/0`) and the demo entries' tag pairings ride the same
+  file.
   """
 
   use FluxVale.DataCase, async: true
 
+  alias FluxVale.Feedback.Comment
   alias FluxVale.Feedback.Post
   alias FluxVale.Feedback.PostTag
   alias FluxVale.Feedback.Tag
+  alias FluxVale.Feedback.Vote
   alias FluxVale.Identity.User
   alias FluxVale.Seeds
+  alias FluxVale.TestSupport.FeedbackFixtures
 
   require Ash.Query
 
@@ -36,6 +41,18 @@ defmodule FluxVale.Seeds.FeedbackSeedTest do
     post.tags
     |> Enum.map(& &1.slug)
     |> Enum.sort()
+  end
+
+  defp vote_rows_for!(post_id) do
+    Vote
+    |> Ash.Query.filter(post_id == ^post_id)
+    |> Ash.count!(authorize?: false)
+  end
+
+  defp comment_rows_for!(post_id) do
+    Comment
+    |> Ash.Query.filter(post_id == ^post_id)
+    |> Ash.count!(authorize?: false)
   end
 
   describe "seed_tags!/0 (the curated vocabulary)" do
@@ -142,10 +159,40 @@ defmodule FluxVale.Seeds.FeedbackSeedTest do
       original = by_slug.("s3-backed-offsite-backup-exports")
       assert dup.duplicate_of_id == original.id
 
-      # The fabricated counters (no minting slice exists yet).
-      assert by_slug.("terraform-provider-for-instance-management").vote_count == 128
-      assert by_slug.("terraform-provider-for-instance-management").comment_count == 21
-      assert dup.vote_count == 0
+      # The counters agree with the rows that back them (#471): demo
+      # activity is minted through the real actions, so a displayed
+      # count is never a number without content behind it.
+      terraform = by_slug.("terraform-provider-for-instance-management")
+      assert terraform.vote_count > 0
+      assert terraform.vote_count == vote_rows_for!(terraform.id)
+      assert terraform.comment_count > 0
+      assert terraform.comment_count == comment_rows_for!(terraform.id)
+      assert dup.vote_count == vote_rows_for!(dup.id)
+      assert dup.comment_count == comment_rows_for!(dup.id)
+    end
+
+    test "demo comments are real rows with resolvable handles" do
+      assert :ok == Seeds.seed_admin!()
+      seed_feedback_with_vocabulary!()
+
+      terraform =
+        Post
+        |> Ash.Query.filter(slug == "terraform-provider-for-instance-management")
+        |> Ash.read_one!(authorize?: false)
+
+      comments =
+        Comment
+        |> Ash.Query.filter(post_id == ^terraform.id)
+        |> Ash.Query.load(:author_username)
+        |> Ash.read!(authorize?: false)
+
+      assert length(comments) == terraform.comment_count
+
+      # Each body non-empty, each handle resolves to a real username.
+      for comment <- comments do
+        assert comment.body != ""
+        assert is_binary(comment.author_username) and comment.author_username != ""
+      end
     end
 
     test "backdates display timestamps; open posts stay unmoved" do
@@ -182,7 +229,7 @@ defmodule FluxVale.Seeds.FeedbackSeedTest do
         description: "x",
         status: :open,
         votes: 0,
-        comments: 0,
+        comments: [],
         age_days: 1,
         status_age_days: 0
       }
@@ -203,7 +250,7 @@ defmodule FluxVale.Seeds.FeedbackSeedTest do
         status: :duplicate,
         duplicate_of: "missing-original-slug",
         votes: 0,
-        comments: 0,
+        comments: [],
         age_days: 1,
         status_age_days: 0
       }
@@ -294,7 +341,7 @@ defmodule FluxVale.Seeds.FeedbackSeedTest do
         description: "x",
         status: :open,
         votes: 0,
-        comments: 0,
+        comments: [],
         age_days: 1,
         status_age_days: 0,
         tags: ["no-such-tag"]
@@ -304,6 +351,100 @@ defmodule FluxVale.Seeds.FeedbackSeedTest do
 
       assert error.message =~ "no-such-tag"
       assert error.message =~ "seed_tags!/0 must run first"
+    end
+  end
+
+  describe "counter convergence (#471)" do
+    test "converges counters that drifted from their rows" do
+      assert :ok == Seeds.seed_admin!()
+      seed_feedback_with_vocabulary!()
+
+      # The pre-#471 posture: counters stamped with no rows behind them
+      # (the drift staging shipped with). The seed owns its slugs, so a
+      # re-run heals them back to the rows' truth.
+      post =
+        Post
+        |> Ash.Query.filter(slug == "terraform-provider-for-instance-management")
+        |> Ash.read_one!(authorize?: false)
+
+      FeedbackFixtures.set_counters!(post, 999, 999)
+
+      assert :ok == Seeds.seed_feedback!()
+
+      healed =
+        Post
+        |> Ash.Query.filter(slug == "terraform-provider-for-instance-management")
+        |> Ash.read_one!(authorize?: false)
+
+      assert healed.vote_count == vote_rows_for!(healed.id)
+      assert healed.comment_count == comment_rows_for!(healed.id)
+    end
+
+    test "re-seeding mints no duplicate activity" do
+      assert :ok == Seeds.seed_admin!()
+      seed_feedback_with_vocabulary!()
+
+      post =
+        Post
+        |> Ash.Query.filter(slug == "terraform-provider-for-instance-management")
+        |> Ash.read_one!(authorize?: false)
+
+      first_votes = vote_rows_for!(post.id)
+      first_comments = comment_rows_for!(post.id)
+
+      assert :ok == Seeds.seed_feedback!()
+
+      assert vote_rows_for!(post.id) == first_votes
+      assert comment_rows_for!(post.id) == first_comments
+
+      reseeded =
+        Post
+        |> Ash.Query.filter(slug == "terraform-provider-for-instance-management")
+        |> Ash.read_one!(authorize?: false)
+
+      assert reseeded.vote_count == first_votes
+      assert reseeded.comment_count == first_comments
+    end
+
+    test "an entry naming more votes than the demo pool fails loudly" do
+      assert :ok == Seeds.seed_admin!()
+
+      entry = %{
+        slug: "over-pooled-entry",
+        title: "Over pooled entry",
+        description: "x",
+        status: :open,
+        votes: 999,
+        comments: [],
+        age_days: 1,
+        status_age_days: 0
+      }
+
+      error = assert_raise(RuntimeError, fn -> Seeds.seed_feedback!([entry]) end)
+
+      assert error.message =~ "demo voter pool"
+      assert error.message =~ "one vote per org per post"
+    end
+
+    test "demo rows never render as just-now on a backdated board" do
+      assert :ok == Seeds.seed_admin!()
+      seed_feedback_with_vocabulary!()
+
+      post =
+        Post
+        |> Ash.Query.filter(slug == "terraform-provider-for-instance-management")
+        |> Ash.read_one!(authorize?: false)
+
+      # A vote on a 120-day-old post must not stamp "now": both reads
+      # the board's renders depend on stay in the past.
+      assert DateTime.compare(post.created_at, DateTime.utc_now()) == :lt
+
+      Vote
+      |> Ash.Query.filter(post_id == ^post.id)
+      |> Ash.read!(authorize?: false)
+      |> Enum.each(fn vote ->
+        assert DateTime.compare(vote.created_at, DateTime.utc_now()) == :lt
+      end)
     end
   end
 end

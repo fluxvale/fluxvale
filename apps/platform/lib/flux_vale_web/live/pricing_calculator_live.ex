@@ -281,13 +281,16 @@ defmodule FluxValeWeb.PricingCalculatorLive do
               )}
             </p>
           </div>
+          <%!-- #471: this was text-primary-foreground + hover:bg-primary-strong —
+          tokens the design system never defined, so the label inherited the
+          ambient ink (white-on-amber in dark) and hover was a no-op. --%>
           <button
             type="button"
             id="calculator-add-instances"
             phx-click="add-instance"
             disabled={is_nil(@app_slug)}
             data-testid="calculator-add-instances"
-            class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors outline-offset-2 outline-focus hover:bg-primary-strong focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-40"
+            class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-on-primary transition-colors outline-offset-2 outline-focus hover:bg-primary-hover focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {gettext("Add more instances")}
           </button>

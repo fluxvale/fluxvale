@@ -17,10 +17,18 @@ itself carries the honest anonymous/gate states). --%>
       belongs to, not just by URL. Anonymous and ineligible visitors
       see it too — the composer renders their honest states. --%>
       <:actions>
-        <.lane_tabs current={:board} />
-        <.button navigate={~p"/feedback/new"} data-testid="composer-cta">
-          {gettext("Post a request")}
-        </.button>
+        <%!-- #471: the actions slot renders its children flush (the header
+        wrapper is flex-none with no gap) — the CTA sat hard against the
+        Board/Roadmap toggle. This wrapper owns the spacing. --%>
+        <div class="flex flex-wrap items-center gap-3">
+          <.lane_tabs current={:board} />
+          <%!-- #471: the actions slot renders its children flush (the
+          header wrapper is flex-none, no gap) — the CTA sat hard against
+          the Board/Roadmap toggle. This wrapper owns the spacing. --%>
+          <.button navigate={~p"/feedback/new"} data-testid="composer-cta">
+            {gettext("Post a request")}
+          </.button>
+        </div>
       </:actions>
     </.header>
 
