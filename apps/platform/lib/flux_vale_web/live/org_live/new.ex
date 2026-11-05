@@ -15,8 +15,9 @@ defmodule FluxValeWeb.OrganizationLive.New do
   address that fails a slug rule — taken, reserved, or any other —
   cannot be fixed by editing a slug input (there is none), so the failed
   submit says so in one plain line under the preview: adjust the name.
-  An empty derivation (no name yet) is the preview's empty state
-  instead. The cap refusal (an actor at the ten-org cap) is not a name
+  An empty derivation is the preview's own state: the add-a-name invite
+  for a blank name, a not-makeable message for a typed name that yields
+  nothing. The cap refusal (an actor at the ten-org cap) is not a name
   problem at all — it surfaces as a friendly flash instead.
   """
 
@@ -219,10 +220,18 @@ defmodule FluxValeWeb.OrganizationLive.New do
                 <%!-- The derived address, visible before submitting. A
                 plain element (not an input): the client never restores
                 its value over the server's patch, so the live
-                derivation cannot be clobbered. --%>
+                derivation cannot be clobbered. An empty derivation is
+                the preview's own state: the add-a-name invite for a
+                blank name, the not-makeable message for a typed name
+                that yields nothing (all-invalid characters) — never a
+                false "Add a name" under a name the user typed. --%>
                 <p class="text-xs text-ink-subtle" data-testid="slug-preview">
                   <%= if @form[:slug].value in [nil, ""] do %>
-                    Add a name to see its address.
+                    <%= if @form[:name].value in [nil, ""] do %>
+                      Add a name to see its address.
+                    <% else %>
+                      That name doesn't make an address. Try letters or numbers.
+                    <% end %>
                   <% else %>
                     Your organization will live at
                     <span class="font-mono text-ink-muted">/organizations/{@form[:slug].value}</span>

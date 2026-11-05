@@ -109,8 +109,48 @@ defmodule FluxValeWeb.OrganizationLive.NewTest do
       |> form("#org-new-form", organization: %{name: "!!!"})
       |> render_change()
 
-      assert has_element?(view, "[data-testid='slug-preview']", "Add a name to see its address.")
+      # A name was typed, so the line may not say "Add a name" — it
+      # names what happened instead.
+      assert has_element?(
+               view,
+               "[data-testid='slug-preview']",
+               "That name doesn't make an address. Try letters or numbers."
+             )
+
       refute has_element?(view, "[data-testid='slug-preview']", "/organizations/")
+    end
+
+    # The non-Latin regression pin (CodeRabbit #456): a perfectly valid
+    # name whose every character strips away must read as its own
+    # state — never "Add a name", never a silent failed submit.
+    test "a name that derives nothing reads as its own state", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/organizations/new")
+
+      view
+      |> form("#org-new-form", organization: %{name: "株式会社"})
+      |> render_change()
+
+      assert has_element?(
+               view,
+               "[data-testid='slug-preview']",
+               "That name doesn't make an address. Try letters or numbers."
+             )
+
+      refute has_element?(view, "[data-testid='slug-preview']", "Add a name")
+
+      view
+      |> form("#org-new-form", organization: %{name: "株式会社"})
+      |> render_submit()
+
+      assert has_element?(
+               view,
+               "[data-testid='slug-preview']",
+               "That name doesn't make an address."
+             )
+
+      # The refusal line is for failed RULES, not for names that never
+      # produced an address at all.
+      refute has_element?(view, "[data-testid='address-refused']")
     end
 
     test "clearing the name clears the address", %{conn: conn} do
