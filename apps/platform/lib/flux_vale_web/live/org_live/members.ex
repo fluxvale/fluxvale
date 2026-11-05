@@ -1,17 +1,19 @@
 defmodule FluxValeWeb.OrganizationLive.Members do
   @moduledoc """
-  Org settings, Members tab (#276): the read-only roster — email, role,
-  joined — plus the owner's invite surface (slice 4 of #408): the
-  invite form and the pending-invites list with revoke. Slug-keyed
-  mount like Settings; unknown slugs (and policy denials) read as
-  "not here" — never a bare 404.
+  Org settings, Members tab (#276): the roster — email, role, joined —
+  plus the member lifecycle (slice 5 of #408): owners set roles and
+  remove members, a member leaves from their own row, and the last-owner
+  guard's refusal renders as the plain flash sentence. The owner's
+  invite surface (slice 4 of #408) sits below the roster: the invite
+  form and the pending-invites list with revoke. Slug-keyed mount like
+  Settings; unknown slugs (and policy denials) read as "not here" —
+  never a bare 404.
 
-  Membership create/destroy stay system-only (the invite flow joins
-  through the token path, slice 5 adds removal), so the roster itself
-  is not an admin console. The invite FORM is UX on top of the
-  actions' owner policies: those are the authority. The personal org
-  has no members page at all (S5): exactly one member — the user — so
-  its URL redirects to `/settings`.
+  Membership create stays system-only (the invite flow joins through
+  the token path), so the roster itself is not an admin console. The
+  FORMS are UX on top of the actions' owner policies: those are the
+  authority. The personal org has no members page at all (S5): exactly
+  one member — the user — so its URL redirects to `/settings`.
   """
 
   use FluxValeWeb, :live_view
@@ -38,7 +40,7 @@ defmodule FluxValeWeb.OrganizationLive.Members do
           # personal org; the account surfaces live at /settings.
           {:ok, push_navigate(socket, to: ~p"/settings")}
         else
-          mount_roster(socket, org, user)
+          mount_roster(socket, org)
         end
 
       _error ->
@@ -49,30 +51,130 @@ defmodule FluxValeWeb.OrganizationLive.Members do
     end
   end
 
-  defp mount_roster(socket, org, user) do
-    # UX gate, not the authority: the read policy scopes roster rows to
-    # the actor's own orgs, and the query's organization_id filter is
-    # what narrows them to THIS org — both are load-bearing (pinned by
-    # the two-org test). The gate itself only spares a member a
-    # settings surface that is owners-only — same posture as Settings.
-    if ActorIsOrganizationOwner.owner?(user, org) do
-      {:ok,
-       socket
-       |> assign(:org, org)
-       |> assign(:invite_form, invite_form())
-       |> stream_configure(:members, dom_id: &"member-row-#{&1.id}")
-       |> stream(:members, list_members(org, user))
-       |> stream_configure(:invites, dom_id: &"pending-invite-#{&1.id}")
-       |> refresh_invites()}
-    else
-      {:ok,
-       socket
-       |> put_flash(:error, "Only organization owners can access settings.")
-       |> push_navigate(to: ~p"/")}
-    end
+  # The org read policy already answered this mount: its grant is the
+  # org's members, so every actor here sees the roster (slice 5 opened
+  # the tab to them — the Leave affordance). The owner check is no
+  # longer a gate, it selects the affordances: role and removal
+  # controls render for owners only, and the actions' policies stay the
+  # authority for every write.
+  defp mount_roster(socket, org) do
+    {:ok,
+     socket
+     |> assign(:org, org)
+     |> assign(:invite_form, invite_form())
+     |> stream_configure(:members, dom_id: &"member-row-#{&1.id}")
+     |> refresh_roster()
+     |> stream_configure(:invites, dom_id: &"pending-invite-#{&1.id}")
+     |> refresh_invites()}
   end
 
   @impl Phoenix.LiveView
+  def handle_event("set-role", %{"id" => id, "role" => role_param}, socket) do
+    user = socket.assigns.current_user
+
+    case find_member(socket, id) do
+      nil ->
+        {:noreply, member_gone(socket)}
+
+      membership ->
+        # The control posts exactly "owner" or "member"; any other value
+        # collapses to :member — the enum and the owner policy remain the
+        # authority, and demote is the conservative direction of the two.
+        role = parse_role(role_param)
+
+        case Accounts.set_member_role(user, membership, role) do
+          {:ok, _updated} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Role updated.")
+             |> refresh_roster()}
+
+          {:error, :last_owner} ->
+            {:noreply,
+             socket
+             |> put_flash(:error, Accounts.guard_message(:set_member_role))
+             |> refresh_roster()}
+
+          # The owner policy is the authority; a refused write lands
+          # here (a demoted former owner's stale page, say). The roster
+          # refreshes so the page shows the row's truth.
+          {:error, _refused} ->
+            {:noreply,
+             socket
+             |> put_flash(:error, "Could not update the role.")
+             |> refresh_roster()}
+        end
+    end
+  end
+
+  def handle_event("remove-member", %{"id" => id}, socket) do
+    user = socket.assigns.current_user
+
+    case find_member(socket, id) do
+      nil ->
+        {:noreply, member_gone(socket)}
+
+      membership ->
+        case Accounts.remove_member(user, membership) do
+          :ok ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Member removed.")
+             |> refresh_roster()}
+
+          {:error, :last_owner} ->
+            {:noreply,
+             socket
+             |> put_flash(:error, Accounts.guard_message(:remove_member))
+             |> refresh_roster()}
+
+          {:error, _refused} ->
+            {:noreply,
+             socket
+             |> put_flash(:error, "Could not remove the member.")
+             |> refresh_roster()}
+        end
+    end
+  end
+
+  def handle_event("leave", %{"id" => id}, socket) do
+    user = socket.assigns.current_user
+
+    case find_member(socket, id) do
+      nil ->
+        {:noreply, member_gone(socket)}
+
+      # A crafted frame naming ANOTHER member's row: the seam's
+      # self-only policy refuses it (the page never renders Leave on a
+      # foreign row).
+      membership ->
+        case Accounts.leave_organization(user, membership) do
+          :ok ->
+            # The actor lands on their own account surface: a
+            # push_navigate INSIDE the :authenticated session (an
+            # event-time push to the controller-routed "/" would kill
+            # the page — a live navigation must target a live route).
+            # The flash rides the navigation.
+            {:noreply,
+             socket
+             |> put_flash(:info, "You left the organization.")
+             |> push_navigate(to: ~p"/settings")}
+
+          {:error, :last_owner} ->
+            {:noreply,
+             socket
+             |> put_flash(:error, Accounts.guard_message(:leave_organization))
+             |> refresh_roster()}
+
+          {:error, _refused} ->
+            {:noreply,
+             socket
+             |> put_flash(:error, "Could not leave the organization.")
+             |> refresh_roster()}
+        end
+    end
+  end
+
   def handle_event("invite", %{"invite" => %{"email" => typed}}, socket) do
     email = String.trim(typed)
 
@@ -160,6 +262,33 @@ defmodule FluxValeWeb.OrganizationLive.Members do
     {:noreply, refresh_invites(socket)}
   end
 
+  # The id is a client value: resolution happens in memory over the
+  # policy-scoped roster (the revoke-invite posture — a crafted id
+  # answers the plain refusal, never a crash).
+  defp find_member(socket, id) do
+    Enum.find(socket.assigns.members, &(&1.id == id))
+  end
+
+  defp member_gone(socket) do
+    socket
+    |> put_flash(:error, "That member is no longer on the roster.")
+    |> refresh_roster()
+  end
+
+  # Every mutation re-derives the owner flag too: demoting yourself
+  # (a second owner present) must fold the page back to the member view.
+  defp refresh_roster(socket) do
+    members = list_members(socket.assigns.org, socket.assigns.current_user)
+
+    socket
+    |> assign(
+      :owner?,
+      ActorIsOrganizationOwner.owner?(socket.assigns.current_user, socket.assigns.org)
+    )
+    |> assign(:members, members)
+    |> stream(:members, members, reset: true)
+  end
+
   defp refresh_invites(socket) do
     invites = list_invites(socket.assigns.org, socket.assigns.current_user)
 
@@ -177,6 +306,9 @@ defmodule FluxValeWeb.OrganizationLive.Members do
     params = %{"email" => Keyword.get(opts, :email, "")}
     to_form(params, as: "invite", errors: Keyword.get(opts, :errors, []))
   end
+
+  defp parse_role("owner"), do: :owner
+  defp parse_role(_other), do: :member
 
   @impl Phoenix.LiveView
   def render(assigns) do
@@ -217,7 +349,7 @@ defmodule FluxValeWeb.OrganizationLive.Members do
                 data-testid="member-row"
                 class="rounded-panel border border-line-strong bg-panel p-4 shadow-sm sm:p-5"
               >
-                <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
                   <div class="min-w-0">
                     <p class="font-mono text-sm font-medium text-ink [overflow-wrap:anywhere]">
                       {member.user_email}
@@ -234,14 +366,71 @@ defmodule FluxValeWeb.OrganizationLive.Members do
                   role doesn't ride a column header — the sr-only prefix
                   is what makes the roster read as email, joined date,
                   "Role Owner". --%>
-                  <.badge tone="primary">
-                    <span class="sr-only">Role </span>{role_label(member.role)}
-                  </.badge>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <.badge tone="primary">
+                      <span class="sr-only">Role </span>{role_label(member.role)}
+                    </.badge>
+
+                    <%!-- Owner affordances (slice 5 of #408): the role
+                    control and Remove ride the set_role/remove_member
+                    policies — the buttons are UX, the actions are the
+                    authority. Leave lives on the actor's OWN row,
+                    owners included. --%>
+                    <%= if @owner? do %>
+                      <%= if member.role == :owner do %>
+                        <.button
+                          phx-click="set-role"
+                          phx-value-id={member.id}
+                          phx-value-role="member"
+                          data-testid={"demote-#{member.id}"}
+                          variant="secondary"
+                          size="sm"
+                        >
+                          Make member
+                        </.button>
+                      <% else %>
+                        <.button
+                          phx-click="set-role"
+                          phx-value-id={member.id}
+                          phx-value-role="owner"
+                          data-testid={"promote-#{member.id}"}
+                          variant="secondary"
+                          size="sm"
+                        >
+                          Make owner
+                        </.button>
+                      <% end %>
+
+                      <%= if member.user_id != @current_user.id do %>
+                        <.button
+                          phx-click="remove-member"
+                          phx-value-id={member.id}
+                          data-testid={"remove-member-#{member.id}"}
+                          variant="secondary"
+                          size="sm"
+                        >
+                          Remove
+                        </.button>
+                      <% end %>
+                    <% end %>
+
+                    <%= if member.user_id == @current_user.id do %>
+                      <.button
+                        phx-click="leave"
+                        phx-value-id={member.id}
+                        data-testid={"leave-#{member.id}"}
+                        variant="secondary"
+                        size="sm"
+                      >
+                        Leave
+                      </.button>
+                    <% end %>
+                  </div>
                 </div>
               </li>
             </ul>
 
-            <div class="pt-2">
+            <div :if={@owner?}>
               <h2 class="text-base font-medium text-ink">Invitations</h2>
               <p class="mt-1 text-sm text-ink-muted">
                 Invite someone by email. They accept from the link after signing in with that
@@ -250,6 +439,7 @@ defmodule FluxValeWeb.OrganizationLive.Members do
             </div>
 
             <.form
+              :if={@owner?}
               for={@invite_form}
               id="invite-form"
               phx-submit="invite"
@@ -276,7 +466,7 @@ defmodule FluxValeWeb.OrganizationLive.Members do
               </div>
             </.form>
 
-            <div data-testid="pending-invites">
+            <div :if={@owner?} data-testid="pending-invites">
               <ul id="pending-invites" phx-update="stream">
                 <li
                   :for={{dom_id, invite} <- @streams.invites}

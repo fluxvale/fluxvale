@@ -16,6 +16,10 @@ defmodule FluxVale.Accounts do
     otp_app: :flux_vale,
     extensions: [AshJsonApi.Domain]
 
+  alias FluxVale.Accounts.Operations.LeaveOrganization
+  alias FluxVale.Accounts.Operations.RemoveMember
+  alias FluxVale.Accounts.Operations.SetMemberRole
+
   resources do
     resource(FluxVale.Accounts.Membership)
     resource(FluxVale.Accounts.MembershipInvite)
@@ -54,6 +58,31 @@ defmodule FluxVale.Accounts do
   defdelegate accept_invite(token, user), to: FluxVale.Accounts.Operations.AcceptInvite, as: :call
 
   defdelegate decline_invite(token), to: FluxVale.Accounts.Operations.DeclineInvite, as: :call
+
+  # Member lifecycle (slice 5 of #408): owners set roles and remove
+  # members, a member leaves on their own — the last-owner guard rides
+  # all three. Ownership transfer composes from these primitives.
+  defdelegate set_member_role(actor, membership, role),
+    to: FluxVale.Accounts.Operations.SetMemberRole,
+    as: :call
+
+  defdelegate remove_member(actor, membership),
+    to: FluxVale.Accounts.Operations.RemoveMember,
+    as: :call
+
+  defdelegate leave_organization(actor, membership),
+    to: FluxVale.Accounts.Operations.LeaveOrganization,
+    as: :call
+
+  @doc """
+  The last-owner guard sentence for a lifecycle seam — the Members
+  tab's flash copy. Each operation owns its own wording; the domain
+  only routes the seam's name to it.
+  """
+  @spec guard_message(:set_member_role | :remove_member | :leave_organization) :: String.t()
+  def guard_message(:set_member_role), do: SetMemberRole.guard_message()
+  def guard_message(:remove_member), do: RemoveMember.guard_message()
+  def guard_message(:leave_organization), do: LeaveOrganization.guard_message()
 
   @doc """
   The welcome-credit grant (integer cents) a fresh personal org receives

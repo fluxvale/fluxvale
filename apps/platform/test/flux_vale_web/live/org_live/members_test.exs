@@ -232,17 +232,38 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     assert has_element?(view, "[data-testid='org-switcher-button'] span", org.name)
   end
 
-  test "a non-owner member is gated away from the members tab", %{conn: conn, org: org} do
+  # Slice 5 opened the tab to members (the Leave affordance): the org
+  # read policy already answered the mount, so the member sees the
+  # roster and their own Leave — never the owner controls.
+  test "a member sees the roster and their Leave affordance only", %{
+    conn: conn,
+    owner: owner,
+    org: org
+  } do
     member = AccountsFixtures.user!()
-
-    seed_member!(org, member)
+    other = AccountsFixtures.user!()
+    membership = seed_member!(org, member)
+    seed_member!(org, other)
+    owner_membership = owner_membership!(org, owner)
 
     member_conn = SessionHelpers.sign_in(conn, member)
 
-    assert {:error, {:live_redirect, %{flash: flash, to: "/"}}} =
-             live(member_conn, ~p"/organizations/#{org.slug}/settings/members")
+    {:ok, view, _html} = live(member_conn, ~p"/organizations/#{org.slug}/settings/members")
 
-    assert flash["error"] == "Only organization owners can access settings."
+    # The roster renders for members (the read policy's own grant).
+    assert has_element?(view, "#member-row-#{membership.id}", to_string(member.email))
+    assert has_element?(view, "#member-row-#{owner_membership.id}", "Owner")
+
+    # Their OWN row carries Leave; no role control, no Remove anywhere.
+    assert has_element?(view, "[data-testid='leave-#{membership.id}']", "Leave")
+    refute has_element?(view, "[data-testid='promote-#{membership.id}']")
+    refute has_element?(view, "[data-testid='demote-#{owner_membership.id}']")
+    refute has_element?(view, "[data-testid^='remove-member-']")
+    refute has_element?(view, "[data-testid^='demote-']")
+
+    # The invite surface below the roster stays owner-only.
+    refute has_element?(view, "#invite-form")
+    refute has_element?(view, "[data-testid='pending-invites']")
   end
 
   test "a stranger to a real org reads as not-here — same as a typo slug", %{conn: conn, org: org} do
@@ -483,6 +504,268 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     assert {:ok, :accepted} = Accounts.resolve_invite(raw)
   end
 
+  # ---- the member lifecycle (slice 5 of #408) -------------------------
+
+  test "the owner sees role controls, Remove, and their own Leave", %{
+    conn: conn,
+    owner: owner,
+    org: org
+  } do
+    member = AccountsFixtures.user!()
+    membership = seed_member!(org, member)
+    owner_membership = owner_membership!(org, owner)
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    # The member row: promote control + Remove.
+    assert has_element?(view, "[data-testid='promote-#{membership.id}']", "Make owner")
+    assert has_element?(view, "[data-testid='remove-member-#{membership.id}']", "Remove")
+
+    # The owner's own row: demote control + Leave, and NO Remove —
+    # self-removal is the leave path (the actions stay distinct).
+    assert has_element?(view, "[data-testid='demote-#{owner_membership.id}']", "Make member")
+    assert has_element?(view, "[data-testid='leave-#{owner_membership.id}']", "Leave")
+    refute has_element?(view, "[data-testid='remove-member-#{owner_membership.id}']")
+    refute has_element?(view, "[data-testid='leave-#{membership.id}']")
+  end
+
+  test "promoting a member flips the row to Owner on the page and in the row", %{
+    conn: conn,
+    owner: _owner,
+    org: org
+  } do
+    member = AccountsFixtures.user!()
+    membership = seed_member!(org, member)
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    view
+    |> element("[data-testid='promote-#{membership.id}']")
+    |> render_click()
+
+    assert has_element?(view, "#flash-info", "Role updated.")
+    assert has_element?(view, "#member-row-#{membership.id}", "Owner")
+
+    # The control flips to demote once the row is an owner.
+    assert has_element?(view, "[data-testid='demote-#{membership.id}']")
+    refute has_element?(view, "[data-testid='promote-#{membership.id}']")
+
+    # The write is the action's, not a UI echo.
+    assert role_of(org, member) == :owner
+  end
+
+  test "removing a member takes the row off the roster and out of the org", %{
+    conn: conn,
+    owner: _owner,
+    org: org
+  } do
+    member = AccountsFixtures.user!()
+    membership = seed_member!(org, member)
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    view
+    |> element("[data-testid='remove-member-#{membership.id}']")
+    |> render_click()
+
+    assert has_element?(view, "#flash-info", "Member removed.")
+    refute has_element?(view, "#member-row-#{membership.id}")
+    refute row?(org, member)
+  end
+
+  test "demoting the org's only owner surfaces the guard copy", %{
+    conn: conn,
+    owner: owner,
+    org: org
+  } do
+    owner_membership = owner_membership!(org, owner)
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    view
+    |> element("[data-testid='demote-#{owner_membership.id}']")
+    |> render_click()
+
+    assert has_element?(view, "#flash-error", Accounts.guard_message(:set_member_role))
+    assert role_of(org, owner) == :owner
+  end
+
+  test "leaving as the last owner surfaces the guard copy and stays on the page", %{
+    conn: conn,
+    owner: owner,
+    org: org
+  } do
+    owner_membership = owner_membership!(org, owner)
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    view
+    |> element("[data-testid='leave-#{owner_membership.id}']")
+    |> render_click()
+
+    assert has_element?(view, "#flash-error", Accounts.guard_message(:leave_organization))
+    assert has_element?(view, "#org-members-table")
+    assert row?(org, owner)
+  end
+
+  test "ownership transfer composes in the page: promote the successor, demote the old owner", %{
+    conn: conn,
+    owner: owner,
+    org: org
+  } do
+    successor = AccountsFixtures.user!()
+    membership = seed_member!(org, successor)
+    owner_membership = owner_membership!(org, owner)
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    # Promote — the org holds TWO owners mid-flow.
+    view
+    |> element("[data-testid='promote-#{membership.id}']")
+    |> render_click()
+
+    assert owner_count(org) == 2
+
+    # The old owner demotes THEIR OWN row.
+    view
+    |> element("[data-testid='demote-#{owner_membership.id}']")
+    |> render_click()
+
+    assert owner_count(org) == 1
+    assert has_element?(view, "#member-row-#{membership.id}", "Owner")
+
+    # The demoted former owner's page folds to the member view.
+    refute has_element?(view, "[data-testid^='promote-']")
+    refute has_element?(view, "#invite-form")
+    assert has_element?(view, "[data-testid='leave-#{owner_membership.id}']")
+  end
+
+  test "a member leaving goes home with the flash, the row gone", %{conn: conn, org: org} do
+    member = AccountsFixtures.user!()
+    membership = seed_member!(org, member)
+
+    member_conn = SessionHelpers.sign_in(conn, member)
+    {:ok, view, _html} = live(member_conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    # The leave pushes to the actor's own account surface (a live
+    # navigation inside the session): view-level click, then the
+    # redirect assertion hands back the flash.
+    render_click(view, "leave", %{"id" => membership.id})
+
+    flash = assert_redirect(view, "/settings")
+    assert flash["info"] == "You left the organization."
+    refute row?(org, member)
+  end
+
+  test "a crafted lifecycle id answers the plain refusal without crashing", %{
+    conn: conn,
+    org: org
+  } do
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    render_click(view, "set-role", %{"id" => "not-a-uuid", "role" => "owner"})
+    assert has_element?(view, "#flash-error", "no longer on the roster")
+
+    render_click(view, "remove-member", %{"id" => "not-a-uuid"})
+    assert has_element?(view, "#flash-error", "no longer on the roster")
+
+    render_click(view, "leave", %{"id" => "not-a-uuid"})
+    assert has_element?(view, "#flash-error", "no longer on the roster")
+  end
+
+  test "a crafted leave naming ANOTHER member's row answers the policy refusal", %{
+    conn: conn,
+    owner: owner,
+    org: org
+  } do
+    member = AccountsFixtures.user!()
+    seed_member!(org, member)
+    owner_membership = owner_membership!(org, owner)
+
+    member_conn = SessionHelpers.sign_in(conn, member)
+    {:ok, view, _html} = live(member_conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    # A hostile frame naming the OWNER's row: the self-only policy
+    # refuses it, the page stays mounted.
+    render_click(view, "leave", %{"id" => owner_membership.id})
+
+    assert has_element?(view, "#flash-error", "Could not leave the organization.")
+    assert row?(org, owner)
+  end
+
+  test "a crafted set-role answers the policy refusal for a member's frame", %{
+    conn: conn,
+    owner: owner,
+    org: org
+  } do
+    member = AccountsFixtures.user!()
+    seed_member!(org, member)
+    owner_membership = owner_membership!(org, owner)
+
+    member_conn = SessionHelpers.sign_in(conn, member)
+    {:ok, view, _html} = live(member_conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    render_click(view, "set-role", %{"id" => owner_membership.id, "role" => "member"})
+
+    assert has_element?(view, "#flash-error", "Could not update the role.")
+    assert role_of(org, owner) == :owner
+  end
+
+  test "a crafted remove-member answers the policy refusal for a member's frame", %{
+    conn: conn,
+    owner: owner,
+    org: org
+  } do
+    member = AccountsFixtures.user!()
+    seed_member!(org, member)
+    owner_membership = owner_membership!(org, owner)
+
+    member_conn = SessionHelpers.sign_in(conn, member)
+    {:ok, view, _html} = live(member_conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    render_click(view, "remove-member", %{"id" => owner_membership.id})
+
+    assert has_element?(view, "#flash-error", "Could not remove the member.")
+    assert row?(org, owner)
+  end
+
+  test "a crafted remove of the caller's OWN row surfaces the guard copy", %{
+    conn: conn,
+    owner: owner,
+    org: org
+  } do
+    # The page never renders Remove on the actor's own row, so only a
+    # hostile frame gets here: the guard (removing the last owner —
+    # the caller themselves) answers before the self-removal filter.
+    owner_membership = owner_membership!(org, owner)
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    render_click(view, "remove-member", %{"id" => owner_membership.id})
+
+    assert has_element?(view, "#flash-error", Accounts.guard_message(:remove_member))
+    assert row?(org, owner)
+  end
+
+  test "a crafted role value collapses to demote — the conservative direction", %{
+    conn: conn,
+    owner: _owner,
+    org: org
+  } do
+    member = AccountsFixtures.user!()
+    membership = seed_member!(org, member)
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
+
+    # "potato" is not a role: it lands on :member (the enum and the
+    # owner policy remain the authority), so the write is the demote
+    # no-op this row already is.
+    render_click(view, "set-role", %{"id" => membership.id, "role" => "potato"})
+
+    assert has_element?(view, "#flash-info", "Role updated.")
+    assert role_of(org, member) == :member
+  end
+
   # Sanctioned precondition: nothing in the system creates :member rows
   # yet, so the row rides the action with authorize?: false.
   defp seed_member!(org, user) do
@@ -551,6 +834,33 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     |> Ash.Query.for_read(:read, %{})
     |> Ash.Query.filter(organization_id == ^org.id and user_id == ^user.id)
     |> Ash.read!(authorize?: false)
+  end
+
+  # Row-truth helpers: the page's write must be the row's, not a UI
+  # echo — read with authorize?: false, the gate under test is the
+  # lifecycle, not the read policy.
+  defp row?(org, user) do
+    Membership
+    |> Ash.Query.for_read(:read, %{}, authorize?: false)
+    |> Ash.Query.filter(organization_id == ^org.id and user_id == ^user.id)
+    |> Ash.exists?(authorize?: false)
+  end
+
+  defp role_of(org, user) do
+    membership =
+      Membership
+      |> Ash.Query.for_read(:read, %{}, authorize?: false)
+      |> Ash.Query.filter(organization_id == ^org.id and user_id == ^user.id)
+      |> Ash.read_one!(authorize?: false)
+
+    membership.role
+  end
+
+  defp owner_count(org) do
+    Membership
+    |> Ash.Query.for_read(:read, %{}, authorize?: false)
+    |> Ash.Query.filter(organization_id == ^org.id and role == :owner)
+    |> Ash.count!(authorize?: false)
   end
 
   # An arbitrary, unique digest for precondition rows — the value's
