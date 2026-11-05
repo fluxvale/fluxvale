@@ -12,12 +12,12 @@ defmodule FluxValeWeb.OrganizationLive.New do
   people).
 
   The derivation is the only writer of the slug on this page. A derived
-  address that is taken or reserved cannot be fixed by editing a slug
-  input (there is none), so the failed submit says so in one plain line
-  under the preview: adjust the name. An empty derivation (no name yet)
-  is the preview's empty state instead. The cap refusal (an actor at the
-  ten-org cap) is not a name problem at all — it surfaces as a friendly
-  flash instead.
+  address that fails a slug rule — taken, reserved, or any other —
+  cannot be fixed by editing a slug input (there is none), so the failed
+  submit says so in one plain line under the preview: adjust the name.
+  An empty derivation (no name yet) is the preview's empty state
+  instead. The cap refusal (an actor at the ten-org cap) is not a name
+  problem at all — it surfaces as a friendly flash instead.
   """
 
   use FluxValeWeb, :live_view
@@ -103,8 +103,8 @@ defmodule FluxValeWeb.OrganizationLive.New do
 
   # The one refusal line: the derived address failed a slug rule. An
   # empty derivation is NOT a refused address — it is the preview's
-  # empty state ("taken" would be false there); the name's own required
-  # error speaks for it.
+  # empty state (an address "taken" claim would be false there); the
+  # name's own required error speaks for it.
   defp address_refused?(form, derived) do
     derived != "" and slug_errored?(form)
   end
@@ -118,10 +118,13 @@ defmodule FluxValeWeb.OrganizationLive.New do
   # The slug rules as a derivation: lowercase, runs of anything else
   # become one hyphen, hyphens trimmed off the ends, then the cap. An
   # all-invalid name derives "" — the preview's empty state, not an
-  # error (the server's validations are the authority).
+  # error (the server's validations are the authority). The catch-all
+  # keeps a crafted non-binary name (Plug parses form arrays as lists)
+  # from crashing the socket — it derives "" and the name's own cast
+  # error renders field-scoped.
   defp slug_suggestion(name) when name in [nil, ""], do: ""
 
-  defp slug_suggestion(name) do
+  defp slug_suggestion(name) when is_binary(name) do
     slug =
       name
       |> String.downcase()
@@ -132,6 +135,8 @@ defmodule FluxValeWeb.OrganizationLive.New do
     |> String.slice(0, @slug_cap)
     |> String.trim_trailing("-")
   end
+
+  defp slug_suggestion(_other), do: ""
 
   defp build_form(user) do
     Organization
@@ -225,7 +230,7 @@ defmodule FluxValeWeb.OrganizationLive.New do
                 </p>
 
                 <p :if={@address_refused?} class="text-xs text-ink" data-testid="address-refused">
-                  That address is taken. Try a different name.
+                  That address won't work. Try a different name.
                 </p>
 
                 <div class="flex justify-end">

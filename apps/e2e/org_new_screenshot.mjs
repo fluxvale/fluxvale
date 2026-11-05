@@ -1,6 +1,7 @@
 /* The de-socialized org creation page (#408): one input, the name, and
  * the address derived live beneath it. Local dev target only, driven by
- * a minted session cookie passed via FV_TOKEN (org_new_seed.exs);
+ * a minted session JWT passed via FV_TOKEN (org_new_seed.exs; the
+ * script POSTs it to /auth/session to mint the cookie it keeps);
  * light + dark. The captures type a name and hold — never submit — so
  * the motion GIF (org_new_gif.mjs) carries the derivation story.
  *

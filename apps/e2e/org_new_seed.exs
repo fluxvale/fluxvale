@@ -1,8 +1,10 @@
 # Dev-only capture setup for the org creation page (#408): one fresh
 # user with a verified primary address — the session gate severs users
-# with none — and nothing else. The creation captures type a name but
-# never submit, so no org rows are written. Prints the session token
-# for org_new_screenshot.mjs / org_new_gif.mjs.
+# with none. The JIT personal org rides User.create as always (one org
+# + owner membership); no team orgs are written, and the capture
+# scripts type a name but never submit, so nothing beyond that seed
+# shape lands. Prints the session token for org_new_screenshot.mjs /
+# org_new_gif.mjs.
 #
 # Run from apps/platform: mix run ../e2e/org_new_seed.exs
 

@@ -3,9 +3,10 @@ defmodule FluxValeWeb.OrganizationLive.NewTest do
   The org creation page (#408): one input, the name. The preview line
   derives the address live on every validate — the browser patch
   regression pin — an empty derivation reads as the empty state, and
-  every refusal names the fix: a taken or reserved address reads as
-  adjust-the-name, the name's own problems render field-scoped, and the
-  over-cap one is the friendly flash.
+  every refusal names the fix: a derived address failing any slug rule
+  (taken, reserved, format) reads as adjust-the-name, the name's own
+  problems render field-scoped, and the over-cap one is the friendly
+  flash.
   """
 
   use FluxValeWeb.ConnCase, async: true
@@ -178,7 +179,7 @@ defmodule FluxValeWeb.OrganizationLive.NewTest do
       assert has_element?(
                view,
                "[data-testid='address-refused']",
-               "That address is taken. Try a different name."
+               "That address won't work. Try a different name."
              )
 
       # The refused address stays visible above the line.
@@ -199,10 +200,29 @@ defmodule FluxValeWeb.OrganizationLive.NewTest do
       assert has_element?(
                view,
                "[data-testid='address-refused']",
-               "That address is taken. Try a different name."
+               "That address won't work. Try a different name."
              )
 
       refute has_element?(view, "#flash-error")
+    end
+
+    # A one-character name derives a one-character address, which fails
+    # the action's format rule (it demands at least two characters) —
+    # neither taken nor reserved, so the line must not claim "taken".
+    test "a derived address failing the format rule", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/organizations/new")
+
+      view
+      |> form("#org-new-form", organization: %{name: "A"})
+      |> render_submit()
+
+      assert has_element?(
+               view,
+               "[data-testid='address-refused']",
+               "That address won't work. Try a different name."
+             )
+
+      assert has_element?(view, "[data-testid='slug-preview']", "/organizations/a")
     end
 
     test "a new input clears the refusal", %{conn: conn} do
@@ -227,13 +247,32 @@ defmodule FluxValeWeb.OrganizationLive.NewTest do
       {:ok, view, _html} = live(conn, ~p"/organizations/new")
 
       # HTML `required` keeps a browser from this; the crafted submit
-      # must land on the name's own error, not a false "taken".
+      # must land on the name's own error, not a false refusal.
       view
       |> form("#org-new-form", organization: %{name: ""})
       |> render_submit()
 
       refute has_element?(view, "[data-testid='address-refused']")
       assert has_element?(view, "#org-new-form", "is required")
+    end
+
+    # A crafted form array (Plug parses it as a list) must not crash
+    # the socket — it derives "" and the name's cast error renders
+    # field-scoped.
+    test "a crafted wrong-type name breaks nothing", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/organizations/new")
+
+      # Raw event params: the DOM input is scalar, so the crafted
+      # array-shaped payload rides render_change/render_submit directly.
+      render_change(view, "validate", %{"organization" => %{"name" => ["Acme"]}})
+
+      assert has_element?(view, "#org-new-form")
+      refute has_element?(view, "[data-testid='address-refused']")
+
+      render_submit(view, "save", %{"organization" => %{"name" => ["Acme"]}})
+
+      assert has_element?(view, "#org-new-form", "is invalid")
+      refute has_element?(view, "[data-testid='address-refused']")
     end
   end
 
