@@ -76,7 +76,7 @@ msgstr ""
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:97
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:201
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:254
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:64
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:69
 #, elixir-autogen, elixir-format
 msgid "Browse apps"
 msgstr ""
@@ -238,7 +238,7 @@ msgstr ""
 msgid "Cost calculator"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:65
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:70
 #, elixir-autogen, elixir-format
 msgid "Get started"
 msgstr ""
@@ -246,11 +246,6 @@ msgstr ""
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:29
 #, elixir-autogen, elixir-format
 msgid "How billing works"
-msgstr ""
-
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:41
-#, elixir-autogen, elixir-format
-msgid "New accounts start with %{amount} in credits."
 msgstr ""
 
 #: lib/flux_vale_web/live/pricing_calculator_live.ex:297
@@ -280,14 +275,9 @@ msgstr ""
 msgid "See full pricing"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:57
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:62
 #, elixir-autogen, elixir-format
 msgid "Start in minutes"
-msgstr ""
-
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:36
-#, elixir-autogen, elixir-format
-msgid "You pay with prepaid credits. One credit is one US cent, and every rate above is a monthly equivalent billed hourly from your credit balance. There are no subscriptions."
 msgstr ""
 
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:267
@@ -298,11 +288,6 @@ msgstr ""
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:290
 #, elixir-autogen, elixir-format
 msgid "Sizes start at %{rate}/mo, billed hourly while running"
-msgstr ""
-
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:47
-#, elixir-autogen, elixir-format
-msgid "When your credit balance runs out, your apps stop running and their charges stop with them. Stopped apps keep their storage fee, and a balance left negative for 30 days deletes your data. We email warnings 7 days and 1 day before."
 msgstr ""
 
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:352
@@ -424,7 +409,7 @@ msgstr ""
 msgid "Estimated total"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:60
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:65
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Pick an app from the catalog and run it with the resources you choose."
 msgstr ""
@@ -675,4 +660,19 @@ msgstr ""
 #: lib/flux_vale_web/live/pricing_calculator_live.ex:265
 #, elixir-autogen, elixir-format
 msgid "This setup"
+msgstr ""
+
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:46
+#, elixir-autogen, elixir-format, fuzzy
+msgid "New accounts start with %{amount} in their wallet."
+msgstr ""
+
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:52
+#, elixir-autogen, elixir-format, fuzzy
+msgid "When your balance runs out, your apps stop running and their charges stop with them. Stopped apps keep their storage fee, and a balance left negative for 30 days deletes your data. We email warnings 7 days and 1 day before deletion."
+msgstr ""
+
+#: lib/flux_vale_web/controllers/pricing_html/show.html.heex:41
+#, elixir-autogen, elixir-format
+msgid "You top up your wallet in USD. Apps bill hourly against your wallet balance, and every rate above is a monthly equivalent. There are no subscriptions."
 msgstr ""
