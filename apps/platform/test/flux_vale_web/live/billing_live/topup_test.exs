@@ -8,7 +8,8 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
   # reconciliation. Gateway calls are Mimic-stubbed (Req); the webhook
   # path has its own controller suite.
 
-  # async: false — the "pay" tests stub the global :hitpay app-env block.
+  # async: false — the "pay" tests stub the global :hitpay app-env block
+  # and pin the active provider to HitPay (config's default is Polar).
   use FluxValeWeb.ConnCase, async: false
   use Mimic
 
@@ -732,6 +733,18 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
         base_url: "https://api.example"
       )
 
+      # The pay tests stub HitPay's wire, so HitPay must be the active
+      # provider for them (the config default is Polar since the #377
+      # flip). The label test opts out via its tag to observe the
+      # config default.
+      unless context[:observe_default_provider] do
+        provider = Application.get_env(:flux_vale, :payments_provider)
+
+        Application.put_env(:flux_vale, :payments_provider, FluxVale.Billing.Providers.HitPay)
+
+        on_exit(fn -> Application.put_env(:flux_vale, :payments_provider, provider) end)
+      end
+
       on_exit(fn -> Application.put_env(:flux_vale, :hitpay, original) end)
 
       Map.put(context, :conn, conn)
@@ -784,16 +797,18 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
     end
 
     # #377: the button names the active provider (ADR-0029's
-    # one-provider-via-config) — HitPay while it's active (identical
-    # rendered text to before the helper existed), Polar after the flip.
+    # one-provider-via-config). Polar is the config default since the
+    # flip. The HitPay arm exercises the PAYMENTS_PROVIDER=hitpay dial
+    # the same way the old test exercised the polar dial.
+    @tag :observe_default_provider
     test "the pay button label names the active provider", %{conn: conn} do
       view = to_payment(conn)
 
-      assert render(element(view, "#topup-pay")) =~ "with HitPay"
+      assert render(element(view, "#topup-pay")) =~ "with Polar"
 
       original = Application.get_env(:flux_vale, :payments_provider)
 
-      Application.put_env(:flux_vale, :payments_provider, FluxVale.Billing.Providers.Polar)
+      Application.put_env(:flux_vale, :payments_provider, FluxVale.Billing.Providers.HitPay)
       on_exit(fn -> Application.put_env(:flux_vale, :payments_provider, original) end)
 
       # Re-walk to the payment step — a no-diff re-render keeps the
@@ -804,7 +819,7 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       |> form("#topup-amount-form", amount: %{dollars: "5"})
       |> render_submit()
 
-      assert render(element(view, "#topup-pay")) =~ "with Polar"
+      assert render(element(view, "#topup-pay")) =~ "with HitPay"
     end
 
     test "a hostile details swap from the payment step reprices the charge", %{
@@ -1161,7 +1176,17 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
         base_url: "https://api.example"
       )
 
-      on_exit(fn -> Application.put_env(:flux_vale, :hitpay, original) end)
+      # The reconcile path stubs HitPay's wire, so HitPay must be the
+      # active provider (the config default is Polar since the #377
+      # flip).
+      provider = Application.get_env(:flux_vale, :payments_provider)
+
+      Application.put_env(:flux_vale, :payments_provider, FluxVale.Billing.Providers.HitPay)
+
+      on_exit(fn ->
+        Application.put_env(:flux_vale, :hitpay, original)
+        Application.put_env(:flux_vale, :payments_provider, provider)
+      end)
 
       {:ok, topup} =
         Topup.create(

@@ -236,14 +236,16 @@ config :flux_vale,
   tailscale_api: [
     base_url: "https://api.tailscale.com"
   ],
-  # One active payment provider (ADR-0029); per-provider webhook routes
-  # and config blocks make the gateway a one-module swap. HitPay is the
-  # first implementation (Am. 2) — test mode first: base_url defaults
-  # to the sandbox, and the production URL is only set when the
-  # registrations gate (#142) lifts. Credentials arrive via env/BWS
-  # (runtime.exs, ADR-0021) — never here.
-  payments_provider: FluxVale.Billing.Providers.HitPay,
+  # One active payment provider (ADR-0029). Per-provider webhook routes
+  # and config blocks make the gateway a one-module swap. Polar is the
+  # default (#377). HitPay stays configured and one env-dial away
+  # (PAYMENTS_PROVIDER=hitpay per environment) plus one config revert.
+  # Credentials arrive via env (runtime.exs, ADR-0021), never here.
+  payments_provider: FluxVale.Billing.Providers.Polar,
   hitpay: [
+    # The first implementation (Am. 2). base_url defaults to the
+    # sandbox, and the production URL is only set when the
+    # registrations gate (#142) lifts.
     base_url: "https://api.sandbox.hit-pay.com",
     # Checkout offers exactly these methods, sent as repeatable
     # payment_methods[] entries (#364). Cards-only is the owner
