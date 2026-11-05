@@ -28,38 +28,38 @@ msgstr ""
 msgid "Actions"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:412
-#: lib/flux_vale_web/components/layouts.ex:427
+#: lib/flux_vale_web/components/layouts.ex:411
+#: lib/flux_vale_web/components/layouts.ex:426
 #, elixir-autogen, elixir-format
 msgid "Attempting to reconnect"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:483
+#: lib/flux_vale_web/components/layouts.ex:482
 #, elixir-autogen, elixir-format
 msgid "Dark theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:456
+#: lib/flux_vale_web/components/layouts.ex:455
 #, elixir-autogen, elixir-format
 msgid "Follow system theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:471
+#: lib/flux_vale_web/components/layouts.ex:470
 #, elixir-autogen, elixir-format
 msgid "Light theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:419
+#: lib/flux_vale_web/components/layouts.ex:418
 #, elixir-autogen, elixir-format
 msgid "Something went wrong!"
 msgstr "xx: Something went wrong!"
 
-#: lib/flux_vale_web/components/layouts.ex:444
+#: lib/flux_vale_web/components/layouts.ex:443
 #, elixir-autogen, elixir-format
 msgid "Theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:404
+#: lib/flux_vale_web/components/layouts.ex:403
 #, elixir-autogen, elixir-format
 msgid "We can't find the internet"
 msgstr ""
@@ -141,7 +141,7 @@ msgid "One flat rate, no surprises"
 msgstr ""
 
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:177
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:129
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:140
 #, elixir-autogen, elixir-format
 msgid "Pick an app"
 msgstr ""
@@ -154,7 +154,7 @@ msgstr ""
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:57
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:105
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:338
-#: lib/flux_vale_web/live/feedback_live/composer.ex:217
+#: lib/flux_vale_web/live/feedback_live/composer.ex:224
 #, elixir-autogen, elixir-format
 msgid "Sign in"
 msgstr ""
@@ -239,29 +239,20 @@ msgstr ""
 
 #: lib/flux_vale_web/controllers/catalog_html.ex:29
 #: lib/flux_vale_web/live/catalog_live/show.ex:221
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:384
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:278
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:421
 #, elixir-autogen, elixir-format
 msgid "%{rate}/mo while stopped"
 msgstr ""
 
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:119
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:130
 #, elixir-autogen, elixir-format
 msgid "Cost calculator"
-msgstr ""
-
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:349
-#, elixir-autogen, elixir-format
-msgid "Custom domain"
 msgstr ""
 
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:65
 #, elixir-autogen, elixir-format
 msgid "Get started"
-msgstr ""
-
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:362
-#, elixir-autogen, elixir-format
-msgid "Hostnames under fluxvale.app, public exposure, DNS, and resolution are free."
 msgstr ""
 
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:29
@@ -274,7 +265,7 @@ msgstr ""
 msgid "New accounts start with %{amount} in credits."
 msgstr ""
 
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:294
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:297
 #, elixir-autogen, elixir-format
 msgid "Other services"
 msgstr ""
@@ -291,7 +282,7 @@ msgstr ""
 msgid "Pricing"
 msgstr ""
 
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:319
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:322
 #, elixir-autogen, elixir-format
 msgid "Private access gateway"
 msgstr ""
@@ -331,7 +322,7 @@ msgstr ""
 msgid "Privacy"
 msgstr ""
 
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:211
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:222
 #, elixir-autogen, elixir-format
 msgid "The price depends only on the allocation, never the app."
 msgstr ""
@@ -435,12 +426,12 @@ msgstr ""
 msgid "No posts yet."
 msgstr ""
 
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:207
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:218
 #, elixir-autogen, elixir-format
 msgid "Clear"
 msgstr ""
 
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:374
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:411
 #, elixir-autogen, elixir-format
 msgid "Estimated total"
 msgstr ""
@@ -450,12 +441,7 @@ msgstr ""
 msgid "Pick an app from the catalog and run it with the resources you choose."
 msgstr ""
 
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:122
-#, elixir-autogen, elixir-format, fuzzy
-msgid "Price any allocation with the sliders, or pick an app to start from."
-msgstr ""
-
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:323
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:326
 #, elixir-autogen, elixir-format
 msgid "+%{rate}/mo per gateway, billed hourly"
 msgstr ""
@@ -484,7 +470,7 @@ msgstr[1] ""
 msgid "Add a comment"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:348
+#: lib/flux_vale_web/live/feedback_live/composer.ex:355
 #, elixir-autogen, elixir-format
 msgid "Already posted?"
 msgstr ""
@@ -499,13 +485,13 @@ msgstr ""
 msgid "Cast vote"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:296
+#: lib/flux_vale_web/live/feedback_live/composer.ex:303
 #: lib/flux_vale_web/live/feedback_live/vote_island.ex:204
 #, elixir-autogen, elixir-format
 msgid "Create an organization"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:242
+#: lib/flux_vale_web/live/feedback_live/composer.ex:249
 #, elixir-autogen, elixir-format
 msgid "Description"
 msgstr ""
@@ -516,7 +502,7 @@ msgid "No comments yet."
 msgstr ""
 
 #: lib/flux_vale_web/controllers/feedback_html/index.html.heex:22
-#: lib/flux_vale_web/live/feedback_live/composer.ex:203
+#: lib/flux_vale_web/live/feedback_live/composer.ex:210
 #, elixir-autogen, elixir-format
 msgid "Post a request"
 msgstr ""
@@ -526,7 +512,7 @@ msgstr ""
 msgid "Post a request - FluxVale"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:251
+#: lib/flux_vale_web/live/feedback_live/composer.ex:258
 #, elixir-autogen, elixir-format
 msgid "Post as"
 msgstr ""
@@ -536,24 +522,24 @@ msgstr ""
 msgid "Post comment"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:325
+#: lib/flux_vale_web/live/feedback_live/composer.ex:332
 #, elixir-autogen, elixir-format
 msgid "Post request"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:187
-#: lib/flux_vale_web/live/feedback_live/composer.ex:308
+#: lib/flux_vale_web/live/feedback_live/composer.ex:194
+#: lib/flux_vale_web/live/feedback_live/composer.ex:315
 #, elixir-autogen, elixir-format
 msgid "Posting needs a paid org."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:290
+#: lib/flux_vale_web/live/feedback_live/composer.ex:297
 #, elixir-autogen, elixir-format
 msgid "Posting needs an org you own."
 msgstr ""
 
 #: lib/flux_vale_web/live/feedback_live/comments_island.ex:158
-#: lib/flux_vale_web/live/feedback_live/composer.ex:323
+#: lib/flux_vale_web/live/feedback_live/composer.ex:330
 #, elixir-autogen, elixir-format
 msgid "Posting…"
 msgstr ""
@@ -573,7 +559,7 @@ msgstr ""
 msgid "Saving…"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:234
+#: lib/flux_vale_web/live/feedback_live/composer.ex:241
 #, elixir-autogen, elixir-format
 msgid "Short and specific wins the most votes."
 msgstr ""
@@ -583,7 +569,7 @@ msgstr ""
 msgid "Sign in to comment"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:211
+#: lib/flux_vale_web/live/feedback_live/composer.ex:218
 #, elixir-autogen, elixir-format
 msgid "Sign in to post a request."
 msgstr ""
@@ -593,17 +579,17 @@ msgstr ""
 msgid "Sign in to vote"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:205
+#: lib/flux_vale_web/live/feedback_live/composer.ex:212
 #, elixir-autogen, elixir-format
 msgid "Tell us what to build next. Every post is public and tracked by the team."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:233
+#: lib/flux_vale_web/live/feedback_live/composer.ex:240
 #, elixir-autogen, elixir-format
 msgid "Title"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:415
+#: lib/flux_vale_web/live/feedback_live/composer.ex:422
 #, elixir-autogen, elixir-format
 msgid "Top up %{org} to post"
 msgstr ""
@@ -638,7 +624,7 @@ msgstr ""
 msgid "Voting needs an org you own."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:243
+#: lib/flux_vale_web/live/feedback_live/composer.ex:250
 #, elixir-autogen, elixir-format
 msgid "What should happen, and why it matters."
 msgstr ""
@@ -648,72 +634,57 @@ msgstr ""
 msgid "Your vote didn't go through. Try again."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:182
+#: lib/flux_vale_web/live/feedback_live/composer.ex:189
 #, elixir-autogen, elixir-format
 msgid "Couldn't post this request. Try again."
 msgstr ""
 
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:224
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:235
 #, elixir-autogen, elixir-format
 msgid "%{app} recommends this amount of resources"
 msgstr ""
 
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:255
-#, elixir-autogen, elixir-format
-msgid "Every instance gets this allocation. The gateway and custom domain serve the whole organization, so they bill once."
-msgstr ""
-
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:357
-#, elixir-autogen, elixir-format
-msgid "Free"
-msgstr ""
-
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:253
-#, elixir-autogen, elixir-format
-msgid "Instances"
-msgstr ""
-
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:197
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:208
 #, elixir-autogen, elixir-format
 msgid "No apps match your search."
 msgstr ""
 
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:267
-#, elixir-autogen, elixir-format
-msgid "One fewer instance"
-msgstr ""
-
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:285
-#, elixir-autogen, elixir-format
-msgid "One more instance"
-msgstr ""
-
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:330
-#, elixir-autogen, elixir-format
-msgid "Private access to your apps without public exposure. One gateway serves every app in your organization and bills once, hourly. Set it up in Settings → Access."
-msgstr ""
-
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:154
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:165
 #, elixir-autogen, elixir-format
 msgid "Search apps"
 msgstr ""
 
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:351
-#, elixir-autogen, elixir-format, fuzzy
-msgid "Serve your apps under your own domain name. Free on topped-up accounts."
-msgstr ""
-
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:237
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:248
 #, elixir-autogen, elixir-format
 msgid "Use recommended"
 msgstr ""
 
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:665
-#, elixir-autogen, elixir-format
-msgid "%{allocation} per instance"
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:292
+#, elixir-autogen, elixir-format, fuzzy
+msgid "Add more instances"
 msgstr ""
 
-#: lib/flux_vale_web/live/pricing_calculator_live.ex:667
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:333
+#, elixir-autogen, elixir-format, fuzzy
+msgid "Built on Tailscale: private access to your apps without public exposure. One gateway serves your whole organization and bills once, hourly. Set it up in Settings → Access."
+msgstr ""
+
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:347
+#, elixir-autogen, elixir-format, fuzzy
+msgid "Estimate"
+msgstr ""
+
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:133
 #, elixir-autogen, elixir-format
-msgid "%{quantity} × %{allocation} per instance"
+msgid "Pick an app, set its resources, then add instances to the estimate."
+msgstr ""
+
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:394
+#, elixir-autogen, elixir-format
+msgid "Remove"
+msgstr ""
+
+#: lib/flux_vale_web/live/pricing_calculator_live.ex:265
+#, elixir-autogen, elixir-format
+msgid "This setup"
 msgstr ""

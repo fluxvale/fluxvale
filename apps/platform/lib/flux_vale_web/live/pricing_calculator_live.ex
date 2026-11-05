@@ -9,26 +9,30 @@ defmodule FluxValeWeb.PricingCalculatorLive do
   `format_monthly_rate/1` and the stopped rate via `format_usd/1` plus
   " while stopped".
 
-  The app chooser is a typed filter over real result buttons (app name,
-  logo, no-results line) with an explicit Clear. The panel shows while
-  focus is inside the field group, so Tab and Enter work natively: no
-  ARIA combobox we would have to fake, no JS hook. Selecting an app
-  snaps the sliders to its latest version's recommended size when the
-  sliders can state it, and the recommendation line names the app and
-  the amount. A nil or off-ladder recommendation is a no-op (no snap,
-  no line). After a manual edit the line stays and offers "Use
-  recommended", which restores the snapped allocation.
-
-  Quantity prices N instances: the curve is per instance, so the hero
-  total multiplies it, while the org-level services (the gateway and
-  custom domains) bill once. The allocation line says "per instance",
-  and the quantity block states the assumption.
+  Setups are line items (#469): the mount is a working calculator —
+  the default rungs live-price the hero, no app needed, so the first
+  paint carries rates. An app choice is required only to ADD: the Add
+  button stays disabled until one is chosen, because the row carries
+  the app's name, logo, and allocation. Picking an app snaps the
+  sliders to its latest version's recommended size when the sliders
+  can state it, and otherwise leaves the rungs where they are; the
+  recommendation line names the app and the amount, and a nil or
+  off-ladder recommendation renders no line (never a guessed one).
+  After a manual edit the line stays and offers "Use recommended",
+  which restores the snapped allocation. Add appends the current
+  configuration as a row and resets — chooser emptied, rungs back to
+  the default — for the next setup. Rows are removable and never
+  collapse: two identical setups are two rows. Once rows exist the
+  hero totals them (plus the gateway once, below) and the setup being
+  built prices at the Add button instead.
 
   Other services ride inside the calculator as toggles: the gateway
-  adds its exact flat rate from the accessor to the displayed total,
-  and each toggle's line item shows its own price. Custom domains are
-  free (ADR-0040 Amendment 2) and only state the topped-up account
-  requirement. The sliders are
+  adds its exact flat rate from the accessor to the displayed total —
+  once per organization whatever the row count, the way it bills —
+  and its line item shows its own price. Custom domains are not in
+  the calculator (ADR-0040 Amendment 2 made them free, so there is
+  no cost to estimate; the topped-up account gate lives in policy
+  land on AccessDomain :register). The sliders are
   FluxValeWeb.AllocationSliders verbatim (the deploy wizard's
   component); its DOM ids are page-unique by contract, and the wizard
   is a different page, so the calculator reuses them as-is.
@@ -58,12 +62,6 @@ defmodule FluxValeWeb.PricingCalculatorLive do
   # never a literal index.
   @default_size_slug "small"
 
-  # The quantity ladder. The ceiling is a display guard, not a product
-  # limit: a visitor comparing a handful of instances never needs more,
-  # and the stepper's disabled arms keep the state positive.
-  @min_quantity 1
-  @max_quantity 20
-
   @impl Phoenix.LiveView
   def mount(_params, session, socket) do
     # No live_session carries the locale hook for a controller-embedded
@@ -73,21 +71,24 @@ defmodule FluxValeWeb.PricingCalculatorLive do
     Gettext.put_locale(FluxValeWeb.Gettext, Locale.resolve(session))
 
     sizes = sorted_sizes()
+    default_resources = initial_resources(sizes)
 
     socket =
       socket
       |> assign(:sizes, sizes)
       |> assign(:apps, chooser_apps())
-      |> assign(:resources, initial_resources(sizes))
+      |> assign(:default_resources, default_resources)
+      |> assign(:resources, default_resources)
       |> assign(:app_slug, nil)
       |> assign(:app_name, nil)
+      |> assign(:app_icon_url, nil)
       |> assign(:recommendation, nil)
       |> assign(:app_filter, "")
       |> assign(:app_picked, false)
-      |> assign(:quantity, @min_quantity)
-      |> assign(:min_quantity, @min_quantity)
-      |> assign(:max_quantity, @max_quantity)
-      |> assign(:services, %{gateway: false, domain: false})
+      |> assign(:estimate, [])
+      |> assign(:next_item_id, 1)
+      |> stream(:estimate_items, [])
+      |> assign(:services, %{gateway: false})
       |> assign(:gateway_monthly_cents, AccessGateway.monthly_cents())
 
     {:ok, socket}
@@ -95,21 +96,31 @@ defmodule FluxValeWeb.PricingCalculatorLive do
 
   @impl Phoenix.LiveView
   def render(assigns) do
-    # The totals derive here so no render can disagree with the state:
-    # the curve is per instance, so quantity multiplies it, while the
-    # enabled services serve the whole organization and bill once. The
-    # gateway settles continuously regardless of instance state, so the
-    # stopped line owes it too. Custom domains are free (ADR-0040
-    # Amendment 2), so the domain toggle contributes nothing.
+    # The totals derive here so no render can disagree with the state.
+    # Before the first Add the live configuration IS the estimate (the
+    # classic calculator: every slider move re-prices the hero), and
+    # once rows exist the estimate is the committed rows — the setup
+    # being built then prices at the Add button instead. The gateway
+    # serves the whole organization and bills once whatever the row
+    # count, and it settles continuously regardless of instance state,
+    # so the stopped line owes it too.
     price = pricing(assigns.resources)
     service_cents = enabled_service_cents(assigns)
+    live_figure = estimate_cents(assigns.estimate)
+    rows? = assigns.estimate != []
+
+    hero_monthly = if(rows?, do: live_figure.monthly, else: price.monthly_cents) + service_cents
+
+    hero_stopped =
+      if(rows?, do: live_figure.stopped, else: price.stopped_monthly_cents) + service_cents
 
     assigns =
       assign(assigns,
         price: price,
         filtered_apps: filtered_apps(assigns.apps, assigns.app_filter),
-        total_cents: assigns.quantity * price.monthly_cents + service_cents,
-        stopped_cents: assigns.quantity * price.stopped_monthly_cents + service_cents
+        total_cents: hero_monthly,
+        stopped_cents: hero_stopped,
+        rows?: rows?
       )
 
     ~H"""
@@ -119,7 +130,7 @@ defmodule FluxValeWeb.PricingCalculatorLive do
           {gettext("Cost calculator")}
         </h2>
         <p class="text-sm text-ink-muted">
-          {gettext("Price any allocation with the sliders, or pick an app to start from.")}
+          {gettext("Pick an app, set its resources, then add instances to the estimate.")}
         </p>
       </div>
 
@@ -242,65 +253,57 @@ defmodule FluxValeWeb.PricingCalculatorLive do
           <AllocationSliders.sliders resources={@resources} />
         </form>
 
-        <%!-- Quantity: the curve is per instance, so N instances multiply
-        it. The services below serve the whole organization and bill
-        once, which is the assumption this block states. --%>
+        <%!-- Add: gated on a chosen app, because the row carries the
+        app's name, logo, and allocation. Once rows exist the hero
+        totals them, so the setup being built prices here instead. --%>
         <div
           class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line px-4 py-3 text-sm"
-          data-testid="calculator-quantity-block"
+          data-testid="calculator-add-block"
         >
-          <div class="space-y-0.5">
-            <p class="font-medium text-ink">{gettext("Instances")}</p>
-            <p class="text-xs text-ink-subtle">
+          <div :if={@rows?} class="min-w-0 space-y-0.5">
+            <p class="text-xs uppercase tracking-wide text-ink-subtle">
+              {gettext("This setup")}
+            </p>
+            <p
+              class="font-mono font-medium text-ink"
+              data-testid="calculator-setup-price"
+              aria-live="polite"
+            >
+              {Pricing.format_monthly_rate(@price.monthly_cents)}
+            </p>
+            <p class="text-xs text-ink-subtle" data-testid="calculator-setup-allocation">
+              {allocation_text(@resources)}
+            </p>
+            <p class="text-xs text-ink-subtle" data-testid="calculator-setup-stopped">
               {gettext(
-                "Every instance gets this allocation. The gateway and custom domain serve the whole organization, so they bill once."
+                "%{rate}/mo while stopped",
+                rate: Pricing.format_usd(@price.stopped_monthly_cents)
               )}
             </p>
           </div>
-          <div class="flex items-center gap-3">
-            <button
-              type="button"
-              id="calculator-quantity-decrease"
-              phx-click="quantity-change"
-              phx-value-delta="-1"
-              disabled={@quantity <= @min_quantity}
-              aria-label={gettext("One fewer instance")}
-              class="grid size-8 place-items-center rounded-lg border border-line bg-panel text-base text-ink transition-colors outline-offset-2 outline-focus hover:border-line-strong hover:bg-panel-raised focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              −
-            </button>
-            <span
-              class="min-w-8 text-center font-mono text-ink"
-              data-testid="calculator-quantity"
-              aria-live="polite"
-            >
-              {@quantity}
-            </span>
-            <button
-              type="button"
-              id="calculator-quantity-increase"
-              phx-click="quantity-change"
-              phx-value-delta="1"
-              disabled={@quantity >= @max_quantity}
-              aria-label={gettext("One more instance")}
-              class="grid size-8 place-items-center rounded-lg border border-line bg-panel text-base text-ink transition-colors outline-offset-2 outline-focus hover:border-line-strong hover:bg-panel-raised focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              +
-            </button>
-          </div>
+          <button
+            type="button"
+            id="calculator-add-instances"
+            phx-click="add-instance"
+            disabled={is_nil(@app_slug)}
+            data-testid="calculator-add-instances"
+            class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors outline-offset-2 outline-focus hover:bg-primary-strong focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {gettext("Add more instances")}
+          </button>
         </div>
 
         <div class="space-y-2">
           <p class="text-sm font-medium text-ink">{gettext("Other services")}</p>
           <%!-- Each toggle's line item shows its own flat price; enabling
-          the gateway adds exactly those accessor cents to the total below.
-          Custom domains are free, so that toggle adds nothing. --%>
+          the gateway adds exactly those accessor cents to the total
+          below, once per organization whatever the row count. --%>
           <form id="calculator-services-form" phx-change="services-change" class="space-y-2">
             <%!-- Always-serialized marker: a form whose checkboxes are all
             unchecked serializes no services keys at all, so unchecking the
-            last box would arrive as silence and freeze the stale total.
-            The marker guarantees a services param exists, and each service
-            is then on exactly when its own key says "on". --%>
+            last box would arrive as silence and freeze a stale total.
+            The marker guarantees a services param exists, and the
+            service is then on exactly when its own key says "on". --%>
             <input type="hidden" name="services[_marker]" value="1" />
             <div class="rounded-xl border border-line bg-panel px-4 py-3 text-sm">
               <label
@@ -328,43 +331,77 @@ defmodule FluxValeWeb.PricingCalculatorLive do
               </label>
               <p class="mt-2 text-xs text-ink-subtle" data-testid="gateway-explainer">
                 {gettext(
-                  "Private access to your apps without public exposure. One gateway serves every app in your organization and bills once, hourly. Set it up in Settings → Access."
+                  "Built on Tailscale: private access to your apps without public exposure. One gateway serves your whole organization and bills once, hourly. Set it up in Settings → Access."
                 )}
               </p>
             </div>
-            <div
-              class="rounded-xl border border-line bg-panel px-4 py-3 text-sm"
-              data-testid="service-toggle-domain"
-            >
-              <label class="flex items-center justify-between gap-3">
-                <span class="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    name="services[domain]"
-                    value="on"
-                    checked={@services.domain}
-                    class="h-4 w-4 accent-primary"
-                  />
-                  <span class="min-w-0">
-                    <span class="block font-medium text-ink">{gettext("Custom domain")}</span>
-                    <span class="block text-xs text-ink-subtle">
-                      {gettext(
-                        "Serve your apps under your own domain name. Free on topped-up accounts."
-                      )}
-                    </span>
-                  </span>
-                </span>
-                <span class="font-medium text-ink">{gettext("Free")}</span>
-              </label>
-            </div>
           </form>
-          <p class="text-xs text-ink-subtle">
-            {gettext("Hostnames under fluxvale.app, public exposure, DNS, and resolution are free.")}
-          </p>
         </div>
 
-        <%!-- The hero number (#440): curve + enabled services, prominent,
-        announcing updates (the top-up wizard's aria-live pattern). --%>
+        <%!-- The estimate rows (#469): one row per added setup — the
+        app, its logo, the chosen allocation, and the row's own price,
+        so the hero's aggregate is verifiable by eye. Rows never
+        collapse: two identical setups are two rows, each removable on
+        its own. --%>
+        <div :if={@rows?} class="space-y-2" data-testid="calculator-estimate">
+          <p class="text-sm font-medium text-ink">{gettext("Estimate")}</p>
+          <div id="estimate-items" phx-update="stream" class="space-y-2">
+            <div
+              :for={{item_id, item} <- @streams.estimate_items}
+              id={item_id}
+              data-testid={"estimate-item-#{item.id}"}
+              class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-panel px-4 py-3 text-sm"
+            >
+              <div class="flex min-w-0 items-center gap-3">
+                <span class="grid size-7 shrink-0 place-items-center rounded-control bg-primary-muted text-xs font-semibold text-link">
+                  <img
+                    :if={item.icon_url}
+                    src={item.icon_url}
+                    alt=""
+                    class="size-5 rounded-control"
+                  />
+                  <span :if={is_nil(item.icon_url)}>{String.first(item.app_name)}</span>
+                </span>
+                <span class="min-w-0 space-y-0.5">
+                  <span
+                    class="block truncate font-medium text-ink"
+                    data-testid={"estimate-app-#{item.id}"}
+                  >
+                    {item.app_name}
+                  </span>
+                  <span
+                    class="block font-mono text-xs text-ink-muted"
+                    data-testid={"estimate-allocation-#{item.id}"}
+                  >
+                    {allocation_text(item.resources)}
+                  </span>
+                </span>
+              </div>
+              <div class="flex items-center gap-3">
+                <span
+                  class="font-mono font-medium text-ink"
+                  data-testid={"estimate-price-#{item.id}"}
+                >
+                  {Pricing.format_monthly_rate(pricing(item.resources).monthly_cents)}
+                </span>
+                <button
+                  type="button"
+                  phx-click="remove-item"
+                  phx-value-id={item.id}
+                  data-testid={"estimate-remove-#{item.id}"}
+                  class="rounded-lg border border-line bg-panel px-3 py-1.5 text-sm font-medium text-ink transition-colors outline-offset-2 outline-focus hover:border-line-strong hover:bg-panel-raised focus-visible:outline-2"
+                >
+                  {gettext("Remove")}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <%!-- The hero number (#440): the live configuration before the
+        first Add, the committed rows after, plus the gateway —
+        prominent, announcing updates (the top-up wizard's aria-live
+        pattern). --%>
         <div
           class="flex flex-wrap items-center justify-between gap-4 rounded-xl bg-panel-raised px-4 py-4 text-sm sm:px-6"
           data-testid="calculator-price"
@@ -387,8 +424,12 @@ defmodule FluxValeWeb.PricingCalculatorLive do
               )}
             </p>
           </div>
-          <span class="font-mono text-ink-muted" data-testid="calculator-allocation">
-            {allocation_line(@quantity, @resources)}
+          <span
+            :if={not @rows?}
+            class="font-mono text-ink-muted"
+            data-testid="calculator-allocation"
+          >
+            {allocation_text(@resources)}
           </span>
         </div>
       </.card>
@@ -411,9 +452,12 @@ defmodule FluxValeWeb.PricingCalculatorLive do
   def handle_event("resources-change", _params, socket), do: {:noreply, socket}
 
   # The app chooser: a pick snaps the sliders to the latest version's
-  # recommended size when the sliders can state it, and remembers the
-  # recommendation so the line survives manual edits. A nil or
-  # off-ladder recommendation is a no-op: no snap, no line, no guessed
+  # recommended size when the sliders can state it, and otherwise
+  # selects the app and leaves the rungs alone — the sliders are a
+  # working calculator with or without an app, so a recommendation-less
+  # pick has nothing to snap and nothing to reset. The recommendation
+  # is remembered so the line survives manual edits. A nil or
+  # off-ladder recommendation renders no line: no snap, no guessed
   # amount. The choice is a start-from picker, not a promise about the
   # rungs, so the selection stays after a snap while the sliders move.
   @impl Phoenix.LiveView
@@ -423,20 +467,7 @@ defmodule FluxValeWeb.PricingCalculatorLive do
         {:noreply, socket}
 
       chooser ->
-        case recommendation(chooser.version.recommended_size) do
-          {:snap, size} ->
-            {:noreply,
-             socket
-             |> assign(:app_slug, slug)
-             |> assign(:app_name, chooser.app.name)
-             |> assign(:recommendation, size)
-             |> assign(:resources, size_resources(size))
-             |> assign(:app_filter, "")
-             |> assign(:app_picked, true)}
-
-          :noop ->
-            {:noreply, clear_selection(socket)}
-        end
+        {:noreply, select_app(socket, chooser)}
     end
   end
 
@@ -476,35 +507,71 @@ defmodule FluxValeWeb.PricingCalculatorLive do
     end
   end
 
-  # The quantity stepper. Only the two rendered deltas move the count,
-  # and both bounds clamp, so a crafted payload can never drive it to
-  # zero or past the ceiling.
-  def handle_event("quantity-change", %{"delta" => delta}, socket) when delta in ["-1", "1"] do
-    step = String.to_integer(delta)
-    quantity = min(max(socket.assigns.quantity + step, @min_quantity), @max_quantity)
+  # Add (#469): the current configuration becomes a row — the app's
+  # name, logo, and the chosen allocation — and the calculator resets
+  # for the next setup: chooser emptied, rungs back to the default.
+  # The gate is the chosen app (the row needs it), so a crafted click
+  # with nothing chosen is silence.
+  def handle_event("add-instance", _params, socket) do
+    if socket.assigns.app_slug do
+      item = %{
+        id: socket.assigns.next_item_id,
+        app_name: socket.assigns.app_name,
+        icon_url: socket.assigns.app_icon_url,
+        resources: socket.assigns.resources
+      }
 
-    {:noreply, assign(socket, :quantity, quantity)}
+      estimate = socket.assigns.estimate ++ [item]
+
+      {:noreply,
+       socket
+       |> assign(:estimate, estimate)
+       |> assign(:next_item_id, item.id + 1)
+       |> stream(:estimate_items, estimate, reset: true)
+       |> assign(:resources, socket.assigns.default_resources)
+       |> clear_selection()}
+    else
+      {:noreply, socket}
+    end
   end
 
-  def handle_event("quantity-change", _params, socket), do: {:noreply, socket}
+  # Remove: rows are independent, so one id drops exactly one row (an
+  # identical setup elsewhere in the estimate keeps its own). A crafted
+  # id that names no row, or does not parse as one, is silence.
+  def handle_event("remove-item", %{"id" => id}, socket) when is_binary(id) do
+    case Integer.parse(id) do
+      {item_id, ""} ->
+        estimate = Enum.reject(socket.assigns.estimate, &(&1.id == item_id))
+
+        {:noreply,
+         socket
+         |> assign(:estimate, estimate)
+         |> stream(:estimate_items, estimate, reset: true)}
+
+      _crafted ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("remove-item", _params, socket), do: {:noreply, socket}
 
   # The explicit Clear: deselects the app, forgets its recommendation,
-  # empties the filter, and leaves the rungs wherever the visitor put
-  # them.
+  # empties the filter, and puts the rungs back to the default — the
+  # same reset an Add leaves behind, so the next setup starts clean.
   def handle_event("clear-app", _params, socket) do
-    {:noreply, clear_selection(socket)}
+    {:noreply,
+     socket
+     |> assign(:resources, socket.assigns.default_resources)
+     |> clear_selection()}
   end
 
   # Service toggles: a checkbox change serializes only the checked
-  # boxes, so each service is on exactly when its key arrives. A crafted
-  # payload whose services value is not a map decodes to nothing.
+  # boxes, so the gateway is on exactly when its key arrives. Unknown
+  # keys (a crafted or stale payload naming a retired service) read as
+  # nothing, and a services value that is not a map decodes to nothing.
   def handle_event("services-change", %{"services" => services}, socket)
       when is_map(services) do
-    {:noreply,
-     assign(socket, :services, %{
-       gateway: services["gateway"] == "on",
-       domain: services["domain"] == "on"
-     })}
+    {:noreply, assign(socket, :services, %{gateway: services["gateway"] == "on"})}
   end
 
   def handle_event("services-change", _params, socket), do: {:noreply, socket}
@@ -615,10 +682,35 @@ defmodule FluxValeWeb.PricingCalculatorLive do
   # string map the snap wrote.
   defp at_recommendation?(resources, size), do: resources == size_resources(size)
 
+  # Selecting an app: the choice sticks (name, logo, closed panel) and
+  # the sliders take the recommendation when they can state it. A nil
+  # or off-ladder recommendation selects with no line and no snap —
+  # the rungs stay wherever the visitor left them.
+  defp select_app(socket, chooser) do
+    selected =
+      socket
+      |> assign(:app_slug, chooser.app.slug)
+      |> assign(:app_name, chooser.app.name)
+      |> assign(:app_icon_url, chooser.app.icon_url)
+      |> assign(:app_filter, "")
+      |> assign(:app_picked, true)
+
+    case recommendation(chooser.version.recommended_size) do
+      {:snap, size} ->
+        selected
+        |> assign(:recommendation, size)
+        |> assign(:resources, size_resources(size))
+
+      :noop ->
+        assign(selected, :recommendation, nil)
+    end
+  end
+
   defp clear_selection(socket) do
     assign(socket,
       app_slug: nil,
       app_name: nil,
+      app_icon_url: nil,
       recommendation: nil,
       app_filter: "",
       app_picked: false
@@ -639,37 +731,36 @@ defmodule FluxValeWeb.PricingCalculatorLive do
   end
 
   # The one pricing call (ADR-0028): shown price = charged price, by
-  # construction.
+  # construction. Called per row too — price_allocation/1 is pure
+  # arithmetic over the allocation, so rows price independently and the
+  # sum cannot drift from the parts.
   defp pricing(resources) do
     typed = allocation(resources)
     Pricing.price_allocation(typed)
   end
 
-  # The toggles' exact add: the gateway contributes its accessor cents,
-  # no literals and no estimates. Custom domains are free (ADR-0040
-  # Amendment 2), so the domain toggle adds nothing.
+  # The committed rows' aggregate: each row prices through the same
+  # price_allocation/1 call as the live configuration, and the hero
+  # adds the parts (never a re-derived whole, which is what would let
+  # the shown total drift from the row prices shown beside it).
+  defp estimate_cents(estimate) do
+    priced = Enum.map(estimate, &pricing(&1.resources))
+
+    %{
+      monthly: Enum.sum_by(priced, & &1.monthly_cents),
+      stopped: Enum.sum_by(priced, & &1.stopped_monthly_cents)
+    }
+  end
+
+  # The toggle's exact add: the gateway contributes its accessor cents
+  # once per organization whatever the row count, no literals and no
+  # estimates. Custom domains are not estimated here at all (ADR-0040
+  # Amendment 2): free means there is no calculator line for them.
   defp enabled_service_cents(assigns) do
     if assigns.services.gateway, do: assigns.gateway_monthly_cents, else: 0
   end
 
   # --- Formatting ----------------------------------------------------------------
-
-  # One instance's allocation, and the quantity when it is above one:
-  # "3 × 0.5 CPU · 512 MB · 10 GB per instance". The "per instance"
-  # suffix is always there, so the hero never reads as a whole-fleet
-  # allocation by accident.
-  defp allocation_line(quantity, resources) do
-    allocation = allocation_text(resources)
-
-    if quantity == 1 do
-      gettext("%{allocation} per instance", allocation: allocation)
-    else
-      gettext("%{quantity} × %{allocation} per instance",
-        quantity: quantity,
-        allocation: allocation
-      )
-    end
-  end
 
   defp size_text(size), do: allocation_text(size_resources(size))
 

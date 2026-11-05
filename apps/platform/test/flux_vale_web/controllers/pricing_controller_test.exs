@@ -14,10 +14,12 @@ defmodule FluxValeWeb.PricingControllerTest do
     assert html_response(conn, 200) =~ "Prices follow the resources an app gets"
   end
 
-  # #440: the calculator fills the mount point — the child LiveView's
-  # SSR, so crawlers see the formed state: the default small rungs priced
-  # through price_allocation, the app select, the sliders, and the
-  # service toggles, plus the session div the client boots from.
+  # #440 + #469: the calculator fills the mount point — the child
+  # LiveView's SSR, so crawlers see a formed calculator state: the
+  # default small rungs priced through price_allocation (the mount is a
+  # working calculator, no app needed), the app search, the sliders,
+  # and the gateway toggle, plus the session div the client boots from.
+  # Add rides the SSR gated (no app chosen at mount).
   test "GET /pricing renders the calculator's SSR inside the mount point", %{conn: conn} do
     :ok = FluxVale.Seeds.seed_pricing!()
 
@@ -39,13 +41,14 @@ defmodule FluxValeWeb.PricingControllerTest do
     assert html =~ "#{Pricing.format_usd(priced.stopped_monthly_cents)}/mo while stopped"
     assert html =~ "0.5 CPU · 512 MB · 10 GB"
 
-    # The app search field, the sliders, and the service toggles ride
-    # the SSR.
+    # The app search field, the sliders, the gated Add button, and the
+    # services form ride the SSR.
     assert html =~ ~s(id="calculator-app-filter")
     assert html =~ "Search apps"
     assert html =~ ~s(id="resource-cpu-cores")
     assert html =~ ~s(id="calculator-services-form")
-    assert html =~ "0.5 CPU · 512 MB · 10 GB per instance"
+    assert html =~ "Add more instances"
+    assert html =~ ~r{<button[^>]*id="calculator-add-instances"[^>]*disabled}
   end
 
   # #440: the tiers left the page — the seeded slugs render nowhere, on
@@ -65,25 +68,34 @@ defmodule FluxValeWeb.PricingControllerTest do
     refute html =~ "size-chip"
   end
 
-  # The service toggles price from the accessors — their flat rates show
-  # as line items inside the calculator's SSR.
-  test "GET /pricing renders the service line items and the free facts caption", %{conn: conn} do
+  # The gateway's toggle prices from the accessor — its flat rate shows
+  # as a line item inside the calculator's SSR, with the Tailscale
+  # explainer beside it (#469). Custom domains are not estimated at all
+  # (ADR-0040 Amendment 2 made them free): no toggle, no copy, nothing.
+  test "GET /pricing renders the gateway line item with no domain copy", %{conn: conn} do
     conn = get(conn, ~p"/pricing")
     html = html_response(conn, 200)
 
     gateway_rate = Pricing.format_usd(AccessGateway.monthly_cents())
 
     # The line item keeps the #206 qualifier: the add-on rate reads
-    # "+rate/mo ..., billed hourly" on the SSR surface too. Custom
-    # domains are free (ADR-0040 Amendment 2).
+    # "+rate/mo ..., billed hourly" on the SSR surface too.
     gateway_line = "+#{gateway_rate}/mo per gateway, billed hourly"
 
     assert html =~ "Private access gateway"
     assert html =~ gateway_line
-    assert html =~ "Custom domain"
-    assert html =~ "Free on topped-up accounts"
-    refute html =~ "per verified domain"
-    assert html =~ "Hostnames under fluxvale.app, public exposure, DNS, and resolution are free."
+    assert html =~ "Built on Tailscale"
+
+    # The calculator carries no custom-domain copy anywhere — the grep
+    # is the contract, not just the toggle's absence.
+    without_head = String.split(html, "<body>")
+    body = List.last(without_head)
+
+    refute body =~ ~r/domain/i
+    refute body =~ "topped-up"
+    refute body =~ "Hostnames under"
+    refute body =~ "DNS"
+    refute body =~ "Free on"
   end
 
   test "GET /pricing states the billing model from the accessors", %{conn: conn} do
