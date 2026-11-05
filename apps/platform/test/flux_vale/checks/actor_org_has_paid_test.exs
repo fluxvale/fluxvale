@@ -116,6 +116,40 @@ defmodule FluxVale.Checks.ActorOrgHasPaidTest do
       assert ActorOrgHasPaid.match?(orgless, %{subject: create_subject}, [])
     end
 
+    test "a paid personal org passes the actor fallback — paid_via_actor?'s ok-arm" do
+      # The mirror of the org-less test: actorless-built changeset (no
+      # attribute pinned), so the check falls to the actor's personal
+      # org — paid passes, never-paid fails.
+      paid_actor = AccountsFixtures.user!()
+      BillingFixtures.mark_user_paid!(paid_actor)
+
+      unpaid_actor = AccountsFixtures.user!()
+      AccountsFixtures.personal_org!(unpaid_actor)
+
+      subject = Ash.Changeset.for_create(AccessGateway, :create, %{}, authorize?: false)
+
+      assert ActorOrgHasPaid.match?(paid_actor, %{subject: subject}, [])
+      refute ActorOrgHasPaid.match?(unpaid_actor, %{subject: subject}, [])
+    end
+
+    test "a create naming its org as an ARGUMENT answers that org, not the actor's" do
+      # The named-org arm: the gateway tenancy change pins the named
+      # org onto the attribute pre-policy (its no-actor clause, this
+      # changeset's shape), so the check answers the attribute — never
+      # the actor's unpaid personal org.
+      actor = AccountsFixtures.user!()
+      AccountsFixtures.personal_org!(actor)
+      {team, _wallet} = BillingFixtures.funded_wallet!()
+      BillingFixtures.mark_paid!(team)
+
+      subject =
+        Ash.Changeset.for_create(AccessGateway, :create, %{organization_id: team.id},
+          authorize?: false
+        )
+
+      assert ActorOrgHasPaid.match?(actor, %{subject: subject}, [])
+    end
+
     test "a reload failure fails closed — a struct naming no row never passes" do
       {org, _owner} = BillingFixtures.grant_free_org!()
       {:ok, wallet} = Billing.ensure_wallet(org)

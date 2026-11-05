@@ -133,9 +133,12 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
       refute Map.has_key?(row["attributes"], "auth_key")
     end
 
-    test "the org is pinned from the actor — a foreign org_id cannot steer the row", %{
+    test "a foreign org_id is Forbidden — the wire names only the caller's own orgs", %{
       conn: conn
     } do
+      # #408: the argument is the live context input, member-fenced. A
+      # foreign org (this caller is not a member, whatever its wallet)
+      # is refused outright now, not silently re-pinned.
       {user, org} = paid_member!()
 
       {_other_user, other_org} = paid_member!()
@@ -159,10 +162,33 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
           }
         })
 
-      assert %{"data" => %{"attributes" => %{"organization_id" => pinned}}} =
+      assert %{"errors" => [%{"status" => "403"}]} = json_response(conn, 403)
+    end
+
+    test "naming the caller's own org lands the row there (#408)", %{conn: conn} do
+      {user, org} = paid_member!()
+
+      pat = ApiPat.mint!(user.email, ["gateways:write"])
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v1/access-gateways", %{
+          "data" => %{
+            "type" => "access_gateway",
+            "attributes" => %{
+              "organization_id" => org.id,
+              "tailnet_domain" => "example.ts.net",
+              "auth_key" => "tskey-test"
+            }
+          }
+        })
+
+      assert %{"data" => %{"attributes" => %{"organization_id" => named}}} =
                json_response(conn, 201)
 
-      assert pinned == org.id
+      assert named == org.id
     end
   end
 
