@@ -9,8 +9,9 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   denials) read as "not here" — never a bare 404. Owners-only in the
   panel is a UX gate, not the authority: the actions' own policies
   (membership, funded wallet) are what actually forbid a call. The
-  wallet hints report the wallet each affordance acts on — enable bills
-  the page org (#408: the create names it), resume the row's org.
+  wallet hints report the wallet each affordance acts on — enable
+  bills the actor's personal org, resume the row's org — never the
+  page org by accident.
 
   S5: the personal org's access panel moved INTO user settings —
   `/settings/access` mounts this same LiveView under the named
@@ -52,8 +53,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   # params into mount params, so `/settings/access?slug=…` lands in mount
   # with one and would take the slug-keyed head below, mounting the org
   # frame (header, tabs, the URL org's gateway and its PubSub topic) on
-  # the personal route — a page whose enable form would name the URL org
-  # while the frame shows the personal one, and that the created row's
+  # the personal route — a page whose enable form mints into the personal
+  # org while the frame shows the other org, and that the created row's
   # own topic can never update. So on this route the param is refused
   # outright: not-found, the codebase's posture for a hand-typed path.
   # (First clause: it must win over the slug-keyed head for this action.)
@@ -1312,8 +1313,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   end
 
   # The panel supplies the two create inputs it doesn't render: the org
-  # (the page org — the create names it, #408) and the price snapshot
-  # the row keeps.
+  # (the action's own change pins it from the actor — this only keeps
+  # validation quiet) and the price snapshot the row keeps.
   defp panel_params(params, socket) do
     Map.merge(params, %{
       "organization_id" => socket.assigns.org.id,
@@ -1374,11 +1375,13 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   # coveralls-ignore-next-line
   defp stale_gateway?(_error), do: false
 
-  # Two wallets in play, named so they can't be conflated:
+  # Two wallets in play, named so they can't be conflated — the
+  # divergence the funded hint carried since the panel landed:
   #
-  # - `create_*` — the wallet an ENABLE create bills. The create names
-  #   the page org (#408), so the empty state's hints read that wallet
-  #   on every mount.
+  # - `create_*` — the wallet an ENABLE create bills. The create change
+  #   (SetOrganizationFromActor) pins the ACTOR'S PERSONAL ORG, so the
+  #   empty state's hints read that wallet: the page org on the
+  #   :personal mount, the actor's personal org on org pages.
   # - `row_*` — the gateway ROW's org wallet: resume spends the row's
   #   org, so the suspended panel's affordance reads that.
   defp refresh_wallet_gates(socket) do
@@ -1396,12 +1399,29 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     )
   end
 
-  # The enable create names the page org (#408), so the page org's
-  # wallet IS the create's billing wallet — on the :personal mount too,
-  # where the page org is the actor's personal org. The old divergence
-  # (the create pinning the actor's personal org on org pages, hints
-  # following it) closed with the context deploy.
-  defp create_wallet_org_id(socket), do: socket.assigns.org.id
+  # The :personal mount's page org IS the create's billing wallet.
+  defp create_wallet_org_id(%{assigns: %{live_action: :personal}} = socket),
+    do: socket.assigns.org.id
+
+  # An org page resolves the actor's personal org through the canonical
+  # resolver — the same lookup the create pins, so the hints and the
+  # click can never disagree. :none / read failure → nil: fail closed
+  # (the hints show; the click would fail anyway).
+  defp create_wallet_org_id(socket) do
+    case PersonalOrg.org_for(socket.assigns.current_user) do
+      {:ok, org} ->
+        org.id
+
+      # defensive: a UI-reachable actor always owns the page org, so the
+      # resolver returns one — this arm only bounds a seeded/legacy
+      # shape. Fail closed.
+      # coveralls-ignore-start
+      _none_or_error ->
+        nil
+
+        # coveralls-ignore-stop
+    end
+  end
 
   defp row_wallet_org_id(nil), do: nil
   defp row_wallet_org_id(%AccessGateway{organization_id: org_id}), do: org_id

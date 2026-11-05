@@ -9,7 +9,6 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
   use FluxValeWeb.ConnCase, async: true
   use Mimic
 
-  alias FluxVale.Accounts
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Ingress
@@ -197,64 +196,6 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
       # admin-only trail.
       refute Map.has_key?(row["attributes"], "env_vars")
       refute Map.has_key?(row["attributes"], "status_message")
-    end
-
-    test "naming the caller's own org lands the row there (#408)", %{conn: conn} do
-      {user, _pat} = ApiPat.member!()
-      {:ok, org} = Accounts.personal_org_for_user(user.id, authorize?: false)
-      version = InstanceFixtures.app_version!()
-      InstanceFixtures.local_cluster!()
-      pat = ApiPat.mint!(user.email, ["instances:write"])
-
-      conn =
-        conn
-        |> auth(pat)
-        |> put_req_header("content-type", "application/vnd.api+json")
-        |> post("/api/v1/instances", %{
-          "data" => %{
-            "type" => "instance",
-            "attributes" => %{
-              "name" => "Org Deployed",
-              "app_version_id" => version.id,
-              "organization_id" => org.id
-            }
-          }
-        })
-
-      assert %{"data" => %{"id" => id}} = json_response(conn, 201)
-
-      # organization_id is not on the detail field set — the row answers.
-      instance = Instance.get_by_id!(id, authorize?: false)
-      assert instance.organization_id == org.id
-    end
-
-    test "a foreign organization_id is Forbidden — the wire names only the caller's own orgs", %{
-      conn: conn
-    } do
-      # #408: the argument is member-fenced. A foreign org (this caller
-      # is not a member) is refused outright, whatever its wallet.
-      {user, _pat} = ApiPat.member!()
-      {foreign, _foreign_owner} = BillingFixtures.grant_free_org!()
-      version = InstanceFixtures.app_version!()
-      InstanceFixtures.local_cluster!()
-      pat = ApiPat.mint!(user.email, ["instances:write"])
-
-      conn =
-        conn
-        |> auth(pat)
-        |> put_req_header("content-type", "application/vnd.api+json")
-        |> post("/api/v1/instances", %{
-          "data" => %{
-            "type" => "instance",
-            "attributes" => %{
-              "name" => "Foreign",
-              "app_version_id" => version.id,
-              "organization_id" => foreign.id
-            }
-          }
-        })
-
-      assert %{"errors" => [%{"status" => "403"}]} = json_response(conn, 403)
     end
 
     # Ground truth pinned (#362's open question): the action's accept

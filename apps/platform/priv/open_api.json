@@ -11119,17 +11119,6 @@
                           "name": {
                             "type": "string"
                           },
-                          "organization_id": {
-                            "anyOf": [
-                              {
-                                "format": "uuid",
-                                "type": "string"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
                           "storage_gb": {
                             "anyOf": [
                               {

@@ -16,11 +16,11 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Ingress
   alias FluxVale.Clients.K8s.Resources.Middleware
-  alias FluxVale.Identity.User
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
+  alias FluxVale.Infrastructure.Instance
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
@@ -303,7 +303,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       assert {:error, %Ash.Error.Forbidden{}} = AccessGateway.resume(suspended, actor: owner)
     end
 
-    test "a paid, funded member creates and resumes", %{owner: owner} do
+    test "a paid, funded member creates and resumes", %{org: org, owner: owner} do
       # The create bills the ACTOR'S PERSONAL ORG — SetOrganizationFromActor
       # pins it, and the paid+funded policy reads the same resolver's
       # answer (the org the #408 marker names). Assert against that
@@ -355,85 +355,6 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       forged = %{changeset | data: %{suspended | organization_id: paid_other.id}}
 
       assert {:error, %Ash.Error.Forbidden{}} = AccessGateway.resume(forged, actor: owner)
-    end
-
-    test "an enable naming its org lands the row there and bills that org's wallet", %{
-      owner: owner
-    } do
-      # The org page's enable (#408): the create names the page org, and
-      # the paid/funded gates read THAT org's wallet. The actor's
-      # personal org (the setup org) is adjustment-funded but never paid
-      # — under the old pin-the-personal behavior this create would
-      # answer Forbidden on the personal wallet's paid gate.
-      {:ok, team} =
-        Accounts.create_organization(owner, %{
-          name: "Gateway Team",
-          slug: "gw-team-#{System.unique_integer([:positive])}"
-        })
-
-      BillingFixtures.funded_wallet!(org: team)
-      BillingFixtures.mark_paid!(team)
-
-      assert {:ok, gateway} =
-               AccessGateway.create(
-                 %{
-                   organization_id: team.id,
-                   monthly_cents: 200,
-                   tailnet_domain: "example.ts.net",
-                   auth_key: "tskey"
-                 },
-                 actor: owner
-               )
-
-      assert gateway.organization_id == team.id
-    end
-
-    test "a named org the actor does not belong to is Forbidden — funded and paid don't open it",
-         %{
-           owner: owner
-         } do
-      # The membership fence: the wallet gates alone would pass a
-      # funded-and-paid foreign org.
-      {foreign, _foreign_owner} = BillingFixtures.grant_free_org!()
-      BillingFixtures.funded_wallet!(org: foreign)
-      BillingFixtures.mark_paid!(foreign)
-
-      assert {:error, %Ash.Error.Forbidden{}} =
-               AccessGateway.create(
-                 %{
-                   organization_id: foreign.id,
-                   monthly_cents: 200,
-                   tailnet_domain: "example.ts.net",
-                   auth_key: "tskey"
-                 },
-                 actor: owner
-               )
-    end
-
-    test "an org-less actor fails loudly (field-scoped, not a crash)" do
-      # Ash.seed! — the only way to produce an org-less user: the create
-      # action's JIT provisioning always gives one (the documented seed!
-      # exception). The personal-org lookup answers :none and the change
-      # errors the field instead of a bare required-attribute crash.
-      orgless =
-        Ash.Seed.seed!(User, %{
-          email: "orgless-gw-#{System.unique_integer([:positive])}@fluxvale.test"
-        })
-
-      assert {:error, %Ash.Error.Invalid{errors: errors}} =
-               AccessGateway.create(
-                 %{
-                   monthly_cents: 200,
-                   tailnet_domain: "example.ts.net",
-                   auth_key: "tskey"
-                 },
-                 actor: orgless
-               )
-
-      assert Enum.any?(
-               errors,
-               &(&1.field == :organization_id and &1.message == "is required")
-             )
     end
 
     # The paywall waiver: the operator's designated-org path. The gate

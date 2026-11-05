@@ -67,14 +67,12 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       authorize_if(relates_to_actor_via([:organization, :members]))
     end
 
-    # Registering is a member's act on an org they belong to; the org is
-    # the register action's context (the named org, else the actor's own,
-    # #408). This fence denies a non-member's named org, reading the
-    # organization_id the tenancy change set before policies run — the
-    # create-template posture ActorIsOrganizationMember exists for.
+    # Registering is the owner's act on their own org; the org is forced
+    # from the actor (the Instance create contract), so a member can
+    # never mint a row into another org.
     policy action(:register) do
       description("Members register their org's own domains")
-      authorize_if(FluxVale.Checks.ActorIsOrganizationMember)
+      authorize_if(relates_to_actor_via([:organization, :members]))
     end
 
     # The platform row is system-minted (instance create), never
@@ -198,11 +196,6 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       """)
 
       accept([:domain])
-
-      # The register action's org context (#408): naming an org registers
-      # into it (member-fenced by the register policy); leaving it nil
-      # keeps the actor's own org as the default.
-      argument(:organization_id, :uuid, allow_nil?: true)
 
       change(FluxVale.Infrastructure.AccessDomain.SetOrganizationFromActor)
 
