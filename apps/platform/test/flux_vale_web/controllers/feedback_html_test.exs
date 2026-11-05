@@ -146,19 +146,4 @@ defmodule FluxValeWeb.FeedbackHTMLTest do
       assert FeedbackHTML.board_href("new", :open, 2) == "/feedback?sort=new&status=open&page=2"
     end
   end
-
-  # #412 T9: the roadmap's display contract.
-  describe "roadmap helpers" do
-    test "column labels cover the three roadmap statuses" do
-      assert FeedbackHTML.roadmap_column_label(:planned) == "Planned"
-      assert FeedbackHTML.roadmap_column_label(:started) == "Started"
-      assert FeedbackHTML.roadmap_column_label(:completed) == "Completed"
-    end
-
-    test "empty-column copy is one honest sentence per column" do
-      assert FeedbackHTML.empty_column_copy(:planned) == "Nothing planned yet."
-      assert FeedbackHTML.empty_column_copy(:started) == "Nothing underway yet."
-      assert FeedbackHTML.empty_column_copy(:completed) == "Nothing shipped yet."
-    end
-  end
 end

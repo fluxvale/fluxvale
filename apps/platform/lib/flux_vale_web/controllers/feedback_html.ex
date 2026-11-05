@@ -48,24 +48,6 @@ defmodule FluxValeWeb.FeedbackHTML do
   def status_tone(status), do: Map.fetch!(@status_tones, status)
 
   @doc """
-  The roadmap column's heading label (T9). Gettext'd msgids ARE the
-  source of truth here, so this map is deliberately its own three
-  clauses instead of reusing status_label/1 (a dynamic msgid would
-  vanish from the extraction).
-  """
-  def roadmap_column_label(:planned), do: gettext("Planned")
-  def roadmap_column_label(:started), do: gettext("Started")
-  def roadmap_column_label(:completed), do: gettext("Completed")
-
-  @doc """
-  The roadmap's honest empty-column copy (T9): one plain sentence per
-  column, true of that column alone.
-  """
-  def empty_column_copy(:planned), do: gettext("Nothing planned yet.")
-  def empty_column_copy(:started), do: gettext("Nothing underway yet.")
-  def empty_column_copy(:completed), do: gettext("Nothing shipped yet.")
-
-  @doc """
   Renders the board's status badge.
   """
   attr(:status, :atom, required: true)
@@ -79,49 +61,6 @@ defmodule FluxValeWeb.FeedbackHTML do
 
     ~H"""
     <.badge tone={@tone} data-testid="feedback-status">{@label}</.badge>
-    """
-  end
-
-  @doc """
-  The board/roadmap view tabs (#412 T9) — the header link pair both
-  public feedback surfaces render (the board page's header shape: the
-  `.header` actions slot, styled like its sort tabs). `:current` marks
-  the page showing it.
-  """
-  attr(:current, :atom, required: true, values: [:board, :roadmap])
-
-  def lane_tabs(assigns) do
-    assigns = assign(assigns, :roadmap_current, assigns.current == :roadmap)
-
-    ~H"""
-    <nav
-      aria-label={gettext("Feedback views")}
-      class="flex items-center gap-1 rounded-control border border-line bg-panel p-1 text-sm"
-    >
-      <.link
-        href={~p"/feedback"}
-        aria-current={not @roadmap_current && "page"}
-        class={[
-          "rounded-[calc(var(--radius-control)-0.25rem)] px-3 py-1.5 font-medium transition-colors duration-(--motion-fast)",
-          not @roadmap_current && "bg-primary-muted text-link",
-          @roadmap_current && "text-ink-muted hover:text-ink"
-        ]}
-      >
-        {gettext("Board")}
-      </.link>
-      <.link
-        href={~p"/roadmap"}
-        data-testid="roadmap-link"
-        aria-current={@roadmap_current && "page"}
-        class={[
-          "rounded-[calc(var(--radius-control)-0.25rem)] px-3 py-1.5 font-medium transition-colors duration-(--motion-fast)",
-          @roadmap_current && "bg-primary-muted text-link",
-          not @roadmap_current && "text-ink-muted hover:text-ink"
-        ]}
-      >
-        {gettext("Roadmap")}
-      </.link>
-    </nav>
     """
   end
 

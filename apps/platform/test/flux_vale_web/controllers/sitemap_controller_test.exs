@@ -128,36 +128,4 @@ defmodule FluxValeWeb.SitemapControllerTest do
     charlist = String.to_charlist(xml)
     assert {_doc, []} = :xmerl_scan.string(charlist)
   end
-
-  # #412 T9: the roadmap joins the static slice with a lastmod — the
-  # latest status_changed_at across posts (the last status move is what
-  # last reshaped the board).
-  test "the roadmap is listed with the latest status-change lastmod", %{conn: conn} do
-    started = FeedbackFixtures.post!(%{title: "Sitemap roadmap started", description: "x"})
-    FeedbackFixtures.move_status!(started, :started)
-    FeedbackFixtures.set_status_changed_at!(started, hours_ago(48))
-
-    to_complete = FeedbackFixtures.post!(%{title: "Sitemap roadmap completed", description: "x"})
-    shipped = FeedbackFixtures.move_status!(to_complete, :completed)
-
-    lastmod =
-      shipped.status_changed_at
-      |> DateTime.to_date()
-      |> Date.to_iso8601()
-
-    xml = response(get(conn, ~p"/sitemap.xml"), 200)
-
-    assert xml =~ "<loc>https://fluxvale.com/roadmap</loc><lastmod>#{lastmod}</lastmod>"
-  end
-
-  test "the roadmap lists without a lastmod when no post has moved", %{conn: conn} do
-    FeedbackFixtures.post!(%{title: "Sitemap roadmap never moved", description: "x"})
-
-    xml = response(get(conn, ~p"/sitemap.xml"), 200)
-
-    assert xml =~ "<loc>https://fluxvale.com/roadmap</loc></url>"
-    refute xml =~ "roadmap</loc><lastmod>"
-  end
-
-  defp hours_ago(hours), do: DateTime.add(DateTime.utc_now(), -hours * 3_600, :second)
 end

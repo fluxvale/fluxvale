@@ -15,10 +15,7 @@ defmodule FluxValeWeb.SitemapXML do
   exactly what the prod blog index and feed advertise. Every feedback
   post appears (board pages are public and indexed from launch,
   ADR-0026 §4): declined and duplicate posts included, lastmod from
-  `updated_at`. The roadmap (#412 T9) joins the static slice with a
-  lastmod: the latest `status_changed_at` across posts (every move
-  stamps it; the moves that reshape the roadmap's columns are all but
-  the two open exits, decline and duplicate fold).
+  `updated_at`.
   """
 
   alias FluxVale.Blog.Post
@@ -32,8 +29,6 @@ defmodule FluxValeWeb.SitemapXML do
   published policy pages + one URL per app (lastmod = the app's
   updated_at date) + one URL per published blog post (lastmod = the
   post's date) + one URL per feedback post (lastmod = updated_at)`.
-  /roadmap rides the static slice with its own lastmod (the latest
-  feedback status_changed_at, T9).
   """
   @spec build([struct()], [Post.t()], [FluxVale.Feedback.Post.t()]) :: iodata()
   def build(apps, posts, feedback_posts) do
@@ -58,7 +53,6 @@ defmodule FluxValeWeb.SitemapXML do
       for loc <- static_urls do
         ["<url><loc>", XML.escape(loc), "</loc></url>"]
       end,
-      roadmap_url(feedback_posts),
       for app <- apps do
         [
           "<url><loc>",
@@ -91,37 +85,7 @@ defmodule FluxValeWeb.SitemapXML do
   end
 
   defp lastmod(struct) do
-    date(struct.updated_at)
-  end
-
-  # #412 T9: the roadmap row — a static URL WITH a lastmod, the latest
-  # status_changed_at across posts (every move stamps it; the moves that
-  # reshape the roadmap's columns are all but the two open exits,
-  # decline and duplicate fold). No moved post yet renders it like the
-  # other statics: bare loc, no lastmod.
-  defp roadmap_url(feedback_posts) do
-    loc = Seo.canonical_origin() <> "/roadmap"
-
-    case latest_status_changed_at(feedback_posts) do
-      nil ->
-        ["<url><loc>", XML.escape(loc), "</loc></url>"]
-
-      at ->
-        ["<url><loc>", XML.escape(loc), "</loc><lastmod>", date(at), "</lastmod></url>"]
-    end
-  end
-
-  # Enum.max's empty fallback keeps a board with no status moves (day
-  # one prod: every post open) on the bare-loc shape.
-  defp latest_status_changed_at(posts) do
-    posts
-    |> Enum.map(& &1.status_changed_at)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.max(DateTime, fn -> nil end)
-  end
-
-  defp date(datetime) do
-    datetime
+    struct.updated_at
     |> DateTime.to_date()
     |> Date.to_iso8601()
   end

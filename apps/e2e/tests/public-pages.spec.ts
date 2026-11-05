@@ -97,25 +97,3 @@ test("the sitemap mentions the feedback board", async ({ page }) => {
   const response = await page.request.get("/sitemap.xml");
   expect(await response.text()).toContain("/feedback");
 });
-
-// #412 T9: the roadmap — a shell check that runs on every runtime: the
-// page renders honestly empty (three columns, the chrome) wherever no
-// post is planned, started, or completed yet.
-test("the roadmap renders the shell (heading, columns, footer link)", async ({ page }) => {
-  await page.goto("/roadmap");
-  await expect(page.getByRole("heading", { name: "Roadmap" })).toBeVisible();
-  await expect(page.getByTestId("roadmap-column-planned")).toBeVisible();
-  await expect(page.getByTestId("roadmap-column-started")).toBeVisible();
-  await expect(page.getByTestId("roadmap-column-completed")).toBeVisible();
-  await expect(page.getByTestId("footer-feedback")).toBeVisible();
-});
-
-test("the board header links to the roadmap", async ({ page }) => {
-  await page.goto("/feedback");
-  await expect(page.getByTestId("roadmap-link")).toBeVisible();
-});
-
-test("the sitemap mentions the roadmap", async ({ page }) => {
-  const response = await page.request.get("/sitemap.xml");
-  expect(await response.text()).toContain("/roadmap");
-});
