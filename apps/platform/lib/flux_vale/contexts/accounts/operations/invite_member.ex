@@ -68,15 +68,24 @@ defmodule FluxVale.Accounts.Operations.InviteMember do
           {:ok, invite} ->
             deliver(invite, raw)
 
+          # A raced duplicate's retry loses the index a second time —
+          # reachable only when another owner's fresh invite lands
+          # between the supersede and this retry (no deterministic
+          # hook); the index error bubbles as the honest answer.
+          # coveralls-ignore-start
           {:error, _refused} = error ->
             error
+
+            # coveralls-ignore-stop
         end
 
       # Anything else (a DB-level failure) — no supersede, bubble.
-      # coveralls-ignore-next-line - DB-down class, not simulatable
-      # under the sandbox (the repo's cluster-level stance)
+      # coveralls-ignore-start - DB-down class, not simulatable under
+      # the sandbox (the repo's cluster-level stance)
       {:error, _other} = error ->
         error
+
+        # coveralls-ignore-stop
     end
   end
 
