@@ -4,6 +4,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
   use FluxVale.DataCase, async: true
   use Mimic
 
+  alias FluxVale.Accounts
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Catalog.Category
@@ -23,6 +24,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
   alias FluxVale.Infrastructure.Cluster
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   # Oban testing :inline runs trigger actions during the entry action —
@@ -597,6 +599,65 @@ defmodule FluxVale.Infrastructure.InstanceTest do
                errors,
                &(&1.field == :organization_id and &1.message == "is required")
              )
+    end
+  end
+
+  describe "create/1 — the org context (#408)" do
+    defp org_attrs(opts \\ []) do
+      version = forgejo_version()
+      InstanceFixtures.local_cluster!()
+
+      Map.merge(%{name: "Team Forgejo", app_version_id: version.id, env_vars: %{}}, Map.new(opts))
+    end
+
+    test "a named org the actor belongs to is where the instance is born" do
+      user = user()
+
+      {:ok, team} =
+        Accounts.create_organization(user, %{
+          name: "Deploy Team",
+          slug: "deploy-team-#{System.unique_integer([:positive])}"
+        })
+
+      # The named org's wallet is what the create gate reads (#124):
+      # team-funded here, the actor's personal org untouched.
+      BillingFixtures.funded_wallet!(org: team)
+      attrs = org_attrs(organization_id: team.id)
+
+      assert {:ok, instance} = Instance.create(attrs, actor: user)
+      assert instance.organization_id == team.id
+    end
+
+    test "a named org the actor does NOT belong to is Forbidden — the fence, not the wallet" do
+      user = user()
+
+      # Funded AND paid foreign org: the wallet gates alone would pass
+      # it — the membership fence is what refuses.
+      {foreign, _foreign_owner} = BillingFixtures.grant_free_org!()
+      BillingFixtures.funded_wallet!(org: foreign)
+      BillingFixtures.mark_paid!(foreign)
+      attrs = org_attrs(organization_id: foreign.id)
+
+      assert {:error, %Ash.Error.Forbidden{}} = Instance.create(attrs, actor: user)
+    end
+
+    test "a named org that does not exist is Forbidden" do
+      user = user()
+
+      # A nonexistent org has no members — the fence answers, the same
+      # as any foreign org; the FK stays the last fence.
+      attrs = org_attrs(organization_id: Ecto.UUID.generate())
+
+      assert {:error, %Ash.Error.Forbidden{}} = Instance.create(attrs, actor: user)
+    end
+
+    test "no org named keeps the personal-org default" do
+      user = user()
+
+      assert {:ok, instance} = Instance.create(org_attrs(), actor: user)
+
+      {:ok, personal} = Accounts.personal_org_for_user(user.id, authorize?: false)
+      assert instance.organization_id == personal.id
     end
   end
 

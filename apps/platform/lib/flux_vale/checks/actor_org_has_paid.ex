@@ -24,14 +24,17 @@ defmodule FluxVale.Checks.ActorOrgHasPaid do
   The org in play resolves by action shape — create vs update comes from
   the changeset's action type, never from a nil attribute (a forged
   `organization_id: nil` on an update must not reroute the gate to the
-  caller's own wallet). Creates that NAME their instance
-  (`BackupSetting`) resolve the org from THAT instance — the row's org
-  — freshly read and fail-closed; creates without one (the gateway —
-  `SetOrganizationFromActor` pins the actor's org moments later)
-  resolve the actor's personal org. Updates re-read the ROW from the
-  database: an in-process caller controls the changeset's in-memory
-  struct, and the gate must not be caller-controlled. The row's org
-  rides `organization_id` directly, or THROUGH the row's instance (a
+  caller's own wallet). Creates resolve the org the row will carry: a
+  create that NAMES its instance (`BackupSetting`) reads THAT instance's
+  org; one that names its org (the #408 context — the Instance create
+  argument, the gateway's compat argument, set on the attribute by the
+  tenancy change before policies run) gates on THAT org's ledger; one
+  naming neither (unreachable through the guarded actions today — the
+  tenancy changes always pin an org for an actor) resolves the actor's
+  personal org. Updates re-read the ROW from the database: an
+  in-process caller controls the changeset's in-memory struct, and the
+  gate must not be caller-controlled. The row's org rides
+  `organization_id` directly, or THROUGH the row's instance (a
   `BackupSetting` belongs to its instance, not the organization); a row
   whose org cannot be resolved fails closed. Any non-changeset subject
   fails closed too. An actor with no org passes the check so the
@@ -59,9 +62,8 @@ defmodule FluxVale.Checks.ActorOrgHasPaid do
   def match?(actor, context, _opts) do
     case org_in_play(context.subject) do
       {:ok, org_id} -> org_paid?(org_id)
-      # Creates that name no instance (the gateway —
-      # SetOrganizationFromActor pins the actor's org moments later)
-      # resolve the actor's personal org.
+      # Creates that name neither an instance nor an org resolve the
+      # actor's personal org.
       :actor -> paid_via_actor?(actor)
       # Non-changeset subject, reload or org-resolution failure (row
       # gone, no resolvable org, DB down): fail closed.
@@ -120,11 +122,13 @@ defmodule FluxVale.Checks.ActorOrgHasPaid do
 
   defp org_in_play(_subject), do: :error
 
-  # A create that NAMES its instance (BackupSetting) resolves the org
-  # from THAT instance — the row's org — never the actor's personal
-  # one (a team-org instance must not answer on the member's wallet,
-  # either direction). Attribute first, then argument, covering both
-  # intake shapes.
+  # A create resolves the org the row will carry. A create that NAMES
+  # its instance (BackupSetting) resolves the org from THAT instance —
+  # the row's org — never the actor's personal one (a team-org instance
+  # must not answer on the member's wallet, either direction). One that
+  # names its org (the #408 context, set on the attribute by the tenancy
+  # change before policies run) gates on THAT org's ledger. Attribute
+  # first, then argument, covering both intake shapes.
   #
   # Accepted-with-rationale: a create whose input carries a
   # relationship-shaped instance instead of a concrete `instance_id`
@@ -139,8 +143,23 @@ defmodule FluxVale.Checks.ActorOrgHasPaid do
         Map.get(changeset.arguments, :instance_id)
 
     case instance_id do
-      nil -> :actor
+      nil -> named_org_id(changeset)
       instance_id -> instance_org_id(instance_id)
+    end
+  end
+
+  # The named-org arm: the row's org is known at policy time (the
+  # tenancy change ran with the changeset), so the gate reads the org
+  # the row will carry — the named org's ledger, not the actor's
+  # personal one.
+  defp named_org_id(changeset) do
+    org_id =
+      Ash.Changeset.get_attribute(changeset, :organization_id) ||
+        Map.get(changeset.arguments, :organization_id)
+
+    case org_id do
+      nil -> :actor
+      org_id -> {:ok, org_id}
     end
   end
 
@@ -176,9 +195,9 @@ defmodule FluxVale.Checks.ActorOrgHasPaid do
     end
   end
 
-  # The actor's org is what SetOrganizationFromActor will pin the row
-  # with — the same wallet the created gateway bills. No org at all
-  # passes (see the moduledoc).
+  # The actor's org is the fallback for creates that name neither an
+  # instance nor an org — the same wallet the tenancy change's default
+  # pins. No org at all passes (see the moduledoc).
   defp paid_via_actor?(actor) do
     case Accounts.personal_org_for_user(actor.id, authorize?: false) do
       {:ok, org} -> org_paid?(org.id)

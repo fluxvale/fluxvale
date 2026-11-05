@@ -12,6 +12,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
   import FluxVale.TestSupport.NoK8sLeaks
   import Phoenix.LiveViewTest
 
+  alias FluxVale.Accounts
   alias FluxVale.Clients.K8s
 
   alias FluxVale.Clients.K8s.Resources.Deployment
@@ -27,8 +28,11 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Pricing.Size
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
+
+  require Ash.Query
 
   @schema %{
     "SMTP_HOST" => %{
@@ -326,6 +330,116 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     assert instance.cpu_cores == Decimal.new("0.5")
     assert instance.memory_mb == 1024
     assert instance.storage_gb == 10
+  end
+
+  # The band's org picker (#408): where the instance lands. The picker
+  # rides the create's organization_id argument — member-fenced by the
+  # create policy, personal-org-defaulted when untouched.
+  describe "the org picker (#408)" do
+    test "lists the actor's orgs and defaults to Personal", %{conn: conn, user: user, app: app} do
+      {:ok, team} =
+        Accounts.create_organization(user, %{
+          name: "Wizard Team",
+          slug: "wizard-team-#{System.unique_integer([:positive])}"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+
+      personal = personal_org_id!(user)
+
+      assert has_element?(view, "[data-testid='deploy-org-picker']")
+      assert render(element(view, "#deploy-org option[value='#{personal}']")) =~ "Personal"
+      assert has_element?(view, "#deploy-org option[value='#{team.id}']", "Wizard Team")
+
+      # The default is the personal org — the untouched picker changes
+      # nothing about the create's own default.
+      assert render(element(view, "#deploy-org option[value='#{personal}']")) =~ "selected"
+
+      refute render(element(view, "#deploy-org option[value='#{team.id}']")) =~ "selected"
+    end
+
+    test "the pick rides the create — the instance lands in the named org", %{
+      conn: conn,
+      user: user,
+      app: app,
+      version: version
+    } do
+      stub_k8s()
+
+      {:ok, team} =
+        Accounts.create_organization(user, %{
+          name: "Wizard Team",
+          slug: "wizard-team-#{System.unique_integer([:positive])}"
+        })
+
+      # The named org's wallet is what the create gate reads (#124).
+      BillingFixtures.funded_wallet!(org: team)
+
+      {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+
+      render_click(view, "pick-org", %{"org_id" => team.id})
+
+      to_step_2(view, version)
+      to_step_3(view)
+      to_step_4(view)
+
+      view
+      |> form("#deploy-form", instance: %{name: "Team Forgejo"})
+      |> render_submit()
+
+      assert_redirect(view)
+
+      instance =
+        Instance
+        |> Ash.Query.filter(name == "Team Forgejo")
+        |> Ash.read_one!(authorize?: false)
+
+      assert instance.organization_id == team.id
+    end
+
+    test "an untouched picker keeps the personal-org default", %{
+      conn: conn,
+      user: user,
+      app: app,
+      version: version
+    } do
+      stub_k8s()
+      {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+
+      to_step_2(view, version)
+      to_step_3(view)
+      to_step_4(view)
+
+      view
+      |> form("#deploy-form", instance: %{name: "Personal Forgejo"})
+      |> render_submit()
+
+      assert_redirect(view)
+
+      instance =
+        Instance
+        |> Ash.Query.filter(name == "Personal Forgejo")
+        |> Ash.read_one!(authorize?: false)
+
+      assert instance.organization_id == personal_org_id!(user)
+    end
+
+    test "a crafted pick changes nothing", %{conn: conn, user: user, app: app} do
+      {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+
+      # An org id the picker never offered (the rendered options can't
+      # produce one): the current pick stays, nothing crashes.
+      render_click(view, "pick-org", %{"org_id" => Ecto.UUID.generate()})
+
+      personal = personal_org_id!(user)
+
+      assert render(element(view, "#deploy-org option[value='#{personal}']")) =~ "selected"
+    end
+  end
+
+  defp personal_org_id!(user) do
+    {:ok, org} = Accounts.personal_org_for_user(user.id, actor: user)
+    org.id
   end
 
   test "a missing name stays on the name step with the field error", %{

@@ -116,6 +116,23 @@ defmodule FluxVale.Checks.ActorOrgHasPaidTest do
       assert ActorOrgHasPaid.match?(orgless, %{subject: create_subject}, [])
     end
 
+    test "a create naming its org as an ARGUMENT answers that org, not the actor's" do
+      # The named-org arm's argument intake shape: attribute unset, the
+      # #408 context riding the argument. The actor's personal org has
+      # never paid — only the named org's ledger can pass.
+      actor = AccountsFixtures.user!()
+      AccountsFixtures.personal_org!(actor)
+      {team, _wallet} = BillingFixtures.funded_wallet!()
+      BillingFixtures.mark_paid!(team)
+
+      subject =
+        Ash.Changeset.for_create(AccessGateway, :create, %{organization_id: team.id},
+          authorize?: false
+        )
+
+      assert ActorOrgHasPaid.match?(actor, %{subject: subject}, [])
+    end
+
     test "a reload failure fails closed — a struct naming no row never passes" do
       {org, _owner} = BillingFixtures.grant_free_org!()
       {:ok, wallet} = Billing.ensure_wallet(org)

@@ -217,6 +217,13 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       )
 
       forbid_unless(actor_present())
+
+      # The membership fence for the NAMED org (#408): the tenancy change
+      # sets organization_id from the create's argument before policies
+      # run, so this reads the org the row will carry — a non-member
+      # naming a funded-and-paid org is Forbidden. (The row-scoped relate
+      # fence is unreliable on creates — see the check's moduledoc.)
+      forbid_unless(FluxVale.Checks.ActorIsOrganizationMember)
       forbid_unless(FluxVale.Checks.ActorOrgWalletFunded)
       forbid_unless(FluxVale.Checks.ActorOrgHasPaid)
       authorize_if(FluxVale.Checks.ActorOrgWalletFunded)
@@ -457,28 +464,21 @@ defmodule FluxVale.Infrastructure.AccessGateway do
 
       accept([:tailnet_domain])
 
-      # #360: organization_id arrives as a compat ARGUMENT for the
-      # actorless system path only (`authorize?: false` — the fixtures'
-      # shape); with an actor present the SetOrganizationFromActor
-      # change below forces the actor's own org, so the API body never
-      # steers ownership.
+      # #360's compat `organization_id` argument is now the LIVE context
+      # input (#408): with an actor present it names the org the
+      # enablement bills (member-fenced by the create policy — the
+      # SetOrganizationFromActor change below resolves it); with no
+      # actor (the system path) the change copies it onto the attribute.
+      # The price argument below stays caller-ignored.
       argument(:organization_id, :uuid, allow_nil?: true)
 
-      change(fn changeset, _context ->
-        Ash.Changeset.force_change_attribute(
-          changeset,
-          :organization_id,
-          Ash.Changeset.get_argument(changeset, :organization_id)
-        )
-      end)
-
-      # The org is the ACTOR's (the Instance create's contract): with
-      # an actor this change forces the actor's own org, so a member of
-      # a funded org can no longer create a gateway owned by a
-      # different org (which that org would then pay for), and
-      # `ActorOrgWalletFunded` and the row can never disagree about
-      # whose wallet is in play.
-      change({FluxVale.Infrastructure.Instance.SetOrganizationFromActor, []})
+      # The org is the ACTOR'S personal org unless the create names one:
+      # no argument keeps the old default, a named org must be one the
+      # actor belongs to (the create policy's membership fence), and the
+      # `ActorOrgWalletFunded` / `ActorOrgHasPaid` gates below read the
+      # same resolution — so the row and its wallet gates can never
+      # disagree about whose wallet is in play.
+      change({FluxVale.Infrastructure.AccessGateway.SetOrganizationFromActor, []})
 
       change(GenerateHostname)
 

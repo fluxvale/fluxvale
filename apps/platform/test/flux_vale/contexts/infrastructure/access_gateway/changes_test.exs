@@ -357,6 +357,59 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       assert {:error, %Ash.Error.Forbidden{}} = AccessGateway.resume(forged, actor: owner)
     end
 
+    test "an enable naming its org lands the row there and bills that org's wallet", %{
+      owner: owner
+    } do
+      # The org page's enable (#408): the create names the page org, and
+      # the paid/funded gates read THAT org's wallet. The actor's
+      # personal org (the setup org) is adjustment-funded but never paid
+      # — under the old pin-the-personal behavior this create would
+      # answer Forbidden on the personal wallet's paid gate.
+      {:ok, team} =
+        Accounts.create_organization(owner, %{
+          name: "Gateway Team",
+          slug: "gw-team-#{System.unique_integer([:positive])}"
+        })
+
+      BillingFixtures.funded_wallet!(org: team)
+      BillingFixtures.mark_paid!(team)
+
+      assert {:ok, gateway} =
+               AccessGateway.create(
+                 %{
+                   organization_id: team.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   auth_key: "tskey"
+                 },
+                 actor: owner
+               )
+
+      assert gateway.organization_id == team.id
+    end
+
+    test "a named org the actor does not belong to is Forbidden — funded and paid don't open it",
+         %{
+           owner: owner
+         } do
+      # The membership fence: the wallet gates alone would pass a
+      # funded-and-paid foreign org.
+      {foreign, _foreign_owner} = BillingFixtures.grant_free_org!()
+      BillingFixtures.funded_wallet!(org: foreign)
+      BillingFixtures.mark_paid!(foreign)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               AccessGateway.create(
+                 %{
+                   organization_id: foreign.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   auth_key: "tskey"
+                 },
+                 actor: owner
+               )
+    end
+
     # The paywall waiver: the operator's designated-org path. The gate
     # reads ledger-paid OR waived — these pin the OR's behavior at the
     # gateway seam (the predicate pins live in ActorOrgHasPaidTest).
