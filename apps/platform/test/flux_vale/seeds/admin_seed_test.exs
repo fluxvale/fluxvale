@@ -23,6 +23,7 @@ defmodule FluxVale.Seeds.AdminSeedTest do
   alias FluxVale.Billing.LedgerEntry
   alias FluxVale.Catalog.Category
   alias FluxVale.Feedback.Post
+  alias FluxVale.Feedback.Tag
   alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Repo
@@ -376,6 +377,22 @@ defmodule FluxVale.Seeds.AdminSeedTest do
                Post
                |> Ash.Query.filter(true)
                |> Ash.count!(authorize?: false)
+
+      # The gate reading (T10): the vocabulary is PROMOTABLE seed
+      # content, not demo content — the demo gate guards fabricated
+      # activity (posts and their votes), while a tag row claims nothing
+      # happened, and the board renders only tags in use. So the
+      # promotable path arms the vocabulary even with the gate closed.
+      slugs =
+        Tag
+        |> Ash.read!(authorize?: false)
+        |> Enum.map(& &1.slug)
+
+      assert "platform" in slugs
+      assert "app-request" in slugs
+      # And the catalog's apps joined it (the catalog seeded above).
+      assert "forgejo" in slugs
+      assert "kavita" in slugs
     end
 
     test "an opted-in runtime seeds the demo board content" do
@@ -390,6 +407,17 @@ defmodule FluxVale.Seeds.AdminSeedTest do
                Post
                |> Ash.Query.filter(slug == "suspend-an-instance-from-the-cli")
                |> Ash.read_one(authorize?: false)
+
+      # The demo gate's pairings ride the same arm end-to-end (T10): the
+      # vocabulary seeded on the promotable path above, and the gated
+      # post carries its tag through seed/0 itself.
+      tagged =
+        Post
+        |> Ash.Query.filter(slug == "kavita-continue-reading-sync-across-devices")
+        |> Ash.read_one!(authorize?: false)
+        |> Ash.load!(:tags, authorize?: false)
+
+      assert Enum.map(tagged.tags, & &1.slug) == ["kavita"]
     end
 
     test "heals a pre-#119 admin through the promotable path" do

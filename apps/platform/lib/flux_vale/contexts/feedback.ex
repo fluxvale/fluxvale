@@ -28,5 +28,9 @@ defmodule FluxVale.Feedback do
     resource(FluxVale.Feedback.Post)
     resource(FluxVale.Feedback.Vote)
     resource(FluxVale.Feedback.Comment)
+    # The curated topical vocabulary + its join (T10): both ride the
+    # domain's own policies — public reads, admin-only writes.
+    resource(FluxVale.Feedback.Tag)
+    resource(FluxVale.Feedback.PostTag)
   end
 end

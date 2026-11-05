@@ -8,7 +8,9 @@ defmodule FluxVale.Infrastructure.Operations.RegisterAccessDomainTest do
   use FluxVale.DataCase, async: true
   use Mimic
 
+  alias FluxVale.Accounts
   alias FluxVale.Clients.K8s
+  alias FluxVale.Identity.User
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.TestSupport.BillingFixtures
@@ -287,8 +289,8 @@ defmodule FluxVale.Infrastructure.Operations.RegisterAccessDomainTest do
                  actor: other_owner
                )
 
-      # The org is forced from the actor (SetOrganizationFromActor) — the
-      # row can never mint into another org.
+      # No org named: the tenancy change pins the actor's own org — the
+      # row can never default into another org.
       assert domain.organization_id == other_org.id
       refute domain.organization_id == org.id
     end
@@ -309,6 +311,51 @@ defmodule FluxVale.Infrastructure.Operations.RegisterAccessDomainTest do
 
       refute exists?("nowhere.example.com")
     end
+  end
+
+  describe "register/2 — the org context (#408)" do
+    test "a named org the actor belongs to is where the row registers", %{owner: owner} do
+      {:ok, team} =
+        Accounts.create_organization(owner, %{
+          name: "Domain Team",
+          slug: "domain-team-#{System.unique_integer([:positive])}"
+        })
+
+      expect(Kubereq, :apply, fn _req, manifest, _fm ->
+        {:ok, %{status: 201, body: manifest}}
+      end)
+
+      assert {:ok, domain} =
+               Infrastructure.register_access_domain(
+                 %{domain: "team.example.com", organization_id: team.id},
+                 actor: owner
+               )
+
+      assert domain.organization_id == team.id
+    end
+
+    test "a named org the actor does not belong to is Forbidden" do
+      # The register policy's relate fence reads the organization_id the
+      # tenancy change set from the argument — a foreign org has no
+      # membership to satisfy.
+      registrant = user!("domain-fence")
+
+      {foreign, _foreign_owner} = BillingFixtures.grant_free_org!()
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Infrastructure.register_access_domain(
+                 %{domain: "foreign.example.com", organization_id: foreign.id},
+                 actor: registrant
+               )
+
+      refute exists?("foreign.example.com")
+    end
+  end
+
+  defp user!(local_part) do
+    User.create!("#{local_part}-#{System.unique_integer([:positive])}@fluxvale.test", %{},
+      authorize?: false
+    )
   end
 
   defp register_domain!(owner) do

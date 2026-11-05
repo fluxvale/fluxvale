@@ -19,6 +19,7 @@ defmodule FluxVale.Seeds do
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Catalog.Category
   alias FluxVale.Feedback.Post
+  alias FluxVale.Feedback.Tag
   alias FluxVale.Identity.User
   alias FluxVale.Identity.User.MirrorSignupEmail
   alias FluxVale.Identity.UserEmail
@@ -37,12 +38,12 @@ defmodule FluxVale.Seeds do
   @doc """
   The promotable bring-up seed — dev `mix setup` and the release's
   `bin/seed` run the same path: platform admin (+ its personal org) +
-  prices + tax rates + catalog. Idempotent: pricing, tax rates, and the
-  catalog converge, the admin get-or-creates, and the admin-org heal
-  provisions at most once (see `seed_admin_org!/0`). Pricing runs before
-  the catalog — versions reference a size by slug. The `local` Cluster
-  row is deliberately NOT here — `seed_local_cluster!/0` stays
-  dev/local-only (local_seeds.exs).
+  prices + tax rates + catalog + the feedback tag vocabulary. Idempotent:
+  pricing, tax rates, the catalog, and the vocabulary converge, the
+  admin get-or-creates, and the admin-org heal provisions at most once
+  (see `seed_admin_org!/0`). Pricing runs before the catalog — versions
+  reference a size by slug. The `local` Cluster row is deliberately NOT
+  here — `seed_local_cluster!/0` stays dev/local-only (local_seeds.exs).
 
   Demo feedback-board content (`seed_feedback!/0`) rides only when the
   runtime opted in (`:seed_demo_content`): dev via config, staging/
@@ -57,6 +58,7 @@ defmodule FluxVale.Seeds do
     seed_pricing!()
     seed_tax_rates!()
     seed_catalog!()
+    seed_tags!()
     seed_feedback_if_demo!()
   end
 
@@ -365,6 +367,52 @@ defmodule FluxVale.Seeds do
     end
   end
 
+  @doc """
+  Seeds the curated tag vocabulary (#412 T10): `platform` and
+  `app-request`, plus one tag per catalog app slug — catalog apps are
+  seeded INTO the tag list (the owner's ruling: one curated vocabulary
+  subsumes the catalog-app association, so a post about Kavita carries
+  the kavita tag and the /apps/:slug cross-link convention has its
+  matches).
+
+  GATE READING (deliberate, stated): these rows ride the PROMOTABLE
+  seed, NOT the demo gate, unlike the board's demo posts. The demo gate
+  exists for fabricated ACTIVITY — votes and posts are invented social
+  proof the real data cannot back (#412 architect ruling). Vocabulary is
+  not activity: a tag named kavita claims nothing happened. And the
+  board renders only tags in use, so an empty vocabulary is invisible
+  until real posts carry tags — prod shows nothing that its data does
+  not back. The demo posts stay gated, and their tag pairings ride with
+  them (inside `seed_feedback!/0`).
+
+  Runs after `seed_catalog!/0` (the app tags enumerate the catalog's
+  rows); a catalog app added later joins the vocabulary on the next
+  seed run — the same convergence posture as the catalog itself.
+  Idempotent — get-or-create by slug; an admin's renames are data, not
+  drift. authorize?: false — bootstrap (the seed posture).
+  """
+  @spec seed_tags! :: :ok
+  def seed_tags! do
+    seed_tag!("platform", "Platform")
+    seed_tag!("app-request", "App request")
+
+    for app <- App.list!(authorize?: false) do
+      seed_tag!(app.slug, app.name)
+    end
+
+    :ok
+  end
+
+  # Existence is the job (the local-Cluster posture): the seed creates
+  # a missing tag and never converges an existing one — the display
+  # name is admin data (curated vocabulary), not seed truth.
+  defp seed_tag!(slug, name) do
+    case Tag.get_by_slug(slug, authorize?: false) do
+      {:ok, _tag} -> :ok
+      {:error, _not_found} -> Tag.create!(%{name: name, slug: slug}, authorize?: false)
+    end
+  end
+
   # Demo board content is gated OFF everywhere and opted into per
   # runtime (the TestInbox/Storybook gated-release shape): dev's config
   # sets it true so `mix setup` ships a living board, prod-mode releases
@@ -384,17 +432,19 @@ defmodule FluxVale.Seeds do
     end
   end
 
-  # The board's starter content (#412 T4): real-looking requests across
-  # the whole status workflow so the public board reads as living at
-  # first bring-up. NON-PROD ONLY (see seed_feedback_if_demo!/0 — the
-  # gate decides; this function itself stays ungated so tests can drive
-  # it directly). Get-or-create by the derived slug (lookup first —
-  # slug is derived from the title, so the attrs below are authored to
-  # derive it deterministically). age_days/status_age_days backdate the
-  # display timestamps through forced attribute changes: the actions
-  # stamp "now" and no action accepts timestamps — the same states-
-  # actions-can't-produce posture as Ash.seed!, applied so a fresh
-  # board does not render every row as "just now".
+  # The board's starter content (#412 T4, tags T10): real-looking
+  # requests across the whole status workflow so the public board reads
+  # as living at first bring-up. NON-PROD ONLY (see
+  # seed_feedback_if_demo!/0 — the gate decides; this function itself
+  # stays ungated so tests can drive it directly). Get-or-create by the
+  # derived slug (lookup first — slug is derived from the title, so the
+  # attrs below are authored to derive it deterministically).
+  # age_days/status_age_days backdate the display timestamps through
+  # forced attribute changes: the actions stamp "now" and no action
+  # accepts timestamps — the same states-actions-can't-produce posture
+  # as Ash.seed!, applied so a fresh board does not render every row as
+  # "just now". `tags` (optional) names vocabulary slugs the entry
+  # carries — pairings ride the same demo gate as the posts.
   @feedback_entries [
     %{
       slug: "terraform-provider-for-instance-management",
@@ -409,7 +459,8 @@ defmodule FluxVale.Seeds do
       votes: 128,
       comments: 21,
       age_days: 120,
-      status_age_days: 9
+      status_age_days: 9,
+      tags: ["platform"]
     },
     %{
       slug: "show-cost-estimates-in-the-deploy-wizard",
@@ -422,7 +473,8 @@ defmodule FluxVale.Seeds do
       votes: 87,
       comments: 14,
       age_days: 34,
-      status_age_days: 12
+      status_age_days: 12,
+      tags: ["platform"]
     },
     %{
       slug: "alert-on-failing-health-checks",
@@ -488,7 +540,38 @@ defmodule FluxVale.Seeds do
       votes: 34,
       comments: 6,
       age_days: 5,
-      status_age_days: 0
+      status_age_days: 0,
+      tags: ["platform"]
+    },
+    %{
+      slug: "kavita-continue-reading-sync-across-devices",
+      title: "Kavita: continue-reading sync across devices",
+      description: """
+      Our household reads on a tablet and a laptop. Kavita tracks progress per device,
+      so we lose our place every time we switch. Syncing the continue-reading point
+      across devices would fix it.
+      """,
+      status: :open,
+      votes: 19,
+      comments: 5,
+      age_days: 8,
+      status_age_days: 0,
+      tags: ["kavita"]
+    },
+    %{
+      slug: "add-immich-to-the-app-catalog",
+      title: "Add Immich to the app catalog",
+      description: """
+      Self-hosted photo backup is the biggest gap in our homelab. An Immich one-click
+      deploy (with the ML job on a bigger size) would let us drop our last rented
+      cloud service.
+      """,
+      status: :open,
+      votes: 41,
+      comments: 8,
+      age_days: 12,
+      status_age_days: 0,
+      tags: ["app-request"]
     }
   ]
 
@@ -500,7 +583,9 @@ defmodule FluxVale.Seeds do
   ungated for tests. Idempotent — get-or-create by the derived slug;
   existing rows are never converged (an admin's edits are data, not
   drift). A duplicate's original is listed before it in the entries, so
-  the merge pointer always resolves.
+  the merge pointer always resolves. Entries may carry `tags`
+  (vocabulary slugs — `seed_tags!/0` runs first); the pairings ride
+  `Post.set_tags` under the admin actor, gated with the posts.
 
   authorize?: false — bootstrap, the seed posture. Counters and the
   display timestamps ride forced attribute changes (no action accepts
@@ -517,7 +602,9 @@ defmodule FluxVale.Seeds do
   ungated for tests. Idempotent — get-or-create by the derived slug;
   existing rows are never converged (an admin's edits are data, not
   drift). A duplicate's original must be listed before it in the
-  entries, so the merge pointer always resolves.
+  entries, so the merge pointer always resolves. Entries may carry
+  `tags` (vocabulary slugs — `seed_tags!/0` runs first, an unknown slug
+  raises).
 
   The 1-arity takes entries directly — the test suite also drives it
   with fixture entries to cover the guard machinery beyond the shipped
@@ -574,10 +661,37 @@ defmodule FluxVale.Seeds do
         Post.set_status!(created, status_args, actor: admin, authorize?: false)
       end
 
+    # Tag pairings (T10) ride the real moderation action under the
+    # admin actor — the same posture as the status moves. The
+    # vocabulary (seed_tags!/0) runs first, so a missing tag slug is
+    # seed-data corruption: fail loudly naming the slug.
+    tag_ids =
+      entry
+      |> Map.get(:tags, [])
+      |> Enum.map(&seed_tag_id!/1)
+
+    tagged =
+      case tag_ids do
+        [] -> moved
+        ids -> Post.set_tags!(moved, %{tag_ids: ids}, actor: admin, authorize?: false)
+      end
+
     # An open post never moved status — its nil status_changed_at is the
     # display signal ("Posted N ago"), so only moved rows are backdated.
-    display_patch = patch_changeset(moved, entry)
+    display_patch = patch_changeset(tagged, entry)
     Ash.update!(display_patch, authorize?: false)
+  end
+
+  # A missing tag is seed-data corruption (the vocabulary seeds before
+  # the demo posts) — name the operator's fix instead of a bare NotFound.
+  defp seed_tag_id!(slug) do
+    case Tag.get_by_slug(slug, authorize?: false) do
+      {:ok, tag} ->
+        tag.id
+
+      {:error, _not_found} ->
+        raise "seed feedback: entry references unknown tag #{inspect(slug)} — seed_tags!/0 must run first"
+    end
   end
 
   # A missing original is seed-data corruption (entries are ordered, so

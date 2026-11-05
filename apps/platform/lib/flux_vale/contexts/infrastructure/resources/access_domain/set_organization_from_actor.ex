@@ -4,9 +4,13 @@ defmodule FluxVale.Infrastructure.AccessDomain.SetOrganizationFromActor do
   own tenancy change. Deliberately NOT a reuse of the Instance module
   of the same name: a change owned by one resource must not define
   another resource's tenancy (that reuse made Instance's private rule
-  read as shared infrastructure). Same logic, owned here: the row is
-  born in the actor's org — the billing/entitlement boundary (#119's
-  stance) — and a member can never mint a row into another org.
+  read as shared infrastructure). Same logic, owned here.
+
+  The org is the register action's CONTEXT (#408): an `organization_id`
+  argument names the target org and that org wins; no argument keeps
+  the actor's own org (the #119 stance — a member can never mint a row
+  into another org, which the register policy's membership fence
+  answers Forbidden for a named foreign org).
 
   The lookup propagates the action's actor/authorize? (the registrant
   is a member, so the authorized read passes policy).
@@ -16,9 +20,29 @@ defmodule FluxVale.Infrastructure.AccessDomain.SetOrganizationFromActor do
 
   @impl Ash.Resource.Change
   def change(changeset, _opts, %{actor: actor} = context) when not is_nil(actor) do
+    case Ash.Changeset.get_argument(changeset, :organization_id) do
+      nil ->
+        personal_org(changeset, context)
+
+      # The caller named the org: set it and let the register policy's
+      # membership fence plus the FK answer (the Instance module's
+      # stance — same semantics, owned here).
+      org_id ->
+        Ash.Changeset.force_change_attribute(changeset, :organization_id, org_id)
+    end
+  end
+
+  def change(changeset, _opts, _context) do
+    # No actor: the organization_id is allow_nil?(false), so the insert
+    # reports it — the register action is member-facing and always has
+    # an actor.
+    changeset
+  end
+
+  defp personal_org(changeset, context) do
     case FluxVale.Accounts.personal_org_for_user(
-           actor.id,
-           actor: actor,
+           context.actor.id,
+           actor: context.actor,
            authorize?: Map.get(context, :authorize?, true)
          ) do
       {:ok, org} ->
@@ -38,13 +62,6 @@ defmodule FluxVale.Infrastructure.AccessDomain.SetOrganizationFromActor do
 
         # coveralls-ignore-stop
     end
-  end
-
-  def change(changeset, _opts, _context) do
-    # No actor: the organization_id is allow_nil?(false), so the insert
-    # reports it — the register action is member-facing and always has
-    # an actor.
-    changeset
   end
 
   @impl Ash.Resource.Change

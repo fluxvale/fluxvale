@@ -125,6 +125,28 @@ defmodule FluxValeWeb.OrganizationLive.HomeTest do
     assert has_element?(view, "[data-testid='instances-empty'] a[href='/apps']")
   end
 
+  # The owner's mental model is create then invite (#408 dogfood): the
+  # empty state's second line is theirs alone.
+  test "an owner sees the invite affordance to the members tab", %{conn: conn, org: org} do
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}")
+
+    assert has_element?(view, "[data-testid='org-invite-link']", "Invite people")
+
+    assert has_element?(
+             view,
+             "[data-testid='org-invite-link'][href='/organizations/#{org.slug}/settings/members']"
+           )
+  end
+
+  test "a member sees the catalog line only, no invite affordance", %{conn: conn, user: user} do
+    team = team_org!(user)
+
+    {:ok, view, _html} = live(conn, ~p"/organizations/#{team.slug}")
+
+    assert has_element?(view, "[data-testid='instances-empty'] a[href='/apps']")
+    refute has_element?(view, "[data-testid='org-invite-link']")
+  end
+
   # A :restoring row's row-language contract, same as the index: the
   # badge speaks, the message line does NOT (ADR-0037; hostile-339 F1 —
   # pins the explicit list's exclusion against a predicate flip).

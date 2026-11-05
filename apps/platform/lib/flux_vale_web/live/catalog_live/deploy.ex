@@ -43,6 +43,12 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   inputs are dropped rather than overriding a default with "". Step
   transitions validate only the fields that step owns — :name's absence
   must not bounce the env step.
+
+  The band carries the org context (#408): a compact picker names the
+  org the instance deploys into (the create's `organization_id`
+  argument), defaulting to the actor's personal org. Origin-tracking
+  (defaulting to the org a browse started from) is declared v1
+  residual: the picker is the scope, the default stays Personal.
   """
 
   use FluxValeWeb, :live_view
@@ -60,6 +66,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
       {:ok, app} ->
         app = Ash.load!(app, [app_versions: :recommended_size], actor: user)
         versions = Enum.sort_by(app.app_versions, & &1.version, :desc)
+        org_options = org_options(socket.assigns)
 
         socket =
           socket
@@ -67,6 +74,8 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
           |> assign(step: 1, version_id: nil, selected: nil, env_values: %{}, schema: %{})
           |> assign(resources: nil, below_recommendation?: false, below_ack: false)
           |> assign(:pricing_sizes, preset_sizes(user))
+          |> assign(:org_options, org_options)
+          |> assign(:org_id, default_org_id(org_options, socket.assigns.personal_org_id))
           |> assign(
             :form,
             Instance
@@ -141,6 +150,28 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                   ]}
                   current={@step - 1}
                 />
+              </div>
+
+              <%!-- The org context (#408): where this instance lands. A
+              native select — one control, no dropdown chrome to manage;
+              the wizard's own band is the only surface that needs it.
+              Hidden when the actor resolves no orgs at all (the seeded
+              shape — the create keeps its personal-org default). --%>
+              <div :if={@org_options != []} class="mt-4 flex items-center gap-3">
+                <label for="deploy-org" class="text-sm text-ink-muted">
+                  Deploy to
+                </label>
+                <select
+                  id="deploy-org"
+                  name="org_id"
+                  phx-change="pick-org"
+                  data-testid="deploy-org-picker"
+                  class="rounded-lg border border-line bg-panel px-2.5 py-1.5 text-sm text-ink outline-offset-2 outline-focus transition-colors hover:bg-panel-raised focus-visible:outline-2"
+                >
+                  <option :for={org <- @org_options} value={org.id} selected={org.id == @org_id}>
+                    {org.name}
+                  </option>
+                </select>
               </div>
             </div>
           </div>
@@ -572,6 +603,19 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
     {:noreply, assign(socket, :version_id, id)}
   end
 
+  # The org context pick (#408). A crafted id: the rendered options
+  # can't produce one, so nothing to read and nothing changes — the
+  # current pick stays (to-env's guard posture).
+  def handle_event("pick-org", %{"org_id" => org_id}, socket) do
+    case Enum.find(socket.assigns.org_options, &(&1.id == org_id)) do
+      nil ->
+        {:noreply, socket}
+
+      _option ->
+        {:noreply, assign(socket, :org_id, org_id)}
+    end
+  end
+
   def handle_event("to-env", _params, socket) do
     # The Continue button's disabled state is client-side only — a
     # channel-level "to-env" (or a pick of an id not in @versions)
@@ -689,6 +733,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
       |> Map.merge(instance_params)
       |> Map.put("env_vars", socket.assigns.env_values)
       |> Map.merge(allocation_params(socket.assigns.resources))
+      |> org_param(socket.assigns.org_id)
 
     form = AshPhoenix.Form.validate(socket.assigns.form, params)
 
@@ -721,6 +766,55 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
       assign(socket, :step, 2)
     else
       socket
+    end
+  end
+
+  # The create's org context (#408): the picker's pick rides the create
+  # argument. No pick means no resolvable orgs — a seeded/legacy shape
+  # no sign-in path produces (see default_org_id/2) — and the tenancy
+  # change keeps its personal-org default.
+  # coveralls-ignore-next-line - seeded/legacy shape, no sign-in path
+  defp org_param(params, nil), do: params
+  defp org_param(params, org_id), do: Map.put(params, "organization_id", org_id)
+
+  # One option per membership (OrgNav's actor_orgs rides the socket),
+  # the personal org labeled as the switcher labels it. Every option is
+  # an org the actor belongs to, so the membership fence can never
+  # refuse a pick — the wallet gate can (a fresh team org is
+  # zero-balance), and that surfaces at submit as the create's
+  # Forbidden: the flash copy is the whole message (the Access panel's
+  # forbidden? posture — a policy error renders no field input).
+  defp org_options(assigns) do
+    Enum.map(assigns.actor_orgs, fn membership ->
+      %{
+        id: membership.organization.id,
+        name: org_label(membership.organization, assigns.personal_org_id)
+      }
+    end)
+  end
+
+  defp org_label(org, personal_org_id) when org.id == personal_org_id, do: "Personal"
+
+  defp org_label(org, _personal_org_id), do: org.name
+
+  # The default is the actor's personal org (the create's own default,
+  # so the untouched picker changes nothing). The remaining shapes are
+  # unreachable for a mounted wizard: a team-org-only actor (no
+  # personal org — OrgNav's degraded shape) defaults to their first
+  # org, and no orgs at all leaves the create its personal-org default.
+  # Both require a signed-in actor with no resolvable personal
+  # membership — a seeded/legacy row no sign-in path produces (the JIT
+  # provisioning members the creator), so the arms stay as the
+  # defensive say.
+  # coveralls-ignore-next-line - seeded/legacy shape: no sign-in path
+  defp default_org_id([], _personal_org_id), do: nil
+
+  defp default_org_id(options, personal_org_id) do
+    if personal_org_id && Enum.any?(options, &(&1.id == personal_org_id)) do
+      personal_org_id
+    else
+      # coveralls-ignore-next-line - seeded/legacy shape: no sign-in path
+      hd(options).id
     end
   end
 
