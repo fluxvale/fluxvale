@@ -29,6 +29,7 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
   alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.TestSupport.AccessFixtures
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   defp owner do
@@ -121,6 +122,8 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
   # A verified custom domain row under `owner`'s org (the verify
   # funnel's own write; the ref is what the observer recorded).
   defp custom_domain!(owner, opts) do
+    BillingFixtures.mark_user_paid!(owner)
+
     {:ok, registered} =
       AccessDomain.register(
         %{domain: "apps.customer-#{System.unique_integer()}.example"},

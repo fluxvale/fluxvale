@@ -4,7 +4,6 @@ defmodule FluxValeWeb.PricingControllerTest do
   use FluxValeWeb.ConnCase, async: true
 
   alias FluxVale.Accounts
-  alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Pricing
 
@@ -40,11 +39,13 @@ defmodule FluxValeWeb.PricingControllerTest do
     assert html =~ "#{Pricing.format_usd(priced.stopped_monthly_cents)}/mo while stopped"
     assert html =~ "0.5 CPU · 512 MB · 10 GB"
 
-    # The app select, the sliders, and the service toggles ride the SSR.
-    assert html =~ ~s(id="calculator-app-select")
-    assert html =~ "Choose an app"
+    # The app search field, the sliders, and the service toggles ride
+    # the SSR.
+    assert html =~ ~s(id="calculator-app-filter")
+    assert html =~ "Search apps"
     assert html =~ ~s(id="resource-cpu-cores")
     assert html =~ ~s(id="calculator-services-form")
+    assert html =~ "0.5 CPU · 512 MB · 10 GB per instance"
   end
 
   # #440: the tiers left the page — the seeded slugs render nowhere, on
@@ -71,17 +72,17 @@ defmodule FluxValeWeb.PricingControllerTest do
     html = html_response(conn, 200)
 
     gateway_rate = Pricing.format_usd(AccessGateway.monthly_cents())
-    domain_rate = Pricing.format_usd(AccessDomain.monthly_cents())
 
-    # The line items keep the #206 qualifier: the add-on rate reads
-    # "+rate/mo ..., billed hourly" on the SSR surface too.
+    # The line item keeps the #206 qualifier: the add-on rate reads
+    # "+rate/mo ..., billed hourly" on the SSR surface too. Custom
+    # domains are free (ADR-0040 Amendment 2).
     gateway_line = "+#{gateway_rate}/mo per gateway, billed hourly"
-    domain_line = "+#{domain_rate}/mo per verified domain, billed hourly"
 
     assert html =~ "Private access gateway"
     assert html =~ gateway_line
     assert html =~ "Custom domain"
-    assert html =~ domain_line
+    assert html =~ "Free on topped-up accounts"
+    refute html =~ "per verified domain"
     assert html =~ "Hostnames under fluxvale.app, public exposure, DNS, and resolution are free."
   end
 

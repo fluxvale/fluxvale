@@ -38,7 +38,13 @@ defmodule FluxVale.TestSupport.InstanceFixtures do
     n = System.unique_integer()
 
     {pricing, version_attrs} =
-      Map.split(Map.new(attrs), [:monthly_cents, :stopped_monthly_cents, :file_access, :app_slug])
+      Map.split(Map.new(attrs), [
+        :monthly_cents,
+        :stopped_monthly_cents,
+        :file_access,
+        :app_slug,
+        :icon_url
+      ])
 
     category =
       Category.create!(
@@ -54,6 +60,7 @@ defmodule FluxVale.TestSupport.InstanceFixtures do
           tagline: "test app",
           description: "test app",
           file_access: Map.get(pricing, :file_access, false),
+          icon_url: Map.get(pricing, :icon_url),
           category_id: category.id
         },
         authorize?: false

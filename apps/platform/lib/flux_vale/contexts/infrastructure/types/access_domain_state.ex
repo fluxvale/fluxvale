@@ -15,10 +15,11 @@ defmodule FluxVale.Infrastructure.Types.AccessDomainState do
     observer sees True again — the gateway-observer stance.
   - `:failed` — the issuance window lapsed without a Ready Certificate.
     Terminal for this registration; the owner re-registers.
-  - `:suspended` — no writer yet: S6's billing ladder owns the
-    suspension (a lapsed custom domain). The `mark_suspended` funnel
-    exists so the ladder lands through the same one-funnel-per-
-    transition discipline as every other state.
+  - `:suspended` — the honest-dark demotion. Domains no longer bill, so
+    the zero-balance ladder no longer writes it (ADR-0040 Amendment 2).
+    The `mark_suspended` funnel stays for the legacy rows a paid owner
+    can resume, through the same one-funnel-per-transition discipline
+    as every other state.
 
   `:text`-stored like `AccessGatewayState`.
   """

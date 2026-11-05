@@ -40,6 +40,7 @@ defmodule FluxVale.Infrastructure.Operations.UnclaimAccessDomainTest do
     end)
 
     {org, owner} = BillingFixtures.grant_free_org!()
+    BillingFixtures.mark_paid!(org)
 
     {:ok, org: org, owner: owner}
   end
@@ -227,6 +228,8 @@ defmodule FluxVale.Infrastructure.Operations.UnclaimAccessDomainTest do
   end
 
   defp custom_domain!(owner) do
+    BillingFixtures.mark_user_paid!(owner)
+
     expect(Kubereq, :apply, fn _req, manifest, _fm ->
       {:ok, %{status: 201, body: manifest}}
     end)

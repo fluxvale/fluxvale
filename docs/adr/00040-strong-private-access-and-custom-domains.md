@@ -512,6 +512,11 @@ instance returns to panel-only.
 
 ### 11. Billing touchpoints
 
+> **Superseded in part by [Amendment 2](#amendment-2-2026-11-05-custom-domains-are-free)
+> (2026-11-05): custom domains are free.** The per-domain rate, its
+> accrual, and the ladder's domain arm below are history. The gateway
+> line is unchanged.
+
 Per ADR-0039 §5's model, additive:
 
 - **Gateway hourly accrual**: unchanged.
@@ -639,6 +644,33 @@ the replica's LOCAL name, since Traefik's CRD provider reads
 rewriting the visitor's path to
 `/internal/access/<gateway-id>/<instance-id>/…` — the pair-in-the-path
 authorization, verbatim.
+
+## Amendment 2 (2026-11-05): custom domains are free
+
+Terence's ruling: PikaPods does not charge for domains, so FluxVale
+stops charging. This supersedes §11's per-domain line.
+
+- **No accrual.** The per-domain settle (`PerformSettle`), its cron
+  worker (`AccessDomainSettle`), the `access_domain_pricing` config and
+  its `ACCESS_DOMAIN_MONTHLY_CENTS` override,
+  `AccessDomain.monthly_cents/0`, and the `metering_since` column are
+  gone.
+- **No projection, no ladder arm.** `ComputeRunway` no longer adds a
+  domain rate, and `SweepZeroBalance` no longer suspends a serving
+  domain at zero balance. A free domain cannot be the reason to take it
+  down.
+- **The entitlement gate stays.** Registering a custom domain requires
+  a paying account: a real $1+ top-up ever (the welcome credit does not
+  qualify) and a positive balance now. The `:register` policy enforces
+  `ActorOrgHasPaid` and `ActorOrgWalletFunded`, the same pair as the
+  gateway's `:create`. The gate is policy land, so the API cannot walk
+  around it.
+- **Unchanged.** `fluxvale.app` hostnames, exposure, DNS, and
+  resolution are free. The gateway bills as before (ADR-0039 §5), and
+  custom domains remain private-first.
+
+For the record, §11 priced domains at $2.00/month per verified domain,
+set by the owner on 2026-10-30. Amendment 2 removes that price.
 
 ## References
 

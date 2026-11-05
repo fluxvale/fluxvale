@@ -36,14 +36,14 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   clause routes needs_attention rows that carry a ref). The one
   honest-dark demotion is a SUSPENDED verified domain's — domain-scoped,
   via `EdgeRoutes.apply_access_none_for_domain/3` — and that is the
-  limb S6's ladder calls when its writer lands. And every pass
+  limb the suspension funnel calls. And every pass
   re-ensures the cert REPLICA of each `:verified` domain into each
   serving namespace (SSA no-op when unchanged; a renewal rotation
   converges within one cadence).
 
   Everything else (platform rows, `:suspended`, transient
   cluster errors) is left alone: a suspension is the billing ladder's
-  (S6) authority, and a flaky read must not flap a row — the next tick
+  authority, and a flaky read must not flap a row — the next tick
   re-decides. A transition write that re-reads a row whose state moved
   since the pass read it is skipped (a stale demotion must not
   overwrite a newer promotion).
@@ -181,7 +181,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   end
 
   # :failed is terminal for a registration and :suspended is the billing
-  # ladder's authority (S6) — the observer writes over neither.
+  # ladder's authority — the observer writes over neither.
   defp observe(%AccessDomain{}, _kubeconfig), do: :unchanged
 
   defp decide_pending(domain, kubeconfig, "True", body),
@@ -258,7 +258,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
 
   # A funnel decision is only valid against the state the pass read:
   # re-read the row fresh, and if another writer moved it in between (a
-  # concurrent promotion, an S6 suspension), skip — a stale demotion
+  # concurrent promotion, a suspension), skip — a stale demotion
   # must not overwrite a newer write. The next tick re-decides against
   # the committed row.
   defp land(domain, funnel) do
@@ -388,7 +388,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   # The domain's arms (ADR-0040 Am. 1 as built)
   # ------------------------------------------------------------------
 
-  # Public: the S6 ladder's suspension removes exactly this
+  # Public: the suspension funnel removes exactly this
   # population's routes (honest dark for the domain), and the resume
   # re-arms it — one selector, three consumers, or the notion forks.
   @doc """

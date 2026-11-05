@@ -1,9 +1,8 @@
 defmodule FluxVale.Infrastructure.AccessGateway.MonthlyCentsTest do
   @moduledoc """
   #395's rate accessor: the one RUNTIME reader of the gateway's
-  configured monthly price, mirroring `AccessDomain.monthly_cents/0`
-  (same shape, same fail-closed missing-config, missing-key and
-  mispriced-config behavior).
+  configured monthly price, with the fail-closed missing-config,
+  missing-key and mispriced-config behavior the money paths require.
   """
 
   use FluxVale.DataCase, async: false

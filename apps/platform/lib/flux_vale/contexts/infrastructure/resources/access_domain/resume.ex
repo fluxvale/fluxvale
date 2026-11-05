@@ -1,8 +1,8 @@
 defmodule FluxVale.Infrastructure.AccessDomain.Resume do
   @moduledoc """
-  The owner's funded resume after a balance suspension (ADR-0040 §11):
-  the row back to `:verified`, the accrual window reopened, and — row
-  committed — the two tails of the domain's service re-armed:
+  The owner's funded resume of a suspended domain (ADR-0040 Amendment
+  2): the row back to `:verified`, and — row committed — the two tails
+  of the domain's service re-armed:
 
   - the edge routes, re-minted per instance for its CURRENT status
     (the verify pass's promotion limb, entered for the same population
@@ -29,14 +29,10 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
   still stands (`:suspended` after the rollback), so the retry owns the
   convergence and nothing is stranded ungoverned.
 
-  The anchor reopens at `now` — the suspended interval is not billed
-  (Suspend parked it), and the resume starts a fresh accrual window.
-
   **Ordering is load-bearing: the row commits before the cluster work**
   (the gateway Resume's discipline). The re-mint and the re-claim run
   in `after_action`, so a failure aborts the action and rolls the row
-  back to `:suspended` — nothing serving, nothing billed, owner can
-  retry. Cluster-first would be the opposite hazard: a row write that
+  back to `:suspended` — nothing serving, owner can retry. Cluster-first would be the opposite hazard: a row write that
   then failed would leave `:suspended` while the hostnames answered,
   and NOTHING retries that — the ladder skips `:suspended` and the
   observer writes over neither `:suspended` nor `:failed`, so the
@@ -140,10 +136,9 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
     # only on a still-:suspended row, so a concurrent writer (a second
     # resume, a removal) turns this write into a StaleRecord instead
     # of a blind overwrite — the after_action cluster work never runs
-    # on a row we didn't win, and the anchor cannot restart twice.
+    # on a row we didn't win.
     |> Ash.Changeset.filter(state: :suspended)
     |> Ash.Changeset.force_change_attribute(:state, :verified)
-    |> Ash.Changeset.force_change_attribute(:metering_since, DateTime.utc_now())
     |> Ash.Changeset.after_action(fn _changeset, resumed ->
       case reclaim_and_rearm(resumed) do
         :ok ->

@@ -49,26 +49,13 @@ defmodule FluxVale.RuntimeConfigTest do
     end
   end
 
-  describe "ACCESS_DOMAIN_MONTHLY_CENTS (ADR-0040 §11)" do
-    test "is inert in test — a stray export never reprices the suite's money paths" do
+  describe "ACCESS_DOMAIN_MONTHLY_CENTS (ADR-0040 Amendment 2)" do
+    test "is ignored everywhere: custom domains are free and no rate key exists" do
       with_env(%{"ACCESS_DOMAIN_MONTHLY_CENTS" => "500"}, fn ->
-        # runtime.exs only ever OVERLAYS the key (config.exs owns the
-        # default); inert in test means the overlay never lands.
+        # The env override is gone with the accrual. A stale deploy
+        # variable must not be able to resurrect a domain price.
+        refute Keyword.has_key?(read!(:dev)[:flux_vale] || [], :access_domain_pricing)
         refute Keyword.has_key?(read!(:test)[:flux_vale] || [], :access_domain_pricing)
-      end)
-    end
-
-    test "still applies (and validates) outside test" do
-      with_env(%{"ACCESS_DOMAIN_MONTHLY_CENTS" => "500"}, fn ->
-        assert read!(:dev)[:flux_vale][:access_domain_pricing][:monthly_cents] == 500
-      end)
-
-      with_env(%{"ACCESS_DOMAIN_MONTHLY_CENTS" => "free"}, fn ->
-        assert_raise ArgumentError, ~r/ACCESS_DOMAIN_MONTHLY_CENTS/, fn -> read!(:dev) end
-      end)
-
-      with_env(%{"ACCESS_DOMAIN_MONTHLY_CENTS" => "0"}, fn ->
-        assert_raise ArgumentError, ~r/ACCESS_DOMAIN_MONTHLY_CENTS/, fn -> read!(:dev) end
       end)
     end
   end
@@ -98,15 +85,18 @@ defmodule FluxVale.RuntimeConfigTest do
         assert {"17 * * * *", FluxVale.Workers.StaleTopupSweep} in crontab
         assert {"6-59/5 * * * *", FluxVale.Workers.BackupSweep} in crontab
         assert {"1-59/15 * * * *", FluxVale.Janitor.VerifyAccessDomains} in crontab
-        # ADR-0040 §11's domain-accrual tick (the S6 settler walk).
-        assert {"3-59/15 * * * *", FluxVale.Workers.AccessDomainSettle} in crontab
+        # ADR-0040 Amendment 2: no domain-accrual tick exists.
+        refute Enum.any?(crontab, fn {_expr, worker} ->
+                 inspect(worker) =~ "AccessDomainSettle"
+               end)
+
         # #360 slice 3's request-window prune (daily, off the token prune).
         assert {"15 3 * * *", FluxVale.Janitor.PruneRequestWindows} in crontab
         # #360 slice 5's audit-event sweep (daily, off the 03:15 windows).
         assert {"30 3 * * *", FluxVale.Janitor.PruneAuditEvents} in crontab
         # #362's device-code sweep (daily, off the 03:30 audit sweep).
         assert {"45 3 * * *", FluxVale.Janitor.PruneDeviceCodes} in crontab
-        assert length(crontab) == 11
+        assert length(crontab) == 10
       end)
     end
 
