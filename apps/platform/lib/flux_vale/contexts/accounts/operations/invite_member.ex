@@ -48,14 +48,20 @@ defmodule FluxVale.Accounts.Operations.InviteMember do
       {:ok, invite} ->
         deliver(invite, raw)
 
+      # The create's owner policy refused the caller: mutate nothing —
+      # the supersede below must never run on the refusal path (a
+      # refused caller cannot retire an expired row).
+      {:error, %Ash.Error.Forbidden{}} = error ->
+        error
+
       # The index arbitrated a race — an open invite the pre-check
       # could not see, or an expired row still holding the slot (its
       # predicate cannot carry now()). The supersede retires only the
       # expired arm; a true open duplicate stays put and the retry
       # loses again (the error bubbles — the index is the arbiter).
-      # It runs only AFTER the create's owner policy answered: a
-      # refused caller mutates nothing.
-      {:error, _taken} ->
+      # It runs only on the Invalid arm (the policy already passed):
+      # a refused caller mutates nothing.
+      {:error, %Ash.Error.Invalid{}} ->
         MembershipInvite.supersede_expired(org.id, email)
 
         case create_invite(owner, org, email, raw) do
@@ -65,6 +71,12 @@ defmodule FluxVale.Accounts.Operations.InviteMember do
           {:error, _refused} = error ->
             error
         end
+
+      # Anything else (a DB-level failure) — no supersede, bubble.
+      # coveralls-ignore-next-line - DB-down class, not simulatable
+      # under the sandbox (the repo's cluster-level stance)
+      {:error, _other} = error ->
+        error
     end
   end
 

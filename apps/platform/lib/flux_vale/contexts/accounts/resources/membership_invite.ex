@@ -33,7 +33,6 @@ defmodule FluxVale.Accounts.MembershipInvite do
     authorizers: [Ash.Policy.Authorizer]
 
   alias FluxVale.Accounts.MembershipInvite.AcceptMembership
-  alias FluxVale.Accounts.MembershipInvite.SetRevokedAt
   alias FluxVale.Accounts.Organization
   alias FluxVale.Accounts.Types.MembershipRole
 
@@ -186,10 +185,23 @@ defmodule FluxVale.Accounts.MembershipInvite do
       # match — the idempotence contract below keeps their stamp.
       change(filter(expr(is_nil(accepted_at))))
 
-      # SetRevokedAt reads the row's current state (idempotence) — a
-      # plain change Ash cannot run atomically (the PAT revoke trade).
+      # The keep-or-stamp decision evaluates against the ROW, never the
+      # caller's struct: a stale struct (revoked in another tab while
+      # this changeset still carries revoked_at nil) re-issued as a
+      # revoke keeps the original stamp — now() fires only when the
+      # row's revoked_at is genuinely nil. The expr is data-layer
+      # rendered, so no in-memory struct can move the stamp. The `if`
+      # is Ash.Query.Function.If inside the expr DSL — the
+      # parenthesised call is the DSL's required shape (the
+      # Membership.user_email posture).
+      #
+      # credo:disable-for-next-line Credo.Check.Readability.ParenthesesInCondition
+      change(atomic_update(:revoked_at, expr(if(is_nil(revoked_at), now(), revoked_at))))
+
+      # Record-update flow (the :accept posture): a filter that matches
+      # nothing answers StaleRecord — the refusal the revoker reads —
+      # instead of the atomic path's silent zero-row success.
       require_atomic?(false)
-      change(SetRevokedAt)
     end
 
     update :accept do
@@ -227,6 +239,11 @@ defmodule FluxVale.Accounts.MembershipInvite do
       change(filter(expr(is_nil(accepted_at) and is_nil(revoked_at) and expires_at > now())))
 
       change(set_attribute(:revoked_at, &DateTime.utc_now/0))
+
+      # Record-update flow (the :accept posture): a filter that matches
+      # nothing answers StaleRecord instead of the atomic path's
+      # silent zero-row success.
+      require_atomic?(false)
     end
 
     # System supersede of EXPIRED, unstamped rows — the sanctioned

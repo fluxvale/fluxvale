@@ -223,8 +223,10 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     assert has_element?(view, "[data-testid='org-slug']", org.slug)
     assert has_element?(view, "h1", org.name)
 
-    # The back link leaves settings for the dashboard.
-    assert render(element(view, "[data-testid='org-back']")) =~ ~s(href="/")
+    # The back link returns to THIS org's home (the org's surface, not
+    # the site dashboard).
+    assert render(element(view, "[data-testid='org-back']")) =~
+             ~s(href="/organizations/#{org.slug}")
 
     # The chrome's switcher names THIS org — current_org passes through.
     assert has_element?(view, "[data-testid='org-switcher-button'] span", org.name)
@@ -400,7 +402,6 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
 
   test "a submit after the org is gone refuses — the actions are the authority", %{
     conn: conn,
-    owner: owner,
     org: org
   } do
     {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")

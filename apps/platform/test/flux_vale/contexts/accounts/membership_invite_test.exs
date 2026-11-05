@@ -11,7 +11,6 @@ defmodule FluxVale.Accounts.MembershipInviteTest do
 
   use FluxVale.DataCase, async: true
 
-  alias FluxVale.Accounts
   alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.MembershipInvite
   alias FluxVale.TestSupport.AccountsFixtures
@@ -305,6 +304,33 @@ defmodule FluxVale.Accounts.MembershipInviteTest do
                accept(invite, owner.id, actor: owner)
 
       assert {:error, %Ash.Error.Forbidden{}} = MembershipInvite.decline(invite, actor: owner)
+    end
+  end
+
+  describe "decline" do
+    test "a revoked invite cannot decline — direct action pin" do
+      {org, _owner} = owned_org!()
+      invite = invite_for!(org, "decline-revoked@fluxvale.test")
+
+      MembershipInvite.revoke!(invite, authorize?: false)
+
+      assert {:error, _stale} = MembershipInvite.decline(invite, authorize?: false)
+      assert reload_with_state!(invite).state == :revoked
+    end
+
+    test "an expired invite cannot decline — direct action pin" do
+      {org, _owner} = owned_org!()
+
+      invite =
+        Ash.Seed.seed!(MembershipInvite, %{
+          organization_id: org.id,
+          email: "decline-expired@fluxvale.test",
+          token_hash: arbitrary_hash(),
+          expires_at: DateTime.add(DateTime.utc_now(), -1, :minute)
+        })
+
+      assert {:error, _stale} = MembershipInvite.decline(invite, authorize?: false)
+      assert reload_with_state!(invite).state == :expired
     end
   end
 

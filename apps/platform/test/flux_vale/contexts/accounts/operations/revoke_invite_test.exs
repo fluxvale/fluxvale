@@ -50,6 +50,33 @@ defmodule FluxVale.Accounts.Operations.RevokeInviteTest do
     assert revoked.revoked_at == seeded_stamp
   end
 
+  test "a stale struct (revoked elsewhere) keeps the original stamp" do
+    owner = AccountsFixtures.user!()
+    org = AccountsFixtures.owned_org!(owner)
+    invitee = AccountsFixtures.user!()
+
+    # The DB row carries a backdated stamp (a state no action can
+    # produce — Ash.Seed, the documented exception); the struct in hand
+    # predates it (revoked_at nil in memory) — exactly the
+    # another-tab-already-revoked shape members_test drives from the
+    # page. The keep decision must read the ROW, not the struct.
+    seeded_stamp = ~U[2024-06-01 12:00:00Z]
+
+    row =
+      Ash.Seed.seed!(FluxVale.Accounts.MembershipInvite, %{
+        organization_id: org.id,
+        email: invitee.email,
+        token_hash: String.duplicate("e", 64),
+        revoked_at: seeded_stamp,
+        expires_at: DateTime.add(DateTime.utc_now(), 1, :hour)
+      })
+
+    stale_struct = %{row | revoked_at: nil}
+
+    assert {:ok, revoked} = Accounts.revoke_invite(owner, stale_struct)
+    assert revoked.revoked_at == seeded_stamp
+  end
+
   test "a member who is not the owner cannot revoke" do
     owner = AccountsFixtures.user!()
     org = AccountsFixtures.owned_org!(owner)

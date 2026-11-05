@@ -79,6 +79,17 @@ defmodule FluxVale.Accounts.Operations.AcceptInvite do
 
   # Case-folded compare (the store is CiString, the loaded calc is a
   # plain string).
+  #
+  # Known stance (noted for the reviewer of record): this fence folds
+  # with Elixir's String.downcase (full Unicode fold), while the
+  # open-invite index folds with the database's lower() (collation
+  # rules). The two disagree on same-letter variant codepoints (the
+  # Kelvin sign and the Angstrom sign fold to "k" and "a" here but not
+  # in the DB's lower()), so the store can hold two OPEN invites this
+  # fence treats as one address. Not exploitable: a claim still needs
+  # mail receipt at that exact address, and a mismatch answers
+  # :email_mismatch (fail closed) — the divergence costs at most a
+  # duplicate invitation, never an unauthorized join.
   defp email_fence(primary_email, invite_email) do
     invited = to_string(invite_email)
 

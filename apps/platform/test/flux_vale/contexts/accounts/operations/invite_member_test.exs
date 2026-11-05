@@ -18,8 +18,6 @@ defmodule FluxVale.Accounts.Operations.InviteMemberTest do
   alias FluxVale.Mailer
   alias FluxVale.TestSupport.AccountsFixtures
 
-  require Ash.Query
-
   describe "happy path" do
     test "creates an open :member invite and mails the link" do
       owner = AccountsFixtures.user!()
@@ -131,6 +129,33 @@ defmodule FluxVale.Accounts.Operations.InviteMemberTest do
 
       assert %{revoked_at: stamped} = Ash.load!(stale, :revoked_at, authorize?: false)
       assert stamped
+    end
+
+    test "a refused caller mutates nothing — an expired row is not retired by a refusal" do
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+      member = AccountsFixtures.user!()
+      invitee = AccountsFixtures.user!()
+
+      seed_member!(org, member)
+
+      # An expired row holds the address (a state no action can
+      # produce — Ash.Seed, the documented exception).
+      stale =
+        Ash.Seed.seed!(MembershipInvite, %{
+          organization_id: org.id,
+          email: invitee.email,
+          token_hash: stale_hash(),
+          expires_at: DateTime.add(DateTime.utc_now(), -1, :minute)
+        })
+
+      # The member's call is Forbidden — and stays a pure refusal: the
+      # supersede arm never runs on Forbidden, so the stale row's
+      # revoked_at stays nil (the probe-proof for the P2 ordering).
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Accounts.invite_member(member, org, invitee.email)
+
+      assert %{revoked_at: nil} = Ash.load!(stale, :revoked_at, authorize?: false)
     end
 
     test "a malformed address is refused before anything is stored or sent" do
