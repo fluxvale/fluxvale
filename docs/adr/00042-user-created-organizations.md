@@ -49,7 +49,7 @@ as one plain line (try a different name); no silent suffixing.
 `personal_owner_id` on organizations is the explicit fact behind "the
 personal org" (#420) — unique when set, null marks team orgs. It
 replaces the earliest-owned derivation, which could not survive
-user-created orgs (a destroyed personal org plus a later created org
+user-created orgs (a destroyed personal org plus a later-created org
 would hijack the personal-account redirects). The backfill stamped
 every existing user's derived org; JIT provisioning sets the column,
 `create_with_owner` leaves it null.
