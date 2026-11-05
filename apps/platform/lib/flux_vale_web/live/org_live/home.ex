@@ -233,30 +233,15 @@ defmodule FluxValeWeb.OrganizationLive.Home do
             </h2>
 
             <%!-- Empty state outside the stream container: streams can't
-            count (the billing surface's stance). The owner's next step
-            after creating an org is inviting people (#408 dogfood) — the
-            second line rides owners only; the roster is the surface, and
-            the invite form landing there is the invites PR's (#441). --%>
+            count (the billing surface's stance). --%>
             <div :if={@instances_empty?} data-testid="instances-empty">
               <.empty_state title="No instances yet">
-                <span class="block">
-                  Deploy this organization's first app from the <.link
-                    navigate={~p"/apps"}
-                    class="underline underline-offset-2 hover:text-ink"
-                  >
-                    catalog
-                  </.link>.
-                </span>
-                <span :if={@owner?} class="block">
-                  <.link
-                    navigate={~p"/organizations/#{@org.slug}/settings/members"}
-                    class="underline underline-offset-2 hover:text-ink"
-                    data-testid="org-invite-link"
-                  >
-                    Invite people
-                  </.link>
-                  to work with you here.
-                </span>
+                Deploy this organization's first app from the <.link
+                  navigate={~p"/apps"}
+                  class="underline underline-offset-2 hover:text-ink"
+                >
+                  catalog
+                </.link>.
               </.empty_state>
             </div>
 

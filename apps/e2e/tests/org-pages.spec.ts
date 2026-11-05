@@ -70,47 +70,6 @@ test("personal-org path: a fresh user's org URL lands on the dashboard, org-less
   await expect(page.getByTestId("member-count")).toHaveCount(0);
 });
 
-// The de-socialized creation page (#408 dogfood): one input, the name.
-// The address derives live from it server-side and rides a plain
-// element (not an input), so every keystroke's patch lands — the
-// client-tracked-value failure the old slug input had cannot recur.
-// Two typing stages prove the SECOND and later keystrokes keep
-// updating; submit lands at the derived address.
-test("org creation: the address derives live, submit lands at it", async ({
-  page,
-  request,
-}) => {
-  test.setTimeout(60_000); // sign-in plus two navigations
-
-  const email = emailFor("create");
-  await signIn(page, new TestInbox(request, testInboxToken!), email);
-
-  await page.goto("/organizations/new");
-  await waitForLiveViewJoin(page);
-
-  // No name yet: the honest empty state, not an address.
-  await expect(page.getByTestId("slug-preview")).toContainText("Add a name to see its address.");
-
-  await page.getByTestId("org-new-name-input").pressSequentially("Acme E2E");
-  await expect(page.getByTestId("slug-preview")).toContainText("/organizations/acme-e2e");
-
-  const derived = `acme-e2e-${runId}`;
-  await page.getByTestId("org-new-name-input").pressSequentially(` ${runId}`);
-  await expect(page.getByTestId("slug-preview")).toContainText(`/organizations/${derived}`);
-
-  await page.getByTestId("org-new-save").click();
-  await expect(page).toHaveURL(new RegExp(`/organizations/${derived}$`));
-  await expect(page.getByTestId("org-name")).toHaveText(`Acme E2E ${runId}`);
-
-  // The owner's next step after create is inviting people — the empty
-  // state carries the members-tab CTA (the invites PR #441's landing
-  // surface).
-  await expect(page.getByTestId("org-invite-link")).toHaveAttribute(
-    "href",
-    `/organizations/${derived}/settings/members`,
-  );
-});
-
 for (const width of [375, 640]) {
   test(`dashboard-geometry at ${width}px: no horizontal overflow, first nav link clickable`, async ({
     page,
