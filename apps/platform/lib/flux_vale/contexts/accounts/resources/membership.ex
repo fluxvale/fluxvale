@@ -4,15 +4,22 @@ defmodule FluxVale.Accounts.Membership do
   model policies resolve against (#119, ADR-0030). A user appears at most
   once per organization (`unique_user_per_org`).
 
-  Creation and destruction are system operations only (the JIT signup
-  provisioning runs `authorize?: false`), and two other sanctioned
-  system writers exist: Organization's `:create_with_owner` writes the
-  creator's owner membership in-transaction (its own policy is the
-  gate), and invitations join through the token path
-  (`MembershipInvite`'s accept transaction, slice 4 of #408) — neither
-  rides this resource's create. Removals arrive with slice 5 — so
-  `forbid_if always()` still closes the self-grant gap: no caller can
-  make themselves (or anyone) an owner here.
+  Creation is system-only (the JIT signup provisioning runs
+  `authorize?: false`), and two other sanctioned system writers exist:
+  Organization's `:create_with_owner` writes the creator's owner
+  membership in-transaction (its own policy is the gate), and
+  invitations join through the token path (`MembershipInvite`'s accept
+  transaction, slice 4 of #408) — neither rides this resource's create,
+  so `forbid_if always()` still closes the self-grant gap: no caller
+  can make themselves (or anyone) an owner here.
+
+  The actor-facing lifecycle (slice 5 of #408) is three NAMED actions:
+  owners set roles (`:set_role`) and remove members (`:remove_member`),
+  a membership's own user leaves (`:leave`) — all guarded by
+  LastOwnerGuard so an organization always keeps at least one owner.
+  Ownership transfer composes: promote the successor, then demote or
+  remove the old owner. The DEFAULT destroy stays system-only (org
+  teardown).
   """
 
   use Ash.Resource,
@@ -20,6 +27,8 @@ defmodule FluxVale.Accounts.Membership do
     domain: FluxVale.Accounts,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
+
+  alias FluxVale.Accounts.Membership.LastOwnerGuard
 
   postgres do
     table("memberships")
@@ -49,9 +58,33 @@ defmodule FluxVale.Accounts.Membership do
       forbid_if(always())
     end
 
-    policy action_type(:destroy) do
+    # By action NAME, not action_type (the wallet's :set_waiver
+    # composition): the two lifecycle destroys below are the named
+    # exceptions, and scoping this forbid to the DEFAULT destroy keeps
+    # the scopes from overlapping — Ash composes applicable policies
+    # with AND, so a policy that does not apply cannot veto. Org
+    # teardown stays system-only.
+    policy action(:destroy) do
       description("System-only: org teardown (authorize?: false)")
       forbid_if(always())
+    end
+
+    # The member lifecycle (slice 5 of #408): granting and revoking
+    # standing is the owner's call (the ActorOwnsInviteOrg posture for
+    # grant-shaped writes); leaving is the row's own user only.
+    policy action(:set_role) do
+      description("Owners set roles on their org's memberships")
+      authorize_if(FluxVale.Checks.ActorOwnsMembershipOrg)
+    end
+
+    policy action(:remove_member) do
+      description("Owners remove members from their org")
+      authorize_if(FluxVale.Checks.ActorOwnsMembershipOrg)
+    end
+
+    policy action(:leave) do
+      description("A membership's own user leaves — self only")
+      authorize_if(relates_to_actor_via(:user))
     end
   end
 
@@ -87,6 +120,46 @@ defmodule FluxVale.Accounts.Membership do
       primary?(true)
       accept([:role, :organization_id, :user_id])
     end
+
+    # Member lifecycle (slice 5 of #408). All three run the record path
+    # (`require_atomic?(false)`, the :revoke posture): the guard's
+    # before_action needs the record transaction, and a raced write's
+    # zero-row filter answers StaleRecord — the honest refusal —
+    # instead of the atomic path's silent {:ok}.
+    update :set_role do
+      description("An owner sets the membership's org role (promote to owner, demote to member)")
+
+      accept([:role])
+
+      # LAST-OWNER GUARD: demoting the org's only owner is refused.
+      change(LastOwnerGuard)
+
+      require_atomic?(false)
+    end
+
+    destroy :remove_member do
+      description("An owner removes a member from the org")
+
+      # Removing YOURSELF is the :leave path — the actions stay
+      # distinct (clearer policy, clearer copy). The filter rides the
+      # DELETE's WHERE: a self-removal matches nothing and answers
+      # StaleRecord instead of deleting the caller.
+      change(filter(expr(user_id != ^actor(:id))))
+
+      # LAST-OWNER GUARD: removing the org's only owner is refused.
+      change(LastOwnerGuard)
+
+      require_atomic?(false)
+    end
+
+    destroy :leave do
+      description("The membership's own user leaves the org (an owner rides the same guard)")
+
+      # LAST-OWNER GUARD: leaving as the org's only owner is refused.
+      change(LastOwnerGuard)
+
+      require_atomic?(false)
+    end
   end
 
   code_interface do
@@ -95,6 +168,9 @@ defmodule FluxVale.Accounts.Membership do
     define(:create)
     define(:read)
     define(:destroy)
+    define(:set_role)
+    define(:remove_member)
+    define(:leave)
   end
 
   identities do
