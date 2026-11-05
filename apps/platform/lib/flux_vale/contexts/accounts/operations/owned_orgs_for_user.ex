@@ -1,7 +1,7 @@
 defmodule FluxVale.Accounts.Operations.OwnedOrgsForUser do
   @moduledoc """
   Lists the organizations a user OWNS — the feedback islands' org picker
-  (fluxvale/fluxvale#412, [ADR-0026](../../../../../docs/adr/00026-feedback-board.md)):
+  (fluxvale/fluxvale#412, [ADR-0026](../../../../../../../docs/adr/00026-feedback-board.md)):
   the write gate is ownership (`ActorIsOrganizationOwner`), so the picker
   offers exactly the orgs the actor may spend a slot for. Mere memberships
   are not listed — a `:member` of a paid org gets nothing.

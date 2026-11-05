@@ -235,6 +235,13 @@ defmodule FluxValeWeb.FeedbackHTML do
   def count_label(count, unit), do: "#{count} #{unit}#{plural_suffix(count)}"
 
   @doc """
+  The islands' vote count (ngettext so translations carry the plural):
+  one copy here — the vote island's counter and the composer's
+  Already-posted rows render the same shape.
+  """
+  def votes_label(count), do: ngettext("1 vote", "%{count} votes", count)
+
+  @doc """
   The board's empty-state title. An empty BOARD and a FILTER that
   matched nothing are different sentences: "No posts yet." is only true
   of the unfiltered board (prod at launch), while a populated board with

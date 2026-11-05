@@ -63,6 +63,16 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       assert html =~ "data-testid=\"footer-feedback\""
     end
 
+    test "the header carries the composer CTA (the write is reachable from the board)", %{
+      conn: conn
+    } do
+      html = html_response(get(conn, ~p"/feedback"), 200)
+
+      assert html =~ "data-testid=\"composer-cta\""
+      assert html =~ "href=\"/feedback/new\""
+      assert html =~ "Post a request"
+    end
+
     test "rows show status badge, counts, and the posted age", %{conn: conn} do
       post = post!(%{title: "Badge and counters row", description: "Row anatomy"})
       set_counters!(post, 7, 3)

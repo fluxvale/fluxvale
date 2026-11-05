@@ -30,6 +30,12 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIslandTest do
 
   defp count!(post_id), do: Ash.get!(Post, post_id, authorize?: false).comment_count
 
+  defp position(html, needle) do
+    assert html =~ needle
+    {pos, _len} = :binary.match(html, needle)
+    pos
+  end
+
   # Comments for pre-seeding the list — the create action with a real
   # author (the create policy admits any actor, the CommentTest posture).
   defp comment!(post, author, body) do
@@ -95,6 +101,25 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIslandTest do
     assert has_element?(view, "#comment-form")
   end
 
+  test "a posted comment renders ABOVE the older ones (the list is newest first)", %{
+    conn: conn
+  } do
+    post = post!()
+    author = AccountsFixtures.user!()
+    comment!(post, author, "The older comment")
+
+    user = AccountsFixtures.user!()
+
+    {:ok, view, _html} = mount_island(conn, post, user)
+
+    view
+    |> element("#comment-form")
+    |> render_submit(%{"comment" => %{"body" => "The brand new comment"}})
+
+    html = render(view)
+    assert position(html, "The brand new comment") < position(html, "The older comment")
+  end
+
   test "an empty body keeps the comment off the list with the error inline", %{conn: conn} do
     post = post!()
     user = AccountsFixtures.user!()
@@ -134,6 +159,27 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIslandTest do
 
     assert count!(post.id) == 0
     assert has_element?(view, "[data-testid='comment-sign-in']")
+  end
+
+  # --- Post deleted mid-session --------------------------------------------------------------
+
+  # The island outliving its post (deleted between the SSR render and
+  # the connect) must stay silent under crafted events, not crash.
+  test "crafted events on a missing post are silence", %{conn: conn} do
+    {:ok, token, _claims} = AshAuthentication.Jwt.token_for_user(AccountsFixtures.user!())
+
+    {:ok, view, _html} =
+      live_isolated(conn, FluxValeWeb.FeedbackLive.CommentsIsland,
+        session: %{
+          "user_token" => token,
+          "slug" => "no-such-post"
+        }
+      )
+
+    render_change(view, "validate", %{"comment" => %{"body" => "typed"}})
+    render_submit(view, "submit-comment", %{"comment" => %{"body" => "posted"}})
+
+    refute has_element?(view, "[data-testid='comments-island']")
   end
 
   # --- Keystroke validation --------------------------------------------------------------------

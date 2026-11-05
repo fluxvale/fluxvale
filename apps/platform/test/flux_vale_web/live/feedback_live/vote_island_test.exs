@@ -267,4 +267,23 @@ defmodule FluxValeWeb.FeedbackLive.VoteIslandTest do
     refute html =~ "data-testid='vote-island'"
     refute has_element?(view, "[data-testid='vote-island']")
   end
+
+  test "crafted events on a missing post are silence (the affordance dies with the post)", %{
+    conn: conn
+  } do
+    {:ok, token, _claims} = AshAuthentication.Jwt.token_for_user(AccountsFixtures.user!())
+
+    {:ok, view, _html} =
+      live_isolated(conn, FluxValeWeb.FeedbackLive.VoteIsland,
+        session: %{
+          "user_token" => token,
+          "slug" => "no-such-post"
+        }
+      )
+
+    render_click(view, "toggle")
+    render_click(view, "pick-org", %{"org-id" => Ash.UUID.generate()})
+
+    refute has_element?(view, "[data-testid='vote-island']")
+  end
 end

@@ -1,8 +1,8 @@
-<%!-- Board index (#412 T4, tags T10): the public feature-request list on the
-public chrome — sort tabs, status and tag filter chips, one linked row per
-post with its tag chips, offset pager. Read-only by design this slice: no
-composer, no vote buttons (the interactive layer mounts in a later slice;
-these pages must look finished as they are). --%>
+<%!-- Board index (#412 T4, tags T10, composer CTA T5): the public
+feature-request list on the public chrome — sort tabs, status and tag
+filter chips, one linked row per post with its tag chips, offset pager,
+and the header CTA into the composer (the islands slice; the composer
+itself carries the honest anonymous/gate states). --%>
 <Layouts.public flash={@flash} current_user={@current_user}>
   <div class="space-y-8">
     <.header>
@@ -12,9 +12,15 @@ these pages must look finished as they are). --%>
       </:subtitle>
       <%!-- #412 T9: the board/roadmap tabs — the view switch both
       public feedback surfaces carry (the component lives in
-      FeedbackHTML, shared with the roadmap page). --%>
+      FeedbackHTML, shared with the roadmap page). T5 adds the composer
+      CTA beside them: the write is reachable from the surface it
+      belongs to, not just by URL. Anonymous and ineligible visitors
+      see it too — the composer renders their honest states. --%>
       <:actions>
         <.lane_tabs current={:board} />
+        <.button navigate={~p"/feedback/new"} data-testid="composer-cta">
+          {gettext("Post a request")}
+        </.button>
       </:actions>
     </.header>
 

@@ -143,7 +143,9 @@ defmodule FluxValeWeb.FeedbackLive.Composer do
         # Past validation, the only refusal the create can answer is the
         # paying gate's — and the form cannot carry policy errors (no
         # FormData impl), so the copy renders inline (the affordance
-        # said so; the policy confirms).
+        # said so; the policy confirms). The "Unhandled error in form
+        # submission" log line AshPhoenix emits for exactly this shape
+        # is deliberate noise: the refusal is handled, one layer up.
         {:error, _form} ->
           {:noreply, assign(socket, error: gettext("Posting needs a paid org."))}
       end
@@ -164,9 +166,9 @@ defmodule FluxValeWeb.FeedbackLive.Composer do
         </.button>
 
         <.header>
-          Post a request
+          {gettext("Post a request")}
           <:subtitle>
-            Tell us what to build next. Every post is public and tracked by the team.
+            {gettext("Tell us what to build next. Every post is public and tracked by the team.")}
           </:subtitle>
         </.header>
 
@@ -349,5 +351,5 @@ defmodule FluxValeWeb.FeedbackLive.Composer do
 
   defp topup_label(org), do: gettext("Top up %{org} to post", org: org.name)
 
-  defp votes_label(count), do: ngettext("1 vote", "%{count} votes", count)
+  defp votes_label(count), do: FluxValeWeb.FeedbackHTML.votes_label(count)
 end

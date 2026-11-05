@@ -1,7 +1,7 @@
 defmodule FluxVale.Feedback.Operations.SimilarPosts do
   @moduledoc """
   The composer's similar-posts nudge (fluxvale/fluxvale#412, T5,
-  [ADR-0026](../../../../../docs/adr/00026-feedback-board.md)): the posts
+  [ADR-0026](../../../../../../../docs/adr/00026-feedback-board.md)): the posts
   that look like what the visitor is typing, so dupes fold into their
   originals instead of splitting votes.
 

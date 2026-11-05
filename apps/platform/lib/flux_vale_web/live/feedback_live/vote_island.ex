@@ -74,7 +74,14 @@ defmodule FluxValeWeb.FeedbackLive.VoteIsland do
   # The toggle: retract when the selected org has voted, cast when it
   # has not. The handler never pre-checks the gate beyond what the
   # render shows — the action's policy is the authority, so a tampered
-  # client gains nothing.
+  # client gains nothing. A post deleted between the SSR render and the
+  # island's connect leaves the handlers silent (the UI is affordance
+  # only: nothing to attach a vote to, nothing to crash on).
+  @impl Phoenix.LiveView
+  def handle_event("toggle", _params, %{assigns: %{post: nil}} = socket) do
+    {:noreply, socket}
+  end
+
   def handle_event("toggle", _params, %{assigns: %{user: nil}} = socket) do
     {:noreply, socket}
   end
@@ -291,7 +298,7 @@ defmodule FluxValeWeb.FeedbackLive.VoteIsland do
 
   # --- Copy -----------------------------------------------------------------------
 
-  defp votes_label(count), do: ngettext("1 vote", "%{count} votes", count)
+  defp votes_label(count), do: FluxValeWeb.FeedbackHTML.votes_label(count)
 
   defp toggle_label(true, org), do: gettext("Vote as %{org}", org: org)
   defp toggle_label(false, org), do: gettext("Voted as %{org}", org: org)

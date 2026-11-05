@@ -44,8 +44,14 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
 
   # Keystroke validation: the bounds errors show inline while typing.
   # The wire nests under the form's `as`; AshPhoenix takes the inner
-  # params (the deploy stepper's posture).
+  # params (the deploy stepper's posture). A post deleted between the
+  # SSR render and the island's connect leaves the handlers silent —
+  # nothing to attach the comment to, nothing to crash on.
   @impl Phoenix.LiveView
+  def handle_event("validate", _params, %{assigns: %{post: nil}} = socket) do
+    {:noreply, socket}
+  end
+
   def handle_event("validate", %{"comment" => params}, socket) do
     form_params =
       socket.assigns.form.params
@@ -64,6 +70,10 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
     {:noreply, socket}
   end
 
+  def handle_event("submit-comment", _params, %{assigns: %{post: nil}} = socket) do
+    {:noreply, socket}
+  end
+
   def handle_event("submit-comment", %{"comment" => params}, socket) do
     # post_id is the island's own post, never the client's (a form
     # input would be caller-controlled otherwise).
@@ -78,7 +88,7 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
 
         {:noreply,
          socket
-         |> stream_insert(:comments, comment)
+         |> stream_insert(:comments, comment, at: 0)
          |> assign(count: comment_count(socket.assigns.post))
          |> assign(form: form_for(socket.assigns.user))}
 
@@ -159,8 +169,11 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
 
   # --- State ------------------------------------------------------------------
 
-  # Newest first: a posted comment streams in at the top (the stream's
-  # default insert), so no at: arithmetic can drift.
+  # Newest first: a posted comment streams in AT THE TOP — LiveView
+  # 1.2.11's stream_insert default (at: -1) APPENDS to the rendered
+  # list (appendChild in dom_patch.ts), which would land the fresh
+  # comment under older ones in a newest-first list. at: 0 is explicit
+  # about the top insert.
   defp stream_initial(socket, nil), do: socket
 
   defp stream_initial(socket, post) do
