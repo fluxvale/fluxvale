@@ -32,20 +32,25 @@
       constants are private module attributes with no public reader, so
       a ladder change must update this copy by hand. --%>
       <.card class="space-y-4" data-testid="pricing-billing-model">
+        <%!-- #472: the wallet model in visitor words — no credits
+          vocabulary. The zero-balance ladder mirrors
+          sweep_zero_balance.ex's windows by hand (the source's
+          constants are private; the comment above keeps the two honest
+          together). Copy cleared by the owner, 2026-11-05. --%>
         <p class="text-sm leading-relaxed text-ink-muted">
           {gettext(
-            "You pay with prepaid credits. One credit is one US cent, and every rate above is a monthly equivalent billed hourly from your credit balance. There are no subscriptions."
+            "You top up your wallet in USD. Apps bill hourly against your wallet balance, and every rate above is a monthly equivalent. There are no subscriptions."
           )}
         </p>
         <p class="text-sm leading-relaxed text-ink-muted">
           {gettext(
-            "New accounts start with %{amount} in credits.",
+            "New accounts start with %{amount} in their wallet.",
             amount: Pricing.format_usd(@welcome_grant_cents)
           )}
         </p>
         <p class="text-sm leading-relaxed text-ink-muted">
           {gettext(
-            "When your credit balance runs out, your apps stop running and their charges stop with them. Stopped apps keep their storage fee, and a balance left negative for 30 days deletes your data. We email warnings 7 days and 1 day before."
+            "When your balance runs out, your apps stop running and their charges stop with them. Stopped apps keep their storage fee, and a balance left negative for 30 days deletes your data. We email warnings 7 days and 1 day before deletion."
           )}
         </p>
       </.card>

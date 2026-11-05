@@ -109,13 +109,17 @@ defmodule FluxValeWeb.PricingControllerTest do
 
     welcome = Pricing.format_usd(Accounts.welcome_grant_cents())
 
-    assert html =~ "New accounts start with #{welcome} in credits."
-    assert html =~ "One credit is one US cent"
+    assert html =~ "You top up your wallet in USD"
+    assert html =~ "Apps bill hourly against your wallet balance"
+    assert html =~ "New accounts start with #{welcome} in their wallet."
     assert html =~ "There are no subscriptions"
     assert html =~ "your apps stop running and their charges stop with them"
     assert html =~ "Stopped apps keep their storage fee"
     assert html =~ "negative for 30 days deletes your data"
-    assert html =~ "warnings 7 days and 1 day before"
+    assert html =~ "warnings 7 days and 1 day before deletion"
+
+    # #472: the credits vocabulary left the surface with the rewrite.
+    refute html =~ "credit"
   end
 
   test "meta: branded title, description, canonical", %{conn: conn} do
