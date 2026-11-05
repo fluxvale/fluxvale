@@ -108,9 +108,10 @@ test("user-menu: signed-in nav shows the user menu, not Sign in", async ({
     page.getByTestId("user-menu-panel").getByRole("link", { name: "Catalog" }),
   ).toHaveAttribute("href", "/apps");
 
-  // Sign out ends the session — and / is the landing again.
+  // Sign out ends the session — and / is the landing again (#473: the
+  // sign-out redirect itself lands here now).
   await page.getByRole("button", { name: "Sign out" }).click();
-  await page.waitForURL(/\/sign-in$/);
+  await page.waitForURL("/");
   await page.goto("/");
   await expect(
     page.getByRole("heading", { level: 1 }),
