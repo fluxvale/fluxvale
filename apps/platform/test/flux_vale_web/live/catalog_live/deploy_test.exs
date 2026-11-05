@@ -132,7 +132,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
   # and flashes after events — none of it may name the platform under
   # the hood.
   test "every stepper step and flash renders k8s-free", %{conn: conn, app: app, version: version} do
-    {:ok, view, html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+    {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
 
     # The step-guard flash (a crafted event with no pick) too.
     flashed = render_click(view, "to-env", %{})

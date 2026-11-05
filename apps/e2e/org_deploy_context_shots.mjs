@@ -13,6 +13,7 @@ import { mkdirSync } from "node:fs";
 const BASE = process.env.FV_BASE ?? "http://127.0.0.1:4100";
 const TOKEN = process.env.FV_TOKEN;
 const APP_SLUG = process.env.FV_APP_SLUG;
+const TEAM_NAME = process.env.FV_TEAM_NAME ?? "Acme Team";
 const outdir = process.argv[2] ?? "/tmp/opencode/orgctx-shots";
 
 if (!TOKEN || !APP_SLUG) {
@@ -48,7 +49,7 @@ for (const mode of ["light", "dark"]) {
 }
 
 // The picked state: the team org chosen — the option flips selected.
-await page.selectOption("[data-testid=deploy-org-picker]", { label: "Acme Team" });
+await page.selectOption("[data-testid=deploy-org-picker]", { label: TEAM_NAME });
 await page.waitForTimeout(300);
 
 for (const mode of ["light", "dark"]) {
