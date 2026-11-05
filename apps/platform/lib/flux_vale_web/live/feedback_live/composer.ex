@@ -64,7 +64,14 @@ defmodule FluxValeWeb.FeedbackLive.Composer do
   # for the form (a map has no HTML render) while the raw value rides
   # to the search, which answers silence.
   @impl Phoenix.LiveView
-  def handle_event("validate", %{"post" => params}, socket) do
+  # The anonymous composer renders no form (the sign-in CTA stands in),
+  # so a crafted validate has nothing to validate — silence, not a nil
+  # dereference (the form: nil twin of the islands' post: nil guard).
+  def handle_event("validate", _params, %{assigns: %{form: nil}} = socket) do
+    {:noreply, socket}
+  end
+
+  def handle_event("validate", %{"post" => params}, socket) when is_map(params) do
     merged = Map.merge(socket.assigns.form.params, params)
     title = merged["title"]
 
@@ -107,6 +114,11 @@ defmodule FluxValeWeb.FeedbackLive.Composer do
     end
   end
 
+  # A crafted pick with no org-id at all (the rendered chip always
+  # carries phx-value-org-id) — silence, the same posture as an unknown
+  # id.
+  def handle_event("pick-org", _params, socket), do: {:noreply, socket}
+
   # The submit never pre-checks the gate beyond what the render shows —
   # the create's policy is the authority, so a tampered client gains
   # nothing (the refusal renders inline).
@@ -115,7 +127,7 @@ defmodule FluxValeWeb.FeedbackLive.Composer do
     {:noreply, socket}
   end
 
-  def handle_event("create", %{"post" => params}, socket) do
+  def handle_event("create", %{"post" => params}, socket) when is_map(params) do
     # Invalid input never earns the write — the field errors show first
     # (the settings posture). The wire nests under the form's `as`;
     # AshPhoenix takes the inner params.
@@ -140,19 +152,41 @@ defmodule FluxValeWeb.FeedbackLive.Composer do
            |> put_flash(:info, gettext("Request posted."))
            |> redirect(to: ~p"/feedback/#{post.slug}")}
 
-        # Past validation, the only refusal the create can answer is the
-        # paying gate's — and the form cannot carry policy errors (no
-        # FormData impl), so the copy renders inline (the affordance
-        # said so; the policy confirms). The "Unhandled error in form
-        # submission" log line AshPhoenix emits for exactly this shape
-        # is deliberate noise: the refusal is handled, one layer up.
-        {:error, _form} ->
-          {:noreply, assign(socket, error: gettext("Posting needs a paid org."))}
+        # Past validation, the two shapes left are the paying gate's
+        # refusal (no field can carry a policy error — Forbidden.Policy
+        # implements no FormData.Error) and a submit-time surprise (the
+        # unique_slug race, a DB failure). See create_error/2.
+        {:error, form} ->
+          {:noreply, create_error(socket, form)}
       end
     end
   end
 
   def handle_event("create", _params, socket), do: {:noreply, socket}
+
+  # Field errors render under their fields; a policy refusal earns the
+  # paying copy; anything else gets the generic sentence, never a top-up
+  # detour for a paying user. The form suppresses AshPhoenix's
+  # warn-on-unhandled log for the policy shape (form_for/1), so the
+  # refusal is one inline sentence, no ops-visible warning.
+  defp create_error(socket, form) do
+    cond do
+      AshPhoenix.Form.errors(form) != [] ->
+        assign(socket, form: form)
+
+      gate(socket.assigns.user, socket.assigns.selected_org_id) == :allowed ->
+        # coveralls-ignore-start - submit-time surprises: the unique_slug
+        # race needs concurrent submits and the DB-failure arm needs a
+        # dead connection; neither is a reasonable path to stage. The
+        # sentence is the safe copy for both.
+        assign(socket, error: gettext("Couldn't post this request. Try again."))
+
+      # coveralls-ignore-stop
+
+      true ->
+        assign(socket, gate: :refused, error: gettext("Posting needs a paid org."))
+    end
+  end
 
   @impl Phoenix.LiveView
   def render(assigns) do
@@ -243,6 +277,28 @@ defmodule FluxValeWeb.FeedbackLive.Composer do
               </div>
             </div>
 
+            <%!-- coveralls-ignore-start - defensive: every account owns
+            its personal org, so this state is unreachable today (see
+            gate/2); it renders so a broken invariant never shows paying
+            copy. --%>
+            <div
+              :if={@gate == :no_org}
+              data-testid="composer-gate-copy"
+              class="text-sm text-ink-muted"
+            >
+              <p>
+                {gettext("Posting needs an org you own.")}
+                <.link
+                  href={~p"/organizations/new"}
+                  data-testid="composer-create-org"
+                  class="font-medium text-link hover:underline"
+                >
+                  {gettext("Create an organization")}
+                </.link>
+              </p>
+            </div>
+            <%!-- coveralls-ignore-stop --%>
+
             <div
               :if={@gate == :refused}
               data-testid="composer-gate-copy"
@@ -313,11 +369,14 @@ defmodule FluxValeWeb.FeedbackLive.Composer do
   # sign-in CTA, not paying copy.
   defp gate(nil, _org_id), do: :anonymous
 
-  # The org-less shape never reaches the composer (a sign-in without an
-  # owned org fails the auth chain); the :refused label keeps mount
-  # total if that ever drifts.
+  # Defensive: not reachable through current product flows (the signup
+  # JIT provisions a personal org and the last-owner guard keeps it),
+  # but not a data invariant either — pre-#119 accounts never got one
+  # and the resource keeps a member-authorized destroy. The honest
+  # create-an-org state exists so that if it ever happens, nobody reads
+  # paying copy about an org they don't have.
   # coveralls-ignore-next-line
-  defp gate(_user, nil), do: :refused
+  defp gate(_user, nil), do: :no_org
 
   # The shared predicate — the same answer the create's policy gives.
   defp gate(user, org_id) do
@@ -332,7 +391,18 @@ defmodule FluxValeWeb.FeedbackLive.Composer do
 
   defp form_for(user) do
     Post
-    |> AshPhoenix.Form.for_create(:create, actor: user, as: "post")
+    |> AshPhoenix.Form.for_create(:create,
+      actor: user,
+      as: "post",
+      # The paying gate's refusal is an expected path, and it is the one
+      # error this form can produce that no field can carry
+      # (Forbidden.Policy implements no FormData.Error) — the default
+      # warn-on-unhandled would log ops-visible warning noise + policy
+      # breadcrumbs on every refusal, reading like a production bug.
+      # Field errors implement the protocol and are unaffected. Same
+      # call the org create form makes for its cap refusal.
+      warn_on_unhandled_errors?: false
+    )
     |> to_form()
   end
 
@@ -341,13 +411,6 @@ defmodule FluxValeWeb.FeedbackLive.Composer do
   end
 
   # --- Copy ---------------------------------------------------------------------
-
-  # The org-less shape never reaches the render (a sign-in without an
-  # owned org fails the auth chain); the generic label keeps the copy
-  # total if that ever drifts. The pure arm is covered directly in
-  # OrgChoiceTest.
-  # coveralls-ignore-next-line
-  defp topup_label(nil), do: gettext("Top up to post")
 
   defp topup_label(org), do: gettext("Top up %{org} to post", org: org.name)
 

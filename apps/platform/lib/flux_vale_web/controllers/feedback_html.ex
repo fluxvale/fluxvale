@@ -231,15 +231,15 @@ defmodule FluxValeWeb.FeedbackHTML do
     end
   end
 
-  @doc "Counted noun phrase: count_label(3, :vote) reads as 3 votes."
-  def count_label(count, unit), do: "#{count} #{unit}#{plural_suffix(count)}"
-
   @doc """
-  The islands' vote count (ngettext so translations carry the plural):
-  one copy here — the vote island's counter and the composer's
-  Already-posted rows render the same shape.
+  The board and roadmap vote count (ngettext so translations carry the
+  plural): one copy here — the islands' counters, the composer's
+  Already-posted rows, and the SSR lists all render the same shape.
   """
   def votes_label(count), do: ngettext("1 vote", "%{count} votes", count)
+
+  @doc "The board and roadmap comment count (ngettext, same reason)."
+  def comments_label(count), do: ngettext("1 comment", "%{count} comments", count)
 
   @doc """
   The board's empty-state title. An empty BOARD and a FILTER that

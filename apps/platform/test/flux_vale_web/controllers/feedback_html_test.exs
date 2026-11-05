@@ -96,10 +96,11 @@ defmodule FluxValeWeb.FeedbackHTMLTest do
     end
   end
 
-  test "count_label/2 singularizes exactly at one" do
-    assert FeedbackHTML.count_label(1, "vote") == "1 vote"
-    assert FeedbackHTML.count_label(3, "vote") == "3 votes"
-    assert FeedbackHTML.count_label(0, "comment") == "0 comments"
+  test "the count helpers singularize exactly at one" do
+    assert FeedbackHTML.votes_label(1) == "1 vote"
+    assert FeedbackHTML.votes_label(3) == "3 votes"
+    assert FeedbackHTML.comments_label(0) == "0 comments"
+    assert FeedbackHTML.comments_label(2) == "2 comments"
   end
 
   test "status labels and tones cover every status the resource declares" do

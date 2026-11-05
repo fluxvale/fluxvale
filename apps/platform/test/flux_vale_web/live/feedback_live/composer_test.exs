@@ -66,6 +66,32 @@ defmodule FluxValeWeb.FeedbackLive.ComposerTest do
     refute post_with_title_exists?("A perfectly valid request title")
   end
 
+  # The anonymous composer renders NO form (the sign-in CTA stands in),
+  # so a crafted validate must be silence — a nil dereference would kill
+  # the island a visitor lands on from the board's CTA.
+  test "a crafted anonymous validate is silence (no form to validate)", %{conn: conn} do
+    {:ok, view, _html} = mount_composer(conn)
+
+    render_change(view, "validate", %{"post" => %{"title" => "typed anyway"}})
+
+    assert Process.alive?(view.pid)
+    assert has_element?(view, "p", "Sign in to post a request.")
+  end
+
+  # The rendered chip always carries phx-value-org-id; a crafted click
+  # without one must not crash the picker.
+  test "a crafted pick-org with no org-id is silence", %{conn: conn} do
+    user = AccountsFixtures.user!()
+    BillingFixtures.mark_user_paid!(user)
+
+    {:ok, view, _html} = mount_composer(conn, user)
+
+    render_click(view, "pick-org")
+
+    assert Process.alive?(view.pid)
+    assert has_element?(view, "[data-testid='composer-submit']")
+  end
+
   # --- The happy path ----------------------------------------------------------------
 
   test "an eligible actor posts and lands on the new post's page", %{conn: conn} do
@@ -287,5 +313,43 @@ defmodule FluxValeWeb.FeedbackLive.ComposerTest do
 
     assert has_element?(view, "[data-testid='composer-error']", "Posting needs a paid org.")
     refute post_with_title_exists?("A perfectly valid request title")
+  end
+
+  # The policy refusal is an expected path, so it must not log the
+  # unhandled-error stack AshPhoenix prints by default (the reason the
+  # form sets warn_on_unhandled_errors?: false). Asserting the absence
+  # is what makes that one-line option verifiable: delete it and this
+  # test fails.
+  test "a gate-refused submit logs no unhandled-error warning", %{conn: conn} do
+    user = AccountsFixtures.user!()
+
+    {:ok, view, _html} = mount_composer(conn, user)
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        view
+        |> element("#composer-form")
+        |> render_submit(%{
+          "post" => %{"title" => "A perfectly valid request title", "description" => "Body"}
+        })
+      end)
+
+    refute log =~ "Unhandled error in form submission"
+    assert has_element?(view, "[data-testid='composer-error']", "Posting needs a paid org.")
+  end
+
+  # The wire's shape is not a promise: a non-map value under the form
+  # key must fall to the catch-all, not raise on Map.merge/2.
+  test "a crafted non-map payload is silence in both handlers", %{conn: conn} do
+    user = AccountsFixtures.user!()
+    BillingFixtures.mark_user_paid!(user)
+
+    {:ok, view, _html} = mount_composer(conn, user)
+
+    render_change(view, "validate", %{"post" => "not a map"})
+    render_submit(view, "create", %{"post" => "not a map"})
+
+    assert Process.alive?(view.pid)
+    assert has_element?(view, "#composer-form")
   end
 end

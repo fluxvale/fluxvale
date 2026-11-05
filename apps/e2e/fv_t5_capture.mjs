@@ -130,8 +130,17 @@ for (const mode of ["light", "dark"]) {
   await vpage.locator("[data-testid='vote-toggle']").click();
   await vpage.waitForTimeout(1600);
 
+  // Save the recording under the filename this script reports, so the
+  // logged artifact is the file a reviewer finds (Playwright's default
+  // is a hashed name inside raw/).
+  const video = vpage.video();
   await videoCtx.close();
-  console.log("captured vote-toggle.webm (raw)");
+
+  if (video) {
+    const target = `${outdir}/vote-toggle.webm`;
+    await video.saveAs(target);
+    console.log(`captured ${target} (raw webm; convert to GIF for the PR)`);
+  }
 }
 
 await browser.close();

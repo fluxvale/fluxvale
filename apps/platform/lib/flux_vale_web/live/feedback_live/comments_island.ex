@@ -52,7 +52,14 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
     {:noreply, socket}
   end
 
-  def handle_event("validate", %{"comment" => params}, socket) do
+  # The anonymous island renders the sign-in CTA instead of the form
+  # (form_for/1 answers nil), so a crafted validate has nothing to
+  # validate — silence, not a nil dereference.
+  def handle_event("validate", _params, %{assigns: %{form: nil}} = socket) do
+    {:noreply, socket}
+  end
+
+  def handle_event("validate", %{"comment" => params}, socket) when is_map(params) do
     form_params =
       socket.assigns.form.params
       |> Map.merge(params)
@@ -74,7 +81,7 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
     {:noreply, socket}
   end
 
-  def handle_event("submit-comment", %{"comment" => params}, socket) do
+  def handle_event("submit-comment", %{"comment" => params}, socket) when is_map(params) do
     # post_id is the island's own post, never the client's (a form
     # input would be caller-controlled otherwise).
     form_params =
@@ -217,5 +224,5 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
 
   defp comment_count(post), do: Ash.get!(Post, post.id, actor: nil).comment_count
 
-  defp comments_label(count), do: ngettext("1 comment", "%{count} comments", count)
+  defp comments_label(count), do: FluxValeWeb.FeedbackHTML.comments_label(count)
 end

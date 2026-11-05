@@ -22,6 +22,26 @@ require Ash.Query
 
 suffix = Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)
 
+# Converge: earlier runs' demo posts are removed first, so the board
+# shows ONE demo row however many times this runs. The stills embed the
+# board, and a stack of identical titles reads like a duplicate bug (the
+# nudge even lists them all). Scoped to the seed's OWN orgs — the
+# personal orgs it creates are named after the `acmelabs-` users, so a
+# real user's post that happens to share the title is never touched.
+# Votes and comments follow the post (FK on_delete :delete); the demo
+# accounts left behind are inert.
+demo_org_ids =
+  FluxVale.Accounts.Organization
+  |> Ash.Query.filter(slug: [ilike: "acmelabs-%"])
+  |> Ash.read!(authorize?: false)
+  |> Enum.map(& &1.id)
+
+Post
+|> Ash.Query.filter(title == "Add scheduled backups for instances")
+|> Ash.Query.filter(organization_id in ^demo_org_ids)
+|> Ash.read!(authorize?: false)
+|> Enum.each(&Ash.destroy!(&1, authorize?: false))
+
 # A friendly local part: the username (and so the org name the picker
 # and the toggle render) derives from it.
 user = User.create!("acmelabs-#{suffix}@fluxvale.test", %{}, authorize?: false)

@@ -56,6 +56,15 @@ defmodule FluxVale.Feedback.Operations.SimilarPostsTest do
       assert [] = Feedback.similar_posts("dark corner of the landing screen")
     end
 
+    # A repeated query token is still ONE distinct token: "backup backup"
+    # must not clear the two-token bar against a post matching only
+    # "backup".
+    test "a repeated query token counts once" do
+      post!("Nightly backup rotation")
+
+      assert [] = Feedback.similar_posts("backup backup")
+    end
+
     test "a title with fewer than two significant tokens searches nothing" do
       post!("Add dark mode toggle for settings page")
 

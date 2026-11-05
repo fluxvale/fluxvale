@@ -142,10 +142,7 @@ msgstr ""
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:57
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:105
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:338
-<<<<<<< HEAD
-=======
-#: lib/flux_vale_web/live/feedback_live/composer.ex:183
->>>>>>> 929f8e8 (fix(platform): feedback islands fix round (#454))
+#: lib/flux_vale_web/live/feedback_live/composer.ex:217
 #, elixir-autogen, elixir-format
 msgid "Sign in"
 msgstr ""
@@ -436,71 +433,32 @@ msgstr ""
 msgid "No posts yet."
 msgstr ""
 
-<<<<<<< HEAD
 #: lib/flux_vale_web/live/pricing_calculator_live.ex:118
 #, elixir-autogen, elixir-format
 msgid "Choose an app"
 msgstr ""
 
 #: lib/flux_vale_web/live/pricing_calculator_live.ex:134
-=======
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:220
-#, elixir-autogen, elixir-format
-msgid "1 comment"
-msgid_plural "%{count} comments"
-msgstr[0] ""
-msgstr[1] ""
-
-#: lib/flux_vale_web/controllers/feedback_html.ex:242
-#, elixir-autogen, elixir-format
-msgid "1 vote"
-msgid_plural "%{count} votes"
-msgstr[0] ""
-msgstr[1] ""
-
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:145
-#, elixir-autogen, elixir-format
-msgid "Add a comment"
-msgstr ""
-
-#: lib/flux_vale_web/live/feedback_live/composer.ex:292
->>>>>>> 929f8e8 (fix(platform): feedback islands fix round (#454))
 #, elixir-autogen, elixir-format
 msgid "Clear"
 msgstr ""
 
-<<<<<<< HEAD
 #: lib/flux_vale_web/live/pricing_calculator_live.ex:223
-=======
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:146
->>>>>>> 929f8e8 (fix(platform): feedback islands fix round (#454))
 #, elixir-autogen, elixir-format
 msgid "Estimated total"
 msgstr ""
 
-<<<<<<< HEAD
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:60
-=======
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:145
->>>>>>> 929f8e8 (fix(platform): feedback islands fix round (#454))
 #, elixir-autogen, elixir-format
 msgid "Pick an app from the catalog and run it with the resources you choose."
 msgstr ""
 
-<<<<<<< HEAD
 #: lib/flux_vale_web/live/pricing_calculator_live.ex:98
-=======
-#: lib/flux_vale_web/live/feedback_live/composer.ex:208
->>>>>>> 929f8e8 (fix(platform): feedback islands fix round (#454))
 #, elixir-autogen, elixir-format
 msgid "Price any allocation with the sliders, or pick an app to start from."
 msgstr ""
 
-<<<<<<< HEAD
 #: lib/flux_vale_web/live/pricing_calculator_live.ex:177
-=======
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:114
->>>>>>> 929f8e8 (fix(platform): feedback islands fix round (#454))
 #, elixir-autogen, elixir-format
 msgid "+%{rate}/mo per gateway, billed hourly"
 msgstr ""
@@ -510,136 +468,195 @@ msgstr ""
 msgid "+%{rate}/mo per verified domain, billed hourly"
 msgstr ""
 
-<<<<<<< HEAD
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:11
 #, elixir-autogen, elixir-format
 msgid "Prices follow the resources an app gets, not the app itself. Any app with the same resources costs the same."
-=======
-#: lib/flux_vale_web/live/feedback_live/composer.ex:217
-#, elixir-autogen, elixir-format
-msgid "Post as"
 msgstr ""
+
+#: lib/flux_vale_web/controllers/feedback_html.ex:242
+#, elixir-autogen, elixir-format
+msgid "1 comment"
+msgid_plural "%{count} comments"
+msgstr[0] ""
+msgstr[1] ""
+
+#: lib/flux_vale_web/controllers/feedback_html.ex:239
+#, elixir-autogen, elixir-format
+msgid "1 vote"
+msgid_plural "%{count} votes"
+msgstr[0] ""
+msgstr[1] ""
 
 #: lib/flux_vale_web/live/feedback_live/comments_island.ex:152
 #, elixir-autogen, elixir-format
-msgid "Post comment"
+msgid "Add a comment"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:269
+#: lib/flux_vale_web/live/feedback_live/composer.ex:348
 #, elixir-autogen, elixir-format
-msgid "Post request"
+msgid "Already posted?"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:150
-#: lib/flux_vale_web/live/feedback_live/composer.ex:252
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:153
 #, elixir-autogen, elixir-format
-msgid "Posting needs a paid org."
+msgid "Be kind and stay on topic."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:151
-#: lib/flux_vale_web/live/feedback_live/composer.ex:267
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:150
 #, elixir-autogen, elixir-format
-msgid "Posting…"
+msgid "Cast vote"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:140
+#: lib/flux_vale_web/live/feedback_live/composer.ex:296
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:204
 #, elixir-autogen, elixir-format
-msgid "Request posted."
+msgid "Create an organization"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:145
+#: lib/flux_vale_web/live/feedback_live/composer.ex:242
 #, elixir-autogen, elixir-format
-msgid "Retract vote"
+msgid "Description"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:146
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:121
 #, elixir-autogen, elixir-format
-msgid "Saving…"
-msgstr ""
-
-#: lib/flux_vale_web/live/feedback_live/composer.ex:200
-#, elixir-autogen, elixir-format
-msgid "Short and specific wins the most votes."
-msgstr ""
-
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:163
-#, elixir-autogen, elixir-format
-msgid "Sign in to comment"
-msgstr ""
-
-#: lib/flux_vale_web/live/feedback_live/composer.ex:177
-#, elixir-autogen, elixir-format
-msgid "Sign in to post a request."
-msgstr ""
-
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:134
-#, elixir-autogen, elixir-format
-msgid "Sign in to vote"
-msgstr ""
-
-#: lib/flux_vale_web/live/feedback_live/composer.ex:199
-#, elixir-autogen, elixir-format
-msgid "Title"
-msgstr ""
-
-#: lib/flux_vale_web/live/feedback_live/composer.ex:352
-#, elixir-autogen, elixir-format
-msgid "Top up %{org} to post"
-msgstr ""
-
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:313
-#, elixir-autogen, elixir-format
-msgid "Top up %{org} to vote"
-msgstr ""
-
-#: lib/flux_vale_web/live/feedback_live/composer.ex:350
-#, elixir-autogen, elixir-format
-msgid "Top up to post"
-msgstr ""
-
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:311
-#, elixir-autogen, elixir-format
-msgid "Top up to vote"
-msgstr ""
-
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:167
-#, elixir-autogen, elixir-format
-msgid "Vote as"
-msgstr ""
-
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:303
-#, elixir-autogen, elixir-format
-msgid "Vote as %{org}"
-msgstr ""
-
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:304
-#, elixir-autogen, elixir-format
-msgid "Voted as %{org}"
-msgstr ""
-
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:190
-#, elixir-autogen, elixir-format
-msgid "Voting needs a paid org."
-msgstr ""
-
-#: lib/flux_vale_web/live/feedback_live/composer.ex:209
-#, elixir-autogen, elixir-format
-msgid "What should happen, and why it matters."
-msgstr ""
-
-#: lib/flux_vale_web/live/feedback_live/vote_island.ex:108
-#, elixir-autogen, elixir-format
-msgid "Your vote didn't go through. Try again."
->>>>>>> 929f8e8 (fix(platform): feedback islands fix round (#454))
+msgid "No comments yet."
 msgstr ""
 
 #: lib/flux_vale_web/controllers/feedback_html/index.html.heex:22
-#: lib/flux_vale_web/live/feedback_live/composer.ex:169
+#: lib/flux_vale_web/live/feedback_live/composer.ex:203
 #, elixir-autogen, elixir-format
 msgid "Post a request"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:171
+#: lib/flux_vale_web/live/feedback_live/composer.ex:53
+#, elixir-autogen, elixir-format
+msgid "Post a request - FluxVale"
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/composer.ex:251
+#, elixir-autogen, elixir-format
+msgid "Post as"
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:159
+#, elixir-autogen, elixir-format
+msgid "Post comment"
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/composer.ex:325
+#, elixir-autogen, elixir-format
+msgid "Post request"
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/composer.ex:187
+#: lib/flux_vale_web/live/feedback_live/composer.ex:308
+#, elixir-autogen, elixir-format
+msgid "Posting needs a paid org."
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/composer.ex:290
+#, elixir-autogen, elixir-format
+msgid "Posting needs an org you own."
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:158
+#: lib/flux_vale_web/live/feedback_live/composer.ex:323
+#, elixir-autogen, elixir-format
+msgid "Posting…"
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/composer.ex:152
+#, elixir-autogen, elixir-format
+msgid "Request posted."
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:150
+#, elixir-autogen, elixir-format
+msgid "Retract vote"
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:151
+#, elixir-autogen, elixir-format
+msgid "Saving…"
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/composer.ex:234
+#, elixir-autogen, elixir-format
+msgid "Short and specific wins the most votes."
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:170
+#, elixir-autogen, elixir-format
+msgid "Sign in to comment"
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/composer.ex:211
+#, elixir-autogen, elixir-format
+msgid "Sign in to post a request."
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:139
+#, elixir-autogen, elixir-format
+msgid "Sign in to vote"
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/composer.ex:205
 #, elixir-autogen, elixir-format
 msgid "Tell us what to build next. Every post is public and tracked by the team."
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/composer.ex:233
+#, elixir-autogen, elixir-format
+msgid "Title"
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/composer.ex:415
+#, elixir-autogen, elixir-format
+msgid "Top up %{org} to post"
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:335
+#, elixir-autogen, elixir-format
+msgid "Top up %{org} to vote"
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:172
+#, elixir-autogen, elixir-format
+msgid "Vote as"
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:332
+#, elixir-autogen, elixir-format
+msgid "Vote as %{org}"
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:333
+#, elixir-autogen, elixir-format
+msgid "Voted as %{org}"
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:210
+#, elixir-autogen, elixir-format
+msgid "Voting needs a paid org."
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:198
+#, elixir-autogen, elixir-format
+msgid "Voting needs an org you own."
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/composer.ex:243
+#, elixir-autogen, elixir-format
+msgid "What should happen, and why it matters."
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/vote_island.ex:113
+#, elixir-autogen, elixir-format
+msgid "Your vote didn't go through. Try again."
+msgstr ""
+
+#: lib/flux_vale_web/live/feedback_live/composer.ex:182
+#, elixir-autogen, elixir-format
+msgid "Couldn't post this request. Try again."
 msgstr ""

@@ -50,6 +50,10 @@ defmodule FluxVale.Feedback.Operations.SimilarPosts do
         []
 
       tokens ->
+        # Distinct tokens: "backup backup" is ONE shared token, not two
+        # — otherwise a single-token match would clear a two-token bar.
+        tokens = Enum.uniq(tokens)
+
         tokens
         |> live_posts_matching_any()
         |> rank_by_shared(tokens)

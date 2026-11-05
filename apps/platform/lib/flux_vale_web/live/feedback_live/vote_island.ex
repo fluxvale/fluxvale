@@ -71,6 +71,11 @@ defmodule FluxValeWeb.FeedbackLive.VoteIsland do
     end
   end
 
+  # A crafted pick with no org-id at all (the rendered chip always
+  # carries phx-value-org-id) — silence, the same posture as an unknown
+  # id.
+  def handle_event("pick-org", _params, socket), do: {:noreply, socket}
+
   # The toggle: retract when the selected org has voted, cast when it
   # has not. The handler never pre-checks the gate beyond what the
   # render shows — the action's policy is the authority, so a tampered
@@ -186,6 +191,21 @@ defmodule FluxValeWeb.FeedbackLive.VoteIsland do
         </button>
       </div>
 
+      <%!-- coveralls-ignore-start - defensive: every account owns its
+      personal org, so this state is unreachable today (see select_org/2);
+      it renders so a broken invariant never shows paying copy. --%>
+      <p :if={@gate == :no_org} data-testid="vote-gate-copy" class="w-full text-sm text-ink-muted">
+        {gettext("Voting needs an org you own.")}
+        <.link
+          href={~p"/organizations/new"}
+          data-testid="vote-create-org"
+          class="font-medium text-link hover:underline"
+        >
+          {gettext("Create an organization")}
+        </.link>
+      </p>
+      <%!-- coveralls-ignore-stop --%>
+
       <p :if={@gate == :refused} data-testid="vote-gate-copy" class="w-full text-sm text-ink-muted">
         {gettext("Voting needs a paid org.")}
         <.link
@@ -218,13 +238,22 @@ defmodule FluxValeWeb.FeedbackLive.VoteIsland do
   # renders, so the gate label here is dead weight — it just keeps the
   # assigns total. A nil org fails closed at the shared predicate.
   defp select_org(%{assigns: %{post: nil}} = socket, _org_id) do
-    assign(socket, selected_org_id: nil, gate: :refused, voted: nil)
+    assign(socket, selected_org_id: nil, gate: :no_org, voted: nil)
   end
 
   defp select_org(socket, org_id) do
     gate =
       cond do
         is_nil(socket.assigns.user) -> :anonymous
+        # Defensive: not reachable through current product flows (the
+        # signup JIT provisions a personal org and the last-owner guard
+        # keeps it), but not a data invariant either — pre-#119 accounts
+        # never got one and the resource keeps a member-authorized
+        # destroy. The honest create-an-org copy exists so that if it
+        # ever happens, nobody reads paying copy about an org they don't
+        # have.
+        # coveralls-ignore-next-line
+        is_nil(org_id) -> :no_org
         gate_allows?(socket.assigns.user, org_id) -> :allowed
         true -> :refused
       end
@@ -302,13 +331,6 @@ defmodule FluxValeWeb.FeedbackLive.VoteIsland do
 
   defp toggle_label(true, org), do: gettext("Vote as %{org}", org: org)
   defp toggle_label(false, org), do: gettext("Voted as %{org}", org: org)
-
-  # The org-less shape never reaches the render (a sign-in without an
-  # owned org fails the auth chain); the generic label keeps the copy
-  # total if that ever drifts. The pure arm is covered directly in
-  # OrgChoiceTest.
-  # coveralls-ignore-next-line
-  defp topup_label(nil), do: gettext("Top up to vote")
 
   defp topup_label(org), do: gettext("Top up %{org} to vote", org: org.name)
 end

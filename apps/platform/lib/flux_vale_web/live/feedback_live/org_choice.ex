@@ -51,7 +51,9 @@ defmodule FluxValeWeb.FeedbackLive.OrgChoice do
   @doc """
   The top-up flow for the gate-refused copy's link: the org's own wizard
   for a team org, the account's for the personal org (its slug-keyed URL
-  would redirect anyway) and for an org-less actor.
+  would redirect anyway). The nil arm outlives the UI that used it: the
+  org-less actor now gets the create-an-org copy instead, so nothing
+  renders this clause — kept total for callers, covered by its own test.
   """
   @spec topup_path(Organization.t() | nil) :: String.t()
   def topup_path(nil), do: ~p"/billing/topup"

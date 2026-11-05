@@ -206,6 +206,22 @@ defmodule FluxValeWeb.FeedbackLive.VoteIslandTest do
     refute has_element?(view, "[data-testid='vote-gate-copy']")
   end
 
+  # The rendered chip always carries phx-value-org-id; a crafted click
+  # without one must fall to the catch-all, not a FunctionClauseError.
+  test "a crafted pick-org with no org-id is silence", %{conn: conn} do
+    post = post!()
+    user = AccountsFixtures.user!()
+    BillingFixtures.mark_user_paid!(user)
+
+    {:ok, view, _html} = mount_island(conn, post, user)
+
+    render_click(view, "pick-org")
+
+    assert Process.alive?(view.pid)
+    assert has_element?(view, "#vote-toggle")
+    refute has_element?(view, "[data-testid='vote-gate-copy']")
+  end
+
   # --- Inline errors -------------------------------------------------------------------------
 
   test "a stale cast (another tab voted first) renders the error inline, count unchanged", %{
@@ -283,7 +299,13 @@ defmodule FluxValeWeb.FeedbackLive.VoteIslandTest do
 
     render_click(view, "toggle")
     render_click(view, "pick-org", %{"org-id" => Ash.UUID.generate()})
+    # A crafted click with no org-id at all: the handler's catch-all,
+    # not a FunctionClauseError that would kill the channel.
+    render_click(view, "pick-org")
 
+    # The channel survived every crafted event (a crash would have taken
+    # the process with it) and still renders empty.
+    assert Process.alive?(view.pid)
     refute has_element?(view, "[data-testid='vote-island']")
   end
 end

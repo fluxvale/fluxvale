@@ -130,11 +130,11 @@ itself carries the honest anonymous/gate states). --%>
           <span>{status_changed_label(post)}</span>
           <span class="flex items-center gap-1.5">
             <.icon name="hero-hand-thumb-up" class="size-4" />
-            {count_label(post.vote_count, "vote")}
+            {votes_label(post.vote_count)}
           </span>
           <span class="flex items-center gap-1.5">
             <.icon name="hero-chat-bubble-oval-left-ellipsis" class="size-4" />
-            {count_label(post.comment_count, "comment")}
+            {comments_label(post.comment_count)}
           </span>
         </div>
         <%!-- Display-only chips (T10): the row is one link, so these stay

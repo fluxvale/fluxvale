@@ -182,6 +182,19 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIslandTest do
     refute has_element?(view, "[data-testid='comments-island']")
   end
 
+  # The anonymous island renders the sign-in CTA instead of a form, so a
+  # crafted validate must be silence, not a nil dereference.
+  test "a crafted anonymous validate is silence (no form to validate)", %{conn: conn} do
+    post = post!()
+
+    {:ok, view, _html} = mount_island(conn, post)
+
+    render_change(view, "validate", %{"comment" => %{"body" => "typed anyway"}})
+
+    assert Process.alive?(view.pid)
+    assert has_element?(view, "[data-testid='comment-sign-in']")
+  end
+
   # --- Keystroke validation --------------------------------------------------------------------
 
   test "typing shows the bounds error live, before any submit", %{conn: conn} do
@@ -209,6 +222,22 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIslandTest do
 
     render_change(view, "validate", %{})
 
+    assert has_element?(view, "#comment-form")
+    assert count!(post.id) == 0
+  end
+
+  # A non-map value under the form key falls to the catch-all, not a
+  # Map.merge/2 raise.
+  test "a crafted non-map payload is silence in both handlers", %{conn: conn} do
+    post = post!()
+    user = AccountsFixtures.user!()
+
+    {:ok, view, _html} = mount_island(conn, post, user)
+
+    render_change(view, "validate", %{"comment" => "not a map"})
+    render_submit(view, "submit-comment", %{"comment" => "not a map"})
+
+    assert Process.alive?(view.pid)
     assert has_element?(view, "#comment-form")
     assert count!(post.id) == 0
   end

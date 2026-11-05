@@ -48,7 +48,7 @@ defmodule FluxVale.Accounts.Operations.OwnedOrgsForUser do
         orgs =
           memberships
           |> Enum.map(& &1.organization)
-          |> Enum.sort_by(& &1.created_at)
+          |> Enum.sort_by(& &1.created_at, DateTime)
 
         {:ok, orgs}
 
