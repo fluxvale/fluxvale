@@ -316,9 +316,9 @@ defmodule FluxValeWeb.MCP.Router do
   @description """
   The identity this token carries: user id, email, platform role, the
   exact scope list the token was minted with, and the organizations
-  the user belongs to (id and slug each). Use it first to learn what
-  the token may do (tools outside the scopes never appear in
-  tools/list) and to get the organization ids that `get_wallet` and
+  the user belongs to (id, slug and your role each). Use it first to
+  learn what the token may do (tools outside the scopes never appear
+  in tools/list) and to get the organization ids that `get_wallet` and
   `get_gateway` take.
   """
   tool :whoami, read_only: true do
@@ -343,7 +343,14 @@ defmodule FluxValeWeb.MCP.Router do
         email: user.primary_email,
         platform_role: user.platform_role,
         scopes: pat.scopes,
-        organizations: Enum.map(orgs, &%{id: &1.organization.id, slug: &1.organization.slug})
+        organizations:
+          Enum.map(orgs, fn membership ->
+            %{
+              id: membership.organization.id,
+              slug: membership.organization.slug,
+              role: membership.role
+            }
+          end)
       }
 
       response = row(user, "user", attributes)

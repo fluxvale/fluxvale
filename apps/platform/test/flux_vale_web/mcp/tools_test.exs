@@ -14,6 +14,7 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
   import FluxVale.TestSupport.Mcp
 
   alias FluxVale.Accounts.Membership
+  alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.Category
@@ -48,31 +49,37 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
              } = structured(conn)
     end
 
-    test "surfaces the actor's organizations — id and slug each", %{conn: conn} do
+    test "surfaces the actor's organizations — id, slug and role each", %{conn: conn} do
       {user, pat} = ApiPat.member!()
       personal = AccountsFixtures.personal_org!(user)
       team = AccountsFixtures.owned_org!(user)
+      membered = member_org!(user)
 
       conn = call_tool(conn, pat, "whoami", %{})
 
       assert %{"attributes" => %{"organizations" => orgs}} = structured(conn)
 
-      personal_id = personal.id
-      personal_slug = personal.slug
-      team_id = team.id
-      team_slug = team.slug
+      by_slug = Map.new(orgs, &{&1["slug"], &1})
 
-      assert %{^personal_slug => ^personal_id, ^team_slug => ^team_id} =
-               Map.new(orgs, &{&1["slug"], &1["id"]})
+      assert by_slug[personal.slug]["id"] == personal.id
+      assert by_slug[team.slug]["id"] == team.id
+      assert by_slug[membered.slug]["id"] == membered.id
 
-      assert length(orgs) == 2
+      # The membership row's role: the personal org (JIT provisioning)
+      # and the owned org read "owner", the invited-shaped org "member".
+      assert by_slug[personal.slug]["role"] == "owner"
+      assert by_slug[team.slug]["role"] == "owner"
+      assert by_slug[membered.slug]["role"] == "member"
 
-      # Each row is exactly {id, slug} — whoami is the only tool that
-      # hands you an org id without demanding one as input, which is
-      # what get_wallet / get_gateway take.
+      assert length(orgs) == 3
+
+      # Each row is exactly {id, slug, role} — whoami is the only tool
+      # that hands you an org id without demanding one as input, which
+      # is what get_wallet / get_gateway take, and the role is what
+      # tells an agent what it may do once it is there.
       for row <- orgs do
         keys = Map.keys(row)
-        assert MapSet.new(keys) == MapSet.new(~w(id slug))
+        assert MapSet.new(keys) == MapSet.new(~w(id slug role))
       end
     end
 
@@ -528,5 +535,25 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
       |> Ash.read_one!(authorize?: false)
 
     Ash.destroy!(membership, authorize?: false)
+  end
+
+  # A team org where the user holds the `:member` role: org + membership
+  # ride the actions with `authorize?: false` — the bootstrap posture
+  # (mirroring seeds), the same shape AccountsFixtures.owned_org!/1
+  # uses. The actor-reachable path into an existing org is the invite
+  # flow (#441), which carries its own suites.
+  defp member_org!(user) do
+    n = System.unique_integer([:positive])
+
+    org =
+      Organization.create!(%{name: "Member Org #{n}", slug: "member-org-#{n}"},
+        authorize?: false
+      )
+
+    Membership.create!(%{organization_id: org.id, user_id: user.id, role: :member},
+      authorize?: false
+    )
+
+    org
   end
 end

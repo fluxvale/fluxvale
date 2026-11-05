@@ -14,6 +14,15 @@ manage) — the catalog and the managed operation of it are the product.
 The product surface is curation and zero-ops: we handle updates, TLS, uptime,
 backups. The user just logs in and uses the app.
 
+Organizations are the ownership boundary, and users create and manage
+them now ([ADR-0042](adr/00042-user-created-organizations.md)). Every
+account starts with a personal organization; any user who owns fewer
+than 10 organizations can create a team organization from the context
+switcher and invite others into it by email. Instances, wallets, and
+gateways belong to the organization they were created under, each
+organization carries its own wallet and its own top-up, and the context
+switcher moves you between the organizations you belong to.
+
 ## Positioning
 
 - **Zero-ops with a bill.** The customer never sees a server, a YAML file, or a
