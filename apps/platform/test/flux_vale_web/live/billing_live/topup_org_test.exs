@@ -6,10 +6,10 @@ defmodule FluxValeWeb.BillingLive.TopupOrgTest do
   # the not-found posture for unknown slugs and non-members, the S5
   # redirect for the personal org's slug, and the personal wizard's
   # regression (the default arm is untouched). The provider is
-  # stubbed at the provider seam (the Access suite's Tailscale
-  # stance), which keeps this file async — the personal suite's
-  # Req-level stubs pin the :hitpay app-env block and stay
-  # async: false there.
+  # stubbed at the provider seam on Polar, the config default since
+  # the #377 flip (the Access suite's Tailscale stance), which keeps
+  # this file async. The personal suite's Req-level stubs pin the
+  # :hitpay app-env block and stay async: false there.
 
   use FluxValeWeb.ConnCase, async: true
   use Mimic
@@ -19,7 +19,7 @@ defmodule FluxValeWeb.BillingLive.TopupOrgTest do
   alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
-  alias FluxVale.Billing.Providers.HitPay
+  alias FluxVale.Billing.Providers.Polar
   alias FluxVale.Billing.Topup
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.SessionHelpers
@@ -43,7 +43,7 @@ defmodule FluxValeWeb.BillingLive.TopupOrgTest do
   defp stub_checkout do
     parent = self()
 
-    stub(HitPay, :create_checkout, fn request, _opts ->
+    stub(Polar, :create_checkout, fn request, _opts ->
       send(parent, {:checkout_request, request})
       {:ok, %{payment_request_id: "pr_org", checkout_url: "https://checkout/pr_org"}}
     end)
