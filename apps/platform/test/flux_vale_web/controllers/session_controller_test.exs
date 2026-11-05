@@ -163,15 +163,17 @@ defmodule FluxValeWeb.SessionControllerTest do
     assert Plug.Conn.get_session(conn, "user_token") == nil
 
     # The landing renders the "Signed out." flash (the flash rides the
-    # cookie session through recycle).
+    # cookie session through recycle). The landing H1 doubles as the
+    # session-termination pin (#205): a surviving session would render
+    # the dashboard with a different H1.
     landing_conn =
       conn
       |> recycle()
       |> get("/")
 
-    assert html_response(landing_conn, 200) =~ "Signed out."
+    page = html_response(landing_conn, 200)
 
-    assert html_response(landing_conn, 200) =~
-             "Managed cloud platform for open source applications"
+    assert page =~ "Signed out."
+    assert page =~ "Managed cloud platform for open source applications"
   end
 end
