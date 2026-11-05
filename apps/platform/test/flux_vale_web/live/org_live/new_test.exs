@@ -1,11 +1,12 @@
 defmodule FluxValeWeb.OrganizationLive.NewTest do
   @moduledoc """
-  The org creation page (#408): the switcher footer entry's target. The
-  route beats the /organizations/:slug lookup, the slug hint follows the
-  name live and yields to manual edits, the happy path lands on the new
-  org's home with the creator as owner, and every refusal renders where
-  it belongs — field-scoped for field problems, a friendly flash for the
-  over-cap one.
+  The org creation page (#408): one input, the name. The preview line
+  derives the address live on every validate — the browser patch
+  regression pin — an empty derivation reads as the empty state, and
+  every refusal names the fix: a derived address failing any slug rule
+  (taken, reserved, format) reads as adjust-the-name, the name's own
+  problems render field-scoped, and the over-cap one is the friendly
+  flash.
   """
 
   use FluxValeWeb.ConnCase, async: true
@@ -31,23 +32,37 @@ defmodule FluxValeWeb.OrganizationLive.NewTest do
 
     assert has_element?(view, "[data-testid='org-new-title']", "Create an Organization")
     assert has_element?(view, "#org-new-form")
-    assert has_element?(view, "[data-testid='slug-preview']", "/organizations/")
+
+    # De-socialized v1: one input. The address is derived, never typed.
+    assert has_element?(view, "[data-testid='org-new-name-input']")
+    refute has_element?(view, "#organization_slug")
   end
 
   test "an anonymous visit is redirected to sign-in by the live_session gate" do
     assert {:error, {:redirect, %{to: "/sign-in"}}} = live(build_conn(), ~p"/organizations/new")
   end
 
-  describe "the slug hint" do
-    test "derives from the name on validate — the field and preview follow", %{conn: conn} do
+  describe "the preview line" do
+    test "starts at the empty state, then derives live from the name", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/organizations/new")
+
+      assert has_element?(view, "[data-testid='slug-preview']", "Add a name to see its address.")
+      refute has_element?(view, "[data-testid='slug-preview']", "/organizations/")
 
       view
       |> form("#org-new-form", organization: %{name: "Acme!! Co"})
       |> render_change()
 
       assert has_element?(view, "[data-testid='slug-preview']", "/organizations/acme-co")
-      assert slug_value(view) == "acme-co"
+
+      # Live: the next keystroke's validate moves the address with it —
+      # the dogfooded bug's pin (typing used to leave the slug stale).
+      view
+      |> form("#org-new-form", organization: %{name: "Acme & Field"})
+      |> render_change()
+
+      assert has_element?(view, "[data-testid='slug-preview']", "/organizations/acme-field")
+      refute has_element?(view, "[data-testid='slug-preview']", "acme-co")
     end
 
     test "cleans punctuation and keeps digits", %{conn: conn} do
@@ -57,79 +72,112 @@ defmodule FluxValeWeb.OrganizationLive.NewTest do
       |> form("#org-new-form", organization: %{name: "3M Labs, Ltd."})
       |> render_change()
 
-      assert slug_value(view) == "3m-labs-ltd"
+      assert has_element?(view, "[data-testid='slug-preview']", "/organizations/3m-labs-ltd")
     end
 
-    test "trims trailing hyphens and caps at 39 characters", %{conn: conn} do
+    test "caps the derived address at 39 characters", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/organizations/new")
-
-      view
-      |> form("#org-new-form", organization: %{name: "Acme Org!"})
-      |> render_change()
-
-      assert slug_value(view) == "acme-org"
 
       view
       |> form("#org-new-form", organization: %{name: String.duplicate("a", 45)})
       |> render_change()
 
-      assert slug_value(view) == String.duplicate("a", 39)
+      assert has_element?(
+               view,
+               "[data-testid='slug-preview']",
+               "/organizations/" <> String.duplicate("a", 39)
+             )
 
       # The cap cut can land right after a hyphen — the trailing-hyphen
-      # trim is what keeps the hint submittable (38 a's + "-b" cuts to a
-      # trailing "-", trimmed to 38 a's).
+      # trim is what keeps the derived address submittable (38 a's + "-b"
+      # cuts to a trailing "-", trimmed to 38 a's).
       view
       |> form("#org-new-form", organization: %{name: String.duplicate("a", 38) <> "-b"})
       |> render_change()
 
-      assert slug_value(view) == String.duplicate("a", 38)
+      assert has_element?(
+               view,
+               "[data-testid='slug-preview']",
+               "/organizations/" <> String.duplicate("a", 38)
+             )
     end
 
-    test "an all-invalid name derives the empty field, not an error", %{conn: conn} do
+    test "an all-invalid name derives the empty state, not an address", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/organizations/new")
 
       view
       |> form("#org-new-form", organization: %{name: "!!!"})
       |> render_change()
 
-      assert slug_value(view) == ""
+      # A name was typed, so the line may not say "Add a name" — it
+      # names what happened instead.
+      assert has_element?(
+               view,
+               "[data-testid='slug-preview']",
+               "That name doesn't make an address. Try letters or numbers."
+             )
+
+      refute has_element?(view, "[data-testid='slug-preview']", "/organizations/")
     end
 
-    test "clearing the name clears the hint", %{conn: conn} do
+    # The non-Latin regression pin (CodeRabbit #456): a perfectly valid
+    # name whose every character strips away must read as its own
+    # state — never "Add a name", never a silent failed submit.
+    test "a name that derives nothing reads as its own state", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/organizations/new")
+
+      view
+      |> form("#org-new-form", organization: %{name: "株式会社"})
+      |> render_change()
+
+      assert has_element?(
+               view,
+               "[data-testid='slug-preview']",
+               "That name doesn't make an address. Try letters or numbers."
+             )
+
+      refute has_element?(view, "[data-testid='slug-preview']", "Add a name")
+
+      view
+      |> form("#org-new-form", organization: %{name: "株式会社"})
+      |> render_submit()
+
+      assert has_element?(
+               view,
+               "[data-testid='slug-preview']",
+               "That name doesn't make an address."
+             )
+
+      # The refusal line is for failed RULES, not for names that never
+      # produced an address at all.
+      refute has_element?(view, "[data-testid='address-refused']")
+    end
+
+    test "clearing the name clears the address", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/organizations/new")
 
       view
       |> form("#org-new-form", organization: %{name: "Acme Co"})
       |> render_change()
+
+      assert has_element?(view, "[data-testid='slug-preview']", "/organizations/acme-co")
 
       view
       |> form("#org-new-form", organization: %{name: ""})
       |> render_change()
 
-      assert slug_value(view) == ""
+      assert has_element?(view, "[data-testid='slug-preview']", "Add a name to see its address.")
     end
 
-    # The derivation is a HINT: a manual slug edit makes the field the
-    # user's — the name stops driving it (the server's validation stays
-    # the authority either way).
-    test "a manual edit stops the field from following the name", %{conn: conn} do
+    test "a validate without a name key derives nothing and breaks nothing", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/organizations/new")
 
-      view
-      |> form("#org-new-form", organization: %{name: "Acme Co"})
-      |> render_change()
+      # A crafted phx-change posts a slug but no name at all — the
+      # derivation reads nil (the nil-name clause) and the page stays up.
+      render_change(view, "validate", %{"organization" => %{"slug" => ""}})
 
-      view
-      |> form("#org-new-form", organization: %{slug: "custom-address"})
-      |> render_change()
-
-      assert slug_value(view) == "custom-address"
-
-      view
-      |> form("#org-new-form", organization: %{name: "Better Name"})
-      |> render_change()
-
-      assert slug_value(view) == "custom-address"
+      assert has_element?(view, "[data-testid='slug-preview']", "Add a name to see its address.")
+      assert has_element?(view, "#org-new-form")
     end
   end
 
@@ -140,7 +188,7 @@ defmodule FluxValeWeb.OrganizationLive.NewTest do
     {:ok, view, _html} = live(conn, ~p"/organizations/new")
 
     view
-    |> form("#org-new-form", organization: %{name: "Acme Co", slug: "acme-co"})
+    |> form("#org-new-form", organization: %{name: "Acme Co"})
     |> render_submit()
 
     assert_redirect(view, ~p"/organizations/acme-co")
@@ -156,70 +204,131 @@ defmodule FluxValeWeb.OrganizationLive.NewTest do
     assert member.role == :owner
   end
 
-  describe "field errors render field-scoped" do
-    test "a taken slug", %{conn: conn, user: user} do
-      taken = AccountsFixtures.personal_org!(AccountsFixtures.user!())
+  describe "a refused address reads as adjust-the-name" do
+    # The taken org's own name derives its own slug ("Org <n>" →
+    # "org-<n>"): the page rides the same derivation, so submitting the
+    # fixture name collides on the fixture address.
+    test "a taken address", %{conn: conn, user: user} do
+      taken = AccountsFixtures.owned_org!(AccountsFixtures.user!())
       {:ok, view, _html} = live(conn, ~p"/organizations/new")
 
       view
-      |> form("#org-new-form", organization: %{name: "Clone", slug: taken.slug})
+      |> form("#org-new-form", organization: %{name: taken.name})
       |> render_submit()
 
-      assert has_element?(view, "#org-new-form", "has already been taken")
+      assert has_element?(
+               view,
+               "[data-testid='address-refused']",
+               "That address won't work. Try a different name."
+             )
+
+      # The refused address stays visible above the line.
+      assert has_element?(view, "[data-testid='slug-preview']", "/organizations/#{taken.slug}")
       refute has_element?(view, "#flash-error", "limit")
 
       # Nothing was created — the actor still owns just their personal org.
       assert owned_count(user) == 1
     end
 
-    test "a reserved slug", %{conn: conn} do
+    test "a reserved derived address", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/organizations/new")
 
       view
-      |> form("#org-new-form", organization: %{name: "Docs", slug: "docs"})
-      |> render_submit()
-
-      assert has_element?(view, "#org-new-form", "is reserved")
-      refute has_element?(view, "#flash-error")
-    end
-
-    test "a too-long slug", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/organizations/new")
-
-      view
-      |> form("#org-new-form", organization: %{name: "Long", slug: String.duplicate("a", 40)})
-      |> render_submit()
-
-      assert has_element?(view, "#org-new-form", "must be at most 39 characters")
-    end
-
-    test "bad slug characters", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/organizations/new")
-
-      view
-      |> form("#org-new-form", organization: %{name: "Bad", slug: "under_score"})
+      |> form("#org-new-form", organization: %{name: "Docs"})
       |> render_submit()
 
       assert has_element?(
                view,
-               "#org-new-form",
-               "must contain only lowercase alphanumeric characters and hyphens"
+               "[data-testid='address-refused']",
+               "That address won't work. Try a different name."
              )
+
+      refute has_element?(view, "#flash-error")
     end
 
-    test "a too-long name", %{conn: conn} do
+    # A one-character name derives a one-character address, which fails
+    # the action's format rule (it demands at least two characters) —
+    # neither taken nor reserved, so the line must not claim "taken".
+    test "a derived address failing the format rule", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/organizations/new")
 
       view
-      |> form("#org-new-form", organization: %{name: String.duplicate("n", 101), slug: "fits"})
+      |> form("#org-new-form", organization: %{name: "A"})
       |> render_submit()
 
-      assert has_element?(view, "#org-new-form", "must be at most 100 characters")
+      assert has_element?(
+               view,
+               "[data-testid='address-refused']",
+               "That address won't work. Try a different name."
+             )
+
+      assert has_element?(view, "[data-testid='slug-preview']", "/organizations/a")
+    end
+
+    test "a new input clears the refusal", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/organizations/new")
+
+      view
+      |> form("#org-new-form", organization: %{name: "Docs"})
+      |> render_submit()
+
+      assert has_element?(view, "[data-testid='address-refused']")
+
+      view
+      |> form("#org-new-form", organization: %{name: "Docs Site"})
+      |> render_change()
+
+      # The line described the old derivation; the new input derived a
+      # new address and the line goes with it.
+      refute has_element?(view, "[data-testid='address-refused']")
+    end
+
+    test "an empty derivation never claims the address is taken", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/organizations/new")
+
+      # HTML `required` keeps a browser from this; the crafted submit
+      # must land on the name's own error, not a false refusal.
+      view
+      |> form("#org-new-form", organization: %{name: ""})
+      |> render_submit()
+
+      refute has_element?(view, "[data-testid='address-refused']")
+      assert has_element?(view, "#org-new-form", "is required")
+    end
+
+    # A crafted form array (Plug parses it as a list) must not crash
+    # the socket — it derives "" and the name's cast error renders
+    # field-scoped.
+    test "a crafted wrong-type name breaks nothing", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/organizations/new")
+
+      # Raw event params: the DOM input is scalar, so the crafted
+      # array-shaped payload rides render_change/render_submit directly.
+      render_change(view, "validate", %{"organization" => %{"name" => ["Acme"]}})
+
+      assert has_element?(view, "#org-new-form")
+      refute has_element?(view, "[data-testid='address-refused']")
+
+      render_submit(view, "save", %{"organization" => %{"name" => ["Acme"]}})
+
+      assert has_element?(view, "#org-new-form", "is invalid")
+      refute has_element?(view, "[data-testid='address-refused']")
     end
   end
 
+  test "a too-long name renders field-scoped", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/organizations/new")
+
+    view
+    |> form("#org-new-form", organization: %{name: String.duplicate("n", 101)})
+    |> render_submit()
+
+    assert has_element?(view, "#org-new-form", "must be at most 100 characters")
+    refute has_element?(view, "[data-testid='address-refused']")
+  end
+
   # The cap refusal is not a field problem: it surfaces as the friendly
-  # flash, and no field error pretends the slug was the issue.
+  # flash, and no adjust-the-name line pretends the address was the issue.
   test "the cap refusal renders the friendly flash", %{conn: conn, user: user} do
     # The JIT personal org is the first owned one; 9 more make 10.
     Enum.each(1..9, fn _n -> AccountsFixtures.owned_org!(user) end)
@@ -227,18 +336,18 @@ defmodule FluxValeWeb.OrganizationLive.NewTest do
     {:ok, view, _html} = live(conn, ~p"/organizations/new")
 
     view
-    |> form("#org-new-form", organization: %{name: "Over Cap", slug: "over-cap-org"})
+    |> form("#org-new-form", organization: %{name: "Over Cap Org"})
     |> render_submit()
 
     assert has_element?(view, "#flash-error", "You already own 10 organizations.")
-    refute has_element?(view, "#org-new-form", "has already been taken")
+    refute has_element?(view, "[data-testid='address-refused']")
 
     assert {:error, _none} = Organization.get_by_slug("over-cap-org", authorize?: false)
   end
 
   # The misfire guard: an at-cap user whose submit fails a FIELD check
   # sees the field error, not the cap flash above it.
-  test "an at-cap user's bad-format slug keeps the field error, no cap flash", %{
+  test "an at-cap user's too-long name keeps the field error, no cap flash", %{
     conn: conn,
     user: user
   } do
@@ -247,15 +356,10 @@ defmodule FluxValeWeb.OrganizationLive.NewTest do
     {:ok, view, _html} = live(conn, ~p"/organizations/new")
 
     view
-    |> form("#org-new-form", organization: %{name: "Over And Bad", slug: "Not Valid!"})
+    |> form("#org-new-form", organization: %{name: String.duplicate("n", 101)})
     |> render_submit()
 
-    assert has_element?(
-             view,
-             "#org-new-form",
-             "must contain only lowercase alphanumeric characters and hyphens"
-           )
-
+    assert has_element?(view, "#org-new-form", "must be at most 100 characters")
     refute has_element?(view, "#flash-error", "You already own")
   end
 
@@ -264,30 +368,5 @@ defmodule FluxValeWeb.OrganizationLive.NewTest do
     |> Ash.Query.for_read(:read, %{})
     |> Ash.Query.filter(user_id == ^user.id and role == :owner)
     |> Ash.count!(authorize?: false)
-  end
-
-  test "a validate without a name key derives nothing and breaks nothing", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/organizations/new")
-
-    # A crafted phx-change posts a slug but no name at all — the hint
-    # derives from nothing (the nil-name clause) and the page stays up.
-    render_change(view, "validate", %{"organization" => %{"slug" => ""}})
-
-    assert slug_value(view) == ""
-    assert has_element?(view, "#org-new-form")
-  end
-
-  # Reads the slug input's current value off the rendered form — no
-  # value attribute on the rendered input means an empty field.
-  defp slug_value(view) do
-    view
-    |> element("#organization_slug")
-    |> render()
-    |> then(fn html ->
-      case Regex.run(~r/value="([^"]*)"/, html) do
-        [_match, value] -> value
-        _no_match -> ""
-      end
-    end)
   end
 end
