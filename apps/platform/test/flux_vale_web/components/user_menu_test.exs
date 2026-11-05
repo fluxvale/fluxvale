@@ -141,7 +141,7 @@ defmodule FluxValeWeb.Components.UserMenuTest do
           nav_section: :instances
         )
 
-      for label <- ["Catalog", "Billing", "Pricing"] do
+      for label <- ["Catalog", "Billing", "Pricing", "Feedback"] do
         link = row(html, label)
         assert LazyHTML.attribute(link, "aria-current") == []
 
