@@ -342,6 +342,13 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackupTest do
       still_failed = reload(failed)
       assert still_failed.status == :error
       assert still_failed.failure_reason == :restore_failed
+
+      # The retry attempt mints its own run row; only it carries the
+      # settle summary.
+      runs = restore_runs(instance)
+      assert settled = Enum.find(runs, &is_binary(&1.error_summary))
+      assert settled.error_summary =~ "restore could not start again"
+      assert settled.error_summary =~ "Your data may still be partly restored"
     end
 
     test "a retry inherits :stopped when the failed run recorded none" do
