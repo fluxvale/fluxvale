@@ -87,11 +87,11 @@ defmodule FluxValeWeb.OrgSettings do
       <div class="wrap pt-8 pb-10">
         <div class="rise">
           <.link
-            navigate={~p"/"}
+            navigate={~p"/organizations/#{@org.slug}"}
             data-testid="org-back"
             class="inline-flex items-center gap-1.5 text-sm text-ink-muted transition-colors hover:text-ink"
           >
-            <span aria-hidden="true">&larr;</span> Dashboard
+            <span aria-hidden="true">&larr;</span> Back to {@org.name}
           </.link>
 
           <%!-- The mark is the org home's row-chip treatment verbatim —

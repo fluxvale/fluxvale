@@ -1,10 +1,10 @@
 defmodule FluxVale.Accounts do
   @moduledoc """
-  Accounts: organizations and memberships (ADR-0030) — the ownership,
-  billing, and abuse boundary for everything a customer's resources attach
-  to. Every user gets a personal org at signup (`provision_personal_org/1`,
-  creator = owner); users reach orgs through memberships, which is what
-  policies resolve against.
+  Accounts: organizations, memberships, and their invitations
+  (ADR-0030) — the ownership, billing, and abuse boundary for everything
+  a customer's resources attach to. Every user gets a personal org at
+  signup (`provision_personal_org/1`, creator = owner); users reach orgs
+  through memberships, which is what policies resolve against.
 
   The Organization list route (GET /api/v1/organizations, #362 T6a)
   rides AshJsonApi.Domain (#360): the resource-level json_api block
@@ -18,6 +18,7 @@ defmodule FluxVale.Accounts do
 
   resources do
     resource(FluxVale.Accounts.Membership)
+    resource(FluxVale.Accounts.MembershipInvite)
     resource(FluxVale.Accounts.Organization)
   end
 
@@ -38,6 +39,21 @@ defmodule FluxVale.Accounts do
   defdelegate create_organization(user, params),
     to: FluxVale.Accounts.Operations.CreateOrganization,
     as: :call
+
+  # The invitation flow (slice 4 of #408)
+  defdelegate invite_member(owner, org, email),
+    to: FluxVale.Accounts.Operations.InviteMember,
+    as: :call
+
+  defdelegate revoke_invite(owner, invite),
+    to: FluxVale.Accounts.Operations.RevokeInvite,
+    as: :call
+
+  defdelegate resolve_invite(token), to: FluxVale.Accounts.Operations.ResolveInvite, as: :call
+
+  defdelegate accept_invite(token, user), to: FluxVale.Accounts.Operations.AcceptInvite, as: :call
+
+  defdelegate decline_invite(token), to: FluxVale.Accounts.Operations.DeclineInvite, as: :call
 
   @doc """
   The welcome-credit grant (integer cents) a fresh personal org receives

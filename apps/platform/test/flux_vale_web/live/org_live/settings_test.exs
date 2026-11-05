@@ -30,8 +30,10 @@ defmodule FluxValeWeb.OrganizationLive.SettingsTest do
     assert has_element?(view, "#org-general-form")
     assert has_element?(view, "[data-testid='slug-preview']", "/organizations/#{org.slug}")
 
-    # The back link leaves settings for the dashboard.
-    assert render(element(view, "[data-testid='org-back']")) =~ ~s(href="/")
+    # The back link returns to THIS org's home (the org's surface, not
+    # the site dashboard).
+    assert render(element(view, "[data-testid='org-back']")) =~
+             ~s(href="/organizations/#{org.slug}")
 
     # The chrome's switcher names THIS org as the active context — the
     # settings page passes actor_orgs + current_org through (without it
