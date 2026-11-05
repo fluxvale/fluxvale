@@ -455,7 +455,8 @@ defmodule FluxVale.Seeds do
 
   # Demo comment authors: stable identities so re-runs get-or-create
   # instead of piling on. Comments render the handle, and the username
-  # derives from the email local part, so the local part IS the handle.
+  # derives from the email local part (collision-suffixed by
+  # DeriveUsername, so the local part IS the handle absent a collision).
   @demo_commenters [
     "mara@fluxvale.test",
     "theo@fluxvale.test",
@@ -467,7 +468,9 @@ defmodule FluxVale.Seeds do
   # One vote per org per post (the DB identity), so realistic counts
   # draw from a pool of orgs. Ownerless on purpose: the public board
   # shows only the count, and owned orgs would mint signups, wallets
-  # and welcome grants staging does not need.
+  # and welcome grants staging does not need. (The five commenters are
+  # the documented exception: comments render a handle, so they need
+  # real users, and those ride the normal JIT chain.)
   @demo_voter_pool 12
 
   @feedback_entries [
@@ -768,10 +771,9 @@ defmodule FluxVale.Seeds do
     |> Enum.each(fn {body, i} -> mint_demo_comment!(post, body, index, i, entry.age_days) end)
   end
 
-  # A rotating slice of the pool: different posts draw different voter
-  # orgs, so no two posts carry an identical vote mix. Argument order
-  # follows the pipe in mint_demo_activity!/3: votes first, then the
-  # entry index.
+  # A rotating window of the pool: neighbouring posts draw different
+  # voter subsets. (An entry naming the whole pool draws the same set
+  # whatever its position — the rem window covers everyone.)
   defp demo_voters!(0, _index), do: []
 
   defp demo_voters!(votes, index) do
@@ -845,8 +847,11 @@ defmodule FluxVale.Seeds do
 
   defp demo_commenter!(email) do
     case User.get_by_email(email, authorize?: false) do
-      {:ok, user} -> user
-      {:error, _not_found} -> User.create!(email, %{}, authorize?: false)
+      {:ok, user} ->
+        user
+
+      {:error, _not_found} ->
+        User.create!(email, %{}, authorize?: false)
     end
   end
 
@@ -857,9 +862,25 @@ defmodule FluxVale.Seeds do
   end
 
   defp find_comment(post_id, author_id, body) do
-    Comment
-    |> Ash.Query.filter(post_id == ^post_id and author_user_id == ^author_id and body == ^body)
-    |> Ash.read_one!(authorize?: false)
+    comments =
+      Comment
+      |> Ash.Query.filter(post_id == ^post_id and author_user_id == ^author_id and body == ^body)
+      |> Ash.read!(authorize?: false)
+
+    case comments do
+      [] ->
+        nil
+
+      [comment] ->
+        comment
+
+      # (post, author, body) carries no DB identity, so a duplicated row
+      # is data corruption a read_one! would answer with a bare
+      # multi-result error on every later run — name the dedupe instead
+      # (the seed_app_version!/1 posture).
+      multiples ->
+        raise "seed feedback: #{length(multiples)} comments exist for one (post, author, body) — dedupe feedback_comments, then re-run"
+    end
   end
 
   # The truth pass (#471): counters read the ROWS, never the other way

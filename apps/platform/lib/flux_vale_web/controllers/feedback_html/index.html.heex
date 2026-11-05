@@ -22,9 +22,6 @@ itself carries the honest anonymous/gate states). --%>
         Board/Roadmap toggle. This wrapper owns the spacing. --%>
         <div class="flex flex-wrap items-center gap-3">
           <.lane_tabs current={:board} />
-          <%!-- #471: the actions slot renders its children flush (the
-          header wrapper is flex-none, no gap) — the CTA sat hard against
-          the Board/Roadmap toggle. This wrapper owns the spacing. --%>
           <.button navigate={~p"/feedback/new"} data-testid="composer-cta">
             {gettext("Post a request")}
           </.button>

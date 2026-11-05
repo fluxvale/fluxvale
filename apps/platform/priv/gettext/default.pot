@@ -489,7 +489,7 @@ msgstr ""
 msgid "No comments yet."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/feedback_html/index.html.heex:29
+#: lib/flux_vale_web/controllers/feedback_html/index.html.heex:26
 #: lib/flux_vale_web/live/feedback_live/composer.ex:210
 #, elixir-autogen, elixir-format
 msgid "Post a request"

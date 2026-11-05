@@ -11,7 +11,11 @@ defmodule FluxVale.Seeds.FeedbackSeedTest do
   file.
   """
 
-  use FluxVale.DataCase, async: true
+  # async: false: the demo commenters carry stable emails (staging
+  # get-or-create), and #241's sandbox rule bites — concurrent tests
+  # inserting the same unique keys hold speculative index waits until
+  # ROLLBACK, and two of those deadlock. One process mints the pool.
+  use FluxVale.DataCase, async: false
 
   alias FluxVale.Feedback.Comment
   alias FluxVale.Feedback.Post
@@ -355,25 +359,48 @@ defmodule FluxVale.Seeds.FeedbackSeedTest do
   end
 
   describe "counter convergence (#471)" do
-    test "converges counters that drifted from their rows" do
+    # The machinery tests drive a tiny fixture entry — the guards and
+    # convergence are content-independent, and the shipped set's 50+
+    # minted rows per run only widen the sandbox's lock windows (#241's
+    # hazard family).
+    defp light_entry do
+      %{
+        slug: "pooled-entry",
+        title: "Pooled entry",
+        description: "x",
+        status: :open,
+        votes: 2,
+        comments: [
+          "First reply, mostly to follow the thread."
+        ],
+        age_days: 30,
+        status_age_days: 0
+      }
+    end
+
+    defp seed_light_entry! do
       assert :ok == Seeds.seed_admin!()
-      seed_feedback_with_vocabulary!()
+      assert :ok == Seeds.seed_tags!()
+      assert :ok == Seeds.seed_feedback!([light_entry()])
+
+      Post
+      |> Ash.Query.filter(slug == "pooled-entry")
+      |> Ash.read_one!(authorize?: false)
+    end
+
+    test "converges counters that drifted from their rows" do
+      post = seed_light_entry!()
 
       # The pre-#471 posture: counters stamped with no rows behind them
       # (the drift staging shipped with). The seed owns its slugs, so a
       # re-run heals them back to the rows' truth.
-      post =
-        Post
-        |> Ash.Query.filter(slug == "terraform-provider-for-instance-management")
-        |> Ash.read_one!(authorize?: false)
-
       FeedbackFixtures.set_counters!(post, 999, 999)
 
-      assert :ok == Seeds.seed_feedback!()
+      assert :ok == Seeds.seed_feedback!([light_entry()])
 
       healed =
         Post
-        |> Ash.Query.filter(slug == "terraform-provider-for-instance-management")
+        |> Ash.Query.filter(slug == "pooled-entry")
         |> Ash.read_one!(authorize?: false)
 
       assert healed.vote_count == vote_rows_for!(healed.id)
@@ -381,25 +408,19 @@ defmodule FluxVale.Seeds.FeedbackSeedTest do
     end
 
     test "re-seeding mints no duplicate activity" do
-      assert :ok == Seeds.seed_admin!()
-      seed_feedback_with_vocabulary!()
-
-      post =
-        Post
-        |> Ash.Query.filter(slug == "terraform-provider-for-instance-management")
-        |> Ash.read_one!(authorize?: false)
+      post = seed_light_entry!()
 
       first_votes = vote_rows_for!(post.id)
       first_comments = comment_rows_for!(post.id)
 
-      assert :ok == Seeds.seed_feedback!()
+      assert :ok == Seeds.seed_feedback!([light_entry()])
 
       assert vote_rows_for!(post.id) == first_votes
       assert comment_rows_for!(post.id) == first_comments
 
       reseeded =
         Post
-        |> Ash.Query.filter(slug == "terraform-provider-for-instance-management")
+        |> Ash.Query.filter(slug == "pooled-entry")
         |> Ash.read_one!(authorize?: false)
 
       assert reseeded.vote_count == first_votes
@@ -427,24 +448,48 @@ defmodule FluxVale.Seeds.FeedbackSeedTest do
     end
 
     test "demo rows never render as just-now on a backdated board" do
-      assert :ok == Seeds.seed_admin!()
-      seed_feedback_with_vocabulary!()
+      post = seed_light_entry!()
 
-      post =
-        Post
-        |> Ash.Query.filter(slug == "terraform-provider-for-instance-management")
-        |> Ash.read_one!(authorize?: false)
-
-      # A vote on a 120-day-old post must not stamp "now": both reads
-      # the board's renders depend on stay in the past.
-      assert DateTime.compare(post.created_at, DateTime.utc_now()) == :lt
+      # "Before now" is trivially true even unbackdated — the guarantee
+      # is a FAR-past stamp: every demo vote and comment is at least a
+      # day old, so a fresh board never renders them as just-now.
+      assert DateTime.diff(DateTime.utc_now(), post.created_at) >= 86_400
 
       Vote
       |> Ash.Query.filter(post_id == ^post.id)
       |> Ash.read!(authorize?: false)
       |> Enum.each(fn vote ->
-        assert DateTime.compare(vote.created_at, DateTime.utc_now()) == :lt
+        assert DateTime.diff(DateTime.utc_now(), vote.created_at) >= 86_400
       end)
+
+      Comment
+      |> Ash.Query.filter(post_id == ^post.id)
+      |> Ash.read!(authorize?: false)
+      |> Enum.each(fn comment ->
+        assert DateTime.diff(DateTime.utc_now(), comment.created_at) >= 86_400
+      end)
+    end
+
+    test "a duplicated (post, author, body) comment triple fails naming the dedupe" do
+      post = seed_light_entry!()
+
+      author = User.get_by_email!("mara@fluxvale.test", authorize?: false)
+
+      body = "First reply, mostly to follow the thread."
+
+      # Ash.seed!: two identical rows on a non-unique triple is exactly
+      # the states-actions-cannot-produce corruption the guard answers.
+      Enum.each(1..2, fn _i ->
+        Ash.Seed.seed!(FluxVale.Feedback.Comment, %{
+          post_id: post.id,
+          author_user_id: author.id,
+          body: body
+        })
+      end)
+
+      error = assert_raise(RuntimeError, fn -> Seeds.seed_feedback!([light_entry()]) end)
+
+      assert error.message =~ "dedupe feedback_comments"
     end
   end
 end
