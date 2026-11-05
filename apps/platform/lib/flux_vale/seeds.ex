@@ -45,9 +45,10 @@ defmodule FluxVale.Seeds do
   reference a size by slug. The `local` Cluster row is deliberately NOT
   here — `seed_local_cluster!/0` stays dev/local-only (local_seeds.exs).
 
-  Demo feedback-board content (`seed_feedback!/0`) rides only when the
-  runtime opted in (`:seed_demo_content`): dev via config, staging/
-  review via DEMO_SEEDS_ENABLED. Prod never opts in — the board launches
+  Demo feedback-board content (`seed_feedback!/0`) rides on every
+  runtime except production (`:seed_demo_content`): dev via config,
+  staging/review/local via runtime.exs's PLATFORM_ENV rule — anything
+  but "production" seeds. Prod never does — the board launches
   honestly empty (the #412 architect ruling: fabricated votes are
   invented social proof).
   """
@@ -414,12 +415,12 @@ defmodule FluxVale.Seeds do
   end
 
   # Demo board content is gated OFF everywhere and opted into per
-  # runtime (the TestInbox/Storybook gated-release shape): dev's config
+  # runtime (the PLATFORM_ENV rule in runtime.exs): dev's config
   # sets it true so `mix setup` ships a living board, prod-mode releases
-  # (staging/review) flip DEMO_SEEDS_ENABLED where the fleet attaches
-  # them, and prod NEVER sets it — and runtime.exs additionally refuses
-  # the flag on a production PLATFORM_ENV boot, so an overlay typo alone
-  # cannot publish fabricated votes. The architect's #412 ruling:
+  # (staging/review/local) seed by construction whenever PLATFORM_ENV is
+  # anything but "production", and prod NEVER does — runtime.exs refuses
+  # the flag on a production boot, so no overlay typo alone
+  # can publish fabricated votes. The architect's #412 ruling:
   # fabricated vote counts on a public indexed board are invented social
   # proof the (not-yet-existing) Vote table cannot back, and real votes
   # would compound from a fake base — prod launches honestly empty and

@@ -76,6 +76,42 @@ defmodule FluxVale.RequiredEnvsTest do
     assert config[:flux_vale][:platform_env] == "staging"
   end
 
+  # The demo-seed gate's computation, pinned both arms (#412): the
+  # discriminator is the PLATFORM_ENV VAR, not the application env —
+  # config writes in runtime.exs buffer until the file finishes
+  # evaluating, so an Application.get_env read beside this block would
+  # see the config.exs-baked value and never tell production from
+  # staging (the stale-read lesson; the retired DEMO_SEEDS gate shared
+  # it). These two arms are the whole rule: non-production platforms
+  # seed the demo board, production boots stay honestly empty no matter
+  # what else the shell carries.
+  test "demo board content seeds on a non-production platform env" do
+    config = with_clean_shell(fn -> read_prod!(@valid_values) end)
+
+    assert config[:flux_vale][:seed_demo_content] == true
+  end
+
+  test "a production platform env boots with the demo board empty" do
+    production = Map.put(@valid_values, "PLATFORM_ENV", "production")
+
+    config = with_clean_shell(fn -> read_prod!(production) end)
+
+    assert config[:flux_vale][:platform_env] == "production"
+    refute config[:flux_vale][:seed_demo_content]
+  end
+
+  # A TYPO of production must not seed either: "prod" passes the
+  # k8s-label validation, so the gate allowlists the known non-prod
+  # values instead of excluding the one spelled correctly (the
+  # review finding this shape).
+  test "a typo of the production platform env stays empty too" do
+    typo = Map.put(@valid_values, "PLATFORM_ENV", "prod")
+
+    config = with_clean_shell(fn -> read_prod!(typo) end)
+
+    refute config[:flux_vale][:seed_demo_content]
+  end
+
   defp required_envs do
     @required_envs
     |> File.read!()
@@ -87,13 +123,25 @@ defmodule FluxVale.RequiredEnvsTest do
   defp line_is_ignorable?(line), do: line == "" or String.starts_with?(line, "#")
 
   defp read_prod!(vars) do
-    env = Map.new(vars)
-    System.put_env(env)
-
-    Config.Reader.read!(@runtime_config, env: :prod)
-  after
+    # Tests own their preconditions: capture-and-restore every variable
+    # this helper touches, including on failure — a blind delete would
+    # strip values the surrounding shell already carried and later tests
+    # would observe them missing (the CodeRabbit catch). The snapshot
+    # binds BEFORE the try: an after block cannot see body bindings.
     keys = Map.keys(vars)
-    Enum.each(keys, &System.delete_env/1)
+    prior = Map.new(keys, &{&1, System.get_env(&1)})
+
+    try do
+      env = Map.new(vars)
+      System.put_env(env)
+
+      Config.Reader.read!(@runtime_config, env: :prod)
+    after
+      Enum.each(prior, fn
+        {key, nil} -> System.delete_env(key)
+        {key, value} -> System.put_env(key, value)
+      end)
+    end
   end
 
   # Both directions run against a shell scrubbed of the URL-compose

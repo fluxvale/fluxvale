@@ -1,11 +1,11 @@
 import Config
 
 # Demo feedback-board content (#412): dev seeds it so `mix setup` ships
-# a living board. Prod-mode runtimes opt in through the release env var
-# instead (runtime.exs reads DEMO_SEEDS_ENABLED — the TestInbox/
-# Storybook gated-release shape); prod never sets it and launches the
-# board honestly empty (the #412 architect ruling: fabricated votes are
-# invented social proof).
+# a living board. Prod-mode runtimes seed it too whenever PLATFORM_ENV
+# is anything but "production" (runtime.exs) — staging, review, local
+# all get the living board by design; production never does and launches
+# the board honestly empty (the #412 architect ruling: fabricated votes
+# are invented social proof).
 config :flux_vale, :seed_demo_content, true
 
 # Configure your database
