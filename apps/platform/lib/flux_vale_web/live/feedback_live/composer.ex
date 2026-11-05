@@ -415,4 +415,9 @@ defmodule FluxValeWeb.FeedbackLive.Composer do
   defp topup_label(org), do: gettext("Top up %{org} to post", org: org.name)
 
   defp votes_label(count), do: FluxValeWeb.FeedbackHTML.votes_label(count)
+
+  # Temporary two-sided proof probe (removed in the next commit): an
+  # executable line no test reaches must red codecov/patch/platform
+  # while the Elixir gate stays green.
+  def probe_unreached_arm, do: :unreached
 end
