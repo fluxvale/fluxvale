@@ -466,6 +466,23 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     assert has_element?(view, "[data-testid='calculator-app-option-#{slug}']")
   end
 
+  test "submitting the filter form keeps the state and never navigates", %{conn: conn} do
+    fixture = InstanceFixtures.app_version!(default_memory_mb: 2048, default_storage_gb: 20)
+    slug = app_slug!(Ash.load!(fixture, :recommended_size, authorize?: false))
+
+    {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
+    pick_app(view, slug)
+
+    app_form = form(view, "#calculator-app-form", %{"app_filter" => slug})
+    render_submit(app_form)
+
+    # The submit is a server event, not a browser navigation. The app
+    # stays picked and the filter text lands.
+    assert has_element?(view, "[data-testid='calculator-app-recommendation']")
+    assert has_element?(view, "[data-testid='calculator-app-option-#{slug}']")
+    assert has_element?(view, "#calculator-app-filter[value='#{slug}']")
+  end
+
   test "a crafted Use recommended click with no recommendation is silence", %{conn: conn} do
     {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
 

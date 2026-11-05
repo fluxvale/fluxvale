@@ -80,8 +80,15 @@ defmodule FluxVale.Billing.Operations.CustomDomainFreeTest do
 
   describe "SweepZeroBalance" do
     test "a zero balance leaves a serving domain serving" do
-      {_org, owner, wallet} = drained_wallet!()
+      {org, owner, wallet} = wallet!(100)
       domain = verified_domain!(owner)
+
+      # The paid fixture above leaves money in the wallet. Drain AFTER
+      # registration, so the sweep really runs at zero and a returning
+      # domain-suspension arm would fail this test.
+      BillingFixtures.drain_wallet!(org)
+      assert {:ok, balance} = Billing.balance(wallet, authorize?: false)
+      assert balance == 0
 
       assert {:ok, _summary} = Billing.sweep_zero_balance(wallet)
 
@@ -99,15 +106,6 @@ defmodule FluxVale.Billing.Operations.CustomDomainFreeTest do
     if balance_cents > 0 do
       {:ok, _grant} = Billing.grant_credits(wallet, balance_cents, reason: :adjustment)
     end
-
-    {org, owner, wallet}
-  end
-
-  # A wallet at exactly 0 — funded then fully spent, so the ladder's
-  # ≤ 0 arm fires without a negative clock.
-  defp drained_wallet! do
-    {org, owner, wallet} = wallet!(100)
-    {:ok, _entry} = Billing.debit_wallet(wallet, 100 * 10_000, reason: :adjustment)
 
     {org, owner, wallet}
   end

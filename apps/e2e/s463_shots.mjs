@@ -46,6 +46,8 @@ for (const theme of ["light", "dark"]) {
   const desk = await themedContext(theme, { width: 1440, height: 900 });
   const page = await openCalculator(desk);
   await pickFirstApp(page);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(400);
   await page.screenshot({ path: `${outdir}/pricing-after-${theme}.png`, fullPage: true });
   await page.close();
 
@@ -62,6 +64,8 @@ for (const theme of ["light", "dark"]) {
   const mobile = await themedContext(theme, { width: 375, height: 812 });
   const phone = await openCalculator(mobile);
   await pickFirstApp(phone);
+  await phone.evaluate(() => window.scrollTo(0, 0));
+  await phone.waitForTimeout(400);
   await phone.screenshot({
     path: `${outdir}/pricing-after-mobile-${theme}.png`,
     fullPage: true,

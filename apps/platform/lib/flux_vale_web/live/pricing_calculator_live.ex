@@ -137,6 +137,7 @@ defmodule FluxValeWeb.PricingCalculatorLive do
             <form
               id="calculator-app-form"
               phx-change="filter-apps"
+              phx-submit="filter-apps"
               class="group relative flex-1"
             >
               <input
@@ -658,9 +659,16 @@ defmodule FluxValeWeb.PricingCalculatorLive do
   # suffix is always there, so the hero never reads as a whole-fleet
   # allocation by accident.
   defp allocation_line(quantity, resources) do
-    suffix = allocation_text(resources) <> " per instance"
+    allocation = allocation_text(resources)
 
-    if quantity == 1, do: suffix, else: "#{quantity} × #{suffix}"
+    if quantity == 1 do
+      gettext("%{allocation} per instance", allocation: allocation)
+    else
+      gettext("%{quantity} × %{allocation} per instance",
+        quantity: quantity,
+        allocation: allocation
+      )
+    end
   end
 
   defp size_text(size), do: allocation_text(size_resources(size))
