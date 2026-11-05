@@ -620,8 +620,12 @@ defmodule FluxVale.Infrastructure.InstanceTest do
         })
 
       # The named org's wallet is what the create gate reads (#124):
-      # team-funded here, the actor's personal org untouched.
+      # team-funded here, the actor's personal wallet drained — a gate
+      # reading the personal org would refuse, so the pass IS the
+      # named-org routing.
       BillingFixtures.funded_wallet!(org: team)
+      {:ok, personal} = Accounts.personal_org_for_user(user.id, authorize?: false)
+      BillingFixtures.drain_wallet!(personal)
       attrs = org_attrs(organization_id: team.id)
 
       assert {:ok, instance} = Instance.create(attrs, actor: user)

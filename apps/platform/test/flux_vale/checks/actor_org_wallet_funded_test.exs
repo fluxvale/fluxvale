@@ -59,6 +59,25 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
       assert ActorOrgWalletFunded.match?(orgless, %{subject: create_subject}, [])
     end
 
+    test "a funded personal org passes the actor fallback — funded_via_actor?'s ok-arm" do
+      # The mirror of the org-less test: the changeset is built
+      # actorless (no attribute pinned, the tenancy change never ran),
+      # so the check falls to the actor's personal org — funded passes,
+      # drained fails, the arm actually reads the wallet.
+      funded = AccountsFixtures.user!()
+      personal = AccountsFixtures.personal_org!(funded)
+      BillingFixtures.funded_wallet!(org: personal)
+
+      drained = AccountsFixtures.user!()
+      drained_personal = AccountsFixtures.personal_org!(drained)
+      BillingFixtures.drain_wallet!(drained_personal)
+
+      subject = Ash.Changeset.for_create(Instance, :create, %{}, authorize?: false)
+
+      assert ActorOrgWalletFunded.match?(funded, %{subject: subject}, [])
+      refute ActorOrgWalletFunded.match?(drained, %{subject: subject}, [])
+    end
+
     test "a create naming its org as an ARGUMENT answers that org, not the actor's" do
       # The named-org arm's argument intake shape: attribute unset, the
       # #408 context riding the argument. The actor's personal org is

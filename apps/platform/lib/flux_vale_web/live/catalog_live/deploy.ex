@@ -806,18 +806,17 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   # membership — a seeded/legacy row no sign-in path produces (the JIT
   # provisioning members the creator), so the arms stay as the
   # defensive say.
-  # coveralls-ignore-start - seeded/legacy shapes: no sign-in path
+  # coveralls-ignore-next-line - seeded/legacy shape: no sign-in path
   defp default_org_id([], _personal_org_id), do: nil
 
   defp default_org_id(options, personal_org_id) do
     if personal_org_id && Enum.any?(options, &(&1.id == personal_org_id)) do
       personal_org_id
     else
+      # coveralls-ignore-next-line - seeded/legacy shape: no sign-in path
       hd(options).id
     end
   end
-
-  # coveralls-ignore-stop
 
   defp env_continue(params, socket) do
     env_values = drop_empty(params["env_values"] || %{})
