@@ -57,19 +57,29 @@ defmodule FluxVale.TestSupport.AccountsFixtures do
   end
 
   @doc """
-  The seed platform admin (`admin@fluxvale.com`, `platform_role: :admin`)
-  — get-or-create, so async suites sharing the seed email converge.
-  Bootstrap posture: the precondition runs `authorize?: false`; the
-  admin policy itself is under test in the wallet/policy suites.
+  A platform admin (`platform_role: :admin`) for policy-test actors.
+  The email is keyed to the calling test process: stable inside one
+  test (a second call converges on the same row) and distinct across
+  concurrent tests, whose sandbox transactions cannot see each
+  other's uncommitted rows. A shared fixed address deadlocked here:
+  two async suites missing the same get-or-create read raced one
+  insert through the JIT provisioning's multi-table writes and took
+  the unique-index waits into a 40P01. Bootstrap posture: the
+  precondition runs `authorize?: false`. The admin policy itself is
+  under test in the wallet/policy suites.
   """
   @spec platform_admin!() :: User.t()
   def platform_admin! do
-    case User.get_by_email("admin@fluxvale.com", authorize?: false) do
+    pid = inspect(self())
+    key = String.replace(pid, ~r/[^0-9]/, "")
+    email = "admin-#{key}@fluxvale.test"
+
+    case User.get_by_email(email, authorize?: false) do
       {:ok, existing} ->
         existing
 
       {:error, _not_found} ->
-        User.create!("admin@fluxvale.com", %{platform_role: :admin}, authorize?: false)
+        User.create!(email, %{platform_role: :admin}, authorize?: false)
     end
   end
 
