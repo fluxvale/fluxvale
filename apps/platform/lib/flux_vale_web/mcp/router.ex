@@ -317,8 +317,8 @@ defmodule FluxValeWeb.MCP.Router do
   The identity this token carries: user id, email, platform role, the
   exact scope list the token was minted with, and the organizations
   the user belongs to (id and slug each). Use it first to learn what
-  the token may do — tools outside the scopes never appear in
-  tools/list — and to get the organization ids that `get_wallet` and
+  the token may do (tools outside the scopes never appear in
+  tools/list) and to get the organization ids that `get_wallet` and
   `get_gateway` take.
   """
   tool :whoami, read_only: true do
@@ -352,7 +352,7 @@ defmodule FluxValeWeb.MCP.Router do
   end
 
   @description """
-  The caller's own instances, newest first — one entry per deployed
+  The caller's own instances, newest first, one entry per deployed
   app: id, name, slug, namespace, lifecycle status, exposure,
   always-on flag, deployed-at. Follow up with `get_instance` for the
   full detail of one row.
@@ -408,7 +408,7 @@ defmodule FluxValeWeb.MCP.Router do
   @description """
   The deployable app catalog. Call without arguments for every app
   (name, slug, tagline, description, icon/source/docs URLs, whether
-  instances of it mount a file-access volume); pass `slug` to fetch a
+  instances of it mount a file-access volume). Pass `slug` to fetch a
   single app by its URL slug.
   """
   tool :list_apps, read_only: true do
@@ -442,7 +442,7 @@ defmodule FluxValeWeb.MCP.Router do
 
   @description """
   An instance's backup destination settings: S3 endpoint, bucket,
-  prefix, access key id (an identifier — the secret never rides this
+  prefix, access key id (an identifier: the secret never rides this
   surface), retention, enabled flag. Errors when the instance has no
   settings row (backups not configured) or is not yours.
   """
@@ -527,7 +527,7 @@ defmodule FluxValeWeb.MCP.Router do
   `balance` (live ledger sum, whole cents), `paywall_waived`,
   `balance_cents` (the runway figure's unit), `burn_micro_cents_per_hour`
   (the current accrual rate) and `runway_hours` (hours until the
-  balance hits zero at that rate — the string "infinity" when nothing
+  balance hits zero at that rate (the string "infinity" when nothing
   accrues).
   """
   tool :get_wallet, read_only: true do
@@ -573,12 +573,12 @@ defmodule FluxValeWeb.MCP.Router do
   end
 
   @description """
-  Your organization's ledger history, newest first — one entry per
+  Your organization's ledger history, newest first, one entry per
   credit/debit: signed amount in whole cents, type, reason
   (purchase/adjustment/usage/...), idempotency key, tax facts
   (billing_country, billing_state, applied_rate, tax_cents,
   reverse_charge), subject. Keyset-paginated: pass `cursor` (the
-  previous response's `next_cursor`) to page; `next_cursor` disappears
+  previous response's `next_cursor`) to page. `next_cursor` disappears
   from the response once you reached the end.
   """
   tool :list_ledger_entries, read_only: true do
@@ -667,10 +667,10 @@ defmodule FluxValeWeb.MCP.Router do
   end
 
   @description """
-  Enqueue an instance's deployment — from :pending, or a retry from
+  Enqueue an instance's deployment, from :pending or as a retry from
   :error/:lost. Lands :deploying immediately (the namespace is pinned),
-  then :starting; the platform's reconciler confirms readiness. Needs
-  a positive wallet balance; the instance bills hourly once running.
+  then :starting. The platform's reconciler confirms readiness. Needs
+  a positive wallet balance. The instance bills hourly once running.
   Refuses in any other state.
   """
   tool :deploy_instance, [] do
@@ -692,8 +692,8 @@ defmodule FluxValeWeb.MCP.Router do
   end
 
   @description """
-  Scale an instance's app to zero — the pause. The running rate stops
-  accruing; storage keeps accruing (the volume persists). Refuses
+  Scale an instance's app to zero (the pause). The running rate stops
+  accruing. Storage keeps accruing (the volume persists). Refuses
   unless the instance is running. Reverse with `start_instance`.
   """
   tool :stop_instance, [] do
@@ -714,9 +714,9 @@ defmodule FluxValeWeb.MCP.Router do
   end
 
   @description """
-  Scale a stopped or sleeping instance back up — lands :starting; the
-  reconciler confirms readiness. Needs a positive wallet balance; the
-  app bills hourly once running.
+  Scale a stopped or sleeping instance back up. Lands :starting, then
+  the reconciler confirms readiness. Needs a positive wallet balance.
+  The app bills hourly once running.
   """
   tool :start_instance, [] do
     field(:id, :string, required: true, description: "The instance's id")
@@ -737,14 +737,14 @@ defmodule FluxValeWeb.MCP.Router do
 
   @description """
   Toggle an instance's opt-out of scale-to-zero: `true` and the idle
-  sweep never sleeps it — it bills the running rate around the clock.
+  sweep never sleeps it. It bills the running rate around the clock.
   """
   tool :set_instance_always_on, [] do
     field(:id, :string, required: true, description: "The instance's id")
 
     field(:always_on, :boolean,
       required: true,
-      description: "true keeps the instance from ever sleeping; false re-allows scale-to-zero"
+      description: "true keeps the instance from ever sleeping. False re-allows scale-to-zero"
     )
   end
 
@@ -768,8 +768,8 @@ defmodule FluxValeWeb.MCP.Router do
 
   @description """
   Toggle an instance's reachability: `public` serves its hostname at
-  the edge; `private` removes the public route and denies edge ingress
-  — pair it with `create_gateway` + `attach_instance` to reach it on
+  the edge. `private` removes the public route and denies edge ingress.
+  Pair it with `create_gateway` + `attach_instance` to reach it on
   your tailnet. Exposure itself bills nothing. Applied synchronously.
   """
   tool :set_instance_exposure, [] do
@@ -800,10 +800,10 @@ defmodule FluxValeWeb.MCP.Router do
   end
 
   @description """
-  DESTROY an instance — deletes the volume data and tears down all its
-  Kubernetes resources; the row goes with them. Asks first: the first
-  call returns an input_required result carrying a confirm question;
-  the teardown only starts after a "yes".
+  DESTROY an instance. Deletes the volume data and tears down all its
+  Kubernetes resources, and the row goes with them. Asks first: the
+  first call returns an input_required result carrying a confirm
+  question. The teardown only starts after a "yes".
   """
   tool :destroy_instance, destructive: true do
     field(:id, :string, required: true, description: "The instance's id")
@@ -858,12 +858,12 @@ defmodule FluxValeWeb.MCP.Router do
 
   @description """
   Save an instance's backup destination: S3 endpoint, bucket, prefix,
-  access key id (an identifier — the secret never rides this surface),
-  retention, enabled. Writes the settings row — creating it or updating
-  the existing one, whichever applies; you never need to care which.
+  access key id (an identifier: the secret never rides this surface),
+  retention, enabled. Writes the settings row, creating it or updating
+  the existing one, whichever applies. You never need to care which.
   The repo credentials (the S3 secret key and restic password) live
-  only in the instance's namespace Secret — the panel's save
-  provisions them — and backups cannot run until they exist.
+  only in the instance's namespace Secret (the panel's save
+  provisions them), and backups cannot run until they exist.
   """
   tool :configure_backups, [] do
     field(:instance_id, :string, required: true, description: "The instance's id")
@@ -938,10 +938,11 @@ defmodule FluxValeWeb.MCP.Router do
   end
 
   @description """
-  Run a backup now — one snapshot to the instance's configured
+  Run a backup now: one snapshot to the instance's configured
   destination. Needs backups configured and enabled, the app deployed,
   no run already in flight, and a positive wallet balance. Returns the
-  run row (it starts :running; `list_backup_runs` tracks the finish).
+  run row (it starts :running, and `list_backup_runs` tracks the
+  finish).
   """
   tool :run_backup, [] do
     field(:id, :string, required: true, description: "The instance's id")
@@ -960,10 +961,10 @@ defmodule FluxValeWeb.MCP.Router do
   end
 
   @description """
-  RESTORE an instance's volume from a snapshot — OVERWRITES the
+  RESTORE an instance's volume from a snapshot. OVERWRITES the
   current volume state with the backup's. The run id must be the
   newest successful backup. Asks first: the first call returns an
-  input_required result carrying a confirm question; the restore only
+  input_required result carrying a confirm question. The restore only
   starts after a "yes".
   """
   tool :restore_backup, destructive: true do
@@ -1032,9 +1033,9 @@ defmodule FluxValeWeb.MCP.Router do
   end
 
   @description """
-  Attach a private instance to the org's gateway — it becomes
+  Attach a private instance to the org's gateway, and it becomes
   reachable on your tailnet. The instance must be private and
-  deployed; the gateway must be active. One pairing per instance.
+  deployed. The gateway must be active. One pairing per instance.
   """
   tool :attach_instance, [] do
     field(:gateway_id, :string, required: true, description: "The gateway's id")
@@ -1056,8 +1057,8 @@ defmodule FluxValeWeb.MCP.Router do
   end
 
   @description """
-  Detach an instance from the gateway — idempotent: detaching a
-  non-attached pair succeeds. The instance keeps running; it just
+  Detach an instance from the gateway. Idempotent: detaching a
+  non-attached pair succeeds. The instance keeps running. It just
   loses the tailnet route.
   """
   tool :detach_instance, idempotent: true do
@@ -1078,9 +1079,9 @@ defmodule FluxValeWeb.MCP.Router do
   end
 
   @description """
-  Create your organization's private-access gateway — one per org.
+  Create your organization's private-access gateway, one per org.
   Needs a Tailscale auth key and the tailnet's MagicDNS domain.
-  Bills #{@gateway_rate} while active; needs a funded wallet that has
+  Bills #{@gateway_rate} while active. Needs a funded wallet that has
   completed at least one payment. Reversible: removing it tears the
   pod down (billing stops with it).
   """
@@ -1104,9 +1105,9 @@ defmodule FluxValeWeb.MCP.Router do
   end
 
   @description """
-  Resume a suspended gateway — scale the pod back up and reopen the
+  Resume a suspended gateway. Scale the pod back up and reopen the
   billing anchor (#{@gateway_rate} while active). Needs a funded wallet
-  that has completed at least one payment; the observer confirms
+  that has completed at least one payment. The observer confirms
   readiness.
   """
   tool :resume_gateway, [] do
