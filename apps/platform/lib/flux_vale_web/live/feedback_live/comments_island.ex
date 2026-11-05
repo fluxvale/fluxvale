@@ -21,6 +21,7 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
   alias FluxVale.Feedback.Comment
   alias FluxVale.Feedback.Post
   alias FluxValeWeb.Locale
+  alias FluxValeWeb.ReturnPath
   alias FluxValeWeb.UserAuth
 
   require Ash.Query
@@ -36,7 +37,15 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
 
     socket =
       socket
-      |> assign(user: user, post: post, form: form_for(user))
+      |> assign(
+        user: user,
+        post: post,
+        # The SSR request's own return path (#462 review): keeps the
+        # query the page was loaded with, so the CTA returns to the
+        # URL the visitor was reading, not just the path.
+        return_to: ReturnPath.safe(session["return_to"]),
+        form: form_for(user)
+      )
       |> stream_initial(post)
 
     {:ok, socket}
@@ -110,6 +119,10 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
 
   @impl Phoenix.LiveView
   def render(assigns) do
+    # #462: the CTA's sign-in link carries the post page back through
+    # sign-in — precomputed so the guard stays in ReturnPath.
+    assigns = assign(assigns, sign_in_href: sign_in_href(assigns))
+
     ~H"""
     <section :if={@post} id="comments-island" data-testid="comments-island" class="mt-10">
       <h2 id="comments-count" class="text-lg font-semibold tracking-tight text-ink">
@@ -163,7 +176,7 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
 
       <p :if={is_nil(@user)} class="mt-6 text-sm text-ink-muted">
         <.link
-          href={~p"/sign-in"}
+          href={@sign_in_href}
           data-testid="comment-sign-in"
           class="font-medium text-link hover:underline"
         >
@@ -203,6 +216,16 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
     |> AshPhoenix.Form.for_create(:create, actor: user, as: "comment")
     |> to_form()
   end
+
+  # The CTA returns to the page the visitor was reading: the SSR
+  # request's own path (query included) when the session carried it,
+  # else the post path built from the slug. Both ride the shared guard.
+  defp sign_in_href(%{return_to: nil, post: nil}), do: ReturnPath.sign_in_path(nil)
+
+  defp sign_in_href(%{return_to: nil, post: post}),
+    do: ReturnPath.sign_in_path(~p"/feedback/#{post.slug}")
+
+  defp sign_in_href(%{return_to: return_to}), do: ReturnPath.sign_in_path(return_to)
 
   defp post_by_slug(slug) when is_binary(slug) do
     result =

@@ -30,6 +30,7 @@ defmodule FluxValeWeb.FeedbackLive.VoteIsland do
   alias FluxVale.Feedback.Vote
   alias FluxValeWeb.FeedbackLive.OrgChoice
   alias FluxValeWeb.Locale
+  alias FluxValeWeb.ReturnPath
   alias FluxValeWeb.UserAuth
 
   require Ash.Query
@@ -49,6 +50,10 @@ defmodule FluxValeWeb.FeedbackLive.VoteIsland do
       socket
       |> assign(user: user, orgs: orgs, error: nil)
       |> assign(post: post, count: post && post.vote_count)
+      # The SSR request's own return path (#462 review): keeps the
+      # query the page was loaded with, so the CTA returns to the
+      # URL the visitor was reading, not just the path.
+      |> assign(return_to: ReturnPath.safe(session["return_to"]))
       |> select_org(default && default.id)
 
     {:ok, socket}
@@ -116,7 +121,13 @@ defmodule FluxValeWeb.FeedbackLive.VoteIsland do
 
   @impl Phoenix.LiveView
   def render(assigns) do
-    assigns = assign(assigns, selected_org: selected_org(assigns))
+    # #462: the anonymous CTA carries the post page back through
+    # sign-in — precomputed so the guard stays in ReturnPath.
+    assigns =
+      assign(assigns,
+        selected_org: selected_org(assigns),
+        sign_in_href: sign_in_href(assigns)
+      )
 
     ~H"""
     <div
@@ -132,7 +143,7 @@ defmodule FluxValeWeb.FeedbackLive.VoteIsland do
 
       <span :if={@gate == :anonymous}>
         <.link
-          href={~p"/sign-in"}
+          href={@sign_in_href}
           data-testid="vote-sign-in"
           class="text-sm font-medium text-link hover:underline"
         >
@@ -267,6 +278,18 @@ defmodule FluxValeWeb.FeedbackLive.VoteIsland do
 
     assign(socket, selected_org_id: org_id, gate: gate, voted: voted)
   end
+
+  # The island's div renders only with a post; the nil arms are the
+  # same dead weight select_org/2 carries — keeps the assigns total.
+  # The return target prefers the page's own return path (query
+  # included) and falls back to the post path from the slug (#462).
+  defp sign_in_href(%{return_to: nil, post: nil}), do: ReturnPath.sign_in_path(nil)
+
+  defp sign_in_href(%{return_to: nil, post: post}) do
+    ReturnPath.sign_in_path(~p"/feedback/#{post.slug}")
+  end
+
+  defp sign_in_href(%{return_to: return_to}), do: ReturnPath.sign_in_path(return_to)
 
   # The shared predicate — the same answer the actions' policies give;
   # a nil org fails closed inside it.

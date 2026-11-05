@@ -26,6 +26,7 @@ defmodule FluxValeWeb.FeedbackLive.Composer do
   alias FluxVale.Feedback
   alias FluxVale.Feedback.Post
   alias FluxValeWeb.FeedbackLive.OrgChoice
+  alias FluxValeWeb.ReturnPath
   alias FluxValeWeb.UserAuth
 
   # The title search's keystroke rate limiter (the input's phx-debounce).
@@ -197,10 +198,15 @@ defmodule FluxValeWeb.FeedbackLive.Composer do
 
   @impl Phoenix.LiveView
   def render(assigns) do
-    assigns = assign(assigns, selected_org: selected_org(assigns))
+    assigns =
+      assign(assigns,
+        selected_org: selected_org(assigns),
+        # #462: the anonymous CTA returns to this page after sign-in.
+        sign_in_href: ReturnPath.sign_in_path(~p"/feedback/new")
+      )
 
     ~H"""
-    <Layouts.public flash={@flash} current_user={@user}>
+    <Layouts.public flash={@flash} current_user={@user} return_to="/feedback/new">
       <article class="mx-auto w-full max-w-2xl">
         <.button variant="ghost" size="sm" navigate={~p"/feedback"} class="-ml-2 mb-4">
           &larr; Feedback
@@ -217,7 +223,7 @@ defmodule FluxValeWeb.FeedbackLive.Composer do
           <p class="text-sm text-ink-muted">
             {gettext("Sign in to post a request.")}
             <.link
-              href={~p"/sign-in"}
+              href={@sign_in_href}
               data-testid="composer-sign-in"
               class="font-medium text-link hover:underline"
             >

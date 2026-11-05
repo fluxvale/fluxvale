@@ -6,11 +6,18 @@ defmodule FluxValeWeb.AuthLive.SignIn do
   hands a one-shot native form POST to `SessionController`, so the token
   travels in a POST body (never a URL — the magic-link lesson) and the
   session write happens in a proper Plug world.
+
+  The return path (#462) rides the same discipline: the link in, a
+  validated query param at mount, a hidden input in the verify form —
+  so the POST body carries it and SessionController can land the
+  visitor back where they came from. The controller re-validates; the
+  validation here only keeps garbage out of the rendered form.
   """
 
   use FluxValeWeb, :live_view
 
   alias FluxVale.Identity
+  alias FluxValeWeb.ReturnPath
 
   # Outside any live_session (anonymous surface), so the locale hook is
   # declared here — the router's :authenticated list doesn't cover this
@@ -77,6 +84,9 @@ defmodule FluxValeWeb.AuthLive.SignIn do
               >
                 <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
                 <input type="hidden" name="token" value={@token} />
+                <%!-- #462: the return path rides the POST body with the
+                token — never re-emitted into a URL by this flow. --%>
+                <input :if={@return_to} type="hidden" name="return_to" value={@return_to} />
                 <.input
                   field={@form[:code]}
                   type="text"
@@ -112,10 +122,14 @@ defmodule FluxValeWeb.AuthLive.SignIn do
     """
   end
 
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
+    # Local-only at the door (ReturnPath.safe/1): garbage never reaches
+    # the rendered form, and SessionController re-validates regardless.
+    return_to = ReturnPath.safe(params["return_to"])
+
     {:ok,
      socket
-     |> assign(step: :email, email: nil, token: nil, trigger_submit: false)
+     |> assign(step: :email, email: nil, token: nil, trigger_submit: false, return_to: return_to)
      |> assign(form: to_form(%{"email" => ""}))}
   end
 

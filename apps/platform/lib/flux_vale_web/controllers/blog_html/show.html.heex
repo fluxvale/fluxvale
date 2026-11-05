@@ -1,7 +1,7 @@
 <%!-- Post page (ADR-00025 §1): the reading surface. The article column
 centers in the page at a measured ~66ch (blog.css owns the per-element
 caps) — the measure is the layout decision, not a restyled card. --%>
-<Layouts.public flash={@flash} current_user={@current_user}>
+<Layouts.public flash={@flash} current_user={@current_user} return_to={@return_to}>
   <article class="blog mx-auto w-full max-w-2xl">
     <.button variant="ghost" size="sm" navigate={~p"/blog"} class="-ml-2 mb-4">
       &larr; Blog

@@ -39,7 +39,9 @@ defmodule FluxValeWeb.OrganizationLive.NewTest do
   end
 
   test "an anonymous visit is redirected to sign-in by the live_session gate" do
-    assert {:error, {:redirect, %{to: "/sign-in"}}} = live(build_conn(), ~p"/organizations/new")
+    # #462: the gate's redirect carries the return path back to the page
+    assert {:error, {:redirect, %{to: "/sign-in?return_to=%2Forganizations%2Fnew"}}} =
+             live(build_conn(), ~p"/organizations/new")
   end
 
   describe "the preview line" do

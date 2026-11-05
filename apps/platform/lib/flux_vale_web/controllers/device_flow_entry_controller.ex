@@ -14,6 +14,13 @@ defmodule FluxValeWeb.DeviceFlowEntryController do
 
   use FluxValeWeb, :controller
 
+  # The panel address the browser came for — the anonymous sign-in hop
+  # carries it as return_to (#462) so verification resumes at the
+  # section instead of the default landing. Fragment included: the
+  # value is a local path (ReturnPath's guard), the controller
+  # re-validates whatever arrives at the session write.
+  @panel_path "/settings/access#device-sign-ins"
+
   def entry(conn, _params) do
     session = get_session(conn)
     session_user = FluxValeWeb.UserAuth.resolve_user(session)
@@ -22,9 +29,9 @@ defmodule FluxValeWeb.DeviceFlowEntryController do
     # browser scrolls the section into view on document load — no
     # LiveView plumbing needed for what a fragment already does.
     if session_user do
-      redirect(conn, to: "/settings/access#device-sign-ins")
+      redirect(conn, to: @panel_path)
     else
-      redirect(conn, to: "/sign-in")
+      redirect(conn, to: FluxValeWeb.ReturnPath.sign_in_path(@panel_path))
     end
   end
 end

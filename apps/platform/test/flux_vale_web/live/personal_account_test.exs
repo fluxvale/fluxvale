@@ -161,10 +161,9 @@ defmodule FluxValeWeb.PersonalAccountTest do
   end
 
   test "an anonymous visit to /settings/access redirects to sign-in" do
-    assert {:error, {:redirect, %{to: to}}} =
+    # #462: the redirect carries the return path back to the panel
+    assert {:error, {:redirect, %{to: "/sign-in?return_to=%2Fsettings%2Faccess"}}} =
              live(build_conn(), ~p"/settings/access")
-
-    assert to == ~p"/sign-in"
   end
 
   test "a user with no personal org reads /settings/access as not-found", %{

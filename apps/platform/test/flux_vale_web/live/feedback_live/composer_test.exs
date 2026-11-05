@@ -52,7 +52,17 @@ defmodule FluxValeWeb.FeedbackLive.ComposerTest do
     {:ok, view, _html} = mount_composer(conn)
 
     assert has_element?(view, "p", "Sign in to post a request.")
-    assert has_element?(view, "a[data-testid='composer-sign-in'][href='/sign-in']", "Sign in")
+    # #462: the CTA carries the composer page back through sign-in
+    assert has_element?(
+             view,
+             "a[data-testid='composer-sign-in'][href='/sign-in?return_to=%2Ffeedback%2Fnew']",
+             "Sign in"
+           )
+
+    # #462 CodeRabbit round: the chrome on the anonymous composer page
+    # returns to the composer too, same target as the page's own CTA
+    assert has_element?(view, "header a[href='/sign-in?return_to=%2Ffeedback%2Fnew']")
+
     refute has_element?(view, "#composer-form")
   end
 

@@ -56,6 +56,12 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIslandTest do
     assert has_element?(view, "#comments", "First comment from the floor")
     assert has_element?(view, "[data-testid='comment']", author.username)
     assert has_element?(view, "[data-testid='comment-sign-in']", "Sign in to comment")
+    # #462: the CTA carries the post page back through sign-in
+    assert has_element?(
+             view,
+             "a[data-testid='comment-sign-in'][href='/sign-in?return_to=%2Ffeedback%2F#{post.slug}']"
+           )
+
     refute has_element?(view, "#comment-form")
   end
 

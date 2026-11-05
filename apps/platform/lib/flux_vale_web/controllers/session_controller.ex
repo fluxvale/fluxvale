@@ -12,6 +12,14 @@ defmodule FluxValeWeb.SessionController do
   accepts any valid token, including one minted before a rule was
   removed; the mint gate in VerifyAuthCode closes the sign-in flow, this
   closes re-entry with a stale token.
+
+  The POST may carry a `return_to` (the sign-in LiveView rides it
+  through in its body, #462): the visitor lands back on the local path
+  they came from instead of the default page. The value is never
+  trusted — `ReturnPath.safe/1` re-validates it here, so a crafted
+  non-local target silently falls back to `/`. A failed session write
+  re-links sign-in with the same return path, so the retry keeps the
+  destination too.
   """
 
   use FluxValeWeb, :controller
@@ -19,8 +27,11 @@ defmodule FluxValeWeb.SessionController do
   alias AshAuthentication.Jwt
   alias AshAuthentication.Plug.Helpers
   alias FluxVale.Ops.AccessRules
+  alias FluxValeWeb.ReturnPath
 
-  def create(conn, %{"token" => token}) do
+  def create(conn, %{"token" => token} = params) do
+    return_to = ReturnPath.safe(params["return_to"])
+
     with {:ok, claims, resource} <- Jwt.verify(token, :flux_vale),
          {:ok, user} <- AshAuthentication.subject_to_user(claims["sub"], resource),
          # User-level gate (#285 T3) — the token may present any verified
@@ -30,12 +41,12 @@ defmodule FluxValeWeb.SessionController do
       conn
       |> Helpers.store_in_session(user)
       |> put_flash(:info, "Signed in.")
-      |> redirect(to: ~p"/")
+      |> redirect(to: return_to || ~p"/")
     else
       _error ->
         conn
         |> put_flash(:error, "Sign-in failed. Request a new code.")
-        |> redirect(to: ~p"/sign-in")
+        |> redirect(to: ReturnPath.sign_in_path(return_to))
     end
   end
 

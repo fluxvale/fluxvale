@@ -4,7 +4,7 @@ merged-into banner. The interactive layer mounts as live_render islands
 (T5, ADR-0026 S4): the vote island (count + cast/retract) and the
 comments island (list + form) — both SSR their initial render, so the
 document stays crawlable. --%>
-<Layouts.public flash={@flash} current_user={@current_user}>
+<Layouts.public flash={@flash} current_user={@current_user} return_to={@return_to}>
   <article class="mx-auto w-full max-w-2xl">
     <.button variant="ghost" size="sm" navigate={~p"/feedback"} class="-ml-2 mb-4">
       &larr; Feedback
@@ -54,12 +54,17 @@ document stays crawlable. --%>
 
     <%!-- The vote island: count + cast/retract, branched on the shared
     gate predicate (T5). The session token rides so the child resolves
-    the actor display-only. --%>
+    the actor display-only; #462 rides the page's own return path so
+    the CTA keeps the query the visitor loaded. --%>
     {live_render(
       @conn,
       FluxValeWeb.FeedbackLive.VoteIsland,
       id: "feedback-vote-island-#{@post.id}",
-      session: %{"user_token" => @user_token, "slug" => @post.slug}
+      session: %{
+        "user_token" => @user_token,
+        "slug" => @post.slug,
+        "return_to" => @return_to
+      }
     )}
 
     <div class="mt-6">
@@ -72,12 +77,17 @@ document stays crawlable. --%>
     </div>
 
     <%!-- The comments island: list + form, any signed-in actor may
-    comment (the owner's Nov ruling), anonymous reads. --%>
+    comment (the owner's Nov ruling), anonymous reads. The island's
+    session carries the page's return path like the vote island's. --%>
     {live_render(
       @conn,
       FluxValeWeb.FeedbackLive.CommentsIsland,
       id: "feedback-comments-island-#{@post.id}",
-      session: %{"user_token" => @user_token, "slug" => @post.slug}
+      session: %{
+        "user_token" => @user_token,
+        "slug" => @post.slug,
+        "return_to" => @return_to
+      }
     )}
   </article>
 </Layouts.public>

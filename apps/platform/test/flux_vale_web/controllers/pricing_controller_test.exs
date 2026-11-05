@@ -14,6 +14,24 @@ defmodule FluxValeWeb.PricingControllerTest do
     assert html_response(conn, 200) =~ "Prices follow the resources an app gets"
   end
 
+  # #462: the anonymous funnel entry carries the pricing page back
+  # through sign-in — the Get started tour resumes where it left off.
+  test "GET /pricing's Get started sign-in link carries the return path", %{conn: conn} do
+    conn = get(conn, ~p"/pricing")
+    html = html_response(conn, 200)
+
+    assert html =~ ~s(href="/sign-in?return_to=%2Fpricing")
+  end
+
+  # #462: the query rides along (MaybeResolveUser's assign) — campaign
+  # parameters survive the sign-in round trip like an invitation token.
+  test "GET /pricing's chrome links keep the query string in the return path", %{conn: conn} do
+    conn = get(conn, "/pricing?utm_source=test")
+    html = html_response(conn, 200)
+
+    assert html =~ ~s(href="/sign-in?return_to=%2Fpricing%3Futm_source%3Dtest")
+  end
+
   # #440 + #469: the calculator fills the mount point — the child
   # LiveView's SSR, so crawlers see a formed calculator state: the
   # default small rungs priced through price_allocation (the mount is a

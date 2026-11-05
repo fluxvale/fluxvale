@@ -2,7 +2,7 @@
 date + linked title + description per row, not a card wall. Draft rows
 (when listed) carry the badge; the post body styles live in blog.css
 scoped under .blog. --%>
-<Layouts.public flash={@flash} current_user={@current_user}>
+<Layouts.public flash={@flash} current_user={@current_user} return_to={@return_to}>
   <div class="blog">
     <header class="blog-head">
       <p class="eyebrow">FluxVale</p>

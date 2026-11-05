@@ -5,7 +5,7 @@ duplicate posts never render (duplicates fold into their originals'
 presence), and each item carries its tag chips (T10, display only —
 the row is one link). Static like the board — crawlers get the full
 document with zero JS. --%>
-<Layouts.public flash={@flash} current_user={@current_user}>
+<Layouts.public flash={@flash} current_user={@current_user} return_to={@return_to}>
   <div class="space-y-8">
     <.header>
       {gettext("Roadmap")}

@@ -108,6 +108,73 @@ defmodule FluxValeWeb.SessionControllerTest do
     end
   end
 
+  # #462: the return path lands the visitor back where they came from —
+  # and never outside the site. These are controller-level pins (the
+  # LiveView carry is SignInTest's, the guard table ReturnPathTest's).
+  describe "return path (#462)" do
+    setup do
+      AccessRule.create!(%{domain: "fluxvale.com"}, authorize?: false)
+      :ok
+    end
+
+    defp signed_in_redirect(conn, params) do
+      user =
+        User.create!("return-to-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      {:ok, token, _claims} = Jwt.token_for_user(user)
+
+      conn
+      |> Plug.Test.init_test_session(%{})
+      |> fetch_flash()
+      |> FluxValeWeb.SessionController.create(Map.put(params, "token", token))
+      |> redirected_to()
+    end
+
+    test "a local return_to redirects there", %{conn: conn} do
+      assert signed_in_redirect(conn, %{"return_to" => "/feedback/some-post"}) ==
+               "/feedback/some-post"
+    end
+
+    test "a crafted external return_to is refused and falls back to the default landing" do
+      # The shapes the guard exists for: protocol-relative, its
+      # backslash twins (leading and mid-string), a newline (Plug's
+      # header write would raise), and an absolute scheme.
+      assert signed_in_redirect(build_conn(), %{"return_to" => "//evil.com"}) == ~p"/"
+      assert signed_in_redirect(build_conn(), %{"return_to" => "/\\evil.com"}) == ~p"/"
+      assert signed_in_redirect(build_conn(), %{"return_to" => "/feedback/a\\b"}) == ~p"/"
+      assert signed_in_redirect(build_conn(), %{"return_to" => "/feedback\nx"}) == ~p"/"
+      assert signed_in_redirect(build_conn(), %{"return_to" => "https://evil.com"}) == ~p"/"
+    end
+
+    test "no return_to keeps the default landing" do
+      assert signed_in_redirect(build_conn(), %{}) == ~p"/"
+    end
+
+    # The retry arm (#462 review): a failed session write must not drop
+    # the carried return path, or the flow's own contract forks — the
+    # visitor re-requests a code on a sign-in page that forgot where
+    # they were going.
+    test "a failed session write re-links sign-in with the return path", %{conn: conn} do
+      # The describe setup's fluxvale.com allowlist refuses this address:
+      # the session write fails.
+      user =
+        User.create!("return-retry-#{System.unique_integer()}@example.com", %{},
+          authorize?: false
+        )
+
+      {:ok, token, _claims} = Jwt.token_for_user(user)
+
+      conn =
+        conn
+        |> Plug.Test.init_test_session(%{})
+        |> fetch_flash()
+        |> FluxValeWeb.SessionController.create(%{"token" => token, "return_to" => "/feedback/x"})
+
+      assert redirected_to(conn) == "/sign-in?return_to=%2Ffeedback%2Fx"
+      refute Plug.Conn.get_session(conn, "user_token")
+    end
+  end
+
   # #74: sign-out revokes the session's tokens (the store, not just the
   # cookie) and clears the session — the revoked token can't ride the
   # session back in. #473: the destination is the landing page, not the

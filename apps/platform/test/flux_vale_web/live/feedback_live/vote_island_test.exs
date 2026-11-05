@@ -47,6 +47,12 @@ defmodule FluxValeWeb.FeedbackLive.VoteIslandTest do
 
     assert has_element?(view, "[data-testid='vote-count']", "4 votes")
     assert has_element?(view, "[data-testid='vote-sign-in']", "Sign in to vote")
+    # #462: the CTA carries the post page back through sign-in
+    assert has_element?(
+             view,
+             "a[data-testid='vote-sign-in'][href='/sign-in?return_to=%2Ffeedback%2F#{post.slug}']"
+           )
+
     refute has_element?(view, "[data-testid='vote-toggle']")
     refute has_element?(view, "[data-testid='vote-gate-copy']")
   end

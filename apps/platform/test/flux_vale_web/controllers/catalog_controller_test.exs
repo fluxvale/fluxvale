@@ -52,6 +52,16 @@ defmodule FluxValeWeb.CatalogControllerTest do
       assert html =~ ~s(src="https://example.com/icon.png")
     end
 
+    # #462: the anonymous chrome's sign-in links carry the page back
+    # through sign-in (the chrome attr threads MaybeResolveUser's assign).
+    test "anonymous chrome sign-in links carry the return path", %{conn: conn} do
+      app = catalog_app!()
+
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
+
+      assert html =~ ~s(href="/sign-in?return_to=%2Fcatalog%2F#{app.slug}")
+    end
+
     test "renders the empty state", %{conn: conn} do
       conn = get(conn, ~p"/catalog")
 

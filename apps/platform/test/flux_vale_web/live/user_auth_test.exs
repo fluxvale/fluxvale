@@ -11,6 +11,7 @@ defmodule FluxValeWeb.UserAuthTest do
   alias AshAuthentication.TokenResource.Actions
   alias FluxVale.Ops.AccessRule
   alias FluxVale.TestSupport.SessionHelpers
+  alias FluxValeWeb.UserAuth
 
   test "a valid session mounts and assigns the actor", %{conn: conn} do
     {_user, conn} = SessionHelpers.user_with_session(conn)
@@ -21,11 +22,20 @@ defmodule FluxValeWeb.UserAuthTest do
     assert html =~ "Sign out"
   end
 
-  test "no session redirects to /sign-in", %{conn: conn} do
+  test "no session redirects to /sign-in with the request path back", %{conn: conn} do
     conn = Plug.Test.init_test_session(conn, %{})
 
     assert {:error, {:redirect, %{to: to}}} = live(conn, ~p"/apps")
-    assert to == ~p"/sign-in"
+    # #462: the gate's redirect carries the return path — sign-in lands
+    # the visitor back on the gated page they hit
+    assert to == "/sign-in?return_to=%2Fapps"
+  end
+
+  test "the gate's return path preserves the query string", %{conn: conn} do
+    conn = Plug.Test.init_test_session(conn, %{})
+
+    assert {:error, {:redirect, %{to: to}}} = live(conn, "/invitations/accept?token=abc123")
+    assert to == "/sign-in?return_to=%2Finvitations%2Faccept%3Ftoken%3Dabc123"
   end
 
   test "a revoked session token redirects — LiveView use is severed too", %{conn: conn} do
@@ -43,7 +53,7 @@ defmodule FluxValeWeb.UserAuthTest do
       |> Plug.Conn.put_session("user_token", token)
 
     assert {:error, {:redirect, %{to: to}}} = live(conn, ~p"/apps")
-    assert to == ~p"/sign-in"
+    assert to == "/sign-in?return_to=%2Fapps"
   end
 
   test "an AccessRule-denied actor redirects (same gate as the API plug)", %{conn: conn} do
@@ -60,6 +70,18 @@ defmodule FluxValeWeb.UserAuthTest do
       |> Plug.Conn.put_session("user_token", token)
 
     assert {:error, {:redirect, %{to: to}}} = live(conn, ~p"/apps")
-    assert to == ~p"/sign-in"
+    assert to == "/sign-in?return_to=%2Fapps"
+  end
+
+  # The connected-remount arm: a live socket's connect_info is the
+  # transport's socket map (no request conn, no path to return to) —
+  # the redirect falls back to plain /sign-in.
+  test "a connect_info that is not a request conn redirects without a return path", %{
+    conn: _conn
+  } do
+    socket = %Phoenix.LiveView.Socket{private: %{connect_info: %{session: %{}}}}
+
+    assert {:halt, %Phoenix.LiveView.Socket{redirected: {:redirect, %{to: "/sign-in"}}}} =
+             UserAuth.on_mount(:ensure_authenticated, %{}, %{}, socket)
   end
 end
