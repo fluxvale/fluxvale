@@ -8,7 +8,7 @@
 # Dev-only capture tooling: rows are unique-per-run and land in the dev
 # DB. Run from apps/platform: mix run ../e2e/members_lifecycle_seed.exs
 
-n = System.unique_integer([:positive])
+n = System.system_time(:microsecond)
 
 owner_email = "capture-owner-#{n}@fluxvale.test"
 member_email = "capture-member-#{n}@fluxvale.test"

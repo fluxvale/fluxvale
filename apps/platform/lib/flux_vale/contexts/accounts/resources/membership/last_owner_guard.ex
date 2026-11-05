@@ -97,8 +97,9 @@ defmodule FluxVale.Accounts.Membership.LastOwnerGuard do
   end
 
   defp gone(changeset) do
-    # coveralls-ignore-next-line - reachable only in the teardown race
-    # window above, not simulatable under the sandbox
+    # Reachable only in the teardown race window above, not simulatable
+    # under the sandbox (the RemoveGuard posture for the same shape).
+    # coveralls-ignore-next-line
     Ash.Changeset.add_error(changeset, field: :role, message: "membership no longer exists")
   end
 

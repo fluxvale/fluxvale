@@ -26,16 +26,20 @@ async function sessionFor(token) {
   const page = await ctx.newPage();
   await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
   const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
+  // maxRedirects: 0 — the controller answers a REJECTED token with a
+  // 302 to /sign-in and a SUCCESS with a 302 to /; redirects followed,
+  // both would end in a 200 and a wrong page would capture (found by
+  // the review). The location header is the verdict.
   const session = await page.request.post(`${BASE}/auth/session`, {
     form: { token },
     headers: { "x-csrf-token": csrf },
+    maxRedirects: 0,
   });
 
-  // Fail fast: a bad token or CSRF answer would otherwise capture the
-  // sign-in page and still print "captured ...png".
-  if (!session.ok()) {
+  const location = session.headers().location ?? "";
+  if (session.status() !== 302 || !location.endsWith("/")) {
     console.error(
-      `session setup failed (POST /auth/session -> ${session.status()}) — refusing to capture the wrong page`,
+      `session setup failed (POST /auth/session -> ${session.status()} -> ${location || "no redirect"}) — refusing to capture the wrong page`,
     );
     process.exit(1);
   }
