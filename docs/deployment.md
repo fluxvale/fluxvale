@@ -201,10 +201,11 @@ after `migrate` — [ADR-0033](adr/00033-auto-seed-on-deploy.md); dev
 (+ its personal org), prices, tax rates, catalog. Idempotent — a
 re-run changes nothing except reverting admin edits to the shipped
 YAML rows (edit the YAML, not the row). Demo feedback-board content
-(#412) is gated: non-prod runtimes seed it (dev by config, staging and
-review environments by setting `DEMO_SEEDS_ENABLED`), prod never does —
-the flag is inert on a production `PLATFORM_ENV` boot — so the board
-launches honestly empty and the AccessRule invite cohort fills it.
+(#412) is gated: every non-production runtime seeds it by construction
+(dev by config, staging/review/local via the `PLATFORM_ENV` rule in
+runtime.exs), production never does — no env var can flip it — so the
+board launches honestly empty there and the AccessRule invite cohort
+fills it.
 
 Readiness backstops the seed: `/health/ready` fails 503 with an error
 log naming any missing invariant (pricing, catalog, exactly one

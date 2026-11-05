@@ -2,7 +2,7 @@
  * a tagged post page, light + dark. Anonymous surfaces — no session
  * minting needed (the blog lane's pattern). The tags and the tagged
  * posts come from the seeds: `seed_tags!/0` arms the vocabulary and the
- * demo posts (DEMO_SEEDS_ENABLED posture) carry pairings, so a fresh
+ * demo posts (the non-prod seeding posture) carry pairings, so a fresh
  * `mix setup` dev server has them.
  *
  * Usage: node feedback_tags_screenshot.mjs <outdir>

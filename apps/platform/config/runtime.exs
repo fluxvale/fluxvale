@@ -500,16 +500,24 @@ if System.get_env("STORYBOOK_ENABLED") in ["true", "1"] do
   config :flux_vale, :storybook_enabled, true
 end
 
-# Demo feedback-board content (#412): the opt-in for prod-mode releases
-# (staging, review environments) — dev defaults it on in config/dev.exs
-# and prod leaves this unset, so the board launches honestly empty. Same
-# gated-release shape as the TestInbox above: gate on the VALUE, not the
-# var's presence. AND the flag only ever applies outside production: the
-# PLATFORM_ENV above is required and validated at every prod-mode boot,
-# so one overlay typo on DEMO_SEEDS_ENABLED alone cannot publish
-# fabricated votes on a production release (#426 fix round 2).
-if System.get_env("DEMO_SEEDS_ENABLED") in ["true", "1"] and
-     Application.get_env(:flux_vale, :platform_env) != "production" do
+# Demo feedback-board content (#412): NON-PRODUCTION prod-mode releases
+# (staging, review, local) seed the demo board BY DESIGN — the public
+# board's content assertions and human previews expect a living board
+# there, and the honestly-empty launch posture belongs to production
+# alone. The discriminator is the PLATFORM_ENV var itself, read HERE
+# and not off the application environment: config writes earlier in
+# this file (the #196 block above) buffer in the evaluating process and
+# only reach Application.get_env AFTER the whole file evaluates — an
+# app-env read at this point sees the config.exs-baked value and
+# cannot tell production from staging (the stale-read lesson, which
+# the retired DEMO_SEEDS gate shared: its hardening never actually
+# fired). In :prod the var is required and validated above, so this
+# read is the real discriminator; the KNOWN non-production values seed,
+# and everything else — production and any typo of it alike ("prod"
+# passes the k8s-label validation and would seed a production release;
+# the review that caught this) — stays honestly empty. New environment
+# values join this list deliberately, never by accident.
+if config_env() == :prod and System.get_env("PLATFORM_ENV") in ~w(staging review local) do
   config :flux_vale, :seed_demo_content, true
 end
 

@@ -58,8 +58,8 @@ defmodule FluxVale.Release do
   (operator bring-up path, not the advisory-locked init container).
   Per-env FeatureFlag and AccessRule values are AshAdmin-administered,
   never seeded (docs/deployment.md). Demo feedback-board content seeds
-  only where the runtime opts in (`DEMO_SEEDS_ENABLED`): prod launches
-  the board honestly empty.
+  on every runtime except production (runtime.exs's PLATFORM_ENV rule):
+  prod launches the board honestly empty.
   """
   @spec seed :: :ok
   def seed do
