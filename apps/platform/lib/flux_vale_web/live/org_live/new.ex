@@ -1,19 +1,23 @@
 defmodule FluxValeWeb.OrganizationLive.New do
   @moduledoc """
-  The org creation page (#408): the switcher footer entry's target — the
-  owner's original ask. Name + address slug, submitted straight onto the
-  `:create_with_owner` action through an AshPhoenix.Form (ADR-0002
-  forms-straight-onto-resources); `Accounts.create_organization/2` is the
-  same seam. Success redirects flash-free to the new org's home — its
-  empty state already says "Deploy this organization's first app from the
-  catalog."
+  The org creation page (#408): the switcher footer entry's target. One
+  input, the name. The address derives from it on every validate — plain
+  Elixir here, never a JS fork of the slug regex — and reads back live in
+  the preview line; there is no manual slug field in v1. Submit sends
+  name plus the derived slug straight onto the `:create_with_owner`
+  action through an AshPhoenix.Form (ADR-0002
+  forms-straight-onto-resources); `Accounts.create_organization/2` is
+  the same seam. Success redirects flash-free to the new org's home —
+  its empty state is the welcome, and carries the next step (invite
+  people).
 
-  The slug suggestion is a HINT derived from the name on validate (plain
-  Elixir in this LiveView, never a JS fork of the slug regex): the
-  server's validations stay the authority, the hint can still collide or
-  hit a reserved word, and the user can edit the slug freely. The cap
-  refusal (an actor at the ten-org cap) is not a field problem — it
-  surfaces as a friendly flash instead.
+  The derivation is the only writer of the slug on this page. A derived
+  address that is taken or reserved cannot be fixed by editing a slug
+  input (there is none), so the failed submit says so in one plain line
+  under the preview: adjust the name. An empty derivation (no name yet)
+  is the preview's empty state instead. The cap refusal (an actor at the
+  ten-org cap) is not a name problem at all — it surfaces as a friendly
+  flash instead.
   """
 
   use FluxValeWeb, :live_view
@@ -22,8 +26,8 @@ defmodule FluxValeWeb.OrganizationLive.New do
   alias FluxVale.Checks.ActorBelowOrgCreateCap
 
   # The actor path's slug cap (create_with_owner's string_length) — the
-  # hint truncates to it so the suggestion never sets the user up for a
-  # cap error. Mirrors the settings page's maxlength.
+  # derivation truncates to it so a derived address never sets the user
+  # up for a cap error. Mirrors the settings page's maxlength.
   @slug_cap 39
 
   # The mount-time gate IS the live_session: :authenticated's on_mount
@@ -34,21 +38,24 @@ defmodule FluxValeWeb.OrganizationLive.New do
     socket =
       socket
       |> assign(form: build_form(socket.assigns.current_user))
-      |> assign(slug_source: :name)
+      |> assign(address_refused?: false)
 
     {:ok, socket}
   end
 
   @impl Phoenix.LiveView
   def handle_event("validate", %{"organization" => params}, socket) do
-    {params, source} = reconcile_slug(params, socket.assigns)
+    params = Map.put(params, "slug", slug_suggestion(params["name"]))
     form = AshPhoenix.Form.validate(socket.assigns.form, params)
 
-    {:noreply, assign(socket, form: form, slug_source: source)}
+    # A fresh input invalidates the refusal line: it described the
+    # previous derivation, and this validate derived a new one.
+    {:noreply, assign(socket, form: form, address_refused?: false)}
   end
 
   @impl Phoenix.LiveView
   def handle_event("save", %{"organization" => params}, socket) do
+    params = Map.put(params, "slug", slug_suggestion(params["name"]))
     form = AshPhoenix.Form.validate(socket.assigns.form, params)
 
     case AshPhoenix.Form.submit(form, params: form.params) do
@@ -58,29 +65,31 @@ defmodule FluxValeWeb.OrganizationLive.New do
         {:noreply, push_navigate(socket, to: ~p"/organizations/#{org.slug}")}
 
       {:error, form} ->
-        if field_free?(form) and cap_refused?(socket.assigns.current_user) do
-          # The cap refusal rides no field (Forbidden.Policy implements
-          # no AshPhoenix.FormData.Error), so field-scoped errors take
-          # precedence — the flash must not misdiagnose an at-cap
-          # user's bad-format submit. Classification re-runs the cap
-          # count the refusing policy just used (ActorBelowOrgCreateCap.
-          # below_cap?/1). A membership removed in that re-run gap
-          # reclassifies the refusal as silent — cosmetic only; the
-          # gate is and stays the policy's.
-          #
-          # Copy ties to ActorBelowOrgCreateCap's @org_create_cap — the
-          # NewTest flash assertion catches drift between the two.
-          {:noreply,
-           socket
-           |> put_flash(
-             :error,
-             "You already own 10 organizations. That is the limit for now."
-           )
-           |> assign(:form, form)}
-        else
-          # Field problems stay field-scoped under the inputs.
-          {:noreply, assign(socket, :form, form)}
-        end
+        socket =
+          if field_free?(form) and cap_refused?(socket.assigns.current_user) do
+            # The cap refusal rides no field (Forbidden.Policy implements
+            # no AshPhoenix.FormData.Error), so field-scoped errors take
+            # precedence — the flash must not misdiagnose an at-cap
+            # user's bad-format submit. Classification re-runs the cap
+            # count the refusing policy just used (ActorBelowOrgCreateCap.
+            # below_cap?/1). A membership removed in that re-run gap
+            # reclassifies the refusal as silent — cosmetic only; the
+            # gate is and stays the policy's.
+            #
+            # Copy ties to ActorBelowOrgCreateCap's @org_create_cap — the
+            # NewTest flash assertion catches drift between the two.
+            put_flash(
+              socket,
+              :error,
+              "You already own 10 organizations. That is the limit for now."
+            )
+          else
+            # The name's own problems render field-scoped; a refused
+            # address renders as the one plain line under the preview.
+            assign(socket, address_refused?: address_refused?(form, params["slug"]))
+          end
+
+        {:noreply, assign(socket, :form, form)}
     end
   end
 
@@ -92,25 +101,24 @@ defmodule FluxValeWeb.OrganizationLive.New do
     not ActorBelowOrgCreateCap.below_cap?(user)
   end
 
-  # The hint follows the name only while the slug field itself has not
-  # been typed into (the :name source). An incoming slug that differs
-  # from the rendered one is the user's edit — the field stops following
-  # the name from then on.
-  defp reconcile_slug(params, assigns) do
-    rendered = assigns.form[:slug].value || ""
-    incoming = Map.get(params, "slug", "")
+  # The one refusal line: the derived address failed a slug rule. An
+  # empty derivation is NOT a refused address — it is the preview's
+  # empty state ("taken" would be false there); the name's own required
+  # error speaks for it.
+  defp address_refused?(form, derived) do
+    derived != "" and slug_errored?(form)
+  end
 
-    if assigns.slug_source == :user or incoming != rendered do
-      {params, :user}
-    else
-      {Map.put(params, "slug", slug_suggestion(params["name"])), :name}
-    end
+  defp slug_errored?(form) do
+    form
+    |> AshPhoenix.Form.errors()
+    |> Keyword.has_key?(:slug)
   end
 
   # The slug rules as a derivation: lowercase, runs of anything else
   # become one hyphen, hyphens trimmed off the ends, then the cap. An
-  # all-invalid name derives "" — the empty field, not an error (the
-  # server's validations are the authority).
+  # all-invalid name derives "" — the preview's empty state, not an
+  # error (the server's validations are the authority).
   defp slug_suggestion(name) when name in [nil, ""], do: ""
 
   defp slug_suggestion(name) do
@@ -191,7 +199,7 @@ defmodule FluxValeWeb.OrganizationLive.New do
                 <div>
                   <h2 class="text-base font-medium text-ink">New organization</h2>
                   <p class="mt-1 text-sm text-ink-muted">
-                    A team space for apps and instances, separate from your personal account.
+                    A space for apps and instances, separate from your personal account.
                   </p>
                 </div>
 
@@ -202,16 +210,22 @@ defmodule FluxValeWeb.OrganizationLive.New do
                   required
                   data-testid="org-new-name-input"
                 />
-                <.input
-                  field={@form[:slug]}
-                  label="Slug"
-                  maxlength={39}
-                  required
-                  data-testid="org-new-slug-input"
-                />
+
+                <%!-- The derived address, visible before submitting. A
+                plain element (not an input): the client never restores
+                its value over the server's patch, so the live
+                derivation cannot be clobbered. --%>
                 <p class="text-xs text-ink-subtle" data-testid="slug-preview">
-                  Your organization will live at
-                  <span class="font-mono text-ink-muted">/organizations/{@form[:slug].value}</span>
+                  <%= if @form[:slug].value in [nil, ""] do %>
+                    Add a name to see its address.
+                  <% else %>
+                    Your organization will live at
+                    <span class="font-mono text-ink-muted">/organizations/{@form[:slug].value}</span>
+                  <% end %>
+                </p>
+
+                <p :if={@address_refused?} class="text-xs text-ink" data-testid="address-refused">
+                  That address is taken. Try a different name.
                 </p>
 
                 <div class="flex justify-end">
