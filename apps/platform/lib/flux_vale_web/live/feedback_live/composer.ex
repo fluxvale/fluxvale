@@ -171,8 +171,15 @@ defmodule FluxValeWeb.FeedbackLive.Composer do
   # refusal is one inline sentence, no ops-visible warning.
   defp create_error(socket, form) do
     cond do
+      # coveralls-ignore-start - the submit-time unique_slug race, same
+      # race the generic copy below covers: the conflict surfaces as a
+      # slug form error, and no composer input renders slug — staging it
+      # needs concurrent submits, not reasonable in ExUnit. The form
+      # re-renders silently; neither error copy fits this shape.
       AshPhoenix.Form.errors(form) != [] ->
         assign(socket, form: form)
+
+      # coveralls-ignore-stop
 
       gate(socket.assigns.user, socket.assigns.selected_org_id) == :allowed ->
         # coveralls-ignore-start - submit-time surprises: the unique_slug
