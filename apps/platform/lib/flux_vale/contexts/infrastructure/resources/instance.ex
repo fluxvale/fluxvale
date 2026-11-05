@@ -143,8 +143,10 @@ defmodule FluxVale.Infrastructure.Instance do
 
       # instances:write — the generic :create (#362, the CLI's deploy
       # command). The action's accept list is name, cpu_cores,
-      # memory_mb, storage_gb, env_vars, app_version_id — org/cluster
-      # and the deploy blueprint are derived server-side. Wire caveat
+      # memory_mb, storage_gb, env_vars, app_version_id — the cluster
+      # and the deploy blueprint stay derived server-side; the org is
+      # caller-namable via the organization_id argument (member-fenced,
+      # #408). Wire caveat
       # (measured, not assumed): hide_fields strips env_vars from the
       # create route's REQUEST schema too (ash_json_api applies it in
       # both directions), so a body carrying env_vars is a 400
@@ -244,10 +246,18 @@ defmodule FluxVale.Infrastructure.Instance do
 
     policy action_type(:create) do
       description(
-        "#124's deploy gate: any signed-in actor with a funded org wallet creates instances (org resolved from actor) — policy-land, so the API can't bypass it"
+        "#124's deploy gate: any signed-in actor with a funded org wallet creates instances into an org they belong to (the named-org context or the personal default, #408) — policy-land, so the API can't bypass it"
       )
 
       forbid_unless(actor_present())
+
+      # The membership fence for the NAMED org (#408): the tenancy change
+      # sets organization_id from the create's argument before policies
+      # run, so this reads the org the row will carry — a non-member
+      # naming a funded org is Forbidden, the wallet check alone would
+      # let them through. (The row-scoped relate fence is unreliable on
+      # creates — see the check's moduledoc.)
+      forbid_unless(FluxVale.Checks.ActorIsOrganizationMember)
       authorize_if(FluxVale.Checks.ActorOrgWalletFunded)
     end
 
@@ -592,9 +602,10 @@ defmodule FluxVale.Infrastructure.Instance do
   relationships do
     belongs_to :organization, FluxVale.Accounts.Organization do
       # allow_nil? true + presence validation: SetOrganizationFromActor
-      # resolves it from the actor's membership before validations run
-      # (derived-field pattern). The org is the single ownership axis
-      # (#119) — instances have no user FK.
+      # resolves it from the create's named-org context or the actor's
+      # membership before validations run (derived-field pattern). The
+      # org is the single ownership axis (#119) — instances have no user
+      # FK.
       public?(true)
     end
 
@@ -622,6 +633,11 @@ defmodule FluxVale.Infrastructure.Instance do
 
     create :create do
       accept([:name, :cpu_cores, :memory_mb, :storage_gb, :env_vars, :app_version_id])
+
+      # The create's org context (#408): naming an org deploys into it
+      # (member-fenced by the create policy); leaving it nil keeps the
+      # actor's personal org as the default.
+      argument(:organization_id, :uuid, allow_nil?: true)
 
       change(SetOrganizationFromActor)
       change(ResolveCluster)

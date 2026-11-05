@@ -34,10 +34,9 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
 
     # S5: the personal org's access panel lives at /settings/access —
     # `org` (a real org) hosts the panel-behavior tests through its org
-    # URL; `personal` hosts the ENABLE tests, because the create action
-    # pins every gateway to the actor's personal org
-    # (SetOrganizationFromActor) — the same posture as the panel's own
-    # prefund/resume gates on that surface.
+    # URL; `personal` hosts the ENABLE tests, because that panel is the
+    # personal org's surface and its wallet is the one its own gates
+    # read (#408: every mount's enable names its own page org).
     personal = AccountsFixtures.personal_org!(owner)
     org = AccountsFixtures.owned_org!(owner)
 
@@ -90,16 +89,14 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       refute general_tab =~ "border-focus"
     end
 
-    test "an empty state reports the personal org's wallet, not the page org's", %{
+    test "an empty state reports the page org's wallet", %{
       conn: conn,
-      org: org,
-      personal: personal
+      org: org
     } do
-      # The enable create bills the ACTOR'S PERSONAL ORG
-      # (SetOrganizationFromActor) — the hints must report that wallet.
-      # The page org stays funded+paid (setup); draining the personal
-      # org is what lights the hint on this page.
-      drain_wallet!(personal)
+      # The enable create names the page org (#408) — the hints must
+      # report that wallet. Draining the page org is what lights the
+      # hint on its own page.
+      drain_wallet!(org)
 
       {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
 
@@ -107,17 +104,45 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       assert has_element?(view, "[data-testid='access-prefund-link']")
     end
 
-    test "a never-paid personal org sees the paid-gate callout even on a paid org's page", %{
-      conn: conn
+    test "enabling from an org page lands the gateway in the page org and bills its wallet", %{
+      conn: conn,
+      owner: owner,
+      org: org,
+      personal: personal
     } do
-      # The page org is funded+paid; the owner's personal org — the
-      # create's billing wallet — is never-paid on its JIT welcome
-      # credit alone. Today's split-bug shape: the page-org read showed
-      # no hint and the enable click died on a Forbidden.
+      # The divergence this closes (#408): under the old pin-the-personal
+      # behavior this enable answered on the ACTOR'S PERSONAL wallet —
+      # drained here, so the funded gate would refuse it. The page org is
+      # funded+paid (setup), and the created row must belong to it.
+      stub_provider()
+      drain_wallet!(personal)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      view
+      |> form("#access-enable-form",
+        gateway: %{auth_key: "tskey-auth-abc123", tailnet_domain: "example.ts.net"}
+      )
+      |> render_submit()
+
+      assert has_element?(view, "[data-testid='access-gateway-card']")
+
+      {:ok, gateway} = AccessGateway.get_for_organization(org.id, actor: owner)
+      assert gateway.organization_id == org.id
+    end
+
+    test "a never-paid page org sees the paid-gate callout", %{conn: conn} do
+      # The page org is funded but has never PAID (no purchase on its
+      # ledger): the paid-once gate's hint must show — the gate reads
+      # the page org's wallet (#408), wherever the actor's personal
+      # wallet stands (here paid and funded on its welcome credit).
       owner = AccountsFixtures.user!()
       org = AccountsFixtures.owned_org!(owner)
+      personal = AccountsFixtures.personal_org!(owner)
+
       BillingFixtures.funded_wallet!(org: org)
-      BillingFixtures.mark_paid!(org)
+      BillingFixtures.funded_wallet!(org: personal)
+      BillingFixtures.mark_paid!(personal)
 
       {:ok, view, _html} =
         live(SessionHelpers.sign_in(conn, owner), ~p"/organizations/#{org.slug}/settings/access")
@@ -168,12 +193,12 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
     end
   end
 
-  # The ENABLE path rides the personal panel (/settings/access): the
-  # create action pins every gateway to the actor's personal org
-  # (SetOrganizationFromActor), so the panel whose org the created row
-  # lands in is the personal one — and the actor owns EXACTLY that org:
-  # the canonical op reads the #408 marker, which provisioning stamped
-  # on the signup org, and every assertion here reads the pick.
+  # The ENABLE describe rides the personal panel (/settings/access): the
+  # personal org is the page org there, so its wallet is what the gates
+  # and hints read (#408: every mount names its own page org). The actor
+  # owns EXACTLY that org: the canonical op reads the #408 marker, which
+  # provisioning stamped on the signup org, and every assertion here
+  # reads the pick.
   describe "enabling private access" do
     setup %{conn: conn} do
       owner = AccountsFixtures.user!()
@@ -242,8 +267,8 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       conn: conn,
       personal: personal
     } do
-      # The create's funded gate reads the personal org's wallet
-      # (ActorOrgWalletFunded's create shape).
+      # The create's funded gate reads the page org's wallet (#408) —
+      # the personal org, on this mount.
       drain_wallet!(personal)
 
       {:ok, view, _html} = live(conn, ~p"/settings/access")
