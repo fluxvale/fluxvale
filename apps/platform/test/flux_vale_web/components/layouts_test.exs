@@ -3,8 +3,9 @@ defmodule FluxValeWeb.Components.LayoutsTest do
   The chrome contracts the app-wide grammar lane adds: `bare` flips main
   unbounded for band-capable pages while the default stays byte-identical,
   and `nav_section` (assigned by NavSection's on_mount, passed through by
-  callers like every chrome assign) marks exactly its section's header
-  link with the round-3 amber underline.
+  callers like every chrome assign) marks exactly its section's link —
+  the header's round-3 amber underline for catalog/instances, the user
+  menu's Billing row for billing (#467).
   """
 
   use ExUnit.Case, async: true
@@ -69,6 +70,12 @@ defmodule FluxValeWeb.Components.LayoutsTest do
       rows = aria_current(doc, "[data-testid='user-menu-panel'] a")
       assert rows["Billing"] == "page"
       assert rows["Account settings"] == nil
+
+      # The menu idiom (#319): ink + bold, never the header's underline.
+      classes = menu_row_classes(doc)
+      assert classes["Billing"] =~ "font-semibold"
+      assert "text-ink" in String.split(classes["Billing"], " ")
+      refute classes["Billing"] =~ "after:"
     end
 
     test "the section's folded menu row carries the active treatment" do
@@ -154,10 +161,22 @@ defmodule FluxValeWeb.Components.LayoutsTest do
       refute rows["Pricing"] =~ "sm:hidden"
     end
 
+    # #255's fold is per-row: each mirror of a below-sm-hidden header
+    # link carries sm:hidden, so no width shows both copies.
+    test "the fold rows gate below sm" do
+      html = render_component(&ChromeProbe.signed_in/1, [])
+      doc = LazyHTML.from_fragment(html)
+
+      rows = menu_row_classes(doc)
+
+      for label <- ["Catalog", "Instances", "Feedback"] do
+        assert rows[label] =~ "sm:hidden", "#{label} should fold below sm"
+      end
+    end
+
     # #255's fold survives the reshuffle: Catalog/Instances/Feedback
     # mirror the below-sm-hidden header links, then the every-width
-    # rows and the account entries. Sign out stays the panel's last
-    # action (the form button, not a link row).
+    # rows and the account entries. The panel text carries Sign out.
     test "the dropdown reads surface fold, then Pricing, then account entries" do
       html = render_component(&ChromeProbe.signed_in/1, [])
       doc = LazyHTML.from_fragment(html)

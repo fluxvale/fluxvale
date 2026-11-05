@@ -270,7 +270,9 @@ defmodule FluxValeWeb.Layouts do
               address — the frozen mirror is the fallback for an
               old-pod straggler with no verified primary row (see
               User.primary_email). #319: nav_section rides along so the
-              below-sm folded rows can mark the section active. --%>
+              menu rows can mark the section active — the below-sm
+              folded rows, and Billing's every-width row since its
+              header link retired (#467). --%>
               <.user_menu
                 username={@current_user.username}
                 email={@current_user.primary_email || @current_user.email}
