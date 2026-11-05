@@ -1,10 +1,11 @@
 defmodule FluxValeWeb.PricingCalculatorLiveTest do
   @moduledoc false
 
-  # The /pricing calculator (#440): embedded by the controller page, so
-  # the embed's SSR is asserted in pricing_controller_test. This file
-  # drives the child LiveView itself — live_isolated, because /pricing
-  # routes to a controller, not a live route (live/2 needs one).
+  # The /pricing calculator (#440, line items per #469): embedded by the
+  # controller page, so the embed's SSR is asserted in
+  # pricing_controller_test. This file drives the child LiveView itself
+  # — live_isolated, because /pricing routes to a controller, not a
+  # live route (live/2 needs one).
 
   use FluxValeWeb.ConnCase, async: true
 
@@ -70,12 +71,14 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     refute rendered =~ "size-chip"
   end
 
-  test "no app is selected at mount and no recommendation line exists", %{conn: conn} do
+  test "no app is selected at mount, Add is gated, and no estimate row exists", %{conn: conn} do
     {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
 
     assert has_element?(view, "#calculator-app-filter[value='']")
     refute has_element?(view, "[data-testid='calculator-app-recommendation']")
-    assert has_element?(view, "[data-testid='calculator-quantity']", "1")
+    assert has_element?(view, "#calculator-add-instances[disabled]")
+    refute has_element?(view, "[data-testid='calculator-estimate']")
+    refute has_element?(view, "[data-testid^='estimate-item-']")
   end
 
   # --- Slider moves ------------------------------------------------------------
@@ -146,6 +149,10 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     app = Ash.load!(version, :app, authorize?: false).app
 
     {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
+
+    # Add is gated until the pick.
+    assert has_element?(view, "#calculator-add-instances[disabled]")
+
     pick_app(view, slug)
 
     # The thumbs carry the recommendation's rung indices.
@@ -176,6 +183,7 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
            )
 
     refute has_element?(view, "#calculator-use-recommended")
+    refute has_element?(view, "#calculator-add-instances[disabled]")
   end
 
   test "a manual edit keeps the line and Use recommended restores the snap", %{conn: conn} do
@@ -209,9 +217,10 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     assert_total(view, allocation)
   end
 
-  # #440: the nil/off-ladder arm is a no-op — no snap, no line, the
-  # select falls back to the prompt so it never disagrees with the rungs.
-  test "an off-ladder recommendation is a no-op", %{conn: conn} do
+  # #440 + #469: the nil/off-ladder arm is a no-op on the RUNGS — no
+  # snap, no line — but the app still selects (Add needs a choice; the
+  # honesty rule only ever governed the callout, never the selection).
+  test "an off-ladder recommendation selects the app without a callout or a snap", %{conn: conn} do
     # 3 cores, 3000 MB, 7 GB: none of the three names a rung.
     version =
       InstanceFixtures.app_version!(
@@ -223,17 +232,23 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     slug = app_slug!(Ash.load!(version, :recommended_size, authorize?: false))
 
     {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
+
+    # Move off the default first: a recommendation-less pick must leave
+    # the rungs exactly where the visitor put them.
+    render_change(view, "resources-change", %{"resources" => %{"memory_mb" => "2"}})
+
     pick_app(view, slug)
 
     assert has_element?(view, "#resource-cpu-cores[value='1']")
-    assert has_element?(view, "#resource-memory-mb[value='0']")
+    assert has_element?(view, "#resource-memory-mb[value='2']")
     assert has_element?(view, "#resource-storage-gb[value='1']")
-    assert_total(view, small_allocation())
+    assert_total(view, %{cpu_cores: Decimal.new("0.5"), memory_mb: 2048, storage_gb: 10})
     refute has_element?(view, "[data-testid='calculator-app-recommendation']")
     assert has_element?(view, "#calculator-app-filter[value='']")
+    refute has_element?(view, "#calculator-add-instances[disabled]")
   end
 
-  test "a version with no recommended size is a silent no-op", %{conn: conn} do
+  test "a version with no recommended size still selects the app with no callout", %{conn: conn} do
     # The fixture's actions always attach a size, and both create and
     # update validate present(:recommended_size_id) — the pre-#125 nil
     # state is only Ash.Seed's to produce (the sanctioned case).
@@ -256,14 +271,16 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
     pick_app(view, app.slug)
 
-    # Nothing raises, the rungs stay at small, and the field falls back
-    # to empty. There is nothing to snap to and no line to show.
+    # Nothing raises, the rungs stay at the default, and the field falls
+    # back to empty. There is nothing to snap to and no line to show,
+    # but the choice sticks and unblocks Add.
     assert has_element?(view, "#resource-cpu-cores[value='1']")
     assert has_element?(view, "#resource-memory-mb[value='0']")
     assert has_element?(view, "#resource-storage-gb[value='1']")
     assert_total(view, small_allocation())
     refute has_element?(view, "[data-testid='calculator-app-recommendation']")
     assert has_element?(view, "#calculator-app-filter[value='']")
+    refute has_element?(view, "#calculator-add-instances[disabled]")
   end
 
   test "the latest version's recommendation is the one that snaps", %{conn: conn} do
@@ -342,6 +359,7 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
 
     assert_total(view, small_allocation())
     refute has_element?(view, "[data-testid='calculator-app-recommendation']")
+    assert has_element?(view, "#calculator-add-instances[disabled]")
   end
 
   test "a crafted slug payload shape is silence", %{conn: conn} do
@@ -492,7 +510,7 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     refute has_element?(view, "[data-testid='calculator-app-recommendation']")
   end
 
-  test "the explicit Clear empties the filter, drops the line, and keeps the rungs", %{
+  test "the explicit Clear empties the chooser and resets the rungs to the default", %{
     conn: conn
   } do
     fixture = InstanceFixtures.app_version!(default_memory_mb: 2048, default_storage_gb: 20)
@@ -507,9 +525,15 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
 
     refute has_element?(view, "[data-testid='calculator-app-recommendation']")
     assert has_element?(view, "#calculator-app-filter[value='']")
-    assert has_element?(view, "#resource-memory-mb[value='2']")
-    allocation = %{cpu_cores: Decimal.new("0.5"), memory_mb: 2048, storage_gb: 20}
-    assert_total(view, allocation)
+    assert has_element?(view, "#calculator-add-instances[disabled]")
+
+    # The rungs return to the default (small), not the snapped
+    # allocation — the next setup starts clean, and a later
+    # recommendation-less pick has no stale state to inherit.
+    assert has_element?(view, "#resource-cpu-cores[value='1']")
+    assert has_element?(view, "#resource-memory-mb[value='0']")
+    assert has_element?(view, "#resource-storage-gb[value='1']")
+    assert_total(view, small_allocation())
   end
 
   # --- Service toggles ---------------------------------------------------------
@@ -538,16 +562,32 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     assert_total(view, small_allocation())
   end
 
-  test "the domain toggle is free and adds nothing to either figure", %{conn: conn} do
+  # The calculator carries no custom-domain copy at all (#469): domains
+  # are free (ADR-0040 Amendment 2), so there is nothing to estimate.
+  # The sweep greps the whole rendered surface, not just the toggle —
+  # a stale string anywhere in the calculator is a finding.
+  test "no custom domain copy renders anywhere in the calculator", %{conn: conn} do
     {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
 
-    assert has_element?(view, "[data-testid='service-toggle-domain']", "Free")
+    rendered = strip_opaque_tokens(render(view))
+
+    refute rendered =~ ~r/domain/i
+    refute rendered =~ "topped-up"
+    refute rendered =~ "Hostnames under"
+    refute rendered =~ "DNS"
+    refute has_element?(view, "[data-testid='service-toggle-domain']")
+    assert has_element?(view, "[data-testid='service-toggle-gateway']")
+  end
+
+  test "a crafted services key naming a retired service reads as off", %{conn: conn} do
+    {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
 
     toggle_services(view, %{"domain" => "on"})
+
     assert_total(view, small_allocation())
   end
 
-  test "only the gateway contributes when both toggles are on", %{conn: conn} do
+  test "only the gateway contributes when every crafted key is sent", %{conn: conn} do
     {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
 
     toggle_services(view, %{"gateway" => "on", "domain" => "on"})
@@ -555,7 +595,7 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     assert_total(view, small_allocation(), AccessGateway.monthly_cents())
   end
 
-  test "the gateway explainer states what it is, how it bills, and where to set it up", %{
+  test "the gateway explainer names Tailscale, how it bills, and where to set it up", %{
     conn: conn
   } do
     {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
@@ -563,7 +603,7 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     assert has_element?(
              view,
              "[data-testid='gateway-explainer']",
-             "Private access to your apps without public exposure."
+             "Built on Tailscale: private access to your apps without public exposure."
            )
 
     assert has_element?(
@@ -599,60 +639,273 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     assert_total(view, small_allocation(), AccessGateway.monthly_cents())
   end
 
-  # --- Quantity ------------------------------------------------------------------
+  # --- Estimate line items (#469) --------------------------------------------------
 
-  test "the quantity multiplies the curve and bills services once", %{conn: conn} do
+  test "Add appends the setup as a row with the app, logo, allocation, and price, then resets the calculator",
+       %{conn: conn} do
+    icon = "https://example.com/icons/forgejo.svg"
+
+    fixture =
+      InstanceFixtures.app_version!(
+        icon_url: icon,
+        default_memory_mb: 2048,
+        default_storage_gb: 20
+      )
+
+    version = Ash.load!(fixture, :recommended_size, authorize?: false)
+    app = Ash.load!(version, :app, authorize?: false).app
+    allocation = %{cpu_cores: Decimal.new("0.5"), memory_mb: 2048, storage_gb: 20}
+
     {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
+    pick_app(view, app.slug)
+    add_setup(view)
+
+    # The row: the app's name, its logo, the chosen allocation, and the
+    # row's own price (the same price_allocation/1 call the hero uses).
+    assert has_element?(view, "[data-testid='estimate-item-1']")
+    assert has_element?(view, "[data-testid='estimate-app-1']", app.name)
+    assert has_element?(view, "[data-testid='estimate-item-1'] img[src='#{icon}']")
+
+    assert has_element?(
+             view,
+             "[data-testid='estimate-allocation-1']",
+             "0.5 CPU · 2048 MB · 20 GB"
+           )
+
+    assert_row_price(view, 1, allocation)
+
+    # The hero totals the committed row, and the row's allocation line
+    # replaces the hero's own once rows exist.
+    assert_estimate_total(view, [allocation])
+    refute has_element?(view, "[data-testid='calculator-allocation']")
+
+    # The reset: chooser empty, no recommendation, Add gated again, and
+    # the rungs back at the default.
+    assert has_element?(view, "#calculator-app-filter[value='']")
+    refute has_element?(view, "[data-testid='calculator-app-recommendation']")
+    assert has_element?(view, "#calculator-add-instances[disabled]")
+    assert has_element?(view, "#resource-cpu-cores[value='1']")
+    assert has_element?(view, "#resource-memory-mb[value='0']")
+    assert has_element?(view, "#resource-storage-gb[value='1']")
+  end
+
+  test "stacking different setups aggregates both figures over the rows", %{conn: conn} do
+    first = InstanceFixtures.app_version!(default_memory_mb: 2048, default_storage_gb: 20)
+    second = InstanceFixtures.app_version!(default_memory_mb: 4096, default_storage_gb: 50)
+
+    first_version = Ash.load!(first, :recommended_size, authorize?: false)
+    second_version = Ash.load!(second, :recommended_size, authorize?: false)
+    first_app = Ash.load!(first_version, :app, authorize?: false).app
+    second_app = Ash.load!(second_version, :app, authorize?: false).app
+
+    first_allocation = %{cpu_cores: Decimal.new("0.5"), memory_mb: 2048, storage_gb: 20}
+    second_allocation = %{cpu_cores: Decimal.new("0.5"), memory_mb: 4096, storage_gb: 50}
+
+    {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
+
+    pick_app(view, first_app.slug)
+    add_setup(view)
+
+    pick_app(view, second_app.slug)
+    add_setup(view)
+
+    assert has_element?(view, "[data-testid='estimate-app-1']", first_app.name)
+    assert has_element?(view, "[data-testid='estimate-app-2']", second_app.name)
+    assert_row_price(view, 1, first_allocation)
+    assert_row_price(view, 2, second_allocation)
+
+    # The hero and the stopped line both aggregate the DIFFERENT setups.
+    assert_estimate_total(view, [first_allocation, second_allocation])
+  end
+
+  test "once rows exist the hero holds the committed rows and the setup being built prices at Add",
+       %{conn: conn} do
+    fixture = InstanceFixtures.app_version!(default_memory_mb: 2048, default_storage_gb: 20)
+
+    version = Ash.load!(fixture, :recommended_size, authorize?: false)
+    app = Ash.load!(version, :app, authorize?: false).app
+
+    committed = %{cpu_cores: Decimal.new("0.5"), memory_mb: 2048, storage_gb: 20}
+
+    {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
+
+    # Before the first Add the hero live-prices the sliders (the classic
+    # calculator) and the setup block is absent — the hero IS the setup
+    # price.
+    refute has_element?(view, "[data-testid='calculator-setup-price']")
+    move_cpu(view, "3")
+    assert_total(view, %{cpu_cores: Decimal.new("2"), memory_mb: 512, storage_gb: 10})
+
+    pick_app(view, app.slug)
+    move_memory(view, "2")
+    move_storage(view, "2")
+    add_setup(view)
+
+    # After the Add the hero totals the row and no longer follows the
+    # sliders: building the next setup prices at the Add button instead.
+    move_cpu(view, "3")
+
+    assert_estimate_total(view, [committed])
+
+    setup = %{cpu_cores: Decimal.new("2"), memory_mb: 512, storage_gb: 10}
+    priced = Pricing.price_allocation(setup)
+
+    assert has_element?(
+             view,
+             "[data-testid='calculator-setup-price']",
+             Pricing.format_monthly_rate(priced.monthly_cents)
+           )
+
+    assert has_element?(
+             view,
+             "[data-testid='calculator-setup-stopped']",
+             "#{Pricing.format_usd(priced.stopped_monthly_cents)}/mo while stopped"
+           )
+
+    assert has_element?(
+             view,
+             "[data-testid='calculator-setup-allocation']",
+             "2 CPU · 512 MB · 10 GB"
+           )
+  end
+
+  test "identical setups stay separate rows and remove drops exactly one", %{conn: conn} do
+    fixture = InstanceFixtures.app_version!(default_memory_mb: 2048, default_storage_gb: 20)
+
+    version = Ash.load!(fixture, :recommended_size, authorize?: false)
+    app = Ash.load!(version, :app, authorize?: false).app
+
+    allocation = %{cpu_cores: Decimal.new("0.5"), memory_mb: 2048, storage_gb: 20}
+
+    {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
+
+    pick_app(view, app.slug)
+    add_setup(view)
+
+    pick_app(view, app.slug)
+    add_setup(view)
+
+    # Two identical setups are two rows — never a count — so removal is
+    # one gesture for one row.
+    assert has_element?(view, "[data-testid='estimate-item-1']")
+    assert has_element?(view, "[data-testid='estimate-item-2']")
+    assert has_element?(view, "[data-testid='estimate-app-1']", app.name)
+    assert has_element?(view, "[data-testid='estimate-app-2']", app.name)
+    assert_estimate_total(view, [allocation, allocation])
+
+    render_click(element(view, "[data-testid='estimate-remove-1']"))
+
+    refute has_element?(view, "[data-testid='estimate-item-1']")
+    assert has_element?(view, "[data-testid='estimate-item-2']")
+    assert_estimate_total(view, [allocation])
+
+    render_click(element(view, "[data-testid='estimate-remove-2']"))
+
+    refute has_element?(view, "[data-testid='estimate-item-2']")
+    refute has_element?(view, "[data-testid='calculator-estimate']")
+
+    # Back to the classic calculator: the hero live-prices the sliders
+    # again and the setup block is gone.
+    assert_total(view, small_allocation())
+    refute has_element?(view, "[data-testid='calculator-setup-price']")
+  end
+
+  test "the gateway bills once per organization however many rows exist", %{conn: conn} do
+    fixture = InstanceFixtures.app_version!(default_memory_mb: 2048, default_storage_gb: 20)
+
+    version = Ash.load!(fixture, :recommended_size, authorize?: false)
+    app = Ash.load!(version, :app, authorize?: false).app
+
+    allocation = %{cpu_cores: Decimal.new("0.5"), memory_mb: 2048, storage_gb: 20}
+
+    {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
+
+    pick_app(view, app.slug)
+    add_setup(view)
+
+    pick_app(view, app.slug)
+    add_setup(view)
+
     toggle_services(view, %{"gateway" => "on"})
 
-    render_click(view, "quantity-change", %{"delta" => "1"})
-    render_click(view, "quantity-change", %{"delta" => "1"})
-
-    assert has_element?(view, "[data-testid='calculator-quantity']", "3")
-
-    # Three instances at the same allocation, the gateway once.
-    assert_fleet_total(view, small_allocation(), 3, AccessGateway.monthly_cents())
+    # Two rows, one gateway: the accessor cents appear exactly once in
+    # both figures.
+    assert_estimate_total(view, [allocation, allocation], AccessGateway.monthly_cents())
   end
 
-  test "the allocation line reads per instance and names the count", %{conn: conn} do
+  test "a crafted Add with no app chosen is silence", %{conn: conn} do
     {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
 
-    assert has_element?(
-             view,
-             "[data-testid='calculator-allocation']",
-             "0.5 CPU · 512 MB · 10 GB per instance"
-           )
+    render_click(view, "add-instance", %{})
 
-    render_click(view, "quantity-change", %{"delta" => "1"})
-
-    assert has_element?(
-             view,
-             "[data-testid='calculator-allocation']",
-             "2 × 0.5 CPU · 512 MB · 10 GB per instance"
-           )
-  end
-
-  test "the quantity clamps at one and at the ceiling", %{conn: conn} do
-    {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
-
-    render_click(view, "quantity-change", %{"delta" => "-1"})
-    assert has_element?(view, "[data-testid='calculator-quantity']", "1")
-
-    for _count <- 1..25 do
-      render_click(view, "quantity-change", %{"delta" => "1"})
-    end
-
-    assert has_element?(view, "[data-testid='calculator-quantity']", "20")
-    assert has_element?(view, "#calculator-quantity-increase[disabled]")
-  end
-
-  test "a crafted quantity delta is silence", %{conn: conn} do
-    {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
-
-    render_click(view, "quantity-change", %{"delta" => "100"})
-
-    assert has_element?(view, "[data-testid='calculator-quantity']", "1")
+    refute has_element?(view, "[data-testid^='estimate-item-']")
     assert_total(view, small_allocation())
+  end
+
+  test "a crafted remove id that names no row is silence", %{conn: conn} do
+    fixture = InstanceFixtures.app_version!(default_memory_mb: 2048, default_storage_gb: 20)
+
+    version = Ash.load!(fixture, :recommended_size, authorize?: false)
+    app = Ash.load!(version, :app, authorize?: false).app
+
+    {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
+    pick_app(view, app.slug)
+    add_setup(view)
+
+    render_click(view, "remove-item", %{"id" => "99"})
+    render_click(view, "remove-item", %{"id" => "not-a-number"})
+    render_click(view, "remove-item", %{"other" => "shape"})
+
+    assert has_element?(view, "[data-testid='estimate-item-1']")
+  end
+
+  # The stream container unmounts when the last row leaves and remounts
+  # on the next Add — the boundary both directions, pinned.
+  test "adding again after the estimate empties lands a fresh row", %{conn: conn} do
+    fixture = InstanceFixtures.app_version!(default_memory_mb: 2048, default_storage_gb: 20)
+
+    version = Ash.load!(fixture, :recommended_size, authorize?: false)
+    app = Ash.load!(version, :app, authorize?: false).app
+    allocation = %{cpu_cores: Decimal.new("0.5"), memory_mb: 2048, storage_gb: 20}
+
+    {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
+
+    pick_app(view, app.slug)
+    add_setup(view)
+    render_click(element(view, "[data-testid='estimate-remove-1']"))
+
+    # Empty again: the hero returns to live-pricing the sliders.
+    assert_total(view, small_allocation())
+
+    pick_app(view, app.slug)
+    add_setup(view)
+
+    assert has_element?(view, "[data-testid='estimate-item-2']")
+    assert has_element?(view, "[data-testid='estimate-app-2']", app.name)
+    refute has_element?(view, "[data-testid='estimate-item-1']")
+    assert_estimate_total(view, [allocation])
+  end
+
+  test "Clear with rows present keeps the committed rows", %{conn: conn} do
+    fixture = InstanceFixtures.app_version!(default_memory_mb: 2048, default_storage_gb: 20)
+
+    version = Ash.load!(fixture, :recommended_size, authorize?: false)
+    app = Ash.load!(version, :app, authorize?: false).app
+    allocation = %{cpu_cores: Decimal.new("0.5"), memory_mb: 2048, storage_gb: 20}
+
+    {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
+
+    pick_app(view, app.slug)
+    add_setup(view)
+
+    # A second pick then Clear: the rows survive, only the chooser and
+    # rungs reset.
+    pick_app(view, app.slug)
+    render_click(element(view, "#calculator-app-clear"))
+
+    assert has_element?(view, "[data-testid='estimate-item-1']")
+    assert_estimate_total(view, [allocation])
+    assert has_element?(view, "#calculator-add-instances[disabled]")
   end
 
   # --- Crafted slider payloads -------------------------------------------------
@@ -724,33 +977,56 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     %{cpu_cores: Decimal.new("0.5"), memory_mb: 512, storage_gb: 10}
   end
 
-  # Both figures are one instance's curve at the rungs plus the enabled
-  # services' exact cents (they bill once, whatever the quantity). The
-  # gateway settles regardless of instance state, so the stopped line
-  # owes it too.
+  # The regime-1 figures: the live configuration's curve at the rungs
+  # plus the enabled services' exact cents (they bill once, whatever is
+  # queued). The gateway settles regardless of instance state, so the
+  # stopped line owes it too.
   defp assert_total(view, allocation, service_cents \\ 0) do
-    assert_fleet_total(view, allocation, 1, service_cents)
-  end
-
-  defp assert_fleet_total(view, allocation, quantity, service_cents) do
     priced = Pricing.price_allocation(allocation)
 
     assert has_element?(
              view,
              "[data-testid='calculator-total']",
-             Pricing.format_monthly_rate(priced.monthly_cents * quantity + service_cents)
+             Pricing.format_monthly_rate(priced.monthly_cents + service_cents)
            )
 
     assert has_element?(
              view,
              "[data-testid='calculator-price-stopped']",
-             stopped_label(allocation, quantity, service_cents)
+             "#{Pricing.format_usd(priced.stopped_monthly_cents + service_cents)}/mo while stopped"
            )
   end
 
-  defp stopped_label(allocation, quantity, service_cents) do
-    stopped = Pricing.price_allocation(allocation).stopped_monthly_cents * quantity
-    Pricing.format_usd(stopped + service_cents) <> "/mo while stopped"
+  # The regime-2 figures: the committed rows' curves, summed, plus the
+  # gateway once. Each row prices independently through
+  # price_allocation/1 and the hero adds the parts.
+  defp assert_estimate_total(view, allocations, service_cents \\ 0) do
+    priced = Enum.map(allocations, &Pricing.price_allocation/1)
+
+    monthly = Enum.sum_by(priced, & &1.monthly_cents) + service_cents
+    stopped = Enum.sum_by(priced, & &1.stopped_monthly_cents) + service_cents
+
+    assert has_element?(
+             view,
+             "[data-testid='calculator-total']",
+             Pricing.format_monthly_rate(monthly)
+           )
+
+    assert has_element?(
+             view,
+             "[data-testid='calculator-price-stopped']",
+             "#{Pricing.format_usd(stopped)}/mo while stopped"
+           )
+  end
+
+  defp assert_row_price(view, id, allocation) do
+    priced = Pricing.price_allocation(allocation)
+
+    assert has_element?(
+             view,
+             "[data-testid='estimate-price-#{id}']",
+             Pricing.format_monthly_rate(priced.monthly_cents)
+           )
   end
 
   # The chooser's result button, clicked the way a visitor activates it
@@ -759,6 +1035,21 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     view
     |> element("[data-testid='calculator-app-option-#{slug}']")
     |> render_click()
+  end
+
+  # The Add press, through the real (enabled) button.
+  defp add_setup(view) do
+    view
+    |> element("[data-testid='calculator-add-instances']")
+    |> render_click()
+  end
+
+  defp move_cpu(view, rung), do: move_rung(view, "cpu_cores", rung)
+  defp move_memory(view, rung), do: move_rung(view, "memory_mb", rung)
+  defp move_storage(view, rung), do: move_rung(view, "storage_gb", rung)
+
+  defp move_rung(view, key, rung) do
+    render_change(view, "resources-change", %{"resources" => %{key => rung}})
   end
 
   # Typing in the search field: the form's change event carries the
