@@ -33,4 +33,10 @@ defmodule FluxVale.Feedback do
     resource(FluxVale.Feedback.Tag)
     resource(FluxVale.Feedback.PostTag)
   end
+
+  # Operations are verb-named modules under operations/ (see
+  # apps/platform/AGENTS.md); the domain stays the public seam.
+  defdelegate similar_posts(title, opts \\ []),
+    to: FluxVale.Feedback.Operations.SimilarPosts,
+    as: :call
 end

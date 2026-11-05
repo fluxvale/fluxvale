@@ -3,11 +3,12 @@ defmodule FluxValeWeb.FeedbackController do
   The public feedback board's SSR surface (fluxvale/fluxvale#412,
   [ADR-0026](../../../../../docs/adr/00026-feedback-board.md) §4): `/feedback`
   board, `/feedback/:slug` post pages, and `/roadmap` (T9) — plain
-  controller+HEEx, never LiveView, so crawlers get the full document
-  with zero JS (the blog/catalog pattern). Reads ride the public read
-  policy (`actor: nil`, the catalog posture); this slice is deliberately
-  read-only — no vote button, no comment form, no composer. The
-  interactive layer mounts on these same pages in a later slice.
+  controller+HEEx for the board and roadmap, so crawlers get the full
+  document with zero JS (the blog/catalog pattern). Reads ride the
+  public read policy (`actor: nil`, the catalog posture). The post page
+  hosts the interactive layer (T5): `live_render` islands mount onto it
+  — the document is still fully SSR, the session rides to the islands
+  for their state.
 
   Board view state rides query params (sort, status filter, tag filter,
   page), and every board control — the sort tabs, the status and tag
@@ -253,6 +254,10 @@ defmodule FluxValeWeb.FeedbackController do
     |> assign(:canonical_path, "/feedback/#{post.slug}")
     |> assign(:post, post)
     |> assign(:app_slugs, catalog_app_slugs(post.tags))
+    # The islands' session rides the page: the token is what the child
+    # LiveViews resolve the actor through (UserAuth.resolve_user, the
+    # display-only chain — anonymous stays anonymous).
+    |> assign(:user_token, get_session(conn, "user_token"))
     |> render(:show)
   end
 

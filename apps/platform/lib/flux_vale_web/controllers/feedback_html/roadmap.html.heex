@@ -50,11 +50,11 @@ document with zero JS. --%>
               <span>{status_changed_label(post)}</span>
               <span class="flex items-center gap-1">
                 <.icon name="hero-hand-thumb-up" class="size-3.5" />
-                {count_label(post.vote_count, "vote")}
+                {votes_label(post.vote_count)}
               </span>
               <span class="flex items-center gap-1">
                 <.icon name="hero-chat-bubble-oval-left-ellipsis" class="size-3.5" />
-                {count_label(post.comment_count, "comment")}
+                {comments_label(post.comment_count)}
               </span>
             </div>
             <%!-- Tag chips (T10), the board rows' shape: display only, the

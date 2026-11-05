@@ -10,6 +10,8 @@ defmodule FluxValeWeb.FeedbackControllerTest do
 
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.Category
+  alias FluxVale.Feedback.Comment
+  alias FluxVale.TestSupport.AccountsFixtures
 
   defp position(html, needle) do
     assert html =~ needle
@@ -59,6 +61,16 @@ defmodule FluxValeWeb.FeedbackControllerTest do
 
       # The public chrome's footer carries the board link.
       assert html =~ "data-testid=\"footer-feedback\""
+    end
+
+    test "the header carries the composer CTA (the write is reachable from the board)", %{
+      conn: conn
+    } do
+      html = html_response(get(conn, ~p"/feedback"), 200)
+
+      assert html =~ "data-testid=\"composer-cta\""
+      assert html =~ "href=\"/feedback/new\""
+      assert html =~ "Post a request"
     end
 
     test "rows show status badge, counts, and the posted age", %{conn: conn} do
@@ -252,6 +264,17 @@ defmodule FluxValeWeb.FeedbackControllerTest do
     end
   end
 
+  describe "GET /feedback/new" do
+    # The fixed route the router declares before :show (the /blog/feed
+    # lesson); a GET must serve the composer, never the :slug capture.
+    test "serves the composer with the anonymous CTA", %{conn: conn} do
+      conn = get(conn, ~p"/feedback/new")
+
+      assert conn.status == 200
+      assert html_response(conn, 200) =~ "Sign in to post a request."
+    end
+  end
+
   describe "GET /feedback/:slug" do
     test "renders the post with the full SEO head", %{conn: conn} do
       post =
@@ -282,6 +305,29 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       assert html =~ "name=\"description\" content=\"New orgs need a guided first run.\""
       assert html =~ "<h1"
       assert html =~ "2 comments"
+    end
+
+    test "the islands SSR into the document (crawlable without JS)", %{conn: conn} do
+      post = post!(%{title: "Island SSR probe", description: "x"})
+      author = AccountsFixtures.user!()
+
+      Comment.create!(
+        %{post_id: post.id, body: "A pre-rendered comment"},
+        actor: author
+      )
+
+      set_counters!(post, 3, 1)
+
+      html = html_response(get(conn, ~p"/feedback/#{post.slug}"), 200)
+
+      # The vote island's static render carries the count.
+      assert html =~ "data-testid=\"vote-island\""
+      assert html =~ "3 votes"
+      assert html =~ "data-testid=\"vote-sign-in\""
+      # The comments island's static render carries the list.
+      assert html =~ "data-testid=\"comments-island\""
+      assert html =~ "A pre-rendered comment"
+      assert html =~ "data-testid=\"comment-sign-in\""
     end
 
     test "an unknown slug is a real 404", %{conn: conn} do

@@ -1,8 +1,9 @@
-<%!-- Post page (#412 T4): the read-only request detail on the public
+<%!-- Post page (#412 T4 + T5): the request detail on the public
 chrome. Status badge carries the status-changed age, duplicates get the
-merged-into banner. No vote button, no comment form, no composer — the
-interactive layer mounts in a later slice; this page is finished as a
-read-only surface. --%>
+merged-into banner. The interactive layer mounts as live_render islands
+(T5, ADR-0026 S4): the vote island (count + cast/retract) and the
+comments island (list + form) — both SSR their initial render, so the
+document stays crawlable. --%>
 <Layouts.public flash={@flash} current_user={@current_user}>
   <article class="mx-auto w-full max-w-2xl">
     <.button variant="ghost" size="sm" navigate={~p"/feedback"} class="-ml-2 mb-4">
@@ -51,19 +52,15 @@ read-only surface. --%>
       </div>
     </header>
 
-    <div
-      id="post-counters"
-      class="mt-6 flex items-center gap-5 border-y border-line py-3 text-sm text-ink-muted"
-    >
-      <span class="flex items-center gap-1.5">
-        <.icon name="hero-hand-thumb-up" class="size-4" />
-        {count_label(@post.vote_count, "vote")}
-      </span>
-      <span class="flex items-center gap-1.5">
-        <.icon name="hero-chat-bubble-oval-left-ellipsis" class="size-4" />
-        {count_label(@post.comment_count, "comment")}
-      </span>
-    </div>
+    <%!-- The vote island: count + cast/retract, branched on the shared
+    gate predicate (T5). The session token rides so the child resolves
+    the actor display-only. --%>
+    {live_render(
+      @conn,
+      FluxValeWeb.FeedbackLive.VoteIsland,
+      id: "feedback-vote-island-#{@post.id}",
+      session: %{"user_token" => @user_token, "slug" => @post.slug}
+    )}
 
     <div class="mt-6">
       <%!-- pre-line rides the span: the p's own whitespace stays normal,
@@ -73,5 +70,14 @@ read-only surface. --%>
         <span class="whitespace-pre-line">{String.trim(@post.description)}</span>
       </p>
     </div>
+
+    <%!-- The comments island: list + form, any signed-in actor may
+    comment (the owner's Nov ruling), anonymous reads. --%>
+    {live_render(
+      @conn,
+      FluxValeWeb.FeedbackLive.CommentsIsland,
+      id: "feedback-comments-island-#{@post.id}",
+      session: %{"user_token" => @user_token, "slug" => @post.slug}
+    )}
   </article>
 </Layouts.public>
