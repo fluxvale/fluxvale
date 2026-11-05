@@ -576,15 +576,15 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
     case found do
       :error ->
         summary =
-          "restore could not start again: #{InstanceK8s.format_error(error)}. " <>
-            "Your data may still be partly restored"
+          "restore could not start again: #{InstanceK8s.format_error(error)}; " <>
+            "your data may still be partly restored"
 
         settle_failed(run, summary)
         land_failed_restore(instance)
 
       _first_restore ->
         summary =
-          "restore could not start: #{InstanceK8s.format_error(error)}. The app is unchanged"
+          "restore could not start: #{InstanceK8s.format_error(error)}; the app is unchanged"
 
         settle_failed(run, summary)
         revert(instance, prior)

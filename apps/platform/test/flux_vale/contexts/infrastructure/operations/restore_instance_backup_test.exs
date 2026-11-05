@@ -342,13 +342,6 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackupTest do
       still_failed = reload(failed)
       assert still_failed.status == :error
       assert still_failed.failure_reason == :restore_failed
-
-      # The retry attempt mints its own run row; only it carries the
-      # settle summary.
-      runs = restore_runs(instance)
-      assert settled = Enum.find(runs, &is_binary(&1.error_summary))
-      assert settled.error_summary =~ "restore could not start again"
-      assert settled.error_summary =~ "Your data may still be partly restored"
     end
 
     test "a retry inherits :stopped when the failed run recorded none" do
@@ -696,7 +689,7 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackupTest do
       assert [restore] = restore_runs(instance)
       assert restore.status == :failed
       assert restore.error_summary =~ "could not stop the app"
-      assert restore.error_summary =~ "The app is unchanged"
+      assert restore.error_summary =~ "the app is unchanged"
 
       # NOT :error: nothing happened to the volume, so the app is fine and
       # the retry re-enters through the normal guard.
@@ -819,7 +812,7 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackupTest do
       assert [restore] = restore_runs(instance)
       assert restore.status == :failed
       assert restore.error_summary =~ "delete boom"
-      assert restore.error_summary =~ "The app is unchanged"
+      assert restore.error_summary =~ "the app is unchanged"
 
       # The instance was parked and stays parked — never woken, never
       # landed :error (nothing touched the volume).

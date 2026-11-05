@@ -1323,7 +1323,7 @@ defmodule FluxValeWeb.CoreComponents do
   Renders the org switcher (#276): the app chrome's context dropdown —
   exactly one row per membership (`actor_orgs`, resolved by the
   `FluxValeWeb.OrgNav` on_mount). The actor's owned org renders as
-  **"Personal · `<username>`"** — bare "Personal" when the handle is
+  **"Personal — `<username>`"** — bare "Personal" when the handle is
   nil or empty (OrgNav's email fallback can yield "" for a degenerate
   address); other orgs render name + slug. The
   personal context IS an org (#285 T6), so there is no hardcoded
@@ -1437,7 +1437,7 @@ defmodule FluxValeWeb.CoreComponents do
         <%!-- href, not navigate: full page loads close the dropdown, the
         user_menu's reason (#205). Exactly one row per membership
         (#285 T6) — the owned org (personal_org_id) is the personal
-        context and renders as its Personal · username label, targeting
+        context and renders as its Personal—username label, targeting
         the dashboard (S5: its org-scoped URLs redirect). The
         personal_org_id guard stays falsy for callers that pass no
         personal_org_id or orgs without an :id (component-level maps)
@@ -1504,10 +1504,10 @@ defmodule FluxValeWeb.CoreComponents do
     end
   end
 
-  # The personal row's label: "Personal · username"; bare "Personal"
+  # The personal row's label: "Personal — username"; bare "Personal"
   # when the handle is nil or "" — the email fallback's local_part of a
   # degenerate address is "" (#308 review), the same dangling
-  # "Personal · " hazard as nil (#285 T6 review).
+  # "Personal — " hazard as nil (#285 T6 review).
   defp personal_label(username) when username in [nil, ""], do: "Personal"
   defp personal_label(username), do: "Personal · #{username}"
 
