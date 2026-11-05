@@ -75,23 +75,38 @@ test("user-menu: signed-in nav shows the user menu, not Sign in", async ({
     page.getByRole("banner").getByRole("link", { name: /^Sign in/ }),
   ).toHaveCount(0);
 
-  // Desktop: the header nav carries Billing — the menu's Billing row is
-  // the below-sm fold (#319, like Catalog/Instances), so the open panel
-  // does not double the header's mark at this width.
+  // Desktop: Billing left the header row for the account menu (#467) —
+  // the closed header carries no Billing or Pricing link, and Feedback
+  // takes Pricing's seat in the nav row.
   await expect(
     page.getByRole("banner").getByRole("link", { name: "Billing" }),
-  ).toHaveAttribute("href", "/billing");
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("banner").getByRole("link", { name: "Pricing" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("banner").getByRole("link", { name: "Feedback" }),
+  ).toHaveAttribute("href", "/feedback");
 
   await page.getByTestId("user-menu-button").click();
   await expect(page.getByTestId("user-menu-panel")).toContainText(email);
 
+  // The menu lists Billing beside the account entries at every width
+  // (#467) — no header copy to fold below sm anymore.
+  await expect(
+    page.getByTestId("user-menu-panel").getByRole("link", { name: "Billing" }),
+  ).toHaveAttribute("href", "/billing");
+
   // Below sm the header links fold into the menu (#255) — drop to a
-  // mobile viewport with the menu still open: the panel's Billing row
-  // IS that fold, present and still pointing at /billing.
+  // mobile viewport with the menu still open: the folded Catalog row
+  // lives there, and Billing's menu row holds at this width too.
   await page.setViewportSize({ width: 375, height: 812 });
   await expect(
     page.getByTestId("user-menu-panel").getByRole("link", { name: "Billing" }),
   ).toHaveAttribute("href", "/billing");
+  await expect(
+    page.getByTestId("user-menu-panel").getByRole("link", { name: "Catalog" }),
+  ).toHaveAttribute("href", "/apps");
 
   // Sign out ends the session — and / is the landing again.
   await page.getByRole("button", { name: "Sign out" }).click();

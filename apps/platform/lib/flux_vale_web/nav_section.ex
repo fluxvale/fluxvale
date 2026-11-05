@@ -3,8 +3,10 @@ defmodule FluxValeWeb.NavSection do
   The chrome's active-nav hook (app-wide grammar lane): derives the nav
   section from the mounted LiveView module and assigns `nav_section` —
   `:catalog`, `:instances`, `:billing`, or nil. Callers pass it through
-  to `Layouts.app` like every other chrome assign, and the header marks
-  the matching link active with the round-3 amber underline.
+  to `Layouts.app` like every other chrome assign, and the section's
+  link marks active: the header's round-3 amber underline for
+  catalog/instances, the user menu's Billing row for billing (its
+  header link retired to the account menu, #467).
 
   Same on_mount shape as `FluxValeWeb.OrgNav`; wire it in the
   authenticated live_session's on_mount list AND on `DashboardLive`

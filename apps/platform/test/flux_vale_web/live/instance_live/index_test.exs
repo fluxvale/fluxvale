@@ -78,7 +78,9 @@ defmodule FluxValeWeb.InstanceLive.IndexTest do
     # Exact token, not a substring (text-ink ⊂ text-ink-muted).
     assert "text-ink" in String.split(class_by_label["Instances"], " ")
     refute class_by_label["Catalog"] =~ "after:bg-focus"
-    refute class_by_label["Billing"] =~ "after:bg-focus"
+    # Billing left the row for the account menu (#467); Feedback took
+    # the sibling seat and never marks (no nav_section).
+    refute class_by_label["Feedback"] =~ "after:bg-focus"
   end
 
   test "a status broadcast updates the row in place — app name intact", %{

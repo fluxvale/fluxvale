@@ -165,9 +165,10 @@ defmodule FluxValeWeb.PageControllerTest do
   # #255: at 375px the header row (logo + surface links + theme trio +
   # menu) overflowed the viewport by ~133px, dropdown closed. Below sm
   # the app chrome hides its three header links (`hidden sm:block`) and
-  # the user menu re-serves Catalog/Instances (`sm:hidden` rows) — a
-  # fold, not a removal: no width renders both copies, no width loses
-  # them.
+  # the user menu re-serves Catalog/Instances/Feedback (`sm:hidden`
+  # rows) — a fold, not a removal: no width renders both copies, no
+  # width loses them. Billing and Pricing ride the menu at every width
+  # (#467), so they show up here without a header copy at any width.
   test "GET / folds the chrome's surface links into the user menu below sm (#255)", %{
     conn: conn
   } do
@@ -180,9 +181,9 @@ defmodule FluxValeWeb.PageControllerTest do
     assert html =~ ~s(class="hidden sm:block")
     assert html =~ ~s(href="/apps")
     assert html =~ ~s(href="/instances")
-    assert html =~ ~s(href="/billing")
 
-    # …and the panel carries the mobile-only rows alongside Billing.
+    # …and the panel carries the folded rows alongside the every-width
+    # Billing and Pricing rows.
     panel =
       html
       |> String.split(~s(data-testid="user-menu-panel"))
@@ -190,6 +191,7 @@ defmodule FluxValeWeb.PageControllerTest do
 
     assert panel =~ ~s(href="/apps")
     assert panel =~ ~s(href="/instances")
+    assert panel =~ ~s(href="/feedback")
     assert panel =~ ~s(href="/billing")
     assert panel =~ "sm:hidden"
   end
@@ -218,11 +220,12 @@ defmodule FluxValeWeb.PageControllerTest do
     assert panel =~ ~s(href="/billing")
   end
 
-  # #398: the app chrome's path to /pricing — the header nav beside the
-  # Catalog/Instances/Billing cluster, plus the below-sm folded menu row
-  # (the public nav cluster and footer Pricing rides are suppressed
-  # here).
-  test "GET / (signed in) carries Pricing in the app chrome header and menu (#398)", %{
+  # #467: Pricing left the app chrome header with the nav-row swap —
+  # the menu's every-width row is /pricing's only signed-in path now
+  # (the app chrome has no footer; the public chrome's carries it). The
+  # signed-in / renders the dashboard, whose body links no /pricing, so
+  # exactly one occurrence survives: the menu row.
+  test "GET / (signed in) keeps Pricing reachable through the menu only (#467)", %{
     conn: conn
   } do
     {_user, session_conn} = SessionHelpers.user_with_session(conn)
@@ -230,8 +233,7 @@ defmodule FluxValeWeb.PageControllerTest do
     conn = get(session_conn, ~p"/")
     html = html_response(conn, 200)
 
-    # Whitespace-tolerant: nav_link's slot renders with newlines.
-    assert html =~ ~r/href="\/pricing"[^>]*>\s*Pricing\s*<\/a>/
+    assert length(String.split(html, ~s(href="/pricing"))) - 1 == 1
 
     panel =
       html

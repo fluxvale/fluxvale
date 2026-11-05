@@ -1134,12 +1134,15 @@ defmodule FluxValeWeb.CoreComponents do
   link navigation — the links are plain hrefs, so every navigation is
   a full page load and no live patch can strand the panel open.
 
-  `app_links` folds the app chrome's header links (Catalog/Instances)
-  into the dropdown below sm (#255): the header row — logo + three
-  links + theme trio + this menu — overflows a 375px viewport by
+  `app_links` folds the app chrome's header links (Catalog/Instances/
+  Feedback) into the dropdown below sm (#255): the header row — logo +
+  three links + theme trio + this menu — overflows a 375px viewport by
   ~133px with the dropdown closed, so below sm the header links hide
   (`hidden sm:block`, app chrome's own `<li>`s) and reappear here
-  (`sm:hidden` rows) — nothing is unreachable at any width.
+  (`sm:hidden` rows) — nothing is unreachable at any width. Billing
+  and Pricing ride the menu at every width (#467): Billing is an
+  account destination beside Account settings, and the app chrome has
+  no footer to carry Pricing (the public chrome's footer does).
 
   ## Examples
 
@@ -1159,13 +1162,14 @@ defmodule FluxValeWeb.CoreComponents do
 
   attr(:app_links, :boolean,
     default: false,
-    doc: "surface Catalog/Instances/Pricing below sm (app chrome, #255)"
+    doc: "app chrome's surface rows: the sm:hidden fold plus Pricing (see user_menu/1)"
   )
 
-  # The chrome's active-nav section (#319): below sm the header links
-  # hide and these folded rows replace them, so the section's row marks
-  # active — aria-current + ink/bold text, a menu-appropriate treatment
-  # (the header's hanging underline is a header-row idiom, not a
+  # The chrome's active-nav section (#319): the menu rows that stand in
+  # for header links (the below-sm fold, and Billing at every width
+  # since its header link retired, #467) mark the section active —
+  # aria-current + ink/bold text, a menu-appropriate treatment (the
+  # header's hanging underline is a header-row idiom, not a
   # dropdown-row one).
   attr(:nav_section, :atom, default: nil)
 
@@ -1228,32 +1232,43 @@ defmodule FluxValeWeb.CoreComponents do
         >
           Instances
         </.link>
-        <%!-- href, not navigate: full page loads close the dropdown on
-        every surface — a live patch would strand it open (#205).
-        sm:hidden like its siblings: on desktop the header link owns
-        Billing (and its active mark) — two simultaneous marks for one
-        section read as a bug (#319 hostile 12a). --%>
+        <%!-- #467: Feedback joins the fold beside the header link it
+        mirrors. href, not navigate, the same close-on-click posture
+        (#205). --%>
+        <.link
+          :if={@app_links}
+          href={~p"/feedback"}
+          class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink sm:hidden"
+        >
+          Feedback
+        </.link>
+        <%!-- #467: Pricing rides the menu at every width — the app
+        chrome has no footer (the public chrome's carries it there), so
+        this row is /pricing's only signed-in path at sm and up. Gated
+        on app_links like the fold. No section, so no active state;
+        href, not navigate, the same close-on-click posture (#205). --%>
+        <.link
+          :if={@app_links}
+          href={~p"/pricing"}
+          class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+        >
+          Pricing
+        </.link>
+        <%!-- #467: Billing is an account destination, so it sits beside
+        Account settings at every width. Its header link is gone, making
+        this row the section's only link — the active mark rides without
+        the #319 double-mark hazard. href, not navigate, the same
+        close-on-click posture (#205). --%>
         <.link
           href={~p"/billing"}
           aria-current={@nav_section == :billing && "page"}
           class={[
-            "block rounded-control px-3 py-1.5 text-sm transition-colors sm:hidden",
+            "block rounded-control px-3 py-1.5 text-sm transition-colors",
             @nav_section == :billing && "font-semibold text-ink",
             @nav_section != :billing && "text-ink-muted hover:bg-panel-raised hover:text-ink"
           ]}
         >
           Billing
-        </.link>
-        <%!-- #398: the header Pricing link's below-sm mirror — gated on
-        app_links like Catalog/Instances (the public chrome's footer
-        carries Pricing there). No section, so no active state; href,
-        not navigate, the same close-on-click posture (#205). --%>
-        <.link
-          :if={@app_links}
-          href={~p"/pricing"}
-          class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink sm:hidden"
-        >
-          Pricing
         </.link>
         <%!-- #285 T5: account settings — a link row like the others;
         href, not navigate, the same close-on-click posture (#205). --%>

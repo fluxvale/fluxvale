@@ -92,7 +92,7 @@ defmodule FluxValeWeb.Layouts do
   Public chrome for the SEO surfaces (#164): logo, Apps, sign-in — or
   the user menu when `MaybeResolveUser` resolved them display-only
   (#205). Mirrors `app/1`'s markup; anonymous visitors have no app
-  surface links (Instances/Billing) to show.
+  surface links (Catalog/Instances) to show.
   """
 
   attr(:flash, :map, required: true, doc: "the map of flash messages")
@@ -232,16 +232,13 @@ defmodule FluxValeWeb.Layouts do
                 Instances
               </.nav_link>
             </li>
+            <%!-- #467: Feedback takes Pricing's seat — the board is a
+            live surface and Pricing is marketing, not product chrome
+            (it rides the user menu now). No nav_section: not a working
+            section, so the link stays quiet. Below sm the user menu's
+            folded row carries it. --%>
             <li :if={@apps} class="hidden sm:block">
-              <.nav_link navigate={~p"/billing"} active={@nav_section == :billing}>Billing</.nav_link>
-            </li>
-            <%!-- #398: the app chrome's path to /pricing — the public
-            nav cluster and footer it rides are suppressed here, so the
-            ladder is one hop from every app surface. No nav_section:
-            Pricing is not a working section, so the link stays quiet.
-            Below sm the user menu's folded row carries it. --%>
-            <li :if={@apps} class="hidden sm:block">
-              <.nav_link navigate={~p"/pricing"}>Pricing</.nav_link>
+              <.nav_link navigate={~p"/feedback"}>Feedback</.nav_link>
             </li>
             <%!-- #396: Pricing rides the public nav beside Apps at sm and
             up — the anonymous cluster is width-tuned to the mill
@@ -273,7 +270,9 @@ defmodule FluxValeWeb.Layouts do
               address — the frozen mirror is the fallback for an
               old-pod straggler with no verified primary row (see
               User.primary_email). #319: nav_section rides along so the
-              below-sm folded rows can mark the section active. --%>
+              menu rows can mark the section active — the below-sm
+              folded rows, and Billing's every-width row since its
+              header link retired (#467). --%>
               <.user_menu
                 username={@current_user.username}
                 email={@current_user.primary_email || @current_user.email}

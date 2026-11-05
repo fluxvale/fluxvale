@@ -90,9 +90,10 @@ defmodule FluxValeWeb.Components.UserMenuTest do
   end
 
   describe "folded-row active state (#319)" do
-    # Below sm the header links hide and these rows replace them — the
-    # section's row carries the menu-appropriate active treatment:
-    # aria-current + ink/bold text, never the header's hanging underline.
+    # The menu rows that stand in for header links — the below-sm fold,
+    # and Billing at every width since its header link retired (#467) —
+    # carry the menu-appropriate active treatment: aria-current + ink/
+    # bold text, never the header's hanging underline.
     defp row(html, label) do
       html
       |> LazyHTML.from_fragment()
@@ -141,7 +142,7 @@ defmodule FluxValeWeb.Components.UserMenuTest do
           nav_section: :instances
         )
 
-      for label <- ["Catalog", "Billing", "Pricing"] do
+      for label <- ["Catalog", "Billing", "Pricing", "Feedback"] do
         link = row(html, label)
         assert LazyHTML.attribute(link, "aria-current") == []
 

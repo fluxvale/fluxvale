@@ -3,8 +3,9 @@ defmodule FluxValeWeb.Components.LayoutsTest do
   The chrome contracts the app-wide grammar lane adds: `bare` flips main
   unbounded for band-capable pages while the default stays byte-identical,
   and `nav_section` (assigned by NavSection's on_mount, passed through by
-  callers like every chrome assign) marks exactly its section's header
-  link with the round-3 amber underline.
+  callers like every chrome assign) marks exactly its section's link —
+  the header's round-3 amber underline for catalog/instances, the user
+  menu's Billing row for billing (#467).
   """
 
   use ExUnit.Case, async: true
@@ -46,22 +47,35 @@ defmodule FluxValeWeb.Components.LayoutsTest do
       assert classes["Instances"] =~ "after:bg-focus"
       assert classes["Instances"] =~ "after:top-full"
 
-      for label <- ["Catalog", "Billing"] do
+      for label <- ["Catalog", "Feedback"] do
         assert classes[label] =~ "text-ink-muted"
         assert classes[label] =~ "hover:bg-panel-raised"
         refute classes[label] =~ "after:"
       end
     end
 
-    test "the active link is exposed to assistive tech as aria-current" do
-      html = render_component(&ChromeProbe.with_section/1, nav_section: :billing)
+    # #467: Billing left the header row for the account menu, so no
+    # header link marks for :billing — the menu's Billing row is the
+    # section's only link and carries the mark itself.
+    test "the billing section marks the menu row, never a header link" do
+      html = render_component(&ChromeProbe.signed_in/1, nav_section: :billing)
       doc = LazyHTML.from_fragment(html)
 
       current = aria_current(doc, "nav[aria-label='Primary'] > ul > li > a")
 
-      assert current["Billing"] == "page"
-      assert current["Catalog"] == nil
-      assert current["Instances"] == nil
+      for label <- ["Catalog", "Instances", "Feedback"] do
+        assert Map.get(current, label) == nil
+      end
+
+      rows = aria_current(doc, "[data-testid='user-menu-panel'] a")
+      assert rows["Billing"] == "page"
+      assert rows["Account settings"] == nil
+
+      # The menu idiom (#319): ink + bold, never the header's underline.
+      classes = menu_row_classes(doc)
+      assert classes["Billing"] =~ "font-semibold"
+      assert "text-ink" in String.split(classes["Billing"], " ")
+      refute classes["Billing"] =~ "after:"
     end
 
     test "the section's folded menu row carries the active treatment" do
@@ -99,7 +113,7 @@ defmodule FluxValeWeb.Components.LayoutsTest do
 
       classes = link_classes(doc)
 
-      for label <- ["Catalog", "Instances", "Billing"] do
+      for label <- ["Catalog", "Instances", "Feedback"] do
         class = Map.get(classes, label)
 
         assert class =~ "text-ink-muted", "#{label} should stay quiet"
@@ -112,32 +126,77 @@ defmodule FluxValeWeb.Components.LayoutsTest do
       end
     end
 
-    # #398: the app chrome's path to /pricing — the public nav cluster
-    # and footer it rides are suppressed here. Bare label beside its
-    # siblings; not a section, so it never carries the active state.
-    test "the header carries the Pricing link beside its siblings (#398)" do
-      html = render_component(&ChromeProbe.with_section/1, [])
+    # #467: the signed-in nav row renders exactly Catalog, Instances,
+    # Feedback — Billing moved to the account menu, Pricing left the
+    # row for the menu's every-width row.
+    test "the signed-in header row renders exactly Catalog, Instances, Feedback" do
+      html = render_component(&ChromeProbe.signed_in/1, [])
       doc = LazyHTML.from_fragment(html)
 
-      classes = link_classes(doc)
-      assert Map.has_key?(classes, "Pricing")
+      labels = header_labels(doc)
 
-      assert classes["Pricing"] =~ "text-ink-muted"
-      refute classes["Pricing"] =~ "after:"
-
-      current = aria_current(doc, "nav[aria-label='Primary'] > ul > li > a")
-      assert Map.get(current, "Pricing") == nil
+      assert labels == ["Catalog", "Instances", "Feedback"]
     end
 
-    test "the folded menu row carries Pricing below sm (#398)" do
+    # #467: Billing rides the account menu at every width, listed with
+    # the account entries — the row never folds (it has no header copy
+    # to double below sm anymore).
+    test "Billing rides the account menu at every width" do
+      html = render_component(&ChromeProbe.signed_in/1, [])
+      doc = LazyHTML.from_fragment(html)
+
+      rows = menu_row_classes(doc)
+      assert rows["Billing"] =~ "text-ink-muted"
+      refute rows["Billing"] =~ "sm:hidden"
+    end
+
+    # #467: Pricing keeps a menu row so /pricing stays reachable — the
+    # app chrome has no footer, so below sm no longer gates it.
+    test "the menu carries Pricing at every width" do
       html = render_component(&ChromeProbe.signed_in/1, [])
       doc = LazyHTML.from_fragment(html)
 
       rows = menu_row_classes(doc)
       assert rows["Pricing"] =~ "text-ink-muted"
-      # The below-sm fold: the row exists so the header's hidden link
-      # leaves nothing unreachable at any width.
-      assert rows["Pricing"] =~ "sm:hidden"
+      refute rows["Pricing"] =~ "sm:hidden"
+    end
+
+    # #255's fold is per-row: each mirror of a below-sm-hidden header
+    # link carries sm:hidden, so no width shows both copies.
+    test "the fold rows gate below sm" do
+      html = render_component(&ChromeProbe.signed_in/1, [])
+      doc = LazyHTML.from_fragment(html)
+
+      rows = menu_row_classes(doc)
+
+      for label <- ["Catalog", "Instances", "Feedback"] do
+        assert rows[label] =~ "sm:hidden", "#{label} should fold below sm"
+      end
+    end
+
+    # #255's fold survives the reshuffle: Catalog/Instances/Feedback
+    # mirror the below-sm-hidden header links, then the every-width
+    # rows and the account entries. The panel text carries Sign out.
+    test "the dropdown reads surface fold, then Pricing, then account entries" do
+      html = render_component(&ChromeProbe.signed_in/1, [])
+      doc = LazyHTML.from_fragment(html)
+
+      assert menu_labels(doc) == [
+               "Catalog",
+               "Instances",
+               "Feedback",
+               "Pricing",
+               "Billing",
+               "Account settings",
+               "About FluxVale"
+             ]
+
+      panel_text =
+        doc
+        |> LazyHTML.query("[data-testid='user-menu-panel']")
+        |> LazyHTML.text()
+
+      assert panel_text =~ "Sign out"
     end
 
     defp link_classes(doc) do
@@ -176,6 +235,28 @@ defmodule FluxValeWeb.Components.LayoutsTest do
 
         {text, current}
       end)
+    end
+
+    # The header's own links, in document order — the user menu's rows
+    # hang deeper inside this nav (li > details), so the selector stays
+    # shallow and sees the row, not the menu.
+    defp header_labels(doc) do
+      doc
+      |> LazyHTML.query("nav[aria-label='Primary'] > ul > li > a")
+      |> Enum.map(&row_text/1)
+    end
+
+    # The user menu's panel rows, in document order.
+    defp menu_labels(doc) do
+      doc
+      |> LazyHTML.query("[data-testid='user-menu-panel'] a")
+      |> Enum.map(&row_text/1)
+    end
+
+    defp row_text(link) do
+      link
+      |> LazyHTML.text()
+      |> String.trim()
     end
 
     # The user menu's panel rows (the below-sm folded set among them).
