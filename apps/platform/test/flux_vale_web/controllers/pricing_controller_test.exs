@@ -48,7 +48,9 @@ defmodule FluxValeWeb.PricingControllerTest do
     assert html =~ ~s(id="resource-cpu-cores")
     assert html =~ ~s(id="calculator-services-form")
     assert html =~ "Add more instances"
-    assert html =~ ~r{<button[^>]*id="calculator-add-instances"[^>]*disabled}
+    # The bare attribute only: the class list carries disabled:… tokens,
+    # so a loose "disabled" match would pass on an enabled button too.
+    assert html =~ ~r{<button[^>]*id="calculator-add-instances"[^>]*\sdisabled(?=[\s=/>])}
   end
 
   # #440: the tiers left the page — the seeded slugs render nowhere, on
@@ -87,9 +89,12 @@ defmodule FluxValeWeb.PricingControllerTest do
     assert html =~ "Built on Tailscale"
 
     # The calculator carries no custom-domain copy anywhere — the grep
-    # is the contract, not just the toggle's absence.
+    # is the contract, not just the toggle's absence. Opaque phx/CSRF
+    # tokens are stripped first (the file's own hazard note): their
+    # random base64 could carry "DNS" or "domain" at an attribute edge
+    # by chance and flake the refute.
     without_head = String.split(html, "<body>")
-    body = List.last(without_head)
+    body = strip_opaque_tokens(List.last(without_head))
 
     refute body =~ ~r/domain/i
     refute body =~ "topped-up"

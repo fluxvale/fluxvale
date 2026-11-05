@@ -859,6 +859,55 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     assert has_element?(view, "[data-testid='estimate-item-1']")
   end
 
+  # The stream container unmounts when the last row leaves and remounts
+  # on the next Add — the boundary both directions, pinned.
+  test "adding again after the estimate empties lands a fresh row", %{conn: conn} do
+    fixture = InstanceFixtures.app_version!(default_memory_mb: 2048, default_storage_gb: 20)
+
+    version = Ash.load!(fixture, :recommended_size, authorize?: false)
+    app = Ash.load!(version, :app, authorize?: false).app
+    allocation = %{cpu_cores: Decimal.new("0.5"), memory_mb: 2048, storage_gb: 20}
+
+    {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
+
+    pick_app(view, app.slug)
+    add_setup(view)
+    render_click(element(view, "[data-testid='estimate-remove-1']"))
+
+    # Empty again: the hero returns to live-pricing the sliders.
+    assert_total(view, small_allocation())
+
+    pick_app(view, app.slug)
+    add_setup(view)
+
+    assert has_element?(view, "[data-testid='estimate-item-2']")
+    assert has_element?(view, "[data-testid='estimate-app-2']", app.name)
+    refute has_element?(view, "[data-testid='estimate-item-1']")
+    assert_estimate_total(view, [allocation])
+  end
+
+  test "Clear with rows present keeps the committed rows", %{conn: conn} do
+    fixture = InstanceFixtures.app_version!(default_memory_mb: 2048, default_storage_gb: 20)
+
+    version = Ash.load!(fixture, :recommended_size, authorize?: false)
+    app = Ash.load!(version, :app, authorize?: false).app
+    allocation = %{cpu_cores: Decimal.new("0.5"), memory_mb: 2048, storage_gb: 20}
+
+    {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
+
+    pick_app(view, app.slug)
+    add_setup(view)
+
+    # A second pick then Clear: the rows survive, only the chooser and
+    # rungs reset.
+    pick_app(view, app.slug)
+    render_click(element(view, "#calculator-app-clear"))
+
+    assert has_element?(view, "[data-testid='estimate-item-1']")
+    assert_estimate_total(view, [allocation])
+    assert has_element?(view, "#calculator-add-instances[disabled]")
+  end
+
   # --- Crafted slider payloads -------------------------------------------------
 
   test "a non-map resources payload is silence", %{conn: conn} do
