@@ -1,6 +1,12 @@
 # Codecov — monorepo: one flag per app, per-flag statuses (one app's
 # coverage can't fail another's check). A new app adds a flag here plus
 # a `flags:` input on its CI upload step (e2e joins at M3).
+#
+# Why marker-ignored lines never red these checks: excoveralls exports
+# coveralls-ignore'd lines as null, and codecov counts null as not
+# coverable — a patch red is a genuinely untested line, not a marker
+# the bot missed. No preprocessing of excoveralls.json needed
+# (verified on #464 against excoveralls 0.18.5).
 coverage:
   status:
     project:

@@ -213,13 +213,6 @@ jobs:
       # fail_ci_if_error: v2 has no wait-for-codecov watchdog (v1's
       # signal for silent upload failure) — this is it. A codecov.io
       # outage will red this step; revert to false if that bites.
-      # Process excoveralls.json to mark marker-ignored lines (lines between
-      # coveralls-ignore-start/stop) so Codecov sees the same truth as the
-      # Elixir gate. The JSON is reported but those lines don't contribute to
-      # coverage calculation.
-      - name: Prepare coverage for Codecov marker handling
-        run: python3 scripts/process_coverage.py apps/platform/cover/excoveralls.json ${{ github.workspace }}
-        continue-on-error: true
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5
         with:
