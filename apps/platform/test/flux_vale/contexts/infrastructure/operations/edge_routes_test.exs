@@ -22,6 +22,7 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   require Ash.Query
@@ -75,6 +76,8 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
   # verify pass's own funnel (the ref is what the observer recorded —
   # and the source read the arms' cert replica will do).
   defp custom_domain!(owner, opts \\ []) do
+    BillingFixtures.mark_user_paid!(owner)
+
     {:ok, registered} =
       AccessDomain.register(
         %{domain: "apps.customer-#{System.unique_integer()}.example"},

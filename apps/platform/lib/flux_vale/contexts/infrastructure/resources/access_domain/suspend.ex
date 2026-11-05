@@ -1,9 +1,10 @@
 defmodule FluxVale.Infrastructure.AccessDomain.Suspend do
   @moduledoc """
-  The zero-balance ladder's domain arm (ADR-0040 §11): the honest-dark
-  demotion of a serving custom domain. The row lands `:suspended`
-  through the one funnel, and BOTH tails of the domain's service go
-  dark with it:
+  The honest-dark demotion of a serving custom domain (ADR-0040
+  Amendment 2). Domains no longer bill, so the zero-balance ladder no
+  longer calls this. The write path stays because a legacy suspended
+  row still needs its resume. The row lands `:suspended` through the
+  one funnel, and BOTH tails of the domain's service go dark with it:
 
   - the edge routes: `EdgeRoutes.apply_access_none_for_domain/3` per
     attached instance — domain-scoped, so the instance's other
@@ -15,19 +16,17 @@ defmodule FluxVale.Infrastructure.AccessDomain.Suspend do
     runs, reused not duplicated.
 
   **Failure of a side effect fails the suspension** (fail-closed): the
-  row keeps its state and keeps accruing, and the next sweep pass
+  row keeps its state and keeps serving, and the next retry
   RE-RUNS THE WHOLE DOMAIN — the arms are idempotent (safe-deletes; an
   idempotent provider unclaim), so re-entry converges on the full dark
   posture instead of retrying a residual. Honest about the partial
   case: a pass that removed the routes but failed the unclaim leaves
-  the domain HALF dark while still accruing — one sweep cadence of
-  mismatch is the price of never demoting a row whose tails are not
-  both down, and the log line is the trace.
+  the domain HALF dark and still serving — one retry of mismatch is
+  the price of never demoting a row whose tails are not both down, and
+  the log line is the trace.
 
-  The anchor parks on the way down (the gateway Suspend stance): the
-  suspended interval cannot bill on resume. The Certificate and its
-  namespace replicas stay — a resume re-mints the routes; nothing is
-  re-issued.
+  The Certificate and its namespace replicas stay. A resume re-mints
+  the routes, nothing is re-issued.
 
   **The CoreDNS render is success-only, post-commit** (the S4 lesson,
   the resume's mirror): the unclaim drops the domain's claims entry
@@ -42,13 +41,13 @@ defmodule FluxVale.Infrastructure.AccessDomain.Suspend do
   domain stays fully serving, nothing half-dark. A route-removal
   failure after a successful unclaim leaves the claimed-but-unrouted
   shape — dark by resolution (the split-DNS route is gone, §8-honest)
-  while the row still stands `:verified` and accrues — and the sweep's
-  whole-domain re-entry converges the rest (the removals are
-  404-tolerant). Side effects first (`before_action`), the row write
-  second — a failed row write after successful side effects self-heals
-  because the ladder keeps selecting serving rows at ≤ 0 and re-enters
-  (the gateway Resume moduledoc owns the full argument; the arms are
-  idempotent, so the re-entry is a no-op on the cluster side).
+  while the row still stands `:verified` — and a retry's whole-domain
+  re-entry converges the rest (the removals are 404-tolerant). Side
+  effects first (`before_action`), the row write second — a failed row
+  write after successful side effects self-heals because a retry
+  selects the serving row again (the gateway Resume moduledoc owns the
+  full argument, the arms are idempotent, so the re-entry is a no-op
+  on the cluster side).
   """
 
   use Ash.Resource.Change
@@ -78,13 +77,10 @@ defmodule FluxVale.Infrastructure.AccessDomain.Suspend do
     |> Ash.Changeset.before_action(fn changeset ->
       domain = changeset.data
 
-      # Idempotent: the ladder re-enters this arm every pass while the
-      # balance stays ≤ 0. A row already parked has nothing to do —
-      # and a :pending/:failed row never served, so there is nothing
-      # to demote either; a :platform row never bills at all (§11) and
-      # must never be demoted by a money event. The ladder's query
-      # selects serving `:custom` rows only — these guards are the
-      # belt behind it.
+      # Idempotent: a row already parked has nothing to do, and a
+      # :pending/:failed row never served, so there is nothing to
+      # demote either. A :platform row is never demoted. These guards
+      # are the belt behind the caller's own selection.
       if domain.state in [:suspended, :pending, :failed] or domain.kind == :platform do
         changeset
       else
@@ -101,9 +97,7 @@ defmodule FluxVale.Infrastructure.AccessDomain.Suspend do
     with {:ok, kubeconfig} <- K8s.kubeconfig(),
          :ok <- unclaim_tailnet_state(domain),
          :ok <- remove_edge_routes(kubeconfig, domain) do
-      changeset
-      |> Ash.Changeset.force_change_attribute(:state, :suspended)
-      |> Ash.Changeset.force_change_attribute(:metering_since, nil)
+      Ash.Changeset.force_change_attribute(changeset, :state, :suspended)
     else
       {:error, reason} ->
         Logger.error("Access domain #{domain.domain} suspend failed: #{inspect(reason)}")
@@ -113,7 +107,7 @@ defmodule FluxVale.Infrastructure.AccessDomain.Suspend do
   end
 
   # Domain-scoped honest dark: only THIS domain's routes come down.
-  # The first failure stops the walk (fail-closed — the sweep retries;
+  # The first failure stops the walk (fail-closed — the caller retries;
   # a half-removed set re-converges on re-entry, the deletes are
   # 404-tolerant).
   defp remove_edge_routes(kubeconfig, domain) do

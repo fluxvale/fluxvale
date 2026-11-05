@@ -45,6 +45,7 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomainTest do
     on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
 
     {org, owner} = BillingFixtures.grant_free_org!()
+    BillingFixtures.mark_paid!(org)
 
     {:ok, org: org, owner: owner}
   end
@@ -327,6 +328,8 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomainTest do
   end
 
   defp pending_domain!(owner) do
+    BillingFixtures.mark_user_paid!(owner)
+
     expect(Kubereq, :apply, fn _req, manifest, _fm ->
       {:ok, %{status: 201, body: manifest}}
     end)

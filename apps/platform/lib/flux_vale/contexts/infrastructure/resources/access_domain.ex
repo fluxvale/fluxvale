@@ -6,7 +6,7 @@ defmodule FluxVale.Infrastructure.AccessDomain do
     org, system-minted (`Operations`-free: the instance create path's
     `MintDefaultHostname` find-or-creates it), born `:verified` — the
     fleet wildcard already covers it, so there is nothing to issue and
-    (S6) nothing to bill.
+    nothing to bill.
   - `:custom` — the owner's own domain (`apps.customer.com`). Registered
     as `:pending` with a wildcard Certificate (`*.apps.customer.com`)
     issued DNS-01 through the delegated `_acme-challenge` record; the
@@ -72,8 +72,21 @@ defmodule FluxVale.Infrastructure.AccessDomain do
     # #408). This fence denies a non-member's named org, reading the
     # organization_id the tenancy change set before policies run — the
     # create-template posture ActorIsOrganizationMember exists for.
+    #
+    # The entitlement gate (ADR-0040 Amendment 2): custom domains are
+    # free to USE but not free to UNLOCK. The same pair the gateway's
+    # create carries — a real $1+ top-up ever (the welcome credit does
+    # not qualify) and a positive balance right now — so an account that
+    # has never paid, or has drained, cannot register a domain. Policy
+    # land, so the API cannot walk around it.
     policy action(:register) do
-      description("Members register their org's own domains")
+      description(
+        "Members register their org's own domains — membership AND a paid-once wallet AND a funded wallet"
+      )
+
+      forbid_unless(FluxVale.Checks.ActorIsOrganizationMember)
+      forbid_unless(FluxVale.Checks.ActorOrgHasPaid)
+      forbid_unless(FluxVale.Checks.ActorOrgWalletFunded)
       authorize_if(FluxVale.Checks.ActorIsOrganizationMember)
     end
 
@@ -91,16 +104,8 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       forbid_if(always())
     end
 
-    # Settlement's writes are the billing machinery's (the S6 worker and
-    # its per-domain settle, ADR-0040 §11) — system seams like the
-    # funnels above.
-    policy action([:settle_anchors, :perform_settle]) do
-      description("System-only: the settlement cursor and its settle body (authorize?: false)")
-      forbid_if(always())
-    end
-
-    # Resuming a billing suspension spends money: membership AND a
-    # funded wallet (the gateway :resume stance, ADR-0040 §11).
+    # Resuming a suspended domain uses the entitlement again: membership
+    # AND a funded wallet (the same gate registration carries).
     policy action(:resume) do
       description("Members resume their org's own domain — membership AND a funded wallet")
       forbid_unless(relates_to_actor_via([:organization, :members]))
@@ -152,14 +157,6 @@ defmodule FluxVale.Infrastructure.AccessDomain do
     # by the verify pass, read from the observed Certificate's
     # spec.secretName (never guessed from config).
     attribute :cert_secret_ref, :string do
-      public?(false)
-    end
-
-    # The S6 settlement cursor (ADR-0040 §11 — the gateway
-    # `metering_since` stance): the FIRST settle of a serving row opens
-    # it; a suspension parks it, so the suspended interval cannot bill
-    # on resume. Internal.
-    attribute :metering_since, :utc_datetime_usec do
       public?(false)
     end
 
@@ -311,10 +308,10 @@ defmodule FluxVale.Infrastructure.AccessDomain do
 
     update :mark_suspended do
       description("""
-      System-only: the S6 billing ladder's suspension (a lapsed custom
-      domain) — the honest-dark demotion: the domain's edge routes and
-      its tailnet claim go dark with it, and the settlement anchor
-      parks (see Suspend).
+      System-only: pauses a custom domain. The domain's edge routes and
+      its tailnet claim go dark with it (see Suspend). Domains no
+      longer bill, so no ladder arm calls this any more. The action
+      stays for the legacy rows a paid owner can still resume.
       """)
 
       accept([])
@@ -323,29 +320,11 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       change(FluxVale.Infrastructure.AccessDomain.Suspend)
     end
 
-    # Settlement's cursor write (the gateway `settle_anchors` shape).
-    update :settle_anchors do
-      description(
-        "System-only: the settlement cursor write (PerformSettle, under the wallet lock)."
-      )
-
-      accept([:metering_since])
-      require_atomic?(false)
-    end
-
-    update :perform_settle do
-      description("The S6 settle body — see PerformSettle (ADR-0040 §11).")
-      require_atomic?(false)
-      accept([])
-
-      change(FluxVale.Infrastructure.AccessDomain.PerformSettle)
-    end
-
     update :resume do
       description("""
-      The owner's funded resume after a billing suspension — the row
-      back to :verified, the accrual window reopened, the tailnet claim
-      and the domain's access arms re-minted (see Resume).
+      The owner's funded resume of a suspended domain — the row back to
+      :verified, the tailnet claim and the domain's access arms
+      re-minted (see Resume).
       """)
 
       require_atomic?(false)
@@ -389,8 +368,6 @@ defmodule FluxVale.Infrastructure.AccessDomain do
     define(:mark_failed)
     define(:mark_needs_attention)
     define(:mark_suspended)
-    define(:settle_anchors)
-    define(:perform_settle)
     define(:resume)
     define(:remove)
   end
@@ -427,31 +404,6 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       |> String.slice(-10, 10)
 
     "access-domain-#{short_id}"
-  end
-
-  # The custom-domain monthly rate (cents) — ADR-0040 §11's line, the
-  # ONE reader of the configured price: the settle prorates it, the
-  # runway projects it. The number is policy (config
-  # `:access_domain_pricing`, env-overridable at boot via runtime.exs),
-  # never logic — no rate literal lives in a billing path. A zero or
-  # negative config is a CONFIGURATION ERROR raised at the read: money
-  # paths fail closed (a silent 0 would make every domain free; a
-  # negative would pay orgs to hold domains).
-  @doc """
-  The monthly rate a `:custom` domain bills at (integer cents).
-  """
-  @spec monthly_cents() :: pos_integer()
-  def monthly_cents do
-    config = Application.fetch_env!(:flux_vale, :access_domain_pricing)
-    cents = Keyword.fetch!(config, :monthly_cents)
-
-    unless is_integer(cents) and cents > 0 do
-      raise ArgumentError,
-            "config :access_domain_pricing[:monthly_cents] must be a positive integer — " <>
-              "got #{inspect(cents)} (billing refuses to run on a mispriced config)"
-    end
-
-    cents
   end
 
   # The Certificate spec register applies and the verify pass RE-applies

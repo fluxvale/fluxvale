@@ -103,9 +103,9 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomain do
   # The unclaim limb (ADR-0040 S3) — P1-2's step (2), see moduledoc
   # ------------------------------------------------------------------
 
-  # Public for the one other system caller: the S6 billing ladder's
-  # suspension un-claims the same way the remove does (the honest-dark
-  # arm — reuse, never a second unclaim implementation).
+  # Public for the one other system caller: the domain suspension
+  # funnel un-claims the same way the remove does (the honest-dark arm
+  # — reuse, never a second unclaim implementation).
   @doc """
   The unclaim limb on its own: reverts the domain's tailnet state
   (split-DNS route and subnet route per the provider's shared-tailnet
@@ -138,8 +138,8 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomain do
   end
 
   # Public with the unclaim limb (its no-gateway arm is the matcher's
-  # only consumer today, and the S6 resume path narrows the same miss
-  # shape — P3-9's one owner for "the gateway is not there").
+  # only consumer today, and the domain resume path narrows the same
+  # miss shape — P3-9's one owner for "the gateway is not there").
   @doc false
   @spec gateway_missing?(term()) :: boolean()
   def gateway_missing?(%Ash.Error.Invalid{errors: errors}) do

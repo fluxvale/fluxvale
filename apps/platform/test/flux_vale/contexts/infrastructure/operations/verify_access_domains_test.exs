@@ -36,6 +36,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
     stub(FluxVale.Infrastructure.Operations.RenderAccessDNS, :call, fn _opts -> :ok end)
 
     {org, owner} = BillingFixtures.grant_free_org!()
+    BillingFixtures.mark_paid!(org)
 
     {:ok, org: org, owner: owner}
   end
@@ -433,9 +434,6 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
 
       assert {:ok, suspended} = AccessDomain.mark_suspended(verified, authorize?: false)
       assert suspended.state == :suspended
-      # The accrual anchor parks: the suspended interval cannot bill on
-      # resume (ADR-0040 §11).
-      assert suspended.metering_since == nil
     end
   end
 

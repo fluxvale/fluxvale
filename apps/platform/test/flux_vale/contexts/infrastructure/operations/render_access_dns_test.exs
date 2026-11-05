@@ -57,6 +57,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
     InstanceFixtures.local_cluster!()
 
     {org, owner} = BillingFixtures.grant_free_org!()
+    BillingFixtures.mark_paid!(org)
 
     # The instance create's funded-wallet gate (#124) — the same top-up
     # the attach tests' setup makes.

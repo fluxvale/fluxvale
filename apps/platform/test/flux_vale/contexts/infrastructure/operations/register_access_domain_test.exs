@@ -9,6 +9,7 @@ defmodule FluxVale.Infrastructure.Operations.RegisterAccessDomainTest do
   use Mimic
 
   alias FluxVale.Accounts
+  alias FluxVale.Billing
   alias FluxVale.Clients.K8s
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure
@@ -24,6 +25,10 @@ defmodule FluxVale.Infrastructure.Operations.RegisterAccessDomainTest do
     stub(Kubereq, :attach, fn req, _opts -> req end)
 
     {org, owner} = BillingFixtures.grant_free_org!()
+    # ADR-0040 Amendment 2's entitlement gate: registration needs a
+    # paid-once, funded account. mark_paid! posts the $1 purchase the
+    # gate reads and leaves the balance positive.
+    BillingFixtures.mark_paid!(org)
 
     {:ok, org: org, owner: owner}
   end
@@ -190,7 +195,8 @@ defmodule FluxVale.Infrastructure.Operations.RegisterAccessDomainTest do
 
     test "a custom domain already held by ANOTHER org is refused", %{owner: owner} do
       register_domain!(owner)
-      {_other_org, other_owner} = BillingFixtures.grant_free_org!()
+      {other_org, other_owner} = BillingFixtures.grant_free_org!()
+      BillingFixtures.mark_paid!(other_org)
 
       stub(Kubereq, :apply, fn _req, _manifest, _fm ->
         flunk("no cluster call expected for a taken domain")
@@ -208,7 +214,8 @@ defmodule FluxVale.Infrastructure.Operations.RegisterAccessDomainTest do
     end
 
     test "org A cannot take a domain org B registered first", %{owner: owner} do
-      {_other_org, other_owner} = BillingFixtures.grant_free_org!()
+      {other_org, other_owner} = BillingFixtures.grant_free_org!()
+      BillingFixtures.mark_paid!(other_org)
 
       # org B registers first — exactly one apply is expected; a buggy
       # refusal that still reaches the cluster would fire a second call
@@ -260,6 +267,46 @@ defmodule FluxVale.Infrastructure.Operations.RegisterAccessDomainTest do
     end
   end
 
+  describe "register/2 — the entitlement gate (ADR-0040 Amendment 2)" do
+    test "an account that has never paid is Forbidden, even when funded" do
+      {org, owner} = BillingFixtures.grant_free_org!()
+      {:ok, wallet} = Billing.ensure_wallet(org)
+      # Funded with welcome credit only: the paid gate reads a real $1+
+      # purchase, which this is not.
+      {:ok, _grant} = Billing.grant_credits(wallet, 500, reason: :welcome)
+
+      stub(Kubereq, :apply, fn _req, _manifest, _fm ->
+        flunk("no cluster call expected behind the entitlement gate")
+      end)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Infrastructure.register_access_domain(
+                 %{domain: "unpaid.example.com"},
+                 actor: owner
+               )
+
+      refute exists?("unpaid.example.com")
+    end
+
+    test "a paid account with a drained wallet is Forbidden" do
+      {org, owner} = BillingFixtures.grant_free_org!()
+      BillingFixtures.mark_paid!(org)
+      BillingFixtures.drain_wallet!(org)
+
+      stub(Kubereq, :apply, fn _req, _manifest, _fm ->
+        flunk("no cluster call expected behind the entitlement gate")
+      end)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Infrastructure.register_access_domain(
+                 %{domain: "drained.example.com"},
+                 actor: owner
+               )
+
+      refute exists?("drained.example.com")
+    end
+  end
+
   describe "policies" do
     test "a member of another org reads nothing", %{org: org, owner: owner} do
       domain = register_domain!(owner)
@@ -279,6 +326,7 @@ defmodule FluxVale.Infrastructure.Operations.RegisterAccessDomainTest do
     } do
       register_domain!(owner)
       {other_org, other_owner} = BillingFixtures.grant_free_org!()
+      BillingFixtures.mark_paid!(other_org)
 
       expect(Kubereq, :apply, fn _req, _manifest, _fm ->
         {:ok, %{status: 201, body: %{}}}
@@ -321,6 +369,10 @@ defmodule FluxVale.Infrastructure.Operations.RegisterAccessDomainTest do
           slug: "domain-team-#{System.unique_integer([:positive])}"
         })
 
+      # The named org is the org in play, so ITS wallet carries the
+      # entitlement (Amendment 2), not the actor's personal one.
+      BillingFixtures.mark_paid!(team)
+
       expect(Kubereq, :apply, fn _req, manifest, _fm ->
         {:ok, %{status: 201, body: manifest}}
       end)
@@ -341,6 +393,9 @@ defmodule FluxVale.Infrastructure.Operations.RegisterAccessDomainTest do
       registrant = user!("domain-fence")
 
       {foreign, _foreign_owner} = BillingFixtures.grant_free_org!()
+      # Paid, so the ONLY failing fence is membership (Amendment 2's
+      # entitlement gate would otherwise answer first).
+      BillingFixtures.mark_paid!(foreign)
 
       assert {:error, %Ash.Error.Forbidden{}} =
                Infrastructure.register_access_domain(

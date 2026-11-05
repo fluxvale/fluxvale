@@ -76,6 +76,9 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
     on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
 
     {org, owner} = BillingFixtures.grant_free_org!()
+    # Amendment 2's entitlement gate: registration needs a paid-once,
+    # funded account.
+    BillingFixtures.mark_paid!(org)
     {:ok, wallet} = Billing.ensure_wallet(org)
     {:ok, _grant} = Billing.grant_credits(wallet, 10_000, reason: :adjustment)
 
@@ -107,10 +110,6 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
       assert {:ok, suspended} = AccessDomain.mark_suspended(domain, authorize?: false)
 
       assert suspended.state == :suspended
-      # The cursor is parked: the suspended interval cannot bill on
-      # resume.
-      assert suspended.metering_since == nil
-
       assert_received {:arms_removed, ^instance_id, domain_id}
       assert domain_id == domain.id
       assert_received {:unclaimed, @domain_name}
@@ -124,7 +123,6 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
     test "fail-closed: a failed route removal leaves the row serving", %{org: org, owner: owner} do
       gateway = AccessFixtures.gateway!(org)
       domain = verified_domain!(owner)
-      pin_anchor!(domain)
       attach_with_hostname!(gateway, org, owner, domain)
 
       stub(EdgeRoutes, :apply_access_none_for_domain, fn _kc, _instance, _domain ->
@@ -134,9 +132,8 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
       assert {:error, _reason} = AccessDomain.mark_suspended(domain, authorize?: false)
 
       fresh = AccessDomain.get_by_id!(domain.id, authorize?: false)
-      # Still serving, still accruing — the sweep retries.
+      # Still serving — the retry re-enters.
       assert fresh.state == :verified
-      assert fresh.metering_since
     end
 
     test "fail-closed: a failed unclaim leaves the row fully serving — routes untouched", %{
@@ -149,7 +146,6 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
       gateway = AccessFixtures.gateway!(org)
       domain = verified_domain!(owner)
       attach_with_hostname!(gateway, org, owner, domain)
-      pin_anchor!(domain)
 
       {:ok, claimed} = Infrastructure.claim_access_domain(gateway, domain, actor: owner)
 
@@ -167,7 +163,6 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
 
       fresh = AccessDomain.get_by_id!(domain.id, authorize?: false)
       assert fresh.state == :verified
-      assert fresh.metering_since
       # The claims entry is untouched too — the failure preceded it.
       assert Map.has_key?(claimed.dns_claims, @domain_name)
     end
@@ -223,7 +218,6 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
       # pass only re-lands the same state.
       assert {:ok, again} = AccessDomain.mark_suspended(suspended, authorize?: false)
       assert again.state == :suspended
-      assert again.metering_since == nil
     end
 
     test "a platform row is never demoted by a money event (the belt)", %{org: org} do
@@ -245,7 +239,6 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
     test "an unreachable cluster fails the suspension — fail-closed", %{org: org, owner: owner} do
       gateway = AccessFixtures.gateway!(org)
       domain = verified_domain!(owner)
-      pin_anchor!(domain)
       attach_with_hostname!(gateway, org, owner, domain)
 
       stub(K8s, :kubeconfig, fn -> {:error, :no_cluster} end)
@@ -258,7 +251,6 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
 
       fresh = AccessDomain.get_by_id!(domain.id, authorize?: false)
       assert fresh.state == :verified
-      assert fresh.metering_since
     end
 
     test "the CoreDNS render follows the COMMITTED suspension only", %{org: org, owner: owner} do
@@ -286,7 +278,7 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
   end
 
   describe "resume — the owner's funded path" do
-    test "reopens the window, re-claims, and re-arms the routes", %{org: org, owner: owner} do
+    test "re-claims and re-arms the routes", %{org: org, owner: owner} do
       gateway = token_gateway!(org)
       domain = verified_domain!(owner)
       instance_id = attach_with_hostname!(gateway, org, owner, domain)
@@ -303,14 +295,9 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
         :ok
       end)
 
-      before = DateTime.utc_now()
-
       assert {:ok, resumed} = AccessDomain.resume(suspended, actor: owner)
 
       assert resumed.state == :verified
-      # The accrual window reopened at now (the suspended interval was
-      # parked; the resume starts a fresh one).
-      assert DateTime.compare(resumed.metering_since, before) != :lt
 
       # The danger ordering, pinned (BLOCK-2): the route re-mints (the
       # local, idempotent half) BEFORE the tailnet claim (the external
@@ -361,11 +348,10 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
 
       assert {:error, _reason} = AccessDomain.resume(suspended, actor: owner)
 
-      # The row is back where the ladder left it (nothing serving,
-      # nothing billed) — the one state every other writer respects.
+      # The row is back where the ladder left it (nothing serving) —
+      # the one state every other writer respects.
       fresh = AccessDomain.get_by_id!(domain.id, authorize?: false)
       assert fresh.state == :suspended
-      assert fresh.metering_since == nil
 
       # The S3 drift shape: the gateway carries the honest copy.
       drifted = AccessGateway.get_by_id!(gateway.id, authorize?: false)
@@ -429,7 +415,6 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
 
       assert {:ok, resumed} = AccessDomain.resume(suspended, actor: owner)
       assert resumed.state == :verified
-      assert resumed.metering_since
     end
 
     test "only a suspended domain resumes — a double-click is a no-op", %{org: org, owner: owner} do
@@ -619,14 +604,6 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
       action: :mark_verified,
       authorize?: false
     )
-  end
-
-  defp pin_anchor!(domain) do
-    domain
-    |> Ash.Changeset.for_update(:settle_anchors, %{metering_since: DateTime.utc_now()},
-      authorize?: false
-    )
-    |> Ash.update!()
   end
 
   # A private attached instance with one hostname row on the domain —

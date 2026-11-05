@@ -36,7 +36,7 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
   claims-write failure. `opts` carry `actor:` / `authorize?:`.
 
   `opts[:render]` (default true) suppresses the post-claims CoreDNS
-  re-render, for the nested system caller: the S6 resume runs this
+  re-render, for the nested system caller: the domain resume runs this
   operation INSIDE its own transaction, where the claims write is not
   yet committed — rendering here would put uncommitted claims into the
   ConfigMap (the S4 lesson). The resume renders once itself, in its

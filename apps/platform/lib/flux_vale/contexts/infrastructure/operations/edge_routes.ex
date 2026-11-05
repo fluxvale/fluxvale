@@ -39,12 +39,12 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   AttachInstance/DetachInstance (mint/remove per the pairing row),
   SetExposure's toggle limbs and compensating restores,
   VerifyAccessDomains (the janitor's transition mints and cert
-  replicas), and PerformTeardown's access none. `apply_access_none_for_domain/3`
-  has zero callers today — the S6 billing ladder's suspension writer,
-  currently being built on another branch, is its future caller. The
-  specs are the shared boundary, so they live here rather than being
-  copied many ways (the operations-own-their-constants rule's sanctioned
-  exception: this IS the one owner).
+  replicas), and PerformTeardown's access none.
+  `apply_access_none_for_domain/3` serves the suspension funnel
+  (`AccessDomain.Suspend`). The specs are the shared boundary, so they
+  live here rather than being copied many ways (the
+  operations-own-their-constants rule's sanctioned exception: this IS
+  the one owner).
   """
 
   alias FluxVale.Clients.K8s.Error
@@ -254,8 +254,8 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   Built for the SUSPENDED verified domain: a suspension is the one
   demotion that had routes to remove (a `:failed` domain never routed —
   unverified rows are skipped at mint), and honest dark is domain-scoped,
-  not instance-scoped. The billing ladder's (S6) suspension writer is
-  the intended caller — zero callers today; S6 is being built now.
+  not instance-scoped. The suspension funnel (`AccessDomain.Suspend`)
+  is the caller.
   """
   @spec apply_access_none_for_domain(Kubereq.Kubeconfig.t(), Instance.t(), AccessDomain.t()) ::
           :ok | {:error, term()}

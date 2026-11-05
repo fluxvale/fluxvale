@@ -887,14 +887,12 @@ defmodule FluxVale.Infrastructure.AccessGateway do
   end
 
   # The gateway's monthly rate (cents) — the one RUNTIME reader of the
-  # configured price (config :access_gateway), mirroring
-  # AccessDomain.monthly_cents/0: the create action snapshots it, the
-  # panel displays it. (The MCP router reads the same config at COMPILE
-  # time for its tool descriptions, on purpose — its own comment names
-  # the trade.) The number is policy, never logic — a missing config, a
-  # missing key, or a zero or negative value is a CONFIGURATION ERROR
-  # raised at the read (money paths fail closed, the domain-rate
-  # stance).
+  # configured price (config :access_gateway): the create action
+  # snapshots it, the panel displays it. (The MCP router reads the same
+  # config at COMPILE time for its tool descriptions, on purpose — its
+  # own comment names the trade.) The number is policy, never logic — a
+  # missing config, a missing key, or a zero or negative value is a
+  # CONFIGURATION ERROR raised at the read (money paths fail closed).
   @doc """
   The monthly rate a gateway bills at (integer cents), read from config :flux_vale, :access_gateway.
   """

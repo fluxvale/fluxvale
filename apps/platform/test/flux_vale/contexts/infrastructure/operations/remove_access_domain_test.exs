@@ -37,6 +37,7 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomainTest do
     stub(RenderAccessDNS, :call, fn _opts -> :ok end)
 
     {org, owner} = BillingFixtures.grant_free_org!()
+    BillingFixtures.mark_paid!(org)
     # Instance create resolves the platform's cluster (ResolveCluster);
     # the fixture builds it through the action (authorize?: false).
     InstanceFixtures.local_cluster!()
