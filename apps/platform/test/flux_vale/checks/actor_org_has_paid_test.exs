@@ -117,9 +117,10 @@ defmodule FluxVale.Checks.ActorOrgHasPaidTest do
     end
 
     test "a create naming its org as an ARGUMENT answers that org, not the actor's" do
-      # The named-org arm's argument intake shape: attribute unset, the
-      # #408 context riding the argument. The actor's personal org has
-      # never paid — only the named org's ledger can pass.
+      # The named-org arm: the gateway tenancy change pins the named
+      # org onto the attribute pre-policy (its no-actor clause, this
+      # changeset's shape), so the check answers the attribute — never
+      # the actor's unpaid personal org.
       actor = AccountsFixtures.user!()
       AccountsFixtures.personal_org!(actor)
       {team, _wallet} = BillingFixtures.funded_wallet!()

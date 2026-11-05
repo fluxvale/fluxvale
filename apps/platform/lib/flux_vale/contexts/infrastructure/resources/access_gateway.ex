@@ -73,8 +73,9 @@ defmodule FluxVale.Infrastructure.AccessGateway do
         ]
       )
 
-      # gateways:write — org is pinned from the actor by the action's
-      # own change; the auth key rides the body and never comes back.
+      # gateways:write — the org rides the organization_id argument
+      # (member-fenced, #408); no argument keeps the personal-org
+      # default. The auth key rides the body and never comes back.
       post(:create,
         route: "/access-gateways",
         default_fields: [

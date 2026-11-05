@@ -168,7 +168,12 @@ defmodule FluxVale.Checks.ActorOrgWalletFunded do
   # pins. No org at all passes (see the moduledoc).
   defp funded_via_actor?(actor) do
     case Accounts.personal_org_for_user(actor.id, authorize?: false) do
+      # coveralls-ignore-start - unreachable through the guarded
+      # actions: the tenancy change pre-pins the org attribute on
+      # every actor-present create, so the actor fallback's funded arm
+      # answers only direct match? probes
       {:ok, org} -> org_funded?(org.id)
+      # coveralls-ignore-stop
       :none -> true
     end
   end

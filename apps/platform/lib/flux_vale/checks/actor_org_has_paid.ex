@@ -200,7 +200,12 @@ defmodule FluxVale.Checks.ActorOrgHasPaid do
   # pins. No org at all passes (see the moduledoc).
   defp paid_via_actor?(actor) do
     case Accounts.personal_org_for_user(actor.id, authorize?: false) do
+      # coveralls-ignore-start - unreachable through the guarded
+      # actions: the tenancy change pre-pins the org attribute on
+      # every actor-present create, so the actor fallback's paid arm
+      # answers only direct match? probes
       {:ok, org} -> org_paid?(org.id)
+      # coveralls-ignore-stop
       :none -> true
     end
   end

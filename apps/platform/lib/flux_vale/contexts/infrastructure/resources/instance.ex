@@ -143,8 +143,10 @@ defmodule FluxVale.Infrastructure.Instance do
 
       # instances:write — the generic :create (#362, the CLI's deploy
       # command). The action's accept list is name, cpu_cores,
-      # memory_mb, storage_gb, env_vars, app_version_id — org/cluster
-      # and the deploy blueprint are derived server-side. Wire caveat
+      # memory_mb, storage_gb, env_vars, app_version_id — the cluster
+      # and the deploy blueprint stay derived server-side; the org is
+      # caller-namable via the organization_id argument (member-fenced,
+      # #408). Wire caveat
       # (measured, not assumed): hide_fields strips env_vars from the
       # create route's REQUEST schema too (ash_json_api applies it in
       # both directions), so a body carrying env_vars is a 400
