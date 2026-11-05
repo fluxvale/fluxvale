@@ -35,7 +35,8 @@ credits would be a free-money faucet (create, spend, repeat).
 
 Reserved slugs bind **creation only**; the rename flow keeps its
 no-reservations behavior — the documented asymmetry (#430). Revisit
-trigger: the invite flow, when org slugs become shareable.
+when org slugs become shareable — the invite flow is the surface that
+would share them, and they are not shareable today.
 
 The creation page is **de-socialized** — the owner's Nov 5 ruling
 after dogfooding (#456): one name input, the `/organizations/<slug>`
