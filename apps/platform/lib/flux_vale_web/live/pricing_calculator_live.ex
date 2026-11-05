@@ -290,7 +290,7 @@ defmodule FluxValeWeb.PricingCalculatorLive do
             phx-click="add-instance"
             disabled={is_nil(@app_slug)}
             data-testid="calculator-add-instances"
-            class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-on-primary transition-colors outline-offset-2 outline-focus hover:bg-primary-hover focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-40"
+            class="rounded-lg border border-line-primary bg-primary px-4 py-2 text-sm font-semibold text-on-primary transition-colors outline-offset-2 outline-focus hover:bg-primary-hover focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {gettext("Add more instances")}
           </button>

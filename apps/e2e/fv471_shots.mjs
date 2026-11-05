@@ -21,7 +21,12 @@ mkdirSync(outdir, { recursive: true });
 const browser = await chromium.launch();
 
 async function themedContext(mode, { signedIn } = {}) {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const ctx = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    // The landing's scroll-revealed sections stay blank in full-page
+    // captures (nothing scrolls); reduced motion reveals them.
+    reducedMotion: "reduce",
+  });
   await ctx.addInitScript((t) => localStorage.setItem("phx:theme", t), mode);
 
   if (signedIn) {
@@ -63,10 +68,21 @@ for (const [name, path] of routes) {
   }
 }
 
-// The composer's primary submit only renders for a signed-in paid user.
+// The composer's primary submit only renders for a signed-in paid user,
+// and a stale token silently lands on the anonymous page — assert the
+// form is really there before calling a capture evidence.
 if (token) {
   for (const mode of ["light", "dark"]) {
-    await still("composer", "/feedback/new", mode, { signedIn: true });
+    const ctx = await themedContext(mode, { signedIn: true });
+    const page = await ctx.newPage();
+    await page.goto(`${BASE}/feedback/new`, { waitUntil: "networkidle" });
+    await page.waitForTimeout(600);
+    await page
+      .locator("#composer-form button[type='submit']")
+      .waitFor({ state: "visible", timeout: 10_000 });
+    await page.screenshot({ path: `${outdir}/composer-${mode}.png`, fullPage: true });
+    console.log(`captured composer-${mode}.png`);
+    await ctx.close();
   }
 }
 

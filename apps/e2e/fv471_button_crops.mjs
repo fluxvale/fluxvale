@@ -17,6 +17,11 @@ async function shot(mode, pagePath, selector, name, signedIn = false) {
   const page = await ctx.newPage();
 
   if (signedIn) {
+    if (!token) {
+      console.error(`skipping ${name}: signed-in capture needs FV_T5_TOKEN`);
+      await ctx.close();
+      return;
+    }
     await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
     const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
     await page.request.post(`${BASE}/auth/session`, {

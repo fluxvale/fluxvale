@@ -885,8 +885,12 @@ defmodule FluxVale.Seeds do
 
   # The truth pass (#471): counters read the ROWS, never the other way
   # around. Rows maintain the counters through their own actions; this
-  # only re-derives what a drift left behind.
+  # only re-derives what a drift left behind. The reload matters: the
+  # caller's struct can predate this run's mint bumps, and a drifted
+  # stored value that equals the row count would otherwise compare equal
+  # and skip the heal.
   defp converge_counters!(post) do
+    post = Ash.reload!(post, authorize?: false)
     votes = count_rows!(Vote, post.id)
     comments = count_rows!(Comment, post.id)
 
