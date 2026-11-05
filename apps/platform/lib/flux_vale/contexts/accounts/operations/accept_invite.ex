@@ -60,7 +60,10 @@ defmodule FluxVale.Accounts.Operations.AcceptInvite do
   # address (User.primary_email's definition). No row, no proof: the
   # mismatch arm answers.
   defp verified_primary_email(user) do
-    case Ash.load(user, :primary_email) do
+    # authorize?: false — the system token path reads explicitly (the
+    # nested aggregate carries the same flag); the calc itself is the
+    # identity this fence compares.
+    case Ash.load(user, :primary_email, authorize?: false) do
       {:ok, %{primary_email: nil}} ->
         {:error, :email_mismatch}
 

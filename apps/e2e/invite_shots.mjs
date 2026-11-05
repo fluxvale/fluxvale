@@ -22,10 +22,19 @@ async function sessionFor(token) {
   const page = await ctx.newPage();
   await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
   const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
-  await page.request.post(`${BASE}/auth/session`, {
+  const session = await page.request.post(`${BASE}/auth/session`, {
     form: { token },
     headers: { "x-csrf-token": csrf },
   });
+
+  // Fail fast: a bad token or CSRF answer would otherwise capture the
+  // sign-in page and still print "captured ...png".
+  if (!session.ok()) {
+    console.error(
+      `session setup failed (POST /auth/session -> ${session.status()}) — refusing to capture the wrong page`,
+    );
+    process.exit(1);
+  }
   return { ctx, page };
 }
 

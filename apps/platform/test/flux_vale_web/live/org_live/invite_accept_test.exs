@@ -122,6 +122,31 @@ defmodule FluxValeWeb.OrganizationLive.InviteAcceptTest do
     end
   end
 
+  describe "the crafted-event fence" do
+    test "a mismatched sign-in cannot decline over the socket — the handler matches the render",
+         %{
+           conn: conn,
+           invitee: invitee,
+           token: token,
+           org: org
+         } do
+      # The page renders no Decline button in the mismatch state; a
+      # crafted socket frame from that visitor must be a no-op — the
+      # invite stays open for the address it names.
+      stranger = AccountsFixtures.user!()
+      stranger_conn = SessionHelpers.sign_in(conn, stranger)
+
+      {:ok, view, _html} = live(stranger_conn, ~p"/invitations/accept?token=#{token}")
+
+      render_click(view, "decline-invite", %{})
+      render_click(view, "accept-invite", %{})
+
+      assert has_element?(view, "[data-testid='invite-mismatch-copy']")
+      assert {:ok, {:open, _invite}} = Accounts.resolve_invite(token)
+      assert memberships(org, invitee) == []
+    end
+  end
+
   describe "the raced click arms" do
     test "an accept on a window that closed elsewhere answers and does not join twice", %{
       conn: conn,

@@ -67,8 +67,13 @@ defmodule FluxValeWeb.OrganizationLive.InviteAccept do
     assign(socket, state: state, invited_email: invited, invite: invite, token: token)
   end
 
+  # The page is as strict as its render: the Accept/Decline pair exists
+  # only in the :invite_ready state, so the handlers match on that
+  # state and any other socket event (a crafted frame from a
+  # mismatched sign-in or a terminal sentence) is a no-op. The domain
+  # seam stays token-path; this fence is the page's own.
   @impl Phoenix.LiveView
-  def handle_event("accept-invite", _params, socket) do
+  def handle_event("accept-invite", _params, %{assigns: %{state: :invite_ready}} = socket) do
     case Accounts.accept_invite(socket.assigns.token, socket.assigns.current_user) do
       {:ok, _invite} ->
         org = socket.assigns.invite.organization
@@ -90,8 +95,10 @@ defmodule FluxValeWeb.OrganizationLive.InviteAccept do
     end
   end
 
+  def handle_event("accept-invite", _params, socket), do: {:noreply, socket}
+
   @impl Phoenix.LiveView
-  def handle_event("decline-invite", _params, socket) do
+  def handle_event("decline-invite", _params, %{assigns: %{state: :invite_ready}} = socket) do
     case Accounts.decline_invite(socket.assigns.token) do
       {:ok, _invite} ->
         {:noreply, assign(socket, :state, :declined)}
@@ -100,6 +107,8 @@ defmodule FluxValeWeb.OrganizationLive.InviteAccept do
         {:noreply, put_flash(socket, :error, "This invitation can no longer be declined.")}
     end
   end
+
+  def handle_event("decline-invite", _params, socket), do: {:noreply, socket}
 
   # The raced already-member arm: the operation refused before any
   # fresh read, so the redirect rides the org the mount resolved —
