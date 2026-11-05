@@ -1,38 +1,27 @@
 defmodule FluxValeWeb.PricingController do
   @moduledoc """
-  The public pricing page (#396): the product's cost-truth surface,
-  resource-framed — prices follow the resources an app gets, never the
-  app. Anonymous-OK like the catalog (#164, ADR-00025). Every price
-  renders from the pricing ground truth at request time — the Size
-  rows' public read (the rate table) and the config-backed accessors
-  (gateway, custom domain, welcome grant) — so no price literal ships
-  in a template. The interactive calculator renders in the page's
-  marked section: the controller-embedded PricingCalculatorLive (#397).
+  The public pricing page (#440): the product's cost-truth surface, a
+  single curve-priced calculator — resource sliders in, one total out
+  (PikaPods pattern; the tiers left the page with #440's restructure).
+  Anonymous-OK like the catalog (#164, ADR-00025). The interactive
+  calculator renders in the page's marked section: the controller-
+  embedded PricingCalculatorLive prices through price_allocation/1 and
+  the service accessors directly, so no price literal ships in a
+  template. The controller keeps only the SEO assigns and the welcome
+  grant the billing band renders.
   """
 
   use FluxValeWeb, :controller
 
   alias FluxVale.Accounts
-  alias FluxVale.Infrastructure.AccessDomain
-  alias FluxVale.Infrastructure.AccessGateway
-  alias FluxVale.Pricing.Size
 
-  @pricing_description "Per-instance monthly rates from a published size table, prepaid credits, billed hourly."
+  @pricing_description "Prices follow the resources you choose. Estimate your monthly cost with the live calculator."
 
   def show(conn, _params) do
-    sizes =
-      Size
-      |> Ash.Query.for_read(:read, %{}, actor: nil)
-      |> Ash.Query.sort(:monthly_cents)
-      |> Ash.read!()
-
     conn
     |> assign(:page_title, "Pricing · FluxVale")
     |> assign(:page_description, @pricing_description)
     |> assign(:canonical_path, "/pricing")
-    |> assign(:sizes, sizes)
-    |> assign(:gateway_monthly_cents, AccessGateway.monthly_cents())
-    |> assign(:domain_monthly_cents, AccessDomain.monthly_cents())
     |> assign(:welcome_grant_cents, Accounts.welcome_grant_cents())
     |> render(:show)
   end

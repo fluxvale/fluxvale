@@ -1,156 +1,27 @@
 <Layouts.public flash={@flash} current_user={@current_user}>
-  <%!-- #396: the published rate table — the cost-truth surface. Every
-  PRICE renders from the Size rows or the config-backed accessors the
-  controller assigns (the billing card's prose constants are copy, not
-  rendered data); the table renders whatever rows the seeds carry
-  (never a hardcoded count). The interactive calculator renders in the
-  marked section below (#397). Mobile: the table folds into
-  per-size cards below sm — no horizontal scrolling anywhere. --%>
+  <%!-- #440: the calculator IS the pricing surface — resource sliders
+  in, one curve-priced total out (PikaPods pattern). No sizes table, no
+  tier labels: prices follow resources, and the same slider state costs
+  the same for every app. The billing copy band and the CTA band stay
+  as shipped. Mobile: the calculator card stacks by construction. --%>
   <div class="space-y-10">
     <div class="space-y-2">
       <h1 class="text-3xl font-semibold tracking-tight text-ink">{gettext("Pricing")}</h1>
       <p class="max-w-2xl text-ink-muted">
         {gettext(
-          "Prices follow the resources an app gets, not the app itself. Any app at the same size costs the same."
+          "Prices follow the resources an app gets, not the app itself. Any app with the same resources costs the same."
         )}
       </p>
     </div>
 
-    <section id="sizes" aria-labelledby="sizes-title" class="space-y-4">
-      <div class="space-y-1">
-        <h2 id="sizes-title" class="text-lg font-semibold tracking-tight text-ink">
-          {gettext("Instance sizes")}
-        </h2>
-        <p class="text-sm text-ink-muted">
-          {gettext(
-            "One row per size. The running rate is a monthly equivalent, billed hourly while the instance runs."
-          )}
-        </p>
-      </div>
-
-      <%!-- The published table (sm and up): one row per Size, sorted by
-      monthly rate — the read is already sorted asc. A plain div, not
-      .card, because the table wants zero card padding and a Tailwind
-      p-0 override on .card's own p-5 would not win the stylesheet race.
-      --%>
-      <div class="hidden rounded-panel border border-line-strong bg-panel shadow-sm sm:block">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-line bg-panel-raised text-left text-xs uppercase tracking-wide text-ink-subtle">
-              <th scope="col" class="px-4 py-2.5 font-medium">{gettext("Size")}</th>
-              <th scope="col" class="px-4 py-2.5 font-medium">{gettext("CPU")}</th>
-              <th scope="col" class="px-4 py-2.5 font-medium">{gettext("Memory")}</th>
-              <th scope="col" class="px-4 py-2.5 font-medium">{gettext("Storage")}</th>
-              <th scope="col" class="px-4 py-2.5 font-medium">{gettext("Running")}</th>
-              <th scope="col" class="px-4 py-2.5 font-medium">{gettext("Stopped")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr :for={size <- @sizes} class="border-b border-line last:border-b-0">
-              <th scope="row" class="px-4 py-2.5 text-left font-mono font-medium text-ink">
-                {size.slug}
-              </th>
-              <td class="px-4 py-2.5 text-ink-muted">{Decimal.to_string(size.cpu_cores)}</td>
-              <td class="px-4 py-2.5 text-ink-muted">{size.memory_mb} MB</td>
-              <td class="px-4 py-2.5 text-ink-muted">{size.storage_gb} GB</td>
-              <td class="px-4 py-2.5 font-medium text-ink">
-                {Pricing.format_monthly_rate(size.monthly_cents)}
-              </td>
-              <td class="px-4 py-2.5 text-ink-muted">
-                {gettext(
-                  "%{rate}/mo while stopped",
-                  rate: Pricing.format_usd(size.stopped_monthly_cents)
-                )}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <%!-- Mobile (below sm): the same rows as stacked per-size cards. --%>
-      <ul class="space-y-3 sm:hidden">
-        <li :for={size <- @sizes}>
-          <.card id={"size-#{size.slug}"} class="space-y-3">
-            <div class="flex items-baseline justify-between gap-3">
-              <span class="font-mono font-medium text-ink">{size.slug}</span>
-              <span class="text-sm font-medium text-ink">
-                {Pricing.format_monthly_rate(size.monthly_cents)}
-              </span>
-            </div>
-            <dl class="grid grid-cols-3 gap-2 text-sm">
-              <div>
-                <dt class="text-xs text-ink-subtle">{gettext("CPU")}</dt>
-                <dd class="text-ink-muted">{Decimal.to_string(size.cpu_cores)}</dd>
-              </div>
-              <div>
-                <dt class="text-xs text-ink-subtle">{gettext("Memory")}</dt>
-                <dd class="text-ink-muted">{size.memory_mb} MB</dd>
-              </div>
-              <div>
-                <dt class="text-xs text-ink-subtle">{gettext("Storage")}</dt>
-                <dd class="text-ink-muted">{size.storage_gb} GB</dd>
-              </div>
-            </dl>
-            <p class="text-sm text-ink-muted">
-              {gettext(
-                "%{rate}/mo while stopped",
-                rate: Pricing.format_usd(size.stopped_monthly_cents)
-              )}
-            </p>
-          </.card>
-        </li>
-      </ul>
-    </section>
-
-    <%!-- The interactive calculator (#397): a controller-embedded child
+    <%!-- The interactive calculator (#440): a controller-embedded child
     LiveView — SSR'd here in place, so crawlers see the formed state.
     The :id pins the child's DOM identity for reconnects; the conn
     session rides the embed (Static.render merges it), which the child
-    uses only to re-resolve the locale in mount.
-    --%>
-    <section id="calculator" data-testid="pricing-calculator-slot">
+    uses only to re-resolve the locale in mount. The capped width keeps
+    the centerpiece focused against the page's max-w-5xl column. --%>
+    <section id="calculator" data-testid="pricing-calculator-slot" class="mx-auto max-w-3xl">
       {live_render(@conn, FluxValeWeb.PricingCalculatorLive, id: "pricing-calculator")}
-    </section>
-
-    <section aria-labelledby="other-services-title" class="space-y-4">
-      <h2 id="other-services-title" class="text-lg font-semibold tracking-tight text-ink">
-        {gettext("Other services")}
-      </h2>
-      <%!-- Same no-padding race as the table: a plain surface div with
-      divide-y rows. --%>
-      <div class="divide-y divide-line rounded-panel border border-line-strong bg-panel shadow-sm">
-        <div class="flex flex-wrap items-center justify-between gap-2 p-5">
-          <div class="min-w-0">
-            <p class="font-medium text-ink">{gettext("Private access gateway")}</p>
-            <p class="text-sm text-ink-muted">
-              {gettext("One gateway serves every app in your organization")}
-            </p>
-          </div>
-          <p class="text-sm font-medium text-ink">
-            {gettext(
-              "%{rate}/mo per gateway, billed hourly",
-              rate: Pricing.format_usd(@gateway_monthly_cents)
-            )}
-          </p>
-        </div>
-        <div class="flex flex-wrap items-center justify-between gap-2 p-5">
-          <div class="min-w-0">
-            <p class="font-medium text-ink">{gettext("Custom domain")}</p>
-            <p class="text-sm text-ink-muted">
-              {gettext("Serve your apps under your own domain name")}
-            </p>
-          </div>
-          <p class="text-sm font-medium text-ink">
-            {gettext(
-              "%{rate}/mo per verified domain, billed hourly",
-              rate: Pricing.format_usd(@domain_monthly_cents)
-            )}
-          </p>
-        </div>
-      </div>
-      <p class="text-sm text-ink-muted">
-        {gettext("Hostnames under fluxvale.app, public exposure, DNS, and resolution are free.")}
-      </p>
     </section>
 
     <section aria-labelledby="billing-title" class="space-y-4">
@@ -186,7 +57,7 @@
           {gettext("Start in minutes")}
         </h2>
         <p class="text-sm text-ink-muted">
-          {gettext("Pick an app from the catalog and run it at any size above.")}
+          {gettext("Pick an app from the catalog and run it with the resources you choose.")}
         </p>
       </div>
       <div class="flex flex-wrap gap-3">
