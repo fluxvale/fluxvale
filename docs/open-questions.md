@@ -178,4 +178,7 @@ Longhorn at node #2 · control-plane HA at 3 server nodes · dedicated
 staging box · Flagger canary at traffic · self-hosted LGTM at
 free-tier limits · managed k8s at concrete need · PocketID managed SSO
 post-beta · first-party products post-gate (managed-DB product,
-OQ #14).
+OQ #14) · the org social layer post-launch
+([ADR-0042](adr/00042-user-created-organizations.md): public org
+surfaces parked — the feedback board is the experiment; revisit on
+post-launch feedback-board evidence).
