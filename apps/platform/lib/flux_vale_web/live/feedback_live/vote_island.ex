@@ -209,7 +209,7 @@ defmodule FluxValeWeb.FeedbackLive.VoteIsland do
   # together and no render can disagree with the selection. A missing
   # post (deleted between the page load and the island's connect) never
   # renders, so the gate label here is dead weight — it just keeps the
-  # assigns total.
+  # assigns total. A nil org fails closed at the shared predicate.
   defp select_org(%{assigns: %{post: nil}} = socket, _org_id) do
     assign(socket, selected_org_id: nil, gate: :refused, voted: nil)
   end
@@ -232,9 +232,8 @@ defmodule FluxValeWeb.FeedbackLive.VoteIsland do
     assign(socket, selected_org_id: org_id, gate: gate, voted: voted)
   end
 
-  # The shared predicate — the same answer the actions' policies give.
-  defp gate_allows?(_user, nil), do: false
-
+  # The shared predicate — the same answer the actions' policies give;
+  # a nil org fails closed inside it.
   defp gate_allows?(user, org_id),
     do: ActorOwnsPaidOrg.board_write_allowed?(user, org_id)
 
@@ -275,7 +274,10 @@ defmodule FluxValeWeb.FeedbackLive.VoteIsland do
     end
   end
 
-  # The page's island mounts after a post was deleted mid-session.
+  # The page's island mounts after a post was deleted mid-session; a
+  # keyless session is a programming error, and the island degrading to
+  # nothing beats a mount crash if the caller contract ever drifts.
+  # coveralls-ignore-next-line
   defp post_by_slug(_missing), do: nil
 
   defp find_vote(post_id, org_id) do
@@ -294,6 +296,11 @@ defmodule FluxValeWeb.FeedbackLive.VoteIsland do
   defp toggle_label(true, org), do: gettext("Vote as %{org}", org: org)
   defp toggle_label(false, org), do: gettext("Voted as %{org}", org: org)
 
+  # The org-less shape never reaches the render (a sign-in without an
+  # owned org fails the auth chain); the generic label keeps the copy
+  # total if that ever drifts. The pure arm is covered directly in
+  # OrgChoiceTest.
+  # coveralls-ignore-next-line
   defp topup_label(nil), do: gettext("Top up to vote")
 
   defp topup_label(org), do: gettext("Top up %{org} to vote", org: org.name)

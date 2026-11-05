@@ -136,6 +136,48 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIslandTest do
     assert has_element?(view, "[data-testid='comment-sign-in']")
   end
 
+  # --- Keystroke validation --------------------------------------------------------------------
+
+  test "typing shows the bounds error live, before any submit", %{conn: conn} do
+    post = post!()
+    user = AccountsFixtures.user!()
+
+    {:ok, view, _html} = mount_island(conn, post, user)
+
+    render_change(view, "validate", %{"comment" => %{"body" => String.duplicate("x", 5001)}})
+
+    assert has_element?(view, "#comment-form p", "5000")
+    assert count!(post.id) == 0
+
+    # Clearing the body clears the error.
+    render_change(view, "validate", %{"comment" => %{"body" => "now valid"}})
+
+    refute has_element?(view, "#comment-form p", "5000")
+  end
+
+  test "a crafted validate payload without the comment key is silence", %{conn: conn} do
+    post = post!()
+    user = AccountsFixtures.user!()
+
+    {:ok, view, _html} = mount_island(conn, post, user)
+
+    render_change(view, "validate", %{})
+
+    assert has_element?(view, "#comment-form")
+    assert count!(post.id) == 0
+  end
+
+  test "a crafted submit payload without the comment key is silence", %{conn: conn} do
+    post = post!()
+    user = AccountsFixtures.user!()
+
+    {:ok, view, _html} = mount_island(conn, post, user)
+
+    render_submit(view, "submit-comment", %{})
+
+    assert count!(post.id) == 0
+  end
+
   # --- A missing post -----------------------------------------------------------------
 
   test "a missing post renders the island empty (deleted mid-session)", %{conn: conn} do

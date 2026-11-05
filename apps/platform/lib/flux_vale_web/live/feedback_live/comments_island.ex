@@ -197,6 +197,9 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
     end
   end
 
+  # The island degrades to nothing rather than crash if the caller
+  # contract ever drifts (see VoteIsland's twin).
+  # coveralls-ignore-next-line
   defp post_by_slug(_missing), do: nil
 
   defp comment_count(post), do: Ash.get!(Post, post.id, actor: nil).comment_count

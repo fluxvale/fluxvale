@@ -11,6 +11,7 @@ defmodule FluxValeWeb.FeedbackLive.ComposerTest do
 
   import FluxVale.TestSupport.FeedbackFixtures
 
+  alias FluxVale.Billing
   alias FluxVale.Feedback.Post
   alias FluxVale.Ops.AccessRule
   alias FluxVale.TestSupport.AccountsFixtures
@@ -141,6 +142,31 @@ defmodule FluxValeWeb.FeedbackLive.ComposerTest do
     refute has_element?(view, "[data-testid='similar-posts']")
   end
 
+  test "description keystrokes with an unchanged title reuse the last search", %{conn: conn} do
+    existing = post!(%{title: "Add dark mode toggle for settings"})
+    user = AccountsFixtures.user!()
+    BillingFixtures.mark_user_paid!(user)
+
+    {:ok, view, _html} = mount_composer(conn, user)
+
+    render_change(view, "validate", %{
+      "post" => %{"title" => "dark mode settings page", "description" => ""}
+    })
+
+    assert has_element?(view, "[data-testid='similar-posts']")
+
+    # The description changes; the title (and so the nudge) stays.
+    render_change(view, "validate", %{
+      "post" => %{"title" => "dark mode settings page", "description" => "Details here"}
+    })
+
+    assert has_element?(
+             view,
+             "[data-testid='similar-post-#{existing.slug}']",
+             "Add dark mode toggle for settings"
+           )
+  end
+
   test "a crafted non-binary title is silence, not a crash", %{conn: conn} do
     user = AccountsFixtures.user!()
     BillingFixtures.mark_user_paid!(user)
@@ -152,6 +178,75 @@ defmodule FluxValeWeb.FeedbackLive.ComposerTest do
     })
 
     refute has_element?(view, "[data-testid='similar-posts']")
+  end
+
+  test "a crafted validate payload without the post key is silence", %{conn: conn} do
+    user = AccountsFixtures.user!()
+    BillingFixtures.mark_user_paid!(user)
+
+    {:ok, view, _html} = mount_composer(conn, user)
+
+    render_change(view, "validate", %{})
+
+    assert has_element?(view, "#composer-form")
+  end
+
+  test "a crafted create payload without the post key is silence", %{conn: conn} do
+    user = AccountsFixtures.user!()
+    BillingFixtures.mark_user_paid!(user)
+
+    {:ok, view, _html} = mount_composer(conn, user)
+
+    render_submit(view, "create", %{})
+
+    refute post_with_title_exists?("A perfectly valid request title")
+  end
+
+  # --- The picker -----------------------------------------------------------------------
+
+  test "a multi-org owner switches the posting org with the picker", %{conn: conn} do
+    user = AccountsFixtures.user!()
+    BillingFixtures.mark_user_paid!(user)
+    team = AccountsFixtures.owned_org!(user)
+    {:ok, wallet} = Billing.ensure_wallet(team)
+    BillingFixtures.mark_paid!(wallet)
+
+    {:ok, view, _html} = mount_composer(conn, user)
+
+    # Default: the personal org, selected.
+    assert has_element?(view, "#composer-org-picker button[aria-pressed='true']", user.username)
+
+    render_click(view, "pick-org", %{"org-id" => team.id})
+
+    assert has_element?(view, "#composer-org-picker button[aria-pressed='true']", team.name)
+    assert has_element?(view, "#composer-org-picker button[aria-pressed='false']", user.username)
+
+    # The selected org rides the write: posting names the team org.
+    view
+    |> element("#composer-form")
+    |> render_submit(%{
+      "post" => %{"title" => "A team org posted request", "description" => "Body"}
+    })
+
+    created =
+      Post
+      |> Ash.Query.filter(slug == "a-team-org-posted-request")
+      |> Ash.read_one!(authorize?: false)
+
+    assert created.organization_id == team.id
+  end
+
+  test "a crafted unknown org id is silence", %{conn: conn} do
+    user = AccountsFixtures.user!()
+    BillingFixtures.mark_user_paid!(user)
+
+    {:ok, view, _html} = mount_composer(conn, user)
+
+    render_click(view, "pick-org", %{"org-id" => Ash.UUID.generate()})
+
+    # Still the personal org, still allowed.
+    assert has_element?(view, "[data-testid='composer-submit']")
+    refute has_element?(view, "[data-testid='composer-gate-copy']")
   end
 
   # --- The gate -----------------------------------------------------------------------

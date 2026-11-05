@@ -310,6 +310,11 @@ defmodule FluxValeWeb.FeedbackLive.Composer do
   # Anonymous wins the label war: a visitor with no org at all sees the
   # sign-in CTA, not paying copy.
   defp gate(nil, _org_id), do: :anonymous
+
+  # The org-less shape never reaches the composer (a sign-in without an
+  # owned org fails the auth chain); the :refused label keeps mount
+  # total if that ever drifts.
+  # coveralls-ignore-next-line
   defp gate(_user, nil), do: :refused
 
   # The shared predicate — the same answer the create's policy gives.
@@ -335,6 +340,11 @@ defmodule FluxValeWeb.FeedbackLive.Composer do
 
   # --- Copy ---------------------------------------------------------------------
 
+  # The org-less shape never reaches the render (a sign-in without an
+  # owned org fails the auth chain); the generic label keeps the copy
+  # total if that ever drifts. The pure arm is covered directly in
+  # OrgChoiceTest.
+  # coveralls-ignore-next-line
   defp topup_label(nil), do: gettext("Top up to post")
 
   defp topup_label(org), do: gettext("Top up %{org} to post", org: org.name)

@@ -10,7 +10,6 @@ defmodule FluxVale.Feedback.Operations.SimilarPostsTest do
   alias FluxVale.Feedback.Operations.SimilarPosts
   alias FluxVale.Feedback.Post
   alias FluxVale.TestSupport.FeedbackFixtures
-
   # Fixture titles need distinct vocabularies per test, so the post!
   # wrapper keeps the shape but takes the title verbatim.
   defp post!(title), do: FeedbackFixtures.post!(%{title: title})
@@ -67,6 +66,16 @@ defmodule FluxVale.Feedback.Operations.SimilarPostsTest do
 
     test "a non-binary title is silence (the crafted-param shape)" do
       assert [] = Feedback.similar_posts(%{"garbage" => "input"})
+    end
+
+    test "the operation answers the domain's delegate call shape" do
+      post!("Add dark mode toggle for settings")
+
+      # The domain delegates as call/2; the unit suite rides the same
+      # entrypoint directly once so the head is covered off the seam,
+      # and the default-opts arity rides the generated wrapper.
+      assert [%Post{}] = SimilarPosts.call("dark mode settings page", [])
+      assert [%Post{}] = SimilarPosts.call("dark mode settings page")
     end
 
     test "rank: more shared tokens win" do
