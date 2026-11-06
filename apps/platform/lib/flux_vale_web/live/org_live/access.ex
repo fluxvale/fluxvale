@@ -29,16 +29,25 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   delete refetches the panel to the empty state. The auth key is
   write-only: a password input, and no read-back path ever returns the
   stored key (ADR-0039 §4).
+
+  API tokens (#483): the actor's own PATs — create (name + scopes off
+  the existing catalog), the raw value shown once at creation, and
+  revoke, effective immediately. Self-service by construction: the
+  reads and writes ride the owner-scoped policies, the same list
+  either head serves (the device sign-ins' posture).
   """
 
   use FluxValeWeb, :live_view
 
   alias Ash.Error.Forbidden
   alias FluxVale.Accounts.Organization
+  alias FluxVale.Api.Scopes
   alias FluxVale.Checks.ActorIsOrganizationOwner
   alias FluxVale.Checks.ActorOrgHasPaid
   alias FluxVale.Checks.ActorOrgWalletFunded
+  alias FluxVale.Identity
   alias FluxVale.Identity.DeviceCode
+  alias FluxVale.Identity.PersonalAccessToken
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessRoute
@@ -163,10 +172,15 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     |> stream_configure(:attached, dom_id: &"access-attached-#{&1.route.id}")
     |> stream_configure(:attachable, dom_id: &"access-attach-#{&1.id}")
     |> stream_configure(:device_sign_ins, dom_id: &"device-sign-in-#{&1.id}")
+    |> stream_configure(:api_tokens, dom_id: &"api-token-#{&1.id}")
     |> refresh_wallet_gates()
     |> assign_forms()
+    |> assign(fresh_token: nil, token_revoke_armed_id: nil)
+    |> assign(token_form: to_form(%{"name" => ""}, as: "token"))
+    |> assign(catalog_scopes: Scopes.all_scopes())
     |> refresh_pairing()
     |> refresh_device_sign_ins()
+    |> refresh_api_tokens()
   end
 
   # The top-up links inside the panel: a real org bills at its org URL,
@@ -484,6 +498,108 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     end
   end
 
+  # ---- API tokens (#483): create, list, revoke the actor's own PATs ----
+
+  # The create rides the MintPat operation (the domain is the seam):
+  # scopes validated against the catalog twice (operation + resource),
+  # the hash-only write, the raw value back exactly once. The form
+  # offers exactly the catalog, so an off-catalog scope can only
+  # arrive crafted — the domain still refuses it before anything is
+  # generated. Empty scopes is a valid mint (the scopeless routes).
+  def handle_event("create-token", %{"token" => params}, socket) do
+    user = socket.assigns.current_user
+    raw_name = to_string(params["name"])
+    name = String.trim(raw_name)
+
+    scopes = List.wrap(params["scopes"] || [])
+
+    if name == "" do
+      {:noreply, put_flash(socket, :error, "Give the token a name first.")}
+    else
+      case Identity.mint_pat(user, %{user_id: user.id, name: name, scopes: scopes}) do
+        {:ok, %{token: raw, pat: pat}} ->
+          {:noreply,
+           socket
+           |> assign(fresh_token: %{id: pat.id, name: pat.name, token: raw})
+           |> assign(token_form: to_form(%{"name" => ""}, as: "token"))
+           |> refresh_api_tokens()}
+
+        {:error, {kind, _scope}} when kind in [:invalid_scope, :duplicate_scope] ->
+          {:noreply,
+           put_flash(
+             socket,
+             :error,
+             "Couldn't create the token. The scope selection wasn't valid. Refresh and try again."
+           )}
+
+        {:error, _refused} ->
+          {:noreply,
+           put_flash(socket, :error, "Couldn't create the token. Check the name and try again.")}
+      end
+    end
+  end
+
+  # A crafted submit without the form payload is a no-op (the attach
+  # family's posture), never a crash.
+  def handle_event("create-token", _params, socket), do: {:noreply, socket}
+
+  # The reveal is the raw value's only rendering. Dismissal clears the
+  # assign — the only live copy — and nothing can render it again: the
+  # operation keeps no raw, the row keeps the hash.
+  def handle_event("dismiss-token-reveal", _params, socket) do
+    {:noreply, assign(socket, :fresh_token, nil)}
+  end
+
+  # Revoke rides the armed posture (the gateway remove family): only an
+  # armed id revokes, and it must match the clicked row, so a crafted
+  # click without arming is a no-op. The arm and cancel refetch the
+  # stream — a stream item re-renders only through a stream operation,
+  # so the assign alone would leave the row stale. The operation is the
+  # authority — its id lookup is owner-gated, so a forged id for
+  # another user's token is refused by the policy, not the UI.
+  def handle_event("arm-token-revoke", %{"id" => id}, socket) do
+    {:noreply,
+     socket
+     |> assign(token_revoke_armed_id: id)
+     |> refresh_api_tokens()}
+  end
+
+  def handle_event("arm-token-revoke", _params, socket), do: {:noreply, socket}
+
+  def handle_event("cancel-token-revoke", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(token_revoke_armed_id: nil)
+     |> refresh_api_tokens()}
+  end
+
+  def handle_event("revoke-token", %{"id" => id}, socket) do
+    if socket.assigns.token_revoke_armed_id == id do
+      case Identity.revoke_pat(socket.assigns.current_user, id) do
+        {:ok, _revoked} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Token revoked. Anything using it stops working now.")
+           |> assign(token_revoke_armed_id: nil)
+           |> refresh_api_tokens()}
+
+        # A policy refusal (a forged id for another user's token) or a
+        # lost race against a concurrent sever — one honest line and the
+        # refetch, the remove family's stale posture.
+        {:error, _refused} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, "Couldn't revoke the token. Refresh and try again.")
+           |> assign(token_revoke_armed_id: nil)
+           |> refresh_api_tokens()}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("revoke-token", _params, socket), do: {:noreply, socket}
+
   # Only a still-pending row acts — the pending re-read IS the guard
   # (the :pending read filters status and expiry), so a crafted or
   # stale id is a quiet no-op + refresh, never a crash.
@@ -508,6 +624,65 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     socket
     |> stream(:device_sign_ins, pending, reset: true)
     |> assign(device_sign_ins_empty?: pending == [])
+  end
+
+  # The actor's own rows, newest first. The read policy scopes to the
+  # owner (user_id == actor.id) and the filter argument names the same
+  # user, so the bang cannot meet a refusal (the pairing lists' stance).
+  defp refresh_api_tokens(socket) do
+    user = socket.assigns.current_user
+
+    tokens =
+      user.id
+      |> PersonalAccessToken.list_for_user!(actor: user)
+      |> Enum.sort_by(&{&1.created_at, &1.id}, {:desc, :asc})
+
+    socket
+    |> stream(:api_tokens, tokens, reset: true)
+    |> assign(api_tokens_empty?: tokens == [])
+  end
+
+  # ---- API tokens copy ----
+
+  # Revocation is the instant sever, expiry the quiet one — revoked
+  # wins when both hold (the row is dead either way, the copy says how).
+  defp token_status(%PersonalAccessToken{revoked_at: revoked_at}) when not is_nil(revoked_at),
+    do: :revoked
+
+  defp token_status(%PersonalAccessToken{} = token) do
+    if DateTime.compare(token.expires_at, DateTime.utc_now()) == :lt do
+      :expired
+    else
+      :active
+    end
+  end
+
+  # Empty scopes grants the scopeless routes only (the boundary plug's
+  # :any rows) — say so, never the device flow's "full access" wording.
+  defp scopes_line(%PersonalAccessToken{scopes: []}), do: "no scopes (identity only)"
+  defp scopes_line(%PersonalAccessToken{scopes: scopes}), do: Enum.join(scopes, ", ")
+
+  defp last_used_line(%PersonalAccessToken{last_used_at: nil}), do: "Never used"
+
+  defp last_used_line(%PersonalAccessToken{last_used_at: last_used_at}) do
+    "Last used " <> Calendar.strftime(last_used_at, "%b %d, %Y")
+  end
+
+  # Mint provenance is system-written (#362): the device flow's rows
+  # carry minted_via "device", the panel's own mints carry nothing.
+  defp device_minted?(%PersonalAccessToken{metadata: %{"minted_via" => "device"}}), do: true
+  defp device_minted?(%PersonalAccessToken{}), do: false
+
+  # The human hint beside each catalog scope string, built from the
+  # string itself so a catalog addition labels itself (the checkboxes
+  # render from Scopes.all_scopes/0, so the two can't drift apart).
+  defp scope_label(scope) do
+    [domain, access] = String.split(scope, ":")
+
+    case access do
+      "read" -> String.capitalize(domain) <> ", read only"
+      _write -> String.capitalize(domain) <> ", manage (includes read)"
+    end
   end
 
   @impl Phoenix.LiveView
@@ -713,6 +888,226 @@ defmodule FluxValeWeb.OrganizationLive.Access do
                         Deny
                       </.button>
                     </div>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <%!-- #483: the actor's own PATs — the MintPat docstring's
+                anticipated consumer. The raw value renders ONLY in the
+                reveal callout below: minted once, copied or lost, the
+                row keeps the hash. Section id is an anchor target like
+                #device-sign-ins. --%>
+            <div class="space-y-3" id="api-tokens" data-testid="api-tokens">
+              <div>
+                <h3 class="text-sm font-medium text-ink-muted">API tokens</h3>
+                <p class="mt-1 text-sm text-ink-muted">
+                  Personal access tokens for the machine API. Automation you run, like CI or
+                  the CLI, calls the API with one. A token keeps working until it expires or
+                  you revoke it.
+                </p>
+              </div>
+
+              <.callout
+                :if={@fresh_token}
+                id="api-token-reveal"
+                tone="warning"
+                data-testid="api-token-reveal"
+              >
+                <p class="font-medium text-ink" data-testid="api-token-reveal-title">
+                  {@fresh_token.name} created. Copy it now.
+                </p>
+                <p>
+                  This is the only time the full token is shown. It can't be retrieved again,
+                  and anyone holding it can call the API as you, within its scopes.
+                </p>
+                <div class="flex flex-wrap items-center gap-2 pt-1">
+                  <code
+                    class="max-w-full overflow-x-auto rounded-control border border-line bg-panel px-2 py-1 font-mono text-xs text-ink"
+                    data-testid="api-token-reveal-value"
+                  >
+                    {@fresh_token.token}
+                  </code>
+                  <.copy_button
+                    id={"copy-api-token-#{@fresh_token.id}"}
+                    value={@fresh_token.token}
+                    label="Copy"
+                    testid="api-token-reveal-copy"
+                  />
+                  <.button
+                    type="button"
+                    phx-click="dismiss-token-reveal"
+                    variant="ghost"
+                    size="sm"
+                    data-testid="api-token-reveal-done"
+                  >
+                    Done
+                  </.button>
+                </div>
+              </.callout>
+
+              <.card id="api-tokens-create-card" class="card space-y-4">
+                <div>
+                  <h3 class="text-sm font-medium text-ink-muted">Create a token</h3>
+                  <p class="mt-1 text-sm text-ink-muted">
+                    Name it for where you'll use it, then pick its scopes.
+                  </p>
+                </div>
+
+                <.form for={@token_form} id="api-token-form" phx-submit="create-token">
+                  <div class="space-y-4">
+                    <.input
+                      field={@token_form[:name]}
+                      type="text"
+                      label="Name"
+                      maxlength={100}
+                      required
+                      placeholder="ci deploys"
+                      data-testid="api-token-name-input"
+                    />
+
+                    <div>
+                      <p class="text-sm font-medium text-ink">Scopes</p>
+                      <ul class="mt-2 space-y-2">
+                        <li :for={scope <- @catalog_scopes} class="flex items-center gap-2.5">
+                          <input
+                            id={"api-token-scope-#{scope}"}
+                            type="checkbox"
+                            name="token[scopes][]"
+                            value={scope}
+                            class="size-4 rounded border-line-strong accent-primary"
+                            data-testid="api-token-scope"
+                          />
+                          <label
+                            for={"api-token-scope-#{scope}"}
+                            class="flex cursor-pointer flex-wrap items-center gap-2 text-sm text-ink"
+                          >
+                            <span class="font-mono text-xs">{scope}</span>
+                            <span class="text-xs text-ink-subtle">{scope_label(scope)}</span>
+                          </label>
+                        </li>
+                      </ul>
+                      <p class="mt-2 text-xs text-ink-subtle">
+                        Write includes read for its domain. Leave all unchecked for a token
+                        that can only identify itself, like the account profile route.
+                      </p>
+                    </div>
+
+                    <div class="flex justify-end">
+                      <.button type="submit" data-testid="api-token-create">
+                        Create token
+                      </.button>
+                    </div>
+                  </div>
+                </.form>
+              </.card>
+
+              <%!-- The rows are the token metadata's technical reality in
+                  the sunken mono register (the attached apps' posture):
+                  the friendly lines carry the sans register. --%>
+              <div class="mono-panel min-w-0">
+                <p
+                  :if={@api_tokens_empty?}
+                  class="font-sans text-sm text-ink-muted"
+                  data-testid="api-tokens-empty"
+                >
+                  No tokens yet. Create one above.
+                </p>
+
+                <ul id="api-token-rows" phx-update="stream" class="divide-y divide-line">
+                  <li
+                    :for={{dom_id, token} <- @streams.api_tokens}
+                    id={dom_id}
+                    class="space-y-1.5 py-3 first:pt-0 last:pb-0"
+                    data-testid="api-token-row"
+                  >
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                      <div class="flex min-w-0 flex-wrap items-center gap-2">
+                        <span class="font-mono text-sm font-medium text-ink">
+                          {token.name}
+                        </span>
+                        <.badge
+                          :if={token_status(token) == :active}
+                          tone="success"
+                          data-testid="api-token-status-active"
+                        >
+                          <span class="sr-only">Status </span>Active
+                        </.badge>
+                        <.badge
+                          :if={token_status(token) == :revoked}
+                          tone="danger"
+                          data-testid="api-token-status-revoked"
+                        >
+                          <span class="sr-only">Status </span>Revoked
+                        </.badge>
+                        <.badge
+                          :if={token_status(token) == :expired}
+                          tone="warning"
+                          data-testid="api-token-status-expired"
+                        >
+                          <span class="sr-only">Status </span>Expired
+                        </.badge>
+                      </div>
+
+                      <.button
+                        :if={token_status(token) == :active and @token_revoke_armed_id != token.id}
+                        type="button"
+                        phx-click="arm-token-revoke"
+                        phx-value-id={token.id}
+                        variant="ghost"
+                        size="sm"
+                        data-testid="api-token-revoke"
+                      >
+                        Revoke
+                      </.button>
+                    </div>
+
+                    <p class="font-sans text-xs text-ink-muted" data-testid="api-token-meta">
+                      <span class="font-mono">{scopes_line(token)}</span>
+                      · Created {Calendar.strftime(token.created_at, "%b %d, %Y")} · {last_used_line(
+                        token
+                      )} · Expires {Calendar.strftime(token.expires_at, "%b %d, %Y")}
+                    </p>
+
+                    <p
+                      :if={device_minted?(token)}
+                      class="font-sans text-xs text-ink-muted"
+                      data-testid="api-token-provenance"
+                    >
+                      Minted by the FluxVale CLI device sign-in.
+                    </p>
+
+                    <.callout
+                      :if={@token_revoke_armed_id == token.id and token_status(token) == :active}
+                      id={"api-token-revoke-confirm-#{token.id}"}
+                      tone="danger"
+                      data-testid="api-token-revoke-confirm"
+                    >
+                      <p>
+                        Revoke <span class="font-mono">{token.name}</span>? Anything using it
+                        stops working now.
+                      </p>
+                      <div class="flex gap-3 pt-1">
+                        <.button
+                          type="button"
+                          phx-click="revoke-token"
+                          phx-value-id={token.id}
+                          size="sm"
+                          data-testid="api-token-revoke-confirm-button"
+                        >
+                          Revoke token
+                        </.button>
+                        <.button
+                          type="button"
+                          phx-click="cancel-token-revoke"
+                          variant="ghost"
+                          size="sm"
+                          data-testid="api-token-revoke-cancel"
+                        >
+                          Cancel
+                        </.button>
+                      </div>
+                    </.callout>
                   </li>
                 </ul>
               </div>
