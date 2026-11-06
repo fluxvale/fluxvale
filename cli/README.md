@@ -11,22 +11,35 @@ self-contained binary: no language runtime to install.
 
 ## Install
 
-Download the archive for your machine from
-[GitHub Releases](https://github.com/fluxvale/fluxvale/releases), unpack
-it, and put `fluxvale` on your PATH. Verify the download (unix):
+One line, no root, no package manager, checksum-verified:
+
+```sh
+curl -fsSL https://github.com/fluxvale/fluxvale/releases/latest/download/install.sh | sh
+```
+
+Installs into `~/.local/share/fluxvale/versions/<version>` behind a
+`current` symlink and puts a `fluxvale` shim in `~/.local/bin`. Re-running
+the line upgrades in place and removes other installed versions. Pin a
+release with `FLUXVALE_VERSION=<version>`.
+
+Prefer to unpack by hand? Download the archive for your machine from
+[GitHub Releases](https://github.com/fluxvale/fluxvale/releases), verify
+it, and put `fluxvale` on your PATH (Linux):
 
 ```
 grep <your-archive> SHA256SUMS | sha256sum -c -
 ```
 
-On Windows, compare by eye:
+On macOS: `grep <your-archive> SHA256SUMS | shasum -a 256 -c -`.
+
+On Windows, download `windows-x86_64.zip` and compare by eye:
 
 ```
 certutil -hashfile <your-archive> SHA256
 ```
 
 Archives: `linux-amd64`, `linux-aarch64`, `macos-aarch64` (Apple
-silicon), `windows-x86_64` — `.tar.gz` on unix, `.zip` on Windows.
+silicon), `windows-x86_64`. `.tar.gz` on unix, `.zip` on Windows.
 
 ## Sign in
 
