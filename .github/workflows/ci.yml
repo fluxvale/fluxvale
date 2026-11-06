@@ -257,6 +257,15 @@ jobs:
       # uses for its own lint.
       - run: ./scripts/test-check-tag-version.sh
 
+      # The installer (#480): the same shape — the script runs end to
+      # end against a fake curl serving fixture archives, no network.
+      - run: ./scripts/test-install.sh
+
+      # The installer is user-facing on install day; lint the shell
+      # scripts where their tests run (shellcheck is preinstalled on
+      # runners).
+      - run: shellcheck scripts/*.sh
+
       # OpenAPI drift guard (ADR-0019 Am. 3): regenerate the typed
       # structs from the committed artifact and diff — the committed
       # spec is the contract, so committed types must match it.
