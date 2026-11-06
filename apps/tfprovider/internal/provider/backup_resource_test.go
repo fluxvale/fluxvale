@@ -401,3 +401,122 @@ func TestBackupsSchemaContract(t *testing.T) {
 		t.Errorf("TypeName = %q, want fluxvale_instance_backups", md.TypeName)
 	}
 }
+
+// A save whose 2xx response doesn't parse still landed its row — the
+// recovery read by instance carries it, with a warning saying why.
+func TestBackupsCreateRecoversDriftedSaveResponse(t *testing.T) {
+	ctx := context.Background()
+	r, sch := newSchemadBackups(ctx, t)
+
+	f := newFakeAPI(t)
+	// retention_keep as a string: the parser's shape-drift error.
+	f.backupPostDoc = strings.ReplaceAll(backupRowDoc, `"retention_keep": 7`, `"retention_keep": "seven"`)
+	f.backupGets = []scriptedResponse{script(200, backupRowDoc)}
+	r.pd = f.testClient()
+
+	planData := testBackups()
+	req := resource.CreateRequest{
+		Plan: tfsdk.Plan{Schema: sch, Raw: backupsToRaw(ctx, t, sch, &planData)},
+	}
+	resp := &resource.CreateResponse{
+		State: tfsdk.State{Schema: sch, Raw: tftypes.NewValue(sch.Type().TerraformType(ctx), nil)},
+	}
+	r.Create(ctx, req, resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Create errored: %v — the row exists, the recovery read carries it", resp.Diagnostics)
+	}
+	assertWarning(t, &resp.Diagnostics, "Recovered the backup settings", "instance")
+
+	got := rawToBackups(ctx, t, sch, resp.State.Raw)
+	if got.ID.ValueString() != "bs-1" || got.RetentionKeep.ValueInt64() != 7 {
+		t.Errorf("id/retention = %s/%d, want the recovered row", got.ID.ValueString(), got.RetentionKeep.ValueInt64())
+	}
+}
+
+// The same recovery on update: a drifted PATCH response still leaves
+// the row readable by instance.
+func TestBackupsUpdateRecoversDriftedResponse(t *testing.T) {
+	ctx := context.Background()
+	r, sch := newSchemadBackups(ctx, t)
+
+	f := newFakeAPI(t)
+	f.backupPatchDoc = strings.ReplaceAll(backupRowDoc, `"bucket": "fluxvale-kavita"`, `"bucket": 7`)
+	f.backupGets = []scriptedResponse{script(200, backupRowDoc)}
+	r.pd = f.testClient()
+
+	planData := testBackups(func(d *backupsModel) {
+		d.ID = types.StringValue("bs-1")
+		d.Enabled = types.BoolValue(true)
+		d.RetentionKeep = types.Int64Value(14)
+	})
+	req := resource.UpdateRequest{
+		Plan:  tfsdk.Plan{Schema: sch, Raw: backupsToRaw(ctx, t, sch, &planData)},
+		State: tfsdk.State{Schema: sch, Raw: backupsToRaw(ctx, t, sch, &planData)},
+	}
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{Schema: sch, Raw: backupsToRaw(ctx, t, sch, &planData)},
+	}
+	r.Update(ctx, req, resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Update errored: %v — the row exists, the recovery read carries it", resp.Diagnostics)
+	}
+	assertWarning(t, &resp.Diagnostics, "Recovered the backup settings")
+
+	got := rawToBackups(ctx, t, sch, resp.State.Raw)
+	if got.Bucket.ValueString() != "fluxvale-kavita" {
+		t.Errorf("bucket = %s, want the recovered row's", got.Bucket.ValueString())
+	}
+}
+
+// PATCH 404: the row is gone (a panel delete won the race) — removed,
+// never plan-over-ghost.
+func TestBackupsUpdate404Removes(t *testing.T) {
+	ctx := context.Background()
+	r, sch := newSchemadBackups(ctx, t)
+
+	f := newFakeAPI(t)
+	f.backupPatchStatus = http.StatusNotFound
+	f.backupPatchDoc = `{"errors": [{"status": "404"}]}`
+	r.pd = f.testClient()
+
+	planData := testBackups(func(d *backupsModel) {
+		d.ID = types.StringValue("bs-1")
+		d.Enabled = types.BoolValue(true)
+		d.RetentionKeep = types.Int64Value(7)
+	})
+	req := resource.UpdateRequest{
+		Plan:  tfsdk.Plan{Schema: sch, Raw: backupsToRaw(ctx, t, sch, &planData)},
+		State: tfsdk.State{Schema: sch, Raw: backupsToRaw(ctx, t, sch, &planData)},
+	}
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{Schema: sch, Raw: backupsToRaw(ctx, t, sch, &planData)},
+	}
+	r.Update(ctx, req, resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Update errored: %v", resp.Diagnostics)
+	}
+	if !resp.State.Raw.IsNull() {
+		t.Errorf("state after a 404 update = %v, want null (removed)", resp.State.Raw)
+	}
+}
+
+// DELETE 404 is already-gone: idempotent destroy, clean diagnostics.
+func TestBackupsDelete404IsSuccess(t *testing.T) {
+	ctx := context.Background()
+	r, sch := newSchemadBackups(ctx, t)
+
+	f := newFakeAPI(t)
+	f.backupDeleteStatus = http.StatusNotFound
+	r.pd = f.testClient()
+
+	stateData := testBackups(func(d *backupsModel) { d.ID = types.StringValue("bs-9") })
+	req := resource.DeleteRequest{
+		State: tfsdk.State{Schema: sch, Raw: backupsToRaw(ctx, t, sch, &stateData)},
+	}
+	resp := &resource.DeleteResponse{}
+	r.Delete(ctx, req, resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Delete errored: %v — a 404 is already-gone", resp.Diagnostics)
+	}
+	findOne(t, f.all(), http.MethodDelete, "/api/v1/backup-settings/bs-9")
+}

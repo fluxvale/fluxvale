@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 )
@@ -141,8 +142,17 @@ func (c *Client) AttachGatewayInstance(ctx context.Context, gatewayID, instanceI
 // DetachGatewayInstance DELETEs
 // /api/v1/access-gateways/:gateway_id/attachments/:instance_id —
 // idempotent, like the panel's. The 200 {"success": true} decodes
-// harmlessly.
+// harmlessly. A 404 is already-gone, not a failure: the platform's
+// detach re-reads both rows through their authorized get_by_id
+// (attach_instance's exact call path), so an instance deleted between
+// refresh and apply 404s — the desired end state. (Attach keeps its
+// 404s real errors: there a missing row is a refusal, not
+// convergence.)
 func (c *Client) DetachGatewayInstance(ctx context.Context, gatewayID, instanceID string) error {
 	_, err := c.Do(ctx, http.MethodDelete, "/api/v1/access-gateways/"+gatewayID+"/attachments/"+instanceID, nil)
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
+		return nil
+	}
 	return err
 }

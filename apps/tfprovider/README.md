@@ -35,9 +35,13 @@ follow-up slice.
     wire echo — keep your config matching what you deployed, or plan
     shows a replacement.
 - `fluxvale_instance_backups` — an instance's backup destination (R2
-  first). Every routed save converges the cluster server-side (the
-  credential Secret, the restic repo URL, the quota margin); a 422/500
-  is the platform's own surface.
+  first). A routed save converges the cluster server-side (the
+  credential Secret, the restic repo URL, the quota margin) — with one
+  deliberate platform exception: a save riding `enabled: true→false`
+  (the pause) writes the row only, so a coordinates/secret change
+  boarding a paused row heals on the next save or re-enable. Errors
+  surface verbatim: 400s (attribute/guard refusals), 403s (scope/
+  policy), 404s.
   - `secret_access_key` is write-only: set ⇒ applied (or rotated) with
     the save; unset ⇒ the stored credential is kept. A FIRST create
     without it lands quota-only (the API's permissive shape) and
@@ -51,12 +55,19 @@ follow-up slice.
     config's value (or its absence) is the rotation decision on the
     next apply.
 - `fluxvale_access_gateway` — the org's singleton private-access
-  gateway. Create + the singleton read + the attach/detach verbs are
-  the API's whole gateway surface.
+  gateway. The API's gateway surface is create, the singleton read,
+  the attach/detach verbs, and `PATCH /access-gateways/:id/resume`;
+  the provider deliberately does not expose resume — a suspended
+  gateway is the zero-balance ladder's out-of-band platform state
+  (resume via the panel or MCP, watch `state`), not something to
+  flip from a config file.
   - `destroy` removes the resource from state only: the API exposes NO
     gateway-delete route, so the platform keeps the gateway running
-    (and billing). The destroy warning states this. To actually remove
-    a gateway, opt out via the panel's Access tab.
+    (and billing). The destroy warning states this; and since the
+    identity attributes are create-only, a replacement would apply
+    into a guaranteed conflict — replacements are rejected at plan
+    time. To actually remove a gateway, opt out via the panel's
+    Access tab, then `terraform apply -replace=…` (or re-add).
   - `instances` (a set of instance ids) converges via the attach/detach
     verbs — one call per added/removed id. Attaching waits the gateway
     to `active` (create lands `provisioning`; the observer promotes
@@ -67,14 +78,20 @@ follow-up slice.
     is deliberately unmanaged — resume via the panel or MCP
     (`resume_gateway`); watch `state`/`status_message`.
   - Import: `terraform import fluxvale_access_gateway.x
-    <org_id_or_slug>`. `auth_key` and `instances` stay null after
-    import — keep your config matching what you deployed, or plan
-    shows a replacement.
+    <org_id_or_slug>`. The read fills the wire mirror and seeds
+    `organization` from the resolution, so a config that leaves it
+    unset converges. `auth_key` is Optional (required only when this
+    resource ENABLES a gateway — the wire never echoes it, so imports
+    manage attachments with it null) and `instances` stays null after
+    import; a config value that doesn't match what's stored plans a
+    replacement, and replacements are rejected at plan time.
 - `fluxvale_apps` — the catalog. `fluxvale_app_versions` — one app's
   versions, by `app` (slug) or `app_id`.
 
 The provider is a skin: business rules (paywall, scopes, allocation
-bounds) enforce server-side — a 422 is the correct error surface.
+bounds) enforce server-side — its 400s (attribute/guard refusals),
+403s (scope/policy), and 404s surface verbatim, never pre-empted
+client-side.
 
 ## Authentication
 

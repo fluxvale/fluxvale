@@ -45,10 +45,12 @@ type fakeAPI struct {
 	// backups + gateway slices
 	backupGets         []scriptedResponse // GET /instances/:id/backup-setting
 	backupPostDoc      string             // POST /instances/:id/backup-setting (201)
-	backupPatchDoc     string             // PATCH /backup-settings/:id (200)
+	backupPatchStatus  int                // PATCH /backup-settings/:id
+	backupPatchDoc     string
 	backupDeleteStatus int
 	gatewayGets        []scriptedResponse // GET /organizations/:org/access-gateway
-	gatewayPostDoc     string             // POST /access-gateways (201)
+	gatewayPostStatus  int                // POST /access-gateways
+	gatewayPostDoc     string
 	detachStatus       int
 
 	t *testing.T
@@ -70,8 +72,10 @@ func newFakeAPI(t *testing.T) *fakeAPI {
 		t:                  t,
 		deleteStatus:       http.StatusOK,
 		backupDeleteStatus: http.StatusOK,
+		backupPatchStatus:  http.StatusOK,
 		detachStatus:       http.StatusOK,
-		gatewayPostDoc:     gatewayProvisioningDoc,
+		gatewayPostStatus:  http.StatusCreated,
+		gatewayPostDoc:     gatewayCreateDoc,
 		backupPostDoc:      backupRowDoc,
 		backupPatchDoc:     backupRowDoc,
 	}
@@ -161,7 +165,7 @@ func newFakeAPI(t *testing.T) *fakeAPI {
 		f.record(r, body)
 		switch r.Method {
 		case http.MethodPatch:
-			f.json(w, http.StatusOK, f.backupPatchDoc)
+			f.json(w, f.backupPatchStatus, f.backupPatchDoc)
 		case http.MethodDelete:
 			f.json(w, f.backupDeleteStatus, `{"meta": {"message": "deleted"}}`)
 		default:
@@ -178,7 +182,7 @@ func newFakeAPI(t *testing.T) *fakeAPI {
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		f.record(r, body)
-		f.json(w, http.StatusCreated, f.gatewayPostDoc)
+		f.json(w, f.gatewayPostStatus, f.gatewayPostDoc)
 	})
 	// The pairing verbs render flat/generic shapes — the 201 attach body
 	// is the raw route row, the detach body a bare success flag.
@@ -322,6 +326,15 @@ const (
 		"instance_id": "inst-1", "endpoint": "https://account.r2.cloudflarestorage.com",
 		"bucket": "fluxvale-kavita", "prefix": "fluxvale/app",
 		"access_key_id": "AKIAIOSFODNN7EXAMPLE", "retention_keep": 7, "enabled": true}}}`
+
+	// The create response OMITS provisioned_at (not in the create
+	// route's field list — only the get route carries it): the fixture
+	// omits it too, so the parser's absence-tolerance is exercised for
+	// real.
+	gatewayCreateDoc = `{"data": {"id": "gw-1", "type": "access_gateway", "attributes": {
+		"organization_id": "org-1", "hostname": "fv-0a1b2c3d", "tailnet_domain": "example.ts.net",
+		"provider": "tailscale", "state": "provisioning", "status_message": null,
+		"monthly_cents": 500}}}`
 
 	gatewayProvisioningDoc = `{"data": {"id": "gw-1", "type": "access_gateway", "attributes": {
 		"organization_id": "org-1", "hostname": "fv-0a1b2c3d", "tailnet_domain": "example.ts.net",

@@ -22,8 +22,9 @@ var _ resource.ResourceWithImportState = (*backupsResource)(nil)
 // backup destination (R2 first). A skin over the routed saves: every
 // business rule (endpoint/bucket/prefix validation, retention bounds,
 // paywall, the cluster converge — secret keep-or-rotate, repo URL
-// recompute, quota margin) is the server's; a 422 or 500 here is the
-// correct surface, not something to pre-empt client-side.
+// recompute, quota margin) is the server's; its 400s (attribute/guard
+// refusals), 403s (scope/policy), and 404s surface verbatim — not
+// something to pre-empt client-side.
 type backupsResource struct {
 	pd *providerData
 }
@@ -67,7 +68,7 @@ func (r *backupsResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			},
 			"endpoint": schema.StringAttribute{
 				Required:    true,
-				Description: "S3-compatible endpoint — scheme + host (and optional port), no path. For R2: https://<account_id>.r2.cloudflarestorage.com. Bounds and shape enforce server-side (a 422 is the surface).",
+				Description: "S3-compatible endpoint — scheme + host (and optional port), no path. For R2: https://<account_id>.r2.cloudflarestorage.com. Bounds and shape enforce server-side (a 400 is the surface).",
 			},
 			"bucket": schema.StringAttribute{
 				Required:    true,
@@ -84,7 +85,7 @@ func (r *backupsResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			"retention_keep": schema.Int64Attribute{
 				Optional:    true,
 				Computed:    true,
-				Description: "restic forget --keep-last N. Defaults to 7 server-side; the 2–30 bounds enforce server-side (a 422 is the surface, not a client-side check). The state carries the server's value.",
+				Description: "restic forget --keep-last N. Defaults to 7 server-side; the 2–30 bounds enforce server-side (a 400 is the surface, not a client-side check). The state carries the server's value.",
 			},
 			"enabled": schema.BoolAttribute{
 				Optional:    true,
@@ -148,11 +149,35 @@ func (r *backupsResource) Create(ctx context.Context, req resource.CreateRequest
 
 	row, err := pd.client.SaveBackupSetting(ctx, data.InstanceID.ValueString(), backupsInput(data))
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to save the backup settings", err.Error())
-		return
+		// A post-2xx parse drift still leaves the row on the platform —
+		// recover through the instance-scoped read before failing.
+		recovered, ok := recoverBackupRow(ctx, pd, data.InstanceID.ValueString(), err, &resp.Diagnostics)
+		if !ok {
+			return
+		}
+		row = recovered
 	}
 	mapBackups(&data, row)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
+// recoverBackupRow re-reads the row by instance after a failed save.
+// A row that reads back cleanly means the save landed (its own
+// response just didn't parse) — a warning says so, the row is the
+// truth. Returns false when the caller must stop (the original error
+// stands: nothing landed, or the recovery read failed too).
+func recoverBackupRow(ctx context.Context, pd *providerData, instanceID string, saveErr error, diags *diag.Diagnostics) (client.BackupSetting, bool) {
+	row, err := pd.client.GetBackupSetting(ctx, instanceID)
+	if err != nil {
+		diags.AddError("Unable to save the backup settings", saveErr.Error())
+		return client.BackupSetting{}, false
+	}
+	diags.AddWarning(
+		"Recovered the backup settings from the instance read",
+		"The save's response did not parse, but the row reads back cleanly by instance — Terraform carries the "+
+			"re-read row in state. If this repeats, the API's response shape has drifted.",
+	)
+	return row, true
 }
 
 // backupsInput maps the model onto the save body. A null secret is ""
@@ -239,8 +264,20 @@ func (r *backupsResource) Update(ctx context.Context, req resource.UpdateRequest
 	// (carried from state; reads keep it current).
 	row, err := pd.client.UpdateBackupSetting(ctx, plan.ID.ValueString(), backupsInput(plan))
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to save the backup settings", err.Error())
-		return
+		var apiErr *client.APIError
+		if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
+			// The row is gone (a panel delete won the race) — removed,
+			// never plan-over-ghost.
+			resp.State.RemoveResource(ctx)
+			return
+		}
+		// Same post-2xx drift as create: recover through the
+		// instance-scoped read before failing.
+		recovered, ok := recoverBackupRow(ctx, pd, plan.InstanceID.ValueString(), err, &resp.Diagnostics)
+		if !ok {
+			return
+		}
+		row = recovered
 	}
 	mapBackups(&plan, row)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
@@ -260,8 +297,13 @@ func (r *backupsResource) Delete(ctx context.Context, req resource.DeleteRequest
 
 	// The "stop backing up entirely" verb: a plain row delete — no
 	// cluster state (the namespace Secret persists by design, so
-	// nothing re-provisions a repo behind the user's back).
+	// nothing re-provisions a repo behind the user's back). A 404 is
+	// already-gone: idempotent destroy.
 	if err := pd.client.DeleteBackupSetting(ctx, state.ID.ValueString()); err != nil {
+		var apiErr *client.APIError
+		if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
+			return
+		}
 		resp.Diagnostics.AddError("Unable to delete the backup settings", err.Error())
 	}
 }
