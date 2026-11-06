@@ -2938,6 +2938,75 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       assert has_element?(view, "[data-testid='resize-panel']")
     end
 
+    test "a crafted submit naming different rungs than the confirm applies nothing", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      stub_storage_probe(true)
+      stopped = stopped_instance!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{stopped.id}")
+
+      open_resize_panel(view)
+
+      # Confirm at 1 CPU (index 2)…
+      view
+      |> element("#resize-form")
+      |> render_change(%{"resize" => %{"cpu_cores" => "2"}})
+
+      view
+      |> element("[data-testid='resize-continue']")
+      |> render_click()
+
+      # …then submit a payload naming a DIFFERENT rung (index 0) —
+      # even at equal cents, an altered confirm never applies. The
+      # crafted rung is not absorbed: :choose keeps the confirmed one.
+      view
+      |> element("#resize-form")
+      |> render_submit(%{"resize" => %{"cpu_cores" => "0"}})
+
+      assert render(view) =~ "The resize changed since you confirmed — review and confirm again."
+      refute has_element?(view, "[data-testid='resize-confirm']")
+      assert has_element?(view, "[data-testid='resize-panel']")
+      assert has_element?(view, "[data-testid='instance-resources']", "0.5 CPU · 256 MB · 0 GB")
+    end
+
+    test "a row above the top storage rung keeps its storage fixed even when unlocked", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      # 200 GB sits above the 100 top rung: the ladder could only name
+      # a shrink, so the dimension is unofferable — no slider, a fixed
+      # line, the payload omits storage, and a CPU-only resize keeps
+      # 200 GB (CodeRabbit's wedge case).
+      stub_storage_probe(true)
+      stopped = stopped_instance!(version, user, %{storage_gb: 200})
+      {:ok, view, _html} = live(conn, ~p"/instances/#{stopped.id}")
+
+      open_resize_panel(view)
+
+      refute has_element?(view, "[data-testid='resource-storage']")
+      assert render(view) =~ "Storage: 200 GB · stays unchanged (beyond the offered sizes)"
+
+      view
+      |> element("#resize-form")
+      |> render_change(%{"resize" => %{"cpu_cores" => "2"}})
+
+      view
+      |> element("[data-testid='resize-continue']")
+      |> render_click()
+
+      view
+      |> element("#resize-form")
+      |> render_submit(%{"resize" => %{"cpu_cores" => "2"}})
+
+      assert render(view) =~ "Resized. Start your instance to run at the new size."
+      # Memory rides its seeded nearest rung (256 → 512, per the note);
+      # storage was omitted and keeps the row's 200 GB untouched.
+      assert has_element?(view, "[data-testid='instance-resources']", "1 CPU · 512 MB · 200 GB")
+    end
+
     test "a refusal without a plain message (policy) flashes the fallback copy", %{conn: conn} do
       stub_storage_probe(true)
 

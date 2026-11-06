@@ -60,6 +60,8 @@ defmodule FluxValeWeb.InstanceLive.Show do
             storage_locked: false,
             storage_lock_reason: nil,
             resize_storage_fixed: false,
+            resize_storage_fixed_reason: :capability,
+            resize_storage_omitted: false,
             open_resize_on_stop: false,
             resize_seed: nil,
             resize_no_op: false,
@@ -499,6 +501,8 @@ defmodule FluxValeWeb.InstanceLive.Show do
               storage_locked={@storage_locked}
               storage_lock_reason={@storage_lock_reason}
               storage_fixed={@resize_storage_fixed}
+              storage_fixed_reason={@resize_storage_fixed_reason}
+              storage_omitted={@resize_storage_omitted}
               off_ladder={@resize_off_ladder}
               no_op={@resize_no_op}
             />
@@ -787,6 +791,8 @@ defmodule FluxValeWeb.InstanceLive.Show do
   attr(:storage_locked, :boolean, required: true)
   attr(:storage_lock_reason, :atom, required: true)
   attr(:storage_fixed, :boolean, required: true)
+  attr(:storage_fixed_reason, :atom, required: true)
+  attr(:storage_omitted, :boolean, required: true)
   attr(:off_ladder, :boolean, required: true)
   attr(:no_op, :boolean, required: true)
 
@@ -837,7 +843,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
         rung would read as an imminent shrink — so the slider yields to
         this line (the payload omits storage; the row keeps its value). --%>
         <p :if={@storage_fixed} class="text-xs text-ink-subtle" data-testid="resize-storage-fixed">
-          {storage_fixed_line(@storage_lock_reason, @instance.storage_gb)}
+          {storage_fixed_line(@storage_fixed_reason, @instance.storage_gb)}
         </p>
 
         <p :if={@off_ladder} class="text-xs text-ink-subtle" data-testid="resize-off-ladder-note">
@@ -896,7 +902,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
           >
             <p class="text-sm font-semibold text-danger">Resize instance</p>
             <p class="text-sm text-ink">
-              {@resources["cpu_cores"]} CPU · {@resources["memory_mb"]} MB · {if(@storage_locked,
+              {@resources["cpu_cores"]} CPU · {@resources["memory_mb"]} MB · {if(@storage_omitted,
                 do: @instance.storage_gb,
                 else: @resources["storage_gb"]
               )} GB — {if(@figures.old,
@@ -941,6 +947,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
   # The hidden-slider line for an off-ladder locked row: the row's own
   # GB, stated as staying put, with the lock's reason.
+  defp storage_fixed_line(:above_top, gb),
+    do: "Storage: #{gb} GB · stays unchanged (beyond the offered sizes)"
+
   defp storage_fixed_line(:capability, gb),
     do: "Storage: #{gb} GB · stays unchanged (can't expand on this cluster yet)"
 
@@ -1089,7 +1098,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
     rungs =
       Map.merge(socket.assigns.resize_resources, AllocationSliders.resource_strings(params))
 
-    preview = preview_for(socket.assigns.instance, rungs, socket.assigns.storage_locked)
+    preview = preview_for(socket.assigns.instance, rungs, socket.assigns.resize_storage_omitted)
 
     # The confirm exists only with its numbers, and only with something
     # to apply: a change that stops the candidate pricing (a candidate
@@ -1165,7 +1174,22 @@ defmodule FluxValeWeb.InstanceLive.Show do
     instance = socket.assigns.instance
     shown = socket.assigns.resize_preview
 
-    case preview_for(instance, rungs, socket.assigns.storage_locked) do
+    # The submit must land EXACTLY the confirmed candidate: a crafted
+    # payload naming different rungs — even ones that price identically
+    # — is an altered confirm, refused like a moved price. The crafted
+    # rungs are NOT absorbed; :choose keeps the confirmed state.
+    if rungs == socket.assigns.resize_resources do
+      price_guard(socket, rungs, instance, shown)
+    else
+      {:noreply,
+       socket
+       |> put_flash(:error, "The resize changed since you confirmed — review and confirm again.")
+       |> assign(resize_step: :choose)}
+    end
+  end
+
+  defp price_guard(socket, rungs, instance, shown) do
+    case preview_for(instance, rungs, socket.assigns.resize_storage_omitted) do
       # The #261 accept-time guard's posture: the confirm showed a
       # price; between that render and the submit an admin repriced the
       # catalog. Consent must match the charged number — re-price fresh
@@ -1197,7 +1221,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
   end
 
   defp apply_resize(socket, rungs, instance) do
-    case typed_allocation(rungs, socket.assigns.storage_locked) do
+    case typed_allocation(rungs, socket.assigns.resize_storage_omitted) do
       {:ok, allocation} ->
         case Instance.resize(instance, allocation, actor: socket.assigns.current_user) do
           {:ok, _resized} ->
@@ -1666,19 +1690,29 @@ defmodule FluxValeWeb.InstanceLive.Show do
   defp open_resize_panel(socket) do
     instance = socket.assigns.instance
     {storage_locked, storage_lock_reason} = storage_lock(instance)
-    {rungs, off_ladder} = seeded_resources(instance, storage_locked)
-    {:ok, allocation} = typed_allocation(rungs, storage_locked)
 
-    # A locked slider tells the truth only when the row's storage IS a
-    # rung: an off-ladder row's nearest rung (7 GB → 5) would read as
-    # an imminent shrink — hide the slider and say the truth in a line
-    # instead. (Compare numerically: the rung is a string, the row's
-    # value an integer.)
+    # The storage dimension's offerability, decided up front. A locked
+    # slider tells the truth only when the row's storage IS a rung: an
+    # off-ladder row's nearest rung (7 GB → 5) would read as an
+    # imminent shrink. A row ABOVE the top rung (200 GB > 100) is
+    # fixed the same way whatever the lock — the ladder can only name
+    # a shrink, so the dimension is unofferable, not editable. In
+    # every fixed case (and whenever locked) the payload OMITS storage
+    # (the action keeps the row's value) and the preview prices the
+    # row's own GB. Compare numerically: the rungs are strings.
     storage_rung = AllocationSliders.floor_rung("storage_gb", instance.storage_gb)
     rung_storage = Decimal.new(storage_rung)
     row_storage = Decimal.new(instance.storage_gb)
 
-    storage_fixed = storage_locked and not Decimal.eq?(rung_storage, row_storage)
+    off_rung = not Decimal.eq?(rung_storage, row_storage)
+    above_top = Decimal.gt?(row_storage, rung_storage)
+    storage_fixed = above_top or (storage_locked and off_rung)
+    storage_omitted = storage_fixed or storage_locked
+
+    fixed_reason = if(above_top, do: :above_top, else: storage_lock_reason)
+
+    {rungs, off_ladder} = seeded_resources(instance, storage_omitted)
+    {:ok, allocation} = typed_allocation(rungs, storage_omitted)
 
     assign(socket,
       resize_open: true,
@@ -1688,7 +1722,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
       storage_locked: storage_locked,
       storage_lock_reason: storage_lock_reason,
       resize_storage_fixed: storage_fixed,
-      resize_preview: preview_for(instance, rungs, storage_locked),
+      resize_storage_fixed_reason: fixed_reason,
+      resize_storage_omitted: storage_omitted,
+      resize_preview: preview_for(instance, rungs, storage_omitted),
       resize_seed: allocation_of(instance),
       resize_no_op: no_op?(allocation, instance)
     )
@@ -1708,6 +1744,8 @@ defmodule FluxValeWeb.InstanceLive.Show do
       storage_locked: false,
       storage_lock_reason: nil,
       resize_storage_fixed: false,
+      resize_storage_fixed_reason: :capability,
+      resize_storage_omitted: false,
       resize_seed: nil,
       resize_no_op: false
     )
@@ -1733,10 +1771,11 @@ defmodule FluxValeWeb.InstanceLive.Show do
   # at the FLOOR — the smallest rung ≥ the row's value, so seeding
   # never invents a shrink or a silent increase (an explicit move to
   # that rung is the consent; up-only stays the action's enforcement).
-  # LOCKED the slider is display-only — the payload omits storage
-  # entirely (the action keeps the row's value) — so its nearest-rung
-  # display makes no move and isn't claimed as one in the note.
-  defp seeded_resources(instance, storage_locked) do
+  # LOCKED or otherwise FIXED the slider is display-only — the payload
+  # omits storage entirely (the action keeps the row's value) — so its
+  # nearest-rung display makes no move and isn't claimed as one in the
+  # note.
+  defp seeded_resources(instance, storage_omitted) do
     # String-keyed to the dimensions' keys (allocation_of/1's atom-keyed
     # shape is for the seed-staleness and no-op comparisons).
     current = %{
@@ -1751,7 +1790,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
       end)
 
     seeded =
-      if storage_locked,
+      if storage_omitted,
         do: rungs,
         else:
           Map.put(
@@ -1760,16 +1799,16 @@ defmodule FluxValeWeb.InstanceLive.Show do
             AllocationSliders.floor_rung("storage_gb", current["storage_gb"])
           )
 
-    off_ladder = off_ladder?(current, seeded, storage_locked)
+    off_ladder = off_ladder?(current, seeded, storage_omitted)
 
     {seeded, off_ladder}
   end
 
   # A dimension "moved" when its applied rung differs from the row's
-  # value — CPU and memory always apply; storage applies only UNLOCKED
-  # (a locked slider claims nothing, so its rung isn't a move).
-  defp off_ladder?(current, rungs, storage_locked) do
-    applied = if storage_locked, do: Map.delete(rungs, "storage_gb"), else: rungs
+  # value — CPU and memory always apply; storage applies only when it
+  # rides the payload (an omitted dimension claims nothing).
+  defp off_ladder?(current, rungs, storage_omitted) do
+    applied = if storage_omitted, do: Map.delete(rungs, "storage_gb"), else: rungs
 
     Enum.any?(applied, fn {key, rung} ->
       not Decimal.eq?(Decimal.new(rung), current[key])
@@ -1826,7 +1865,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
   # The candidate as typed state + its no-op flag; {:error, :unseeded}
   # reads as "nothing to apply, keep the panel quiet".
   defp candidate_state(socket, rungs) do
-    case typed_allocation(rungs, socket.assigns.storage_locked) do
+    case typed_allocation(rungs, socket.assigns.resize_storage_omitted) do
       {:ok, allocation} ->
         {allocation, no_op?(allocation, socket.assigns.instance)}
 
