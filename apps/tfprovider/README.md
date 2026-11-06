@@ -5,11 +5,10 @@ A thin skin over the FluxVale JSON:API (`/api/v1`, PAT auth) —
 Policy, paywall, and scopes enforce server-side; the provider
 re-implements nothing.
 
-**Status**: first resource + data sources (#482 P4) on the scaffold
-(#482 P3). The v0 resource set is named in the
-[compatibility contract](docs/compatibility.md); the instance family's
-remaining resources (backups, access gateway, custom domain) land in
-follow-up slices.
+**Status**: P4–P5 of #482 — the instance resource, the catalog data
+sources, and the instance family's backups + access-gateway resources,
+on the scaffold (#482 P3). `fluxvale_custom_domain` lands in a
+follow-up slice.
 
 ## Resources and data sources
 
@@ -35,13 +34,47 @@ follow-up slices.
     Only `app`/`app_version` (the slug pair) and `env_vars` have no
     wire echo — keep your config matching what you deployed, or plan
     shows a replacement.
+- `fluxvale_instance_backups` — an instance's backup destination (R2
+  first). Every routed save converges the cluster server-side (the
+  credential Secret, the restic repo URL, the quota margin); a 422/500
+  is the platform's own surface.
+  - `secret_access_key` is write-only: set ⇒ applied (or rotated) with
+    the save; unset ⇒ the stored credential is kept. A FIRST create
+    without it lands quota-only (the API's permissive shape) and
+    backups won't run until a later save supplies it. Kept verbatim in
+    state — the API never echoes it.
+  - Updates PATCH by settings-row id; reads (and imports) go by
+    `instance_id` — the row id refreshes if the row is ever re-created
+    out-of-band.
+  - Import: `terraform import fluxvale_instance_backups.x
+    <instance_id>`. `secret_access_key` stays null after import; your
+    config's value (or its absence) is the rotation decision on the
+    next apply.
+- `fluxvale_access_gateway` — the org's singleton private-access
+  gateway. Create + the singleton read + the attach/detach verbs are
+  the API's whole gateway surface.
+  - `destroy` removes the resource from state only: the API exposes NO
+    gateway-delete route, so the platform keeps the gateway running
+    (and billing). The destroy warning states this. To actually remove
+    a gateway, opt out via the panel's Access tab.
+  - `instances` (a set of instance ids) converges via the attach/detach
+    verbs — one call per added/removed id. Attaching waits the gateway
+    to `active` (create lands `provisioning`; the observer promotes
+    within about a minute). The set is config-authoritative: the API
+    has no attachment list, so out-of-band panel attach/detach is
+    invisible to the provider.
+  - A `suspended` gateway (the zero-balance ladder's out-of-band state)
+    is deliberately unmanaged — resume via the panel or MCP
+    (`resume_gateway`); watch `state`/`status_message`.
+  - Import: `terraform import fluxvale_access_gateway.x
+    <org_id_or_slug>`. `auth_key` and `instances` stay null after
+    import — keep your config matching what you deployed, or plan
+    shows a replacement.
 - `fluxvale_apps` — the catalog. `fluxvale_app_versions` — one app's
   versions, by `app` (slug) or `app_id`.
 
 The provider is a skin: business rules (paywall, scopes, allocation
-bounds, the stopped-first resize guard) enforce server-side — this
-layer surfaces the API's refusals verbatim: 400 for attribute/guard
-refusals, 403 for scope/policy, 404 for missing rows.
+bounds) enforce server-side — a 422 is the correct error surface.
 
 ## Authentication
 
@@ -53,10 +86,6 @@ The provider needs a FluxVale personal access token (`fvpat_…`):
 
 Configure pings `/api/v1/me` (scopeless — any live token works), so a
 dead token fails at plan time with the server's wording.
-
-A config needs `instances:write` (the resource — create, lifecycle
-verbs, resize, delete) and `catalog:read` (the data sources, and the
-`app` + `app_version` slug form's catalog lookup).
 
 ## Dev loop (dev_overrides)
 
