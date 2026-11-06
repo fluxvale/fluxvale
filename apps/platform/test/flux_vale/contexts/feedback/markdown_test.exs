@@ -74,8 +74,12 @@ defmodule FluxVale.Feedback.MarkdownTest do
     refute html =~ "<"
   end
 
-  # Event-handler attributes: the img onerror shape. Fails under unsafe
-  # rendering (the tag survives verbatim) or a lifted image ban.
+  # Event-handler attributes: the img onerror shape. The pin fires under
+  # the combined regression (unsafe rendering plus the sanitize pass
+  # dropped, the only way the tag survives verbatim) and under the
+  # sanitize pass dropped alone (comrak's neutralization marker trips
+  # the no-`<` refute). With comrak safe and ammonia on, ammonia's
+  # rm_tags strips the img either way.
   test "an img with an event handler renders as nothing" do
     html = Markdown.render("<img src=x onerror=alert(1)>")
 
@@ -164,7 +168,9 @@ defmodule FluxVale.Feedback.MarkdownTest do
 
   # rel="noopener noreferrer" rides every rendered link — the issue's
   # tabnabbing floor plus the referrer policy ammonia's default carries.
-  # Fails if the sanitize pass or link_rel drops.
+  # The pin fires when the whole sanitize pass drops (the rel vanishes)
+  # or link_rel goes explicitly nil; dropping the explicit option alone
+  # is invisible (it equals ammonia's default).
   test "rendered links carry rel noopener noreferrer" do
     html = Markdown.render("[site](https://example.com)")
 
