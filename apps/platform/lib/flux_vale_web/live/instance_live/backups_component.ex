@@ -384,6 +384,14 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   attr(:billing_path, :any, required: true)
 
   defp unconfigured(assigns) do
+    assigns =
+      assign(assigns,
+        # The pointer gates on the same condition as the setup button:
+        # a never-deployed app has no configuration below to point at.
+        setup_pointer:
+          if(assigns.instance.namespace, do: " Set up backups below to keep it safe.", else: "")
+      )
+
     ~H"""
     <%!-- The pre-emptive gate (the access panel's paid-hint shape): the
     save would be refused anyway, so the card says so before the form. --%>
@@ -408,8 +416,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
     <.callout tone="info" data-testid="backups-unconfigured">
       <p class="text-sm text-ink-muted">
         Your app's data is your responsibility. It survives only if it is
-        backed up. <%= if @instance.namespace do %>Set up backups below to
-        keep it safe.<% end %>
+        backed up.{@setup_pointer}
       </p>
       <p class="text-sm text-ink-muted">
         Backups go to your own S3-compatible bucket, Cloudflare R2, or any
