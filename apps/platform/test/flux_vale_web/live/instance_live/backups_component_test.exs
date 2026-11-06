@@ -158,6 +158,26 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
 
       assert has_element?(view, "[data-testid=backups-panel]")
 
+      # The expectation stated where the setting lives (#507): the data
+      # is the owner's, it survives only if backed up, the setup is below.
+      assert has_element?(
+               view,
+               "[data-testid=backups-unconfigured]",
+               "Your app's data is your responsibility"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid=backups-unconfigured]",
+               "It survives only if it is backed up"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid=backups-unconfigured]",
+               "Set up backups below"
+             )
+
       assert has_element?(
                view,
                "[data-testid=backups-unconfigured]",
@@ -469,6 +489,14 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(view, "[data-testid=backup-access-key]", "••••MPLE")
       assert has_element?(view, "[data-testid=backup-retention]", "last 14 snapshots")
       assert has_element?(view, "[data-testid=backups-enabled-toggle]", "Pause backups")
+
+      # The configured echo (#507): the owner's destination is where the
+      # data comes back from.
+      assert has_element?(
+               view,
+               "[data-testid=backups-recovery]",
+               "restored from your own destination"
+             )
 
       # The full key never renders, and the secret key was never stored.
       refute html =~ @access_key
