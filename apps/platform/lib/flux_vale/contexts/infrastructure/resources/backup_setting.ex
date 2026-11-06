@@ -33,7 +33,7 @@ defmodule FluxVale.Infrastructure.BackupSetting do
     extensions: [AshJsonApi.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
-  alias FluxVale.Infrastructure.BackupSetting.ApplySecretArgument
+  alias FluxVale.Infrastructure.BackupSetting.ApplyClusterState
 
   # #360 (ADR-0019 §1): the backups settings family's wire contract.
   # The row holds no secrets by design (its moduledoc) — every field
@@ -58,8 +58,11 @@ defmodule FluxVale.Infrastructure.BackupSetting do
       )
 
       # backups:write — instance_id rides the path; the bucket
-      # coordinates ride the attributes.
-      post(:create,
+      # coordinates ride the attributes. The routes' save action is the
+      # panel-equivalent write (:save — converges the cluster with the
+      # row, #482); the generic :create below stays the operation's and
+      # the bootstrap paths' plain row write.
+      post(:save,
         route: "/instances/:instance_id/backup-setting",
         default_fields: [
           :id,
@@ -73,8 +76,8 @@ defmodule FluxVale.Infrastructure.BackupSetting do
         ]
       )
 
-      # backups:write
-      patch(:update,
+      # backups:write — the panel-equivalent save (see :save above).
+      patch(:save_settings,
         route: "/backup-settings/:id",
         default_fields: [
           :id,
@@ -222,8 +225,9 @@ defmodule FluxVale.Infrastructure.BackupSetting do
     # path params feed arguments by name). The change copies it onto the
     # attribute, so ConfigureBackups' attribute-shaped params land the
     # same row (the ActorOrgHasPaid gate already reads both shapes).
-    # #482: secret_access_key is the write-only S3 credential — see
-    # ApplySecretArgument for the exact semantics.
+    # PLAIN row write — no cluster state: the operation's write_row and
+    # the bootstrap paths (test preconditions, seeds) land here; the
+    # routes' cluster-converging save is :save below.
     create :create do
       primary?(true)
 
@@ -239,16 +243,55 @@ defmodule FluxVale.Infrastructure.BackupSetting do
 
       argument(:instance_id, :uuid, allow_nil?: false, public?: true)
 
+      change(fn changeset, _context ->
+        Ash.Changeset.force_change_attribute(
+          changeset,
+          :instance_id,
+          Ash.Changeset.get_argument(changeset, :instance_id)
+        )
+      end)
+    end
+
+    # PLAIN row write — the panel's pause/resume switch is deliberately
+    # this action (pausing must never touch K8s), and so is the
+    # operation's merged row write; the routes' converge path is :save.
+    update :update do
+      require_atomic?(false)
+
+      accept([:endpoint, :bucket, :prefix, :access_key_id, :retention_keep, :enabled])
+    end
+
+    # #482: the JSON:API routes' save — the panel-equivalent write.
+    # Same shape as the generic pair plus the write-only secret, with
+    # ApplyClusterState converging the cluster on EVERY routed save:
+    # the Secret is re-applied (blank/absent keeps the stored
+    # credential; the repo URL recomputes from the saved coordinates)
+    # and the margin quota re-applies. The secret is never an
+    # attribute, so it cannot land on the row or render in any
+    # response.
+    create :save do
+      accept([
+        :endpoint,
+        :bucket,
+        :prefix,
+        :access_key_id,
+        :retention_keep,
+        :enabled,
+        :instance_id
+      ])
+
+      argument(:instance_id, :uuid, allow_nil?: false, public?: true)
+
       # Write-only (#482): applied to the namespace Secret through the
-      # operation's one code path; never an attribute, so it cannot land
-      # on the row or render in any response. Absent/blank keeps the
-      # stored Secret (a coordinates-only save never wipes credentials).
+      # operation's one entrypoint; absent/blank keeps the stored
+      # credential.
       argument(:secret_access_key, :string,
         allow_nil?: true,
         public?: true,
         sensitive?: true
       )
 
+      # Same path-feeds-argument copy as the generic :create above.
       change(fn changeset, _context ->
         Ash.Changeset.force_change_attribute(
           changeset,
@@ -257,25 +300,25 @@ defmodule FluxVale.Infrastructure.BackupSetting do
         )
       end)
 
-      change(ApplySecretArgument)
+      change(ApplyClusterState)
     end
 
-    update :update do
+    update :save_settings do
       description("A settings save — endpoint/bucket/prefix/keys/retention/enabled.")
       require_atomic?(false)
 
       accept([:endpoint, :bucket, :prefix, :access_key_id, :retention_keep, :enabled])
 
-      # Write-only (#482), same contract as :create — absent/blank keeps
-      # the stored Secret, a present value rotates it through the
-      # operation's one code path.
+      # Write-only (#482), same contract as the :save create —
+      # absent/blank keeps the stored credential while the saved
+      # coordinates recompute the repo URL.
       argument(:secret_access_key, :string,
         allow_nil?: true,
         public?: true,
         sensitive?: true
       )
 
-      change(ApplySecretArgument)
+      change(ApplyClusterState)
     end
 
     # The UI's "stop backing up entirely": a plain row delete with no

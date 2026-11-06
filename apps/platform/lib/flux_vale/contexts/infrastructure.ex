@@ -123,6 +123,19 @@ defmodule FluxVale.Infrastructure do
     to: ConfigureBackups,
     as: :call
 
+  # #482: the BackupSetting JSON:API routes' save converges the cluster
+  # with the row through the same entrypoint the panel's save uses —
+  # the `backup-config` Secret (blank/absent request secret keeps the
+  # stored password/key; the repo URL recomputes from the changeset's
+  # coordinates) plus the backup margin quota. The caller must have
+  # authorized ownership already: this performs cluster writes. `opts`
+  # carry `fresh_secret: :optional` — the routes' deliberate
+  # permissive-fresh difference from the panel's strict
+  # `:secret_access_key_required` first-save rule.
+  defdelegate apply_backup_cluster_state(instance, changeset, params, opts \\ []),
+    to: ConfigureBackups,
+    as: :apply_cluster_state
+
   # The UI's "stop backing up entirely": a plain row delete (the
   # resource's `:destroy`, member-policied like `:update`) — no cluster
   # state, and the namespace Secret persists so re-configuring reuses
