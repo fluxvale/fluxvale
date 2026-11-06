@@ -9,12 +9,21 @@ import { TestInbox } from "./helpers/test-inbox";
 // mirroring vaultwarden-lifecycle and forgejo-lifecycle: sign in via
 // TestInbox → catalog → deploy (filling the one required input,
 // ENCRYPTION_KEY) → running → instance URL serves the Pocket ID UI →
-// healthz 204 → first-run claim open → stop → start → destroy. The
-// restart leg is the #492 gate: Pocket ID's SQLite state on the PVC
-// must survive a stop / start cycle cleanly. It crosses the real
-// cluster — `running` lands on the reconcile cron's next tick after
-// pod readiness, and a cold node pulls the Pocket ID image first — so
-// the waits are generous (ADR-00024 §6).
+// healthz 204 → first-run claim open → claim the admin → stop → start
+// → the claim survives → destroy. The restart leg is the #492 gate:
+// Pocket ID's SQLite state on the PVC must survive a stop / start
+// cycle, and claiming the admin before the stop makes that observable
+// (the setup probe flips from 204 to 404 and stays flipped). It
+// crosses the real cluster — `running` lands on the reconcile cron's
+// next tick after pod readiness, and a cold node pulls the Pocket ID
+// image first — so the waits are generous (ADR-00024 §6).
+
+// Traces are off for this spec only: CI uploads the playwright report
+// as an artifact on every run (and on retries), and a trace records
+// each fill's literal value — the per-run ENCRYPTION_KEY would land in
+// a public artifact on a red→green retry. The spec carries its own
+// budgets and fail-fast error states, so it loses little diagnostic.
+test.use({ trace: "off" });
 
 const testInboxToken = process.env.E2E_TESTINBOX_TOKEN;
 const runId = process.env.E2E_RUN_ID ?? `run${Date.now()}`;
@@ -35,8 +44,8 @@ test.skip(
 test(
   "pocket-id: catalog → deploy → running → open → stop → start → destroy",
   async ({ page, request }) => {
-    // 20 min: the budgets below (12 + 5) plus sign-in, catalog, deploy
-    // and destroy interactions must fit under the cap.
+    // 20 min: the budgets below (12 + 1 + 5) plus sign-in, catalog,
+    // deploy and destroy interactions must fit under the cap.
     test.setTimeout(20 * 60_000);
 
     // Sign in as a fresh per-run user (JIT-provisioned; nobody's data
@@ -111,12 +120,30 @@ test(
 
     // The first-run contract's runtime half (#492, ADR-0034): the
     // initial-admin setup is still claimable — upstream's public
-    // probe (the SPA calls it on /setup) answers while no account
-    // exists, and 404s once it is done.
+    // probe (the SPA calls it on /setup) answers 204 while no
+    // account exists and 404s once it is done.
     const setup = await request.get(
       new URL("api/signup/setup", url!).toString(),
     );
-    expect(setup.status()).toBeLessThan(400);
+    expect(setup.status()).toBe(204);
+
+    // Claim the admin now, before the restart leg: the claim lives in
+    // Pocket ID's SQLite on the PVC, so after the stop / start cycle
+    // the same probe must 404 — the observable half of the state-
+    // survival gate. The instance (and its volume) is destroyed at the
+    // end, so the claim costs nothing.
+    const claimed = await request.post(
+      new URL("api/signup/setup", url!).toString(),
+      {
+        data: {
+          username: `e2e-admin-${runId}`,
+          email: `e2e-admin-${runId}@example.com`,
+          firstName: "E2E",
+          lastName: "Proof",
+        },
+      },
+    );
+    expect(claimed.status()).toBeLessThan(400);
 
     // Stop → Stopped (storage-only fee: micro stopped, $0.24 at B′).
     await page.getByTestId("stop-button").click();
@@ -133,6 +160,13 @@ test(
     await waitForStatus(page, "Running", 5 * 60_000);
     const revived = await request.get(new URL("healthz", url!).toString());
     expect(revived.status()).toBe(204);
+
+    // The state-survival half: the admin claimed before the stop still
+    // exists, so the setup probe stays 404 across the restart.
+    const claimKept = await request.get(
+      new URL("api/signup/setup", url!).toString(),
+    );
+    expect(claimKept.status()).toBe(404);
 
     // Destroy: native confirm() dialog, teardown (async Oban) exits the
     // view to /instances where the fresh user's list is empty again.
