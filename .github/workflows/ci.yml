@@ -69,6 +69,10 @@ jobs:
               - ".github/workflows/ci.yml"
             cli:
               - "apps/cli/**"
+              # The shared API crate (crates/, its own workspace) — a
+              # crate change must compile-check against the CLI here,
+              # and run the crate's own gates at the bottom of this job.
+              - "crates/**"
               # The generated types are checked against this artifact in
               # cli-gates (`cargo xtask openapi --check`) — a platform PR
               # that regenerates it must run the CLI lane, or the drift
@@ -289,6 +293,26 @@ jobs:
 
       - run: cargo deny check licenses advisories
 
+      # The shared API crate (crates/) is its own workspace — the third
+      # Rust tree (apps/cli, crates), independently resolved from
+      # apps/cli and never linked to it. Same gate set, run from its
+      # own root: a crates/** change fires this lane (the filter) and
+      # these steps prove the crate green in its own tree. The
+      # toolchain (same 1.99.1 pin — crates/rust-toolchain.toml is
+      # paired with apps/cli's) and cargo-deny are already installed
+      # by the steps above.
+      - run: cargo fmt --all -- --check
+        working-directory: crates
+
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+        working-directory: crates
+
+      - run: cargo test --workspace
+        working-directory: crates
+
+      - run: cargo deny check
+        working-directory: crates
+
   # Coverage: llvm-cov onto the same codecov.io integration with flag
   # `cli` — the platform upload step's shape (same pinned action, same
   # fail_ci_if_error watchdog: a codecov.io outage reds this step).
@@ -326,6 +350,23 @@ jobs:
         with:
           flags: cli
           files: apps/cli/lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
+
+      # The shared API crate's coverage (crates/, its own workspace)
+      # rides the same `cli` flag — a second report from its own root,
+      # so the flag's crates/ paths (codecov.yml) have a producer.
+      # Same toolchain pin (paired with apps/cli's), same installed
+      # cargo-llvm-cov.
+      - run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+        working-directory: crates
+
+      # NB: uses: steps run at the workspace root — repo-root path.
+      - name: Upload crate coverage to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5
+        with:
+          flags: cli
+          files: crates/lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
 

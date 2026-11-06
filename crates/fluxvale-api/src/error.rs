@@ -2,7 +2,7 @@
 //! friendly one-line messages (the contract's 401/403/429 shapes
 //! included). `thiserror` here; `anyhow` at the command layer.
 
-/// An error from [`crate::api::ApiClient`].
+/// An error from [`crate::ApiClient`].
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
     /// 401 — the token is missing, revoked, or stale.

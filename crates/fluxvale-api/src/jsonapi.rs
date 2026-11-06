@@ -1,6 +1,6 @@
 //! The minimal JSON:API response envelope. Deliberately loose at this
 //! layer — `data`/`attributes` stay `serde_json::Value`; the typed
-//! structs live in [`crate::api::types`] (generated from the OpenAPI
+//! structs live in [`crate::types`] (generated from the OpenAPI
 //! artifact).
 
 use serde_json::Value;

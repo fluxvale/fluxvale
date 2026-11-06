@@ -3,13 +3,12 @@
 //! API; formatting is local presentation only (ADR-0019 Am. 3).
 //! Write commands stay out (T6); device-flow login is T5.
 
-use crate::api::jsonapi::{Document, Resource};
-use crate::api::{ApiClient, ApiError};
 use crate::cli::Output;
 use crate::config::{self, Config};
 use crate::human;
 use crate::render::{Detail, Rows, cell, yes_no};
 use crate::token::{TokenLocation, TokenStore};
+use fluxvale_api::{ApiClient, ApiError, Document, Resource};
 use serde_json::{Value, json};
 
 /// The client for a read command: token from the store (OS keychain,

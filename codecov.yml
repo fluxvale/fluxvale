@@ -33,7 +33,10 @@ flags:
     # CI) — nothing stale carries into PRs that skip it
     carryforward: false
   cli:
-    paths: [apps/cli/]
+    # The shared api crate is the cli lane's other source tree (its own
+    # workspace at repo-root crates/) — its coverage rides this flag
+    # too (produced by the second llvm-cov block in cli-coverage).
+    paths: [apps/cli/, crates/]
     # false: the flag reports only when the cli coverage job ran
     # (path-gated CI) — nothing stale carries into PRs that skip it
     carryforward: false

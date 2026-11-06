@@ -1,0 +1,12 @@
+# The shared Rust workspace (crates/): cross-app library crates.
+# Independently resolved — its own lockfile, toolchain pin, and gates —
+# never linked to apps/cli's workspace; fluxvale-cli path-depends on
+# fluxvale-api across the trees, and apps/mcp will do the same (#484)
+# without reaching into apps/cli's tree.
+[workspace]
+resolver = "2"
+members = ["fluxvale-api"]
+
+[workspace.package]
+edition = "2024"
+license = "FSL-1.1-ALv2"
