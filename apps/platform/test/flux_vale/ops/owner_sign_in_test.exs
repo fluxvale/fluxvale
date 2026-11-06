@@ -10,6 +10,7 @@ defmodule FluxVale.Ops.OwnerSignInTest do
   use FluxVale.DataCase, async: false
 
   import ExUnit.CaptureIO
+  import FluxVale.TestSupport.InvitationHelpers
 
   alias FluxVale.Identity
   alias FluxVale.Identity.User
@@ -126,8 +127,16 @@ defmodule FluxVale.Ops.OwnerSignInTest do
       assert output =~ "Expires in 10 minutes"
 
       # The whole point: the printed code is the one production verifies —
-      # a first success also JIT-provisions the account and its org.
+      # a first success also JIT-provisions the account and its org. The
+      # JIT arm is invitation-gated (#478): bootstrap brings the seed
+      # admin up through the seeds path (ungated, and its @fluxvale.com
+      # domain rides the team bypass); a fresh external OWNER_EMAIL
+      # address is invited like any new account.
+      invite_address!(email)
+      drain_mail!()
+
       assert {:ok, %{email: verified}, token} = Identity.verify_auth_code(email, code)
+
       assert to_string(verified) == email
       assert is_binary(token)
     end
@@ -142,6 +151,9 @@ defmodule FluxVale.Ops.OwnerSignInTest do
 
       assert :ok = OwnerSignIn.issue_code(deliver)
       assert_receive {:delivered, code}
+
+      invite_address!(email)
+      drain_mail!()
 
       assert {:ok, _user, _token} = Identity.verify_auth_code(email, code)
     end

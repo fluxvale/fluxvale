@@ -30,6 +30,27 @@ defmodule FluxVale.Mailer do
   end
 
   @doc """
+  The early-access invitation (#478): informational only — no token, no
+  link-back credential. The gate is the invited_emails row; this email
+  just tells the address it can now sign in.
+  """
+  @spec deliver_invitation(String.t()) :: {:ok, map()} | {:error, term()}
+  def deliver_invitation(to) do
+    %Swoosh.Email{}
+    |> Swoosh.Email.to(to)
+    |> Swoosh.Email.from({"FluxVale", "no-reply@fluxvale.com"})
+    |> Swoosh.Email.subject("You are invited to FluxVale")
+    |> Swoosh.Email.text_body("""
+    You are invited to FluxVale.
+
+    Early access is invitation-only, and this address is on the list. Sign in at https://fluxvale.com with this email address: we will send you a one-time code, no password needed.
+
+    If you were not expecting this invitation, you can ignore it or write to support@fluxvale.com.
+    """)
+    |> deliver()
+  end
+
+  @doc """
   #124's low-runway warning (one per episode — the sweep's marker owns
   the once): plain body, the number that matters, where to act. A
   non-positive `runway_hours` means the balance already ran out — the

@@ -21,6 +21,17 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   second account. A create collision resolves the account that already
   holds the address — the old-pod shape (`users.email` set, no row,
   review P2-3) gets its mirror row healed and signs in.
+
+  The invitation gate (#478, final shape: per-address invitations, the
+  team domain bypass) sits on the JIT arm only: a genuinely new address
+  creates an account when `Ops.InvitedEmails.allows?/1` admits it —
+  `@fluxvale.com` outright, or a recorded, unrevoked invitation for
+  that exact address. Every arm that resolves an existing account
+  (direct lookup, superseded-claim flip, collision heal) is a sign-in
+  and stays ungated — existing users are unaffected, and revocation
+  never touches an account that exists. The refusal atom is
+  `:invitation_required` — the honest copy is the LiveView's concern;
+  the operation's contract is the atom and the no-account guarantee.
   """
 
   alias FluxVale.Identity.AuthCode
@@ -28,6 +39,7 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   alias FluxVale.Identity.User.MirrorSignupEmail
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Ops.AccessRules
+  alias FluxVale.Ops.InvitedEmails
 
   # Ash.Query.filter is a macro
   require Ash.Query
@@ -41,7 +53,9 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   @doc """
   Verifies `code` for `email`. On success returns `{:ok, user, token}`;
   failures are uniform in shape — no account-enumeration signal between
-  an unknown address and a bad code.
+  an unknown address and a bad code. An address that is neither on the
+  team domain nor invited is refused at provisioning with `{:error,
+  :invitation_required}` and no account is created (#478).
   """
   @spec call(String.t() | Ash.CiString.t(), String.t()) ::
           {:ok, map(), String.t()} | {:error, atom()}
@@ -167,8 +181,9 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
 
     case lookup_user(email) do
       # A VERIFIED row for the address now exists — the concurrent
-      # VerifyEmail committed between our supersede and this read.
-      # That account holds the inbox proof; resolve to it.
+      # VerifyEmail's flip committed between our supersede and this
+      # read. That account holds the inbox proof; resolve to it — a
+      # sign-in, ungated (the allowlist admits accounts, not logins).
       # coveralls-ignore-start - race arm: needs the flip to commit
       # inside this window — true concurrency, not sequential
       {:ok, user} ->
@@ -211,8 +226,44 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
     end
   end
 
-  # JIT provisioning (ADR-0003): a valid code proves inbox ownership
+  # JIT provisioning (ADR-0003): a valid code proves inbox ownership.
+  # The invitation gate (#478, final shape) sits in front of the create
+  # — EXCEPT for an address the frozen mirror already owns: that is an
+  # EXISTING account (the old-pod shape), a sign-in, and existing users
+  # are unaffected (the #478 ruling), so the heal resolves it ungated.
+  # For a genuinely new address the burned login code proved the inbox
+  # and admission rides the allowlist question: the team's own domain
+  # or a recorded, unrevoked invitation — per address, never per
+  # domain. The refusal happens before any write.
   defp provision_user(email) do
+    case frozen_email_owner(email) do
+      {:ok, %User{}} ->
+        # An old-pod account the table-backed lookups cannot see: the
+        # heal path resolves it — a sign-in, ungated
+        resolve_collided(email)
+
+      {:ok, nil} ->
+        gated_create(email)
+
+      # coveralls-ignore-start - DB read failure mid-verify: same class
+      # as health's db_up? — not simulatable under the sandbox
+      {:error, _read_failed} ->
+        {:error, :user_lookup_failed}
+        # coveralls-ignore-stop
+    end
+  end
+
+  # The gate + create. InvitedEmails.allows?/1 is the whole gate: the
+  # team domain bypass or a live invitation, per address.
+  defp gated_create(email) do
+    if InvitedEmails.allows?(email) do
+      create_and_resolve(email)
+    else
+      {:error, :invitation_required}
+    end
+  end
+
+  defp create_and_resolve(email) do
     case create_user(email) do
       {:ok, user} ->
         # The signup-success point (business telemetry): seed/admin
@@ -223,27 +274,30 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
         {:ok, user}
 
       # The address already belongs to an account our lookups missed:
-      # the old-pod shape (users.email holds it, no user_emails row —
-      # review P2-3), or a verified row that committed in the residual
-      # window between the re-lookup above and this create (review
-      # P2-1). Either way the burned code is still the inbox proof —
-      # resolve THAT account; no second account, no lost verified stamp.
-      # Only the two uniqueness identities mean that, though: any other
-      # create failure routes into the heal and gets reinterpreted as
-      # one (review round 2, P3 — that match is what turned the P1
+      # a verified row that committed in the residual window between
+      # the re-lookup above and this create (review P2-1). The burned
+      # code is still the inbox proof — resolve THAT account; no
+      # second account, no lost verified stamp. Only the two
+      # uniqueness identities mean that, though: any other create
+      # failure routes into the heal and gets reinterpreted as one
+      # (review round 2, P3 — that match is what turned the P1
       # primary-index failure into a silent wrong-arm write).
       {:error, collision} ->
-        if unique_collision?(collision) do
-          resolve_collided(email)
-        else
-          # coveralls-ignore-start - non-uniqueness create failures are
-          # not sequentially reachable: format is refused at code-send,
-          # username/org-slug collisions are probed away by their
-          # changes (DeriveUsername, ProvisionPersonalOrg), and DB
-          # failures are the same class as the other DB-down arms
-          {:error, :provisioning_failed}
-          # coveralls-ignore-stop
-        end
+        resolve_collision(collision, email)
+    end
+  end
+
+  defp resolve_collision(collision, email) do
+    if unique_collision?(collision) do
+      resolve_collided(email)
+    else
+      # coveralls-ignore-start - non-uniqueness create failures are
+      # not sequentially reachable: format is refused at code-send,
+      # username/org-slug collisions are probed away by their
+      # changes (DeriveUsername, ProvisionPersonalOrg), and DB
+      # failures are the same class as the other DB-down arms
+      {:error, :provisioning_failed}
+      # coveralls-ignore-stop
     end
   end
 
