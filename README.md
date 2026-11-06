@@ -19,6 +19,9 @@ contributing (humans and agents) are in [`AGENTS.md`](AGENTS.md).
 apps/platform    # the Phoenix 1.8 + Ash app — one OTP release (:flux_vale)
 apps/e2e         # Playwright suite (grows from M3)
 apps/smoke       # Bruno collection — the API oracle for both deployed envs (#99)
+apps/cli         # the Rust CLI (ADR-0019 Am. 3: fmt, clippy, 4-target matrix)
+apps/tfprovider  # the Terraform/OpenTofu provider, Go (ADR-0019 Am. 4)
+crates/          # the workspace holding the shared fluxvale-api crate (#499)
 deploy/local/    # local production-parity stack (k3d + Tilt; ADR-0020)
 docs/            # decisions home — read before proposing changes
 ```
