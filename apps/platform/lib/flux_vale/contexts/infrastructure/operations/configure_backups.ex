@@ -113,11 +113,45 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
          {:ok, stored} <- stored_setting(authorized, opts),
          {:ok, changeset} <- settings_changeset(authorized, stored, params, opts),
          :ok <- row_write_gate(authorized, changeset, opts),
-         {:ok, kubeconfig} <- kubeconfig(authorized),
-         {:ok, data} <- secret_data(kubeconfig, authorized, changeset, params),
-         :ok <- apply_secret(kubeconfig, authorized, data),
-         :ok <- apply_quota(kubeconfig, authorized) do
+         :ok <- apply_cluster_state(authorized, changeset, params) do
       write_row(changeset)
+    end
+  end
+
+  # ONE cluster-side-effects entrypoint for a validated save — the
+  # panel's `call/3` and the BackupSetting JSON:API routes (#482, via
+  # the domain's `apply_backup_cluster_state`) both land here, so the
+  # API cannot drift from the panel on secret or quota semantics: the
+  # `backup-config` Secret is get-or-created (a blank/absent request
+  # secret keeps the stored password and key), RESTIC_REPOSITORY is
+  # recomputed from the changeset's coordinates, and the backup margin
+  # quota is re-applied — the order and arithmetic of a panel save.
+  # The ONE deliberate difference: route saves pass
+  # `fresh_secret: :optional`, so a first save with no stored Secret
+  # and no request secret skips the Secret apply (the quota still
+  # lands) instead of the panel's `:secret_access_key_required`
+  # refusal — the routes keep their pre-existing permissive
+  # create-without-secret shape. Callers must have authorized ownership
+  # already: this performs cluster writes.
+  @spec apply_cluster_state(Instance.t(), Ash.Changeset.t(), params(), keyword()) ::
+          :ok | {:error, term()}
+  def apply_cluster_state(instance, changeset, params, opts \\ []) do
+    with {:ok, kubeconfig} <- kubeconfig(instance),
+         :ok <- apply_secret_step(kubeconfig, instance, changeset, params, opts) do
+      apply_quota(kubeconfig, instance)
+    end
+  end
+
+  # The Secret half of the convergence. `:skipped` — no stored Secret
+  # and the request carried none (route saves only, see
+  # apply_cluster_state): there is nothing to authenticate the backup
+  # Job with yet, so only the quota margin lands. Every other outcome
+  # applies the Secret; an error stops the quota too.
+  defp apply_secret_step(kubeconfig, instance, changeset, params, opts) do
+    case secret_data(kubeconfig, instance, changeset, params, opts) do
+      :skipped -> :ok
+      {:ok, data} -> apply_secret(kubeconfig, instance, data)
+      {:error, _reason} = error -> error
     end
   end
 
@@ -281,7 +315,9 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
 
   # Get-or-create, never blind-apply: an existing Secret is the repo's
   # identity — its password survives every save or the snapshots do not.
-  defp secret_data(kubeconfig, instance, changeset, params) do
+  # `:skipped` is the route saves' permissive fresh shape (see
+  # apply_cluster_state): no stored Secret and no request secret.
+  defp secret_data(kubeconfig, instance, changeset, params, opts) do
     # A blank form field means "keep what's stored", not "set it empty".
     secret_input = blank_to_nil(Map.get(params, :secret_access_key))
 
@@ -293,7 +329,11 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
         end
 
       {:error, %Error{reason: :not_found}} ->
-        fresh_secret_data(changeset, secret_input)
+        if opts[:fresh_secret] == :optional and is_nil(secret_input) do
+          :skipped
+        else
+          fresh_secret_data(changeset, secret_input)
+        end
 
       {:error, error} ->
         {:error, error}

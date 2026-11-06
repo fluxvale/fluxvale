@@ -10522,6 +10522,16 @@
                                 "type": "null"
                               }
                             ]
+                          },
+                          "secret_access_key": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         },
                         "type": "object"
@@ -11100,6 +11110,16 @@
                             "anyOf": [
                               {
                                 "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "env_vars": {
+                            "anyOf": [
+                              {
+                                "type": "object"
                               },
                               {
                                 "type": "null"
@@ -14455,6 +14475,16 @@
                             "anyOf": [
                               {
                                 "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "secret_access_key": {
+                            "anyOf": [
+                              {
+                                "type": "string"
                               },
                               {
                                 "type": "null"
