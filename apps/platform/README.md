@@ -1,20 +1,27 @@
-# FluxVale
+# FluxVale platform
 
-To start your Phoenix server:
+The Phoenix 1.8 + Ash application (`:flux_vale`) — the product's single
+OTP release. One app in this directory, no umbrella.
 
-* Run `mix setup` to install and setup dependencies
-* Start Phoenix endpoint with `mix phx.server` or inside IEx with `iex -S mix phx.server`
+Start here:
 
-Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
+- [AGENTS.md](AGENTS.md) — this app's conventions (they win over generic
+  Phoenix guidance), on top of the [repo root](../../AGENTS.md).
+- [docs/](../../docs/README.md) — what's decided and why. Accepted ADRs
+  are settled law.
+- [Root README](../../README.md) — local development, both the plain
+  path (`mix setup`, any PostgreSQL 18+) and the production-parity
+  stack ([ADR-0020](../../docs/adr/00020-local-dev-parity.md)).
 
-Ready to run in production? Please [check our deployment guides](https://phoenix.hexdocs.pm/deployment.html).
+The gate every PR passes, from this directory:
 
-## Learn more
+```sh
+mix ci    # format, unused deps, warnings, gettext, blog lint,
+          # ash codegen drift, credo --strict, dialyzer, coveralls
+```
 
-* Official website: https://www.phoenixframework.org/
-* Guides: https://phoenix.hexdocs.pm/overview.html
-* Docs: https://phoenix.hexdocs.pm
-* Forum: https://elixirforum.com/c/phoenix-forum
-* Source: https://github.com/phoenixframework/phoenix
+Concurrent local suites need their own DB (#241):
 
-<!-- Red-path drill marker (#99 exit test): this deploy is intentionally landed while staging is deliberately broken (wrong signing secret, fleet PR). The deploy-gated smoke should go red and open a revert PR against this PR. That revert PR gets CLOSED, not merged — the break is fleet-side; the real fix is reverting the fleet PR. -->
+```sh
+MIX_TEST_PARTITION=<lane> mix test
+```
