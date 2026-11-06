@@ -672,6 +672,47 @@ stops charging. This supersedes §11's per-domain line.
 For the record, §11 priced domains at $2.00/month per verified domain,
 set by the owner on 2026-10-30. Amendment 2 removes that price.
 
+## Amendment 3 (2026-11-06): one-token integration — the platform mints enrollment keys
+
+Terence's ruling: users integrate Tailscale **once** and expect it to
+just work. The platform therefore holds the single API token and mints
+auth keys itself (`POST /api/v2/tailnet/{tailnet}/keys`, `auth_keys`
+scope) whenever a gateway enrolls or re-enrolls. The two-paste flow
+(auth key at enable, API token at settings) becomes a documented
+fallback for scope-minimalists.
+
+**What changes:**
+
+- **§5's credential set widens to four scopes**: `dns` +
+  `devices:routes` + `devices:core:read` + `auth_keys`. Intake
+  simplifies to **one field** — the S5 settings lane shrinks from the
+  two-paste surface to a single token field (simpler than previously
+  framed).
+- **Enrollment is mint-not-paste.** The enable/re-enroll path mints a
+  **tagged** (config-pinned `fluxvale-gateway` tag; the tailnet's
+  tagOwners must own it — onboarding states this), **short-lived**
+  (minutes-to-hours, not days), **single-use** (non-reusable) key per
+  enrollment and consumes it immediately. A minted key that leaks is
+  worthless within the hour and can only join a tagged node. The
+  drift/repair path (rejected or expired node key) re-mints instead of
+  asking for a re-paste.
+- **Why mint rather than use the OAuth secret as the join credential**
+  (the spike-pinned kb/1215 capability): that path puts the LONG-LIVED
+  secret into every enrollment call; minting puts only an hourly
+  single-use derivative there. The long-lived credential never rides an
+  enrollment.
+
+**§12's trust table, honestly enlarged:** the four-scope token's blast
+radius grows from "rewrite tailnet DNS + approve routes" to that **plus
+the ability to enroll arbitrary tagged nodes**. Mitigations: minted
+keys are tag-confined (a minted key cannot join a node as a user — the
+tagOwners posture governs what a tagged node may do), short-lived,
+single-use, and every mint is audit-logged. Residual, stated plainly: a
+FluxVale compromise during a live-token window is a DNS-hijack plus
+tagged-node-enrollment capability against that tailnet. The OAuth
+client remains the self-serve upgrade — one credential class, browser
+authorized, revocable unilaterally.
+
 ## References
 
 - Source-pinned facts: `tailscale/tailscale` `ipn/ipnlocal/serve.go`
