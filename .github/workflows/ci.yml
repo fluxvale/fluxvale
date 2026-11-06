@@ -28,6 +28,7 @@ jobs:
   check-changes:
     name: Check for changes
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
       platform: ${{ steps.filter.outputs.platform }}
       docs: ${{ steps.filter.outputs.docs }}
@@ -96,6 +97,10 @@ jobs:
     needs: check-changes
     if: needs.check-changes.outputs.platform == 'true'
     runs-on: ubuntu-24.04
+    # mix ci (~6 min warm, cold deps + dialyzer PLT builds go longer)
+    # + the release-mode proof + the codecov upload. 45 is a ceiling,
+    # not a target; the default 360 would let a hang sit all night.
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:18
@@ -241,6 +246,9 @@ jobs:
     needs: check-changes
     if: needs.check-changes.outputs.cli == 'true'
     runs-on: ubuntu-24.04
+    # Gates + coverage in one job; generous ceiling for the
+    # instrumented llvm-cov builds on a cold cache.
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: apps/cli
@@ -320,25 +328,17 @@ jobs:
       - run: cargo deny check
         working-directory: crates
 
-  # Coverage: llvm-cov onto the same codecov.io integration with flag
-  # `cli` — the platform upload step's shape (same pinned action, same
-  # fail_ci_if_error watchdog: a codecov.io outage reds this step).
-  cli-coverage:
-    name: CLI coverage
-    needs: check-changes
-    if: needs.check-changes.outputs.cli == 'true'
-    runs-on: ubuntu-24.04
-    defaults:
-      run:
-        working-directory: apps/cli
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - run: rustup toolchain install
+      # Coverage rides THIS job (was its own cli-coverage job until
+      # #510): one fewer runner start + queue slot per cli-touching
+      # PR — the separate job once sat QUEUED 3h19m on run 42213018762
+      # (every other job done by 12:07, "CLI coverage" started
+      # 15:08:33) while "Wait for CI" held the PR. timeout-minutes
+      # can't cap queue time, fewer jobs can. llvm-cov runs after the
+      # gates so gate failures surface fast.
+      #
       # llvm-tools-preview is the component cargo-llvm-cov drives
-      # (the minimal default profile omits it).
+      # (the minimal default profile omits it; the toolchain files
+      # declare only rustfmt and clippy).
       - run: rustup component add llvm-tools-preview
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -352,6 +352,9 @@ jobs:
       - run: cargo llvm-cov --workspace --lcov --output-path lcov.info
 
       # NB: uses: steps run at the workspace root — repo-root path.
+      # fail_ci_if_error: same watchdog the platform upload carries —
+      # a codecov.io outage reds the lane (v2 has no upload
+      # acknowledgement beyond this).
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5
         with:
@@ -387,6 +390,9 @@ jobs:
     needs: check-changes
     if: needs.check-changes.outputs.cli == 'true'
     runs-on: ${{ matrix.leg.os }}
+    # Compiler builds on four OSes; observed ~3 min but a hung build
+    # should cancel, not sit out the 360-minute default.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -430,6 +436,7 @@ jobs:
     needs: check-changes
     if: needs.check-changes.outputs.tfprovider == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: apps/tfprovider
@@ -482,6 +489,7 @@ jobs:
     needs: check-changes
     if: needs.check-changes.outputs.docs == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -499,6 +507,7 @@ jobs:
     needs: check-changes
     if: needs.check-changes.outputs.agents == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -524,6 +533,7 @@ jobs:
     name: Linked issues
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -569,7 +579,12 @@ jobs:
           - name: pages
             specs: tests/health.spec.ts tests/landing.spec.ts tests/org-pages.spec.ts tests/policies.spec.ts tests/public-pages.spec.ts tests/root-session.spec.ts tests/sign-in.spec.ts tests/switcher-dismiss.spec.ts
           - name: lifecycle
-            specs: tests/forgejo-lifecycle.spec.ts tests/actual-lifecycle.spec.ts tests/vaultwarden-lifecycle.spec.ts tests/memos-lifecycle.spec.ts tests/file-access.spec.ts tests/backups.spec.ts
+            # pocket-id joined here in #510's pass — it had shipped
+            # (#492's catalog PRs) without joining a leg, so PR CI
+            # never ran it (only the nightly full suite and post-deploy
+            # smoke did; apps/e2e/README.md warns exactly about this
+            # gap).
+            specs: tests/forgejo-lifecycle.spec.ts tests/actual-lifecycle.spec.ts tests/vaultwarden-lifecycle.spec.ts tests/memos-lifecycle.spec.ts tests/pocket-id-lifecycle.spec.ts tests/file-access.spec.ts tests/backups.spec.ts
           # #210 part 3: threshold 45s + probe window 150s are safe
           # HERE only — this leg's instance gets no traffic, so the
           # 30s beacon staleness that guards the other legs' 180s
@@ -1072,7 +1087,7 @@ jobs:
   # checks run — a green umbrella that proved nothing.
   wait-for-ci:
     name: Wait for CI
-    needs: [check-changes, platform, cli-gates, cli-coverage, cli-matrix, tfprovider, docs-lint, skills-lint, linked-issues, e2e, deploy-image, watch-deploy, smoke]
+    needs: [check-changes, platform, cli-gates, cli-matrix, tfprovider, docs-lint, skills-lint, linked-issues, e2e, deploy-image, watch-deploy, smoke]
 
     if: always()
     runs-on: ubuntu-24.04
