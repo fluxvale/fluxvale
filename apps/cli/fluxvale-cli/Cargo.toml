@@ -14,12 +14,11 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0.104" # top-level error plumbing (command handlers)
 clap = { version = "4.6.7", features = ["derive"] }
+fluxvale-api = { path = "../crates/fluxvale-api" } # the /api/v1 client: wire, device flow, token value type
 keyring = "4.2.0" # OS keychain; default `v1` feature = macOS Keychain + Windows Credential Manager + Linux Secret Service
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-thiserror = "2.0.21" # ApiError's own variants
 toml = "1.2.0"
-ureq = "3.5.1" # defaults = rustls + gzip; no native-tls anywhere
 
 [dev-dependencies]
 keyring-core = "1" # the mock store: injects the op-time set_password failure the keychain-fallback test needs

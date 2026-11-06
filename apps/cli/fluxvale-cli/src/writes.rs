@@ -11,8 +11,6 @@
 //! data). Gateway create stays out (it holds a Tailscale auth key and
 //! provisions cluster resources — the panel's flow, ADR-0039).
 
-use crate::api::jsonapi::{Document, Resource};
-use crate::api::{ApiClient, ApiError};
 use crate::cli::Output;
 use crate::human;
 use crate::reads::{
@@ -20,6 +18,7 @@ use crate::reads::{
     with_id,
 };
 use crate::render::{Detail, cell, to_pretty, yes_no};
+use fluxvale_api::{ApiClient, ApiError, Document, Resource};
 use serde_json::{Value, json};
 
 // ---- the instance lifecycle (T5 of #362): deploy, stop, start,

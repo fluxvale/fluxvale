@@ -570,18 +570,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "fluxvale-api"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "ureq",
+]
+
+[[package]]
 name = "fluxvale-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "fluxvale-api",
  "keyring",
  "keyring-core",
  "serde",
  "serde_json",
- "thiserror 2.0.21",
  "toml 1.2.0+spec-1.1.0",
- "ureq",
 ]
 
 [[package]]

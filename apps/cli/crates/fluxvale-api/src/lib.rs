@@ -1,16 +1,23 @@
-//! The API client core: base_url + token over ureq (rustls), speaking
-//! JSON:API — `Authorization: Bearer`, `Accept:
+//! The FluxVale `/api/v1` client crate — base_url + token over ureq
+//! (rustls), speaking JSON:API — `Authorization: Bearer`, `Accept:
 //! application/vnd.api+json`. Typed resource structs live in
-//! [`types`] (generated); response parsing stays loose here ([`jsonapi`]).
+//! [`types`] (generated); response parsing stays loose here
+//! ([`jsonapi`]). The RFC 8628 device flow — plain JSON,
+//! unauthenticated by design — lives in [`device`]; the redacted
+//! token value type in [`token`]. Shared by the CLI and the MCP
+//! server (#484).
 
+pub mod device;
 pub mod error;
 pub mod jsonapi;
+pub mod token;
 pub mod types;
 
+pub use device::{DeviceClient, Minted, Poll, poll_loop};
 pub use error::ApiError;
+pub use jsonapi::{Document, Resource};
+pub use token::Token;
 
-use crate::token::Token;
-use jsonapi::Document;
 use serde_json::Value;
 use std::time::Duration;
 

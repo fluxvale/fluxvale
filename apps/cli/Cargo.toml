@@ -1,9 +1,10 @@
 # The CLI workspace (ADR-0019 Am. 3), rooted at apps/cli: per-OS static
 # binaries are the distribution goal, and a workspace is the shape a
-# multi-crate CLI grows into.
+# multi-crate CLI grows into. The shared /api/v1 client (#484) lives
+# under crates/ so the upcoming apps/mcp can path-depend on it too.
 [workspace]
 resolver = "2"
-members = ["fluxvale-cli", "xtask"]
+members = ["fluxvale-cli", "xtask", "crates/fluxvale-api"]
 
 [workspace.package]
 edition = "2024"
