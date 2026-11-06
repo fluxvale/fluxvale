@@ -6,8 +6,9 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
   resolution question — a claimed domain's attached private hostnames
   answer the CLAIMING gateway's tailnet IP for THAT gateway's queries
   only (per-gateway CoreDNS views, keyed on the query's source = the
-  gateway pod IP); everything else falls through to public recursion,
-  so public hostnames behave identically on and off the tailnet.
+  gateway pod IP); everything else falls through to upstream recursion
+  (the cluster's kube-dns — see the forward target below), so a zone's
+  non-private names keep resolving.
 
   The shape of one gateway's view, per claimed domain:
 
@@ -18,12 +19,12 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
     private instances' hostnames on the claimed domain, each answered
     with the gateway's TAILNET IP (the address a tailnet device can
     dial — the pod IP is only the view's SOURCE key);
-  - `forward .` hands every other name in the zone to public recursion
-    (no hostname is dark that shouldn't be).
+  - `forward .` hands every other name in the zone to upstream
+    recursion (no hostname is dark that shouldn't be).
 
   Blocks are ordered gateway-views BEFORE the per-domain default
   (un-viewed) blocks — first match wins, and the default sends any
-  no-gateway source (in-cluster strays, misroutes) straight to public
+  no-gateway source (in-cluster strays, misroutes) straight to upstream
   recursion: no private answers without a gateway on the path.
 
   **The view is derived state.** The arms (EdgeRoutes) and the claims
@@ -35,8 +36,8 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
   is dark for DNS until the next pass — the documented window. Nothing
   is cached.
 
-  No ConfigMap consumers exist yet (fleet #122 mounts it) — the write
-  is harmless until then.
+  The fleet's access-dns deployment mounts this ConfigMap (fleet #122)
+  — the write is live resolution state, not a staging artifact.
   """
 
   alias FluxVale.Clients.K8s
@@ -121,10 +122,11 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
 
   def corefile([], []) do
     # An EMPTY Corefile is not a config CoreDNS can load, so the
-    # zero-claims render emits an inert root recursor instead: while no
-    # split-DNS route points here, nothing resolves through it (the
-    # tailnet's own DNS answers everything); the file reloads cleanly
-    # the day a claim lands.
+    # zero-claims render emits a root recursor forwarded to the
+    # cluster's upstream instead: while no split-DNS route points here,
+    # nothing should reach it (the tailnet's own DNS answers
+    # everything); anything that does resolves the upstream's answer
+    # set. The file reloads cleanly the day a claim lands.
     """
     # no claims
     .:53 {

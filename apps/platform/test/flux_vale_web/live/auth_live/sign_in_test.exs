@@ -28,9 +28,10 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
   # Auth surfaces are noindex (the launch SEO audit gap): the mount's
   # robots_noindex assign is the same key the SeoNoindex plug sets on
   # non-canonical hosts, and the root layout's seo tags turn it into
-  # the <meta name="robots">.
+  # the <meta name="robots">. The host IS the canonical one here, so
+  # the plug is a no-op — the meta can only come from the mount.
   test "carries the robots noindex meta", %{conn: conn} do
-    {:ok, _view, html} = live(conn, ~p"/sign-in")
+    {:ok, _view, html} = live(%{conn | host: "fluxvale.com"}, ~p"/sign-in")
 
     assert html =~ ~s(name="robots" content="noindex, nofollow")
   end

@@ -346,7 +346,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
       corefile = RenderAccessDNS.render(%{gateway.id => resolver_entry()})
 
       refute corefile =~ "app.#{@custom_domain}"
-      # The claim's zone still gets its default (public-recursion) block.
+      # The claim's zone still gets its default (upstream-recursion) block.
       assert corefile =~ @custom_domain
     end
 
@@ -355,7 +355,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
     } do
       # The claims map outlived its row (a remove that lost the claims
       # write): the answerable-domain lookup misses, the view is skipped,
-      # and the zone keeps its public-recursion fallback.
+      # and the zone keeps its upstream-recursion fallback.
       gateway = claimed_gateway!(org)
 
       corefile = RenderAccessDNS.render(%{gateway.id => resolver_entry()})
