@@ -594,21 +594,27 @@ Per ADR-0039 §5's model, additive:
     Host-matched routes with the same 404-nothing posture as the public
     edge; the wake pair gate (identical-404) is the #301 contract.
 
-11. **Storage at rest was the unguarded floor.** Every credential
-   above, the Tailscale four-scope tokens included, sat
-   base64-plaintext in etcd. That is a strictly lower bar than any
-   API this ADR hardens: an etcd read (node disk, snapshot file, or
-   backup) was enough. The etcd layer is now closed: the cluster
-   runs apiserver envelope encryption with the key in the operator
-   vault and a rotation runbook, and every stored Secret has been
-   verified to read as ciphertext at the etcd layer (sampling, not
-   trust). Off-node snapshots are client-side-encrypted before they
-   leave. Residual, unsparing: the encryption key itself lives on
-   the node disk, so node-level access still reads everything. Full
-   disk encryption was evaluated and deferred as not honestly
-   closable on the current single-node deployment (no TPM, and every
-   available key mode is circular or provider-controlled). At-rest
-   compromise now requires the node, not just etcd.
+11. **Secrets in etcd are the floor, and the guard is thinner than it
+    looks.** Every credential this ADR introduces, the Tailscale
+    four-scope token included, has been stored under apiserver
+    envelope encryption since the cluster's first boot, inherited
+    from installer defaults rather than chosen. A raw etcd read
+    (data file, snapshot, or backup) yields ciphertext, not
+    credentials, and a rotation procedure that retains the previous
+    key for pre-rotation ciphertext exists for the day this key must
+    move. Verified once on 2026-11-06 by a read-only dump of the
+    full Secrets keyspace at the etcd layer: every value read as
+    ciphertext, zero plaintext. That dump is a point-in-time check,
+    not a standing control. The off-node snapshot pipeline is
+    deployed as configuration but not yet operating, so its
+    client-side encryption is designed, not exercised. One residual,
+    stated plainly: the encryption key lives in the machine config on
+    the node disk, so node-level access reads everything. Full disk
+    encryption was evaluated and deferred by owner decision on
+    2026-11-06, with written re-evaluation triggers, because the
+    deployment boots unattended with no hardware root of trust to
+    seal a key to. At-rest compromise of these Secrets now requires
+    the node, not just etcd.
 
 ### Rejected alternatives
 
