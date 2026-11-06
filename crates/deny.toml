@@ -1,5 +1,9 @@
-# The CLI's cargo-deny gates (ADR-0019 Am. 3): license allowlist +
-# RustSec advisories.
+# The crates workspace's cargo-deny gates — a copy of apps/cli's
+# deny.toml, kept in sync with it (edit both or neither).
+#
+# cargo-deny warns on entries nothing currently uses ("unmatched
+# license allowance") — harmless, and the entries stay: future shared
+# deps ride the same resolution chain as the CLI's and may need them.
 [licenses]
 # The allowlist is the whole contract: anything not listed is denied
 # by default — the GPL family (GPL/LGPL/AGPL) included. GNU licenses
