@@ -120,7 +120,14 @@ test(
       new URL("api/application-configuration", url!).toString(),
     );
     expect(config.status()).toBe(200);
-    expect(((await config.json()) as { appName: string }).appName).toBe(
+    // The endpoint returns the public variables as a {key, type, value}
+    // list; the app's own name is the identity claim (default "Pocket
+    // ID", verified against the deployed instance).
+    const variables = (await config.json()) as Array<{
+      key: string;
+      value: string;
+    }>;
+    expect(variables.find((v) => v.key === "appName")?.value).toBe(
       "Pocket ID",
     );
 
