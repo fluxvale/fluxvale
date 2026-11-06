@@ -5,9 +5,35 @@ A thin skin over the FluxVale JSON:API (`/api/v1`, PAT auth) —
 Policy, paywall, and scopes enforce server-side; the provider
 re-implements nothing.
 
-**Status**: scaffold (#482 P3). Provider config + API client only —
-resources and data sources land in follow-up slices. The v0 resource
-set is named in the [compatibility contract](docs/compatibility.md).
+**Status**: first resource + data sources (#482 P4) on the scaffold
+(#482 P3). The v0 resource set is named in the
+[compatibility contract](docs/compatibility.md); the instance family's
+remaining resources (backups, access gateway, custom domain) land in
+follow-up slices.
+
+## Resources and data sources
+
+- `fluxvale_instance` — deploys a catalog app version. The version and
+  allocation (`cpu_cores`/`memory_mb`/`storage_gb`), the name, the
+  organization, and `env_vars` are create-only (the API has no
+  rename/resize/version-change routes), so changing them replaces the
+  instance. `running`/`always_on`/`exposure` update in place via their
+  PATCH verbs.
+  - `env_vars` is write-only: the API never echoes it, so plan can't
+    see server-side drift by design, and the configured value is kept
+    verbatim in state.
+  - `organization` (id or slug) falls back to the provider-level
+    `organization`, then to your sole organization — several
+    memberships without a name is an error, never a silent pick.
+  - Import: `terraform import fluxvale_instance.x <id>`. Attributes the
+    API does not echo (`organization`, `app`, `app_version`,
+    `app_version_id`, `env_vars`) stay null after import — keep your
+    config matching what you deployed, or plan shows a replacement.
+- `fluxvale_apps` — the catalog. `fluxvale_app_versions` — one app's
+  versions, by `app` (slug) or `app_id`.
+
+The provider is a skin: business rules (paywall, scopes, allocation
+bounds) enforce server-side — a 422 is the correct error surface.
 
 ## Authentication
 
