@@ -4,7 +4,7 @@
 # posture: authorize?: false, mirroring seeds), then the sanctioned
 # sign-in ops mint the session exactly as a real signup.
 #
-# Run from apps/platform: mix run /tmp/opencode/fv492_session.exs
+# Run from apps/platform: mix run ../e2e/fv492_session.exs
 alias FluxVale.Ops.InvitedEmail
 
 email = "capture-fv492@fluxvale.test"

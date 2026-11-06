@@ -17,7 +17,7 @@
 import { chromium } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 
-const BASE = process.env.FV_BASE ?? "http://127.0.0.1:4742";
+const BASE = process.env.FV_BASE ?? "http://127.0.0.1:4000";
 const token = process.env.FV_TOKEN ?? "";
 const outdir = process.argv[2] ?? "/tmp/opencode/fv492-pocketid-shots";
 mkdirSync(outdir, { recursive: true });
