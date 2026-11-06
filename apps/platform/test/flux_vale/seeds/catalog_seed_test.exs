@@ -155,6 +155,55 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert contract.guidance =~ "first account becomes the admin"
     end
 
+    test "seeds the shipped Vaultwarden entry cleanly (#492)" do
+      assert :ok == Seeds.seed_pricing!()
+      assert :ok == Seeds.seed_catalog!()
+
+      category = Category.get_by_slug!("security", authorize?: false)
+      assert category.name == "Security"
+
+      app = App.get_by_slug!("vaultwarden", authorize?: false)
+      assert app.category_id == category.id
+      assert app.tagline == "Bitwarden-compatible password server for your own vault"
+      assert app.file_access == false
+
+      version =
+        "vaultwarden"
+        |> App.get_by_slug!(authorize?: false)
+        |> Ash.load!([app_versions: :recommended_size], authorize?: false)
+        |> Map.fetch!(:app_versions)
+        |> hd()
+
+      assert version.version == "1.37.5"
+      assert version.image == "docker.io/vaultwarden/server:1.37.5"
+      assert version.port == 80
+      assert version.healthcheck_path == "/alive"
+      # State on the volume root — the loader default carries.
+      assert version.storage_mount_path == "/data"
+      assert version.instance_url_env == "DOMAIN"
+      assert version.default_env_vars == %{}
+      assert version.first_run == nil
+      # The priced unit: micro (0.25 / 512 / 5, $2.83 at B′) — the
+      # version defaults must equal the size's allocation
+      # (ValidateSizeMatchesAllocation enforces it at write time; this
+      # asserts the shipped pairing).
+      assert version.recommended_size.slug == "micro"
+
+      # #492 gate, from DB rows: the admin panel stays disabled — no
+      # ADMIN_TOKEN in any shipped layer, any casing (downcase-compared).
+      layer_keys =
+        Map.keys(version.default_env_vars) ++
+          Map.keys(version.configurable_env_vars)
+
+      refute Enum.any?(layer_keys, &admin_token_key?/1)
+
+      # The single deploy-time setting casts through the typed schema.
+      whitelist = version.configurable_env_vars["SIGNUPS_DOMAINS_WHITELIST"]
+      assert %EnvVarSpec{} = whitelist
+      assert whitelist.type == :string
+      assert whitelist.secret != true
+    end
+
     test "re-seeding the shipped catalog converges without dupes" do
       assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()
@@ -351,4 +400,9 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
     |> Map.fetch!(:app_versions)
     |> hd()
   end
+
+  # The #492 gate check: downcase-compared, so any casing fails the pin
+  # (String.equivalent?/2 would not — it is canonical equivalence, not
+  # case-folding).
+  defp admin_token_key?(key), do: String.downcase(key) == "admin_token"
 end

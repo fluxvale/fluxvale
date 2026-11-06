@@ -185,3 +185,80 @@
               server first, which the upcoming file-access feature will
               provide.
 
+- category:
+    name: Security
+    slug: security
+    description: >-
+      Password managers and other servers that hold secrets you control.
+  apps:
+    - name: Vaultwarden
+      slug: vaultwarden
+      tagline: Bitwarden-compatible password server for your own vault
+      description: |
+        A Bitwarden-compatible password server written in Rust. Vault
+        contents are encrypted and decrypted on your devices, and the
+        server only ever holds ciphertext. As the operator of your own
+        instance you still see account metadata such as email addresses
+        and login times, and any hosted password server can in principle
+        serve modified web vault code. That is the same trust class as
+        any hosted password manager, with the operator role kept by you.
+        The admin panel is disabled in this packaging and sign-ups stay
+        open on the instance URL, so create your account soon after
+        deploying.
+      icon_url: https://raw.githubusercontent.com/dani-garcia/vaultwarden/1.37.5/resources/vaultwarden-icon.svg
+      source_url: https://github.com/dani-garcia/vaultwarden
+      docs_url: https://github.com/dani-garcia/vaultwarden/wiki
+      versions:
+        - version: "1.37.5"          # upstream stable, 2026-11-01
+          # The canonical upstream image: Docker Hub is the release
+          # workflow's primary target (ghcr.io and quay.io carry the
+          # same build). Tag is the exact upstream release version.
+          image: docker.io/vaultwarden/server:1.37.5
+          port: 80
+          # Vaultwarden's own health endpoint — the upstream image's
+          # HEALTHCHECK probes the same path. A plain unauthenticated 200.
+          healthcheck_path: /alive
+          # The deployer injects the instance's public URL into this env
+          # var (Forgejo's ROOT_URL pattern): Vaultwarden derives absolute
+          # URLs (web vault, attachments) from DOMAIN.
+          instance_url_env: DOMAIN
+          default_cpu_cores: "0.25"
+          default_memory_mb: 512
+          default_storage_gb: 5
+          # The priced unit (#125): `micro` is 0.25 CPU / 512 MB / 5 GB —
+          # exactly this version's allocation ($2.83/mo, $0.24 stopped —
+          # B′). Honest in both directions (#492): a single Rust binary
+          # with SQLite, no server-side vault crypto (clients do the
+          # end-to-end work), and upstream runs it on far less than this.
+          # 512 MB keeps attachment sync comfortable, and logins are
+          # bursty (one server-side hash per sign-in), so 0.25 CPU covers
+          # personal use. Attachment-heavy vaults can move up a rung in
+          # the stepper.
+          recommended_size: micro
+          release_notes: |
+            First FluxVale catalog release, tracking upstream v1.37.5.
+            SQLite on a dedicated volume at /data. The admin panel is
+            disabled (no admin token is configured) and sign-ups stay
+            open on the instance URL, so create your account right after
+            deploying. Point your Bitwarden apps at the instance URL.
+          published_at: "2026-11-01T22:16:50Z"
+          # No first-run contract (ADR-0034 leaves the contract optional
+          # per app): first open shows the web vault with account
+          # creation open, usable out of the box. The admin-panel-off
+          # posture (#492) is one of ABSENCE — no ADMIN_TOKEN exists in
+          # any packaging layer (defaults, deploy-time settings, a
+          # first-run env), so nothing re-applies at boot that could
+          # weaken it. The catalog data + seed tests pin the absence.
+          #
+          # The one deploy-time setting is the sign-ups domain whitelist:
+          # with the admin panel off and no post-deploy env editing,
+          # deploy time is the only chance to scope registration. Upstream's
+          # SIGNUPS_ALLOWED is deliberately NOT shipped — setting it false
+          # at deploy time locks the owner out of a fresh instance (no
+          # admin panel to undo it).
+          configurable_env_vars:
+            SIGNUPS_DOMAINS_WHITELIST:
+              label: Restrict sign-ups to an email domain
+              description: Only email addresses at this domain can register. Leave empty to let anyone with the URL register.
+              type: string
+
