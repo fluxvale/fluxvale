@@ -105,13 +105,29 @@ test(
     );
 
     // The instance URL opens through Traefik (self-signed — ignored at
-    // the config level) and serves the actual Pocket ID UI, not a
-    // placeholder that merely answers 200.
+    // the config level) and serves the actual Pocket ID app, not a
+    // placeholder that merely answers 200. Pocket ID v2's frontend is
+    // a client-rendered SvelteKit SPA: the served HTML is an empty
+    // shell, so the identity proof is upstream's own public config
+    // endpoint and the render proof is a hydrated heading in a real
+    // browser (the raw shell matches nothing).
     const url = (await page.getByTestId("instance-url").textContent())?.trim();
     expect(url).toMatch(/^https:\/\//);
     const opened = await request.get(url!);
     expect(opened.status()).toBeLessThan(400);
-    expect(await opened.text()).toMatch(/Pocket ID/i);
+
+    const config = await request.get(
+      new URL("api/application-configuration", url!).toString(),
+    );
+    expect(config.status()).toBe(200);
+    expect(((await config.json()) as { appName: string }).appName).toBe(
+      "Pocket ID",
+    );
+
+    const ui = await page.context().newPage();
+    await ui.goto(url!, { waitUntil: "networkidle", timeout: 60_000 });
+    await expect(ui.locator("h1").first()).toBeVisible({ timeout: 30_000 });
+    await ui.close();
 
     // Upstream's own liveness endpoint — an unauthenticated 204 (the
     // image HEALTHCHECK probes the same route).
