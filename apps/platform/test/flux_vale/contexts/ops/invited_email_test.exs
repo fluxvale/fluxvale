@@ -96,6 +96,18 @@ defmodule FluxVale.Ops.InvitedEmailTest do
                |> Ash.create(authorize?: false)
     end
 
+    test "a delivery raise does not fail the create either" do
+      Mimic.copy(FluxVale.Mailer)
+      stub(FluxVale.Mailer, :deliver_invitation, fn _to -> raise "adapter exploded" end)
+
+      address = "raised-#{System.unique_integer()}@partner.example"
+
+      assert {:ok, %InvitedEmail{}} =
+               InvitedEmail
+               |> Ash.Changeset.for_create(:create, %{address: address}, authorize?: false)
+               |> Ash.create(authorize?: false)
+    end
+
     test "a failed create sends no email (the courtesy follows the credential)" do
       # the address-shape validation refuses before any hook fires, and
       # the transaction boundary means a failed create cannot have sent
