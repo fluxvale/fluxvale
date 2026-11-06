@@ -12,21 +12,37 @@ import (
 // list (@detail_fields, instance.ex). env_vars and status_message are
 // hide_fields'd off EVERY response; the struct has no fields for them,
 // so no code path can echo them.
+//
+// GetInstance additionally requests the wire's public FK attributes
+// (organization_id, app_version_id) via a sparse fieldset — public,
+// but not in @detail_fields; ash_json_api's fields[] parameter
+// replaces the route's default list (request.ex: Map.get(
+// request.fields, resource) || route.default_fields).
 type Instance struct {
-	ID         string
-	Name       string
-	Slug       string
-	Namespace  *string
-	Status     string
-	Exposure   string
-	AlwaysOn   bool
-	Image      *string
-	Port       *int64
-	CPUCores   *float64
-	MemoryMB   *int64
-	StorageGB  *int64
-	DeployedAt *string
+	ID             string
+	Name           string
+	Slug           string
+	Namespace      *string
+	Status         string
+	Exposure       string
+	AlwaysOn       bool
+	Image          *string
+	Port           *int64
+	CPUCores       *float64
+	MemoryMB       *int64
+	StorageGB      *int64
+	DeployedAt     *string
+	OrganizationID string
+	AppVersionID   string
 }
+
+// detailFields is the sparse fieldset GetInstance requests: the route's
+// @detail_fields plus the two public FK ids import converges on. The
+// create/PATCH responses keep the route default and omit them; only
+// GetInstance asks.
+const detailFields = "name,slug,namespace,status,exposure,always_on,image,port," +
+	"healthcheck_path,storage_mount_path,file_access,cpu_cores,memory_mb,storage_gb," +
+	"deployed_at,organization_id,app_version_id"
 
 func instanceFromResource(row Resource) (Instance, error) {
 	name, err := attrString(row.Attributes, "name")
@@ -53,7 +69,8 @@ func instanceFromResource(row Resource) (Instance, error) {
 		return Instance{}, fmt.Errorf("always_on is missing or null")
 	}
 	// The deploy-derived fields are null on a pending row — absent, not
-	// drift.
+	// drift. The FK ids are absent from the create/PATCH responses'
+	// route-default field set; only GetInstance asks for them.
 	namespace, err := attrOptString(row.Attributes, "namespace")
 	if err != nil {
 		return Instance{}, err
@@ -82,21 +99,32 @@ func instanceFromResource(row Resource) (Instance, error) {
 	if err != nil {
 		return Instance{}, err
 	}
+	orgID, _ := attrOptString(row.Attributes, "organization_id")
+	versionID, _ := attrOptString(row.Attributes, "app_version_id")
 	return Instance{
-		ID:         row.ID,
-		Name:       name,
-		Slug:       slug,
-		Namespace:  namespace,
-		Status:     status,
-		Exposure:   exposure,
-		AlwaysOn:   *alwaysOn,
-		Image:      image,
-		Port:       port,
-		CPUCores:   cpu,
-		MemoryMB:   memory,
-		StorageGB:  storage,
-		DeployedAt: deployedAt,
+		ID:             row.ID,
+		Name:           name,
+		Slug:           slug,
+		Namespace:      namespace,
+		Status:         status,
+		Exposure:       exposure,
+		AlwaysOn:       *alwaysOn,
+		Image:          image,
+		Port:           port,
+		CPUCores:       cpu,
+		MemoryMB:       memory,
+		StorageGB:      storage,
+		DeployedAt:     deployedAt,
+		OrganizationID: deref(orgID),
+		AppVersionID:   deref(versionID),
 	}, nil
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // CreateInstanceInput is the POST /api/v1/instances body. Every field
@@ -147,10 +175,14 @@ func (c *Client) CreateInstance(ctx context.Context, in CreateInstanceInput) (In
 	return instance, nil
 }
 
-// GetInstance calls GET /api/v1/instances/:id. A 404 is the *APIError
-// (Status 404) — removed-from-state for the resource's Read.
+// GetInstance calls GET /api/v1/instances/:id with a sparse fieldset
+// — @detail_fields plus the public FK ids (organization_id,
+// app_version_id), which ash_json_api's fields[] swaps in place of the
+// route's default list. A 404 is the *APIError (Status 404) —
+// removed-from-state for the resource's Read.
 func (c *Client) GetInstance(ctx context.Context, id string) (Instance, error) {
-	doc, err := c.Do(ctx, http.MethodGet, "/api/v1/instances/"+id, nil)
+	path := "/api/v1/instances/" + id + "?fields[instance]=" + detailFields
+	doc, err := c.Do(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return Instance{}, err
 	}
@@ -180,6 +212,20 @@ func (c *Client) InstanceAction(ctx context.Context, id, action string, attrs ma
 		return Instance{}, shapeDrift("PATCH /api/v1/instances/"+id+"/"+action, doc.Data.ID, err)
 	}
 	return instance, nil
+}
+
+// ResizeInstance PATCHes the stopped-first resize (#493, ADR-0043):
+// CPU/RAM both ways, storage up-only (a shrink is the server's 400
+// naming both figures). All three dims ride explicitly — absent ones
+// keep the row's value, so this is exactly the plan's allocation. The
+// caller owns the stopped-first sequencing (the guard refuses anything
+// but :stopped).
+func (c *Client) ResizeInstance(ctx context.Context, id string, cpuCores float64, memoryMB, storageGB int64) (Instance, error) {
+	return c.InstanceAction(ctx, id, "resize", map[string]any{
+		"cpu_cores":  strconv.FormatFloat(cpuCores, 'f', -1, 64),
+		"memory_mb":  memoryMB,
+		"storage_gb": storageGB,
+	})
 }
 
 // DeleteInstance calls DELETE /api/v1/instances/:id — the generic

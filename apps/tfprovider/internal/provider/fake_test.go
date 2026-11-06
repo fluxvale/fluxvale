@@ -35,6 +35,11 @@ type fakeAPI struct {
 	postResponse string // POST /instances (201)
 	instanceGets []scriptedResponse
 	deleteStatus int
+	// failPatch/failPatchStatus: when a PATCH path carries this suffix,
+	// the fake answers with this status and an errors body — the
+	// PATCH-failure arm.
+	failPatch       string
+	failPatchStatus int
 
 	t *testing.T
 }
@@ -108,6 +113,10 @@ func newFakeAPI(t *testing.T) *fakeAPI {
 		case http.MethodDelete:
 			f.json(w, f.deleteStatus, `{"id": "inst-1", "status": "pending"}`)
 		case http.MethodPatch:
+			if f.failPatch != "" && strings.HasSuffix(r.URL.Path, f.failPatch) {
+				f.json(w, f.failPatchStatus, `{"errors": [{"title": "Forbidden", "detail": "token is missing the required scope"}]}`)
+				return
+			}
 			f.json(w, http.StatusOK, patchResponse)
 		default:
 			f.json(w, http.StatusMethodNotAllowed, `{"errors": [{"title": "Method Not Allowed"}]}`)
@@ -195,7 +204,8 @@ const (
 		"image": "reg/app:1.0", "port": 3000, "healthcheck_path": "/",
 		"storage_mount_path": "/data", "file_access": false,
 		"cpu_cores": "0.5", "memory_mb": 256, "storage_gb": 1,
-		"deployed_at": "2026-11-06T10:00:00Z"}}}`
+		"deployed_at": "2026-11-06T10:00:00Z",
+		"organization_id": "org-1", "app_version_id": "ver-1"}}}`
 
 	stoppedDoc = `{"data": {"id": "inst-1", "type": "instance", "attributes": {
 		"name": "Blog", "slug": "velvety-otter-1234", "namespace": "fluxvale-app-inst-1",
@@ -203,7 +213,8 @@ const (
 		"image": "reg/app:1.0", "port": 3000, "healthcheck_path": "/",
 		"storage_mount_path": "/data", "file_access": false,
 		"cpu_cores": "0.5", "memory_mb": 256, "storage_gb": 1,
-		"deployed_at": "2026-11-06T10:00:00Z"}}}`
+		"deployed_at": "2026-11-06T10:00:00Z",
+		"organization_id": "org-1", "app_version_id": "ver-1"}}}`
 
 	errorDoc = `{"data": {"id": "inst-1", "type": "instance", "attributes": {
 		"name": "Blog", "slug": "velvety-otter-1234", "namespace": "fluxvale-app-inst-1",
@@ -211,10 +222,17 @@ const (
 		"image": "reg/app:1.0", "port": 3000, "healthcheck_path": "/",
 		"storage_mount_path": "/data", "file_access": false,
 		"cpu_cores": "0.5", "memory_mb": 256, "storage_gb": 1,
-		"deployed_at": "2026-11-06T10:00:00Z"}}}`
+		"deployed_at": "2026-11-06T10:00:00Z",
+		"organization_id": "org-1", "app_version_id": "ver-1"}}}`
 
 	patchResponse = runningDoc
 )
+
+// statusDoc renders the running fixture with a different status — the
+// precondition/wait scripts' building block.
+func statusDoc(status string) string {
+	return strings.ReplaceAll(runningDoc, `"running"`, `"`+status+`"`)
+}
 
 // fake doc builders for scripted GET sequences.
 func script(status int, doc string) scriptedResponse {

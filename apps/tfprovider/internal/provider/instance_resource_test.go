@@ -263,12 +263,37 @@ func TestCreateAppliesAlwaysOnAndExposureViaPatch(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	createInstance(context.Background(), pd, &data, diags)
 	assertNoErrors(t, diags)
+	reqs := f.all()
 
-	alwaysOn := attrsOf(t, findOne(t, f.all(), http.MethodPatch, "/always-on"))
+	// always_on/exposure go BEFORE the deploy PATCH — on a :pending row
+	// they're attribute-only writes, and the deploy job converges on the
+	// final posture (racing a live K8s apply is what the old order did).
+	exposureIdx := -1
+	alwaysOnIdx := -1
+	deployIdx := -1
+	for i, r := range reqs {
+		switch {
+		case strings.HasSuffix(r.path, "/exposure") && exposureIdx < 0:
+			exposureIdx = i
+		case strings.HasSuffix(r.path, "/always-on") && alwaysOnIdx < 0:
+			alwaysOnIdx = i
+		case strings.HasSuffix(r.path, "/deploy") && deployIdx < 0:
+			deployIdx = i
+		}
+	}
+	if exposureIdx < 0 || alwaysOnIdx < 0 || deployIdx < 0 {
+		t.Fatalf("missing PATCHes: exposure=%d always-on=%d deploy=%d", exposureIdx, alwaysOnIdx, deployIdx)
+	}
+	if exposureIdx > deployIdx || alwaysOnIdx > deployIdx {
+		t.Errorf("exposure (%d) and always-on (%d) must precede deploy (%d) — pre-deploy they're attribute-only",
+			exposureIdx, alwaysOnIdx, deployIdx)
+	}
+
+	alwaysOn := attrsOf(t, reqs[alwaysOnIdx])
 	if alwaysOn["always_on"] != true {
 		t.Errorf("always-on attributes = %v, want always_on true", alwaysOn)
 	}
-	exposure := attrsOf(t, findOne(t, f.all(), http.MethodPatch, "/exposure"))
+	exposure := attrsOf(t, reqs[exposureIdx])
 	if exposure["exposure"] != "private" {
 		t.Errorf("exposure attributes = %v, want exposure private", exposure)
 	}

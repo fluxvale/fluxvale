@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -260,6 +261,115 @@ func TestDeleteInstanceToleratesFlatBody(t *testing.T) {
 	}
 	if gotMethod != http.MethodDelete || gotPath != "/api/v1/instances/inst-1" {
 		t.Errorf("request = %s %s, want DELETE /api/v1/instances/inst-1", gotMethod, gotPath)
+	}
+}
+
+// The read requests the extended sparse fieldset — @detail_fields
+// plus the public FK ids import converges on (ash_json_api's fields[]
+// replaces the route's default list).
+func TestGetInstanceRequestsFKFields(t *testing.T) {
+	var gotQuery map[string][]string
+	srv := handlerServer(t, func(w http.ResponseWriter, r *http.Request) {
+		gotQuery, _ = url.ParseQuery(r.URL.RawQuery)
+		fmt.Fprint(w, instanceDocument("inst-1", "running"))
+	})
+
+	c := New(srv.URL, "fvpat_test", "test", srv.Client())
+	instance, err := c.GetInstance(context.Background(), "inst-1")
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
+
+	fields := gotQuery["fields[instance]"]
+	if len(fields) != 1 {
+		t.Fatalf("fields[instance] = %v, want one parameter", fields)
+	}
+	for _, want := range []string{"status", "cpu_cores", "organization_id", "app_version_id"} {
+		if !strings.Contains(fields[0], want) {
+			t.Errorf("fields[instance] = %q, missing %q", fields[0], want)
+		}
+	}
+	if strings.Contains(fields[0], "env_vars") || strings.Contains(fields[0], "status_message") {
+		t.Errorf("fields[instance] = %q — must not request the hidden pair", fields[0])
+	}
+
+	// The fixture document carries no FK ids — absent parses as empty.
+	if instance.OrganizationID != "" || instance.AppVersionID != "" {
+		t.Errorf("FK ids = %q/%q, want empty when the server omits them",
+			instance.OrganizationID, instance.AppVersionID)
+	}
+}
+
+// The FK ids ride the read when the server echoes them (route test
+// :120-138 — only the hidden pair is outside the field catalog).
+func TestGetInstanceParsesFKIDs(t *testing.T) {
+	doc := `{"data": {"id": "inst-1", "type": "instance", "attributes": {
+		"name": "Blog", "slug": "velvety-otter-1234", "namespace": null,
+		"status": "running", "exposure": "public", "always_on": false,
+		"image": "reg/app:1.0", "port": 3000,
+		"healthcheck_path": "/", "storage_mount_path": "/data", "file_access": false,
+		"cpu_cores": "0.5", "memory_mb": 256, "storage_gb": 1, "deployed_at": null,
+		"organization_id": "org-7", "app_version_id": "ver-3"
+	}}}`
+	srv := testServer(t, http.StatusOK, doc)
+	c := New(srv.URL, "fvpat_test", "test", srv.Client())
+
+	instance, err := c.GetInstance(context.Background(), "inst-1")
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
+	if instance.OrganizationID != "org-7" || instance.AppVersionID != "ver-3" {
+		t.Errorf("FK ids = %q/%q, want org-7/ver-3", instance.OrganizationID, instance.AppVersionID)
+	}
+}
+
+// The create/PATCH responses keep the route default (no FK ids) —
+// absent parses as empty, not drift.
+func TestInstanceActionToleratesAbsentFKIDs(t *testing.T) {
+	doc := `{"data": {"id": "inst-1", "type": "instance", "attributes": {
+		"name": "Blog", "slug": "velvety-otter-1234", "status": "running",
+		"exposure": "public", "always_on": false
+	}}}`
+	srv := testServer(t, http.StatusOK, doc)
+	c := New(srv.URL, "fvpat_test", "test", srv.Client())
+
+	instance, err := c.InstanceAction(context.Background(), "inst-1", "stop", map[string]any{})
+	if err != nil {
+		t.Fatalf("InstanceAction over a route-default response: %v", err)
+	}
+	if instance.OrganizationID != "" || instance.AppVersionID != "" {
+		t.Errorf("FK ids = %q/%q, want empty on a route-default response",
+			instance.OrganizationID, instance.AppVersionID)
+	}
+}
+
+// The resize body carries all three dims — cpu_cores as the decimal
+// string, memory/storage as integers.
+func TestResizeInstanceBodyShape(t *testing.T) {
+	var gotBody map[string]any
+	var gotPath string
+	srv := handlerServer(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decode request body: %v", err)
+		}
+		fmt.Fprint(w, instanceDocument("inst-1", "stopped"))
+	})
+
+	c := New(srv.URL, "fvpat_test", "test", srv.Client())
+	if _, err := c.ResizeInstance(context.Background(), "inst-1", 2, 1024, 5); err != nil {
+		t.Fatalf("ResizeInstance: %v", err)
+	}
+
+	if gotPath != "/api/v1/instances/inst-1/resize" {
+		t.Errorf("path = %q, want /api/v1/instances/inst-1/resize", gotPath)
+	}
+	attrs := gotBody["data"].(map[string]any)["attributes"].(map[string]any)
+	if attrs["cpu_cores"] != "2" {
+		t.Errorf("cpu_cores = %v (%T), want the decimal string \"2\"", attrs["cpu_cores"], attrs["cpu_cores"])
+	}
+	if attrs["memory_mb"] != 1024.0 || attrs["storage_gb"] != 5.0 {
+		t.Errorf("memory/storage = %v/%v, want 1024/5", attrs["memory_mb"], attrs["storage_gb"])
 	}
 }
 

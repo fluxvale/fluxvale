@@ -5,8 +5,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
 func TestListAppsMapsTheWireFields(t *testing.T) {
@@ -89,11 +93,11 @@ func TestListAppVersionsSlugResolutionAndMapping(t *testing.T) {
 	}
 
 	second := versions[1]
-	if second.ReleaseNotes.IsNull() || second.PublishedAt.IsNull() {
-		// null on the wire stays null in the model
-		if !second.ReleaseNotes.IsNull() || !second.PublishedAt.IsNull() {
-			t.Errorf("nulls on the wire must stay null: %v/%v", second.ReleaseNotes, second.PublishedAt)
-		}
+	// Nulls on the wire stay null in the model — this must be able to
+	// fail when the mapping fills them.
+	if !second.ReleaseNotes.IsNull() || !second.PublishedAt.IsNull() {
+		t.Errorf("nulls on the wire must stay null: release_notes=%v published_at=%v",
+			second.ReleaseNotes, second.PublishedAt)
 	}
 	if second.DefaultStorageGB.ValueInt64() != 0 {
 		t.Errorf("default_storage_gb = %d, want 0", second.DefaultStorageGB.ValueInt64())
@@ -149,4 +153,123 @@ func TestListAppVersionsUnknownSlugSurfacesServer404(t *testing.T) {
 	listAppVersions(context.Background(), pd.client,
 		types.StringValue("nope"), types.StringNull(), diags)
 	assertError(t, diags, "unknown app")
+}
+
+// --- framework entry points (Configure + Read) ------------------------
+
+// nullConfig builds a Config whose Raw is an all-null object of the
+// schema's type, with the given strings set.
+func nullConfig(ctx context.Context, t *testing.T, sch schema.Schema, set map[string]string) tfsdk.Config {
+	t.Helper()
+	objType := sch.Type().TerraformType(ctx).(tftypes.Object)
+	vals := make(map[string]tftypes.Value, len(objType.AttributeTypes))
+	for name, attrType := range objType.AttributeTypes {
+		vals[name] = tftypes.NewValue(attrType, nil)
+	}
+	for name, s := range set {
+		vals[name] = tftypes.NewValue(tftypes.String, s)
+	}
+	return tfsdk.Config{Schema: sch, Raw: tftypes.NewValue(objType, vals)}
+}
+
+func appsSchema(ctx context.Context, t *testing.T) schema.Schema {
+	t.Helper()
+	d := NewAppsDataSource().(*appsDataSource)
+	resp := &datasource.SchemaResponse{}
+	d.Schema(ctx, datasource.SchemaRequest{}, resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("schema diagnostics: %+v", resp.Diagnostics)
+	}
+	return resp.Schema
+}
+
+func appVersionsSchema(ctx context.Context, t *testing.T) schema.Schema {
+	t.Helper()
+	d := NewAppVersionsDataSource().(*appVersionsDataSource)
+	resp := &datasource.SchemaResponse{}
+	d.Schema(ctx, datasource.SchemaRequest{}, resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("schema diagnostics: %+v", resp.Diagnostics)
+	}
+	return resp.Schema
+}
+
+func TestAppsDataSourceConfigureAndRead(t *testing.T) {
+	ctx := context.Background()
+	sch := appsSchema(ctx, t)
+
+	t.Run("wrong provider data type is an error", func(t *testing.T) {
+		d := NewAppsDataSource().(*appsDataSource)
+		resp := &datasource.ConfigureResponse{}
+		d.Configure(ctx, datasource.ConfigureRequest{ProviderData: "nope"}, resp)
+		assertError(t, &resp.Diagnostics, "Unexpected provider data type")
+	})
+
+	t.Run("read without configure is an error", func(t *testing.T) {
+		d := NewAppsDataSource().(*appsDataSource)
+		resp := &datasource.ReadResponse{
+			State: tfsdk.State{Schema: sch, Raw: nullObject(ctx, t, sch.Type().TerraformType(ctx))},
+		}
+		d.Read(ctx, datasource.ReadRequest{Config: nullConfig(ctx, t, sch, nil)}, resp)
+		assertError(t, &resp.Diagnostics, "Provider not configured")
+	})
+
+	t.Run("read end to end", func(t *testing.T) {
+		f := newFakeAPI(t)
+		f.appsDoc = appsDoc
+		d := NewAppsDataSource().(*appsDataSource)
+		cfgResp := &datasource.ConfigureResponse{}
+		d.Configure(ctx, datasource.ConfigureRequest{ProviderData: f.testClient()}, cfgResp)
+		assertNoErrors(t, &cfgResp.Diagnostics)
+
+		resp := &datasource.ReadResponse{
+			State: tfsdk.State{Schema: sch, Raw: nullObject(ctx, t, sch.Type().TerraformType(ctx))},
+		}
+		d.Read(ctx, datasource.ReadRequest{Config: nullConfig(ctx, t, sch, nil)}, resp)
+		assertNoErrors(t, &resp.Diagnostics)
+
+		var got appsModel
+		if diags := resp.State.Get(ctx, &got); diags.HasError() {
+			t.Fatalf("State.Get: %v", diags)
+		}
+		if len(got.Apps) != 2 || got.Apps[0].Slug.ValueString() != "forgejo" {
+			t.Fatalf("apps = %+v, want the catalog rows", got.Apps)
+		}
+	})
+}
+
+func TestAppVersionsDataSourceConfigureAndRead(t *testing.T) {
+	ctx := context.Background()
+	sch := appVersionsSchema(ctx, t)
+
+	t.Run("wrong provider data type is an error", func(t *testing.T) {
+		d := NewAppVersionsDataSource().(*appVersionsDataSource)
+		resp := &datasource.ConfigureResponse{}
+		d.Configure(ctx, datasource.ConfigureRequest{ProviderData: 42}, resp)
+		assertError(t, &resp.Diagnostics, "Unexpected provider data type")
+	})
+
+	t.Run("read end to end via the slug form", func(t *testing.T) {
+		f := newFakeAPI(t)
+		f.appDoc = appDoc
+		f.versionsDoc = versionsDoc
+		d := NewAppVersionsDataSource().(*appVersionsDataSource)
+		cfgResp := &datasource.ConfigureResponse{}
+		d.Configure(ctx, datasource.ConfigureRequest{ProviderData: f.testClient()}, cfgResp)
+		assertNoErrors(t, &cfgResp.Diagnostics)
+
+		resp := &datasource.ReadResponse{
+			State: tfsdk.State{Schema: sch, Raw: nullObject(ctx, t, sch.Type().TerraformType(ctx))},
+		}
+		d.Read(ctx, datasource.ReadRequest{Config: nullConfig(ctx, t, sch, map[string]string{"app": "forgejo"})}, resp)
+		assertNoErrors(t, &resp.Diagnostics)
+
+		var got appVersionsModel
+		if diags := resp.State.Get(ctx, &got); diags.HasError() {
+			t.Fatalf("State.Get: %v", diags)
+		}
+		if len(got.AppVersions) != 2 || got.AppVersions[0].Version.ValueString() != "2.0" {
+			t.Fatalf("versions = %+v, want the two scripted rows", got.AppVersions)
+		}
+	})
 }

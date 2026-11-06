@@ -28,17 +28,18 @@ func newSchemadResource(ctx context.Context, t *testing.T) (*instanceResource, s
 }
 
 // nullObject is a null object value of the schema's type — the blank
-// slate State/Plan start from.
-func nullObject(ctx context.Context, t *testing.T, sch schema.Schema) tftypes.Value {
+// slate State/Plan/Config start from. Works for resource and data
+// source schemas alike.
+func nullObject(ctx context.Context, t *testing.T, sch tftypes.Type) tftypes.Value {
 	t.Helper()
-	return tftypes.NewValue(sch.Type().TerraformType(ctx), nil)
+	return tftypes.NewValue(sch, nil)
 }
 
 // modelToRaw round-trips a model through a State to get the tftypes
 // value the request structs need.
 func modelToRaw(ctx context.Context, t *testing.T, sch schema.Schema, data *instanceModel) tftypes.Value {
 	t.Helper()
-	st := tfsdk.State{Schema: sch, Raw: nullObject(ctx, t, sch)}
+	st := tfsdk.State{Schema: sch, Raw: nullObject(ctx, t, sch.Type().TerraformType(ctx))}
 	if diags := st.Set(ctx, data); diags.HasError() {
 		t.Fatalf("State.Set: %v", diags)
 	}
@@ -75,7 +76,7 @@ func TestCreateWrapperEndToEnd(t *testing.T) {
 		Plan: tfsdk.Plan{Schema: sch, Raw: modelToRaw(ctx, t, sch, &planData)},
 	}
 	resp := &resource.CreateResponse{
-		State: tfsdk.State{Schema: sch, Raw: nullObject(ctx, t, sch)},
+		State: tfsdk.State{Schema: sch, Raw: nullObject(ctx, t, sch.Type().TerraformType(ctx))},
 	}
 	r.Create(ctx, req, resp)
 	if resp.Diagnostics.HasError() {
@@ -189,14 +190,16 @@ func TestProviderRegistrations(t *testing.T) {
 }
 
 // The schema contract: every attribute the compatibility contract and
-// the wire pin, with the create-only set requiring replacement (the
-// API has no rename/resize/version-change/org-change routes).
+// the wire pin. The identity set requires replacement (the API has no
+// rename/version-change/org-change routes); the allocation set is
+// IN-PLACE (the stopped-first resize, #493) — a RequiresReplace there
+// would be a regression against finding 1 of the review round.
 func TestInstanceSchemaContract(t *testing.T) {
 	ctx := context.Background()
 	r, sch := newSchemadResource(ctx, t)
 
 	want := []string{
-		"organization", "name", "app_version_id", "app", "app_version",
+		"organization", "organization_id", "name", "app_version_id", "app", "app_version",
 		"cpu_cores", "memory_mb", "storage_gb", "env_vars",
 		"running", "always_on", "exposure",
 		"id", "slug", "namespace", "status", "port", "image", "deployed_at",
@@ -210,7 +213,7 @@ func TestInstanceSchemaContract(t *testing.T) {
 		}
 	}
 
-	// Required + create-only (RequiresReplace).
+	// Required allocation + identity; identity-only RequiresReplace.
 	required := []string{"name", "cpu_cores", "memory_mb", "storage_gb"}
 	for _, name := range required {
 		if !sch.Attributes[name].IsRequired() {
@@ -237,13 +240,20 @@ func TestInstanceSchemaContract(t *testing.T) {
 		}
 	}
 
-	// env_vars is sensitive (credentials ride it) and never computed.
-	if !sch.Attributes["env_vars"].IsSensitive() {
-		t.Error("env_vars is not sensitive")
+	// The in-place set: allocation resizes (PATCH resize — stopped
+	// first); running/always_on/exposure flip via their verbs.
+	for _, name := range []string{"cpu_cores", "memory_mb", "storage_gb"} {
+		switch a := sch.Attributes[name].(type) {
+		case schema.Float64Attribute:
+			if len(a.PlanModifiers) != 0 {
+				t.Errorf("%s must resize in place (PATCH resize) — no plan modifiers", name)
+			}
+		case schema.Int64Attribute:
+			if len(a.PlanModifiers) != 0 {
+				t.Errorf("%s must resize in place (PATCH resize) — no plan modifiers", name)
+			}
+		}
 	}
-
-	// The in-place set: running/always_on/exposure must NOT require
-	// replacement.
 	if len(sch.Attributes["always_on"].(schema.BoolAttribute).PlanModifiers) != 0 {
 		t.Error("always_on must update in place (PATCH always-on)")
 	}
@@ -254,10 +264,45 @@ func TestInstanceSchemaContract(t *testing.T) {
 		t.Error("running must update in place (PATCH stop/start)")
 	}
 
+	// env_vars is sensitive (credentials ride it) and never computed.
+	if !sch.Attributes["env_vars"].IsSensitive() {
+		t.Error("env_vars is not sensitive")
+	}
+
+	// organization_id is the computed FK mirror; app_version_id is
+	// Optional+Computed (config-or-resolved).
+	if !sch.Attributes["organization_id"].(schema.StringAttribute).Computed {
+		t.Error("organization_id must be Computed (the wire's resolved id)")
+	}
+	av := sch.Attributes["app_version_id"].(schema.StringAttribute)
+	if !av.Optional || !av.Computed {
+		t.Error("app_version_id must be Optional+Computed (config-or-resolved)")
+	}
+
 	// Metadata: the compatibility contract's type name.
 	md := &resource.MetadataResponse{}
 	r.Metadata(ctx, resource.MetadataRequest{ProviderTypeName: "fluxvale"}, md)
 	if md.TypeName != "fluxvale_instance" {
 		t.Errorf("TypeName = %q, want fluxvale_instance", md.TypeName)
 	}
+}
+
+// The resource's Configure arms: the providerData type-assertion both
+// ways.
+func TestInstanceResourceConfigureArms(t *testing.T) {
+	ctx := context.Background()
+	f := newFakeAPI(t)
+
+	r := NewInstanceResource().(*instanceResource)
+	resp := &resource.ConfigureResponse{}
+	r.Configure(ctx, resource.ConfigureRequest{ProviderData: f.testClient()}, resp)
+	assertNoErrors(t, &resp.Diagnostics)
+	if r.pd == nil {
+		t.Fatal("Configure with *providerData left r.pd nil")
+	}
+
+	r2 := NewInstanceResource().(*instanceResource)
+	resp2 := &resource.ConfigureResponse{}
+	r2.Configure(ctx, resource.ConfigureRequest{ProviderData: "nope"}, resp2)
+	assertError(t, &resp2.Diagnostics, "Unexpected provider data type")
 }
