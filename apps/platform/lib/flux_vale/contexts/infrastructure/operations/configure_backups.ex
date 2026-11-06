@@ -113,11 +113,29 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
          {:ok, stored} <- stored_setting(authorized, opts),
          {:ok, changeset} <- settings_changeset(authorized, stored, params, opts),
          :ok <- row_write_gate(authorized, changeset, opts),
-         {:ok, kubeconfig} <- kubeconfig(authorized),
-         {:ok, data} <- secret_data(kubeconfig, authorized, changeset, params),
-         :ok <- apply_secret(kubeconfig, authorized, data),
+         {:ok, kubeconfig} <- apply_namespace_secret(authorized, changeset, params),
          :ok <- apply_quota(kubeconfig, authorized) do
       write_row(changeset)
+    end
+  end
+
+  # The Secret half of a save, shared with the BackupSetting JSON:API
+  # routes' write-only `:secret_access_key` argument (#482) — ONE
+  # implementation of the get-or-create + apply path, so the API cannot
+  # drift from the panel's save (a second writer would fork the
+  # password-preservation and blank-means-keep contracts). Resolves the
+  # kubeconfig (`:not_deployed` when there is no namespace), reads the
+  # stored Secret, and re-applies it over the changeset's coordinates.
+  # Callers must have authorized ownership already — this performs
+  # cluster writes. Returns the kubeconfig because `call/3` still needs
+  # it for the quota step; route callers ignore it.
+  @spec apply_namespace_secret(Instance.t(), Ash.Changeset.t(), params()) ::
+          {:ok, map()} | {:error, term()}
+  def apply_namespace_secret(instance, changeset, params) do
+    with {:ok, kubeconfig} <- kubeconfig(instance),
+         {:ok, data} <- secret_data(kubeconfig, instance, changeset, params),
+         :ok <- apply_secret(kubeconfig, instance, data) do
+      {:ok, kubeconfig}
     end
   end
 

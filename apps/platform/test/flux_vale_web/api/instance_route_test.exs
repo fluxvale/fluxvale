@@ -257,15 +257,13 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
       assert %{"errors" => [%{"status" => "403"}]} = json_response(conn, 403)
     end
 
-    # Ground truth pinned (#362's open question): the action's accept
-    # list includes env_vars, but hide_fields strips it from the
-    # create route's REQUEST schema as well — ash_json_api applies
-    # hide_fields in both directions — so the API cannot set env vars
-    # at create. If the CLI epic needs env-var input, that is a
-    # design change — a non-hidden :create argument mapped in by a
-    # change (show_fields is resource-level and cannot overlap
-    # hide_fields) — decided on #362.
-    test "a body carrying env_vars is refused — the route cannot set env vars today", %{
+    # #482: the documented escape hatch shipped — the write-only
+    # :env_vars argument is the wire's INPUT path (hide_fields strips
+    # the attribute from the request schema in both directions;
+    # arguments answer to public?, so the argument renders there).
+    # Replace-the-whole-map semantics, and the OUTPUT path stays
+    # closed: the response never echoes it.
+    test "env_vars rides the write-only argument — lands on the row, never echoed", %{
       conn: conn
     } do
       {user, _pat} = ApiPat.member!()
@@ -281,16 +279,46 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
           "data" => %{
             "type" => "instance",
             "attributes" => %{
-              "name" => "Env Attempt",
+              "name" => "Env Deployed",
               "app_version_id" => version.id,
               "env_vars" => %{"API_KEY" => "sekrit"}
             }
           }
         })
 
-      assert %{"errors" => [error]} = json_response(conn, 400)
-      assert error["title"] == "InvalidBody"
-      assert get_in(error, ["source", "pointer"]) == "/data/attributes/env_vars"
+      assert %{"data" => row} = json_response(conn, 201)
+      refute Map.has_key?(row["attributes"], "env_vars")
+
+      # hide_fields keeps env_vars off every response, so the ground
+      # truth is the row itself — authorize?: false per the
+      # test-precondition convention (a ground-truth read bypasses
+      # policies explicitly, mirroring seeds).
+      instance = Instance.get_by_id!(row["id"], authorize?: false)
+      assert instance.env_vars == %{"API_KEY" => "sekrit"}
+    end
+
+    test "creating without the env_vars argument is unchanged", %{conn: conn} do
+      {user, _pat} = ApiPat.member!()
+      version = InstanceFixtures.app_version!()
+      InstanceFixtures.local_cluster!()
+      pat = ApiPat.mint!(user.email, ["instances:write"])
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v1/instances", %{
+          "data" => %{
+            "type" => "instance",
+            "attributes" => %{"name" => "No Env", "app_version_id" => version.id}
+          }
+        })
+
+      assert %{"data" => %{"id" => id}} = json_response(conn, 201)
+
+      # Same ground-truth read posture as the with-env_vars test above.
+      instance = Instance.get_by_id!(id, authorize?: false)
+      assert instance.env_vars == %{}
     end
 
     test "a read-only token gets the scope-gate 403, not a policy 403", %{conn: conn} do

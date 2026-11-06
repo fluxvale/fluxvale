@@ -13,7 +13,9 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.BackupJob
   alias FluxVale.Clients.K8s.Resources.Deployment
+  alias FluxVale.Clients.K8s.Resources.ResourceQuota
   alias FluxVale.Clients.K8s.Resources.RestoreJob
+  alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.TestSupport.ApiPat
@@ -190,6 +192,183 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
       # ash_json_api's own body schema refuses the key outright — the
       # path is the one intake for instance_id, by construction.
       assert %{"errors" => [%{"code" => "invalid_body"}]} = json_response(conn, 400)
+    end
+  end
+
+  # #482: the write-only secret_access_key argument — the provider's
+  # credential intake. The K8s stubs mirror the operation suite's
+  # (get_data not_found → fresh Secret with a generated password;
+  # get_data {:ok, stored} → the stored password survives, the key
+  # rotates). Absent/blank keeps the Secret untouched, so those saves
+  # make ZERO cluster calls — proven with rejects.
+  describe "the write-only secret_access_key argument" do
+    test "POST with a secret (re)applies the namespace Secret — the operation's one path", %{
+      conn: conn
+    } do
+      {user, instance} = member_with_instance()
+      pat = ApiPat.mint!(user.email, ["backups:write"])
+
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+
+      expect(Secret, :get_data, fn _kc, ns, "backup-config" ->
+        assert ns == "fluxvale-app-#{instance.id}"
+        {:error, %Error{reason: :not_found}}
+      end)
+
+      expect(Secret, :create, fn _kc, _ns, "backup-config", data ->
+        assert data["AWS_SECRET_ACCESS_KEY"] == "provider-secret-value"
+        assert data["AWS_ACCESS_KEY_ID"] == "AKIAIOSFODNN7EXAMPLE"
+
+        # Fresh repo password, generated once (the operation's recipe).
+        assert Regex.match?(~r/^[A-Za-z0-9_-]{43}$/, data["RESTIC_PASSWORD"])
+
+        {:ok, %{}}
+      end)
+
+      # The routes apply the Secret only — the quota stays the
+      # operation's full-save concern.
+      reject(ResourceQuota, :create, 4)
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v1/instances/#{instance.id}/backup-setting", %{
+          "data" => %{
+            "type" => "backup_setting",
+            "attributes" => %{
+              "endpoint" => "https://account.r2.cloudflarestorage.com",
+              "bucket" => "fluxvale-kavita",
+              "access_key_id" => "AKIAIOSFODNN7EXAMPLE",
+              "secret_access_key" => "provider-secret-value"
+            }
+          }
+        })
+
+      assert %{"data" => row} = json_response(conn, 201)
+      assert row["attributes"]["access_key_id"] == "AKIAIOSFODNN7EXAMPLE"
+
+      # Write-only: the argument never renders, under any key.
+      refute Map.has_key?(row["attributes"], "secret_access_key")
+
+      # And the GET surface stays closed too.
+      fresh =
+        build_conn()
+        |> auth(pat)
+        |> get("/api/v1/instances/#{instance.id}/backup-setting")
+
+      assert %{"data" => %{"attributes" => attrs}} = json_response(fresh, 200)
+      refute Map.has_key?(attrs, "secret_access_key")
+
+      assert {:ok, _row} = BackupSetting.get_by_instance(instance.id, actor: user)
+    end
+
+    test "PATCH with a blank secret keeps the stored Secret — zero cluster calls", %{conn: conn} do
+      {user, instance} = member_with_instance()
+      setting = setting!(instance)
+      pat = ApiPat.mint!(user.email, ["backups:write"])
+
+      # A blank form field is "leave the credentials alone": no
+      # kubeconfig, no Secret read, no Secret write.
+      reject(K8s, :kubeconfig, 1)
+      reject(Secret, :get_data, 3)
+      reject(Secret, :create, 4)
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> patch("/api/v1/backup-settings/#{setting.id}", %{
+          "data" => %{
+            "type" => "backup_setting",
+            "id" => setting.id,
+            "attributes" => %{"retention_keep" => 14, "secret_access_key" => ""}
+          }
+        })
+
+      assert %{"data" => %{"attributes" => attrs}} = json_response(conn, 200)
+      assert attrs["retention_keep"] == 14
+      refute Map.has_key?(attrs, "secret_access_key")
+
+      assert {:ok, _row} = BackupSetting.get_by_instance(instance.id, actor: user)
+    end
+
+    test "PATCH with a new secret rotates the key, preserving the repo password byte-for-byte",
+         %{conn: conn} do
+      {user, instance} = member_with_instance()
+      setting = setting!(instance)
+      pat = ApiPat.mint!(user.email, ["backups:write"])
+
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+
+      stored = %{
+        "RESTIC_REPOSITORY" => "s3:https://account.r2.cloudflarestorage.com/fluxvale-kavita",
+        "RESTIC_PASSWORD" => "stored-repo-password",
+        "AWS_ACCESS_KEY_ID" => "AKIAIOSFODNN7EXAMPLE",
+        "AWS_SECRET_ACCESS_KEY" => "stored-secret"
+      }
+
+      expect(Secret, :get_data, fn _kc, ns, "backup-config" ->
+        assert ns == "fluxvale-app-#{instance.id}"
+        {:ok, stored}
+      end)
+
+      expect(Secret, :create, fn _kc, _ns, "backup-config", data ->
+        # The repo password is the repo's identity — byte-for-byte.
+        assert data["RESTIC_PASSWORD"] == "stored-repo-password"
+        assert data["AWS_SECRET_ACCESS_KEY"] == "rotated-provider-secret"
+        {:ok, %{}}
+      end)
+
+      reject(ResourceQuota, :create, 4)
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> patch("/api/v1/backup-settings/#{setting.id}", %{
+          "data" => %{
+            "type" => "backup_setting",
+            "id" => setting.id,
+            "attributes" => %{"secret_access_key" => "rotated-provider-secret"}
+          }
+        })
+
+      assert %{"data" => _row} = json_response(conn, 200)
+    end
+
+    test "a Secret apply failure fails the save — no row persists", %{conn: conn} do
+      {user, instance} = member_with_instance()
+      pat = ApiPat.mint!(user.email, ["backups:write"])
+
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+      stub(Secret, :get_data, fn _kc, _ns, _n -> {:error, %Error{reason: :not_found}} end)
+
+      stub(Secret, :create, fn _kc, _ns, _n, _d ->
+        {:error, Error.connection_error("rejected")}
+      end)
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v1/instances/#{instance.id}/backup-setting", %{
+          "data" => %{
+            "type" => "backup_setting",
+            "attributes" => %{
+              "endpoint" => "https://account.r2.cloudflarestorage.com",
+              "bucket" => "fluxvale-kavita",
+              "access_key_id" => "AKIAIOSFODNN7EXAMPLE",
+              "secret_access_key" => "provider-secret-value"
+            }
+          }
+        })
+
+      # The K8s error surfaces raw (the restore route's stance) and the
+      # after_action failure rolls the row back — nothing persists.
+      assert %{"errors" => [%{"status" => "500"} | _rest]} = json_response(conn, 500)
+
+      assert {:error, _not_found} = BackupSetting.get_by_instance(instance.id, actor: user)
     end
   end
 

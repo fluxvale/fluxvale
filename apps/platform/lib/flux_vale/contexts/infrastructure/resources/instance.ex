@@ -146,14 +146,14 @@ defmodule FluxVale.Infrastructure.Instance do
       # memory_mb, storage_gb, env_vars, app_version_id — the cluster
       # and the deploy blueprint stay derived server-side; the org is
       # caller-namable via the organization_id argument (member-fenced,
-      # #408). Wire caveat
-      # (measured, not assumed): hide_fields strips env_vars from the
-      # create route's REQUEST schema too (ash_json_api applies it in
-      # both directions), so a body carrying env_vars is a 400
-      # InvalidBody — the API cannot set env vars today; a non-hidden
-      # input argument is the escape hatch (arguments answer to
-      # public?, not hide_fields). Echo is moot: it never rides the
-      # response either.
+      # #408). env_vars on the wire (#482): the INPUT path is the
+      # write-only :env_vars argument — hide_fields strips the
+      # attribute from this route's REQUEST schema too (ash_json_api
+      # applies it in both directions), but arguments answer to
+      # public?, not hide_fields, so the argument renders in the
+      # request schema and replaces the whole map. The OUTPUT path
+      # stays closed: hide_fields keeps env_vars off every response —
+      # set here, never echoed.
       post(:create, route: "/instances", default_fields: @detail_fields)
 
       # instances:write — the update actions accept no/limited input;
@@ -638,6 +638,22 @@ defmodule FluxVale.Infrastructure.Instance do
       # (member-fenced by the create policy); leaving it nil keeps the
       # actor's personal org as the default.
       argument(:organization_id, :uuid, allow_nil?: true)
+
+      # #482: the wire's env_vars intake — the write-only ARGUMENT (the
+      # attribute is hide_fields'd off the wire in both directions).
+      # Ash routes a same-named input to the argument first, so every
+      # env_vars input — wire or internal caller — lands here: present
+      # replaces the whole map on the attribute BEFORE
+      # DeriveFromAppVersion merges the catalog defaults under it;
+      # absent keeps the attribute default (%{}) as before.
+      argument(:env_vars, :map, allow_nil?: true, public?: true)
+
+      change(fn changeset, _context ->
+        case Ash.Changeset.get_argument(changeset, :env_vars) do
+          nil -> changeset
+          env_vars -> Ash.Changeset.force_change_attribute(changeset, :env_vars, env_vars)
+        end
+      end)
 
       change(SetOrganizationFromActor)
       change(ResolveCluster)

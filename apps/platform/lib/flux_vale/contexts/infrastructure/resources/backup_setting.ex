@@ -33,6 +33,8 @@ defmodule FluxVale.Infrastructure.BackupSetting do
     extensions: [AshJsonApi.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias FluxVale.Infrastructure.BackupSetting.ApplySecretArgument
+
   # #360 (ADR-0019 §1): the backups settings family's wire contract.
   # The row holds no secrets by design (its moduledoc) — every field
   # here is the settings UI's own surface.
@@ -220,6 +222,8 @@ defmodule FluxVale.Infrastructure.BackupSetting do
     # path params feed arguments by name). The change copies it onto the
     # attribute, so ConfigureBackups' attribute-shaped params land the
     # same row (the ActorOrgHasPaid gate already reads both shapes).
+    # #482: secret_access_key is the write-only S3 credential — see
+    # ApplySecretArgument for the exact semantics.
     create :create do
       primary?(true)
 
@@ -235,6 +239,16 @@ defmodule FluxVale.Infrastructure.BackupSetting do
 
       argument(:instance_id, :uuid, allow_nil?: false, public?: true)
 
+      # Write-only (#482): applied to the namespace Secret through the
+      # operation's one code path; never an attribute, so it cannot land
+      # on the row or render in any response. Absent/blank keeps the
+      # stored Secret (a coordinates-only save never wipes credentials).
+      argument(:secret_access_key, :string,
+        allow_nil?: true,
+        public?: true,
+        sensitive?: true
+      )
+
       change(fn changeset, _context ->
         Ash.Changeset.force_change_attribute(
           changeset,
@@ -242,6 +256,8 @@ defmodule FluxVale.Infrastructure.BackupSetting do
           Ash.Changeset.get_argument(changeset, :instance_id)
         )
       end)
+
+      change(ApplySecretArgument)
     end
 
     update :update do
@@ -249,6 +265,17 @@ defmodule FluxVale.Infrastructure.BackupSetting do
       require_atomic?(false)
 
       accept([:endpoint, :bucket, :prefix, :access_key_id, :retention_keep, :enabled])
+
+      # Write-only (#482), same contract as :create — absent/blank keeps
+      # the stored Secret, a present value rotates it through the
+      # operation's one code path.
+      argument(:secret_access_key, :string,
+        allow_nil?: true,
+        public?: true,
+        sensitive?: true
+      )
+
+      change(ApplySecretArgument)
     end
 
     # The UI's "stop backing up entirely": a plain row delete with no
