@@ -105,7 +105,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
                      ttl 5
                      fallthrough
                  }
-                 forward . 1.1.1.1 8.8.8.8
+                 forward . 10.96.0.10
              }
 
              terence.dev:53 {
@@ -118,15 +118,15 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
                      ttl 5
                      fallthrough
                  }
-                 forward . 1.1.1.1 8.8.8.8
+                 forward . 10.96.0.10
              }
 
              #{@base_domain}:53 {
-                 forward . 1.1.1.1 8.8.8.8
+                 forward . 10.96.0.10
              }
 
              terence.dev:53 {
-                 forward . 1.1.1.1 8.8.8.8
+                 forward . 10.96.0.10
              }
              """
     end
@@ -164,7 +164,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
                      ttl 5
                      fallthrough
                  }
-                 forward . 1.1.1.1 8.8.8.8
+                 forward . 10.96.0.10
              }
 
              #{@base_domain}:53 {
@@ -176,11 +176,11 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
                      ttl 5
                      fallthrough
                  }
-                 forward . 1.1.1.1 8.8.8.8
+                 forward . 10.96.0.10
              }
 
              #{@base_domain}:53 {
-                 forward . 1.1.1.1 8.8.8.8
+                 forward . 10.96.0.10
              }
              """
     end
@@ -201,11 +201,11 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
                  view aaaaaaaaaa {
                      expr incidr(client_ip(), '10.0.0.9/32')
                  }
-                 forward . 1.1.1.1 8.8.8.8
+                 forward . 10.96.0.10
              }
 
              terence.dev:53 {
-                 forward . 1.1.1.1 8.8.8.8
+                 forward . 10.96.0.10
              }
              """
     end
@@ -214,7 +214,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
       assert RenderAccessDNS.corefile([], []) == """
              # no claims
              .:53 {
-                 forward . 1.1.1.1 8.8.8.8
+                 forward . 10.96.0.10
              }
              """
     end
@@ -262,7 +262,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
       [first, last] = zone_blocks(corefile, @base_domain)
       assert first =~ "view "
 
-      assert String.contains?(last, "forward . #{public_forwarders()}") and
+      assert String.contains?(last, "forward . #{forward_target()}") and
                not String.contains?(last, "view ")
     end
 
@@ -276,7 +276,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
       corefile = RenderAccessDNS.render(%{})
 
       refute corefile =~ "view "
-      assert corefile =~ ~s{#{@base_domain}:53 {\n    forward . 1.1.1.1 8.8.8.8}
+      assert corefile =~ ~s{#{@base_domain}:53 {\n    forward . 10.96.0.10}
     end
 
     test "a PUBLIC attached instance's hostnames do not answer privately", %{
@@ -361,7 +361,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
       corefile = RenderAccessDNS.render(%{gateway.id => resolver_entry()})
 
       refute corefile =~ "view "
-      assert corefile =~ ~s{#{@base_domain}:53 {\n    forward . 1.1.1.1 8.8.8.8}
+      assert corefile =~ ~s{#{@base_domain}:53 {\n    forward . 10.96.0.10}
     end
   end
 
@@ -575,7 +575,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
         assert corefile == """
                # no claims
                .:53 {
-                   forward . 1.1.1.1 8.8.8.8
+                   forward . 10.96.0.10
                }
                """
 
@@ -591,7 +591,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
   # ------------------------------------------------------------------
 
   defp resolver_entry, do: %{pod_ip: "10.0.0.9", tailnet_ip: "100.64.0.1"}
-  defp public_forwarders, do: "1.1.1.1 8.8.8.8"
+  defp forward_target, do: "10.96.0.10"
 
   # The Corefile's blocks for one zone, in file order: "<zone>:53 {" up
   # to the closing "}".

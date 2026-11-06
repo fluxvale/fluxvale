@@ -142,7 +142,7 @@ msgstr ""
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:57
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:105
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:338
-#: lib/flux_vale_web/live/feedback_live/composer.ex:230
+#: lib/flux_vale_web/live/feedback_live/composer.ex:234
 #, elixir-autogen, elixir-format
 msgid "Sign in"
 msgstr ""
@@ -443,7 +443,7 @@ msgstr[1] ""
 msgid "Add a comment"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:361
+#: lib/flux_vale_web/live/feedback_live/composer.ex:365
 #, elixir-autogen, elixir-format
 msgid "Already posted?"
 msgstr ""
@@ -458,13 +458,13 @@ msgstr ""
 msgid "Cast vote"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:309
+#: lib/flux_vale_web/live/feedback_live/composer.ex:313
 #: lib/flux_vale_web/live/feedback_live/vote_island.ex:215
 #, elixir-autogen, elixir-format
 msgid "Create an organization"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:255
+#: lib/flux_vale_web/live/feedback_live/composer.ex:259
 #, elixir-autogen, elixir-format
 msgid "Description"
 msgstr ""
@@ -475,7 +475,7 @@ msgid "No comments yet."
 msgstr ""
 
 #: lib/flux_vale_web/controllers/feedback_html/index.html.heex:26
-#: lib/flux_vale_web/live/feedback_live/composer.ex:216
+#: lib/flux_vale_web/live/feedback_live/composer.ex:220
 #, elixir-autogen, elixir-format
 msgid "Post a request"
 msgstr ""
@@ -485,7 +485,7 @@ msgstr ""
 msgid "Post a request - FluxVale"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:264
+#: lib/flux_vale_web/live/feedback_live/composer.ex:268
 #, elixir-autogen, elixir-format
 msgid "Post as"
 msgstr ""
@@ -495,29 +495,29 @@ msgstr ""
 msgid "Post comment"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:338
+#: lib/flux_vale_web/live/feedback_live/composer.ex:342
 #, elixir-autogen, elixir-format
 msgid "Post request"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:195
-#: lib/flux_vale_web/live/feedback_live/composer.ex:321
+#: lib/flux_vale_web/live/feedback_live/composer.ex:199
+#: lib/flux_vale_web/live/feedback_live/composer.ex:325
 #, elixir-autogen, elixir-format
 msgid "Posting needs a paid org."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:303
+#: lib/flux_vale_web/live/feedback_live/composer.ex:307
 #, elixir-autogen, elixir-format
 msgid "Posting needs an org you own."
 msgstr ""
 
 #: lib/flux_vale_web/live/feedback_live/comments_island.ex:180
-#: lib/flux_vale_web/live/feedback_live/composer.ex:336
+#: lib/flux_vale_web/live/feedback_live/composer.ex:340
 #, elixir-autogen, elixir-format
 msgid "Posting…"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:153
+#: lib/flux_vale_web/live/feedback_live/composer.ex:157
 #, elixir-autogen, elixir-format
 msgid "Request posted."
 msgstr ""
@@ -532,7 +532,7 @@ msgstr ""
 msgid "Saving…"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:247
+#: lib/flux_vale_web/live/feedback_live/composer.ex:251
 #, elixir-autogen, elixir-format
 msgid "Short and specific wins the most votes."
 msgstr ""
@@ -542,7 +542,7 @@ msgstr ""
 msgid "Sign in to comment"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:224
+#: lib/flux_vale_web/live/feedback_live/composer.ex:228
 #, elixir-autogen, elixir-format
 msgid "Sign in to post a request."
 msgstr ""
@@ -552,17 +552,17 @@ msgstr ""
 msgid "Sign in to vote"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:218
+#: lib/flux_vale_web/live/feedback_live/composer.ex:222
 #, elixir-autogen, elixir-format
 msgid "Tell us what to build next. Every post is public and tracked by the team."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:246
+#: lib/flux_vale_web/live/feedback_live/composer.ex:250
 #, elixir-autogen, elixir-format
 msgid "Title"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:428
+#: lib/flux_vale_web/live/feedback_live/composer.ex:432
 #, elixir-autogen, elixir-format
 msgid "Top up %{org} to post"
 msgstr ""
@@ -597,7 +597,7 @@ msgstr ""
 msgid "Voting needs an org you own."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:256
+#: lib/flux_vale_web/live/feedback_live/composer.ex:260
 #, elixir-autogen, elixir-format
 msgid "What should happen, and why it matters."
 msgstr ""
@@ -607,7 +607,7 @@ msgstr ""
 msgid "Your vote didn't go through. Try again."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:190
+#: lib/flux_vale_web/live/feedback_live/composer.ex:194
 #, elixir-autogen, elixir-format
 msgid "Couldn't post this request. Try again."
 msgstr ""

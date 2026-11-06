@@ -53,10 +53,24 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
   require Ash.Query
   require Logger
 
-  # Public recursion for everything a view does not answer (§4): public
-  # hostnames keep resolving identically on-tailnet, unknown names stay
-  # strangers' business. Same pair in every block — one constant.
-  @public_forwarders "1.1.1.1 8.8.8.8"
+  # The forward target for every block's `forward .` — each view's
+  # in-zone-miss remainder, each default block, and the zero-claims
+  # placeholder. One target, everywhere (§4's "forwarded remainder"
+  # resolves publicly; on- and off-tailnet behavior identical).
+  #
+  # The target is the cluster's kube-dns (10.96.0.10), NOT the public
+  # pair the ADR sketches (`forward . 1.1.1.1`, ADR-0040 §4): this
+  # network egress-filters third-party plain Do53 — measured from the
+  # host network (fleet #110): UDP/TCP 53 to 1.1.1.1/8.8.8.8/9.9.9.9
+  # times out, so a public-pair forward SERVFAILs (rcode=2) every
+  # in-zone miss — live-reproduced through a gateway view. kube-dns
+  # already rides the fleet's resilient upstream chain (host DNS with
+  # DoH primaries, talos/patches/dns-upstreams.yaml), and the fleet's
+  # own boot placeholder forwards there too (the deployment's
+  # access-dns-boot ConfigMap) — the pairing the DEPLOYMENT.md runbook
+  # documents. No loop: nothing in kube-dns's forwarding path reaches
+  # this resolver.
+  @forward_target "10.96.0.10"
 
   # The hosts plugin answers its entries in-process; `ttl 5` keeps a
   # moved gateway IP converging client-side in seconds (the resolver's
@@ -114,7 +128,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
     """
     # no claims
     .:53 {
-        forward . #{@public_forwarders}
+        forward . #{@forward_target}
     }
     """
   end
@@ -440,7 +454,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
     expr = "        expr incidr(client_ip(), '#{view.pod_ip}/32')\n    }\n"
     hosts = hosts_block(view.hostnames, view.tailnet_ip)
 
-    header <> expr <> hosts <> "    forward . #{@public_forwarders}\n}\n"
+    header <> expr <> hosts <> "    forward . #{@forward_target}\n}\n"
   end
 
   # The hosts plugin answers its entries and — via `fallthrough` —
@@ -467,7 +481,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
   end
 
   defp default_block(domain) do
-    "#{domain}:53 {\n    forward . #{@public_forwarders}\n}\n"
+    "#{domain}:53 {\n    forward . #{@forward_target}\n}\n"
   end
 
   # Blocks already end in \n; a blank line separates them, and the whole

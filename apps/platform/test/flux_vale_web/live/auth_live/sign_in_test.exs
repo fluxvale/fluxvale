@@ -25,6 +25,16 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
     assert html =~ "email-form"
   end
 
+  # Auth surfaces are noindex (the launch SEO audit gap): the mount's
+  # robots_noindex assign is the same key the SeoNoindex plug sets on
+  # non-canonical hosts, and the root layout's seo tags turn it into
+  # the <meta name="robots">.
+  test "carries the robots noindex meta", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/sign-in")
+
+    assert html =~ ~s(name="robots" content="noindex, nofollow")
+  end
+
   # #409: the sign-in surface rides the minimal auth layout — the mark
   # links home, the app chrome (header and nav) is gone, the flash
   # group stays. Both steps are states of this one LiveView, so the

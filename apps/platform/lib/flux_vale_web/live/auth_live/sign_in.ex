@@ -138,6 +138,11 @@ defmodule FluxValeWeb.AuthLive.SignIn do
     {:ok,
      socket
      |> assign(step: :email, email: nil, token: nil, trigger_submit: false, return_to: return_to)
+     # An auth surface is noindex (the launch SEO audit gap): the root
+     # layout's seo tags render the <meta name="robots"> from this
+     # assign — the same key the SeoNoindex plug sets on non-canonical
+     # hosts.
+     |> assign(robots_noindex: true)
      |> assign(form: to_form(%{"email" => ""}))}
   end
 
