@@ -437,7 +437,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
 
   defp view_block(view) do
     header = "#{view.domain}:53 {\n    view #{view.view_name} {\n"
-    expr = "        expr incidr(client_ip(), \"#{view.pod_ip}/32\")\n    }\n"
+    expr = "        expr incidr(client_ip(), '#{view.pod_ip}/32')\n    }\n"
     hosts = hosts_block(view.hostnames, view.tailnet_ip)
 
     header <> expr <> hosts <> "    forward . #{@public_forwarders}\n}\n"

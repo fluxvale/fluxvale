@@ -98,7 +98,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
       assert RenderAccessDNS.corefile(views, [@base_domain, "terence.dev"]) == """
              #{@base_domain}:53 {
                  view aaaaaaaaaa {
-                     expr incidr(client_ip(), "10.0.0.9/32")
+                     expr incidr(client_ip(), '10.0.0.9/32')
                  }
                  hosts {
                      100.64.0.1 wiki.#{@base_domain}
@@ -110,7 +110,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
 
              terence.dev:53 {
                  view aaaaaaaaaa {
-                     expr incidr(client_ip(), "10.0.0.9/32")
+                     expr incidr(client_ip(), '10.0.0.9/32')
                  }
                  hosts {
                      100.64.0.1 blog.terence.dev
@@ -157,7 +157,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
       assert corefile == """
              #{@base_domain}:53 {
                  view aaaaaaaaaa {
-                     expr incidr(client_ip(), "10.0.0.9/32")
+                     expr incidr(client_ip(), '10.0.0.9/32')
                  }
                  hosts {
                      100.64.0.1 wiki.#{@base_domain}
@@ -169,7 +169,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
 
              #{@base_domain}:53 {
                  view bbbbbbbbbb {
-                     expr incidr(client_ip(), "10.0.0.8/32")
+                     expr incidr(client_ip(), '10.0.0.8/32')
                  }
                  hosts {
                      100.64.0.2 forge.#{@base_domain}
@@ -199,7 +199,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
       assert RenderAccessDNS.corefile(views, ["terence.dev"]) == """
              terence.dev:53 {
                  view aaaaaaaaaa {
-                     expr incidr(client_ip(), "10.0.0.9/32")
+                     expr incidr(client_ip(), '10.0.0.9/32')
                  }
                  forward . 1.1.1.1 8.8.8.8
              }
@@ -255,7 +255,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
 
       corefile = RenderAccessDNS.render(%{gateway.id => resolver_entry()})
 
-      assert corefile =~ ~s{expr incidr(client_ip(), "10.0.0.9/32")}
+      assert corefile =~ ~s{expr incidr(client_ip(), '10.0.0.9/32')}
       assert corefile =~ "100.64.0.1 #{instance.slug}.#{@base_domain}"
       # Views before defaults: the view block is the FIRST occurrence of
       # the zone header, the default block the last.
