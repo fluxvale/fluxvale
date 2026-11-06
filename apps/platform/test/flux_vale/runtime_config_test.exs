@@ -166,7 +166,10 @@ defmodule FluxVale.RuntimeConfigTest do
         # touches the app env, so only the read proves the guard held
         # (CodeRabbit #494: an app-env assertion cannot fail on the
         # regression this test exists to catch).
-        assert read!(:test)[:flux_vale][:access_domains][:issuer] == "letsencrypt-staging"
+        # nil = the runtime layer contributes NO issuer in test (the
+        # dev-safe base lives in config.exs, which Config.Reader here
+        # does not read); the override must not appear either.
+        assert is_nil(read!(:test)[:flux_vale][:access_domains][:issuer])
       end)
     end
 
