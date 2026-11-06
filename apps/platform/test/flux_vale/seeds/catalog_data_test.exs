@@ -97,6 +97,67 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert version.first_run["guidance"] =~ "first account becomes the admin"
     end
 
+    # #492 gate: the admin panel is disabled in packaging. ADMIN_TOKEN
+    # must not appear in ANY env layer — shipped defaults, deploy-time
+    # settings, or a first-run contract's env (Vaultwarden ships no
+    # contract at all). Compared downcased, so any casing fails the pin.
+    test "Vaultwarden ships no ADMIN_TOKEN in any packaging layer (#492)" do
+      version = vaultwarden_version()
+
+      assert version.first_run == nil
+      assert version.default_env_vars == %{}
+
+      layer_keys =
+        Map.keys(version.default_env_vars) ++
+          Map.keys(version.configurable_env_vars)
+
+      refute Enum.any?(layer_keys, &admin_token_key?/1)
+    end
+
+    test "shipped catalog_data.yaml normalizes the Vaultwarden entry (#492)" do
+      entry = entry_by_slug("security")
+
+      assert entry.category == %{
+               name: "Security",
+               slug: "security",
+               description: "Password managers and other servers that hold secrets you control."
+             }
+
+      assert [%{slug: "vaultwarden"} = app] = entry.apps
+      assert app.name == "Vaultwarden"
+      assert app.source_url == "https://github.com/dani-garcia/vaultwarden"
+      # #190: the toggle is deliberate per app — a password vault has no
+      # file-library use case, so Vaultwarden ships without.
+      assert app.file_access == false
+
+      version = vaultwarden_version()
+      assert version.version == "1.37.5"
+      # The canonical upstream image (Docker Hub, the release workflow's
+      # primary target), not a mirror.
+      assert version.image == "docker.io/vaultwarden/server:1.37.5"
+      assert version.port == 80
+      # Upstream's own healthcheck path (the image HEALTHCHECK probes it).
+      assert version.healthcheck_path == "/alive"
+      # Vaultwarden's state IS the volume root (DATA_FOLDER defaults to
+      # /data), so the loader default carries.
+      assert version.storage_mount_path == "/data"
+      assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.25"))
+      assert version.default_memory_mb == 512
+      assert version.default_storage_gb == 5
+      assert version.recommended_size == "micro"
+      assert version.published_at == ~U[2026-11-01 22:16:50Z]
+
+      # The instance's public URL rides the Forgejo-ROOT_URL mechanism.
+      assert version.instance_url_env == "DOMAIN"
+
+      # One deploy-time setting: the sign-ups domain whitelist. The
+      # SIGNUPS_ALLOWED lockout footgun is deliberately not shipped (see
+      # the YAML comment), and the spec is raw pass-through here —
+      # string keys, the EnvVarSchema type owns validation at write time.
+      assert Map.has_key?(version.configurable_env_vars, "SIGNUPS_DOMAINS_WHITELIST")
+      assert version.configurable_env_vars["SIGNUPS_DOMAINS_WHITELIST"]["type"] == "string"
+    end
+
     test "comments-only and empty files parse to []" do
       comments_only = tmp_path("# comments only\n")
       assert CatalogData.entries(comments_only) == []
@@ -249,12 +310,27 @@ defmodule FluxVale.Seeds.CatalogDataTest do
   end
 
   # The shipped file carries multiple categories (#71's Forgejo, #189's
-  # Kavita) — select by slug so adding an app never breaks these tests.
+  # Kavita, #492's Vaultwarden) — select by slug so adding an app never
+  # breaks these tests.
   defp entry_by_slug(slug) do
     default_catalog_path()
     |> CatalogData.entries()
     |> Enum.find(fn entry -> entry.category.slug == slug end)
   end
+
+  defp vaultwarden_version do
+    "security"
+    |> entry_by_slug()
+    |> Map.fetch!(:apps)
+    |> hd()
+    |> Map.fetch!(:versions)
+    |> hd()
+  end
+
+  # The #492 gate check: downcase-compared, so `admin_token`, `Admin_Token`
+  # and friends all fail the pin (String.equivalent?/2 would not — it is
+  # canonical equivalence, not case-folding).
+  defp admin_token_key?(key), do: String.downcase(key) == "admin_token"
 
   defp first_version([entry | _rest]) do
     entry
