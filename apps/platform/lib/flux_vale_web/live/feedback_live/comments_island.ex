@@ -14,11 +14,16 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
   Authors render via the `author_username` calculation — the one User
   projection safe on a public surface (User reads are admin-only;
   `author_user` is never loaded here).
+
+  Bodies render through `FluxVale.Feedback.Markdown` (#488) — the
+  sanitized renderer the post page uses, computed in the template so
+  the SSR list and every stream insert agree.
   """
 
   use FluxValeWeb, :live_view
 
   alias FluxVale.Feedback.Comment
+  alias FluxVale.Feedback.Markdown
   alias FluxVale.Feedback.Post
   alias FluxValeWeb.Locale
   alias FluxValeWeb.ReturnPath
@@ -145,9 +150,12 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
               {FluxValeWeb.FeedbackHTML.time_ago(comment.created_at)}
             </span>
           </div>
-          <p class="mt-2 text-sm leading-relaxed text-ink">
-            <span class="whitespace-pre-line">{comment.body}</span>
-          </p>
+          <%!-- The body renders through Feedback.Markdown (fluxvale/fluxvale#488),
+          the same sanitized renderer the post page uses — computed here so
+          the SSR initial render and every stream insert agree. --%>
+          <div class="feedback-body mt-2 text-sm leading-relaxed text-ink [overflow-wrap:anywhere]">
+            {raw(Markdown.render(comment.body))}
+          </div>
         </article>
       </div>
 

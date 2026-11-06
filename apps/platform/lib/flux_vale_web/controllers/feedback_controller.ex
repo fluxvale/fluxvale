@@ -20,6 +20,7 @@ defmodule FluxValeWeb.FeedbackController do
   use FluxValeWeb, :controller
 
   alias FluxVale.Catalog.App
+  alias FluxVale.Feedback.Markdown
   alias FluxVale.Feedback.Post
   alias FluxVale.Feedback.Tag
 
@@ -253,6 +254,9 @@ defmodule FluxValeWeb.FeedbackController do
     |> assign(:page_description, meta_description(post.description))
     |> assign(:canonical_path, "/feedback/#{post.slug}")
     |> assign(:post, post)
+    # The body renders through Feedback.Markdown (#488): sanitized
+    # server-side, safe for the template's raw/1.
+    |> assign(:description_html, Markdown.render(post.description))
     |> assign(:app_slugs, catalog_app_slugs(post.tags))
     # The islands' session rides the page: the token is what the child
     # LiveViews resolve the actor through (UserAuth.resolve_user, the

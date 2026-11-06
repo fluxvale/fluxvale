@@ -379,17 +379,62 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       assert meta == String.duplicate("x", 160) <> "…"
     end
 
-    test "the description keeps its line breaks", %{conn: conn} do
+    # The legacy plain-text body (written before Markdown, #488) still
+    # renders with its single newlines — hard-breaks keep the old posts
+    # (and the seeded staging content) from collapsing.
+    test "the description keeps its single newlines as line breaks", %{conn: conn} do
       post =
         post!(%{
           title: "Multiline request",
-          description: "First paragraph.\n\nSecond paragraph after a blank line."
+          description: "First line of a legacy body.\nSecond line after a single newline."
         })
 
       html = html_response(get(conn, ~p"/feedback/#{post.slug}"), 200)
 
-      assert html =~ "First paragraph.\n\nSecond paragraph after a blank line."
-      assert html =~ "whitespace-pre-line"
+      assert html =~
+               "First line of a legacy body.<br>\nSecond line after a single newline."
+    end
+
+    test "the description renders markdown", %{conn: conn} do
+      post =
+        post!(%{
+          title: "Markdown request",
+          description: "It is **bold**, has [links](https://example.com), and `code`."
+        })
+
+      html = html_response(get(conn, ~p"/feedback/#{post.slug}"), 200)
+
+      assert html =~ "<strong>bold</strong>"
+      assert html =~ "rel=\"noopener\""
+      assert html =~ "<code>code</code>"
+    end
+
+    # The page-level hostile pin: untrusted UGC through the SSR surface.
+    # The assertion slices the rendered body — the head's meta
+    # description deliberately carries the raw text (escaped, inert),
+    # so whole-document refutes would false-alarm on it. Fails if the
+    # renderer's sanitization ever regresses.
+    test "a hostile description renders inert", %{conn: conn} do
+      post =
+        post!(%{
+          title: "Hostile body request",
+          description:
+            "<script>alert(1)</script><img src=x onerror=alert(1)>[click](javascript:alert(1))[x](data:text/html;base64,PHNjcmlwdD4=)<div>raw</div>"
+        })
+
+      html = html_response(get(conn, ~p"/feedback/#{post.slug}"), 200)
+
+      body =
+        html
+        |> LazyHTML.from_document()
+        |> LazyHTML.query("[data-testid='post-body']")
+        |> LazyHTML.text()
+
+      refute body =~ "<script>alert"
+      refute body =~ "onerror"
+      refute body =~ "javascript:"
+      refute body =~ "data:"
+      refute body =~ "<div>raw</div>"
     end
 
     test "the status badge carries the status-changed age", %{conn: conn} do

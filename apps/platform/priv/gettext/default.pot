@@ -438,7 +438,7 @@ msgid_plural "%{count} votes"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:165
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:173
 #, elixir-autogen, elixir-format
 msgid "Add a comment"
 msgstr ""
@@ -448,7 +448,7 @@ msgstr ""
 msgid "Already posted?"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:166
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:174
 #, elixir-autogen, elixir-format
 msgid "Be kind and stay on topic."
 msgstr ""
@@ -469,7 +469,7 @@ msgstr ""
 msgid "Description"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:134
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:139
 #, elixir-autogen, elixir-format
 msgid "No comments yet."
 msgstr ""
@@ -490,7 +490,7 @@ msgstr ""
 msgid "Post as"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:172
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:180
 #, elixir-autogen, elixir-format
 msgid "Post comment"
 msgstr ""
@@ -511,7 +511,7 @@ msgstr ""
 msgid "Posting needs an org you own."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:171
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:179
 #: lib/flux_vale_web/live/feedback_live/composer.ex:336
 #, elixir-autogen, elixir-format
 msgid "Posting…"
@@ -537,7 +537,7 @@ msgstr ""
 msgid "Short and specific wins the most votes."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:183
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:191
 #, elixir-autogen, elixir-format
 msgid "Sign in to comment"
 msgstr ""
