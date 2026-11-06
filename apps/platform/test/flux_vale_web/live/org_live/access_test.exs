@@ -1717,7 +1717,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       {:ok, view, _html} = live(conn, ~p"/settings/access")
 
       assert has_element?(view, "[data-testid='api-tokens']")
-      assert has_element?(view, "#api-token-form")
+      assert has_element?(view, "#api-token-form-0")
       assert has_element?(view, "[data-testid='api-token-name-input']")
       assert has_element?(view, "[data-testid='api-token-create']")
       assert has_element?(view, "[data-testid='api-tokens-empty']")
@@ -1758,7 +1758,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       log =
         capture_log(fn ->
           view
-          |> form("#api-token-form", %{
+          |> form("#api-token-form-0", %{
             token: %{name: "ci deploys", scopes: ["instances:read", "wallet:read"]}
           })
           |> render_submit()
@@ -1777,6 +1777,14 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       html = render(view)
       assert [raw] = Regex.run(~r/fvpat_[A-Za-z0-9_-]{43}/, html)
 
+      # The page renders the raw exactly where the reveal needs it: the
+      # code line the user reads and the copy button's payload. Nothing
+      # else on the page carries it (the copy hook's data attribute is
+      # the second rendering — both are the reveal's own nodes).
+      occurrences = Regex.scan(~r/fvpat_[A-Za-z0-9_-]{43}/, html)
+      assert length(occurrences) == 2
+      refute render(element(view, "#api-token-rows")) =~ raw
+
       # Hash-only storage: the row answers to the digest of the shown
       # value and carries nothing that reproduces it.
       digest = PersonalAccessToken.token_hash(raw)
@@ -1793,6 +1801,12 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       assert row_html =~ "ci deploys"
       refute row_html =~ raw
 
+      # The submission is disarmed: the form re-keyed (a changed id
+      # replaces the subtree, clearing the dirty input a value patch
+      # cannot reach), so a second click cannot mint a duplicate.
+      refute has_element?(view, "#api-token-form-0")
+      assert has_element?(view, "#api-token-form-1")
+
       # Dismissal is the end of the raw value's life: nothing renders
       # or holds it afterwards.
       view
@@ -1807,7 +1821,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       {:ok, view, _html} = live(conn, ~p"/settings/access")
 
       view
-      |> form("#api-token-form", %{token: %{name: "me only"}})
+      |> form("#api-token-form-0", %{token: %{name: "me only"}})
       |> render_submit()
 
       meta = render(element(view, "[data-testid='api-token-meta']"))
@@ -1817,6 +1831,97 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       assert row.scopes == []
       assert row.name == "me only"
       assert row.user_id == owner.id
+    end
+
+    test "the list is newest first when several tokens exist", %{conn: conn, owner: owner} do
+      mint_token!(owner, "first", [])
+      mint_token!(owner, "second", [])
+
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      rows_html = render(element(view, "#api-token-rows"))
+      doc = LazyHTML.from_fragment(rows_html)
+
+      names =
+        doc
+        |> LazyHTML.query("[data-testid='api-token-name']")
+        |> Enum.map(fn node ->
+          name = LazyHTML.text(node)
+          String.trim(name)
+        end)
+
+      assert names == ["second", "first"]
+    end
+
+    test "same-instant rows tie-break by id and the comparator orders mixed inserts", %{
+      conn: conn,
+      owner: owner
+    } do
+      # Pinned created_at values are write-time stamps the mint cannot
+      # set — the sanctioned Ash.Seed exception. Newest inserted first,
+      # two rows sharing an instant: the sort then exercises every arm
+      # (the :gt on the newer pair, the :eq tiebreak on the equal pair)
+      # that ascending back-to-back mints can never reach.
+      now = DateTime.utc_now()
+      second_precision_now = DateTime.truncate(now, :second)
+      future = DateTime.add(second_precision_now, 365 * 24 * 60 * 60, :second)
+
+      base = %{
+        user_id: owner.id,
+        scopes: [],
+        expires_at: future,
+        metadata: %{},
+        last_used_at: nil,
+        revoked_at: nil
+      }
+
+      Ash.Seed.seed!(
+        PersonalAccessToken,
+        Map.merge(base, %{
+          name: "newest",
+          token_hash: PersonalAccessToken.token_hash("seed-newest"),
+          created_at: DateTime.add(second_precision_now, 60, :second),
+          updated_at: DateTime.add(second_precision_now, 60, :second)
+        })
+      )
+
+      Ash.Seed.seed!(
+        PersonalAccessToken,
+        Map.merge(base, %{
+          name: "tie-a",
+          token_hash: PersonalAccessToken.token_hash("seed-tie-a"),
+          created_at: second_precision_now,
+          updated_at: second_precision_now
+        })
+      )
+
+      Ash.Seed.seed!(
+        PersonalAccessToken,
+        Map.merge(base, %{
+          name: "tie-b",
+          token_hash: PersonalAccessToken.token_hash("seed-tie-b"),
+          created_at: second_precision_now,
+          updated_at: second_precision_now
+        })
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      rows_html = render(element(view, "#api-token-rows"))
+      doc = LazyHTML.from_fragment(rows_html)
+
+      names =
+        doc
+        |> LazyHTML.query("[data-testid='api-token-name']")
+        |> Enum.map(fn node ->
+          name = LazyHTML.text(node)
+          String.trim(name)
+        end)
+
+      # "newest" is the chronologically latest row. "tie-a" and
+      # "tie-b" share an instant: the later insert carries the bigger
+      # uuid_v7 and renders first.
+      assert names == ["newest", "tie-b", "tie-a"]
     end
 
     test "a listed token renders its metadata: scopes, created, last used, expiry", %{
@@ -1982,18 +2087,23 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       {:ok, view, _html} = live(conn, ~p"/settings/access")
 
       view
-      |> form("#api-token-form", %{token: %{name: "   "}})
+      |> form("#api-token-form-0", %{token: %{name: "   "}})
       |> render_submit()
 
       assert has_element?(view, "#flash-error", "Give the token a name first.")
       assert has_element?(view, "[data-testid='api-tokens-empty']")
+
+      # The failed submit kept the form key (the re-key is the success
+      # path's disarm — a failure leaves the typed name standing).
+      assert has_element?(view, "#api-token-form-0")
+      refute has_element?(view, "#api-token-form-1")
     end
 
     test "a name past the 100-character limit is refused", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/settings/access")
 
       view
-      |> form("#api-token-form", %{token: %{name: String.duplicate("a", 101)}})
+      |> form("#api-token-form-0", %{token: %{name: String.duplicate("a", 101)}})
       |> render_submit()
 
       assert has_element?(
@@ -2013,6 +2123,34 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       })
 
       assert has_element?(view, "#flash-error", "The scope selection wasn't valid.")
+      assert has_element?(view, "[data-testid='api-tokens-empty']")
+    end
+
+    test "a crafted duplicate scope is refused by the domain too", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      render_click(view, "create-token", %{
+        "token" => %{"name" => "forged", "scopes" => ["wallet:read", "wallet:read"]}
+      })
+
+      assert has_element?(view, "#flash-error", "The scope selection wasn't valid.")
+      assert has_element?(view, "[data-testid='api-tokens-empty']")
+    end
+
+    test "crafted wrong-typed payloads are no-ops, never crashes", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      # A non-map token payload and a non-binary name land the
+      # empty-name refusal; a non-binary revoke id falls through the
+      # binary-guarded head to the no-op. None of them crash.
+      assert render_click(view, "create-token", %{"token" => "junk"}) =~ "API tokens"
+
+      assert render_click(view, "create-token", %{"token" => %{"name" => ["a", "b"]}}) =~
+               "API tokens"
+
+      assert render_click(view, "arm-token-revoke", %{"id" => 123}) =~ "API tokens"
+      assert render_click(view, "revoke-token", %{"id" => 123}) =~ "API tokens"
+
       assert has_element?(view, "[data-testid='api-tokens-empty']")
     end
 

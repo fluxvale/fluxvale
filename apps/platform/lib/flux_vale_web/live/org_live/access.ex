@@ -175,8 +175,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     |> stream_configure(:api_tokens, dom_id: &"api-token-#{&1.id}")
     |> refresh_wallet_gates()
     |> assign_forms()
-    |> assign(fresh_token: nil, token_revoke_armed_id: nil)
-    |> assign(token_form: to_form(%{"name" => ""}, as: "token"))
+    |> assign(fresh_token: nil, token_revoke_armed_id: nil, token_form_key: 0)
+    |> assign(token_form: to_form(%{"name" => ""}, as: "token", id: "api-token-form-0"))
     |> assign(catalog_scopes: Scopes.all_scopes())
     |> refresh_pairing()
     |> refresh_device_sign_ins()
@@ -506,10 +506,9 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   # offers exactly the catalog, so an off-catalog scope can only
   # arrive crafted — the domain still refuses it before anything is
   # generated. Empty scopes is a valid mint (the scopeless routes).
-  def handle_event("create-token", %{"token" => params}, socket) do
+  def handle_event("create-token", %{"token" => params}, socket) when is_map(params) do
     user = socket.assigns.current_user
-    raw_name = to_string(params["name"])
-    name = String.trim(raw_name)
+    name = name_from(params)
 
     scopes = List.wrap(params["scopes"] || [])
 
@@ -521,7 +520,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           {:noreply,
            socket
            |> assign(fresh_token: %{id: pat.id, name: pat.name, token: raw})
-           |> assign(token_form: to_form(%{"name" => ""}, as: "token"))
+           |> assign_new_form_key()
            |> refresh_api_tokens()}
 
         {:error, {kind, _scope}} when kind in [:invalid_scope, :duplicate_scope] ->
@@ -540,7 +539,9 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   end
 
   # A crafted submit without the form payload is a no-op (the attach
-  # family's posture), never a crash.
+  # family's posture), never a crash — wrong-typed payloads included:
+  # a non-map token or a non-binary name lands in the empty-name
+  # refusal, never an exception.
   def handle_event("create-token", _params, socket), do: {:noreply, socket}
 
   # The reveal is the raw value's only rendering. Dismissal clears the
@@ -557,7 +558,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   # so the assign alone would leave the row stale. The operation is the
   # authority — its id lookup is owner-gated, so a forged id for
   # another user's token is refused by the policy, not the UI.
-  def handle_event("arm-token-revoke", %{"id" => id}, socket) do
+  def handle_event("arm-token-revoke", %{"id" => id}, socket) when is_binary(id) do
     {:noreply,
      socket
      |> assign(token_revoke_armed_id: id)
@@ -573,7 +574,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
      |> refresh_api_tokens()}
   end
 
-  def handle_event("revoke-token", %{"id" => id}, socket) do
+  def handle_event("revoke-token", %{"id" => id}, socket) when is_binary(id) do
     if socket.assigns.token_revoke_armed_id == id do
       case Identity.revoke_pat(socket.assigns.current_user, id) do
         {:ok, _revoked} ->
@@ -626,21 +627,50 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     |> assign(device_sign_ins_empty?: pending == [])
   end
 
-  # The actor's own rows, newest first. The read policy scopes to the
-  # owner (user_id == actor.id) and the filter argument names the same
-  # user, so the bang cannot meet a refusal (the pairing lists' stance).
+  # The actor's own rows, newest first — DateTime.compare/2 is the
+  # chronological comparison (term ordering on the structs orders map
+  # keys alphabetically, microsecond before second, and would scramble
+  # anything within the same minute). The id breaks same-instant ties.
+  # The read policy scopes to the owner (user_id == actor.id) and the
+  # filter argument names the same user, so the bang cannot meet a
+  # refusal (the pairing lists' stance).
   defp refresh_api_tokens(socket) do
     user = socket.assigns.current_user
 
     tokens =
       user.id
       |> PersonalAccessToken.list_for_user!(actor: user)
-      |> Enum.sort_by(&{&1.created_at, &1.id}, {:desc, :asc})
+      |> Enum.sort(fn left, right ->
+        case DateTime.compare(left.created_at, right.created_at) do
+          :gt -> true
+          :eq -> left.id >= right.id
+          :lt -> false
+        end
+      end)
 
     socket
     |> stream(:api_tokens, tokens, reset: true)
     |> assign(api_tokens_empty?: tokens == [])
   end
+
+  # A successful mint re-keys the form. The typed name lives in the
+  # input's dirty value, which a value-attribute patch cannot clear
+  # (HTML default-value semantics) — the checkboxes are likewise
+  # uncontrolled — so a plain re-assign would leave the submission
+  # armed for a duplicate mint on the next click. A changed id replaces
+  # the whole form subtree: fresh inputs, server-rendered defaults. A
+  # FAILED submit keeps the key, so the user fixes the name instead of
+  # retyping it.
+  defp assign_new_form_key(socket) do
+    key = socket.assigns.token_form_key + 1
+
+    socket
+    |> assign(token_form_key: key)
+    |> assign(token_form: to_form(%{"name" => ""}, as: "token", id: "api-token-form-#{key}"))
+  end
+
+  defp name_from(%{"name" => name}) when is_binary(name), do: String.trim(name)
+  defp name_from(_params), do: ""
 
   # ---- API tokens copy ----
 
@@ -677,11 +707,14 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   # string itself so a catalog addition labels itself (the checkboxes
   # render from Scopes.all_scopes/0, so the two can't drift apart).
   defp scope_label(scope) do
-    [domain, access] = String.split(scope, ":")
-
-    case access do
-      "read" -> String.capitalize(domain) <> ", read only"
-      _write -> String.capitalize(domain) <> ", manage (includes read)"
+    case String.split(scope, ":") do
+      [domain, "read"] -> String.capitalize(domain) <> ", read only"
+      [domain, _write] -> String.capitalize(domain) <> ", manage (includes read)"
+      # A multi-colon catalog scope cannot exist while Scopes.validate
+      # is exact-membership; the arm bounds a future shape (the raw
+      # string labels itself) instead of crashing every mount.
+      # coveralls-ignore-next-line
+      _other -> scope
     end
   end
 
@@ -954,7 +987,11 @@ defmodule FluxValeWeb.OrganizationLive.Access do
                   </p>
                 </div>
 
-                <.form for={@token_form} id="api-token-form" phx-submit="create-token">
+                <.form
+                  for={@token_form}
+                  id={"api-token-form-#{@token_form_key}"}
+                  phx-submit="create-token"
+                >
                   <div class="space-y-4">
                     <.input
                       field={@token_form[:name]}
@@ -994,7 +1031,15 @@ defmodule FluxValeWeb.OrganizationLive.Access do
                     </div>
 
                     <div class="flex justify-end">
-                      <.button type="submit" data-testid="api-token-create">
+                      <%!-- phx-disable-with closes the in-flight double
+                          submit: the re-key disarms re-clicks AFTER the
+                          patch, the disabled button closes the window
+                          DURING the round trip. --%>
+                      <.button
+                        type="submit"
+                        phx-disable-with="Creating token..."
+                        data-testid="api-token-create"
+                      >
                         Create token
                       </.button>
                     </div>
@@ -1023,7 +1068,10 @@ defmodule FluxValeWeb.OrganizationLive.Access do
                   >
                     <div class="flex flex-wrap items-center justify-between gap-3">
                       <div class="flex min-w-0 flex-wrap items-center gap-2">
-                        <span class="font-mono text-sm font-medium text-ink">
+                        <span
+                          class="font-mono text-sm font-medium text-ink"
+                          data-testid="api-token-name"
+                        >
                           {token.name}
                         </span>
                         <.badge
