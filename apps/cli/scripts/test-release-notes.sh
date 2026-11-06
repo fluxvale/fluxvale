@@ -2,7 +2,7 @@
 # Tests for cli/scripts/release-notes.sh, run by the `CLI gates` CI job
 # (and locally): every case is a changelog fixture in, notes and an exit
 # status out. The green case at the end runs against the REAL
-# cli/CHANGELOG.md with the version from Cargo.toml — the same
+# apps/cli/CHANGELOG.md with the version from Cargo.toml — the same
 # live-coupling test-check-tag-version.sh uses — so the repo's own
 # changelog always satisfies its own composer. Bump Cargo.toml before
 # the changelog has the section and this is the red that reminds you.
@@ -25,8 +25,8 @@ bad() {
 }
 
 # Run the composer against a fixture tree: the script reads
-# cli/CHANGELOG.md next to its own location, so the fixture mirrors the
-# cli/ layout. Prints the notes in $out; sets got to the exit status.
+# apps/cli/CHANGELOG.md next to its own location, so the fixture mirrors
+# the apps/cli layout. Prints the notes in $out; sets got to the exit status.
 run_compose() {
   local tree="$1"
   shift

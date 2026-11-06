@@ -133,7 +133,7 @@ resolve_version() {
 
 # The same grammar guard the release workflow applies to the tag version:
 # URL- and path-safe characters only. The real grammar policy lives in
-# Cargo.toml, enforced by cli/scripts/check-tag-version.sh at release
+# Cargo.toml, enforced by apps/cli/scripts/check-tag-version.sh at release
 # time.
 check_version() {
   if [ -z "$1" ]; then

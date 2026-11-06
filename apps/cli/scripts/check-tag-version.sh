@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The release-tag gate (#362 T7): a `cli-v*` tag must carry exactly the
-# version in cli/fluxvale-cli/Cargo.toml — the binary's version source
+# version in apps/cli/fluxvale-cli/Cargo.toml — the binary's version source
 # (clap wires it into `--version`). A tag that disagrees with the shipped
 # binary's self-report fails the release, so lazy tags can't ship.
 #

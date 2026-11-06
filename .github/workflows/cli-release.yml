@@ -8,7 +8,7 @@
 # never collide with the CLI's trigger.
 #
 # Version wiring: the tag NAMES the release; the BINARY's version comes
-# from cli/fluxvale-cli/Cargo.toml (clap wires it into `--version`).
+# from apps/cli/fluxvale-cli/Cargo.toml (clap wires it into `--version`).
 # check-tag fails the release when they disagree, and every build leg
 # asserts the binary itself reports the release version — lazy tags and
 # stale binaries can't ship.
@@ -19,9 +19,9 @@
 # entered only by pushing a `cli-v*` tag.
 #
 # Release notes (#480): the body is the matching `## [<version>]`
-# section of cli/CHANGELOG.md plus the static install + sign-in primer
+# section of apps/cli/CHANGELOG.md plus the static install + sign-in primer
 # below — never auto-generated notes, which list every PR in the repo.
-# The installer (cli/scripts/install.sh) ships as a release asset so the
+# The installer (apps/cli/scripts/install.sh) ships as a release asset so the
 # curl one-liner always pipes the script that belongs to the release,
 # and the install path is smoked per run: a dispatch rehearsal installs
 # from the build artifacts over a local asset server; a tag run installs
@@ -32,7 +32,7 @@
 # it resolves is a cli-v* and refuses otherwise, but the one-liner's
 # asset URL and smoke-released both assume a CLI release is newest —
 # revisit if the platform ever ships versioned releases (see the
-# changelog policy in cli/CHANGELOG.md).
+# changelog policy in apps/cli/CHANGELOG.md).
 name: CLI release
 
 on:
@@ -55,7 +55,7 @@ jobs:
           persist-credentials: false
 
       - name: Assert the tag's version equals the binary's version source
-        run: cli/scripts/check-tag-version.sh "$GITHUB_REF_NAME"
+        run: apps/cli/scripts/check-tag-version.sh "$GITHUB_REF_NAME"
 
   # build deliberately does NOT need check-tag: a `needs` here would
   # skip the matrix on branch dispatches (check-tag is ref-gated) and
@@ -87,13 +87,13 @@ jobs:
             binary: fluxvale.exe
     defaults:
       run:
-        working-directory: cli
+        working-directory: apps/cli
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      # Same install as ci.yml: rustup reads cli/rust-toolchain.toml
+      # Same install as ci.yml: rustup reads apps/cli/rust-toolchain.toml
       # (the exact pin + the components — the minimal default profile
       # would leave cargo-fmt missing; #415).
       - run: rustup toolchain install
@@ -195,9 +195,9 @@ jobs:
         with:
           name: release-${{ matrix.leg.name }}
           path: |
-            cli/fluxvale-*.tar.gz
-            cli/fluxvale-*.zip
-            cli/SHA256SUMS.*
+            apps/cli/fluxvale-*.tar.gz
+            apps/cli/fluxvale-*.zip
+            apps/cli/SHA256SUMS.*
           if-no-files-found: error
 
   # Pushes of `cli-v*` tags only. Dispatch NEVER publishes — including
@@ -214,8 +214,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      # The notes come from cli/CHANGELOG.md and the installer ships
-      # from cli/scripts/ — both live in the repo, hence the checkout.
+      # The notes come from apps/cli/CHANGELOG.md and the installer ships
+      # from apps/cli/scripts/ — both live in the repo, hence the checkout.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -251,16 +251,16 @@ jobs:
           fi
           # The installer ships with the release, so the URL users pipe
           # from is the script that belongs to this version.
-          cp cli/scripts/install.sh dist/install.sh
+          cp apps/cli/scripts/install.sh dist/install.sh
           sha256sum dist/install.sh
 
-      - name: Compose the release notes from cli/CHANGELOG.md
+      - name: Compose the release notes from apps/cli/CHANGELOG.md
         env:
           REF_NAME: ${{ github.ref_name }}
-        # The composer lives in cli/scripts (tested by test-release-notes.sh
+        # The composer lives in apps/cli/scripts (tested by test-release-notes.sh
         # in CLI gates, reachable by shellcheck): changelog section plus the
         # static primer, exit 1 when the section is missing.
-        run: cli/scripts/release-notes.sh "${REF_NAME#cli-v}" notes.md
+        run: apps/cli/scripts/release-notes.sh "${REF_NAME#cli-v}" notes.md
 
       # The release title strips the cli-v namespace prefix — the tag is
       # for the trigger and the archives, the title is for humans.
@@ -305,7 +305,7 @@ jobs:
       - name: Install from the built artifacts and ask for the version
         run: |
           set -eu
-          version="$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' cli/fluxvale-cli/Cargo.toml | head -1)"
+          version="$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' apps/cli/fluxvale-cli/Cargo.toml | head -1)"
           test -n "$version"
           # The same merge-and-verify publish does: the installer fetches
           # SHA256SUMS, so the server must serve the merged file.
@@ -322,7 +322,7 @@ jobs:
           echo "--- installer (the script users get) ---"
           FLUXVALE_VERSION="$version" \
             FLUXVALE_RELEASE_BASE_URL=http://127.0.0.1:8765 \
-            sh cli/scripts/install.sh
+            sh apps/cli/scripts/install.sh
           export PATH="$HOME/.local/bin:$PATH"
           actual="$(fluxvale --version)"
           echo "installed binary reports: $actual"
@@ -334,7 +334,7 @@ jobs:
           # tr strips BSD wc's width padding (macOS); GNU wc adds none.
           FLUXVALE_VERSION="$version" \
             FLUXVALE_RELEASE_BASE_URL=http://127.0.0.1:8765 \
-            sh cli/scripts/install.sh
+            sh apps/cli/scripts/install.sh
           count="$(find "$HOME/.local/share/fluxvale/versions" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]')"
           if [ "$count" != 1 ]; then
             echo "::error::expected one version after re-install, got $count"

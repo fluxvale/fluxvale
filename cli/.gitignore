@@ -1,3 +1,0 @@
-/target/
-# llvm-cov output (cli-coverage writes lcov.info in cli/)
-lcov.info

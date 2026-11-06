@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for cli/scripts/install.sh, run by the `CLI gates` CI job (and
+# Tests for apps/cli/scripts/install.sh, run by the `CLI gates` CI job (and
 # locally, with no network): the installer runs end to end against a
 # fake curl that serves fixture files, so every case exercises the real
 # script — platform detect, checksum verify, versions dir + current

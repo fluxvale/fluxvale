@@ -68,7 +68,7 @@ jobs:
               - "mise.toml"
               - ".github/workflows/ci.yml"
             cli:
-              - "cli/**"
+              - "apps/cli/**"
               # The generated types are checked against this artifact in
               # cli-gates (`cargo xtask openapi --check`) — a platform PR
               # that regenerates it must run the CLI lane, or the drift
@@ -232,13 +232,13 @@ jobs:
     runs-on: ubuntu-24.04
     defaults:
       run:
-        working-directory: cli
+        working-directory: apps/cli
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      # rustup reads cli/rust-toolchain.toml (the exact stable pin) and
+      # rustup reads apps/cli/rust-toolchain.toml (the exact stable pin) and
       # installs it — toolchain AND the components the file declares.
       # Plain `rustup show` would auto-install the minimal profile and
       # `cargo fmt` would die with "'cargo-fmt' is not installed" —
@@ -299,7 +299,7 @@ jobs:
     runs-on: ubuntu-24.04
     defaults:
       run:
-        working-directory: cli
+        working-directory: apps/cli
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -325,7 +325,7 @@ jobs:
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5
         with:
           flags: cli
-          files: cli/lcov.info
+          files: apps/cli/lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
 
@@ -357,7 +357,7 @@ jobs:
             binary: target/release/fluxvale.exe
     defaults:
       run:
-        working-directory: cli
+        working-directory: apps/cli
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -371,7 +371,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: fluxvale-${{ matrix.leg.name }}
-          path: cli/${{ matrix.leg.binary }}
+          path: apps/cli/${{ matrix.leg.binary }}
 
   # Conventions enforcement (docs/adr/README.md): amended ADRs must be
   # marked in the index — 9 of 14 were unmarked when this landed (#36

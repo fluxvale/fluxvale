@@ -1,6 +1,6 @@
 #!/bin/sh
 # The release-body composer (#480): the matching `## [<version>]`
-# section of cli/CHANGELOG.md plus the static install + sign-in primer.
+# section of apps/cli/CHANGELOG.md plus the static install + sign-in primer.
 # cli-release.yml's publish job runs this; test-release-notes.sh keeps
 # it honest, and it lives here so shellcheck reaches it.
 #
@@ -39,7 +39,7 @@ section="$(awk -v want="## [$version]" '
 ' "$(cd "$(dirname "$0")/.." && pwd)/CHANGELOG.md")"
 
 if [ -z "$section" ]; then
-  echo "cli/CHANGELOG.md has no ## [$version] section. Write it before tagging." >&2
+  echo "apps/cli/CHANGELOG.md has no ## [$version] section. Write it before tagging." >&2
   exit 1
 fi
 

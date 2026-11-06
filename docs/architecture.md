@@ -121,8 +121,7 @@ fluxvale/fluxvale (this repo, public, FSL-1.1)
 ├── apps/
 │   ├── platform/    # the Phoenix/Ash app — one OTP release (ADR-00002)
 │   ├── e2e/         # Playwright suite (ADR-00024)
-│   └── cli/         # future: the CLI (ADR-0019; language open — OQ #9,
-│                     #  Go favored for its single-binary story)
+│   └── cli/         # the CLI (Rust workspace, ADR-0019 Am. 3)
 ├── docs/            # this documentation
 └── (no root-level deps — v1's rule survives)
 
