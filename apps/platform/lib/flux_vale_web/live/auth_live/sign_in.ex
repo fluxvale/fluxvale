@@ -57,13 +57,14 @@ defmodule FluxValeWeb.AuthLive.SignIn do
                 autofocus
                 data-testid="sign-in-email"
               />
-              <%!-- #478: the honest hint, before the wall — early access
-              is invitation-only and the request step stays
-              enumeration-blind (no behavior difference reveals whether
-              an address exists or is invited). --%>
+              <%!-- #478, updated by #502: the honest hint, before the
+              wall — an admin's invitation creates the account now, and
+              the request step stays enumeration-blind (no behavior
+              difference reveals whether an address exists or is
+              invited). --%>
               <p class="text-xs leading-5 text-ink-muted">
-                Early access is invitation-only. Creating a new account
-                needs an invited address.
+                New accounts start with an invitation. An admin invites
+                your address and the email carries the accept link.
               </p>
               <.button
                 type="submit"
@@ -225,6 +226,22 @@ defmodule FluxValeWeb.AuthLive.SignIn do
            :error,
            "FluxVale is in invitation-only early access. Creating an account needs an " <>
              "invited address. Write to support@fluxvale.com and we'll send you an invite."
+         )}
+
+      {:error, :invite_pending} ->
+        # #502: the invited account's only door is the emailed accept
+        # link — a code verify can never open it. The code burned with
+        # the verify, so the retry is a fresh request anyway; back to
+        # the email step, their draft intact (the :invitation_required
+        # shape).
+        {:noreply,
+         socket
+         |> assign(step: :email)
+         |> assign(form: to_form(%{"email" => socket.assigns.email}))
+         |> put_flash(
+           :error,
+           "This address has an invitation waiting. Use the link in the invitation email " <>
+             "to accept it."
          )}
 
       {:error, _reason} ->

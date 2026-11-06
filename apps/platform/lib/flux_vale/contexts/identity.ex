@@ -9,10 +9,12 @@ defmodule FluxVale.Identity do
   build on this domain. Deliberately **not** exposed through AshAdmin
   — User/Token are sensitive resources (ADR-0027 §3).
 
-  Since #478, `verify_auth_code/2` carries the invitation gate: JIT
-  provisioning needs `@fluxvale.com` or a recorded invitation (the
-  list itself is operator data, `FluxVale.Ops.InvitedEmail` in
-  AshAdmin).
+  Invites (#502) are pre-provisioned Users: `invite_user/2` creates the
+  inert account (or re-issues) and delivers a one-time accept link;
+  `accept_invitation/1` verifies the address, runs the first-login
+  bootstrap, and mints the session; `withdraw_invite/2` retires an
+  unaccepted invite. The #478 invited-email gate on `verify_auth_code/2`
+  narrows to its structural core: the team-domain JIT bypass only.
   """
 
   use Ash.Domain,
@@ -37,6 +39,41 @@ defmodule FluxVale.Identity do
   defdelegate verify_auth_code(email, code),
     to: FluxVale.Identity.Operations.VerifyAuthCode,
     as: :call
+
+  # Invites (#502): inviting IS creating the User — a pre-provisioned
+  # inert account plus a one-time accept link (the raw token exists
+  # exactly once, in the {:ok, user, raw} return). See the ops for the
+  # failure shapes.
+  defdelegate invite_user(
+                actor,
+                address,
+                deliver \\ &FluxVale.Mailer.deliver_user_invitation/2,
+                opts \\ []
+              ),
+              to: FluxVale.Identity.Operations.InviteUser,
+              as: :call
+
+  defdelegate accept_invitation(raw_token),
+    to: FluxVale.Identity.Operations.AcceptInvitation,
+    as: :call
+
+  # The landing page's read (#502): the link's state without consuming
+  # it — the page renders the honest row before any accept click.
+  defdelegate resolve_invite_link(raw_token),
+    to: FluxVale.Identity.Operations.ResolveInviteLink,
+    as: :call
+
+  defdelegate withdraw_invite(actor, user_or_id, opts \\ []),
+    to: FluxVale.Identity.Operations.WithdrawInvite,
+    as: :call
+
+  # The signup counter's event name (#502): one semantic event, two fire
+  # sites — the JIT signup (VerifyAuthCode) and the invite acceptance
+  # (AcceptInvitation). A shared contract, not either operation's
+  # constant; the listener is FluxValeWeb.Telemetry.
+  @doc "The signup-success telemetry event — VerifyAuthCode and AcceptInvitation fire it"
+  @spec signup_event() :: [atom(), ...]
+  def signup_event, do: [:flux_vale, :identity, :signup]
 
   defdelegate prune_expired_tokens(opts \\ []),
     to: FluxVale.Identity.Operations.PruneExpiredTokens,

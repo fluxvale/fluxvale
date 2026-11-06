@@ -6,6 +6,16 @@ defmodule FluxVale.Identity.User do
   the strategy creates users through the AshAuthenticationInteraction
   bypass). `platform_role` is the global staff axis; see
   `FluxVale.Identity.Types.PlatformRole` for why org roles never land here.
+
+  Invited accounts (#502) are pre-provisioned through :invite and INERT
+  until acceptance: no username, no org, no verified email row — the
+  invite stamps (`invited_at`, `invite_accepted_at`, `invite_withdrawn_at`,
+  `invite_expires_at`) describe the outstanding invitation, and the raw
+  accept token exists only in the emailed link (the row stores its
+  SHA-256 hash alone, `invite_token_hash`). Acceptance (:accept_invite)
+  runs the same bootstrap a first sign-in runs and stamps
+  `invite_accepted_at`. Every normal account carries nil in all five
+  columns and answers :none from `invite_state`.
   """
 
   use Ash.Resource,
@@ -19,6 +29,11 @@ defmodule FluxVale.Identity.User do
   alias FluxVale.Identity.User.MirrorSignupEmail
   alias FluxVale.Identity.User.ProvisionPersonalOrg
   alias FluxVale.Identity.User.ValidUsername
+
+  # The invitation window (#502) — the mail copy reads invite_ttl_days/0
+  # so the sentence and the row can never drift (the MembershipInvite
+  # @ttl_days posture).
+  @invite_ttl_days 7
 
   authentication do
     add_ons do
@@ -54,6 +69,13 @@ defmodule FluxVale.Identity.User do
       description("Platform admins manage users")
       authorize_if(always())
     end
+
+    # No policy names the invite actions (#502): the admin policy above
+    # admits platform admins for :invite/:reinvite/:withdraw_invite and
+    # the token-seam reads/writes (:get_by_invite_token_hash,
+    # :accept_invite) run system-side with authorize?: false from the
+    # operations — the token IS the credential (the MembershipInvite
+    # :accept posture). Everyone else is default-forbidden.
 
     # always() is honest here: the action's actor filter already constrains
     # the result to the caller, so "any authenticated actor may run :me"
@@ -147,6 +169,41 @@ defmodule FluxVale.Identity.User do
       allow_nil?(false)
       default(:user)
       public?(true)
+    end
+
+    # The #502 invited state — all nullable, nil for every normal
+    # account (a normal account answers :none from invite_state).
+    # The invite stamps are PRIVATE: no JSON:API surface consumes them
+    # (the /me route pins its field list, AshAdmin reads attributes
+    # regardless, and the admin dashboard rides domain reads). Public
+    # here would grow the OpenAPI user schema and drift the CLI's
+    # generated types for nothing.
+    attribute :invited_at, :utc_datetime_usec do
+      public?(false)
+    end
+
+    attribute :invite_accepted_at, :utc_datetime_usec do
+      public?(false)
+    end
+
+    attribute :invite_withdrawn_at, :utc_datetime_usec do
+      public?(false)
+    end
+
+    # SHA-256 hex digest of the raw accept token — the only form ever
+    # stored (the MembershipInvite posture). Private and sensitive: no
+    # serialization surface, never renders in error output.
+    attribute :invite_token_hash, :string do
+      public?(false)
+      sensitive?(true)
+    end
+
+    # No attribute default: lazy function defaults fire on EVERY create,
+    # which would stamp an invite window on normal JIT accounts too (a
+    # fresh signup must carry nil in all five columns). :invite and
+    # :reinvite set the window explicitly.
+    attribute :invite_expires_at, :utc_datetime do
+      public?(false)
     end
   end
 
@@ -257,6 +314,121 @@ defmodule FluxVale.Identity.User do
       get?(true)
       filter(expr(username == ^arg(:username)))
     end
+
+    # The admin invite (#502): creates the pre-provisioned, inert
+    # account. Deliberately NOT primary — the JIT signup :create above
+    # stays the registration path — and none of its bootstrap changes
+    # run here: no DeriveUsername, no ProvisionPersonalOrg, no
+    # MirrorSignupEmail. Acceptance (:accept_invite) provisions those;
+    # until then the account has no org, no wallet, no verified email
+    # row. The token hash rides the private argument (the
+    # MembershipInvite :create posture) — no caller surface can mint an
+    # arbitrary credential shape; invited_at and the expiry window stamp
+    # here explicitly (no attribute default — see the attribute comment).
+    create :invite do
+      accept([:email])
+
+      argument(:token_hash, :string, allow_nil?: false, sensitive?: true, public?: false)
+      change(set_attribute(:invite_token_hash, arg(:token_hash)))
+
+      change(set_attribute(:invited_at, &DateTime.utc_now/0))
+      change(set_attribute(:invite_expires_at, &__MODULE__.invite_expires_at/0))
+    end
+
+    # Re-invite (#502): the resend lever. A fresh token (new hash via the
+    # private argument), a fresh window, withdrawal cleared — a withdrawn
+    # invite is re-issuable, an accepted account is not, and a
+    # never-invited live account is not an invitation at all: the filter
+    # rides the UPDATE's WHERE (the MembershipInvite :revoke posture), so
+    # every mismatch refuses with StaleRecord instead of converting a
+    # live account into a pending invite. Record-update flow so that
+    # no-match is an answer, not a silent zero-row success.
+    update :reinvite do
+      description("Refresh the invitation — a new token, a fresh window, withdrawal cleared")
+      accept([])
+
+      argument(:token_hash, :string, allow_nil?: false, sensitive?: true, public?: false)
+      change(set_attribute(:invite_token_hash, arg(:token_hash)))
+
+      change(set_attribute(:invited_at, &DateTime.utc_now/0))
+      change(set_attribute(:invite_expires_at, &__MODULE__.invite_expires_at/0))
+      change(set_attribute(:invite_withdrawn_at, nil))
+
+      change(filter(expr(is_nil(invite_accepted_at) and not is_nil(invited_at))))
+
+      require_atomic?(false)
+    end
+
+    # Withdraw (#502): idempotent keep-first-stamp — a second call keeps
+    # the original stamp (the MembershipInvite :revoke posture). The
+    # keep-or-stamp decision evaluates against the ROW, never the
+    # caller's struct: the expr is data-layer rendered, so no in-memory
+    # struct can move it. An accepted account is not a withdraw target —
+    # the filter rides the UPDATE's WHERE and the mismatch answers
+    # StaleRecord.
+    update :withdraw_invite do
+      description("Withdraw an unaccepted invitation")
+      accept([])
+
+      # A never-invited account is not a withdraw target either (the
+      # :reinvite posture): only an OUTSTANDING invitation can retire.
+      change(filter(expr(is_nil(invite_accepted_at) and not is_nil(invited_at))))
+
+      # credo:disable-for-lines:6 Credo.Check.Readability.ParenthesesInCondition
+      change(
+        atomic_update(
+          :invite_withdrawn_at,
+          expr(if(is_nil(invite_withdrawn_at), now(), invite_withdrawn_at))
+        )
+      )
+
+      require_atomic?(false)
+    end
+
+    # Accept (#502): the one-time consume + the full first-login
+    # bootstrap, one write. The filter in (1) rides the UPDATE's WHERE
+    # and IS the one-time arbiter — a second use, or a race against
+    # withdrawal or expiry, matches zero rows and refuses with
+    # StaleRecord instead of double-bootstrapping. Then the SAME changes
+    # the JIT create runs, in the same order: username first
+    # (provisioning names the org after it), then the org, then the
+    # mirror row — acceptance is the inbox proof, so the mirror row lands
+    # VERIFIED here (the JIT path's burned code is the proof there).
+    update :accept_invite do
+      description("Consume the one-time invite — verify, activate, bootstrap in one write")
+      accept([])
+
+      change(
+        filter(
+          expr(
+            not is_nil(invited_at) and is_nil(invite_accepted_at) and
+              is_nil(invite_withdrawn_at) and invite_expires_at > now()
+          )
+        )
+      )
+
+      change(set_attribute(:invite_accepted_at, &DateTime.utc_now/0))
+
+      change(DeriveUsername)
+      change(ProvisionPersonalOrg)
+      change(MirrorSignupEmail)
+
+      require_atomic?(false)
+    end
+
+    # The invitee token path (#502): resolve by hash — the raw token
+    # exists only in the email, the row stores the SHA-256 (the
+    # MembershipInvite :get_by_token_hash posture). State rides along so
+    # the accept operation never re-derives it.
+    read :get_by_invite_token_hash do
+      description("Resolve a user by their invite token hash — the invitee accept path")
+      get?(true)
+
+      argument(:token_hash, :string, allow_nil?: false, sensitive?: true)
+      filter(expr(invite_token_hash == ^arg(:token_hash)))
+
+      prepare(fn query, _context -> Ash.Query.load(query, [:invite_state]) end)
+    end
   end
 
   code_interface do
@@ -265,6 +437,13 @@ defmodule FluxVale.Identity.User do
     define(:create, args: [:email])
     define(:get_by_email, args: [:email])
     define(:get_by_username, args: [:username])
+    define(:withdraw_invite)
+
+    # :invite and :reinvite have no code interface — their token_hash
+    # argument is private (the system operation's minted digest), and
+    # the interface's input surface cannot carry private arguments (the
+    # MembershipInvite :accept shape: for_create/for_update +
+    # set_argument).
   end
 
   identities do
@@ -273,6 +452,13 @@ defmodule FluxVale.Identity.User do
     # Usernames are unique among users (#285 T2) — a separate namespace
     # from organization slugs, deliberately.
     identity(:unique_username, [:username])
+
+    # The token seam's lookup resolves by hash (get_by_invite_token_hash
+    # is a get? read — at most one row may answer; a collision would
+    # need a SHA-256 break, the MembershipInvite posture). Nullable:
+    # every normal account carries NULL and Postgres unique indexes
+    # admit any number of those.
+    identity(:unique_invite_token_hash, [:invite_token_hash])
   end
 
   aggregates do
@@ -315,5 +501,59 @@ defmodule FluxVale.Identity.User do
     calculate :primary_email, :string, expr(primary_address) do
       public?(true)
     end
+
+    # The invite lifecycle axis (#502) — one definition so the
+    # operations and any future admin surface cannot drift (order
+    # matters: a never-invited account is :none; accepted wins over a
+    # later withdrawal stamp, withdrawal wins over expiry).
+    #
+    # The `if` is Ash.Query.Function.If inside the expr DSL — not
+    # Elixir's macro; the parenthesised call is the DSL's required
+    # shape, so the readability check is disabled for this block (the
+    # MembershipInvite :state posture).
+    #
+    # credo:disable-for-lines:20 Credo.Check.Readability.ParenthesesInCondition
+    calculate(
+      :invite_state,
+      :atom,
+      expr(
+        if(
+          is_nil(invited_at),
+          :none,
+          if(
+            not is_nil(invite_accepted_at),
+            :accepted,
+            if(
+              not is_nil(invite_withdrawn_at),
+              :withdrawn,
+              if(invite_expires_at <= now(), :expired, :pending)
+            )
+          )
+        )
+      )
+    )
+  end
+
+  @doc "The invite window in days — the mail copy reads it (see the @invite_ttl_days comment)"
+  @spec invite_ttl_days() :: pos_integer()
+  def invite_ttl_days, do: @invite_ttl_days
+
+  @doc "The invite window's default stamp: the TTL days from now"
+  @spec invite_expires_at() :: DateTime.t()
+  def invite_expires_at do
+    DateTime.add(DateTime.utc_now(), @invite_ttl_days * 24 * 60 * 60, :second)
+  end
+
+  @doc """
+  SHA-256 hex digest of a raw invite token — the only thing ever stored.
+  Lives here because the minting operation and the token lookup need the
+  identical digest; the resource owns `invite_token_hash` (the
+  MembershipInvite posture).
+  """
+  @spec token_hash(String.t()) :: String.t()
+  def token_hash(raw) do
+    :sha256
+    |> :crypto.hash(raw)
+    |> Base.encode16(case: :lower)
   end
 end

@@ -326,6 +326,10 @@ defmodule FluxValeWeb.Router do
     # #21: passwordless sign-in — LiveView flow + the POST-only session
     # write (token in the body, never a URL)
     live("/sign-in", AuthLive.SignIn)
+    # #502: the invitee's accept landing — anonymous by design (the
+    # invitee has no session yet, acceptance mints one), so it sits
+    # beside /sign-in, OUTSIDE the :authenticated live_session below.
+    live("/invites/accept", AuthLive.InviteAccept)
     post("/auth/session", SessionController, :create)
     delete("/auth/session", SessionController, :delete)
 

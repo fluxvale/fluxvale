@@ -5,7 +5,6 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
   use Mimic
 
   import Phoenix.LiveViewTest
-  import FluxVale.TestSupport.InvitationHelpers
 
   alias FluxVale.Identity
   alias FluxVale.Ops.AccessRule
@@ -267,13 +266,39 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
     assert html =~ "email-form"
   end
 
-  # #478: the gate's UI half. The email step carries the honest hint,
-  # and a refused JIT shows the honest copy with the ask (no dead end)
-  # instead of the generic wrong-code message.
-  test "the email step carries the honest early-access hint", %{conn: conn} do
+  # #502: the email step carries the honest hint — accounts are created
+  # by an admin's invitation, and the emailed link is the door
+  test "the email step carries the honest invitation hint", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/sign-in")
 
-    assert render(view) =~ "Early access is invitation-only"
+    assert render(view) =~ "New accounts start with an invitation"
+  end
+
+  # #502: the invited account's only door is the accept link — a code
+  # verify against it bounces to the email step with the why (the
+  # :invitation_required shape)
+  test "an invited address is pointed at its accept link, draft intact", %{
+    conn: conn
+  } do
+    stub(Identity, :verify_auth_code, fn _email, _code -> {:error, :invite_pending} end)
+
+    {:ok, view, _html} = live(conn, ~p"/sign-in")
+
+    view
+    |> form("#email-form", email: @email)
+    |> render_submit()
+
+    result =
+      view
+      |> form("#code-form", code: "123456")
+      |> render_submit()
+
+    assert result =~ "invitation waiting"
+    assert result =~ "Use the link in the invitation email"
+    # back at the email step, their email draft intact
+    assert has_element?(view, "#email-form")
+    assert has_element?(view, "input[name='email'][value='#{@email}']")
+    refute has_element?(view, "#code-form")
   end
 
   test "a non-invited external address is refused with the honest copy at the wall", %{
@@ -304,10 +329,11 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
     assert {:error, _not_found} = Identity.User.get_by_email(outsider, authorize?: false)
   end
 
-  test "an invited external address provisions through the UI", %{conn: conn} do
-    invited = "ui-invited-#{System.unique_integer()}@partner.example"
-    invite_address!(invited)
-    drain_mail!()
+  # #502: the code wall admits the team domain only — an invited user
+  # never passes here (they take the accept link), but a team-domain
+  # address still JIT-provisions through the UI.
+  test "a team-domain address provisions through the UI", %{conn: conn} do
+    invited = "ui-invited-#{System.unique_integer()}@fluxvale.com"
 
     {:ok, view, _html} = live(conn, ~p"/sign-in")
 

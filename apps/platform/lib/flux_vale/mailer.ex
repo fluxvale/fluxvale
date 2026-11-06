@@ -11,6 +11,7 @@ defmodule FluxVale.Mailer do
   use Swoosh.Mailer, otp_app: :flux_vale
 
   alias FluxVale.Accounts.MembershipInvite
+  alias FluxVale.Identity.User
   alias FluxVale.Pricing
   alias FluxVale.TestInbox
   alias Swoosh.Adapters.Local
@@ -46,6 +47,32 @@ defmodule FluxVale.Mailer do
     Early access is invitation-only, and this address is on the list. Sign in at https://fluxvale.com with this email address: we will send you a one-time code, no password needed.
 
     If you were not expecting this invitation, you can ignore it or write to support@fluxvale.com.
+    """)
+    |> deliver()
+  end
+
+  @doc """
+  The account invitation (#502): plain body, ONE link — the emailed
+  link is the whole invitee-side credential (the row stores only the
+  token's sha256). The expiry sentence reads the window from User so
+  copy and row can never drift (the AuthCode TTL posture).
+  """
+  @spec deliver_user_invitation(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def deliver_user_invitation(to, accept_url) do
+    days = User.invite_ttl_days()
+
+    %Swoosh.Email{}
+    |> Swoosh.Email.to(to)
+    |> Swoosh.Email.from({"FluxVale", "no-reply@fluxvale.com"})
+    |> Swoosh.Email.subject("You are invited to FluxVale")
+    |> Swoosh.Email.text_body("""
+    An account has been created for you at FluxVale.
+
+    Open this link to accept it and sign in:
+
+    #{accept_url}
+
+    The link expires in #{days} days and works once. If you were not expecting this you can ignore this email or write to support@fluxvale.com.
     """)
     |> deliver()
   end
