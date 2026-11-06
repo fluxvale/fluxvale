@@ -103,3 +103,21 @@ out of the box.
 wins the admin seat. Mitigation is the haikunate subdomain (hard to
 guess) plus guidance that says claim promptly; this is the standard
 posture of every self-hosted forge's first boot.
+
+## Amendment 1: `first_open_sets_password` (#492, 2026-11-06)
+
+ActualBudget's sync server does not fit `first_registered_user_admin`
+and the atom's wording would lie in catalog data. A fresh server ships
+unclaimed (`GET /account/needs-bootstrap` answers `bootstrapped:false`)
+and the web UI's first open IS the claim: set the server password
+(`POST /account/bootstrap`, one-time, refuses once bootstrapped).
+There is no registration afterwards and no admin seat — everyone the
+owner shares the password with signs in with it. The new
+`first_open_sets_password` atom documents that shape (added to
+`FirstRunContract`'s known set per the generalized path above).
+
+Actual has no env-shaped config surface at all, so its contract
+carries empty `env` and `forbidden_env` — the same mechanism-agnostic
+shape as Kavita's. Verified against the real image
+(`ghcr.io/actualbudget/actual-server:26.11.0`): the bootstrapped flag
+and password live entirely under `/data` and survive pod recreation.

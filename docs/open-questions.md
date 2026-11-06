@@ -26,10 +26,12 @@ the decision.
    configured, first-registrant-admin; the entry declares its own
    `/kavita/config` mount path (the per-app override landed with it),
    and ships with file access on
-   ([ADR-0035](adr/00035-per-instance-file-access.md)). Remaining
-   dogfood apps TBD (v1 queued: ActualBudget, PocketID, SilverBullet,
-   +1). Still open: per-app *command* overrides in the deployer (v1
-   #360) — mount path is now catalog data, command is not.
+   ([ADR-0035](adr/00035-per-instance-file-access.md)). ActualBudget
+   #3 — seeded (#492, v26.11.0), first-open-sets-password
+   ([ADR-0034](adr/00034-first-run-contract.md) Am. 1), recommends
+   `small`. Remaining dogfood apps TBD (v1 queued: PocketID,
+   SilverBullet, +1). Still open: per-app *command* overrides in the
+   deployer (v1 #360) — mount path is now catalog data, command is not.
 4. **Payments provider** — resolved by
    [ADR-0029](adr/00029-payments-adapter-selfmor.md): self-MoR with
    HitPay behind a PaymentProvider adapter (PH entity; Stripe

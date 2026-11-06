@@ -255,6 +255,35 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert contract.env == %{}
       assert contract.forbidden_env == []
       assert contract.guidance =~ "first account is the admin"
+    test "seeds the shipped ActualBudget entry and its first-run contract (#492)" do
+      assert :ok == Seeds.seed_pricing!()
+      assert :ok == Seeds.seed_catalog!()
+
+      category = Category.get_by_slug!("finance", authorize?: false)
+      assert category.name == "Finance"
+
+      app = App.get_by_slug!("actualbudget", authorize?: false)
+      assert app.category_id == category.id
+      assert app.tagline == "Envelope budgeting shared by the whole household"
+      assert app.file_access == false
+
+      version = version_for!("actualbudget")
+      assert version.version == "26.11.0"
+      assert version.image == "ghcr.io/actualbudget/actual-server:26.11.0"
+      assert version.port == 5006
+      assert version.healthcheck_path == "/health"
+      assert version.storage_mount_path == "/data"
+      assert version.default_storage_gb == 10
+      assert version.recommended_size_id != nil
+
+      contract = version.first_run
+      assert %FirstRunContract{} = contract
+      assert contract.pattern == :first_open_sets_password
+      # Nothing to pin, nothing to lock — the claim happens in the app's
+      # own UI, and every knob is in-app (ADR-0034 Am. 1).
+      assert contract.env == %{}
+      assert contract.forbidden_env == []
+      assert contract.guidance =~ "set the server password"
     end
 
     test "re-seeding the shipped catalog converges without dupes" do
@@ -285,6 +314,13 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
 
       assert length(pocket_id.app_versions) == 1
       assert hd(pocket_id.app_versions).version == "2.19.2"
+      actualbudget =
+        "actualbudget"
+        |> App.get_by_slug!(authorize?: false)
+        |> Ash.load!([:app_versions], authorize?: false)
+
+      assert length(actualbudget.app_versions) == 1
+      assert hd(actualbudget.app_versions).version == "26.11.0"
     end
   end
 
