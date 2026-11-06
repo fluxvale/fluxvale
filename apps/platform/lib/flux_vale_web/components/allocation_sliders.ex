@@ -68,7 +68,10 @@ defmodule FluxValeWeb.AllocationSliders do
   @doc """
   The three sliders as one block — the wizard's Fine-tune markup,
   byte-identical. The change event rides the form that embeds the
-  block; `name` is the params namespace the inputs emit under.
+  block; `name` is the params namespace the inputs emit under. A
+  dimension in `locked` renders disabled (its rung rides the form
+  regardless — a caller may keep the row's value by dropping that key);
+  `locked_note` renders once under the block.
   """
   attr(:resources, :map,
     required: true,
@@ -78,6 +81,16 @@ defmodule FluxValeWeb.AllocationSliders do
   attr(:name, :string,
     default: "resources",
     doc: "the params namespace the sliders emit under — resources[KEY] on the wire"
+  )
+
+  attr(:locked, :list,
+    default: [],
+    doc: "dimension keys rendered disabled at their current rung"
+  )
+
+  attr(:locked_note, :string,
+    default: nil,
+    doc: "one plain line under the block when a dimension is locked"
   )
 
   @spec sliders(map()) :: Phoenix.LiveView.Rendered.t()
@@ -93,8 +106,12 @@ defmodule FluxValeWeb.AllocationSliders do
         value={@resources[dimension.key]}
         values={dimension.values}
         unit={dimension.unit}
+        disabled={dimension.key in @locked}
         data-testid={dimension.testid}
       />
+      <p :if={@locked_note} class="text-xs text-ink-subtle" data-testid="slider-locked-note">
+        {@locked_note}
+      </p>
     </div>
     """
   end

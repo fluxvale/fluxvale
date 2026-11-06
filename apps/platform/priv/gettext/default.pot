@@ -11,7 +11,7 @@
 msgid ""
 msgstr ""
 
-#: lib/flux_vale_web/components/core_components.ex:682
+#: lib/flux_vale_web/components/core_components.ex:689
 #, elixir-autogen, elixir-format
 msgid "Actions"
 msgstr ""

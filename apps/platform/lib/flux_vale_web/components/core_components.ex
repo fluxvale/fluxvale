@@ -438,6 +438,12 @@ defmodule FluxValeWeb.CoreComponents do
   )
 
   attr(:unit, :string, default: nil, doc: "shown beside the value and announced with it")
+
+  attr(:disabled, :boolean,
+    default: false,
+    doc: "locks the slider at its current rung (the value still rides the form's state)"
+  )
+
   attr(:class, :any, default: nil)
   attr(:rest, :global)
 
@@ -463,6 +469,7 @@ defmodule FluxValeWeb.CoreComponents do
         min="0"
         max={@top}
         step="1"
+        disabled={@disabled}
         aria-valuetext={@readout}
         class={[
           "mt-2 h-5 w-full cursor-pointer appearance-none bg-transparent",
