@@ -108,3 +108,32 @@ The CI lane mirrors the BEAM disciplines in Rust — fmt + clippy
 `-D warnings` + test + `cargo deny` (license allowlist; GPL family
 denied) + llvm-cov on codecov + the 4-target matrix on every PR,
 path-isolated from the BEAM lanes.
+
+## Amendment 4 (2026-11-06): the Terraform/OpenTofu provider — the fourth skin
+
+The provider lands in the monorepo at `apps/tfprovider`: Go +
+terraform-plugin-framework, a thin client over `/api/v1` with PAT auth
+(provider `token` attribute or the `FLUXVALE_PAT` env var). Same
+stance as the CLI and MCP: policy, paywall, and scopes enforce
+server-side — the provider re-implements nothing. v0 is a scaffold
+(provider config + client + CI lane); resources and data sources land
+in follow-up slices (#482).
+
+Distribution mirrors Am. 3's posture: manual-first via GitHub
+Releases carrying registry-shaped archives
+(`terraform-provider-fluxvale_vX.Y.Z_OS_ARCH.zip` + `SHA256SUMS`)
+under namespaced `tf-v*` tags. registry.terraform.io (a dedicated
+`terraform-provider-fluxvale` repo + GPG signing) is deferred until a
+second user exists.
+
+Compatibility contract: config attribute names
+(`api_url`/`token`/`organization`), `FLUXVALE_PAT`, and
+resource/data-source type names are stable from day one
+(`apps/tfprovider/docs/compatibility.md`); the rest of the schema may
+move through 0.x — dogfooding-first, the owner is user #1. 1.0 freeze
+at the first external user writing `.tf` against the provider.
+
+Rejected: SDKv2, and generating the client from the committed OpenAPI
+dump (the CLI's approach — the provider maps hand-written schema
+semantics, not raw API shapes); revisit if schema drift pain says
+otherwise.
