@@ -158,6 +158,57 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert version.configurable_env_vars["SIGNUPS_DOMAINS_WHITELIST"]["type"] == "string"
     end
 
+    test "shipped catalog_data.yaml normalizes the Pocket ID entry (#492)" do
+      entry = entry_by_slug("identity")
+
+      assert entry.category == %{
+               name: "Identity",
+               slug: "identity",
+               description: "Sign-in and identity apps that secure access to your other apps."
+             }
+
+      assert [%{slug: "pocket-id"} = app] = entry.apps
+      assert app.name == "Pocket ID"
+      assert app.source_url == "https://github.com/pocket-id/pocket-id"
+      # Identity state is not file-ingest; the toggle ships off by default.
+      assert app.file_access == false
+
+      version = hd(app.versions)
+      assert version.version == "2.19.2"
+      # The canonical upstream image (its own release workflow), not a
+      # re-published mirror.
+      assert version.image == "ghcr.io/pocket-id/pocket-id:v2.19.2"
+      assert version.port == 1411
+      assert version.healthcheck_path == "/healthz"
+      # All Pocket ID state (SQLite, uploads, GeoLite cache) resolves
+      # under /app/data — the upstream compose volume's directory.
+      assert version.storage_mount_path == "/app/data"
+      assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.25"))
+      assert version.default_memory_mb == 512
+      assert version.default_storage_gb == 5
+      assert version.recommended_size == "micro"
+      assert version.published_at == ~U[2026-11-02 20:18:20Z]
+
+      # The instance URL rides the deploy op (passkeys bind to the
+      # domain); TRUST_PROXY is operator posture (always behind Traefik).
+      assert version.instance_url_env == "APP_URL"
+      assert version.default_env_vars == %{"TRUST_PROXY" => "true"}
+
+      # Raw pass-through at the loader level (string keys); the
+      # EnvVarSchema type owns validation at write time. One required
+      # secret input: the encryption key.
+      assert %{"required" => true, "secret" => true, "type" => "string"} =
+               version.configurable_env_vars["ENCRYPTION_KEY"]
+
+      # Setup-page-first-admin, with no env keys to pin or lock.
+      assert version.first_run["pattern"] == "first_registered_user_admin"
+      assert version.first_run["env"] == %{}
+      assert version.first_run["forbidden_env"] == []
+      guidance = version.first_run["guidance"]
+      assert guidance =~ "first account is the admin"
+      assert guidance =~ "claim the instance promptly"
+    end
+
     test "comments-only and empty files parse to []" do
       comments_only = tmp_path("# comments only\n")
       assert CatalogData.entries(comments_only) == []
