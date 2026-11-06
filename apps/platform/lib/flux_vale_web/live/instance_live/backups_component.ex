@@ -402,15 +402,20 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
 
     <%!-- The expectation stated where the setting lives (#507): the
     platform rebuilds the app from its records, the data comes back only
-    from the owner's own destination. --%>
+    from the owner's own destination. The pointer gates on the same
+    condition as the setup button — a never-deployed app has no
+    configuration below to point at. --%>
     <.callout tone="info" data-testid="backups-unconfigured">
       <p class="text-sm text-ink-muted">
         Your app's data is your responsibility. It survives only if it is
-        backed up. Set up backups below to keep it safe. Backups go to your
-        own S3-compatible bucket, Cloudflare R2, or any MinIO or S3
-        endpoint. You pay your provider for storage. FluxVale charges no
-        fee for backups. The one-time top-up is a wallet minimum, not a
-        charge.
+        backed up. <%= if @instance.namespace do %>Set up backups below to
+        keep it safe.<% end %>
+      </p>
+      <p class="text-sm text-ink-muted">
+        Backups go to your own S3-compatible bucket, Cloudflare R2, or any
+        MinIO or S3 endpoint. You pay your provider for storage. FluxVale
+        charges no fee for backups. The one-time top-up is a wallet
+        minimum, not a charge.
       </p>
     </.callout>
 
@@ -554,9 +559,10 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
     </div>
 
     <%!-- The configured echo of the same expectation (#507): one line
-    naming the owner's destination as the recovery source. --%>
+    naming the owner's destination as the recovery source — the source,
+    never a promise that a rebuild restores anything. --%>
     <p class="text-sm text-ink-muted" data-testid="backups-recovery">
-      If this app is ever rebuilt, its data is restored from your own
+      If this app is ever rebuilt, its data comes back only from your own
       destination.
     </p>
 

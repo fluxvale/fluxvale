@@ -240,6 +240,16 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
 
       assert has_element?(view, "[data-testid=backups-unconfigured]")
       refute has_element?(view, "[data-testid=backups-setup]")
+
+      # The responsibility statement holds, but the pointer gates on the
+      # same condition as the setup button: nothing below to point at.
+      assert has_element?(
+               view,
+               "[data-testid=backups-unconfigured]",
+               "It survives only if it is backed up"
+             )
+
+      refute has_element?(view, "[data-testid=backups-unconfigured]", "Set up backups below")
     end
 
     test "invalid settings render the resource's messages inline", %{
@@ -495,7 +505,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(
                view,
                "[data-testid=backups-recovery]",
-               "restored from your own destination"
+               "comes back only from your own destination"
              )
 
       # The full key never renders, and the secret key was never stored.
