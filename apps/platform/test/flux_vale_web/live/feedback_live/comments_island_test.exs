@@ -276,11 +276,14 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIslandTest do
     html = render(view)
 
     assert html =~ "<strong>the fix</strong>"
-    assert html =~ "<a href=\"https://example.com\" rel=\"noopener\">link</a>"
+    assert html =~ "<a href=\"https://example.com\" rel=\"noopener noreferrer\">link</a>"
   end
 
   # The island-level hostile pin: fails if the renderer's sanitization
-  # ever regresses.
+  # ever regresses. The refutes run on the island's raw HTML, where a
+  # rendered tag is actually visible; the comrak-marker refute catches
+  # the ammonia layer dropping (comrak safe alone survives every other
+  # line here).
   test "a hostile comment renders inert", %{conn: conn} do
     post = post!()
     author = AccountsFixtures.user!()
@@ -296,10 +299,11 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIslandTest do
     html = render(view)
 
     refute html =~ "<script>alert"
-    refute html =~ "onerror"
+    refute html =~ "<div>raw</div>"
+    refute html =~ "raw HTML omitted"
+    refute html =~ "alert(1)"
     refute html =~ "javascript:"
     refute html =~ "data:"
-    refute html =~ "<div>raw</div>"
   end
 
   # A comment written before Markdown keeps its single newlines. The

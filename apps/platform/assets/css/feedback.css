@@ -1,12 +1,12 @@
 /* Feedback body styles (fluxvale/fluxvale#488) — Markdown on the
  * public board's UGC surfaces (post description, comment bodies).
  *
- * The renderer is FluxVale.Feedback.Markdown: mdex output carries no
- * classes, so every element is styled by tag under the .feedback-body
- * scope (the .blog-body pattern) on the semantic tokens, so light+dark
- * flip for free. The wrapper controls font-size (text-base for the
- * description, text-sm for comments) — this scope owns the element
- * anatomy only.
+ * The renderer is FluxVale.Feedback.Markdown: mdex output is styled
+ * by tag under the .feedback-body scope (the .blog-body pattern) on
+ * the semantic tokens, so light+dark flip for free. The one class the
+ * pipeline emits (language-* on fenced code) is deliberately unstyled.
+ * The wrapper controls font-size (text-base for the description,
+ * text-sm for comments) — this scope owns the element anatomy only.
  */
 
 /* Sibling rhythm: tighter than the blog's reading surface — these are

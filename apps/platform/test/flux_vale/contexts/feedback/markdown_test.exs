@@ -26,7 +26,7 @@ defmodule FluxVale.Feedback.MarkdownTest do
 
   test "links render with their href and text" do
     assert Markdown.render("[site](https://example.com)") ==
-             "<p><a href=\"https://example.com\" rel=\"noopener\">site</a></p>"
+             "<p><a href=\"https://example.com\" rel=\"noopener noreferrer\">site</a></p>"
   end
 
   test "mailto links render" do
@@ -162,12 +162,13 @@ defmodule FluxVale.Feedback.MarkdownTest do
     refute html =~ "pixel.png"
   end
 
-  # rel="noopener" rides every rendered link. Fails if the sanitize
-  # pass or link_rel drops.
-  test "rendered links carry rel noopener" do
+  # rel="noopener noreferrer" rides every rendered link — the issue's
+  # tabnabbing floor plus the referrer policy ammonia's default carries.
+  # Fails if the sanitize pass or link_rel drops.
+  test "rendered links carry rel noopener noreferrer" do
     html = Markdown.render("[site](https://example.com)")
 
-    assert html =~ "rel=\"noopener\""
+    assert html =~ "rel=\"noopener noreferrer\""
     refute html =~ "target="
   end
 

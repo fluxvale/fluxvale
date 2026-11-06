@@ -405,15 +405,21 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       html = html_response(get(conn, ~p"/feedback/#{post.slug}"), 200)
 
       assert html =~ "<strong>bold</strong>"
-      assert html =~ "rel=\"noopener\""
+      assert html =~ "rel=\"noopener noreferrer\""
       assert html =~ "<code>code</code>"
     end
 
     # The page-level hostile pin: untrusted UGC through the SSR surface.
-    # The assertion slices the rendered body — the head's meta
-    # description deliberately carries the raw text (escaped, inert),
-    # so whole-document refutes would false-alarm on it. Fails if the
-    # renderer's sanitization ever regresses.
+    # Three kinds of tripwire, each with a defined regression it fires
+    # on (verified by mutation):
+    # - markup-shaped refutes run on the RAW response, where a rendered
+    #   tag is actually visible (the head's meta description carries the
+    #   escaped source, so these shapes cannot false-alarm on it)
+    # - text tripwires run on the rendered body, where a script's
+    #   content or a swallowed markdown source would surface as text
+    # - the comrak neutralization marker on the raw response: it
+    #   reaching the page means the ammonia layer is gone (comrak safe
+    #   alone keeps every refutation above green)
     test "a hostile description renders inert", %{conn: conn} do
       post =
         post!(%{
@@ -430,11 +436,14 @@ defmodule FluxValeWeb.FeedbackControllerTest do
         |> LazyHTML.query("[data-testid='post-body']")
         |> LazyHTML.text()
 
-      refute body =~ "<script>alert"
-      refute body =~ "onerror"
+      refute html =~ "<script>alert"
+      refute html =~ "<div>raw</div>"
+      refute html =~ "raw HTML omitted"
+
+      refute body =~ "alert(1)"
+      refute body =~ "raw"
       refute body =~ "javascript:"
       refute body =~ "data:"
-      refute body =~ "<div>raw</div>"
     end
 
     test "the status badge carries the status-changed age", %{conn: conn} do

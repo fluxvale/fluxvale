@@ -24,6 +24,7 @@ defmodule FluxVale.Feedback.Comment do
     authorizers: [Ash.Policy.Authorizer]
 
   alias FluxVale.Feedback.Comment.AuthorUsername
+  alias FluxVale.Feedback.Comment.BodyHtml
   alias FluxVale.Feedback.Comment.BumpPostCounter
   alias FluxVale.Feedback.Comment.SetAuthorFromActor
 
@@ -139,6 +140,16 @@ defmodule FluxVale.Feedback.Comment do
       # the handle the author published by commenting (the User record
       # itself stays admin-read — see AuthorUsername).
       description("The author's public handle")
+      public?(true)
+    end
+
+    calculate :body_html, :string do
+      calculation(BodyHtml)
+
+      # The body through Feedback.Markdown (#488) — computed at read so
+      # the sanitization posture applies to stored rows, and loaded with
+      # the list so island re-renders never re-parse Markdown.
+      description("The body rendered to sanitized HTML")
       public?(true)
     end
   end

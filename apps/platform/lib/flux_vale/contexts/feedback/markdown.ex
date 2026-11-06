@@ -9,10 +9,15 @@ defmodule FluxVale.Feedback.Markdown do
 
   - Raw HTML never passes through. Comrak's safe render neutralizes
     inline HTML and HTML blocks, and the ammonia pass strips what is
-    left, so script tags render as nothing and never as markup.
+    left, so script tags render as nothing and never as markup. The
+    layers are ordered: raw-HTML-borne attributes (style, class,
+    on*) never reach ammonia at all, because comrak's safe render
+    replaces the markup with a comment the ammonia pass strips.
   - Link schemes are restricted to http/https/mailto; javascript: and
     data: URLs render as inert text.
-  - Rendered links carry `rel="noopener"`.
+  - Rendered links carry `rel="noopener noreferrer"` — the issue's
+    tabnabbing floor plus ammonia's default referrer policy, kept by
+    not fighting the library default.
   - No images (a reversible default — tracking pixels and hostile
     imagery are an abuse surface; enable later with a ruling).
   - Single newlines hard-break (`render: [hardbreaks: true]`), so
@@ -40,8 +45,10 @@ defmodule FluxVale.Feedback.Markdown do
       # No images: tracking pixels and hostile imagery are an abuse
       # surface (reversible — a ruling can lift this).
       rm_tags: ["img"],
-      # Tabnabbing protection on every rendered link.
-      link_rel: "noopener"
+      # Ammonia's default rel (noopener noreferrer) made explicit — the
+      # tabnabbing floor the issue pins, plus the referrer policy the
+      # library default carries.
+      link_rel: "noopener noreferrer"
     ]
   ]
 

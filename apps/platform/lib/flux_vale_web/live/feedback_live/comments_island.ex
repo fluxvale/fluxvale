@@ -15,15 +15,16 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
   projection safe on a public surface (User reads are admin-only;
   `author_user` is never loaded here).
 
-  Bodies render through `FluxVale.Feedback.Markdown` (#488) — the
-  sanitized renderer the post page uses, computed in the template so
-  the SSR list and every stream insert agree.
+  Bodies render through `FluxVale.Feedback.Markdown` (#488) via the
+  `body_html` calculation, loaded with the list — the sanitized
+  renderer the post page uses, computed at read so island re-renders
+  (each keystroke re-renders the form) interpolate a ready string
+  instead of re-parsing every body.
   """
 
   use FluxValeWeb, :live_view
 
   alias FluxVale.Feedback.Comment
-  alias FluxVale.Feedback.Markdown
   alias FluxVale.Feedback.Post
   alias FluxValeWeb.Locale
   alias FluxValeWeb.ReturnPath
@@ -105,7 +106,7 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
 
     case AshPhoenix.Form.submit(socket.assigns.form, params: form_params) do
       {:ok, comment} ->
-        comment = Ash.load!(comment, :author_username)
+        comment = Ash.load!(comment, [:author_username, :body_html])
 
         {:noreply,
          socket
@@ -150,11 +151,11 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
               {FluxValeWeb.FeedbackHTML.time_ago(comment.created_at)}
             </span>
           </div>
-          <%!-- The body renders through Feedback.Markdown (fluxvale/fluxvale#488),
-          the same sanitized renderer the post page uses — computed here so
-          the SSR initial render and every stream insert agree. --%>
+          <%!-- The body rides the `body_html` calculation (fluxvale/fluxvale#488):
+          the sanitized renderer the post page uses, computed at read and
+          loaded with the list, so re-renders never re-parse Markdown. --%>
           <div class="feedback-body mt-2 text-sm leading-relaxed text-ink [overflow-wrap:anywhere]">
-            {raw(Markdown.render(comment.body))}
+            {raw(comment.body_html)}
           </div>
         </article>
       </div>
@@ -210,7 +211,7 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIsland do
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.filter(post_id == ^post.id)
       |> Ash.Query.sort(created_at: :desc)
-      |> Ash.Query.load(:author_username)
+      |> Ash.Query.load([:author_username, :body_html])
       |> Ash.read!(actor: nil)
 
     socket = stream(socket, :comments, comments)
