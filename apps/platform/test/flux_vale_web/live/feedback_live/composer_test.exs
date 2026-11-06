@@ -48,6 +48,17 @@ defmodule FluxValeWeb.FeedbackLive.ComposerTest do
     assert has_element?(view, "article h1", "Post a request")
   end
 
+  # A composer form page has zero index value (the launch SEO audit
+  # gap): the mount's robots_noindex assign rides the SeoNoindex plug's
+  # key, and the root layout's seo tags render the <meta name="robots">.
+  # The host IS the canonical one here, so the plug is a no-op — the
+  # meta can only come from the mount.
+  test "carries the robots noindex meta", %{conn: conn} do
+    {:ok, _view, html} = mount_composer(%{conn | host: "fluxvale.com"})
+
+    assert html =~ ~s(name="robots" content="noindex, nofollow")
+  end
+
   test "anonymous sees the sign-in CTA, never the form", %{conn: conn} do
     {:ok, view, _html} = mount_composer(conn)
 

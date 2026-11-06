@@ -51,7 +51,11 @@ defmodule FluxValeWeb.FeedbackLive.Composer do
         error: nil,
         form: form_for(user),
         debounce_ms: @debounce_ms,
-        page_title: gettext("Post a request - FluxVale")
+        page_title: gettext("Post a request - FluxVale"),
+        # A composer form page has zero index value (the launch SEO
+        # audit gap): noindex via the root layout's seo tags — the same
+        # assign key the SeoNoindex plug sets on non-canonical hosts.
+        robots_noindex: true
       )
 
     {:ok, socket}

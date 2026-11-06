@@ -6,8 +6,9 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
   resolution question — a claimed domain's attached private hostnames
   answer the CLAIMING gateway's tailnet IP for THAT gateway's queries
   only (per-gateway CoreDNS views, keyed on the query's source = the
-  gateway pod IP); everything else falls through to public recursion,
-  so public hostnames behave identically on and off the tailnet.
+  gateway pod IP); everything else falls through to upstream recursion
+  (the cluster's kube-dns — see the forward target below), so a zone's
+  non-private names keep resolving.
 
   The shape of one gateway's view, per claimed domain:
 
@@ -18,12 +19,12 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
     private instances' hostnames on the claimed domain, each answered
     with the gateway's TAILNET IP (the address a tailnet device can
     dial — the pod IP is only the view's SOURCE key);
-  - `forward .` hands every other name in the zone to public recursion
-    (no hostname is dark that shouldn't be).
+  - `forward .` hands every other name in the zone to upstream
+    recursion (no hostname is dark that shouldn't be).
 
   Blocks are ordered gateway-views BEFORE the per-domain default
   (un-viewed) blocks — first match wins, and the default sends any
-  no-gateway source (in-cluster strays, misroutes) straight to public
+  no-gateway source (in-cluster strays, misroutes) straight to upstream
   recursion: no private answers without a gateway on the path.
 
   **The view is derived state.** The arms (EdgeRoutes) and the claims
@@ -35,8 +36,8 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
   is dark for DNS until the next pass — the documented window. Nothing
   is cached.
 
-  No ConfigMap consumers exist yet (fleet #122 mounts it) — the write
-  is harmless until then.
+  The fleet's access-dns deployment mounts this ConfigMap (fleet #122)
+  — the write is live resolution state, not a staging artifact.
   """
 
   alias FluxVale.Clients.K8s
@@ -53,10 +54,24 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
   require Ash.Query
   require Logger
 
-  # Public recursion for everything a view does not answer (§4): public
-  # hostnames keep resolving identically on-tailnet, unknown names stay
-  # strangers' business. Same pair in every block — one constant.
-  @public_forwarders "1.1.1.1 8.8.8.8"
+  # The forward target for every block's `forward .` — each view's
+  # in-zone-miss remainder, each default block, and the zero-claims
+  # placeholder. One target, everywhere (§4's "forwarded remainder"
+  # resolves publicly; on- and off-tailnet behavior identical).
+  #
+  # The target is the cluster's kube-dns (10.96.0.10), NOT the public
+  # pair the ADR sketches (`forward . 1.1.1.1`, ADR-0040 §4): this
+  # network egress-filters third-party plain Do53 — measured from the
+  # host network (fleet #110): UDP/TCP 53 to 1.1.1.1/8.8.8.8/9.9.9.9
+  # times out, so a public-pair forward SERVFAILs (rcode=2) every
+  # in-zone miss — live-reproduced through a gateway view. kube-dns
+  # already rides the fleet's resilient upstream chain (host DNS with
+  # DoH primaries, talos/patches/dns-upstreams.yaml), and the fleet's
+  # own boot placeholder forwards there too (the deployment's
+  # access-dns-boot ConfigMap) — the pairing the DEPLOYMENT.md runbook
+  # documents. No loop: nothing in kube-dns's forwarding path reaches
+  # this resolver.
+  @forward_target "10.96.0.10"
 
   # The hosts plugin answers its entries in-process; `ttl 5` keeps a
   # moved gateway IP converging client-side in seconds (the resolver's
@@ -107,14 +122,15 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
 
   def corefile([], []) do
     # An EMPTY Corefile is not a config CoreDNS can load, so the
-    # zero-claims render emits an inert root recursor instead: while no
-    # split-DNS route points here, nothing resolves through it (the
-    # tailnet's own DNS answers everything); the file reloads cleanly
-    # the day a claim lands.
+    # zero-claims render emits a root recursor forwarded to the
+    # cluster's upstream instead: while no split-DNS route points here,
+    # nothing should reach it (the tailnet's own DNS answers
+    # everything); anything that does resolves the upstream's answer
+    # set. The file reloads cleanly the day a claim lands.
     """
     # no claims
     .:53 {
-        forward . #{@public_forwarders}
+        forward . #{@forward_target}
     }
     """
   end
@@ -440,7 +456,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
     expr = "        expr incidr(client_ip(), '#{view.pod_ip}/32')\n    }\n"
     hosts = hosts_block(view.hostnames, view.tailnet_ip)
 
-    header <> expr <> hosts <> "    forward . #{@public_forwarders}\n}\n"
+    header <> expr <> hosts <> "    forward . #{@forward_target}\n}\n"
   end
 
   # The hosts plugin answers its entries and — via `fallthrough` —
@@ -467,7 +483,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
   end
 
   defp default_block(domain) do
-    "#{domain}:53 {\n    forward . #{@public_forwarders}\n}\n"
+    "#{domain}:53 {\n    forward . #{@forward_target}\n}\n"
   end
 
   # Blocks already end in \n; a blank line separates them, and the whole
