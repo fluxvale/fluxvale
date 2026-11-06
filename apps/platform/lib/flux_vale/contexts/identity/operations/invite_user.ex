@@ -123,7 +123,7 @@ defmodule FluxVale.Identity.Operations.InviteUser do
       {:ok, user} ->
         deliver_best_effort(address, raw, deliver)
 
-        {:ok, user, raw}
+        {:ok, with_live_state(user), raw}
 
       # coveralls-ignore-start - race-only: the occupant read above is
       # the sequential arbiter, so a create failure needs a commit in
@@ -149,7 +149,7 @@ defmodule FluxVale.Identity.Operations.InviteUser do
       {:ok, user} ->
         deliver_best_effort(address, raw, deliver)
 
-        {:ok, user, raw}
+        {:ok, with_live_state(user), raw}
 
       # coveralls-ignore-start - race-only: a StaleRecord (the accepted
       # filter matching nothing) needs the acceptance to commit between
@@ -167,6 +167,16 @@ defmodule FluxVale.Identity.Operations.InviteUser do
   # operator tooling passes authorize?: false in opts.
   defp write_opts(actor, opts) do
     Keyword.put(opts, :actor, actor)
+  end
+
+  # The return contract carries a LIVE invite_state (the admin surface
+  # renders it): Ash does not recompute a loaded calculation on an
+  # update result — a reinvited user would still answer :withdrawn from
+  # its pre-write struct — and a fresh create has none loaded at all.
+  # One load makes both arms tell the truth. authorize?: false — the
+  # calc is display plumbing on a write the caller already cleared.
+  defp with_live_state(user) do
+    Ash.load!(user, :invite_state, authorize?: false)
   end
 
   # 32 url-safe random bytes — the MembershipInvite raw-token shape.

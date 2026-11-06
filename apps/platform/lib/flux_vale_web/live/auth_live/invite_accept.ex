@@ -33,10 +33,10 @@ defmodule FluxValeWeb.AuthLive.InviteAccept do
               <% :pending -> %>
                 <div class="space-y-2">
                   <h1 class="text-3xl font-bold tracking-tight text-ink">
-                    Accept your invitation
+                    You're invited
                   </h1>
-                  <p class="text-sm leading-6 text-ink-muted">
-                    This link was sent to the invited address.
+                  <p class="text-sm leading-6 text-ink-muted" data-testid="invite-accept-note">
+                    An account is ready. Accepting signs you in straight away.
                   </p>
                 </div>
 
@@ -48,25 +48,6 @@ defmodule FluxValeWeb.AuthLive.InviteAccept do
                 >
                   Accept and sign in
                 </.button>
-                <p class="text-xs leading-5 text-ink-muted" data-testid="invite-accept-note">
-                  Accepting signs you in straight away.
-                </p>
-
-                <%!-- The one-shot session POST (SignIn's code-form
-                mechanics): the browser fires it when trigger_submit
-                flips, SessionController stores the session and lands
-                the invitee signed in. --%>
-                <.form
-                  for={@form}
-                  id="session-form"
-                  action={~p"/auth/session"}
-                  method="post"
-                  phx-trigger-action={@trigger_submit}
-                  class="hidden"
-                >
-                  <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
-                  <input type="hidden" name="token" value={@token} />
-                </.form>
               <% :accepted -> %>
                 <div class="space-y-2">
                   <h1 class="text-3xl font-bold tracking-tight text-ink">
@@ -89,8 +70,15 @@ defmodule FluxValeWeb.AuthLive.InviteAccept do
                     Invitation closed
                   </h1>
                   <p class="text-sm leading-6 text-ink-muted" data-testid="invite-state-copy">
-                    This invitation is no longer open. Write to support@fluxvale.com if you
-                    think that's a mistake.
+                    This invitation is no longer open. Email
+                    <.link
+                      href="mailto:support@fluxvale.com"
+                      class="font-medium text-link underline underline-offset-2 transition-colors hover:text-link-hover"
+                      data-testid="invite-support-link"
+                    >
+                      support@fluxvale.com
+                    </.link>
+                    if that's a mistake.
                   </p>
                 </div>
               <% :expired -> %>
@@ -114,6 +102,23 @@ defmodule FluxValeWeb.AuthLive.InviteAccept do
             <% end %>
           </div>
         </div>
+
+        <%!-- The one-shot session POST (SignIn's code-form mechanics):
+        the browser fires it when trigger_submit flips, SessionController
+        stores the session and lands the invitee signed in. OUTSIDE the
+        padded space-y-6 column on purpose: a last child there would
+        keep a sibling margin nobody can see (24px of dead card). --%>
+        <.form
+          for={@form}
+          id="session-form"
+          action={~p"/auth/session"}
+          method="post"
+          phx-trigger-action={@trigger_submit}
+          class="hidden"
+        >
+          <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
+          <input type="hidden" name="token" value={@token} />
+        </.form>
       </div>
     </Layouts.auth>
     """

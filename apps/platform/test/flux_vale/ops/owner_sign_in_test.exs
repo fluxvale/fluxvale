@@ -252,7 +252,10 @@ defmodule FluxVale.Ops.OwnerSignInTest do
 
       assert_receive {:printed, output}
 
-      assert output =~ "/invites/accept?token="
+      # Exactly one accept URL: the double-wrap bug (deliver handing a
+      # built URL to a printer that wrapped it again) printed the prefix
+      # twice — one occurrence is the load-bearing assertion.
+      assert length(String.split(output, "/invites/accept?token=")) == 2
       assert output =~ invited
       assert output =~ "works once"
       assert output =~ "the previous link is dead"
@@ -271,7 +274,7 @@ defmodule FluxVale.Ops.OwnerSignInTest do
           OwnerSignIn.issue_code(fn _recipient, _code -> {:ok, :printed} end)
         end).message
 
-      assert message =~ "invite it first via FluxVale.Identity.invite_user"
+      assert message =~ "Invite it first via FluxVale.Identity.invite_user"
       assert message =~ stranger
     end
   end

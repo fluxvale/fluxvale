@@ -193,9 +193,12 @@ defmodule FluxVale.Identity.User do
       sensitive?(true)
     end
 
+    # No attribute default: lazy function defaults fire on EVERY create,
+    # which would stamp an invite window on normal JIT accounts too (a
+    # fresh signup must carry nil in all five columns). :invite and
+    # :reinvite set the window explicitly.
     attribute :invite_expires_at, :utc_datetime do
       public?(true)
-      default(&__MODULE__.invite_expires_at/0)
     end
   end
 
@@ -315,8 +318,8 @@ defmodule FluxVale.Identity.User do
     # until then the account has no org, no wallet, no verified email
     # row. The token hash rides the private argument (the
     # MembershipInvite :create posture) — no caller surface can mint an
-    # arbitrary credential shape; invited_at stamps and invite_expires_at
-    # rides the attribute default.
+    # arbitrary credential shape; invited_at and the expiry window stamp
+    # here explicitly (no attribute default — see the attribute comment).
     create :invite do
       accept([:email])
 
@@ -324,15 +327,17 @@ defmodule FluxVale.Identity.User do
       change(set_attribute(:invite_token_hash, arg(:token_hash)))
 
       change(set_attribute(:invited_at, &DateTime.utc_now/0))
+      change(set_attribute(:invite_expires_at, &__MODULE__.invite_expires_at/0))
     end
 
     # Re-invite (#502): the resend lever. A fresh token (new hash via the
     # private argument), a fresh window, withdrawal cleared — a withdrawn
-    # invite is re-issuable, an accepted account is not: the filter rides
-    # the UPDATE's WHERE (the MembershipInvite :revoke posture), so the
-    # mismatch refuses with StaleRecord instead of re-opening a live
-    # account. Record-update flow so that no-match is an answer, not a
-    # silent zero-row success.
+    # invite is re-issuable, an accepted account is not, and a
+    # never-invited live account is not an invitation at all: the filter
+    # rides the UPDATE's WHERE (the MembershipInvite :revoke posture), so
+    # every mismatch refuses with StaleRecord instead of converting a
+    # live account into a pending invite. Record-update flow so that
+    # no-match is an answer, not a silent zero-row success.
     update :reinvite do
       description("Refresh the invitation — a new token, a fresh window, withdrawal cleared")
       accept([])
@@ -344,7 +349,7 @@ defmodule FluxVale.Identity.User do
       change(set_attribute(:invite_expires_at, &__MODULE__.invite_expires_at/0))
       change(set_attribute(:invite_withdrawn_at, nil))
 
-      change(filter(expr(is_nil(invite_accepted_at))))
+      change(filter(expr(is_nil(invite_accepted_at) and not is_nil(invited_at))))
 
       require_atomic?(false)
     end
@@ -360,7 +365,9 @@ defmodule FluxVale.Identity.User do
       description("Withdraw an unaccepted invitation")
       accept([])
 
-      change(filter(expr(is_nil(invite_accepted_at))))
+      # A never-invited account is not a withdraw target either (the
+      # :reinvite posture): only an OUTSTANDING invitation can retire.
+      change(filter(expr(is_nil(invite_accepted_at) and not is_nil(invited_at))))
 
       # credo:disable-for-lines:6 Credo.Check.Readability.ParenthesesInCondition
       change(

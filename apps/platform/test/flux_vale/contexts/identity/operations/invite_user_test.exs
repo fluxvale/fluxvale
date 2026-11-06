@@ -40,7 +40,16 @@ defmodule FluxVale.Identity.Operations.InviteUserTest do
 
       assert %User{} = user
       assert user.invited_at
-      assert user.invite_expires_at
+
+      # the window is the ACTION's stamp, not a lazy attribute default
+      # (a default would fire on every JIT signup too) — invited_at to
+      # expiry is one TTL, second-granularity slack at most
+      window = DateTime.diff(user.invite_expires_at, user.invited_at)
+      assert abs(window - User.invite_ttl_days() * 86_400) <= 1
+
+      # the return contract carries a LIVE state (the admin surface
+      # renders it; Ash does not recompute loaded calcs on results)
+      assert user.invite_state == :pending
       refute user.invite_accepted_at
       refute user.invite_withdrawn_at
       refute user.username
@@ -133,9 +142,44 @@ defmodule FluxVale.Identity.Operations.InviteUserTest do
       {:ok, reinvited, _raw2} =
         Identity.invite_user(admin_actor(), address, fn _to, _url -> {:ok, :sent} end)
 
-      reloaded = Ash.load!(reinvited, :invite_state, authorize?: false)
+      # the operation's return contract is live (with_live_state/1) —
+      # the pre-write struct would still answer :withdrawn here
+      assert reinvited.invite_state == :pending
+    end
 
-      assert reloaded.invite_state == :pending
+    test "a normal JIT account carries nil in every invite column", %{address: address} do
+      User.create!(address, %{}, authorize?: false)
+
+      {:ok, plain} = User.get_by_email(address, authorize?: false)
+
+      # the regression the review caught: a lazy attribute default on
+      # invite_expires_at stamped a window on every signup — all five
+      # columns must stay nil for a never-invited account
+      assert is_nil(plain.invited_at)
+      assert is_nil(plain.invite_accepted_at)
+      assert is_nil(plain.invite_withdrawn_at)
+      assert is_nil(plain.invite_token_hash)
+      assert is_nil(plain.invite_expires_at)
+    end
+
+    test "the actions refuse a never-invited account (the filter is the arbiter)", %{
+      address: address
+    } do
+      plain = User.create!(address, %{}, authorize?: false)
+
+      reinvite =
+        plain
+        |> Ash.Changeset.new()
+        |> Ash.Changeset.set_argument(:token_hash, User.token_hash("raw"))
+        |> Ash.Changeset.for_update(:reinvite, %{}, authorize?: false)
+        |> Ash.update()
+
+      assert {:error, %Ash.Error.Invalid{} = reinvite_error} = reinvite
+
+      assert Enum.any?(reinvite_error.errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Identity.withdraw_invite(nil, plain, authorize?: false)
     end
   end
 

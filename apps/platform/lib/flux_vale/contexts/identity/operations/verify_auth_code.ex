@@ -260,7 +260,13 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   # pre-provisioned account — never signed into, never healed (the
   # mirror row is what acceptance must write); :withdrawn and :expired
   # are retired invitations, so the JIT gate's refusal is the honest
-  # answer; :none is the old-pod shape and heals as before.
+  # answer; :none is the old-pod shape and heals as before. :accepted
+  # rides the same clause but is structurally unreachable HERE: an
+  # accepted account always resolves through lookup_user — acceptance
+  # writes the verified mirror row, and RemoveGuard's frozen-mirror
+  # guard keeps it (the signup address cannot lose its row while
+  # users.email exists, #285 T3). Revisit when #287 F1 drops the
+  # mirror column.
   defp invited_owner(email, %User{} = owner) do
     case owner.invite_state do
       :pending ->
@@ -269,15 +275,8 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
       state when state in [:withdrawn, :expired] ->
         {:error, :invitation_required}
 
-      :none ->
+      state when state in [:none, :accepted] ->
         resolve_collided(email)
-
-      # coveralls-ignore-start - unreachable: acceptance writes the
-      # verified mirror row (MirrorSignupEmail on :accept_invite), so an
-      # accepted account resolves through lookup_user before this fork
-      :accepted ->
-        resolve_collided(email)
-        # coveralls-ignore-stop
     end
   end
 

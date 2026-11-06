@@ -20,7 +20,6 @@ defmodule FluxVale.Ops.OwnerSignIn do
   alias FluxVale.Identity
   alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
-  alias FluxVale.Mailer
 
   require Ash.Query
   require Logger
@@ -139,7 +138,7 @@ defmodule FluxVale.Ops.OwnerSignIn do
     else
       raise(
         "no account exists for #{email} and it is outside the team domain " <>
-          "(#{@team_domain}) — invite it first via FluxVale.Identity.invite_user/2, " <>
+          "(#{@team_domain}). Invite it first via FluxVale.Identity.invite_user/2, " <>
           "then re-run"
       )
     end
@@ -218,12 +217,11 @@ defmodule FluxVale.Ops.OwnerSignIn do
   The invited owner's default deliver (#502): prints the address, the
   one-time accept link, the expiry, and the fact that printing re-minted
   the invite — the previous link is dead. Same posture as print_code/2:
-  printed, not logged, and never the token value (the URL IS the
-  credential; it exists only here).
+  printed to the operator's terminal, never logged (the terminal is the
+  delivery channel; the URL carries the credential).
   """
   @spec print_accept_url(String.t(), String.t()) :: {:ok, :printed}
-  def print_accept_url(email, raw_token) do
-    accept_url = Mailer.canonical_url("/invites/accept?token=" <> raw_token)
+  def print_accept_url(email, accept_url) do
     days = User.invite_ttl_days()
 
     # credo:disable-for-next-line Credo.Check.Refactor.IoPuts

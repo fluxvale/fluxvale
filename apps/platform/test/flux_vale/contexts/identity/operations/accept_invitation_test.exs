@@ -3,6 +3,7 @@ defmodule FluxVale.Identity.Operations.AcceptInvitationTest do
 
   use FluxVale.DataCase, async: true
 
+  import FluxVale.TestSupport.AuthCodeHelpers
   import FluxVale.TestSupport.UserInviteHelpers
 
   alias FluxVale.Accounts.Membership
@@ -136,6 +137,51 @@ defmodule FluxVale.Identity.Operations.AcceptInvitationTest do
       # withheld
       [stamped] = users_with_email(address)
       assert stamped.invite_accepted_at
+    end
+  end
+
+  describe "call/1 — address conflicts on the mirror insert" do
+    test "a pending third-party claim does not wedge acceptance", %{address: address} do
+      # a claim confers no proof (the AddEmail posture), but
+      # unique_address is global — before the supersede this collision
+      # rolled the acceptance back with the terminal refusal copy
+      claimant =
+        User.create!("claimant-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      {:ok, _claim} = Identity.add_email(claimant, address)
+      _claim_code = mailbox_code()
+
+      {invited, raw} = invite_user!(address)
+
+      assert {:ok, accepted, _jwt} = Identity.accept_invitation(raw)
+      assert accepted.invite_accepted_at
+
+      # the proof-less claim is gone; the address's one row is the
+      # mirror row acceptance wrote for the invited account
+      assert [%{user_id: owner_id}] = rows_for(address)
+      assert owner_id == invited.id
+    end
+
+    test "a verified conflicting row refuses honestly — the state stands unconsumed", %{
+      address: address
+    } do
+      # someone proved this inbox from a DIFFERENT account after the
+      # invite was minted: a genuine ownership conflict the admin must
+      # resolve, not a wedge — nothing is consumed, the refusal is one
+      # sentence
+      {invited, raw} = invite_user!(address)
+
+      holder =
+        User.create!("holder-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+
+      {:ok, claim} = Identity.add_email(holder, address)
+      {:ok, _verified} = Identity.verify_email(holder, claim.id, mailbox_code())
+
+      assert {:error, :unavailable} = Identity.accept_invitation(raw)
+
+      unconsumed = reloaded(invited.id)
+      assert unconsumed.invite_state == :pending
+      refute unconsumed.invite_accepted_at
     end
   end
 end

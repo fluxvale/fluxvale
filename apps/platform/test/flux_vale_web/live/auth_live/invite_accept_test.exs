@@ -30,7 +30,7 @@ defmodule FluxValeWeb.AuthLive.InviteAcceptTest do
 
       {:ok, view, _html} = live(conn, "/invites/accept?token=#{raw}")
 
-      assert has_element?(view, "h1", "Accept your invitation")
+      assert has_element?(view, "h1", "You're invited")
       assert has_element?(view, "[data-testid='invite-accept']", "Accept and sign in")
 
       assert has_element?(
