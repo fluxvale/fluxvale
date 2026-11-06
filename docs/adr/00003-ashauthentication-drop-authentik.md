@@ -1,6 +1,6 @@
 # ADR-00003: AshAuthentication; drop Authentik
 
-**Status**: Accepted (amended — see Amendments 1–2)
+**Status**: Accepted (amended — see Amendments 1–3)
 **Date**: 2026-08-27
 
 Authentik (~2 GB RAM + Helm release + Terraform branding + provider-skew risk)
@@ -72,3 +72,16 @@ read codes out-of-band via IEx; no gate to deadlock on). The TestInbox
 mail, Postmark's Messages API for prod E2E. The recipient split lives
 at the mailer seam (a few lines choosing capture vs. delivery), not in
 per-environment config forks.
+
+## Amendment 3 (2026-11-07): invites are pre-provisioned users
+
+#478 made invitation a gate resource consulted at sign-in. #502 retires
+that gate: the admin already knows exactly who is being admitted, so
+the invite creates the User directly (inert until acceptance) and the
+emailed accept link hands the account over. The link carries a one-time
+token, stored only as its SHA-256 hash and consumed on use. This is
+the MembershipInvite URL-credential carve-out from the
+token-never-in-a-URL rule, which still holds for session tokens:
+sessions are minted by the emailed code, never by a persistent URL
+credential. Acceptance runs the first-login bootstrap and mints the
+session through the existing `POST /auth/session`.

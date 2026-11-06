@@ -31,27 +31,6 @@ defmodule FluxVale.Mailer do
   end
 
   @doc """
-  The early-access invitation (#478): informational only — no token, no
-  link-back credential. The gate is the invited_emails row; this email
-  just tells the address it can now sign in.
-  """
-  @spec deliver_invitation(String.t()) :: {:ok, map()} | {:error, term()}
-  def deliver_invitation(to) do
-    %Swoosh.Email{}
-    |> Swoosh.Email.to(to)
-    |> Swoosh.Email.from({"FluxVale", "no-reply@fluxvale.com"})
-    |> Swoosh.Email.subject("You are invited to FluxVale")
-    |> Swoosh.Email.text_body("""
-    You are invited to FluxVale.
-
-    Early access is invitation-only, and this address is on the list. Sign in at https://fluxvale.com with this email address: we will send you a one-time code, no password needed.
-
-    If you were not expecting this invitation, you can ignore it or write to support@fluxvale.com.
-    """)
-    |> deliver()
-  end
-
-  @doc """
   The account invitation (#502): plain body, ONE link — the emailed
   link is the whole invitee-side credential (the row stores only the
   token's sha256). The expiry sentence reads the window from User so
