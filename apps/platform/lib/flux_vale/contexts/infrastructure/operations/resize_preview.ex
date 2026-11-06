@@ -13,12 +13,11 @@ defmodule FluxVale.Infrastructure.Operations.ResizePreview do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Instance.PricingSnapshot
 
-  @typedoc "The panel's preview: both rate figures + whether the
-  allocation sits at the version's recommendation."
+  @typedoc "The panel's preview: the rate figures a resize WOULD
+  snapshot (running and stopped)."
   @type preview :: %{
           running_cents: non_neg_integer(),
-          stopped_cents: non_neg_integer(),
-          at_recommendation: boolean()
+          stopped_cents: non_neg_integer()
         }
 
   @doc """
@@ -52,16 +51,7 @@ defmodule FluxVale.Infrastructure.Operations.ResizePreview do
   # allocation always carries formula cents.
   defp respond(%{monthly_cents: nil}), do: {:ok, nil}
 
-  defp respond(%{
-         monthly_cents: running,
-         stopped_monthly_cents: stopped,
-         size_id: size_id
-       }) do
-    {:ok,
-     %{
-       running_cents: running,
-       stopped_cents: stopped,
-       at_recommendation: not is_nil(size_id)
-     }}
+  defp respond(%{monthly_cents: running, stopped_monthly_cents: stopped}) do
+    {:ok, %{running_cents: running, stopped_cents: stopped}}
   end
 end

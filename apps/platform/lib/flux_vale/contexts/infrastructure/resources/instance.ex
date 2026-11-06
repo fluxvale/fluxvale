@@ -366,6 +366,10 @@ defmodule FluxVale.Infrastructure.Instance do
     # observed there).
     publish(:update_status, ["instances", :id])
     publish(:deploy, ["instances", :id])
+    # #493: a resize moves the row's allocation (and its version) —
+    # every other open tab must re-read it (the panel resets on a seed
+    # mismatch), so it lands on the same topic.
+    publish(:resize, ["instances", :id])
     publish(:mark_deploy_error, ["instances", :id])
     publish(:mark_teardown_error, ["instances", :id])
     publish(:destroy, ["instances", :id])

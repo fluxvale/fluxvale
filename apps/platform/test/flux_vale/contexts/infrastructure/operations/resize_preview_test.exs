@@ -36,7 +36,6 @@ defmodule FluxVale.Infrastructure.Operations.ResizePreviewTest do
 
     assert preview.running_cents == 100
     assert preview.stopped_cents == 10
-    assert preview.at_recommendation == true
   end
 
   test "a custom allocation: the formula's cents, not the recommendation", %{
@@ -56,7 +55,6 @@ defmodule FluxVale.Infrastructure.Operations.ResizePreviewTest do
     rates = Pricing.price_allocation(allocation)
     assert preview.running_cents == rates.monthly_cents
     assert preview.stopped_cents == rates.stopped_monthly_cents
-    assert preview.at_recommendation == false
   end
 
   test "a sizeless recommendation at its defaults: {:ok, nil} — never bill a guess", %{

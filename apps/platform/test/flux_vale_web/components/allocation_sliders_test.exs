@@ -38,6 +38,14 @@ defmodule FluxValeWeb.AllocationSlidersTest do
     refute disabled?(doc, "resource-cpu")
     refute disabled?(doc, "resource-memory")
 
+    # The locked state must READ locked (F4, the vision pass — a
+    # disabled slider otherwise renders identical to enabled): muted
+    # thumb + track, refused cursor.
+    [storage_class] = LazyHTML.attribute(storage, "class")
+    assert storage_class =~ "cursor-not-allowed"
+    assert storage_class =~ "opacity-60"
+    assert storage_class =~ "bg-ink-subtle"
+
     locked_note_query = LazyHTML.query(doc, "[data-testid='slider-locked-note']")
     notes = LazyHTML.attribute(locked_note_query, "data-testid")
 
@@ -52,9 +60,65 @@ defmodule FluxValeWeb.AllocationSlidersTest do
     refute disabled?(doc, "resource-memory")
     refute disabled?(doc, "resource-storage")
 
+    # The enabled styling hook, for contrast with the locked one.
+    cpu = LazyHTML.query(doc, "[data-testid='resource-cpu']")
+    [cpu_class] = LazyHTML.attribute(cpu, "class")
+    assert cpu_class =~ "cursor-pointer"
+    refute cpu_class =~ "opacity-60"
+
     locked_note_query = LazyHTML.query(doc, "[data-testid='slider-locked-note']")
     notes = LazyHTML.attribute(locked_note_query, "data-testid")
 
     assert notes == []
+  end
+
+  # The rung seeding math (F2) is numeric end to end — the regression
+  # being min_by over Decimal STRUCTS (term order), which seeded 0.2 at
+  # 0.5 instead of 0.25.
+
+  describe "nearest_rung/2" do
+    test "a sub-rung value seeds DOWN to the nearest rung" do
+      assert AllocationSliders.nearest_rung("cpu_cores", Decimal.new("0.2")) == "0.25"
+    end
+
+    test "a mid-gap value seeds at its numerically closest rung" do
+      assert AllocationSliders.nearest_rung("memory_mb", Decimal.new(700)) == "512"
+      assert AllocationSliders.nearest_rung("memory_mb", "700") == "512"
+      assert AllocationSliders.nearest_rung("storage_gb", 12) == "10"
+    end
+
+    test "an exact rung seeds at itself" do
+      assert AllocationSliders.nearest_rung("cpu_cores", "0.5") == "0.5"
+      assert AllocationSliders.nearest_rung("storage_gb", Decimal.new(10)) == "10"
+    end
+
+    test "a distance tie takes the cheaper rung" do
+      # 15 sits equidistant between 10 and 20 — the ladder ascends, so
+      # the first minimum (the cheaper rung) wins.
+      assert AllocationSliders.nearest_rung("storage_gb", Decimal.new(15)) == "10"
+    end
+
+    test "an unknown dimension is a caller bug, raised" do
+      assert_raise(ArgumentError, ~r/unknown allocation dimension/, fn ->
+        AllocationSliders.nearest_rung("gpu", Decimal.new(1))
+      end)
+    end
+  end
+
+  describe "floor_rung/2" do
+    test "the smallest rung at or above the value wins" do
+      assert AllocationSliders.floor_rung("storage_gb", Decimal.new(7)) == "10"
+      assert AllocationSliders.floor_rung("storage_gb", Decimal.new(0)) == "5"
+      assert AllocationSliders.floor_rung("cpu_cores", Decimal.new("0.2")) == "0.25"
+    end
+
+    test "a value past the top rung floors to the top rung" do
+      assert AllocationSliders.floor_rung("storage_gb", Decimal.new(200)) == "100"
+      assert AllocationSliders.floor_rung("memory_mb", Decimal.new(16_384)) == "8192"
+    end
+
+    test "an exact rung floors at itself" do
+      assert AllocationSliders.floor_rung("storage_gb", Decimal.new(10)) == "10"
+    end
   end
 end

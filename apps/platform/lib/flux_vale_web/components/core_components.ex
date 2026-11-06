@@ -441,7 +441,8 @@ defmodule FluxValeWeb.CoreComponents do
 
   attr(:disabled, :boolean,
     default: false,
-    doc: "locks the slider at its current rung (the value still rides the form's state)"
+    doc:
+      "locks the slider at its current rung, visibly: muted thumb + track and cursor-not-allowed (display-only — browsers omit a disabled input from the form payload)"
   )
 
   attr(:class, :any, default: nil)
@@ -471,17 +472,41 @@ defmodule FluxValeWeb.CoreComponents do
         step="1"
         disabled={@disabled}
         aria-valuetext={@readout}
-        class={[
-          "mt-2 h-5 w-full cursor-pointer appearance-none bg-transparent",
-          "outline-offset-4 outline-focus focus-visible:outline-2",
-          "[&::-webkit-slider-runnable-track]:h-1.5 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-panel-sunken",
-          "[&::-webkit-slider-thumb]:mt-[-5px] [&::-webkit-slider-thumb]:size-4",
-          "[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full",
-          "[&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:[box-shadow:var(--elevation-sm)]",
-          "[&::-moz-range-track]:h-1.5 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-panel-sunken",
-          "[&::-moz-range-thumb]:size-4 [&::-moz-range-thumb]:rounded-full",
-          "[&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary"
-        ]}
+        class={
+          [
+            "mt-2 h-5 w-full appearance-none bg-transparent",
+            # The locked state must read locked (the vision pass — a
+            # disabled slider otherwise rendered identical to enabled):
+            # muted thumb + track and a refused cursor, holding in both
+            # themes. The variants are swapped, not overridden — Tailwind
+            # emits arbitrary-variant utilities in stylesheet order, so an
+            # overriding class can't reliably beat the enabled one.
+            if(@disabled, do: "cursor-not-allowed opacity-60", else: "cursor-pointer"),
+            "outline-offset-4 outline-focus focus-visible:outline-2",
+            "[&::-webkit-slider-runnable-track]:h-1.5 [&::-webkit-slider-runnable-track]:rounded-full",
+            if(@disabled,
+              do: "[&::-webkit-slider-runnable-track]:bg-line-strong",
+              else: "[&::-webkit-slider-runnable-track]:bg-panel-sunken"
+            ),
+            "[&::-webkit-slider-thumb]:mt-[-5px] [&::-webkit-slider-thumb]:size-4",
+            "[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full",
+            if(@disabled,
+              do: "[&::-webkit-slider-thumb]:bg-ink-subtle [&::-webkit-slider-thumb]:shadow-none",
+              else:
+                "[&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:[box-shadow:var(--elevation-sm)]"
+            ),
+            "[&::-moz-range-track]:h-1.5 [&::-moz-range-track]:rounded-full",
+            if(@disabled,
+              do: "[&::-moz-range-track]:bg-line-strong",
+              else: "[&::-moz-range-track]:bg-panel-sunken"
+            ),
+            "[&::-moz-range-thumb]:size-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0",
+            if(@disabled,
+              do: "[&::-moz-range-thumb]:bg-ink-subtle",
+              else: "[&::-moz-range-thumb]:bg-primary"
+            )
+          ]
+        }
         {@rest}
       />
       <div id={"#{@id}-ticks"} class="relative mt-1.5 h-5 select-none" aria-hidden="true">
@@ -494,11 +519,11 @@ defmodule FluxValeWeb.CoreComponents do
         >
           <span class={[
             "size-1.5 rounded-full transition-colors",
-            if(i == @index, do: "bg-primary", else: "bg-line-strong")
+            if(i == @index and not @disabled, do: "bg-primary", else: "bg-line-strong")
           ]} />
           <span class={[
             "font-mono text-xs transition-colors",
-            if(i == @index, do: "text-ink", else: "text-ink-subtle")
+            if(i == @index and not @disabled, do: "text-ink", else: "text-ink-subtle")
           ]}>
             {rung}
           </span>

@@ -60,27 +60,34 @@ test("resize: stop → panel reprices → confirm → resized → running again"
   await waitForLiveViewJoin(page);
   await waitForStatus(page, "Running", 12 * 60_000);
 
-  // Stop → Stopped (scale-to-zero, quick), then open the resize panel.
-  await page.getByTestId("stop-button").click();
+  // The guided stop→resize start (#493's headline behavior): the
+  // button stops the instance, and the panel opens on the stopped
+  // landing — no separate stop-button click.
+  await page.getByTestId("stop-to-resize").click();
   await waitForStatus(page, "Stopped", 60_000);
-
-  await page.getByTestId("resize-button").click();
   const panel = page.getByTestId("resize-panel");
   await expect(panel).toBeVisible();
 
-  // The live price line — "From X/mo to Y/mo · Z/mo while stopped"; at
-  // the recommendation X and Y are the same size-row cents.
+  // The live price line (#206's label discipline): the From → To
+  // figures state billed hourly, and the candidate's while-stopped
+  // fee rides beneath. At the recommendation From and To are the same
+  // size-row cents.
   const price = page.getByTestId("resize-price");
-  await expect(price).toContainText(
-    /From \$[\d.]+\/mo to \$[\d.]+\/mo · \$[\d.]+\/mo while stopped/,
-  );
+  await expect(price).toContainText(/From \$[\d.]+\/mo to \$[\d.]+\/mo · billed hourly/);
+  await expect(price).toContainText(/\$[\d.]+\/mo while stopped/);
 
-  // local-path can't expand a PVC — storage is locked at its rung and
-  // the panel says so; CPU and memory stay live.
-  await expect(page.getByTestId("resource-storage")).toBeDisabled();
-  await expect(page.getByTestId("slider-locked-note")).toContainText(
-    "Storage can't be expanded on this cluster yet.",
-  );
+  // Storage lock: the LOCAL dev stack's default class is local-path
+  // (allowVolumeExpansion absent — the probe reads it live). Other
+  // runtimes may run an expandable class, so the storage-lock
+  // assertions are local-only; the probe decides there.
+  if (runtime === "local") {
+    await expect(page.getByTestId("resource-storage")).toBeDisabled();
+    await expect(page.getByTestId("slider-locked-note")).toContainText(
+      "Storage can't be expanded on this cluster yet.",
+    );
+  }
+
+  // The unlocked dimensions stay live.
   await expect(page.getByTestId("resource-cpu")).toBeEnabled();
 
   // Move CPU up a rung (0.5 → 1 core): the candidate leaves the
@@ -100,7 +107,9 @@ test("resize: stop → panel reprices → confirm → resized → running again"
   await expect(confirm).toContainText("while stopped");
 
   await page.getByTestId("resize-submit").click();
-  await expect(page.getByText("Resized. Start your instance to run at the new size.")).toBeVisible();
+  await expect(
+    page.getByText("Resized. Start your instance to run at the new size."),
+  ).toBeVisible();
   await expect(panel).toBeHidden();
 
   // The row carries the new allocation; Start is the flow's end.

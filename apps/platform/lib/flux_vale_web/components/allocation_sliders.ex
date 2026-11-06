@@ -17,6 +17,9 @@ defmodule FluxValeWeb.AllocationSliders do
   page-unique by contract — a consumer embedding this block twice on
   the same page must parameterize them first (the wizard and the
   /pricing calculator are separate pages, so they stay unique today).
+
+  The rung math lives here too (#493): `nearest_rung/2` and
+  `floor_rung/2` are the shared seeding helpers, numeric end to end.
   """
 
   use FluxValeWeb, :html
@@ -66,11 +69,65 @@ defmodule FluxValeWeb.AllocationSliders do
   end
 
   @doc """
+  The rung numerically closest to `value`; a tie takes the cheaper
+  rung (the ladders ascend, and the first minimum wins). Numeric
+  distance end to end: Decimal structs don't order numerically under
+  term comparison, so the absolute distance converts to a float for
+  the sort key only — the rung itself stays a string.
+  """
+  @spec nearest_rung(String.t(), Decimal.t() | number() | binary()) :: String.t()
+  def nearest_rung(dimension_key, value) do
+    dimension = dimension!(dimension_key)
+    target = decimal(value)
+    rungs = dimension.values
+
+    Enum.min_by(rungs, fn rung ->
+      rung
+      |> decimal()
+      |> Decimal.sub(target)
+      |> Decimal.abs()
+      |> Decimal.to_float()
+    end)
+  end
+
+  @doc """
+  The smallest rung at or above `value` — a value past the top rung
+  floors to the top rung (the ladder never offers more).
+  """
+  @spec floor_rung(String.t(), Decimal.t() | number() | binary()) :: String.t()
+  def floor_rung(dimension_key, value) do
+    dimension = dimension!(dimension_key)
+    target = decimal(value)
+
+    at_or_above? = fn rung ->
+      rung_decimal = decimal(rung)
+      Decimal.compare(rung_decimal, target) != :lt
+    end
+
+    dimension.values
+    |> Enum.find(at_or_above?)
+    |> Kernel.||(List.last(dimension.values))
+  end
+
+  # One lookup with an honest failure: a typo'd key is a caller bug,
+  # not a silent nil rung.
+  defp dimension!(dimension_key) do
+    Enum.find(resource_dimensions(), &(&1.key == dimension_key)) ||
+      raise(ArgumentError, "unknown allocation dimension: #{dimension_key}")
+  end
+
+  defp decimal(value) when is_binary(value), do: Decimal.new(value)
+  defp decimal(value) when is_integer(value), do: Decimal.new(value)
+  defp decimal(%Decimal{} = value), do: value
+
+  @doc """
   The three sliders as one block — the wizard's Fine-tune markup,
   byte-identical. The change event rides the form that embeds the
   block; `name` is the params namespace the inputs emit under. A
-  dimension in `locked` renders disabled (its rung rides the form
-  regardless — a caller may keep the row's value by dropping that key);
+  dimension in `locked` renders disabled: the browser omits a disabled
+  input from the form payload, so the caller's server-side merge
+  carries the seeded rung (or the caller omits the dimension from what
+  it applies — the action's absent = keep-the-row semantics).
   `locked_note` renders once under the block.
   """
   attr(:resources, :map,
