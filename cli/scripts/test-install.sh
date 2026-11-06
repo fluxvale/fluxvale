@@ -12,6 +12,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 install=./scripts/install.sh
+install_abs="$PWD/scripts/install.sh"
 
 pass=0
 fail=0
@@ -46,11 +47,12 @@ mkdir -p "$fixture"
 
 make_archive() {
   local version="$1"
-  local stage="fluxvale-$version-linux-amd64"
+  local leg="${2:-linux-amd64}"
+  local stage="fluxvale-$version-$leg"
   mkdir -p "$fixture/$stage"
   printf '#!/bin/sh\necho "fluxvale %s"\n' "$version" >"$fixture/$stage/fluxvale"
   chmod 755 "$fixture/$stage/fluxvale"
-  tar -czf "$fixture/fluxvale-$version-linux-amd64.tar.gz" -C "$fixture" "$stage"
+  tar -czf "$fixture/fluxvale-$version-$leg.tar.gz" -C "$fixture" "$stage"
 }
 
 # fake curl: serves the fixture dir, no network. The installer's
@@ -111,16 +113,18 @@ versions_dir_of() {
   printf '%s\n' "$home/fluxvale/versions"
 }
 
-# One version dir on disk (the prune invariant).
+# One version dir on disk (the prune invariant). tr strips the padding
+# BSD wc puts around its output (macOS pads to width 7 even on pipes).
 version_count() {
-  find "$(versions_dir_of "$1")" -mindepth 1 -maxdepth 1 -type d | wc -l
+  find "$(versions_dir_of "$1")" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]'
 }
 
-# The green-path cases share one fixture: both archives plus a
-# SHA256SUMS listing them, and a redirect naming 0.2.0 as the latest.
+# The green-path cases share one fixture: the archives plus a SHA256SUMS
+# listing them, and a redirect naming 0.2.0 as the latest.
 make_archive 0.1.0
 make_archive 0.2.0
-(cd "$fixture" && sha256sum fluxvale-0.1.0-linux-amd64.tar.gz fluxvale-0.2.0-linux-amd64.tar.gz >SHA256SUMS)
+make_archive 0.2.0 macos-aarch64
+(cd "$fixture" && sha256sum fluxvale-0.1.0-linux-amd64.tar.gz fluxvale-0.2.0-linux-amd64.tar.gz fluxvale-0.2.0-macos-aarch64.tar.gz >SHA256SUMS)
 printf 'https://github.com/fluxvale/fluxvale/releases/tag/cli-v0.2.0\n' >"$fixture/redirect_url"
 
 # --- green install (pinned) -------------------------------------------------
@@ -304,6 +308,153 @@ if printf '%s\n' "$out" | grep -q "unsupported Linux architecture"; then
   ok "the refusal names the platform"
 else
   bad "refusal does not name the platform: $out"
+fi
+
+# --- the pin accepts the v prefix ---------------------------------------------
+
+t9="$work/t9"
+mkdir -p "$t9"
+if out="$(run_installer "$t9" FLUXVALE_VERSION=v0.2.0 2>&1)"; then
+  assert "FLUXVALE_VERSION=v0.2.0 installs 0.2.0" test -x "$(versions_dir_of "$t9")/0.2.0/fluxvale"
+else
+  bad "expected exit 0 for the v-prefixed pin, got 1: $out"
+fi
+
+# --- a *-marker checksum line still matches --------------------------------------
+
+fixture_star="$work/star"
+mkdir -p "$fixture_star"
+cp "$fixture/fluxvale-0.1.0-linux-amd64.tar.gz" "$fixture_star/"
+(cd "$fixture_star" && sha256sum fluxvale-0.1.0-linux-amd64.tar.gz | sed 's/  /  */' >SHA256SUMS)
+printf 'https://github.com/fluxvale/fluxvale/releases/tag/cli-v0.1.0\n' >"$fixture_star/redirect_url"
+star_bin="$work/bin-star"
+make_fake_curl "$star_bin"
+t10="$work/t10"
+mkdir -p "$t10"
+if out="$(env PATH="$star_bin:$PATH" \
+  FAKE_CURL_FIXTURE="$fixture_star" \
+  FLUXVALE_HOME="$t10/fluxvale" \
+  FLUXVALE_BIN_DIR="$t10/bin" \
+  FLUXVALE_RELEASE_BASE_URL="https://fixture.invalid/download" \
+  FLUXVALE_VERSION=0.1.0 \
+  sh "$install" 2>&1)"; then
+  assert "a *-marker checksum line still verifies" test -x "$t10/fluxvale/versions/0.1.0/fluxvale"
+else
+  bad "expected exit 0 for a *-marker SHA256SUMS, got 1: $out"
+fi
+
+# --- spaces in the install path are fine -------------------------------------------
+
+t11="$work/t11"
+mkdir -p "$t11/space home"
+if out="$(run_installer "$t11/space home" FLUXVALE_VERSION=0.1.0 2>&1)"; then
+  if [ "$("$t11/space home/bin/fluxvale" --version)" = "fluxvale 0.1.0" ]; then
+    ok "a space in the install path still runs the shim"
+  else
+    bad "shim broken with a space in the install path"
+  fi
+else
+  bad "expected exit 0 for a space in the install path, got 1: $out"
+fi
+
+# --- shim-breaking characters refuse --------------------------------------------------
+
+t12="$work/t12"
+mkdir -p "$t12"
+if out="$(run_installer "$t12" 'FLUXVALE_HOME=/tmp/br"oken' FLUXVALE_VERSION=0.1.0 2>&1)"; then got=0; else got=1; fi
+if [ "$got" = 1 ]; then
+  if printf '%s\n' "$out" | grep -q "unsafe install path"; then
+    ok "exit 1: a quote in the install path refuses"
+  else
+    bad "quote refusal is not the unsafe-path message: $out"
+  fi
+else
+  bad "expected exit 1 for a quote in FLUXVALE_HOME, got 0"
+fi
+
+# --- a relative FLUXVALE_HOME resolves absolute ----------------------------------------
+
+t13="$work/t13"
+mkdir -p "$t13/cwd"
+if out="$(cd "$t13/cwd" && env PATH="$fakebin:$PATH" \
+  FAKE_CURL_FIXTURE="$fixture" \
+  FLUXVALE_HOME=relhome/fluxvale \
+  FLUXVALE_BIN_DIR="$t13/bin" \
+  FLUXVALE_RELEASE_BASE_URL="https://fixture.invalid/download" \
+  FLUXVALE_VERSION=0.1.0 \
+  sh "$install_abs" 2>&1)"; then
+  assert "a relative FLUXVALE_HOME installs under the cwd" test -x "$t13/cwd/relhome/fluxvale/versions/0.1.0/fluxvale"
+  if grep -q 'exec "/' "$t13/bin/fluxvale"; then
+    ok "the shim embeds an absolute path"
+  else
+    bad "shim does not embed an absolute path: $(cat "$t13/bin/fluxvale")"
+  fi
+else
+  bad "expected exit 0 for a relative FLUXVALE_HOME, got 1: $out"
+fi
+
+# --- macOS Apple silicon maps to the macos-aarch64 leg ---------------------------------
+
+uname_darwin="$work/bin-darwin"
+make_fake_curl "$uname_darwin"
+cat >"$uname_darwin/uname" <<'FAKE'
+#!/bin/sh
+case "$1" in
+  -s) printf 'Darwin\n' ;;
+  -m) printf 'arm64\n' ;;
+  *) exec /usr/bin/uname "$@" ;;
+esac
+FAKE
+chmod 755 "$uname_darwin/uname"
+t14="$work/t14"
+mkdir -p "$t14"
+if out="$(env PATH="$uname_darwin:$PATH" \
+  FAKE_CURL_FIXTURE="$fixture" \
+  FLUXVALE_HOME="$t14/fluxvale" \
+  FLUXVALE_BIN_DIR="$t14/bin" \
+  FLUXVALE_RELEASE_BASE_URL="https://fixture.invalid/download" \
+  FLUXVALE_VERSION=0.2.0 \
+  sh "$install" 2>&1)"; then
+  assert "Darwin arm64 installs the macos-aarch64 archive" test -x "$t14/fluxvale/versions/0.2.0/fluxvale"
+  if printf '%s\n' "$out" | grep -q "macOS note"; then
+    ok "the macOS quarantine note prints on Darwin"
+  else
+    bad "no macOS note on Darwin: $out"
+  fi
+else
+  bad "expected exit 0 for Darwin arm64, got 1: $out"
+fi
+
+# --- Windows refuses with the manual-download pointer ------------------------------------
+
+uname_mingw="$work/bin-mingw"
+make_fake_curl "$uname_mingw"
+cat >"$uname_mingw/uname" <<'FAKE'
+#!/bin/sh
+case "$1" in
+  -s) printf 'MINGW64_NT-10.0-26100\n' ;;
+  -m) printf 'x86_64\n' ;;
+  *) exec /usr/bin/uname "$@" ;;
+esac
+FAKE
+chmod 755 "$uname_mingw/uname"
+t15="$work/t15"
+mkdir -p "$t15"
+if out="$(env PATH="$uname_mingw:$PATH" \
+  FAKE_CURL_FIXTURE="$fixture" \
+  FLUXVALE_HOME="$t15/fluxvale" \
+  FLUXVALE_BIN_DIR="$t15/bin" \
+  FLUXVALE_RELEASE_BASE_URL="https://fixture.invalid/download" \
+  FLUXVALE_VERSION=0.1.0 \
+  sh "$install" 2>&1)"; then got=0; else got=1; fi
+if [ "$got" = 1 ]; then
+  if printf '%s\n' "$out" | grep -q "Windows has no installer"; then
+    ok "exit 1: Windows refuses with the manual-download pointer"
+  else
+    bad "Windows refusal is not the manual-download message: $out"
+  fi
+else
+  bad "expected exit 1 for MINGW, got 0"
 fi
 
 echo "passed: $pass, failed: $fail"

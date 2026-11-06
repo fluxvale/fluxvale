@@ -261,6 +261,11 @@ jobs:
       # end against a fake curl serving fixture archives, no network.
       - run: ./scripts/test-install.sh
 
+      # The release-body composer (#480): changelog section extraction
+      # plus the static primer, proven on fixture changelogs and on the
+      # real one.
+      - run: ./scripts/test-release-notes.sh
+
       # The installer is user-facing on install day; lint the shell
       # scripts where their tests run (shellcheck is preinstalled on
       # runners).

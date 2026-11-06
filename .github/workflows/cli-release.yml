@@ -26,6 +26,13 @@
 # and the install path is smoked per run: a dispatch rehearsal installs
 # from the build artifacts over a local asset server; a tag run installs
 # through the real released one-liner on ubuntu + macos.
+#
+# One assumption to keep in mind: releases/latest is the newest release
+# in this repo, whatever the namespace. The installer verifies the tag
+# it resolves is a cli-v* and refuses otherwise, but the one-liner's
+# asset URL and smoke-released both assume a CLI release is newest —
+# revisit if the platform ever ships versioned releases (see the
+# changelog policy in cli/CHANGELOG.md).
 name: CLI release
 
 on:
@@ -250,64 +257,10 @@ jobs:
       - name: Compose the release notes from cli/CHANGELOG.md
         env:
           REF_NAME: ${{ github.ref_name }}
-        run: |
-          version="${REF_NAME#cli-v}"
-          case "$version" in
-            *[!0-9A-Za-z.+-]*) echo "::error::release version '$version' has characters outside Cargo's grammar"; exit 1 ;;
-          esac
-          # The section for this version, from its `## [version] - date`
-          # header to the next `## [` (or end of file). index() matches
-          # the header prefix without regex-escaping the version, and
-          # the tail check keeps `0.1.0` from matching `0.1.0-rc1`.
-          section="$(awk -v want="## [$version]" '
-            index($0, want) == 1 {
-              rest = substr($0, length(want) + 1)
-              if (rest == "" || rest ~ /^ -/) { on = 1; next }
-            }
-            on && /^## \[/ { exit }
-            on { print }
-          ' cli/CHANGELOG.md)"
-          if [ -z "$section" ]; then
-            echo "::error::cli/CHANGELOG.md has no ## [$version] section — write it before tagging"
-            exit 1
-          fi
-
-          # The static half: what the CLI is, how to install it, how to
-          # sign in. User-facing copy, so no em-dashes, no semicolons.
-          cat >notes.md <<'HEAD'
-          The **FluxVale CLI**. Install apps from the catalog and manage your instances, backups, access, and wallet from the command line. A single self-contained binary, no language runtime to install.
-
-          ## Install
-
-          ```sh
-          curl -fsSL https://github.com/fluxvale/fluxvale/releases/latest/download/install.sh | sh
-          ```
-
-          Installs into `~/.local/share/fluxvale`, puts a `fluxvale` shim in `~/.local/bin`, verifies the sha256 before extracting, and prunes the previous version on upgrade. Pin a version with `FLUXVALE_VERSION=<version>`. Re-running the line upgrades in place.
-
-          **Sign in** (the device flow):
-
-          ```
-          fluxvale auth login     # prints a code and opens the approval page
-                                  # compare the code, click Approve
-                                  # the token lands in your OS keychain, done
-          ```
-
-          Then `fluxvale apps list`, `fluxvale instances deploy --app <slug>`, and you are running.
-
-          Prefer to unpack by hand? The archives below are the same bits the installer fetches. Verify your download against `SHA256SUMS` (unix):
-
-          ```
-          grep <your-archive> SHA256SUMS | sha256sum -c -
-          ```
-
-          On Windows: `certutil -hashfile <your-archive> SHA256` and compare by eye.
-          HEAD
-
-          {
-            printf '\n## What changed in %s\n\n' "$version"
-            printf '%s\n' "$section"
-          } >>notes.md
+        # The composer lives in cli/scripts (tested by test-release-notes.sh
+        # in CLI gates, reachable by shellcheck): changelog section plus the
+        # static primer, exit 1 when the section is missing.
+        run: cli/scripts/release-notes.sh "${REF_NAME#cli-v}" notes.md
 
       # The release title strips the cli-v namespace prefix — the tag is
       # for the trigger and the archives, the title is for humans.
@@ -360,9 +313,13 @@ jobs:
           cp cli/scripts/install.sh dist/install.sh
           (cd dist && setsid python3 -m http.server 8765 >/dev/null 2>&1 &)
           for _ in 1 2 3 4 5 6 7 8 9 10; do
-            curl -fsS -o /dev/null http://127.0.0.1:8765/ && break
+            if curl -fsS -o /dev/null http://127.0.0.1:8765/; then break; fi
             sleep 0.5
           done
+          if ! curl -fsS -o /dev/null http://127.0.0.1:8765/; then
+            echo "::error::the local asset server did not come up"
+            exit 1
+          fi
           echo "--- installer (the script users get) ---"
           FLUXVALE_VERSION="$version" \
             FLUXVALE_RELEASE_BASE_URL=http://127.0.0.1:8765 \
@@ -375,10 +332,11 @@ jobs:
             *) echo "::error::installed binary does not carry the release version ($version)"; exit 1 ;;
           esac
           # Re-run: the upgrade path. Still exactly one version on disk.
+          # tr strips BSD wc's width padding (macOS); GNU wc adds none.
           FLUXVALE_VERSION="$version" \
             FLUXVALE_RELEASE_BASE_URL=http://127.0.0.1:8765 \
             sh cli/scripts/install.sh
-          count="$(find "$HOME/.local/share/fluxvale/versions" -mindepth 1 -maxdepth 1 -type d | wc -l)"
+          count="$(find "$HOME/.local/share/fluxvale/versions" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]')"
           if [ "$count" != 1 ]; then
             echo "::error::expected one version after re-install, got $count"
             exit 1
@@ -413,7 +371,7 @@ jobs:
             *) echo "::error::installed binary does not carry the release version ($version)"; exit 1 ;;
           esac
           curl -fsSL https://github.com/fluxvale/fluxvale/releases/latest/download/install.sh | sh
-          count="$(find "$HOME/.local/share/fluxvale/versions" -mindepth 1 -maxdepth 1 -type d | wc -l)"
+          count="$(find "$HOME/.local/share/fluxvale/versions" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]')"
           if [ "$count" != 1 ]; then
             echo "::error::expected one version after re-install, got $count"
             exit 1

@@ -32,6 +32,24 @@ BIN_DIR="${FLUXVALE_BIN_DIR:-$HOME/.local/bin}"
 say() { printf '%s\n' "$*"; }
 die() { printf 'fluxvale: %s\n' "$*" >&2; exit 1; }
 
+# The shim embeds HOME_DIR and BIN_DIR verbatim inside double quotes, so
+# a double quote, dollar sign, backtick, or control character in either
+# would break it. Spaces are fine. A relative path would resolve against
+# whatever directory the shim runs from, so both are absolutized.
+check_install_path() {
+  case "$1" in
+    *'"'* | *'$'* | *'`'* | *[[:cntrl:]]*)
+      die "unsafe install path: $1. Double quotes, dollar signs, backticks, and control characters are not supported."
+      ;;
+  esac
+}
+absolute() {
+  case "$1" in
+    /*) printf '%s\n' "$1" ;;
+    *) printf '%s\n' "${PWD:?}/$1" ;;
+  esac
+}
+
 # --- platform -------------------------------------------------------------
 
 # The archive names come from cli-release.yml's build matrix legs, not
@@ -135,6 +153,11 @@ expected_sum() {
 
 # --- install --------------------------------------------------------------
 
+check_install_path "$HOME_DIR"
+check_install_path "$BIN_DIR"
+HOME_DIR="$(absolute "$HOME_DIR")"
+BIN_DIR="$(absolute "$BIN_DIR")"
+
 target=$(detect_target)
 [ -n "$target" ] || die "could not detect this platform"
 
@@ -186,9 +209,15 @@ rm -rf "$staging"
 ln -sfn "$target_dir" "$HOME_DIR/current"
 
 # Prune on upgrade: one version on disk, so an old binary is never left
-# behind. Re-installing is seconds; rollback is a re-install.
+# behind. Re-installing is seconds; rollback is a re-install. Everything
+# digit-led in versions/ is an install or a crashed staging dir (both
+# prunable); anything else is not ours, so it stays.
 for dir in "$versions_dir"/*; do
   [ -d "$dir" ] || continue
+  case "${dir##*/}" in
+    [0-9]*) ;;
+    *) continue ;;
+  esac
   if [ "$dir" = "$target_dir" ]; then
     continue
   fi
