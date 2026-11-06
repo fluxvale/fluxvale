@@ -85,7 +85,7 @@ A Rust toolchain pinned in `rust-toolchain.toml` — `rustup` reads it and
 installs the exact version. Then the gates CI runs:
 
 ```
-cd cli
+cd apps/cli
 cargo build --release
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings

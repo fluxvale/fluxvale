@@ -1,0 +1,10 @@
+# The CLI workspace (ADR-0019 Am. 3), rooted at apps/cli: per-OS static
+# binaries are the distribution goal, and a workspace is the shape a
+# multi-crate CLI grows into.
+[workspace]
+resolver = "2"
+members = ["fluxvale-cli", "xtask"]
+
+[workspace.package]
+edition = "2024"
+license = "FSL-1.1-ALv2"

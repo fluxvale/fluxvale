@@ -33,7 +33,7 @@ flags:
     # CI) — nothing stale carries into PRs that skip it
     carryforward: false
   cli:
-    paths: [cli/]
+    paths: [apps/cli/]
     # false: the flag reports only when the cli coverage job ran
     # (path-gated CI) — nothing stale carries into PRs that skip it
     carryforward: false

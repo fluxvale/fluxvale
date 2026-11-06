@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for cli/scripts/check-tag-version.sh, run by the `CLI gates` CI
+# Tests for apps/cli/scripts/check-tag-version.sh, run by the `CLI gates` CI
 # job (and locally, with no tag): every case is a tag in, an exit status
 # out. The green case derives the version from Cargo.toml with its own
 # extraction (grep+cut, not the script's sed), so a legit version bump

@@ -31,5 +31,5 @@ What dev gave:
   plain "no gateway" line.
 
 Access attach/detach/resume are wire-tested against mock servers in
-the Rust suite (cli/fluxvale-cli/src/writes.rs); dev has no gateway to
+the Rust suite (apps/cli/fluxvale-cli/src/writes.rs); dev has no gateway to
 exercise them against.
