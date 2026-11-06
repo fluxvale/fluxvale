@@ -11,6 +11,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
   use FluxValeWeb.ConnCase, async: true
   use Mimic
 
+  alias FluxVale.Accounts
   alias FluxVale.Clients.K8s
   alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessGateway
@@ -164,6 +165,64 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
 
       # The transactional promise: no stranded half-registered row.
       refute domain_exists?("failed.example.com")
+    end
+
+    test "naming one of the caller's own orgs registers there (#408)", %{conn: conn} do
+      # The named org is the org in play: ITS wallet carries the
+      # entitlement (the ops suite's stance), so mark it paid.
+      {user, _org} = paid_member!()
+      pat = ApiPat.mint!(user.email, ["gateways:write"])
+
+      {:ok, team} =
+        Accounts.create_organization(user, %{
+          name: "Domain Team",
+          slug: "domain-team-#{System.unique_integer([:positive])}"
+        })
+
+      BillingFixtures.mark_paid!(team)
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v1/access-domains", %{
+          "data" => %{
+            "type" => "access_domain",
+            "attributes" => %{
+              "domain" => "team.example.com",
+              "organization_id" => team.id
+            }
+          }
+        })
+
+      assert %{"data" => %{"attributes" => %{"organization_id" => named}}} =
+               json_response(conn, 201)
+
+      assert named == team.id
+    end
+
+    test "a duplicate register is refused by name — no second mint", %{conn: conn} do
+      {user, org} = paid_member!()
+      custom_domain!(user, org, @domain_name)
+      pat = ApiPat.mint!(user.email, ["gateways:write"])
+
+      # EnsureRegistrable refuses in before_action — before any cluster
+      # call, so no Certificate mint fires for the refused attempt.
+      reject(Kubereq, :apply, 3)
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v1/access-domains", %{
+          "data" => %{
+            "type" => "access_domain",
+            "attributes" => %{"domain" => @domain_name}
+          }
+        })
+
+      assert %{"errors" => [error]} = json_response(conn, 400)
+      assert error["detail"] == "is already registered"
     end
 
     test "a foreign organization_id is Forbidden — the wire names only the caller's own orgs",
@@ -340,6 +399,31 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
       assert %{"data" => %{"attributes" => %{"state" => "verified"}}} = json_response(conn, 200)
     end
 
+    test "a non-suspended row is a true no-op — no render, state unchanged", %{conn: conn} do
+      {user, org} = paid_member!()
+      pending = custom_domain!(user, org, @domain_name)
+
+      # The wire can meet a :verified row (a stale provider cache
+      # retrying after the observer re-verified it). The resume changes
+      # nothing, so it must also re-render nothing — the render is a
+      # full cluster-wide gather + ConfigMap write.
+      {:ok, verified} = AccessDomain.mark_verified(pending, authorize?: false)
+      pat = ApiPat.mint!(user.email, ["gateways:write"])
+
+      reject(RenderAccessDNS, :call, 0)
+      reject(RenderAccessDNS, :call, 1)
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> patch("/api/v1/access-domains/#{verified.id}/resume", %{
+          "data" => %{"type" => "access_domain", "id" => verified.id, "attributes" => %{}}
+        })
+
+      assert %{"data" => %{"attributes" => %{"state" => "verified"}}} = json_response(conn, 200)
+    end
+
     test "a drained wallet is Forbidden — the funded gate rides the wire", %{conn: conn} do
       {user, org} = paid_member!()
       domain = suspended_domain!(user, org)
@@ -435,7 +519,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
     test "a domain still serving hostnames is refused before any tailnet write", %{conn: conn} do
       {user, org} = paid_member!()
       domain = custom_domain!(user, org, @domain_name)
-      hostname_instance!(org, user, domain)
+      hostname_instance!(user, domain)
       pat = ApiPat.mint!(user.email, ["gateways:write"])
 
       # P1-2's step (1): the pre-check precedes the tailnet — a refused
@@ -570,9 +654,10 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
   end
 
   # One hostname row on the domain — the hostnames_present refusal's
-  # subject (the ops suite's shape: the instance rides the real create
-  # action, the cluster fixture rides the fixtures).
-  defp hostname_instance!(org, user, domain) do
+  # subject. The instance rides the real create action (the actor's
+  # personal org — SetOrganizationFromActor); only the hostname row
+  # matters here.
+  defp hostname_instance!(user, domain) do
     InstanceFixtures.local_cluster!()
     version = InstanceFixtures.app_version!()
 

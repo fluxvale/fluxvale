@@ -31,15 +31,6 @@ defmodule FluxVale.Infrastructure.AccessDomain.MintCertificate do
 
   require Logger
 
-  # The resource references this change only as a DSL atom, so the two
-  # may compile in either order — the parallel compiler can reach this
-  # module first and warn on the derivations below. Same app, and the
-  # resource is fully compiled before any register runs: the warning
-  # would be noise; the gate compiles --warnings-as-errors.
-  @compile {:no_warn_undefined, {AccessDomain, :certificate_name, 1}}
-
-  @compile {:no_warn_undefined, {AccessDomain, :certificate_spec, 1}}
-
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
     # The cluster call rides the create's transaction: an error return

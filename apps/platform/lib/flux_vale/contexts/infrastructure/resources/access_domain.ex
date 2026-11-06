@@ -50,7 +50,7 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       # gateways:read — the org's domains (the provider's list). A
       # foreign org's list answers 200 [] (index semantics): a mistyped
       # org id reads as "no domains", so source organization ids from
-      # /me/organizations, never hand-typed.
+      # the org list (GET /organizations), never hand-typed.
       index(:list_for_org,
         route: "/organizations/:organization_id/access-domains",
         default_fields: @domain_fields
@@ -74,10 +74,13 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       patch(:resume, route: "/access-domains/:id/resume", default_fields: @domain_fields)
 
       # gateways:write — the wire's remove runs the FULL operation
-      # (remove_via_api below): tailnet unclaim, Corefile re-render,
-      # Certificate safe-delete, then the row. Routing the raw :remove
-      # destroy instead would leak a Certificate per provider retry —
-      # no row left to re-derive the unclaim from.
+      # (remove_via_api below), in its safety order: tailnet unclaim,
+      # THEN the row destroy, the Corefile re-render, and the
+      # Certificate safe-delete — live TLS state must never be deleted
+      # while the row still stands, and a destroyed row is the only
+      # point from which the cert delete is safe. Routing the raw
+      # :remove destroy instead would leak a Certificate per provider
+      # retry — no row left to re-derive the unclaim from.
       route(:delete, "access-domains/:id", :remove_via_api)
     end
   end
@@ -152,8 +155,9 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       forbid_if(always())
     end
 
-    # Resuming a suspended domain uses the entitlement again: membership
-    # AND a funded wallet (the same gate registration carries).
+    # Resuming a suspended domain: membership AND a funded wallet —
+    # NOT the paid-once gate register carries (resuming is not
+    # unlocking).
     policy action(:resume) do
       description("Members resume their org's own domain — membership AND a funded wallet")
       forbid_unless(relates_to_actor_via([:organization, :members]))
