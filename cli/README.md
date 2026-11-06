@@ -19,8 +19,8 @@ curl -fsSL https://github.com/fluxvale/fluxvale/releases/latest/download/install
 
 Installs into `~/.local/share/fluxvale/versions/<version>` behind a
 `current` symlink and puts a `fluxvale` shim in `~/.local/bin`. Re-running
-the line upgrades in place and prunes the previous version. Pin a release
-with `FLUXVALE_VERSION=<version>`.
+the line upgrades in place and removes other installed versions. Pin a
+release with `FLUXVALE_VERSION=<version>`.
 
 Prefer to unpack by hand? Download the archive for your machine from
 [GitHub Releases](https://github.com/fluxvale/fluxvale/releases), verify

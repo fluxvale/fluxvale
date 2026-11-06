@@ -13,7 +13,9 @@ set -eu
 
 version="${1:?usage: release-notes.sh <version> [output-path]}"
 if [ "$#" -ge 2 ]; then
-  exec >"$2"
+  out_path="$2"
+else
+  out_path=""
 fi
 
 # The same grammar guard the release workflow applies: URL- and
@@ -42,8 +44,10 @@ if [ -z "$section" ]; then
 fi
 
 # The static half: what the CLI is, how to install it, how to sign in.
-# User-facing copy, so no em-dashes, no semicolons.
-cat <<'HEAD'
+# User-facing copy, so no em-dashes, no semicolons. The body is composed
+# in full before anything is written, so a failed compose never
+# truncates an existing output file.
+static="$(cat <<'HEAD'
 The **FluxVale CLI**. Install apps from the catalog and manage your instances, backups, access, and wallet from the command line. A single self-contained binary, no language runtime to install.
 
 ## Install
@@ -52,7 +56,7 @@ The **FluxVale CLI**. Install apps from the catalog and manage your instances, b
 curl -fsSL https://github.com/fluxvale/fluxvale/releases/latest/download/install.sh | sh
 ```
 
-Installs into `~/.local/share/fluxvale`, puts a `fluxvale` shim in `~/.local/bin`, verifies the sha256 before extracting, and prunes the previous version on upgrade. Pin a version with `FLUXVALE_VERSION=<version>`. Re-running the line upgrades in place.
+Installs into `~/.local/share/fluxvale`, puts a `fluxvale` shim in `~/.local/bin`, verifies the sha256 before extracting, and removes other installed versions on upgrade. Pin a version with `FLUXVALE_VERSION=<version>`. Re-running the line upgrades in place.
 
 **Sign in** (the device flow):
 
@@ -72,6 +76,12 @@ grep <your-archive> SHA256SUMS | sha256sum -c -
 
 On Windows: `certutil -hashfile <your-archive> SHA256` and compare by eye.
 HEAD
+)"
 
-printf '\n## What changed in %s\n\n' "$version"
-printf '%s\n' "$section"
+body="$(printf '%s\n\n## What changed in %s\n\n%s\n' "$static" "$version" "$section")"
+
+if [ -n "$out_path" ]; then
+  printf '%s\n' "$body" >"$out_path"
+else
+  printf '%s\n' "$body"
+fi

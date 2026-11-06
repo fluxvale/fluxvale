@@ -184,6 +184,19 @@ else
   bad "grammar guard did not fire (exit $got)"
 fi
 
+# --- a failed compose never truncates an existing output file -------------------------
+
+t6="$work/t6"
+make_fixture "$t6"
+printf '# Changelog\n\n## [Unreleased]\n\n- nothing\n' >"$t6/CHANGELOG.md"
+printf 'PRECIOUS\n' >"$t6/notes.md"
+run_compose "$t6" 0.9.9 "$t6/notes.md"
+if [ "$got" = 1 ] && [ "$(cat "$t6/notes.md")" = "PRECIOUS" ]; then
+  ok "exit 1 and the pre-existing output file is untouched"
+else
+  bad "a failed compose clobbered the output file (exit $got): $(cat "$t6/notes.md" 2>&1)"
+fi
+
 # --- green against the real changelog -------------------------------------------------
 
 cargo_version="$(grep -m1 '^version = ' fluxvale-cli/Cargo.toml | cut -d'"' -f2)"

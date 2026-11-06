@@ -76,6 +76,7 @@ while [ $# -gt 0 ]; do
     *) url="$1"; shift ;;
   esac
 done
+printf '%s\n' "$url" >>"$fixture/requested_urls.log"
 if [ "$mode" = "redirect" ]; then
   cat "$fixture/redirect_url"
   exit 0
@@ -113,10 +114,12 @@ versions_dir_of() {
   printf '%s\n' "$home/fluxvale/versions"
 }
 
-# One version dir on disk (the prune invariant). tr strips the padding
-# BSD wc puts around its output (macOS pads to width 7 even on pipes).
+# One version dir on disk (the prune invariant). Digit-led only, to
+# match the installer's notion of an installed version. tr strips the
+# padding BSD wc puts around its output (macOS pads to width 7 even on
+# pipes).
 version_count() {
-  find "$(versions_dir_of "$1")" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]'
+  find "$(versions_dir_of "$1")" -mindepth 1 -maxdepth 1 -type d -name '[0-9]*' | wc -l | tr -d '[:space:]'
 }
 
 # The green-path cases share one fixture: the archives plus a SHA256SUMS
@@ -455,6 +458,83 @@ if [ "$got" = 1 ]; then
   fi
 else
   bad "expected exit 1 for MINGW, got 0"
+fi
+
+# --- the default base URL is the release for the version --------------------------
+
+fixture_log="$work/logged"
+mkdir -p "$fixture_log"
+cp "$fixture/fluxvale-0.1.0-linux-amd64.tar.gz" "$fixture_log/"
+(cd "$fixture_log" && sha256sum fluxvale-0.1.0-linux-amd64.tar.gz >SHA256SUMS)
+printf 'https://github.com/fluxvale/fluxvale/releases/tag/cli-v0.1.0\n' >"$fixture_log/redirect_url"
+log_bin="$work/bin-log"
+make_fake_curl "$log_bin"
+t16="$work/t16"
+mkdir -p "$t16"
+if out="$(env PATH="$log_bin:$PATH" \
+  FAKE_CURL_FIXTURE="$fixture_log" \
+  FLUXVALE_HOME="$t16/fluxvale" \
+  FLUXVALE_BIN_DIR="$t16/bin" \
+  sh "$install" 2>&1)"; then
+  if grep -q "https://github.com/fluxvale/fluxvale/releases/download/cli-v0.1.0/fluxvale-0.1.0-linux-amd64.tar.gz" "$fixture_log/requested_urls.log"; then
+    ok "the default base URL names the cli-v tag and the leg archive"
+  else
+    bad "default asset URL wrong: $(cat "$fixture_log/requested_urls.log")"
+  fi
+  if grep -q "https://github.com/fluxvale/fluxvale/releases/latest" "$fixture_log/requested_urls.log"; then
+    ok "latest resolution asks releases/latest"
+  else
+    bad "no releases/latest request: $(cat "$fixture_log/requested_urls.log")"
+  fi
+else
+  bad "expected exit 0 for the default-URL install, got 1: $out"
+fi
+
+# --- the narrowed prune keeps non-version dirs -------------------------------------
+
+t17="$work/t17"
+mkdir -p "$t17"
+run_installer "$t17" FLUXVALE_VERSION=0.1.0 >/dev/null 2>&1
+mkdir -p "$t17/fluxvale/versions/notes"
+run_installer "$t17" FLUXVALE_VERSION=0.2.0 >/dev/null 2>&1
+assert "a non-version dir in versions/ survives the prune" test -d "$t17/fluxvale/versions/notes"
+count="$(version_count "$t17")"
+if [ "$count" = 1 ]; then
+  ok "the prune still leaves one installed version"
+else
+  bad "expected one version dir alongside the survivor, got $count"
+fi
+
+# --- a hostile cwd composes into the guard -------------------------------------------
+
+t18="$work/t18"
+mkdir -p "$t18/cwd/quo\"te"
+if out="$(cd "$t18/cwd/quo\"te" && env PATH="$fakebin:$PATH" \
+  FAKE_CURL_FIXTURE="$fixture" \
+  FLUXVALE_HOME=relhome \
+  FLUXVALE_BIN_DIR="$t18/bin" \
+  FLUXVALE_RELEASE_BASE_URL="https://fixture.invalid/download" \
+  FLUXVALE_VERSION=0.1.0 \
+  sh "$install_abs" 2>&1)"; then got=0; else got=1; fi
+if [ "$got" = 1 ]; then
+  if printf '%s\n' "$out" | grep -q "unsafe install path"; then
+    ok "exit 1: a hostile cwd composes into the unsafe-path refusal"
+  else
+    bad "hostile-cwd refusal is not the unsafe-path message: $out"
+  fi
+else
+  bad "expected exit 1 for a hostile cwd with a relative FLUXVALE_HOME, got 0"
+fi
+
+# --- . and .. are not versions ----------------------------------------------------------
+
+t19="$work/t19"
+mkdir -p "$t19"
+if out="$(run_installer "$t19" FLUXVALE_VERSION=.. 2>&1)"; then got=0; else got=1; fi
+if [ "$got" = 1 ]; then
+  ok "exit 1: .. is refused as a version"
+else
+  bad "expected exit 1 for FLUXVALE_VERSION=.., got 0"
 fi
 
 echo "passed: $pass, failed: $fail"

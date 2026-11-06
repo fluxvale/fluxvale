@@ -25,7 +25,17 @@ set -eu
 
 REPO="${FLUXVALE_REPO:-fluxvale/fluxvale}"
 REQUESTED_VERSION="${FLUXVALE_VERSION:-}"
-DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+
+# DATA_HOME: XDG first, then HOME, both possibly absent. A HOME-less
+# host with no FLUXVALE_HOME gets an honest refusal, not a crash.
+DATA_HOME="${XDG_DATA_HOME:-}"
+if [ -z "$DATA_HOME" ]; then
+  if [ -z "${HOME:-}" ]; then
+    printf 'fluxvale: neither XDG_DATA_HOME nor HOME is set. Set FLUXVALE_HOME to pick an install dir.\n' >&2
+    exit 1
+  fi
+  DATA_HOME="$HOME/.local/share"
+fi
 HOME_DIR="${FLUXVALE_HOME:-$DATA_HOME/fluxvale}"
 BIN_DIR="${FLUXVALE_BIN_DIR:-$HOME/.local/bin}"
 
@@ -117,6 +127,7 @@ check_version() {
     die "invalid version: (empty)"
   fi
   case "$1" in
+    . | ..) die "invalid version: $1" ;;
     *[!0-9A-Za-z.+-]*) die "invalid version: $1" ;;
   esac
 }
@@ -153,10 +164,14 @@ expected_sum() {
 
 # --- install --------------------------------------------------------------
 
-check_install_path "$HOME_DIR"
-check_install_path "$BIN_DIR"
 HOME_DIR="$(absolute "$HOME_DIR")"
 BIN_DIR="$(absolute "$BIN_DIR")"
+
+# The guard runs AFTER absolutization: a relative FLUXVALE_HOME under a
+# cwd with a hostile name composes into the shim line just as surely as
+# a hostile FLUXVALE_HOME would.
+check_install_path "$HOME_DIR"
+check_install_path "$BIN_DIR"
 
 target=$(detect_target)
 [ -n "$target" ] || die "could not detect this platform"
