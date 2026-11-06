@@ -15,8 +15,15 @@ defmodule FluxValeWeb.AllocationSlidersTest do
 
   @rungs %{"cpu_cores" => "0.5", "memory_mb" => "512", "storage_gb" => "10"}
 
-  defp render_sliders(locked, locked_note) do
-    assigns = %{resources: @rungs, name: "resize", locked: locked, locked_note: locked_note}
+  defp render_sliders(locked, locked_note, opts \\ []) do
+    assigns = %{
+      resources: @rungs,
+      name: "resize",
+      locked: locked,
+      hidden: Keyword.get(opts, :hidden, []),
+      locked_note: locked_note
+    }
+
     html = render_component(&AllocationSliders.sliders/1, assigns)
 
     LazyHTML.from_fragment(html)
@@ -70,6 +77,44 @@ defmodule FluxValeWeb.AllocationSlidersTest do
     notes = LazyHTML.attribute(locked_note_query, "data-testid")
 
     assert notes == []
+  end
+
+  test "a hidden dimension renders neither input nor ticks" do
+    doc = render_sliders(["storage_gb"], nil, hidden: ["storage_gb"])
+
+    input = LazyHTML.query(doc, "[data-testid='resource-storage']")
+    assert LazyHTML.attribute(input, "data-testid") == []
+
+    ticks = LazyHTML.query(doc, "#resource-storage-gb-ticks")
+    assert LazyHTML.attribute(ticks, "id") == []
+
+    # The other dimensions render untouched.
+    refute disabled?(doc, "resource-cpu")
+  end
+
+  test "a locked slider's active tick reads muted (the enabled one reads primary)" do
+    locked_doc = render_sliders(["storage_gb"], nil, [])
+
+    # The storage rung's active tick sits under the muted thumb: the
+    # active dot is line-strong, never primary.
+    active_tick =
+      locked_doc
+      |> LazyHTML.query("[data-value='10'] span")
+      |> LazyHTML.attribute("class")
+      |> List.first()
+
+    assert active_tick =~ "bg-line-strong"
+    refute active_tick =~ "bg-primary"
+
+    enabled_doc = render_sliders([], nil, [])
+
+    active_enabled =
+      enabled_doc
+      |> LazyHTML.query("[data-value='10'] span")
+      |> LazyHTML.attribute("class")
+      |> List.first()
+
+    assert active_enabled =~ "bg-primary"
   end
 
   # The rung seeding math (F2) is numeric end to end — the regression

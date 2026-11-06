@@ -1878,11 +1878,17 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     } do
       stub_deploy_k8s()
       # The panel opens on the stopped landing — its capability probe
-      # rides the same stub shape (locked reads the honest no).
+      # rides the same stub shape (locked reads the honest no). The
+      # on-ladder storage keeps the (truthful) disabled slider visible.
       stub_storage_probe(false)
 
       pending = create_instance!(version, user)
-      running = InstanceFixtures.walk_to!(pending, :running)
+
+      running =
+        pending
+        |> InstanceFixtures.walk_to!(:running)
+        |> InstanceFixtures.pin!(storage_gb: 10)
+
       {:ok, view, _html} = live(conn, ~p"/instances/#{running.id}")
 
       view
@@ -1939,6 +1945,13 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       open_resize_panel(view)
 
       assert has_element?(view, "[data-testid='resize-off-ladder-note']")
+
+      assert has_element?(
+               view,
+               "[data-testid='resize-off-ladder-note']",
+               "storage only grows, so it rounds up"
+             )
+
       assert render(element(view, "[data-testid='resource-memory']")) =~ "512 MB"
       assert render(element(view, "[data-testid='resource-storage']")) =~ "5 GB"
       assert render(element(view, "[data-testid='resource-cpu']")) =~ "0.5 cores"
@@ -1981,8 +1994,11 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       user: user,
       version: version
     } do
+      # On-ladder storage (10 GB): the disabled slider tells the truth,
+      # so it renders (an off-ladder locked row hides it instead — see
+      # the fixed-line test below).
       stub_storage_probe(false)
-      stopped = stopped_instance!(version, user)
+      stopped = stopped_instance!(version, user, %{storage_gb: 10})
       {:ok, view, _html} = live(conn, ~p"/instances/#{stopped.id}")
 
       open_resize_panel(view)
@@ -1997,6 +2013,82 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
       # The other dimensions stay live.
       refute render(element(view, "[data-testid='resource-cpu']")) =~ ~s(disabled="")
+    end
+
+    test "an off-ladder locked row hides the slider and states the row's storage", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      # 7 GB isn't a rung — the nearest-rung slider (5 GB) would read as
+      # an imminent shrink. The slider yields to a line that names the
+      # row's own GB.
+      stub_storage_probe(false)
+      stopped = stopped_instance!(version, user, %{storage_gb: 7})
+      {:ok, view, _html} = live(conn, ~p"/instances/#{stopped.id}")
+
+      open_resize_panel(view)
+
+      refute has_element?(view, "[data-testid='resource-storage']")
+      refute has_element?(view, "[data-testid='slider-locked-note']")
+
+      assert has_element?(
+               view,
+               "[data-testid='resize-storage-fixed']",
+               "Storage: 7 GB · stays unchanged (can't expand on this cluster yet)"
+             )
+    end
+
+    test "a locked row prices its OWN storage, not the displayed rung", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      # The payload omits storage when locked, so the action keeps 7 GB
+      # — the price line must promise THOSE figures (the effective
+      # candidate), never the displayed rung's (5 GB would bill less).
+      stub_storage_probe(false)
+      stopped = stopped_instance!(version, user, %{storage_gb: 7})
+      {:ok, view, _html} = live(conn, ~p"/instances/#{stopped.id}")
+
+      open_resize_panel(view)
+
+      rates =
+        Pricing.price_allocation(%{cpu_cores: Decimal.new("0.5"), memory_mb: 512, storage_gb: 7})
+
+      assert has_element?(
+               view,
+               "[data-testid='resize-price']",
+               "to #{Pricing.format_usd(rates.monthly_cents)}/mo · billed hourly"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='resize-price']",
+               "#{Pricing.format_usd(rates.stopped_monthly_cents)}/mo while stopped"
+             )
+    end
+
+    test "a locked 0 GB row prices a $0.00 stopped fee — the truth about staying put", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      stub_storage_probe(false)
+      stopped = stopped_instance!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{stopped.id}")
+
+      open_resize_panel(view)
+
+      # Storage stays 0 GB: no PVC, no stopped fee — the pre-fix panel
+      # promised $0.24 for a 5 GB PVC the action would never create.
+      assert has_element?(view, "[data-testid='resize-price']", "$0.00/mo while stopped")
+
+      assert has_element?(
+               view,
+               "[data-testid='resize-storage-fixed']",
+               "Storage: 0 GB · stays unchanged (can't expand on this cluster yet)"
+             )
     end
 
     test "an expandable cluster leaves storage unlocked", %{
@@ -2025,7 +2117,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
         {:error, K8s.Error.connection_error("api server on fire")}
       end)
 
-      stopped = stopped_instance!(version, user)
+      stopped = stopped_instance!(version, user, %{storage_gb: 10})
       {:ok, view, _html} = live(conn, ~p"/instances/#{stopped.id}")
 
       open_resize_panel(view)
@@ -2234,6 +2326,12 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
       refute has_element?(view, "[data-testid='resize-price']")
       assert render(element(view, "[data-testid='resize-continue']")) =~ ~s(disabled="")
+
+      assert has_element?(
+               view,
+               "[data-testid='resize-price-unavailable']",
+               "Couldn't show a price right now — close and reopen the panel."
+             )
     end
 
     test "a candidate equal to the row disables Continue — the dead end never opens", %{
@@ -2534,6 +2632,167 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       render(view)
 
       refute has_element?(view, "[data-testid='resize-panel']")
+    end
+
+    test "another tab's START resets the panel mid-confirm — the stopped promise went stale", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      stub_storage_probe(true)
+      stopped = stopped_instance!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{stopped.id}")
+
+      open_resize_panel(view)
+
+      view
+      |> element("#resize-form")
+      |> render_change(%{"resize" => %{"memory_mb" => "1"}})
+
+      view
+      |> element("[data-testid='resize-continue']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='resize-confirm']")
+
+      # Another tab starts the row — the confirm's "stays stopped"
+      # premise is gone. The broadcast re-reads :starting → the panel
+      # resets.
+      {:ok, _starting} = InstanceK8s.update_status(stopped, :starting, nil)
+      render(view)
+
+      refute has_element?(view, "[data-testid='resize-confirm']")
+      refute has_element?(view, "[data-testid='resize-panel']")
+    end
+
+    test "a stale running state flashes the state copy, never the raw atom", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      stub_storage_probe(true)
+      stopped = stopped_instance!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{stopped.id}")
+
+      open_resize_panel(view)
+
+      view
+      |> element("#resize-form")
+      |> render_change(%{"resize" => %{"memory_mb" => "1"}})
+
+      view
+      |> element("[data-testid='resize-continue']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='resize-confirm']")
+
+      # The row starts WITHOUT a broadcast (a silent write — a notifying
+      # one would reset the panel before the submit): the guard's
+      # settle-fence re-read catches it at write time, and the guard's
+      # message carries the raw atom, which the surface must map to the
+      # page's impossible-action copy.
+      stopped
+      |> Ash.Changeset.for_update(:update_status, %{}, authorize?: false)
+      |> Ash.Changeset.force_change_attribute(:status, :starting)
+      |> Ash.update!(return_notifications?: true)
+
+      view
+      |> element("#resize-form")
+      |> render_submit(%{"resize" => %{"memory_mb" => "1"}})
+
+      html = render(view)
+      assert html =~ "That action isn&#39;t possible from this state."
+      refute html =~ "cannot resize instance in"
+    end
+
+    test "a row that drifted ONTO the candidate lands the resize it names", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      # The F8-class silent-write race: the row drifts to the candidate
+      # (memory 512, no broadcast) after the confirm renders. The
+      # socket's frozen copy still reads the old allocation, so the
+      # action sees a REAL change (storage 0 → 5) and lands it — no
+      # no-op refusal is reachable here (F5/F8/F1b close every door);
+      # the panel resets on the next broadcast either way.
+      stub_storage_probe(true)
+      stopped = stopped_instance!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{stopped.id}")
+
+      open_resize_panel(view)
+
+      view
+      |> element("#resize-form")
+      |> render_change(%{"resize" => %{"memory_mb" => "1"}})
+
+      view
+      |> element("[data-testid='resize-continue']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='resize-confirm']")
+
+      stopped
+      |> Ash.Changeset.for_update(:update_status, %{}, authorize?: false)
+      |> Ash.Changeset.force_change_attribute(:memory_mb, 512)
+      |> Ash.Changeset.force_change_attribute(:storage_gb, 5)
+      |> Ash.update!(return_notifications?: true)
+
+      view
+      |> element("#resize-form")
+      |> render_submit(%{"resize" => %{"memory_mb" => "1"}})
+
+      assert render(view) =~ "Resized. Start your instance to run at the new size."
+
+      # The named cpu/memory land (memory rung idx 1 is 1024); storage
+      # rides the socket's frozen copy.
+      assert has_element?(view, "[data-testid='instance-resources']", "0.5 CPU · 1024 MB · 5 GB")
+    end
+
+    test "a stopped-only reprice still says the price changed (whole-preview compare)", %{
+      conn: conn,
+      user: user
+    } do
+      stub_storage_probe(true)
+      stopped = stopped_instance!(on_ladder_version!(), user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{stopped.id}")
+
+      open_resize_panel(view)
+
+      view
+      |> element("#resize-form")
+      |> render_change(%{"resize" => %{"cpu_cores" => "2"}})
+
+      view
+      |> element("[data-testid='resize-continue']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='resize-confirm']")
+
+      # An admin repriced ONLY the stopped rate: the running figure is
+      # unchanged, but the whole preview moved — the changed copy (with
+      # the running figure) fires, not the refresh one.
+      Mimic.copy(PricingSnapshot)
+
+      stub(PricingSnapshot, :snapshot, fn _allocation, _version, _now ->
+        %{
+          size_id: nil,
+          monthly_cents: 100,
+          stopped_monthly_cents: 25,
+          grandfathered_until: DateTime.shift(DateTime.utc_now(), year: 1)
+        }
+      end)
+
+      view
+      |> element("#resize-form")
+      |> render_submit(%{"resize" => %{"cpu_cores" => "2"}})
+
+      html = render(view)
+
+      assert html =~
+               "The price changed since you confirmed (now $1.00/mo) — review and confirm again."
+
+      refute html =~ "couldn&#39;t be refreshed"
     end
 
     test "a price move between confirm and submit refuses and returns to :choose", %{

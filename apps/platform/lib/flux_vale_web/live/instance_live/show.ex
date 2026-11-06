@@ -59,6 +59,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
             resize_preview: nil,
             storage_locked: false,
             storage_lock_reason: nil,
+            resize_storage_fixed: false,
             open_resize_on_stop: false,
             resize_seed: nil,
             resize_no_op: false,
@@ -135,7 +136,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
                 </div>
                 <div class="flex shrink-0 flex-col items-end gap-1 pb-1">
                   <div class="flex flex-wrap gap-2">
-                    <.action_buttons instance={@instance} />
+                    <.action_buttons instance={@instance} panel_open={@resize_open} />
                   </div>
                   <%!-- #493: the guided stop→resize start — the button
                   stops now; the panel opens when the row lands :stopped
@@ -497,6 +498,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
               step={@resize_step}
               storage_locked={@storage_locked}
               storage_lock_reason={@storage_lock_reason}
+              storage_fixed={@resize_storage_fixed}
               off_ladder={@resize_off_ladder}
               no_op={@resize_no_op}
             />
@@ -673,6 +675,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
   # Lifecycle controls gated by the state machine's legal transitions —
   # the actions enforce the same, this is presentation.
+  attr(:instance, :any, required: true)
+  attr(:panel_open, :boolean, default: false)
+
   defp action_buttons(assigns) do
     ~H"""
     <.button
@@ -721,7 +726,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
     from the states that can't reach :stopped cleanly — wake or deploy
     first, plain and honest. --%>
     <.button
-      :if={@instance.status == :stopped}
+      :if={@instance.status == :stopped and not @panel_open}
       variant="ghost"
       size="sm"
       phx-click="open-resize"
@@ -781,6 +786,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
   attr(:step, :atom, required: true)
   attr(:storage_locked, :boolean, required: true)
   attr(:storage_lock_reason, :atom, required: true)
+  attr(:storage_fixed, :boolean, required: true)
   attr(:off_ladder, :boolean, required: true)
   attr(:no_op, :boolean, required: true)
 
@@ -818,12 +824,25 @@ defmodule FluxValeWeb.InstanceLive.Show do
         <AllocationSliders.sliders
           resources={@resources}
           name="resize"
-          locked={if(@storage_locked, do: ["storage_gb"], else: [])}
-          locked_note={if(@storage_locked, do: storage_lock_note(@storage_lock_reason))}
+          locked={if(@storage_locked and not @storage_fixed, do: ["storage_gb"], else: [])}
+          hidden={if(@storage_fixed, do: ["storage_gb"], else: [])}
+          locked_note={
+            if(@storage_locked and not @storage_fixed,
+              do: storage_lock_note(@storage_lock_reason)
+            )
+          }
         />
 
+        <%!-- An off-ladder locked row can't be a rung — the nearest
+        rung would read as an imminent shrink — so the slider yields to
+        this line (the payload omits storage; the row keeps its value). --%>
+        <p :if={@storage_fixed} class="text-xs text-ink-subtle" data-testid="resize-storage-fixed">
+          {storage_fixed_line(@storage_lock_reason, @instance.storage_gb)}
+        </p>
+
         <p :if={@off_ladder} class="text-xs text-ink-subtle" data-testid="resize-off-ladder-note">
-          Sizes that aren't offered here move to the nearest offered size.
+          Sizes not offered here move to the nearest offered size; storage only grows, so it rounds
+          up.
         </p>
 
         <%!-- The price is the resize's own snapshot choice (the domain's
@@ -845,6 +864,14 @@ defmodule FluxValeWeb.InstanceLive.Show do
           </p>
           <p class="text-ink-muted">{@figures.stopped} while stopped</p>
         </div>
+
+        <p
+          :if={is_nil(@figures)}
+          class="text-xs text-ink-subtle"
+          data-testid="resize-price-unavailable"
+        >
+          Couldn't show a price right now — close and reopen the panel.
+        </p>
 
         <p :if={@step == :choose} class="text-sm text-ink-subtle">
           The new size applies when you start the instance.
@@ -911,6 +938,14 @@ defmodule FluxValeWeb.InstanceLive.Show do
   # way, only the note differs.
   defp storage_lock_note(:capability), do: "Storage can't be expanded on this cluster yet."
   defp storage_lock_note(:error), do: "Couldn't check storage expansion — try again."
+
+  # The hidden-slider line for an off-ladder locked row: the row's own
+  # GB, stated as staying put, with the lock's reason.
+  defp storage_fixed_line(:capability, gb),
+    do: "Storage: #{gb} GB · stays unchanged (can't expand on this cluster yet)"
+
+  defp storage_fixed_line(:error, gb),
+    do: "Storage: #{gb} GB · stays unchanged (couldn't check storage expansion — try again)"
 
   @impl Phoenix.LiveView
   def handle_event("deploy", _params, socket) do
@@ -1054,16 +1089,18 @@ defmodule FluxValeWeb.InstanceLive.Show do
     rungs =
       Map.merge(socket.assigns.resize_resources, AllocationSliders.resource_strings(params))
 
-    preview = preview_for(socket.assigns.instance, rungs)
+    preview = preview_for(socket.assigns.instance, rungs, socket.assigns.storage_locked)
 
-    # The confirm exists only with its numbers: a change that stops the
-    # candidate pricing (a candidate landing on a sizeless
-    # recommendation) or a preview read that failed drops the panel
-    # back to :choose — the confirm block never renders figureless.
+    # The confirm exists only with its numbers, and only with something
+    # to apply: a change that stops the candidate pricing (a candidate
+    # landing on a sizeless recommendation) or a preview read that
+    # failed drops the panel back to :choose, and so does a candidate
+    # that lands back on the row (the action's own "allocation is
+    # unchanged" refusal, surfaced early).
     {allocation, no_op} = candidate_state(socket, rungs)
 
     step =
-      if is_map(preview) and allocation,
+      if is_map(preview) and not is_nil(allocation) and not no_op,
         do: socket.assigns.resize_step,
         else: :choose
 
@@ -1128,18 +1165,21 @@ defmodule FluxValeWeb.InstanceLive.Show do
     instance = socket.assigns.instance
     shown = socket.assigns.resize_preview
 
-    case preview_for(instance, rungs) do
+    case preview_for(instance, rungs, socket.assigns.storage_locked) do
       # The #261 accept-time guard's posture: the confirm showed a
       # price; between that render and the submit an admin repriced the
       # catalog. Consent must match the charged number — re-price fresh
-      # and refuse any difference, back to :choose for a fresh look.
-      %{running_cents: fresh_cents} = fresh
-      when is_map(shown) and fresh_cents != shown.running_cents ->
+      # and refuse ANY difference (a stopped-only reprice changes what
+      # the row earns while it sleeps), back to :choose for a fresh
+      # look.
+      %{running_cents: fresh_running, stopped_cents: fresh_stopped} = fresh
+      when is_map(shown) and
+             (fresh_running != shown.running_cents or fresh_stopped != shown.stopped_cents) ->
         {:noreply,
          socket
          |> put_flash(
            :error,
-           "The price changed since you confirmed (now #{format_rate(fresh_cents)}) — review and confirm again."
+           "The price changed since you confirmed (now #{format_rate(fresh_running)}) — review and confirm again."
          )
          |> assign(resize_step: :choose, resize_preview: fresh)}
 
@@ -1582,10 +1622,14 @@ defmodule FluxValeWeb.InstanceLive.Show do
         # Compare like for like: the row's allocation through
         # allocation_of (Decimals) — seed vs raw row fields would
         # structurally differ (Decimal ≠ integer) on every broadcast.
+        # A status move stales too: the confirm says "the instance
+        # stays stopped" — another tab's START makes that a lie, and
+        # the action would refuse it anyway.
         current = allocation_of(instance)
 
         socket.assigns.resize_open and
-          (not Decimal.eq?(seed.cpu_cores, current.cpu_cores) or
+          (instance.status != :stopped or
+             not Decimal.eq?(seed.cpu_cores, current.cpu_cores) or
              seed.memory_mb != current.memory_mb or
              seed.storage_gb != current.storage_gb)
     end
@@ -1625,6 +1669,17 @@ defmodule FluxValeWeb.InstanceLive.Show do
     {rungs, off_ladder} = seeded_resources(instance, storage_locked)
     {:ok, allocation} = typed_allocation(rungs, storage_locked)
 
+    # A locked slider tells the truth only when the row's storage IS a
+    # rung: an off-ladder row's nearest rung (7 GB → 5) would read as
+    # an imminent shrink — hide the slider and say the truth in a line
+    # instead. (Compare numerically: the rung is a string, the row's
+    # value an integer.)
+    storage_rung = AllocationSliders.floor_rung("storage_gb", instance.storage_gb)
+    rung_storage = Decimal.new(storage_rung)
+    row_storage = Decimal.new(instance.storage_gb)
+
+    storage_fixed = storage_locked and not Decimal.eq?(rung_storage, row_storage)
+
     assign(socket,
       resize_open: true,
       resize_step: :choose,
@@ -1632,7 +1687,8 @@ defmodule FluxValeWeb.InstanceLive.Show do
       resize_off_ladder: off_ladder,
       storage_locked: storage_locked,
       storage_lock_reason: storage_lock_reason,
-      resize_preview: preview_for(instance, rungs),
+      resize_storage_fixed: storage_fixed,
+      resize_preview: preview_for(instance, rungs, storage_locked),
       resize_seed: allocation_of(instance),
       resize_no_op: no_op?(allocation, instance)
     )
@@ -1651,6 +1707,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
       resize_preview: nil,
       storage_locked: false,
       storage_lock_reason: nil,
+      resize_storage_fixed: false,
       resize_seed: nil,
       resize_no_op: false
     )
@@ -1797,8 +1854,17 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
   # The panel's preview through the domain seam: a map, nil (unpriced),
   # or :unavailable (the read failed — the line hides, Continue stays
-  # off).
-  defp preview_for(instance, rungs) do
+  # off). The preview prices the EFFECTIVE candidate: with storage
+  # locked the payload omits the dimension and the action keeps the
+  # row's value, so the rungs price with the row's storage substituted
+  # — pricing the displayed rung would promise figures the resize
+  # never charges (worst on 0 GB rows: a stopped fee that can't exist).
+  defp preview_for(instance, rungs, storage_locked) do
+    rungs =
+      if storage_locked,
+        do: Map.put(rungs, "storage_gb", Integer.to_string(instance.storage_gb)),
+        else: rungs
+
     case typed_allocation(rungs, false) do
       {:ok, allocation} ->
         case FluxVale.Infrastructure.resize_preview(instance, allocation) do
@@ -1844,14 +1910,21 @@ defmodule FluxValeWeb.InstanceLive.Show do
   defp format_rate(cents), do: FluxVale.Pricing.format_usd(cents) <> "/mo"
 
   # The action's plain refusals are the copy — joined when Ash refuses
-  # with several. A refusal without a plain message (the policy class)
-  # reads like every other impossible action here.
+  # with several. The status guard's message leaks the raw state atom
+  # (InstanceStatus's moduledoc forbids raw state copy here) — mapped
+  # to the page's impossible-action copy. The rest (shrink figures,
+  # capability, expansion-check) are already plain.
   defp resize_refusal(error) do
     messages = Enum.map(error.errors, &refusal_message/1)
     Enum.join(messages, " ")
   end
 
+  defp refusal_message(%{message: "cannot resize instance in " <> _state}) do
+    "That action isn't possible from this state."
+  end
+
   defp refusal_message(%{message: message}) when is_binary(message), do: message
+
   defp refusal_message(_no_plain_message), do: "Resize isn't possible right now."
 
   # #261 (ADR-0036 Am. 2): enabling always-on is the charge-raising

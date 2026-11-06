@@ -145,6 +145,12 @@ defmodule FluxValeWeb.AllocationSliders do
     doc: "dimension keys rendered disabled at their current rung"
   )
 
+  attr(:hidden, :list,
+    default: [],
+    doc:
+      "dimension keys not rendered at all — display-only (the wire omission is the caller's server-side decision); for a row whose locked value isn't a rung, a nearest-rung slider would read as an imminent shrink"
+  )
+
   attr(:locked_note, :string,
     default: nil,
     doc: "one plain line under the block when a dimension is locked"
@@ -156,7 +162,7 @@ defmodule FluxValeWeb.AllocationSliders do
     <div class="space-y-4 border-t border-line pt-5">
       <p class="text-sm font-medium text-ink">Fine-tune</p>
       <.slider
-        :for={dimension <- resource_dimensions()}
+        :for={dimension <- Enum.reject(resource_dimensions(), &(&1.key in @hidden))}
         id={dimension.id}
         name={"#{@name}[#{dimension.key}]"}
         label={dimension.label}
