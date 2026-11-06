@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for cli/scripts/release-notes.sh, run by the `CLI gates` CI job
+# Tests for apps/cli/scripts/release-notes.sh, run by the `CLI gates` CI job
 # (and locally): every case is a changelog fixture in, notes and an exit
 # status out. The green case at the end runs against the REAL
 # apps/cli/CHANGELOG.md with the version from Cargo.toml — the same
