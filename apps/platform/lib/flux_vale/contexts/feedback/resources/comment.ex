@@ -44,9 +44,29 @@ defmodule FluxVale.Feedback.Comment do
     end
 
     custom_indexes do
-      # The read axis: every comment list is "comments for this post",
-      # and both counter bumps look the row up by it.
-      index([:post_id])
+      # One comment per (post, author, body) — the seed identity,
+      # enforced at the DB (#508, the unique_vote_per_org posture):
+      # two concurrent seeding runs used to both find zero comments for
+      # one triple and both mint, and the duplicate then failed every
+      # later seed pass on find_comment's corruption guard.
+      #
+      # body rides md5(): a max-length (5000-char) body exceeds the
+      # btree row-size ceiling as a raw key, and a hash key is
+      # deterministic on the exact bytes, so the identity stays
+      # exact-match — the same `==` find_comment matches with (:string,
+      # not ci_string). Identity semantics and find semantics are one
+      # thing, which is what lets a race loser converge on the winner's
+      # row instead of tripping the index with a body the find calls
+      # distinct.
+      #
+      # post_id leads, so the index also serves every "comments for
+      # this post" read — the standalone post_id index this resource
+      # used to carry retires with it (the Vote shape).
+      index([:post_id, :author_user_id, "md5(body)"],
+        unique: true,
+        name: "feedback_comments_unique_body_per_post_author_index",
+        error_fields: [:body]
+      )
     end
   end
 
