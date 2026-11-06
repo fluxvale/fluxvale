@@ -316,14 +316,16 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
   end
 
   test "an existing account signs in through the UI untouched by the gate", %{conn: conn} do
-    # the account predates the flow (operator-seed shape): the gate never
-    # asks, the sign-in is as it was
-    existing = Identity.User.create!(@email, %{}, authorize?: false)
+    # the account predates the flow (operator-seed shape, an external
+    # domain so the team bypass is not what admits it): the gate never
+    # asks, the sign-in is as it was, and the session is THAT account
+    external = "ui-existing-#{System.unique_integer()}@partner.example"
+    existing = Identity.User.create!(external, %{}, authorize?: false)
 
     {:ok, view, _html} = live(conn, ~p"/sign-in")
 
     view
-    |> form("#email-form", email: @email)
+    |> form("#email-form", email: external)
     |> render_submit()
 
     code = deliver_and_extract_code()
@@ -334,6 +336,8 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
     conn = follow_trigger_action(code_form, conn)
     assert redirected_to(conn) == ~p"/"
 
-    assert existing.id
+    session = Plug.Conn.get_session(conn)
+    assert %{id: id} = FluxValeWeb.UserAuth.resolve_user(session)
+    assert id == existing.id
   end
 end

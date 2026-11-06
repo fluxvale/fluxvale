@@ -83,6 +83,48 @@ defmodule FluxVale.Ops.InvitedEmailTest do
                |> Ash.Changeset.for_create(:create, %{address: address}, authorize?: false)
                |> Ash.create(authorize?: false)
     end
+
+    test "a delivery exit does not fail the create either (unconfigured adapters exit)" do
+      Mimic.copy(FluxVale.Mailer)
+      stub(FluxVale.Mailer, :deliver_invitation, fn _to -> exit(:storage_down) end)
+
+      address = "exited-#{System.unique_integer()}@partner.example"
+
+      assert {:ok, %InvitedEmail{}} =
+               InvitedEmail
+               |> Ash.Changeset.for_create(:create, %{address: address}, authorize?: false)
+               |> Ash.create(authorize?: false)
+    end
+
+    test "a failed create sends no email (the courtesy follows the credential)" do
+      # the address-shape validation refuses before any hook fires, and
+      # the transaction boundary means a failed create cannot have sent
+      assert {:error, _invalid} =
+               InvitedEmail
+               |> Ash.Changeset.for_create(:create, %{address: "still-not-an-address"},
+                 authorize?: false
+               )
+               |> Ash.create(authorize?: false)
+
+      refute_received {:email, %Swoosh.Email{}}
+    end
+  end
+
+  describe "destroy" do
+    test "removes the row — the undo lever (typo fix, re-invite after revoke)" do
+      invited = invite_address!("undo-#{System.unique_integer()}@partner.example")
+      drain_mail!()
+
+      assert :ok = Ash.destroy(invited, authorize?: false)
+      assert invitation(to_string(invited.address)) == nil
+    end
+
+    test "the admin destroys under authorization (the AshAdmin grant)", %{admin: admin} do
+      invited = invite_address!("admin-undo-#{System.unique_integer()}@partner.example")
+      drain_mail!()
+
+      assert :ok = Ash.destroy(invited, actor: admin, authorize?: true)
+    end
   end
 
   describe "revoke" do

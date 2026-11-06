@@ -68,7 +68,10 @@ defmodule FluxVale.Ops.InvitedEmail do
   end
 
   actions do
-    defaults([:read])
+    # :destroy is the undo lever: a typo'd address, or a re-invite after
+    # a revoke (removing the row is the only way to re-add it — the
+    # unique address identity holds). The admin-only policy covers it.
+    defaults([:read, :destroy])
 
     create :create do
       primary?(true)
