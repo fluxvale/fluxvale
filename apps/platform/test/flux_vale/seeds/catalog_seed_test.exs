@@ -290,10 +290,16 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       contract = version.first_run
       assert %FirstRunContract{} = contract
       assert contract.pattern == :first_open_sets_password
-      # Nothing to pin, nothing to lock — the claim happens in the app's
-      # own UI, and every knob is in-app (ADR-0034 Am. 1).
+      # Nothing to pin; the lock is for the user-env injection path
+      # (#482): the two upstream keys whose presence triggers the
+      # boot-time OIDC self-claim bootstrap (ADR-0034 Am. 1).
       assert contract.env == %{}
-      assert contract.forbidden_env == []
+
+      assert contract.forbidden_env == [
+               "ACTUAL_OPENID_DISCOVERY_URL",
+               "ACTUAL_OPENID_AUTHORIZATION_ENDPOINT"
+             ]
+
       assert contract.guidance =~ "set the server password"
     end
 

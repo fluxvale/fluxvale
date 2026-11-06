@@ -59,6 +59,14 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
   re-click). Signed-in chrome, so the same gates as sign-in.
 - `sign-in.spec.ts` — the human login flow via TestInbox; staging and
   local.
+- `actual-lifecycle.spec.ts` — ActualBudget's lifecycle (#492): deploy
+  through the stepper → running → HTTPS UI + `/health` → the
+  first-open claim over the wire (needs-bootstrap false → bootstrap →
+  login; ADR-0034 Am. 1) → stop → start → destroy. The stop/start
+  round-trip is the restart-cleanliness proof. 22-minute budget
+  (12 min running wait + 1 min stop + 8 min start, plus overhead);
+  the ~120 MB image pull rides the first deploy. Local + staging
+  (#116); production stays read-only.
 - `file-access.spec.ts` — #190: deploy Kavita → rclone put through
   /dav → the file lands in the instance volume. Local + staging;
   needs rclone on PATH.

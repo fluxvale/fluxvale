@@ -438,7 +438,11 @@
         and statement imports run in the browser, and budget files
         live on a dedicated volume. Bank sync works with your own
         SimpleFIN token.
-      icon_url: https://raw.githubusercontent.com/actualbudget/actual/v26.11.0/packages/component-library/src/icons/logo/logo.svg
+      # The repo's logo.svg is the white-glyph-on-transparent variant
+      # (both paths fill="white") — invisible on the light icon tile.
+      # The apple-touch icon is the same mark, self-contained: white
+      # glyph on the solid purple field (#5D3DBA).
+      icon_url: https://raw.githubusercontent.com/actualbudget/actual/v26.11.0/packages/desktop-client/public/apple-touch-icon.png
       source_url: https://github.com/actualbudget/actual
       docs_url: https://actualbudget.org/docs/
       versions:
@@ -490,17 +494,28 @@
           # admin seat: everyone signs in with that one shared
           # password, so `first_registered_user_admin` misnames it.
           # The `first_open_sets_password` pattern documents the shape.
-          # Upstream does have server-level env knobs (login method,
-          # trusted proxies, provider credentials) but this packaging
-          # ships none of them, so nothing needs pinning or locking and
-          # env and forbidden_env stay empty. Verified against
-          # ghcr.io/actualbudget/actual-server:26.11.0: the
-          # bootstrapped flag and the password survive a pod recreation
-          # on the same volume.
+          # `forbidden_env` closes the user-env injection path (#482
+          # lets instances carry free-form env vars through to the
+          # container): ACTUAL_OPENID_DISCOVERY_URL and
+          # ACTUAL_OPENID_AUTHORIZATION_ENDPOINT are the two upstream
+          # keys whose presence triggers the boot-time OIDC bootstrap
+          # (sync-server run() calls bootstrap({openId}, true) when
+          # either is set). With user-injected ACTUAL_OPENID_CLIENT_ID
+          # and ACTUAL_OPENID_SERVER_HOSTNAME alongside, that bootstrap
+          # succeeds and the server is claimed before the owner's first
+          # open, so locking the necessary triggers closes the
+          # env-injected claim path; the remaining OIDC knobs alone
+          # cannot trigger it. Everything else upstream ships is
+          # operator-side config that the packaging does not expose.
+          # Verified against ghcr.io/actualbudget/actual-server:26.11.0:
+          # the bootstrapped flag and the password survive a pod
+          # recreation on the same volume.
           first_run:
             pattern: first_open_sets_password
             env: {}
-            forbidden_env: []
+            forbidden_env:
+              - ACTUAL_OPENID_DISCOVERY_URL
+              - ACTUAL_OPENID_AUTHORIZATION_ENDPOINT
             guidance: >-
               Open the instance URL and set the server password. That
               first open claims the instance, so do it right after
