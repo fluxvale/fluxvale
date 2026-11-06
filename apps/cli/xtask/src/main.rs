@@ -1,8 +1,7 @@
 //! `cargo xtask openapi [--check]` — regenerate
-//! `apps/cli/crates/fluxvale-api/src/types.rs` from the committed
-//! OpenAPI artifact (ADR-0019 Am. 3: the committed spec is the
-//! contract; committed types must match it, or CI reds the drift
-//! guard).
+//! `crates/fluxvale-api/src/types.rs` from the committed OpenAPI
+//! artifact (ADR-0019 Am. 3: the committed spec is the contract;
+//! committed types must match it, or CI reds the drift guard).
 
 use anyhow::{Context, Result, bail};
 use std::collections::BTreeMap;
@@ -26,7 +25,7 @@ fn main() -> Result<()> {
 
     let root = repo_root()?;
     let spec_path = root.join("apps/platform/priv/open_api.json");
-    let types_path = root.join("apps/cli/crates/fluxvale-api/src/types.rs");
+    let types_path = root.join("crates/fluxvale-api/src/types.rs");
 
     let spec = std::fs::read_to_string(&spec_path)
         .with_context(|| format!("reading {}", spec_path.display()))?;

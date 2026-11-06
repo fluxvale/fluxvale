@@ -1,0 +1,13 @@
+# Same pin as apps/cli/rust-toolchain.toml — the two Rust workspaces
+# are paired: a bump here is deliberate and must land together with a
+# bump there (and vice versa), or the trees compile against different
+# compilers.
+# Exact pin of current stable at the time of writing: 1.99.1, the
+# point release dated 2026-10-13 (rustc commit-date). CI and local
+# rustup both select this file's channel — no second source of truth.
+# The components are the lane's gates: without this list a rustup
+# install lands the minimal profile and `cargo fmt`/`cargo clippy`
+# die with "'cargo-fmt' is not installed" (seen on CI, #415).
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
