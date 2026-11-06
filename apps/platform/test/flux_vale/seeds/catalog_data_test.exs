@@ -207,6 +207,8 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       guidance = version.first_run["guidance"]
       assert guidance =~ "first account is the admin"
       assert guidance =~ "claim the instance promptly"
+    end
+
     test "shipped catalog_data.yaml normalizes the ActualBudget entry (#492)" do
       entry = entry_by_slug("finance")
 

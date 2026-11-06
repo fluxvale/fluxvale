@@ -358,6 +358,7 @@
               required: true
               secret: true
 
+- category:
     name: Finance
     slug: finance
     description: >-

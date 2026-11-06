@@ -255,6 +255,8 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert contract.env == %{}
       assert contract.forbidden_env == []
       assert contract.guidance =~ "first account is the admin"
+    end
+
     test "seeds the shipped ActualBudget entry and its first-run contract (#492)" do
       assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()
@@ -314,6 +316,7 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
 
       assert length(pocket_id.app_versions) == 1
       assert hd(pocket_id.app_versions).version == "2.19.2"
+
       actualbudget =
         "actualbudget"
         |> App.get_by_slug!(authorize?: false)
