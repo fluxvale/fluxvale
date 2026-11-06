@@ -2,7 +2,9 @@ defmodule FluxVale.Ops.OwnerSignInTest do
   @moduledoc """
   The break-glass sign-in path (#165): the owner gate (`OWNER_EMAIL`, else
   the single platform admin), the printed code, and the fact that the
-  printed code is the one the normal verify path accepts.
+  printed code is the one the normal verify path accepts. The #502 arms:
+  an invited-unaccepted owner gets a re-invite with the accept link
+  printed, and a userless external address raises actionable.
   """
 
   # Not async: the gate reads OWNER_EMAIL from the process environment,
@@ -10,7 +12,7 @@ defmodule FluxVale.Ops.OwnerSignInTest do
   use FluxVale.DataCase, async: false
 
   import ExUnit.CaptureIO
-  import FluxVale.TestSupport.InvitationHelpers
+  import FluxVale.TestSupport.UserInviteHelpers
 
   alias FluxVale.Identity
   alias FluxVale.Identity.User
@@ -99,12 +101,15 @@ defmodule FluxVale.Ops.OwnerSignInTest do
     end
 
     test "a drift admin under an explicit OWNER_EMAIL still issues — with the warning" do
+      # The OWNER_EMAIL address rides the team domain, so the userless
+      # code path (the JIT create admits it) is what issues.
       Ash.Seed.seed!(User, %{
         email: "drift-admin-#{System.unique_integer([:positive])}@fluxvale.test",
         platform_role: :admin
       })
 
-      System.put_env("OWNER_EMAIL", "named-#{System.unique_integer([:positive])}@fluxvale.test")
+      named = "named-#{System.unique_integer([:positive])}@fluxvale.com"
+      System.put_env("OWNER_EMAIL", named)
 
       log =
         ExUnit.CaptureLog.capture_log(fn ->
@@ -116,33 +121,39 @@ defmodule FluxVale.Ops.OwnerSignInTest do
     end
   end
 
-  describe "issue_code/1" do
-    test "prints a code the normal verify path accepts, with the sign-in URL", %{email: email} do
-      System.put_env("OWNER_EMAIL", email)
+  describe "issue_code/1 — the code path" do
+    test "prints a code the normal verify path accepts, with the sign-in URL" do
+      # the team domain is what admits the JIT create behind this code
+      team = "owner-jit-#{System.unique_integer([:positive])}@fluxvale.com"
+      System.put_env("OWNER_EMAIL", team)
 
       output = capture_io(fn -> assert :ok = OwnerSignIn.issue_code() end)
 
-      assert [code] = Regex.run(~r/code for #{email}: (\d{6})/, output, capture: :all_but_first)
+      assert [code] = Regex.run(~r/code for #{team}: (\d{6})/, output, capture: :all_but_first)
       assert output =~ "/sign-in"
       assert output =~ "Expires in 10 minutes"
 
       # The whole point: the printed code is the one production verifies —
-      # a first success also JIT-provisions the account and its org. The
-      # JIT arm is invitation-gated (#478): bootstrap brings the seed
-      # admin up through the seeds path (ungated, and its @fluxvale.com
-      # domain rides the team bypass); a fresh external OWNER_EMAIL
-      # address is invited like any new account.
-      invite_address!(email)
-      drain_mail!()
+      # a first success also JIT-provisions the account and its org (the
+      # team bypass is what admits the create, #502).
+      assert {:ok, %{email: verified}, token} = Identity.verify_auth_code(team, code)
 
-      assert {:ok, %{email: verified}, token} = Identity.verify_auth_code(email, code)
-
-      assert to_string(verified) == email
+      assert to_string(verified) == team
       assert is_binary(token)
     end
 
-    test "hands the code to an injected deliver", %{email: email} do
+    test "an ACTIVE external owner still prints a code — the gate never asks", %{email: email} do
       System.put_env("OWNER_EMAIL", email)
+      User.create!(email, %{}, authorize?: false)
+
+      output = capture_io(fn -> assert :ok = OwnerSignIn.issue_code() end)
+
+      assert output =~ "code for #{email}"
+    end
+
+    test "hands the code to an injected deliver" do
+      team = "owner-inject-#{System.unique_integer([:positive])}@fluxvale.com"
+      System.put_env("OWNER_EMAIL", team)
 
       deliver = fn _recipient, code ->
         send(self(), {:delivered, code})
@@ -152,14 +163,13 @@ defmodule FluxVale.Ops.OwnerSignInTest do
       assert :ok = OwnerSignIn.issue_code(deliver)
       assert_receive {:delivered, code}
 
-      invite_address!(email)
-      drain_mail!()
-
-      assert {:ok, _user, _token} = Identity.verify_auth_code(email, code)
+      assert {:ok, _user, _token} = Identity.verify_auth_code(team, code)
     end
 
     test "a second request inside the throttle window names the wait", %{email: email} do
       System.put_env("OWNER_EMAIL", email)
+      User.create!(email, %{}, authorize?: false)
+
       assert :ok = OwnerSignIn.issue_code(fn _recipient, _code -> {:ok, :printed} end)
 
       assert_raise RuntimeError, ~r/throttled.*60 seconds/, fn ->
@@ -172,6 +182,7 @@ defmodule FluxVale.Ops.OwnerSignInTest do
       # fluxvale.com only, so the owner address here is not allowed.
       AccessRule.create!(%{domain: "fluxvale.com"}, authorize?: false)
       System.put_env("OWNER_EMAIL", email)
+      User.create!(email, %{}, authorize?: false)
 
       assert_raise RuntimeError, ~r/AccessRule/, fn ->
         OwnerSignIn.issue_code(fn _recipient, _code -> {:ok, :printed} end)
@@ -180,6 +191,7 @@ defmodule FluxVale.Ops.OwnerSignInTest do
 
     test "a delivery failure raises — the code exists only on stdout", %{email: email} do
       System.put_env("OWNER_EMAIL", email)
+      User.create!(email, %{}, authorize?: false)
 
       assert_raise RuntimeError, ~r/request failed: :delivery_failed/, fn ->
         OwnerSignIn.issue_code(fn _recipient, _code -> {:error, :boom} end)
@@ -191,6 +203,7 @@ defmodule FluxVale.Ops.OwnerSignInTest do
     test "warns when OWNER_EMAIL does not match the platform admin", %{email: email} do
       admin = admin!()
       System.put_env("OWNER_EMAIL", email)
+      User.create!(email, %{}, authorize?: false)
 
       log =
         ExUnit.CaptureLog.capture_log(fn ->
@@ -225,13 +238,52 @@ defmodule FluxVale.Ops.OwnerSignInTest do
     end
   end
 
+  describe "issue_code/1 — the invitation arms (#502)" do
+    test "an invited-unaccepted owner gets the accept link printed — never a code" do
+      invited = "invited-owner-#{System.unique_integer([:positive])}@partner.example"
+      {_user, _raw} = invite_user!(invited)
+      System.put_env("OWNER_EMAIL", invited)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          output = capture_io(fn -> assert :ok = OwnerSignIn.issue_code() end)
+          send(self(), {:printed, output})
+        end)
+
+      assert_receive {:printed, output}
+
+      assert output =~ "/invites/accept?token="
+      assert output =~ invited
+      assert output =~ "works once"
+      assert output =~ "the previous link is dead"
+
+      # the log names the re-mint, never the token
+      assert log =~ "printing re-mints the accept link"
+      refute log =~ "/invites/accept?token="
+    end
+
+    test "a userless external address raises actionable — the invite lever is named" do
+      stranger = "stranger-#{System.unique_integer([:positive])}@partner.example"
+      System.put_env("OWNER_EMAIL", stranger)
+
+      message =
+        assert_raise(RuntimeError, fn ->
+          OwnerSignIn.issue_code(fn _recipient, _code -> {:ok, :printed} end)
+        end).message
+
+      assert message =~ "invite it first via FluxVale.Identity.invite_user"
+      assert message =~ stranger
+    end
+  end
+
   describe "FluxVale.Release.owner_signin_code/0" do
-    test "the release entrypoint issues through the same gate", %{email: email} do
-      System.put_env("OWNER_EMAIL", email)
+    test "the release entrypoint issues through the same gate" do
+      team = "owner-release-#{System.unique_integer([:positive])}@fluxvale.com"
+      System.put_env("OWNER_EMAIL", team)
 
       output = capture_io(fn -> assert :ok = FluxVale.Release.owner_signin_code() end)
 
-      assert output =~ "Owner sign-in code for #{email}"
+      assert output =~ "Owner sign-in code for #{team}"
     end
   end
 end

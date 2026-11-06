@@ -4,7 +4,7 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
   use FluxVale.DataCase, async: true
 
   import FluxVale.TestSupport.AuthCodeHelpers
-  import FluxVale.TestSupport.InvitationHelpers
+  import FluxVale.TestSupport.UserInviteHelpers
 
   alias FluxVale.Identity
   alias FluxVale.Identity.User
@@ -334,9 +334,9 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
     end
   end
 
-  describe "invitation gate (#478 — the server-side door on first-time provisioning)" do
+  describe "invitation gate (#502 — pre-provisioned users, team-domain JIT)" do
     test "an existing external user signs in with no invitation and no behavior change" do
-      # an account that predates the gate (the operator-seed shape, an
+      # an account that predates the flow (the operator-seed shape, an
       # external domain): the gate never asks, sign-in as today
       address = "preexisting-#{System.unique_integer()}@partner.example"
       user = User.create!(address, %{}, authorize?: false)
@@ -358,10 +358,8 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
       assert [] = rows_for(address)
     end
 
-    test "an invited address creates an account (the row is the whole credential)" do
-      address = "invited-#{System.unique_integer()}@partner.example"
-      invite_address!(address)
-      drain_mail!()
+    test "a new team-domain address creates an account — no invitation row needed" do
+      address = "team-fresh-#{System.unique_integer()}@fluxvale.com"
 
       :ok = Identity.request_auth_code(address)
 
@@ -369,48 +367,60 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
       assert %User{} = user
     end
 
-    test "a second address at the same domain as an invited one is still refused" do
-      unique = System.unique_integer()
-      invite_address!("alice-#{unique}@partner.example")
-      drain_mail!()
+    test "a pending invited user refuses sign-in and the account stays inert" do
+      address = "invited-#{System.unique_integer()}@partner.example"
+      {invited, _raw} = invite_user!(address)
 
-      bob = "bob-#{unique}@partner.example"
+      :ok = Identity.request_auth_code(address)
 
-      :ok = Identity.request_auth_code(bob)
+      assert {:error, :invite_pending} = Identity.verify_auth_code(address, mailbox_code())
 
-      assert {:error, :invitation_required} = Identity.verify_auth_code(bob, mailbox_code())
-      assert [] = users_with_email(bob)
+      # Inertness: acceptance is the only bootstrap, so no verified
+      # email row, no username, no org — and no session minted (the
+      # error atom is the whole return).
+      assert [] = rows_for(address)
+      refute invited.username
+
+      assert {:ok, []} =
+               FluxVale.Accounts.organizations_for_user(invited.id, authorize?: false)
     end
 
-    test "a revoked invite refuses new sign-ups for that address" do
-      address = "revoked-#{System.unique_integer()}@partner.example"
-      invited = invite_address!(address)
-      drain_mail!()
-      revoke!(invited)
+    test "a withdrawn invited user is refused like any uninvited address" do
+      address = "withdrawn-#{System.unique_integer()}@partner.example"
+      {invited, _raw} = invite_user!(address)
+      withdraw_invite!(invited)
 
       :ok = Identity.request_auth_code(address)
 
       assert {:error, :invitation_required} = Identity.verify_auth_code(address, mailbox_code())
-      assert [] = users_with_email(address)
+      assert [] = rows_for(address)
     end
 
-    test "revocation never touches an account that already exists" do
-      address = "kept-#{System.unique_integer()}@partner.example"
-      invited = invite_address!(address)
-      drain_mail!()
-
-      # the account is created while the invitation is live
-      :ok = Identity.request_auth_code(address)
-      assert {:ok, user, _token} = Identity.verify_auth_code(address, mailbox_code())
-
-      # the door closes afterwards — the account signs in exactly as today
-      revoke!(invited)
+    test "an expired invited user is refused like any uninvited address" do
+      address = "expired-#{System.unique_integer()}@partner.example"
+      # actions cannot backdate the window — seed! is the sanctioned bypass
+      expired_invited_user!(address)
 
       :ok = Identity.request_auth_code(address)
 
-      assert {:ok, signed_in, _again_token} = Identity.verify_auth_code(address, mailbox_code())
+      assert {:error, :invitation_required} = Identity.verify_auth_code(address, mailbox_code())
+      assert [] = rows_for(address)
+    end
 
-      assert signed_in.id == user.id
+    test "an ACCEPTED invited user signs in — the acceptance mirror row resolves them" do
+      address = "accepted-#{System.unique_integer()}@partner.example"
+      {_invited, raw} = invite_user!(address)
+      assert {:ok, accepted, _session} = Identity.accept_invitation(raw)
+
+      :ok = Identity.request_auth_code(address)
+
+      assert {:ok, signed_in, _token} = Identity.verify_auth_code(address, mailbox_code())
+      assert signed_in.id == accepted.id
+
+      # the mirror row acceptance wrote is what the lookup rode
+      assert [%{user_id: owner_id, verified_at: verified}] = rows_for(address)
+      assert owner_id == accepted.id
+      refute is_nil(verified)
     end
 
     test "a refused verify still burns the login code (the burn is the inbox proof)" do

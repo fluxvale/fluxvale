@@ -7914,6 +7914,46 @@
                   }
                 ]
               },
+              "invite_accepted_at": {
+                "anyOf": [
+                  {},
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "invite_expires_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "invite_withdrawn_at": {
+                "anyOf": [
+                  {},
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "invited_at": {
+                "anyOf": [
+                  {},
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
               "platform_role": {
                 "description": "Field included by default.",
                 "enum": [
@@ -7976,6 +8016,18 @@
           },
           "id": {
             "$ref": "#/components/schemas/user-filter-id"
+          },
+          "invite_accepted_at": {
+            "$ref": "#/components/schemas/user-filter-invite_accepted_at"
+          },
+          "invite_expires_at": {
+            "$ref": "#/components/schemas/user-filter-invite_expires_at"
+          },
+          "invite_withdrawn_at": {
+            "$ref": "#/components/schemas/user-filter-invite_withdrawn_at"
+          },
+          "invited_at": {
+            "$ref": "#/components/schemas/user-filter-invited_at"
           },
           "not": {
             "$ref": "#/components/schemas/user-filter"
@@ -8115,6 +8167,143 @@
             "format": "uuid",
             "type": "string"
           }
+        },
+        "type": "object"
+      },
+      "user-filter-invite_accepted_at": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {},
+          "greater_than": {},
+          "greater_than_or_equal": {},
+          "in": {
+            "items": {},
+            "type": "array"
+          },
+          "is_distinct_from": {},
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {},
+          "less_than": {},
+          "less_than_or_equal": {},
+          "not_eq": {},
+          "range_adjacent": {},
+          "range_contains": {
+            "type": "string"
+          },
+          "range_overlaps": {}
+        },
+        "type": "object"
+      },
+      "user-filter-invite_expires_at": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "range_adjacent": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "range_contains": {
+            "type": "string"
+          },
+          "range_overlaps": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "user-filter-invite_withdrawn_at": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {},
+          "greater_than": {},
+          "greater_than_or_equal": {},
+          "in": {
+            "items": {},
+            "type": "array"
+          },
+          "is_distinct_from": {},
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {},
+          "less_than": {},
+          "less_than_or_equal": {},
+          "not_eq": {},
+          "range_adjacent": {},
+          "range_contains": {
+            "type": "string"
+          },
+          "range_overlaps": {}
+        },
+        "type": "object"
+      },
+      "user-filter-invited_at": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {},
+          "greater_than": {},
+          "greater_than_or_equal": {},
+          "in": {
+            "items": {},
+            "type": "array"
+          },
+          "is_distinct_from": {},
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {},
+          "less_than": {},
+          "less_than_or_equal": {},
+          "not_eq": {},
+          "range_adjacent": {},
+          "range_contains": {
+            "type": "string"
+          },
+          "range_overlaps": {}
         },
         "type": "object"
       },
@@ -15099,12 +15288,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "user": "id,username,platform_role"
+                "user": "id,username,platform_role,invited_at,invite_accepted_at,invite_withdrawn_at,invite_expires_at"
               },
               "properties": {
                 "user": {
                   "description": "Comma separated field names for user",
-                  "example": "id,username,platform_role",
+                  "example": "id,username,platform_role,invited_at,invite_accepted_at,invite_withdrawn_at,invite_expires_at",
                   "type": "string"
                 }
               },
@@ -15139,6 +15328,42 @@
                                 }
                               ],
                               "description": "Field included by default."
+                            },
+                            "invite_accepted_at": {
+                              "anyOf": [
+                                {},
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "invite_expires_at": {
+                              "anyOf": [
+                                {
+                                  "format": "date-time",
+                                  "nullable": true,
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "invite_withdrawn_at": {
+                              "anyOf": [
+                                {},
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "invited_at": {
+                              "anyOf": [
+                                {},
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             },
                             "platform_role": {
                               "description": "Field included by default.",

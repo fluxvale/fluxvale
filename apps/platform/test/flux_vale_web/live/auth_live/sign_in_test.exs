@@ -5,7 +5,6 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
   use Mimic
 
   import Phoenix.LiveViewTest
-  import FluxVale.TestSupport.InvitationHelpers
 
   alias FluxVale.Identity
   alias FluxVale.Ops.AccessRule
@@ -304,10 +303,11 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
     assert {:error, _not_found} = Identity.User.get_by_email(outsider, authorize?: false)
   end
 
-  test "an invited external address provisions through the UI", %{conn: conn} do
-    invited = "ui-invited-#{System.unique_integer()}@partner.example"
-    invite_address!(invited)
-    drain_mail!()
+  # #502: the code wall admits the team domain only — an invited user
+  # never passes here (they take the accept link), but a team-domain
+  # address still JIT-provisions through the UI.
+  test "a team-domain address provisions through the UI", %{conn: conn} do
+    invited = "ui-invited-#{System.unique_integer()}@fluxvale.com"
 
     {:ok, view, _html} = live(conn, ~p"/sign-in")
 

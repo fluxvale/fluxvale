@@ -22,16 +22,18 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   holds the address — the old-pod shape (`users.email` set, no row,
   review P2-3) gets its mirror row healed and signs in.
 
-  The invitation gate (#478, final shape: per-address invitations, the
-  team domain bypass) sits on the JIT arm only: a genuinely new address
-  creates an account when `Ops.InvitedEmails.allows?/1` admits it —
-  `@fluxvale.com` outright, or a recorded, unrevoked invitation for
-  that exact address. Every arm that resolves an existing account
-  (direct lookup, superseded-claim flip, collision heal) is a sign-in
-  and stays ungated — existing users are unaffected, and revocation
-  never touches an account that exists. The refusal atom is
-  `:invitation_required` — the honest copy is the LiveView's concern;
-  the operation's contract is the atom and the no-account guarantee.
+  The invitation gate (#502 shape): JIT provisioning is the team
+  domain's alone — a genuinely new address creates an account only on
+  `@fluxvale.com`. Everyone else arrives pre-provisioned: an admin's
+  invite creates the User (inert), and the one-time accept link runs
+  the bootstrap (`FluxVale.Identity.accept_invitation/1`). An
+  invited-unaccepted account is never signed into and never healed —
+  its frozen-mirror row is exactly what acceptance must write — so the
+  frozen-owner fork refuses :pending with :invite_pending, and
+  retired invitations (:withdrawn, :expired) answer :invitation_required
+  like any uninvited address. The refusal atom is `:invitation_required`
+  — the honest copy is the LiveView's concern; the operation's contract
+  is the atom and the no-account guarantee.
   """
 
   alias FluxVale.Identity.AuthCode
@@ -39,7 +41,6 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   alias FluxVale.Identity.User.MirrorSignupEmail
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Ops.AccessRules
-  alias FluxVale.Ops.InvitedEmails
 
   # Ash.Query.filter is a macro
   require Ash.Query
@@ -47,15 +48,20 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   # The framework's own door for auth flows — see RequestAuthCode's note
   @interaction %{private: %{ash_authentication?: true}}
 
-  # The signup counter's event name — the operation owns its constants.
-  @signup_event [:flux_vale, :identity, :signup]
+  # The team bypass's domain (#478's structural core, kept by #502):
+  # the company's own domain creates freely, no invitation and nothing
+  # to manage. Owned here outright — Ops.InvitedEmails dies in a later
+  # PR and every operation owns its constants.
+  @team_domain "fluxvale.com"
 
   @doc """
   Verifies `code` for `email`. On success returns `{:ok, user, token}`;
   failures are uniform in shape — no account-enumeration signal between
   an unknown address and a bad code. An address that is neither on the
-  team domain nor invited is refused at provisioning with `{:error,
-  :invitation_required}` and no account is created (#478).
+  team domain nor already invited (pre-provisioned) is refused at
+  provisioning with `{:error, :invitation_required}` and no account is
+  created (#502); an invited-unaccepted account refuses with
+  `{:error, :invite_pending}`.
   """
   @spec call(String.t() | Ash.CiString.t(), String.t()) ::
           {:ok, map(), String.t()} | {:error, atom()}
@@ -227,20 +233,16 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   end
 
   # JIT provisioning (ADR-0003): a valid code proves inbox ownership.
-  # The invitation gate (#478, final shape) sits in front of the create
-  # — EXCEPT for an address the frozen mirror already owns: that is an
-  # EXISTING account (the old-pod shape), a sign-in, and existing users
-  # are unaffected (the #478 ruling), so the heal resolves it ungated.
-  # For a genuinely new address the burned login code proved the inbox
-  # and admission rides the allowlist question: the team's own domain
-  # or a recorded, unrevoked invitation — per address, never per
-  # domain. The refusal happens before any write.
+  # The gate sits in front of the create (#502 shape) — EXCEPT for an
+  # address the frozen mirror already owns: that is an account, and the
+  # invite state decides what it may do (invited_owner/2 below). For a
+  # genuinely new address the burned login code proved the inbox and
+  # admission rides the structural team bypass. The refusal happens
+  # before any write.
   defp provision_user(email) do
     case frozen_email_owner(email) do
-      {:ok, %User{}} ->
-        # An old-pod account the table-backed lookups cannot see: the
-        # heal path resolves it — a sign-in, ungated
-        resolve_collided(email)
+      {:ok, %User{} = owner} ->
+        invited_owner(email, owner)
 
       {:ok, nil} ->
         gated_create(email)
@@ -253,14 +255,54 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
     end
   end
 
-  # The gate + create. InvitedEmails.allows?/1 is the whole gate: the
-  # team domain bypass or a live invitation, per address.
+  # A frozen-mirror owner exists that no verified row resolves. The
+  # invite state decides (#502): a PENDING invite is an inert
+  # pre-provisioned account — never signed into, never healed (the
+  # mirror row is what acceptance must write); :withdrawn and :expired
+  # are retired invitations, so the JIT gate's refusal is the honest
+  # answer; :none is the old-pod shape and heals as before.
+  defp invited_owner(email, %User{} = owner) do
+    case owner.invite_state do
+      :pending ->
+        {:error, :invite_pending}
+
+      state when state in [:withdrawn, :expired] ->
+        {:error, :invitation_required}
+
+      :none ->
+        resolve_collided(email)
+
+      # coveralls-ignore-start - unreachable: acceptance writes the
+      # verified mirror row (MirrorSignupEmail on :accept_invite), so an
+      # accepted account resolves through lookup_user before this fork
+      :accepted ->
+        resolve_collided(email)
+        # coveralls-ignore-stop
+    end
+  end
+
+  # The gate + create (#502): the structural team bypass is the only
+  # JIT door left — a pre-provisioned invited account already exists by
+  # the time it matters (invited_owner/2 hands :pending to
+  # :invite_pending above, never here).
   defp gated_create(email) do
-    if InvitedEmails.allows?(email) do
+    if team_address?(email) do
       create_and_resolve(email)
     else
       {:error, :invitation_required}
     end
+  end
+
+  # Case-insensitive exact-suffix match — a subdomain or a lookalike
+  # suffix is not the team (the Ops.InvitedEmails shape, lifted here:
+  # that module dies in a later PR).
+  defp team_address?(address) do
+    downcased =
+      address
+      |> to_string()
+      |> String.downcase()
+
+    String.ends_with?(downcased, "@" <> @team_domain)
   end
 
   defp create_and_resolve(email) do
@@ -269,7 +311,10 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
         # The signup-success point (business telemetry): seed/admin
         # creates never pass through here, so this counts signups only —
         # the collision arms below are sign-ins to existing accounts.
-        :telemetry.execute(@signup_event, %{count: 1}, %{})
+        # One semantic event, two fire sites — the invite-acceptance
+        # twin is AcceptInvitation; the listener is FluxValeWeb.Telemetry
+        # (the name lives on the domain, FluxVale.Identity.signup_event/0).
+        :telemetry.execute(FluxVale.Identity.signup_event(), %{count: 1}, %{})
 
         {:ok, user}
 
@@ -424,10 +469,12 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
 
   # users.email is the frozen mirror the old pods resolve through —
   # reading it directly is the only way to find an account the
-  # table-backed identity cannot see yet.
+  # table-backed identity cannot see yet. invite_state loads with the
+  # query: the frozen-owner fork (invited_owner/2) decides on it.
   defp frozen_email_owner(email) do
     User
     |> Ash.Query.filter(email == ^email)
+    |> Ash.Query.load(:invite_state)
     |> Ash.read_one(authorize?: false)
   end
 end
