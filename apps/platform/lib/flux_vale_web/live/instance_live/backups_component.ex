@@ -400,12 +400,17 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
       </p>
     </.callout>
 
+    <%!-- The expectation stated where the setting lives (#507): the
+    platform rebuilds the app from its records, the data comes back only
+    from the owner's own destination. --%>
     <.callout tone="info" data-testid="backups-unconfigured">
       <p class="text-sm text-ink-muted">
-        Backups go to your own S3-compatible bucket, Cloudflare R2, or any
-        MinIO or S3 endpoint. You pay your provider for storage. FluxVale
-        charges no fee for backups. The one-time top-up is a wallet
-        minimum, not a charge.
+        Your app's data is your responsibility. It survives only if it is
+        backed up. Set up backups below to keep it safe. Backups go to your
+        own S3-compatible bucket, Cloudflare R2, or any MinIO or S3
+        endpoint. You pay your provider for storage. FluxVale charges no
+        fee for backups. The one-time top-up is a wallet minimum, not a
+        charge.
       </p>
     </.callout>
 
@@ -547,6 +552,13 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
         </p>
       </div>
     </div>
+
+    <%!-- The configured echo of the same expectation (#507): one line
+    naming the owner's destination as the recovery source. --%>
+    <p class="text-sm text-ink-muted" data-testid="backups-recovery">
+      If this app is ever rebuilt, its data is restored from your own
+      destination.
+    </p>
 
     <div class="flex flex-wrap items-center justify-between gap-3 rounded-control border border-line-strong bg-panel-raised px-3 py-2">
       <div>
