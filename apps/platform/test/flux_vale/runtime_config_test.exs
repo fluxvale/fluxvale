@@ -159,6 +159,23 @@ defmodule FluxVale.RuntimeConfigTest do
 
   defp read!(env), do: Config.Reader.read!(@runtime_config, env: env)
 
+  describe "ACCESS_DOMAINS_ISSUER (ADR-0040 S1)" do
+    test "is inert in test — a stray export never re-points the registry's issuer" do
+      with_env(%{"ACCESS_DOMAINS_ISSUER" => "evil-issuer"}, fn ->
+        assert read!(:test)
+
+        assert Application.fetch_env!(:flux_vale, :access_domains)[:issuer] ==
+                 "letsencrypt-staging"
+      end)
+    end
+
+    test "overrides the issuer in a prod-shaped run" do
+      with_env(Map.put(@prod_env, "ACCESS_DOMAINS_ISSUER", "letsencrypt-prod"), fn ->
+        assert read!(:prod)[:flux_vale][:access_domains][:issuer] == "letsencrypt-prod"
+      end)
+    end
+  end
+
   defp with_env(vars, fun) do
     originals = Map.new(vars, fn {name, _value} -> {name, System.get_env(name)} end)
 

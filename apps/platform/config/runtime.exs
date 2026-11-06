@@ -172,6 +172,27 @@ case System.get_env("ACCESS_DNS_RESOLVER_IP") do
     config :flux_vale, :access_dns, resolver_ip: ip
 end
 
+# ADR-0040 S1's issuer override (the same pattern): the registry's
+# wildcard Certificates name a ClusterIssuer from config; the local
+# default is the dev-safe letsencrypt-staging, and each deployed env
+# sets ACCESS_DOMAINS_ISSUER to its real DNS-01 issuer (staging:
+# letsencrypt-prod, the DNS-01/Cloudflare ClusterIssuer — the Nov 6
+# proof run's Certificate parked on IssuerNotFound until this override
+# existed). Inert in test (the #172 stance — a stray value in the
+# suite's shell must not re-point every certificate assertion), pinned
+# by runtime_config_test.
+if config_env() != :test do
+  case System.get_env("ACCESS_DOMAINS_ISSUER") do
+    issuer when issuer in [nil, ""] ->
+      :ok
+
+    issuer ->
+      config :flux_vale,
+             :access_domains,
+             Keyword.put(Application.fetch_env!(:flux_vale, :access_domains), :issuer, issuer)
+  end
+end
+
 # #203: the idle-sleep threshold (ADR-0036's settled 1h default lives in
 # config.exs). The E2E stack shortens it via the bootstrap — a real
 # 1-hour wait would blow the suite's budget; the same override is the
