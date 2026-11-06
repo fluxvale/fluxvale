@@ -26,18 +26,31 @@ set -eu
 REPO="${FLUXVALE_REPO:-fluxvale/fluxvale}"
 REQUESTED_VERSION="${FLUXVALE_VERSION:-}"
 
-# DATA_HOME: XDG first, then HOME, both possibly absent. A HOME-less
-# host with no FLUXVALE_HOME gets an honest refusal, not a crash.
+# DATA_HOME: XDG first, then HOME, both possibly absent. A host with
+# neither gets an honest refusal — but only when FLUXVALE_HOME does not
+# carry the whole answer, because a fully-specified invocation needs no
+# HOME at all.
 DATA_HOME="${XDG_DATA_HOME:-}"
 if [ -z "$DATA_HOME" ]; then
-  if [ -z "${HOME:-}" ]; then
+  if [ -n "${HOME:-}" ]; then
+    DATA_HOME="$HOME/.local/share"
+  elif [ -z "${FLUXVALE_HOME:-}" ]; then
     printf 'fluxvale: neither XDG_DATA_HOME nor HOME is set. Set FLUXVALE_HOME to pick an install dir.\n' >&2
     exit 1
   fi
-  DATA_HOME="$HOME/.local/share"
 fi
 HOME_DIR="${FLUXVALE_HOME:-$DATA_HOME/fluxvale}"
-BIN_DIR="${FLUXVALE_BIN_DIR:-$HOME/.local/bin}"
+
+# The shim dir: FLUXVALE_BIN_DIR wins, then HOME; with neither there is
+# nothing honest to default to.
+if [ -n "${FLUXVALE_BIN_DIR:-}" ]; then
+  BIN_DIR="$FLUXVALE_BIN_DIR"
+elif [ -n "${HOME:-}" ]; then
+  BIN_DIR="$HOME/.local/bin"
+else
+  printf 'fluxvale: HOME is not set. Set FLUXVALE_BIN_DIR to pick a shim dir.\n' >&2
+  exit 1
+fi
 
 say() { printf '%s\n' "$*"; }
 die() { printf 'fluxvale: %s\n' "$*" >&2; exit 1; }

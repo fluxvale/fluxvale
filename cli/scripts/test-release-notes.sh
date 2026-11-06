@@ -104,7 +104,11 @@ make_fixture "$t2"
 cp "$t1/CHANGELOG.md" "$t2/CHANGELOG.md"
 sh "$t2/scripts/release-notes.sh" 0.1.0 "$t2/notes.md"
 if grep -q "the 0.1.0 bullet" "$t2/notes.md"; then
-  ok "output-path argument lands the notes in a file"
+  if [ "$(tail -c 1 "$t2/notes.md" | od -An -c | tr -d '[:space:]')" = '\n' ]; then
+    ok "output-path argument lands the notes in a file, ending in exactly one newline"
+  else
+    bad "file output does not end in a single newline"
+  fi
 else
   bad "file output missing the section"
 fi

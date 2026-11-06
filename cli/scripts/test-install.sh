@@ -532,9 +532,60 @@ t19="$work/t19"
 mkdir -p "$t19"
 if out="$(run_installer "$t19" FLUXVALE_VERSION=.. 2>&1)"; then got=0; else got=1; fi
 if [ "$got" = 1 ]; then
-  ok "exit 1: .. is refused as a version"
+  if printf '%s\n' "$out" | grep -q "invalid version: \.\."; then
+    ok "exit 1 with the version refusal: .. is not a version"
+  else
+    bad "the .. refusal is not the invalid-version message (a wrong-reason exit masks the guard): $out"
+  fi
 else
   bad "expected exit 1 for FLUXVALE_VERSION=.., got 0"
+fi
+if out="$(run_installer "$t19" FLUXVALE_VERSION=. 2>&1)"; then got=0; else got=1; fi
+if [ "$got" = 1 ]; then
+  if printf '%s\n' "$out" | grep -q "invalid version: \.$"; then
+    ok "exit 1 with the version refusal: . is not a version"
+  else
+    bad "the . refusal is not the invalid-version message: $out"
+  fi
+else
+  bad "expected exit 1 for FLUXVALE_VERSION=., got 0"
+fi
+
+# --- a fully-specified install needs no HOME at all ----------------------------------------
+
+t20="$work/t20"
+mkdir -p "$t20"
+if out="$(env -u HOME -u XDG_DATA_HOME PATH="$fakebin:$PATH" \
+  FAKE_CURL_FIXTURE="$fixture" \
+  FLUXVALE_HOME="$t20/fluxvale" \
+  FLUXVALE_BIN_DIR="$t20/bin" \
+  FLUXVALE_RELEASE_BASE_URL="https://fixture.invalid/download" \
+  FLUXVALE_VERSION=0.1.0 \
+  sh "$install" 2>&1)"; then
+  assert "no HOME but FLUXVALE_HOME and FLUXVALE_BIN_DIR set: install succeeds" test -x "$t20/fluxvale/versions/0.1.0/fluxvale"
+else
+  bad "expected exit 0 for the fully-specified HOME-less install, got 1: $out"
+fi
+
+# --- XDG set, HOME unset, no FLUXVALE_BIN_DIR: honest refusal, not a crash ------------------
+
+t21="$work/t21"
+mkdir -p "$t21"
+if out="$(env -u HOME PATH="$fakebin:$PATH" \
+  FAKE_CURL_FIXTURE="$fixture" \
+  XDG_DATA_HOME="$t21/xdg" \
+  FLUXVALE_HOME="$t21/fluxvale" \
+  FLUXVALE_RELEASE_BASE_URL="https://fixture.invalid/download" \
+  FLUXVALE_VERSION=0.1.0 \
+  sh "$install" 2>&1)"; then got=0; else got=1; fi
+if [ "$got" = 1 ]; then
+  if printf '%s\n' "$out" | grep -q "Set FLUXVALE_BIN_DIR"; then
+    ok "exit 1 with the honest refusal: no HOME and no FLUXVALE_BIN_DIR"
+  else
+    bad "the BIN_DIR case did not refuse honestly: $out"
+  fi
+else
+  bad "expected exit 1 for a HOME-less install without FLUXVALE_BIN_DIR, got 0"
 fi
 
 echo "passed: $pass, failed: $fail"
