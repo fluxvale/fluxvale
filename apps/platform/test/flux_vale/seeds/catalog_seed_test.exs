@@ -269,14 +269,23 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert app.tagline == "Envelope budgeting shared by the whole household"
       assert app.file_access == false
 
-      version = version_for!("actualbudget")
+      version =
+        "actualbudget"
+        |> App.get_by_slug!(authorize?: false)
+        |> Ash.load!([app_versions: :recommended_size], authorize?: false)
+        |> Map.fetch!(:app_versions)
+        |> hd()
+
       assert version.version == "26.11.0"
       assert version.image == "ghcr.io/actualbudget/actual-server:26.11.0"
       assert version.port == 5006
       assert version.healthcheck_path == "/health"
       assert version.storage_mount_path == "/data"
       assert version.default_storage_gb == 10
-      assert version.recommended_size_id != nil
+      # The priced unit, pinned by slug like the sibling entries
+      # (ValidateSizeMatchesAllocation enforces the pairing at write
+      # time; this asserts the shipped one).
+      assert version.recommended_size.slug == "small"
 
       contract = version.first_run
       assert %FirstRunContract{} = contract

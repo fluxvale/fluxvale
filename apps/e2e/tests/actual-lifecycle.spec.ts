@@ -34,7 +34,11 @@ test("actualbudget: catalog → deploy → running → claim → stop → start 
   page,
   request,
 }) => {
-  test.setTimeout(18 * 60_000);
+  // 22 min: the inner waits (12 min deploy + 60s stop + 8 min start)
+  // must fit under the ceiling with overhead to spare, or a slow
+  // deploy retry dies on Playwright's generic timeout instead of
+  // waitForStatus's message.
+  test.setTimeout(22 * 60_000);
 
   // Sign in as a fresh per-run user (JIT-provisioned; nobody's data
   // gets touched, and the instances list starts empty)
@@ -94,10 +98,16 @@ test("actualbudget: catalog → deploy → running → claim → stop → start 
   expect(await health.json()).toEqual({ status: "UP" });
 
   // #181's done-when, Actual's shape (ADR-0034 Am. 1): a fresh server
-  // ships unclaimed and the first open sets the server password. Prove
-  // the whole claim path over the wire — needs-bootstrap false, the
-  // one-time bootstrap mints a token, the password then logs in, a
-  // wrong password is refused.
+  // ships unclaimed and the first open sets the server password. The
+  // instance page renders the contract's guidance callout until the
+  // claim happens — the pattern's user-facing affordance.
+  await expect(page.getByTestId("first-run-guidance")).toContainText(
+    "set the server password",
+  );
+
+  // Prove the whole claim path over the wire — the server still needs
+  // bootstrapping (bootstrapped:false), the one-time bootstrap mints a
+  // token, the password then logs in, a wrong password is refused.
   const needsBootstrap = await request.get(
     new URL("account/needs-bootstrap", url!).toString(),
   );
