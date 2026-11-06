@@ -68,11 +68,13 @@ fluxvale auth login     # prints a code and opens the approval page
 
 Then `fluxvale apps list`, `fluxvale instances deploy --app <slug>`, and you are running.
 
-Prefer to unpack by hand? The archives below are the same bits the installer fetches. Verify your download against `SHA256SUMS` (unix):
+Prefer to unpack by hand? The archives below are the same bits the installer fetches. Verify your download against `SHA256SUMS` (Linux):
 
 ```
 grep <your-archive> SHA256SUMS | sha256sum -c -
 ```
+
+On macOS: `grep <your-archive> SHA256SUMS | shasum -a 256 -c -`.
 
 On Windows: `certutil -hashfile <your-archive> SHA256` and compare by eye.
 HEAD

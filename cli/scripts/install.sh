@@ -228,7 +228,17 @@ tar -xzf "$tmp/$asset" -C "$staging"
 
 # The archive holds one stage dir, fluxvale-<version>-<leg>/, with the
 # binary at its top (cli-release.yml's archive step).
-[ -x "$staging/fluxvale-$version-$target/fluxvale" ] || die "archive did not contain fluxvale-$version-$target/fluxvale"
+staged_bin="$staging/fluxvale-$version-$target/fluxvale"
+[ -x "$staged_bin" ] || die "archive did not contain fluxvale-$version-$target/fluxvale"
+
+# Probe the STAGED binary before anything on disk is touched: a binary
+# that cannot run on this host must leave the existing install working.
+if ! installed=$("$staged_bin" --version 2>&1); then
+  printf '%s\n' "$installed" >&2
+  rm -rf "$staging"
+  die "the new binary failed to run on this host, so nothing was changed.
+The error above names what is missing (Linux builds link glibc)."
+fi
 
 mkdir -p "$versions_dir"
 rm -rf "$target_dir"
@@ -255,14 +265,6 @@ done
 mkdir -p "$BIN_DIR"
 printf '#!/bin/sh\nexec "%s/current/fluxvale" "$@"\n' "$HOME_DIR" >"$BIN_DIR/fluxvale"
 chmod 755 "$BIN_DIR/fluxvale"
-
-# The point of the shim and the versioned dir: prove the installed
-# artifact actually runs on this host before claiming success.
-if ! installed=$("$target_dir/fluxvale" --version 2>&1); then
-  printf '%s\n' "$installed" >&2
-  die "installed, but the binary failed to run on this host.
-The error above names what is missing (Linux builds link glibc)."
-fi
 
 # stderr noise (locale warnings and the like) is not a failed install.
 installed=$(printf '%s\n' "$installed" | grep -E '^fluxvale ' | head -1)

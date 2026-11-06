@@ -24,11 +24,13 @@ release with `FLUXVALE_VERSION=<version>`.
 
 Prefer to unpack by hand? Download the archive for your machine from
 [GitHub Releases](https://github.com/fluxvale/fluxvale/releases), verify
-it, and put `fluxvale` on your PATH:
+it, and put `fluxvale` on your PATH (Linux):
 
 ```
 grep <your-archive> SHA256SUMS | sha256sum -c -
 ```
+
+On macOS: `grep <your-archive> SHA256SUMS | shasum -a 256 -c -`.
 
 On Windows, download `windows-x86_64.zip` and compare by eye:
 

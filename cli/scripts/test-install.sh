@@ -20,6 +20,16 @@ fail=0
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
+# The fixture sums: sha256sum on Linux, shasum on macOS (stock macOS
+# ships neither sha256sum nor a guarantee of GNU coreutils).
+sum256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$@"
+  else
+    shasum -a 256 "$@"
+  fi
+}
+
 ok() {
   echo "ok    $1"
   pass=$((pass + 1))
@@ -57,9 +67,21 @@ make_archive() {
 
 # fake curl: serves the fixture dir, no network. The installer's
 # redirect resolution (-w '%{redirect_url}') reads fixture/redirect_url.
+# fake uname: the fixture archives are linux-amd64, so the default stub
+# pins detection to Linux x86_64 and the suite runs on any host; the
+# platform-specific cases bring their own uname override.
 make_fake_curl() {
   local dir="$1"
   mkdir -p "$dir"
+  cat >"$dir/uname" <<'FAKE'
+#!/bin/sh
+case "$1" in
+  -s) printf 'Linux\n' ;;
+  -m) printf 'x86_64\n' ;;
+  *) exec /usr/bin/uname "$@" ;;
+esac
+FAKE
+  chmod 755 "$dir/uname"
   cat >"$dir/curl" <<'FAKE'
 #!/usr/bin/env bash
 set -eu
@@ -127,7 +149,7 @@ version_count() {
 make_archive 0.1.0
 make_archive 0.2.0
 make_archive 0.2.0 macos-aarch64
-(cd "$fixture" && sha256sum fluxvale-0.1.0-linux-amd64.tar.gz fluxvale-0.2.0-linux-amd64.tar.gz fluxvale-0.2.0-macos-aarch64.tar.gz >SHA256SUMS)
+(cd "$fixture" && sum256 fluxvale-0.1.0-linux-amd64.tar.gz fluxvale-0.2.0-linux-amd64.tar.gz fluxvale-0.2.0-macos-aarch64.tar.gz >SHA256SUMS)
 printf 'https://github.com/fluxvale/fluxvale/releases/tag/cli-v0.2.0\n' >"$fixture/redirect_url"
 
 # --- green install (pinned) -------------------------------------------------
@@ -328,7 +350,7 @@ fi
 fixture_star="$work/star"
 mkdir -p "$fixture_star"
 cp "$fixture/fluxvale-0.1.0-linux-amd64.tar.gz" "$fixture_star/"
-(cd "$fixture_star" && sha256sum fluxvale-0.1.0-linux-amd64.tar.gz | sed 's/  /  */' >SHA256SUMS)
+(cd "$fixture_star" && sum256 fluxvale-0.1.0-linux-amd64.tar.gz | sed "s/  /  */" >SHA256SUMS)
 printf 'https://github.com/fluxvale/fluxvale/releases/tag/cli-v0.1.0\n' >"$fixture_star/redirect_url"
 star_bin="$work/bin-star"
 make_fake_curl "$star_bin"
@@ -465,7 +487,7 @@ fi
 fixture_log="$work/logged"
 mkdir -p "$fixture_log"
 cp "$fixture/fluxvale-0.1.0-linux-amd64.tar.gz" "$fixture_log/"
-(cd "$fixture_log" && sha256sum fluxvale-0.1.0-linux-amd64.tar.gz >SHA256SUMS)
+(cd "$fixture_log" && sum256 fluxvale-0.1.0-linux-amd64.tar.gz >SHA256SUMS)
 printf 'https://github.com/fluxvale/fluxvale/releases/tag/cli-v0.1.0\n' >"$fixture_log/redirect_url"
 log_bin="$work/bin-log"
 make_fake_curl "$log_bin"
@@ -586,6 +608,51 @@ if [ "$got" = 1 ]; then
   fi
 else
   bad "expected exit 1 for a HOME-less install without FLUXVALE_BIN_DIR, got 0"
+fi
+
+# --- a broken new binary leaves the working install alone ---------------------------
+
+fixture_broken="$work/broken"
+mkdir -p "$fixture_broken"
+cp "$fixture/fluxvale-0.1.0-linux-amd64.tar.gz" "$fixture_broken/"
+stage_broken="fluxvale-0.2.0-linux-amd64"
+mkdir -p "$fixture_broken/$stage_broken"
+printf '#!/bin/sh\nexit 69\n' >"$fixture_broken/$stage_broken/fluxvale"
+chmod 755 "$fixture_broken/$stage_broken/fluxvale"
+tar -czf "$fixture_broken/fluxvale-0.2.0-linux-amd64.tar.gz" -C "$fixture_broken" "$stage_broken"
+(cd "$fixture_broken" && sum256 fluxvale-0.1.0-linux-amd64.tar.gz fluxvale-0.2.0-linux-amd64.tar.gz >SHA256SUMS)
+printf 'https://github.com/fluxvale/fluxvale/releases/tag/cli-v0.2.0\n' >"$fixture_broken/redirect_url"
+broken_bin="$work/bin-broken"
+make_fake_curl "$broken_bin"
+t22="$work/t22"
+mkdir -p "$t22"
+run_installer "$t22" FLUXVALE_VERSION=0.1.0 >/dev/null 2>&1
+if out="$(env PATH="$broken_bin:$PATH" \
+  FAKE_CURL_FIXTURE="$fixture_broken" \
+  FLUXVALE_HOME="$t22/fluxvale" \
+  FLUXVALE_BIN_DIR="$t22/bin" \
+  FLUXVALE_RELEASE_BASE_URL="https://fixture.invalid/download" \
+  FLUXVALE_VERSION=0.2.0 \
+  sh "$install" 2>&1)"; then got=0; else got=1; fi
+if [ "$got" = 1 ]; then
+  if printf '%s\n' "$out" | grep -q "nothing was changed"; then
+    ok "exit 1: a binary that cannot run on the host refuses before replacing"
+  else
+    bad "the staged-probe refusal is not the nothing-changed message: $out"
+  fi
+else
+  bad "expected exit 1 for a broken staged binary, got 0"
+fi
+assert "the working 0.1.0 is still on disk" test -x "$(versions_dir_of "$t22")/0.1.0/fluxvale"
+if [ "$("$t22/bin/fluxvale" --version)" = "fluxvale 0.1.0" ]; then
+  ok "the shim still runs the old version after the refused upgrade"
+else
+  bad "the refused upgrade broke the shim"
+fi
+if [ "$(readlink "$t22/fluxvale/current")" = "$t22/fluxvale/versions/0.1.0" ]; then
+  ok "current symlink untouched by the refused upgrade"
+else
+  bad "current symlink moved by the refused upgrade"
 fi
 
 echo "passed: $pass, failed: $fail"
