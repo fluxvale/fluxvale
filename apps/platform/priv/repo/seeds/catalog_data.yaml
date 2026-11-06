@@ -246,7 +246,8 @@
             guidance: >-
               Open the instance URL and create your account. The first
               account becomes the host (admin). Then close public
-              sign-up in Memos' admin settings so only you can register.
+              sign-up in Memos' admin settings so no one else can
+              register.
 
 - category:
     name: Security
