@@ -7,7 +7,10 @@ defmodule FluxVale.Infrastructure.BackupSetting.ApplyClusterState do
   `ConfigureBackups` save. The `backup-config` Secret is re-applied
   (a blank/absent `:secret_access_key` keeps the stored password and
   key while RESTIC_REPOSITORY recomputes from the changeset's
-  coordinates) and the backup margin quota re-applies.
+  coordinates) and the backup margin quota re-applies. THE exception,
+  mirroring the panel: a pause (an update flipping `enabled` true→false)
+  touches nothing — it changes one attribute and no cluster state,
+  because an UNPAID org must always be able to stop paying for backups.
 
   ONE deliberate difference from the panel's save, route-side: a first
   save (no stored Secret) carrying no secret applies the quota only
@@ -30,7 +33,26 @@ defmodule FluxVale.Infrastructure.BackupSetting.ApplyClusterState do
 
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
-    Ash.Changeset.after_action(changeset, &apply_cluster_state/2)
+    # A pause must never touch K8s — the unpaid escape depends on it.
+    if pause?(changeset) do
+      changeset
+    else
+      Ash.Changeset.after_action(changeset, &apply_cluster_state/2)
+    end
+  end
+
+  # The update policy's unpaid escape (`changing_attributes(enabled:
+  # [from: true, to: false])`) constrains only the transition itself —
+  # Ash's ChangingAttributes check ignores whatever ELSE rides the
+  # changeset — so any enabled true→false flip is a legal unpaid save
+  # and skips the apply. That self-heals: an unpaid org's only legal
+  # save IS the pause (every non-pause save is paid-gated), and a paid
+  # org's coords-riding pause is re-converged by its next save or
+  # re-enable via the always-apply.
+  defp pause?(changeset) do
+    changeset.action_type == :update and
+      changeset.data.enabled == true and
+      Ash.Changeset.get_attribute(changeset, :enabled) == false
   end
 
   # authorize?: false is a precondition read, not a bypass: the row's

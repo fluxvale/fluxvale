@@ -50,9 +50,27 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
     {user, deployed}
   end
 
-  # A paid member with a PENDING instance — namespace nil, the
-  # not-deployed shape the kubeconfig guard refuses.
+  # The unpaid shape (the welcome-credit org is funded but never paid):
+  # its only legal save is the pause, via the update policy's escape arm.
+  defp unpaid_member_with_instance do
+    user = elem(ApiPat.member!(), 0)
+
+    version = InstanceFixtures.app_version!(default_storage_gb: 10)
+    InstanceFixtures.local_cluster!()
+
+    instance = InstanceFixtures.instance!(version, user)
+
+    deployed =
+      instance
+      |> InstanceFixtures.pin!(namespace: "fluxvale-app-#{instance.id}")
+      |> InstanceFixtures.walk_to!(:running)
+
+    {user, deployed}
+  end
+
   defp paid_member_with_pending_instance do
+    # A paid member with a PENDING instance — namespace nil, the
+    # not-deployed shape the kubeconfig guard refuses.
     user = elem(ApiPat.member!(), 0)
     BillingFixtures.mark_user_paid!(user)
 
@@ -590,9 +608,76 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
     end
   end
 
+  # The pause is the one routed save that touches NOTHING: the update
+  # policy's unpaid escape authorizes the enabled true→false flip, so a
+  # cluster outage (or a vanished namespace) must never turn "stop
+  # backing up" into a 500. No stubs — and the rejects make any cluster
+  # attempt fail the test loudly (K8s.kubeconfig/1 is the path's first
+  # cluster call; if it's never reached, nothing else can be).
+  describe "a pause never touches the cluster" do
+    test "a paid org pauses over the wire — zero cluster calls", %{conn: conn} do
+      {user, instance} = member_with_instance()
+      setting = setting!(instance)
+      pat = ApiPat.mint!(user.email, ["backups:write"])
+
+      reject(K8s, :kubeconfig, 1)
+      reject(Secret, :get_data, 3)
+      reject(Secret, :create, 4)
+      reject(ResourceQuota, :create, 4)
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> patch("/api/v1/backup-settings/#{setting.id}", %{
+          "data" => %{
+            "type" => "backup_setting",
+            "id" => setting.id,
+            "attributes" => %{"enabled" => false}
+          }
+        })
+
+      assert %{"data" => %{"attributes" => %{"enabled" => false}}} = json_response(conn, 200)
+
+      assert {:ok, paused} = BackupSetting.get_by_instance(instance.id, actor: user)
+      refute paused.enabled
+    end
+
+    test "an unpaid org can always pause — zero cluster calls", %{conn: conn} do
+      {user, instance} = unpaid_member_with_instance()
+      setting = setting!(instance)
+      pat = ApiPat.mint!(user.email, ["backups:write"])
+
+      reject(K8s, :kubeconfig, 1)
+      reject(Secret, :get_data, 3)
+      reject(Secret, :create, 4)
+      reject(ResourceQuota, :create, 4)
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> patch("/api/v1/backup-settings/#{setting.id}", %{
+          "data" => %{
+            "type" => "backup_setting",
+            "id" => setting.id,
+            "attributes" => %{"enabled" => false}
+          }
+        })
+
+      assert %{"data" => %{"attributes" => %{"enabled" => false}}} = json_response(conn, 200)
+
+      assert {:ok, paused} = BackupSetting.get_by_instance(instance.id, actor: user)
+      refute paused.enabled
+    end
+  end
+
   describe "PATCH /api/v1/backup-settings/:id" do
+    # A pause: no stubs, and it needs none — the save must not attempt
+    # anything cluster-side (the unpaid escape depends on it). The
+    # sharp no-cluster proofs live in the "a pause never touches the
+    # cluster" describe below.
     test "saves the row's fields", %{conn: conn} do
-      stub_converge_cluster()
       {user, instance} = member_with_instance()
       setting = setting!(instance)
       pat = ApiPat.mint!(user.email, ["backups:write"])
