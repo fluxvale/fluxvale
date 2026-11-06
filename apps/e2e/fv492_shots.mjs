@@ -37,15 +37,20 @@ const KEY_PLACEHOLDER = "fv492-capture-placeholder";
 const browser = await chromium.launch();
 
 // Session: POST /auth/session (the sign-in flow's own write), then the
-// cookie jar carries every capture.
+// cookie jar carries every capture. Fail fast on a rejected token: a
+// silent continue would capture sign-in pages and call them captures.
 const signIn = async (ctx) => {
   const page = await ctx.newPage();
   await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
   const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
-  await page.request.post(`${BASE}/auth/session`, {
+  const response = await page.request.post(`${BASE}/auth/session`, {
     form: { token },
     headers: { "x-csrf-token": csrf },
   });
+  const bounced = new URL(response.url()).pathname === "/sign-in";
+  if (!response.ok() || bounced) {
+    throw new Error(`Sign-in failed (status ${response.status()}); check FV_TOKEN`);
+  }
   return page;
 };
 
