@@ -5,6 +5,7 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
   use Mimic
 
   import Phoenix.LiveViewTest
+  import FluxVale.TestSupport.InvitationHelpers
 
   alias FluxVale.Identity
   alias FluxVale.Ops.AccessRule
@@ -47,6 +48,8 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
     refute has_element?(view, "header")
   end
 
+  # The bypass acceptance through the UI: an @fluxvale.com address
+  # creates an account with no extra step (#478).
   test "full flow: request, verify, session write via trigger-action POST", %{
     conn: conn
   } do
@@ -251,5 +254,90 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
 
     assert html =~ "Too many attempts. Request a fresh code."
     assert html =~ "email-form"
+  end
+
+  # #478: the gate's UI half. The email step carries the honest hint,
+  # and a refused JIT shows the honest copy with the ask (no dead end)
+  # instead of the generic wrong-code message.
+  test "the email step carries the honest early-access hint", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/sign-in")
+
+    assert render(view) =~ "Early access is invitation-only"
+  end
+
+  test "a non-invited external address is refused with the honest copy at the wall", %{
+    conn: conn
+  } do
+    outsider = "wall-#{System.unique_integer()}@partner.example"
+    {:ok, view, _html} = live(conn, ~p"/sign-in")
+
+    view
+    |> form("#email-form", email: outsider)
+    |> render_submit()
+
+    code = deliver_and_extract_code()
+
+    result =
+      view
+      |> form("#code-form", code: code)
+      |> render_submit()
+
+    assert result =~ "invitation-only early access"
+    assert result =~ "support@fluxvale.com"
+    # back at the email step, their email draft intact
+    assert has_element?(view, "#email-form")
+    assert has_element?(view, "input[name='email'][value='#{outsider}']")
+    refute has_element?(view, "#code-form")
+
+    # and no account exists behind the wall
+    assert {:error, _not_found} = Identity.User.get_by_email(outsider, authorize?: false)
+  end
+
+  test "an invited external address provisions through the UI", %{conn: conn} do
+    invited = "ui-invited-#{System.unique_integer()}@partner.example"
+    invite_address!(invited)
+    drain_mail!()
+
+    {:ok, view, _html} = live(conn, ~p"/sign-in")
+
+    view
+    |> form("#email-form", email: invited)
+    |> render_submit()
+
+    code = deliver_and_extract_code()
+
+    code_form = form(view, "#code-form", code: code)
+    render_submit(code_form)
+
+    conn = follow_trigger_action(code_form, conn)
+    assert redirected_to(conn) == ~p"/"
+
+    assert {:ok, _user} = Identity.User.get_by_email(invited, authorize?: false)
+  end
+
+  test "an existing account signs in through the UI untouched by the gate", %{conn: conn} do
+    # the account predates the flow (operator-seed shape, an external
+    # domain so the team bypass is not what admits it): the gate never
+    # asks, the sign-in is as it was, and the session is THAT account
+    external = "ui-existing-#{System.unique_integer()}@partner.example"
+    existing = Identity.User.create!(external, %{}, authorize?: false)
+
+    {:ok, view, _html} = live(conn, ~p"/sign-in")
+
+    view
+    |> form("#email-form", email: external)
+    |> render_submit()
+
+    code = deliver_and_extract_code()
+
+    code_form = form(view, "#code-form", code: code)
+    render_submit(code_form)
+
+    conn = follow_trigger_action(code_form, conn)
+    assert redirected_to(conn) == ~p"/"
+
+    session = Plug.Conn.get_session(conn)
+    assert %{id: id} = FluxValeWeb.UserAuth.resolve_user(session)
+    assert id == existing.id
   end
 end

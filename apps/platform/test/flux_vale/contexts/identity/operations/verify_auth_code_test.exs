@@ -4,13 +4,13 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
   use FluxVale.DataCase, async: true
 
   import FluxVale.TestSupport.AuthCodeHelpers
+  import FluxVale.TestSupport.InvitationHelpers
 
   alias FluxVale.Identity
   alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Ops.AccessRule
   alias FluxVale.TestSupport.Telemetry
-
   require Ash.Query
 
   setup do
@@ -106,7 +106,8 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
       assert {:error, :no_active_code} = Identity.verify_auth_code(email, code)
     end
 
-    test "first successful verify JIT-provisions the account", %{email: email} do
+    test "first successful verify JIT-provisions the account — an @fluxvale.com address creates with no extra step (#478)",
+         %{email: email} do
       :ok = Identity.request_auth_code(email)
       code = mailbox_code()
 
@@ -114,7 +115,8 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
       assert user.id
       assert user.platform_role == :user
 
-      # A second sign-in reuses the same account
+      # A second sign-in reuses the same account — the gate never asks
+      # existing users (the #478 ruling)
       :ok = Identity.request_auth_code(email)
 
       assert {:ok, user_again, _again_token} =
@@ -329,6 +331,98 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
       # Denied before anything burned — the code stays verifiable if the
       # rule is removed again (check-based severing, not destruction)
       assert [%{attempts: 0}] = active_codes(email)
+    end
+  end
+
+  describe "invitation gate (#478 — the server-side door on first-time provisioning)" do
+    test "an existing external user signs in with no invitation and no behavior change" do
+      # an account that predates the gate (the operator-seed shape, an
+      # external domain): the gate never asks, sign-in as today
+      address = "preexisting-#{System.unique_integer()}@partner.example"
+      user = User.create!(address, %{}, authorize?: false)
+
+      :ok = Identity.request_auth_code(address)
+
+      assert {:ok, signed_in, _token} = Identity.verify_auth_code(address, mailbox_code())
+      assert signed_in.id == user.id
+    end
+
+    test "a non-invited external address is refused — honest atom, no account" do
+      address = "outsider-#{System.unique_integer()}@partner.example"
+
+      :ok = Identity.request_auth_code(address)
+
+      assert {:error, :invitation_required} = Identity.verify_auth_code(address, mailbox_code())
+
+      assert [] = users_with_email(address)
+      assert [] = rows_for(address)
+    end
+
+    test "an invited address creates an account (the row is the whole credential)" do
+      address = "invited-#{System.unique_integer()}@partner.example"
+      invite_address!(address)
+      drain_mail!()
+
+      :ok = Identity.request_auth_code(address)
+
+      assert {:ok, user, _token} = Identity.verify_auth_code(address, mailbox_code())
+      assert %User{} = user
+    end
+
+    test "a second address at the same domain as an invited one is still refused" do
+      unique = System.unique_integer()
+      invite_address!("alice-#{unique}@partner.example")
+      drain_mail!()
+
+      bob = "bob-#{unique}@partner.example"
+
+      :ok = Identity.request_auth_code(bob)
+
+      assert {:error, :invitation_required} = Identity.verify_auth_code(bob, mailbox_code())
+      assert [] = users_with_email(bob)
+    end
+
+    test "a revoked invite refuses new sign-ups for that address" do
+      address = "revoked-#{System.unique_integer()}@partner.example"
+      invited = invite_address!(address)
+      drain_mail!()
+      revoke!(invited)
+
+      :ok = Identity.request_auth_code(address)
+
+      assert {:error, :invitation_required} = Identity.verify_auth_code(address, mailbox_code())
+      assert [] = users_with_email(address)
+    end
+
+    test "revocation never touches an account that already exists" do
+      address = "kept-#{System.unique_integer()}@partner.example"
+      invited = invite_address!(address)
+      drain_mail!()
+
+      # the account is created while the invitation is live
+      :ok = Identity.request_auth_code(address)
+      assert {:ok, user, _token} = Identity.verify_auth_code(address, mailbox_code())
+
+      # the door closes afterwards — the account signs in exactly as today
+      revoke!(invited)
+
+      :ok = Identity.request_auth_code(address)
+
+      assert {:ok, signed_in, _again_token} = Identity.verify_auth_code(address, mailbox_code())
+
+      assert signed_in.id == user.id
+    end
+
+    test "a refused verify still burns the login code (the burn is the inbox proof)" do
+      address = "burned-#{System.unique_integer()}@partner.example"
+
+      :ok = Identity.request_auth_code(address)
+      code = mailbox_code()
+
+      assert {:error, :invitation_required} = Identity.verify_auth_code(address, code)
+
+      # the code is gone — a retry without a fresh request cannot pass
+      assert {:error, :no_active_code} = Identity.verify_auth_code(address, code)
     end
   end
 end

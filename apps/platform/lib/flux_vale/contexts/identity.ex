@@ -8,6 +8,11 @@ defmodule FluxVale.Identity do
   store below backs sessions, `prune_expired_tokens/1` its janitor)
   build on this domain. Deliberately **not** exposed through AshAdmin
   — User/Token are sensitive resources (ADR-0027 §3).
+
+  Since #478, `verify_auth_code/2` carries the invitation gate: JIT
+  provisioning needs `@fluxvale.com` or a recorded invitation (the
+  list itself is operator data, `FluxVale.Ops.InvitedEmail` in
+  AshAdmin).
   """
 
   use Ash.Domain,

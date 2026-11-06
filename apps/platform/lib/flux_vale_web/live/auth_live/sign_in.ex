@@ -57,6 +57,14 @@ defmodule FluxValeWeb.AuthLive.SignIn do
                 autofocus
                 data-testid="sign-in-email"
               />
+              <%!-- #478: the honest hint, before the wall — early access
+              is invitation-only and the request step stays
+              enumeration-blind (no behavior difference reveals whether
+              an address exists or is invited). --%>
+              <p class="text-xs leading-5 text-ink-muted">
+                Early access is invitation-only. Creating a new account
+                needs an invited address.
+              </p>
               <.button
                 type="submit"
                 class="w-full"
@@ -198,6 +206,21 @@ defmodule FluxValeWeb.AuthLive.SignIn do
          |> assign(step: :email)
          |> assign(form: to_form(%{"email" => socket.assigns.email}))
          |> put_flash(:error, "That address can't sign in yet. Ask an admin for access.")}
+
+      {:error, :invitation_required} ->
+        # #478: the invitation wall — the friction point's honest copy,
+        # no dead end (the ask sits in the text). The login code burned
+        # with the verify, so the retry is a fresh request anyway; back
+        # to the email step, their draft intact.
+        {:noreply,
+         socket
+         |> assign(step: :email)
+         |> assign(form: to_form(%{"email" => socket.assigns.email}))
+         |> put_flash(
+           :error,
+           "FluxVale is in invitation-only early access. Creating an account needs an " <>
+             "invited address. Write to support@fluxvale.com and we'll send you an invite."
+         )}
 
       {:error, _reason} ->
         # Uniform message: unknown address and wrong code look identical

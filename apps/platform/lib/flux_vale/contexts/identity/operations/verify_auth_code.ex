@@ -21,6 +21,17 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   second account. A create collision resolves the account that already
   holds the address — the old-pod shape (`users.email` set, no row,
   review P2-3) gets its mirror row healed and signs in.
+
+  The invitation gate (#478, final shape: per-address invitations, the
+  team domain bypass) sits on the JIT arm only: a genuinely new address
+  creates an account when `Ops.InvitedEmails.allows?/1` admits it —
+  `@fluxvale.com` outright, or a recorded, unrevoked invitation for
+  that exact address. Every arm that resolves an existing account
+  (direct lookup, superseded-claim flip, collision heal) is a sign-in
+  and stays ungated — existing users are unaffected, and revocation
+  never touches an account that exists. The refusal atom is
+  `:invitation_required` — the honest copy is the LiveView's concern;
+  the operation's contract is the atom and the no-account guarantee.
   """
 
   alias FluxVale.Identity.AuthCode
@@ -28,6 +39,7 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   alias FluxVale.Identity.User.MirrorSignupEmail
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Ops.AccessRules
+  alias FluxVale.Ops.InvitedEmails
 
   # Ash.Query.filter is a macro
   require Ash.Query
@@ -41,7 +53,9 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   @doc """
   Verifies `code` for `email`. On success returns `{:ok, user, token}`;
   failures are uniform in shape — no account-enumeration signal between
-  an unknown address and a bad code.
+  an unknown address and a bad code. An address that is neither on the
+  team domain nor invited is refused at provisioning with `{:error,
+  :invitation_required}` and no account is created (#478).
   """
   @spec call(String.t() | Ash.CiString.t(), String.t()) ::
           {:ok, map(), String.t()} | {:error, atom()}
@@ -167,8 +181,9 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
 
     case lookup_user(email) do
       # A VERIFIED row for the address now exists — the concurrent
-      # VerifyEmail committed between our supersede and this read.
-      # That account holds the inbox proof; resolve to it.
+      # VerifyEmail's flip committed between our supersede and this
+      # read. That account holds the inbox proof; resolve to it — a
+      # sign-in, ungated (the allowlist admits accounts, not logins).
       # coveralls-ignore-start - race arm: needs the flip to commit
       # inside this window — true concurrency, not sequential
       {:ok, user} ->
@@ -211,8 +226,44 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
     end
   end
 
-  # JIT provisioning (ADR-0003): a valid code proves inbox ownership
+  # JIT provisioning (ADR-0003): a valid code proves inbox ownership.
+  # The invitation gate (#478, final shape) sits in front of the create
+  # — EXCEPT for an address the frozen mirror already owns: that is an
+  # EXISTING account (the old-pod shape), a sign-in, and existing users
+  # are unaffected (the #478 ruling), so the heal resolves it ungated.
+  # For a genuinely new address the burned login code proved the inbox
+  # and admission rides the allowlist question: the team's own domain
+  # or a recorded, unrevoked invitation — per address, never per
+  # domain. The refusal happens before any write.
   defp provision_user(email) do
+    case frozen_email_owner(email) do
+      {:ok, %User{}} ->
+        # An old-pod account the table-backed lookups cannot see: the
+        # heal path resolves it — a sign-in, ungated
+        resolve_collided(email)
+
+      {:ok, nil} ->
+        gated_create(email)
+
+      # coveralls-ignore-start - DB read failure mid-verify: same class
+      # as health's db_up? — not simulatable under the sandbox
+      {:error, _read_failed} ->
+        {:error, :user_lookup_failed}
+        # coveralls-ignore-stop
+    end
+  end
+
+  # The gate + create. InvitedEmails.allows?/1 is the whole gate: the
+  # team domain bypass or a live invitation, per address.
+  defp gated_create(email) do
+    if InvitedEmails.allows?(email) do
+      create_and_resolve(email)
+    else
+      {:error, :invitation_required}
+    end
+  end
+
+  defp create_and_resolve(email) do
     case create_user(email) do
       {:ok, user} ->
         # The signup-success point (business telemetry): seed/admin
@@ -223,79 +274,85 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
         {:ok, user}
 
       # The address already belongs to an account our lookups missed:
-      # the old-pod shape (users.email holds it, no user_emails row —
-      # review P2-3), or a verified row that committed in the residual
-      # window between the re-lookup above and this create (review
-      # P2-1). Either way the burned code is still the inbox proof —
-      # resolve THAT account; no second account, no lost verified stamp.
-      # Only the two uniqueness identities mean that, though: any other
-      # create failure routes into the heal and gets reinterpreted as
-      # one (review round 2, P3 — that match is what turned the P1
+      # a verified row that committed in the residual window between
+      # the re-lookup above and this create (review P2-1). The burned
+      # code is still the inbox proof — resolve THAT account; no
+      # second account, no lost verified stamp. Only the two
+      # uniqueness identities mean that, though: any other create
+      # failure routes into the heal and gets reinterpreted as one
+      # (review round 2, P3 — that match is what turned the P1
       # primary-index failure into a silent wrong-arm write).
       {:error, collision} ->
-        if unique_collision?(collision) do
-          resolve_collided(email)
-        else
-          # coveralls-ignore-start - non-uniqueness create failures are
-          # not sequentially reachable: format is refused at code-send,
-          # username/org-slug collisions are probed away by their
-          # changes (DeriveUsername, ProvisionPersonalOrg), and DB
-          # failures are the same class as the other DB-down arms
-          {:error, :provisioning_failed}
-          # coveralls-ignore-stop
-        end
+        # coveralls-ignore-start - race-only since the frozen-mirror
+        # pre-check (#478): the pre-check intercepts the old-pod shape
+        # BEFORE the create, so a sequential create can no longer
+        # collide — only a concurrent commit inside the residual window
+        # (review P2-1) reaches the collision machinery. The pre-check
+        # is the gate's existing-accounts carve-out and stays.
+        resolve_collision(collision, email)
+        # coveralls-ignore-stop
     end
   end
+
+  # coveralls-ignore-start - race-only with the frozen-mirror pre-check
+  # (#478): reached only from the concurrent-commit window above. The
+  # unique/non-unique split matters for the race arms' shapes; the
+  # non-uniqueness fall-through is the same not-simulatable class as
+  # the other DB-down arms.
+  defp resolve_collision(collision, email) do
+    if unique_collision?(collision) do
+      resolve_collided(email)
+    else
+      {:error, :provisioning_failed}
+    end
+  end
+
+  # coveralls-ignore-stop
 
   # A collision is a uniqueness violation on the address identities —
   # users.unique_email or user_emails.unique_address (the mirror write
   # riding the create). AshPostgres reports the violated constraint in
   # the error's private_vars; anything else (a validation, a cap
   # trigger, a DB failure) is not an "address already owned" signal.
+  #
+  # coveralls-ignore-start - the whole matcher cluster is race-only
+  # since the frozen-mirror pre-check (#478): the old-pod shape never
+  # reaches the create any more, so these run only inside the
+  # concurrent-commit window. Previously the pre-T3 heal tests drove
+  # them sequentially; that state is gone, not dead.
   defp unique_collision?(%Ash.Error.Invalid{} = error) do
     Enum.any?(error.errors, &unique_constraint_error?/1)
   end
 
-  # coveralls-ignore-start - a non-Invalid error class on the JIT
-  # create is a DB failure — the same class as the other DB-down arms,
-  # not simulatable under the sandbox
+  # a non-Invalid error class on the JIT create is a DB failure —
+  # the same class as the other DB-down arms
   defp unique_collision?(_other_class), do: false
-  # coveralls-ignore-stop
 
   defp unique_constraint_error?(%Ash.Error.Changes.InvalidAttribute{} = error) do
     unique_attribute?(error) and unique_constraint?(error)
   end
 
-  # coveralls-ignore-start - the collision error carries a single
-  # attribute error (the probes' shapes); a non-attribute member would
-  # need a concurrent multi-error commit
+  # the collision error carries a single attribute error (the probes'
+  # shapes); a non-attribute member would need a concurrent
+  # multi-error commit
   defp unique_constraint_error?(_error), do: false
-  # coveralls-ignore-stop
 
   defp unique_attribute?(%{field: field}) when field in [:email, :address], do: true
 
-  # coveralls-ignore-start - the other reachable attribute arms are
-  # gone or intercepted earlier. The :user_id partial-index violation
-  # cannot arise from a lock-taking writer: the heal's primary decision
-  # runs inside the transaction, after EnforceEmailCap's FOR UPDATE
-  # user-row lock — the same lock SetPrimary holds while promoting.
-  # A writer that promotes WITHOUT that lock (raw SQL, the T1
-  # backfill's shape) still fires the user_id index — but one layer
-  # down, in heal_old_pod_user's mirror write, which surfaces
-  # {:error, :address_unresolved} (:345).
-  # Sequentially this matcher sees only the JIT create's address
-  # collision (field :email); a username/org-slug probe race
-  # (DeriveUsername, ProvisionPersonalOrg — same-local-part signups)
-  # CAN deliver its field here under true concurrency: the
-  # fall-through runs and routes it to :provisioning_failed
-  # (:236), atom-shaped — a retry probes the
-  # next suffix. Race-only residue: untestable sequentially, not dead.
+  # the other reachable attribute arms are gone or intercepted
+  # earlier: the old-pod users.unique_email collision is intercepted
+  # by the frozen-mirror pre-check (#478), and a username/org-slug
+  # probe race (DeriveUsername, ProvisionPersonalOrg — same-local-part
+  # signups) CAN deliver its field here under true concurrency: the
+  # fall-through runs and routes it to :provisioning_failed, atom-
+  # shaped — a retry probes the next suffix.
   defp unique_attribute?(_error), do: false
-  # coveralls-ignore-stop
 
   defp unique_constraint?(error) do
     Keyword.get(error.private_vars || [], :constraint_type) == :unique
   end
+
+  # coveralls-ignore-stop
 
   defp create_user(email) do
     User
