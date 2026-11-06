@@ -68,12 +68,16 @@ document stays crawlable. --%>
     )}
 
     <div class="mt-6">
-      <%!-- pre-line rides the span: the p's own whitespace stays normal,
-      so the template's indentation newlines collapse (the catalog
-      poster's rule). The body is plain text with real line breaks. --%>
-      <p class="leading-relaxed text-ink">
-        <span class="whitespace-pre-line">{String.trim(@post.description)}</span>
-      </p>
+      <%!-- The body renders through Feedback.Markdown (fluxvale/fluxvale#488):
+      UGC markdown, sanitized server-side — no raw HTML, http/https/mailto
+      links only, no images. Single newlines hard-break, so bodies written
+      as plain text before Markdown keep their line breaks. --%>
+      <div
+        data-testid="post-body"
+        class="feedback-body leading-relaxed text-ink [overflow-wrap:anywhere]"
+      >
+        {raw(@description_html)}
+      </div>
     </div>
 
     <%!-- The comments island: list + form, any signed-in actor may

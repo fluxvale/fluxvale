@@ -259,6 +259,82 @@ defmodule FluxValeWeb.FeedbackLive.CommentsIslandTest do
     assert count!(post.id) == 0
   end
 
+  # --- Markdown bodies (#488) -----------------------------------------------------
+
+  # The island renders bodies through FluxVale.Feedback.Markdown, the
+  # same sanitized renderer the post page uses — computed in the
+  # template so the SSR list and every stream insert agree.
+
+  test "a markdown comment renders its markup", %{conn: conn} do
+    post = post!()
+    author = AccountsFixtures.user!()
+
+    comment!(post, author, "This is **the fix** and a [link](https://example.com)")
+
+    {:ok, view, _html} = mount_island(conn, post)
+
+    html = render(view)
+
+    assert html =~ "<strong>the fix</strong>"
+    assert html =~ "<a href=\"https://example.com\" rel=\"noopener noreferrer\">link</a>"
+  end
+
+  # The island-level hostile pin: fails if the renderer's sanitization
+  # ever regresses. The refutes run on the island's raw HTML, where a
+  # rendered tag is actually visible; the comrak-marker refute catches
+  # the ammonia layer dropping (comrak safe alone survives every other
+  # line here).
+  test "a hostile comment renders inert", %{conn: conn} do
+    post = post!()
+    author = AccountsFixtures.user!()
+
+    comment!(
+      post,
+      author,
+      "<script>alert(1)</script><img src=x onerror=alert(1)>[click](javascript:alert(1))[x](data:text/html;base64,PHNjcmlwdD4=)<div>raw</div>"
+    )
+
+    {:ok, view, _html} = mount_island(conn, post)
+
+    html = render(view)
+
+    refute html =~ "<script>alert"
+    refute html =~ "<div>raw</div>"
+    refute html =~ "raw HTML omitted"
+    refute html =~ "alert(1)"
+    refute html =~ "javascript:"
+    refute html =~ "data:"
+  end
+
+  # A comment written before Markdown keeps its single newlines. The
+  # break's exact serialization differs between the raw render (`<br>`)
+  # and the island's streamed markup (`<br/>`) — the pin is the break.
+  test "a legacy plain-text comment keeps its line breaks", %{conn: conn} do
+    post = post!()
+    author = AccountsFixtures.user!()
+
+    comment!(post, author, "first line of an old comment\nsecond line after one newline")
+
+    {:ok, view, _html} = mount_island(conn, post)
+
+    assert render(view) =~ "first line of an old comment<br"
+    assert render(view) =~ "\nsecond line after one newline</p>"
+  end
+
+  # The freshly posted comment streams in already rendered.
+  test "a submitted markdown comment renders as markdown in the stream", %{conn: conn} do
+    post = post!()
+    user = AccountsFixtures.user!()
+
+    {:ok, view, _html} = mount_island(conn, post, user)
+
+    view
+    |> element("#comment-form")
+    |> render_submit(%{"comment" => %{"body" => "posted with **emphasis**"}})
+
+    assert render(view) =~ "<strong>emphasis</strong>"
+  end
+
   # --- A missing post -----------------------------------------------------------------
 
   test "a missing post renders the island empty (deleted mid-session)", %{conn: conn} do
