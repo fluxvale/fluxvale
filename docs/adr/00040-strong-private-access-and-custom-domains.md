@@ -594,6 +594,22 @@ Per ADR-0039 §5's model, additive:
     Host-matched routes with the same 404-nothing posture as the public
     edge; the wake pair gate (identical-404) is the #301 contract.
 
+11. **Storage at rest was the unguarded floor.** Every credential
+   above, the Tailscale four-scope tokens included, sat
+   base64-plaintext in etcd. That is a strictly lower bar than any
+   API this ADR hardens: an etcd read (node disk, snapshot file, or
+   backup) was enough. The etcd layer is now closed: the cluster
+   runs apiserver envelope encryption with the key in the operator
+   vault and a rotation runbook, and every stored Secret has been
+   verified to read as ciphertext at the etcd layer (sampling, not
+   trust). Off-node snapshots are client-side-encrypted before they
+   leave. Residual, unsparing: the encryption key itself lives on
+   the node disk, so node-level access still reads everything. Full
+   disk encryption was evaluated and deferred as not honestly
+   closable on the current single-node deployment (no TPM, and every
+   available key mode is circular or provider-controlled). At-rest
+   compromise now requires the node, not just etcd.
+
 ### Rejected alternatives
 
 - **Serve keyed by custom hostnames with certs on the gateway** — the
