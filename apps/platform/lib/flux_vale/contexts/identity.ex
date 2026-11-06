@@ -57,6 +57,12 @@ defmodule FluxVale.Identity do
     to: FluxVale.Identity.Operations.AcceptInvitation,
     as: :call
 
+  # The landing page's read (#502): the link's state without consuming
+  # it — the page renders the honest row before any accept click.
+  defdelegate resolve_invite_link(raw_token),
+    to: FluxVale.Identity.Operations.ResolveInviteLink,
+    as: :call
+
   defdelegate withdraw_invite(actor, user_or_id, opts \\ []),
     to: FluxVale.Identity.Operations.WithdrawInvite,
     as: :call
