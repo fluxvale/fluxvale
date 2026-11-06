@@ -393,6 +393,7 @@ defmodule FluxVale.Seeds.AdminSeedTest do
       # And the catalog's apps joined it (the catalog seeded above).
       assert "forgejo" in slugs
       assert "kavita" in slugs
+      assert "pocket-id" in slugs
     end
 
     test "an opted-in runtime seeds the demo board content" do

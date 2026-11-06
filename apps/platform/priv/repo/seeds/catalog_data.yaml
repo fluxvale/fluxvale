@@ -262,3 +262,99 @@
               description: Only email addresses at this domain can register. Leave empty to let anyone with the URL register.
               type: string
 
+- category:
+    name: Identity
+    slug: identity
+    description: >-
+      Sign-in and identity apps that secure access to your other apps.
+  apps:
+    - name: Pocket ID
+      slug: pocket-id
+      tagline: Passkey-first OpenID Connect provider
+      description: |
+        A featherweight OpenID Connect (OIDC) provider built around
+        passkeys. Sign in to your other apps with passkeys instead of
+        passwords, with OIDC client management, users and groups, and a
+        sign-in audit log. The embedded SQLite database and uploads live
+        on a dedicated volume, and all configuration happens in the web
+        UI after a one-time encryption key at deploy.
+      icon_url: https://raw.githubusercontent.com/pocket-id/pocket-id/main/frontend/static/img/static-logo.svg
+      source_url: https://github.com/pocket-id/pocket-id
+      docs_url: https://pocket-id.org/docs/introduction
+      versions:
+        - version: "2.19.2"          # upstream stable, 2026-11-02
+          # The canonical image, built and pushed by Pocket ID's own
+          # release workflow; `pocketid/pocket-id` on Docker Hub is the
+          # same build, not a distinct one. Upstream tags releases with
+          # a `v` prefix, which the image keeps.
+          image: ghcr.io/pocket-id/pocket-id:v2.19.2
+          port: 1411
+          healthcheck_path: /healthz
+          # #73's deploy op sets this to the instance's public URL:
+          # passkeys are bound to the domain, and every OIDC URL Pocket
+          # ID hands out is built from APP_URL (the app trims the
+          # trailing slash itself).
+          instance_url_env: APP_URL
+          # Pocket ID keeps everything in one place: the embedded SQLite
+          # DB (`DB_CONNECTION_STRING` defaults to a path relative to the
+          # container's working dir /app), uploads, and the GeoLite cache
+          # all resolve under /app/data — exactly the directory the
+          # upstream compose file mounts a volume at. The image's own
+          # entrypoint chowns it to PUID/PGID 1000 before dropping
+          # privileges, so the PVC lands correctly owned.
+          storage_mount_path: /app/data
+          default_cpu_cores: "0.25"
+          default_memory_mb: 512
+          default_storage_gb: 5
+          # The priced unit (#125): `micro` is 0.25 CPU / 512 MB / 5 GB —
+          # exactly this version's allocation ($2.83/mo, $0.24 stopped — B′).
+          # The honest floor: Pocket ID is a single static Go binary with
+          # an embedded SQLite DB, idling at tens of MB.
+          recommended_size: micro
+          release_notes: |
+            First FluxVale catalog release, tracking upstream v2.19.2.
+            SQLite on a dedicated volume mounted at /app/data. The admin
+            account is created on first open.
+          published_at: "2026-11-02T20:18:20Z"
+          # Operator-owned config: TRUST_PROXY — upstream's stated
+          # condition for `true` is that Pocket ID "can't be reached
+          # without going through your proxy", which is every FluxVale
+          # instance (k8s Service behind Traefik). Without it the audit
+          # log and rate limits would key on the proxy address instead
+          # of the client's.
+          default_env_vars:
+            TRUST_PROXY: "true"
+          # First-run contract (ADR-0034): /setup answers only until the
+          # first account exists and that account is the admin —
+          # registration is open on first boot in exactly the Kavita
+          # sense. No env lever touches it: user sign-ups default to
+          # disabled (they live in the admin UI), so there is nothing to
+          # pin and nothing to lock.
+          first_run:
+            pattern: first_registered_user_admin
+            env: {}
+            forbidden_env: []
+            guidance: >-
+              Open the instance URL and create your account on the setup
+              page, then add a passkey. That first account is the admin,
+              and the setup page disappears once it exists, so claim the
+              instance promptly. Sign-ups stay closed afterwards unless
+              you turn them on in the admin settings.
+          # Pocket ID's one required variable (its only hard boot gate):
+          # ENCRYPTION_KEY encrypts the token-signing keys at rest, and
+          # the app refuses to start with fewer than 16 bytes. There is
+          # no upstream default and the platform mints no per-instance
+          # secrets, so the owner picks it at deploy time (upstream's
+          # recipe is `openssl rand -base64 32`). It ships as the
+          # version's single deploy-time input, secret-shaped, and lands
+          # in the instance's K8s Secret.
+          configurable_env_vars:
+            ENCRYPTION_KEY:
+              label: Encryption key
+              description: >-
+                Encrypts Pocket ID's stored secrets. Generate one with
+                openssl rand -base64 32 (at least 16 characters).
+              type: string
+              required: true
+              secret: true
+

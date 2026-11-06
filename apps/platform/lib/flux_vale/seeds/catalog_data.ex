@@ -6,6 +6,9 @@ defmodule FluxVale.Seeds.CatalogData do
   forge, dogfooded from day one. Kavita (#189) joined it: seeded anyway,
   because a deployed instance is claimable and its state persists on the
   volume; the library's file-ingest path is the separate #190 work.
+  Pocket ID (#492) joined it: the passkey-first OIDC provider, and the
+  first app whose upstream demands a deploy-time secret (its
+  ENCRYPTION_KEY ships as the version's one required env input).
 
   Adding a catalog app is purely additive: append a YAML entry. The seed
   runner (`FluxVale.Seeds.seed_catalog!/0`) looks each record up by its

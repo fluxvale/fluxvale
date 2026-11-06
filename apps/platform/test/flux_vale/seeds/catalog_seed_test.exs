@@ -204,6 +204,59 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert whitelist.secret != true
     end
 
+    test "seeds the shipped Pocket ID entry and its first-run contract (#492)" do
+      assert :ok == Seeds.seed_pricing!()
+      assert :ok == Seeds.seed_catalog!()
+
+      category = Category.get_by_slug!("identity", authorize?: false)
+      assert category.name == "Identity"
+
+      app = App.get_by_slug!("pocket-id", authorize?: false)
+      assert app.category_id == category.id
+      assert app.source_url == "https://github.com/pocket-id/pocket-id"
+
+      version =
+        "pocket-id"
+        |> App.get_by_slug!(authorize?: false)
+        |> Ash.load!([app_versions: :recommended_size], authorize?: false)
+        |> Map.fetch!(:app_versions)
+        |> hd()
+
+      assert version.version == "2.19.2"
+      assert version.image == "ghcr.io/pocket-id/pocket-id:v2.19.2"
+      assert version.port == 1411
+      assert version.healthcheck_path == "/healthz"
+      # All Pocket ID state lives under /app/data (the upstream compose
+      # volume); the entrypoint chowns it before dropping to PUID 1000.
+      assert version.storage_mount_path == "/app/data"
+      assert version.instance_url_env == "APP_URL"
+      assert version.default_env_vars == %{"TRUST_PROXY" => "true"}
+      # The featherweight allocation, kept equal to `micro` by
+      # ValidateSizeMatchesAllocation (the seed would refuse a drift).
+      assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.25"))
+      assert version.default_memory_mb == 512
+      assert version.default_storage_gb == 5
+      assert version.recommended_size.slug == "micro"
+
+      # The typed cast round-trips the one deploy-time input: a required
+      # secret the owner generates (upstream's only hard boot gate).
+      key = version.configurable_env_vars["ENCRYPTION_KEY"]
+      assert %EnvVarSpec{} = key
+      assert key.required == true
+      assert key.secret == true
+      assert key.type == :string
+      assert is_nil(key.default)
+
+      contract = version.first_run
+      assert %FirstRunContract{} = contract
+      assert contract.pattern == :first_registered_user_admin
+      # Nothing to pin and nothing to lock: sign-ups default to disabled
+      # in the admin UI, and /setup needs no env lever.
+      assert contract.env == %{}
+      assert contract.forbidden_env == []
+      assert contract.guidance =~ "first account is the admin"
+    end
+
     test "re-seeding the shipped catalog converges without dupes" do
       assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()
@@ -224,6 +277,14 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
 
       assert length(kavita.app_versions) == 1
       assert hd(kavita.app_versions).version == "0.9.1"
+
+      pocket_id =
+        "pocket-id"
+        |> App.get_by_slug!(authorize?: false)
+        |> Ash.load!([:app_versions], authorize?: false)
+
+      assert length(pocket_id.app_versions) == 1
+      assert hd(pocket_id.app_versions).version == "2.19.2"
     end
   end
 
