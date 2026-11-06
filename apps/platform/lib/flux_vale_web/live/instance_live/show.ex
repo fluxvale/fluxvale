@@ -846,7 +846,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
           <p class="text-ink-muted">{@figures.stopped} while stopped</p>
         </div>
 
-        <p class="text-sm text-ink-subtle">The new size applies when you start the instance.</p>
+        <p :if={@step == :choose} class="text-sm text-ink-subtle">
+          The new size applies when you start the instance.
+        </p>
 
         <%= if @step == :choose do %>
           <div class="flex justify-end">
@@ -1768,8 +1770,16 @@ defmodule FluxValeWeb.InstanceLive.Show do
   # reads as "nothing to apply, keep the panel quiet".
   defp candidate_state(socket, rungs) do
     case typed_allocation(rungs, socket.assigns.storage_locked) do
-      {:ok, allocation} -> {allocation, no_op?(allocation, socket.assigns.instance)}
-      {:error, _unseeded} -> {nil, true}
+      {:ok, allocation} ->
+        {allocation, no_op?(allocation, socket.assigns.instance)}
+
+      # F1's guards seed every rung on the real paths (open seeds all
+      # three; the change merge only ever keeps ladder strings) — the
+      # arm answers a crafted future state, as a quiet no-op.
+      # coveralls-ignore-start
+      {:error, _unseeded} ->
+        {nil, true}
+        # coveralls-ignore-stop
     end
   end
 
@@ -1796,8 +1806,12 @@ defmodule FluxValeWeb.InstanceLive.Show do
           {:error, _unavailable} -> :unavailable
         end
 
+      # F1's guards seed every rung on the real paths — the arm answers
+      # a crafted future state, as a hidden line with Continue off.
+      # coveralls-ignore-start
       {:error, _unseeded} ->
         :unavailable
+        # coveralls-ignore-stop
     end
   end
 

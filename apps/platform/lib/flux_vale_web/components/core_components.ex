@@ -481,7 +481,7 @@ defmodule FluxValeWeb.CoreComponents do
             # themes. The variants are swapped, not overridden — Tailwind
             # emits arbitrary-variant utilities in stylesheet order, so an
             # overriding class can't reliably beat the enabled one.
-            if(@disabled, do: "cursor-not-allowed opacity-60", else: "cursor-pointer"),
+            if(@disabled, do: "cursor-not-allowed opacity-45", else: "cursor-pointer"),
             "outline-offset-4 outline-focus focus-visible:outline-2",
             "[&::-webkit-slider-runnable-track]:h-1.5 [&::-webkit-slider-runnable-track]:rounded-full",
             if(@disabled,
@@ -534,6 +534,10 @@ defmodule FluxValeWeb.CoreComponents do
   end
 
   defp readout(value, nil), do: to_string(value)
+
+  # English plural for the readout units this component carries
+  # ("1 core", "2 cores"; MB/GB are uninflected either way).
+  defp readout("1", unit), do: "1 #{String.trim_trailing(unit, "s")}"
   defp readout(value, unit), do: "#{value} #{unit}"
 
   # A tick sits exactly under its thumb's CENTER: a native range input

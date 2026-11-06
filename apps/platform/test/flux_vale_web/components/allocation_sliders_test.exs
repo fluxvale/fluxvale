@@ -43,7 +43,7 @@ defmodule FluxValeWeb.AllocationSlidersTest do
     # thumb + track, refused cursor.
     [storage_class] = LazyHTML.attribute(storage, "class")
     assert storage_class =~ "cursor-not-allowed"
-    assert storage_class =~ "opacity-60"
+    assert storage_class =~ "opacity-45"
     assert storage_class =~ "bg-ink-subtle"
 
     locked_note_query = LazyHTML.query(doc, "[data-testid='slider-locked-note']")
@@ -64,7 +64,7 @@ defmodule FluxValeWeb.AllocationSlidersTest do
     cpu = LazyHTML.query(doc, "[data-testid='resource-cpu']")
     [cpu_class] = LazyHTML.attribute(cpu, "class")
     assert cpu_class =~ "cursor-pointer"
-    refute cpu_class =~ "opacity-60"
+    refute cpu_class =~ "opacity-45"
 
     locked_note_query = LazyHTML.query(doc, "[data-testid='slider-locked-note']")
     notes = LazyHTML.attribute(locked_note_query, "data-testid")

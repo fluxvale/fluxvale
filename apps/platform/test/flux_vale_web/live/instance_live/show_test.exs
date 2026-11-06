@@ -2202,6 +2202,40 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       assert render(element(view, "[data-testid='resize-continue']")) =~ ~s(disabled="")
     end
 
+    test "an unpriced row whose candidate is also unpriced stays fully dark", %{
+      conn: conn,
+      user: user
+    } do
+      stub_storage_probe(true)
+
+      # The baseline drift shape: an unpriced row (create at the
+      # sizeless recommendation) whose seeded candidate sits exactly on
+      # it — no rate figures exist on either side, so the panel shows
+      # no line and Continue never arms (no-op as well: the candidate
+      # IS the row).
+      version = InstanceFixtures.app_version!()
+      app = Ash.load!(version, :app, authorize?: false).app
+
+      unsized =
+        Ash.Seed.seed!(AppVersion, %{
+          version: "0.9.3",
+          image: "test/image:0.9",
+          port: 3000,
+          app_id: app.id,
+          default_cpu_cores: Decimal.new("0.5"),
+          default_memory_mb: 512,
+          default_storage_gb: 5
+        })
+
+      stopped = stopped_instance!(unsized, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{stopped.id}")
+
+      open_resize_panel(view)
+
+      refute has_element?(view, "[data-testid='resize-price']")
+      assert render(element(view, "[data-testid='resize-continue']")) =~ ~s(disabled="")
+    end
+
     test "a candidate equal to the row disables Continue — the dead end never opens", %{
       conn: conn,
       user: user
