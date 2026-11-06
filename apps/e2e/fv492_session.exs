@@ -1,5 +1,6 @@
 # Dev-only capture session mint for the #492 Pocket ID screenshots.
-# Same posture as fv483_session.exs: the invite gate is armed in this
+# Same posture as the earlier fvNNN session mints (now removed, in git
+# history): the invite gate is armed in this
 # tree, so the capture address rides an invite row first (bootstrap
 # posture: authorize?: false, mirroring seeds), then the sanctioned
 # sign-in ops mint the session exactly as a real signup.
