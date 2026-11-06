@@ -43,6 +43,12 @@ defmodule FluxValeWeb.Api.RouteInventoryTest do
     {:patch, "/access-gateways/:id/resume"},
     {:post, "/access-gateways/:gateway_id/attachments"},
     {:delete, "/access-gateways/:gateway_id/attachments/:instance_id"},
+    # gateways:read / gateways:write — the access domains (#482)
+    {:post, "/access-domains"},
+    {:get, "/organizations/:organization_id/access-domains"},
+    {:get, "/access-domains/:id"},
+    {:patch, "/access-domains/:id/resume"},
+    {:delete, "/access-domains/:id"},
     # wallet:read
     {:get, "/organizations/:organization_id/wallet"},
     {:get, "/organizations/:organization_id/wallet/runway"},
@@ -81,6 +87,14 @@ defmodule FluxValeWeb.Api.RouteInventoryTest do
     {FluxVale.Infrastructure.AccessGateway, :mark_provision_error},
     {FluxVale.Infrastructure.AccessGateway, :mark_teardown_error},
     {FluxVale.Infrastructure.AccessGateway, :destroy_after_teardown},
+    # The access domain's system-only writes (#482: routed surface is
+    # register/list_for_org/get_by_id/resume/remove — nothing else)
+    {FluxVale.Infrastructure.AccessDomain, :mint_platform},
+    {FluxVale.Infrastructure.AccessDomain, :list_all},
+    {FluxVale.Infrastructure.AccessDomain, :mark_verified},
+    {FluxVale.Infrastructure.AccessDomain, :mark_failed},
+    {FluxVale.Infrastructure.AccessDomain, :mark_needs_attention},
+    {FluxVale.Infrastructure.AccessDomain, :mark_suspended},
     # The money machinery is system-only; the API reads the wallet
     {FluxVale.Billing.Wallet, :create},
     {FluxVale.Billing.Wallet, :set_carryover},

@@ -29,10 +29,43 @@ defmodule FluxVale.Infrastructure.AccessDomain do
     otp_app: :flux_vale,
     domain: FluxVale.Infrastructure,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshJsonApi.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
   alias FluxVale.Infrastructure.AccessDomain.EnsureRegistrable
   alias FluxVale.Infrastructure.InstanceHostname
+
+  # #482 P2 (ADR-0019 §1): the custom-domain family's wire contract —
+  # the provider's register/list/inspect/resume/remove. Public
+  # attributes only; cert_secret_ref is an internal k8s object name,
+  # not API surface — off every list.
+  @domain_fields [:id, :domain, :kind, :state]
+
+  json_api do
+    type("access_domain")
+
+    routes do
+      # gateways:read — the org's domains (the provider's list).
+      index(:list_for_org,
+        route: "/organizations/:organization_id/access-domains",
+        default_fields: @domain_fields
+      )
+
+      # gateways:read
+      get(:get_by_id, route: "/access-domains/:id", default_fields: @domain_fields)
+
+      # gateways:write — the org rides the organization_id argument
+      # (member-fenced, #408); no argument keeps the personal-org
+      # default.
+      post(:register, route: "/access-domains", default_fields: @domain_fields)
+
+      # gateways:write — the funded resume after suspension.
+      patch(:resume, route: "/access-domains/:id/resume", default_fields: @domain_fields)
+
+      # gateways:write — :custom rows only (the action's own guard).
+      delete(:remove, route: "/access-domains/:id")
+    end
+  end
 
   postgres do
     table("access_domains")
@@ -267,6 +300,15 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       description("Every access domain (the verify pass's input)")
     end
 
+    # #482 P2: the provider's per-org list — the route path's
+    # organization_id feeds the filter, and the read policy's membership
+    # fence keeps another org's rows invisible.
+    read :list_for_org do
+      description("The org's access domains (the provider's list)")
+      argument(:organization_id, :uuid, allow_nil?: false)
+      filter(expr(organization_id == ^arg(:organization_id)))
+    end
+
     # The state funnels — one per transition, system-only (policies
     # above), called authorize?: false by the observer/remove operations.
 
@@ -364,6 +406,7 @@ defmodule FluxVale.Infrastructure.AccessDomain do
     define(:mint_platform)
     define(:get_by_id, args: [:id])
     define(:list_all)
+    define(:list_for_org, args: [:organization_id])
     define(:mark_verified)
     define(:mark_failed)
     define(:mark_needs_attention)
