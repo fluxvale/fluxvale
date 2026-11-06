@@ -122,6 +122,30 @@ defmodule FluxVale.Ops.InvitedEmailTest do
       drain_mail!()
     end
 
+    test "the admin lists and revokes — the AshAdmin grants", %{admin: admin} do
+      address = "admin-lists-#{System.unique_integer()}@partner.example"
+      invite_address!(address)
+      drain_mail!()
+
+      # list
+      assert {:ok, listed} =
+               InvitedEmail
+               |> Ash.Query.filter(address == ^address)
+               |> Ash.read(actor: admin, authorize?: true)
+
+      assert [%InvitedEmail{}] = listed
+
+      # revoke under authorization
+      [row] = listed
+
+      assert {:ok, %InvitedEmail{revoked_at: revoked_at}} =
+               row
+               |> Ash.Changeset.for_update(:revoke, %{}, actor: admin)
+               |> Ash.update(authorize?: true)
+
+      refute is_nil(revoked_at)
+    end
+
     test "non-admins are denied everything, default-deny", %{regular: regular} do
       address = "denied-#{System.unique_integer()}@partner.example"
 
