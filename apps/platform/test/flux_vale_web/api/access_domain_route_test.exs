@@ -2,19 +2,28 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
   @moduledoc false
 
   # #482 P2: the access-domain family's wire contract — the provider's
-  # register/list/inspect/resume/remove. The routed `:register` is the
-  # raw create action (row only, no Certificate mint — that is the
-  # operation's leg), so no cluster stubs beyond the suspend/resume
-  # funnels' own seams.
+  # register/list/inspect/resume/remove. Both writes run the FULL
+  # flow: register mints the wildcard Certificate inside the create's
+  # transaction (the MintCertificate change — panel parity), and the
+  # routed remove calls Operations.RemoveAccessDomain through the
+  # domain seam (unclaim, render, cert safe-delete, then the row).
 
   use FluxValeWeb.ConnCase, async: true
   use Mimic
 
   alias FluxVale.Clients.K8s
   alias FluxVale.Infrastructure.AccessDomain
+  alias FluxVale.Infrastructure.AccessGateway
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale
+  alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.ApiPat
   alias FluxVale.TestSupport.BillingFixtures
+  alias FluxVale.TestSupport.InstanceFixtures
+
+  require Ash.Query
 
   @domain_name "apps.customer.com"
 
@@ -29,9 +38,16 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
   end
 
   setup do
-    # The suspend/resume funnels' cluster seams — default success (the
-    # changes_test stance); the fixture rows carry no attached
-    # instances, so the limbs around these are no-ops.
+    verify_on_exit!()
+
+    # The register action's cluster leg and the remove's cert
+    # safe-delete — default success; expect-ed where a test proves a
+    # limb fired. The fixture helpers ride the stubs; the suspend/
+    # resume funnels' seams below are no-ops for rows with no attached
+    # instances.
+    stub(Kubereq, :attach, fn req, _opts -> req end)
+    stub(Kubereq, :apply, fn _req, manifest, _fm -> {:ok, %{status: 201, body: manifest}} end)
+    stub(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 200, body: %{}}} end)
     stub(K8s, :kubeconfig, fn -> {:ok, %{}} end)
     stub(RenderAccessDNS, :call, fn -> :ok end)
     stub(RenderAccessDNS, :call, fn _opts -> :ok end)
@@ -40,9 +56,23 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
   end
 
   describe "POST /api/v1/access-domains" do
-    test "registers a pending :custom row for the actor's org", %{conn: conn} do
+    test "registers a pending :custom row and mints the Certificate", %{conn: conn} do
       {user, org} = paid_member!()
       pat = ApiPat.mint!(user.email, ["gateways:write"])
+      config = Application.fetch_env!(:flux_vale, :access_domains)
+
+      # The mint is panel-parity: the wildcard Certificate lands with
+      # the row, inside the create's transaction.
+      expect(Kubereq, :apply, fn _req, manifest, _fm ->
+        assert manifest["kind"] == "Certificate"
+        assert manifest["metadata"]["namespace"] == config[:certificate_namespace]
+        assert manifest["spec"]["dnsNames"] == ["*.#{@domain_name}"]
+        assert manifest["spec"]["secretName"] =~ ~r/^access-domain-[0-9a-f]{10}$/
+
+        assert manifest["spec"]["issuerRef"]["name"] == config[:issuer]
+
+        {:ok, %{status: 201, body: manifest}}
+      end)
 
       conn =
         conn
@@ -62,12 +92,14 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
 
       # The core promise (verify-by-issuance): the row claims nothing.
       assert row["attributes"]["state"] == "pending"
+      assert row["attributes"]["organization_id"] == org.id
 
       # The pinned public field set — id rides the document, the rest
       # is the attribute key set exactly.
       attr_keys = Map.keys(row["attributes"])
 
-      assert MapSet.new(attr_keys) == MapSet.new(["domain", "kind", "state"])
+      assert MapSet.new(attr_keys) ==
+               MapSet.new(["domain", "kind", "organization_id", "state"])
 
       # cert_secret_ref is an internal k8s object name — never API
       # surface.
@@ -79,9 +111,15 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
       assert fresh.state == :pending
     end
 
-    test "the domain lands canonical (trimmed + downcased)", %{conn: conn} do
+    test "the domain lands canonical (trimmed + downcased), Certificate and all", %{conn: conn} do
       {user, _org} = paid_member!()
       pat = ApiPat.mint!(user.email, ["gateways:write"])
+
+      # The mint fires for the canonicalized name's wildcard.
+      expect(Kubereq, :apply, fn _req, manifest, _fm ->
+        assert manifest["spec"]["dnsNames"] == ["*.apps.customer.com"]
+        {:ok, %{status: 201, body: manifest}}
+      end)
 
       conn =
         conn
@@ -96,6 +134,36 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
 
       assert %{"data" => %{"attributes" => %{"domain" => "apps.customer.com"}}} =
                json_response(conn, 201)
+    end
+
+    test "a failed Certificate apply is a 5xx and NO row persists", %{conn: conn} do
+      {user, _org} = paid_member!()
+      pat = ApiPat.mint!(user.email, ["gateways:write"])
+
+      expect(Kubereq, :apply, fn _req, _manifest, _fm ->
+        {:ok, %{status: 500, body: %{"message" => "apiserver down"}}}
+      end)
+
+      # The transactional rollback's best-effort cleanup (one delete,
+      # 404 tolerated).
+      expect(Kubereq, :delete, fn _req, _ns, _name -> {:ok, %{status: 200, body: %{}}} end)
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v1/access-domains", %{
+          "data" => %{
+            "type" => "access_domain",
+            "attributes" => %{"domain" => "failed.example.com"}
+          }
+        })
+
+      assert %{"errors" => errors} = json_response(conn, 500)
+      assert [%{"status" => "500"} | _rest] = errors
+
+      # The transactional promise: no stranded half-registered row.
+      refute domain_exists?("failed.example.com")
     end
 
     test "a foreign organization_id is Forbidden — the wire names only the caller's own orgs",
@@ -168,10 +236,12 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
       assert one["attributes"]["domain"] == "first.example.com"
       assert one["attributes"]["kind"] == "custom"
       assert one["attributes"]["state"] == "pending"
+      assert one["attributes"]["organization_id"] == org.id
 
       one_keys = Map.keys(one["attributes"])
 
-      assert MapSet.new(one_keys) == MapSet.new(["domain", "kind", "state"])
+      assert MapSet.new(one_keys) ==
+               MapSet.new(["domain", "kind", "organization_id", "state"])
 
       refute Map.has_key?(one["attributes"], "cert_secret_ref")
     end
@@ -220,6 +290,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
       assert row["attributes"]["domain"] == @domain_name
       assert row["attributes"]["kind"] == "custom"
       assert row["attributes"]["state"] == "pending"
+      assert row["attributes"]["organization_id"] == org.id
       refute Map.has_key?(row["attributes"], "cert_secret_ref")
     end
 
@@ -305,19 +376,83 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
   end
 
   describe "DELETE /api/v1/access-domains/:id" do
-    test "removes a :custom row", %{conn: conn} do
+    test "runs the full operation — tailnet unclaim, re-render, Certificate safe-delete", %{
+      conn: conn
+    } do
       {user, org} = paid_member!()
       domain = custom_domain!(user, org, @domain_name)
       pat = ApiPat.mint!(user.email, ["gateways:write"])
+
+      # The claims' owner — the unclaim limb's subject (the ops suite's
+      # stance: the gateway fixture's provision leg rides the stubs).
+      stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
+
+      gateway = AccessFixtures.gateway!(org)
+
+      claimed =
+        Ash.update!(gateway, %{dns_claims: %{domain.domain => "10.43.0.20"}},
+          action: :update_claims,
+          authorize?: false
+        )
+
+      expect(Tailscale, :unclaim_domain, fn gw, name ->
+        assert gw.id == claimed.id
+        assert name == domain.domain
+        :ok
+      end)
+
+      # The claims moved, so the Corefile re-renders before the result
+      # returns (the derived-state stance).
+      expect(RenderAccessDNS, :call, fn -> :ok end)
+
+      expect(Kubereq, :delete, fn _req, ns, name ->
+        config = Application.fetch_env!(:flux_vale, :access_domains)
+        assert ns == config[:certificate_namespace]
+        assert name == AccessDomain.certificate_name(domain)
+
+        {:ok, %{status: 200}}
+      end)
 
       conn =
         conn
         |> auth(pat)
         |> delete("/api/v1/access-domains/#{domain.id}")
 
-      assert conn.status == 200
+      # Generic-action routes render the result flat (the instance
+      # :delete shape) — no JSON:API envelope.
+      assert body = json_response(conn, 200)
+      assert body["id"] == domain.id
+      refute Map.has_key?(body, "data")
 
       assert {:error, _not_found} = AccessDomain.get_by_id(domain.id, actor: user)
+
+      # The claims entry went with the row.
+      assert AccessGateway.get_by_id!(gateway.id, authorize?: false).dns_claims == %{}
+    end
+
+    test "a domain still serving hostnames is refused before any tailnet write", %{conn: conn} do
+      {user, org} = paid_member!()
+      domain = custom_domain!(user, org, @domain_name)
+      hostname_instance!(org, user, domain)
+      pat = ApiPat.mint!(user.email, ["gateways:write"])
+
+      # P1-2's step (1): the pre-check precedes the tailnet — a refused
+      # remove never disturbs the owner's tailnet.
+      stub(Tailscale, :unclaim_domain, fn _gw, _name ->
+        flunk("the hostname guard precedes any tailnet write")
+      end)
+
+      conn =
+        conn
+        |> auth(pat)
+        |> delete("/api/v1/access-domains/#{domain.id}")
+
+      assert %{"errors" => [error]} = json_response(conn, 400)
+      assert error["detail"] =~ "still serves instance hostnames"
+
+      assert {:ok, %AccessDomain{}} = AccessDomain.get_by_id(domain.id, actor: user)
     end
 
     test "the platform row is refused — it is load-bearing", %{conn: conn} do
@@ -332,13 +467,52 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
 
       assert %{"errors" => [error]} = json_response(conn, 400)
       assert error["detail"] =~ "not removable"
+
+      assert {:ok, %AccessDomain{}} = AccessDomain.get_by_id(domain.id, actor: user)
     end
 
-    test "a non-member's row is 404 — nothing removed", %{conn: conn} do
+    test "an unclaim failure passes through — the honest 5xx, the row stands", %{conn: conn} do
+      {user, org} = paid_member!()
+      domain = custom_domain!(user, org, @domain_name)
+      pat = ApiPat.mint!(user.email, ["gateways:write"])
+
+      stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
+
+      gateway = AccessFixtures.gateway!(org)
+
+      Ash.update!(gateway, %{dns_claims: %{domain.domain => "10.43.0.20"}},
+        action: :update_claims,
+        authorize?: false
+      )
+
+      # The unclaim limb fails the remove (the row stands, the retry
+      # converges) — the wire carries the honest failure, not a guard
+      # copy.
+      stub(Tailscale, :unclaim_domain, fn _gw, _name -> {:error, :unauthorized} end)
+
+      conn =
+        conn
+        |> auth(pat)
+        |> delete("/api/v1/access-domains/#{domain.id}")
+
+      assert %{"errors" => [%{"status" => "500"}]} = json_response(conn, 500)
+
+      assert {:ok, %AccessDomain{}} = AccessDomain.get_by_id(domain.id, actor: user)
+    end
+
+    test "a non-member's row is 404 — nothing removed, no cluster call", %{conn: conn} do
       {member, org} = paid_member!()
       domain = custom_domain!(member, org, @domain_name)
       {outsider, _outsider_org} = paid_member!()
       pat = ApiPat.mint!(outsider.email, ["gateways:write"])
+
+      # The authorized re-read is the ownership fence: a non-member's
+      # row never reaches the operation's limbs.
+      stub(Kubereq, :delete, fn _req, _ns, _name ->
+        flunk("no cluster call behind the ownership fence")
+      end)
 
       conn =
         conn
@@ -347,7 +521,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
 
       assert %{"errors" => [%{"status" => "404"}]} = json_response(conn, 404)
 
-      assert AccessDomain.get_by_id!(domain.id, authorize?: false)
+      assert {:ok, %AccessDomain{}} = AccessDomain.get_by_id(domain.id, actor: member)
     end
   end
 
@@ -356,9 +530,9 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
   # ------------------------------------------------------------------
 
   # Test precondition through the action, authorize?: false (the seeds
-  # posture): the raw register action lands the :pending :custom row
-  # without the operation's Certificate leg. `user` is the org's member
-  # — the tenancy change reads the org from the argument.
+  # posture): the register action mints the Certificate too — the
+  # setup's Kubereq stubs carry it. `user` is the org's member; the
+  # tenancy change reads the org from the argument.
   defp custom_domain!(user, org, name) do
     AccessDomain
     |> Ash.Changeset.for_create(
@@ -393,5 +567,35 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
     {:ok, suspended} = AccessDomain.mark_suspended(verified, authorize?: false)
 
     suspended
+  end
+
+  # One hostname row on the domain — the hostnames_present refusal's
+  # subject (the ops suite's shape: the instance rides the real create
+  # action, the cluster fixture rides the fixtures).
+  defp hostname_instance!(org, user, domain) do
+    InstanceFixtures.local_cluster!()
+    version = InstanceFixtures.app_version!()
+
+    instance =
+      Instance.create!(
+        %{name: "App #{System.unique_integer()}", app_version_id: version.id, env_vars: %{}},
+        actor: user
+      )
+
+    InstanceHostname.mint!(
+      %{instance_id: instance.id, access_domain_id: domain.id, label: "app"},
+      authorize?: false
+    )
+
+    instance
+  end
+
+  # Committed rows outside this transaction (strays from non-sandboxed
+  # runs) are visible to the uniqueness probe — check existence, not
+  # emptiness.
+  defp domain_exists?(name) do
+    AccessDomain
+    |> Ash.Query.filter(domain == ^name)
+    |> Ash.exists?(authorize?: false)
   end
 end

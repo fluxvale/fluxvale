@@ -124,6 +124,13 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
   defp custom_domain!(owner, opts) do
     BillingFixtures.mark_user_paid!(owner)
 
+    # Register mints the wildcard Certificate (panel parity, #482) —
+    # these tests stub their cluster seams per-need, so the fixture
+    # carries its own default-success cluster stubs.
+    stub(K8s, :kubeconfig, fn -> {:ok, %{}} end)
+    stub(Kubereq, :attach, fn req, _opts -> req end)
+    stub(Kubereq, :apply, fn _req, manifest, _fm -> {:ok, %{status: 201, body: manifest}} end)
+
     {:ok, registered} =
       AccessDomain.register(
         %{domain: "apps.customer-#{System.unique_integer()}.example"},

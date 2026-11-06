@@ -87,10 +87,12 @@ defmodule FluxValeWeb.Api.RouteInventoryTest do
     {FluxVale.Infrastructure.AccessGateway, :mark_provision_error},
     {FluxVale.Infrastructure.AccessGateway, :mark_teardown_error},
     {FluxVale.Infrastructure.AccessGateway, :destroy_after_teardown},
-    # The access domain's system-only writes (#482: routed surface is
-    # register/list_for_org/get_by_id/resume/remove — nothing else)
+    # The access domain's system-only writes (#482: the routed surface
+    # is register/list_for_org/get_by_id/resume/remove_via_api — the
+    # raw :remove destroy stays the operation's own row-level step)
     {FluxVale.Infrastructure.AccessDomain, :mint_platform},
     {FluxVale.Infrastructure.AccessDomain, :list_all},
+    {FluxVale.Infrastructure.AccessDomain, :remove},
     {FluxVale.Infrastructure.AccessDomain, :mark_verified},
     {FluxVale.Infrastructure.AccessDomain, :mark_failed},
     {FluxVale.Infrastructure.AccessDomain, :mark_needs_attention},

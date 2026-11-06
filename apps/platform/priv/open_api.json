@@ -545,6 +545,58 @@
         },
         "type": "object"
       },
+      "access_domain-type": {
+        "additionalProperties": false,
+        "properties": {
+          "domain": {
+            "description": "Field included by default.",
+            "type": "string"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Field included by default."
+          },
+          "kind": {
+            "description": "Field included by default.",
+            "enum": [
+              "platform",
+              "custom"
+            ],
+            "type": "string"
+          },
+          "organization_id": {
+            "description": "Field included by default.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "state": {
+            "description": "Field included by default.",
+            "enum": [
+              "pending",
+              "verified",
+              "suspended",
+              "failed",
+              "needs_attention"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain",
+          "kind",
+          "state",
+          "organization_id"
+        ],
+        "type": "object"
+      },
       "access_gateway": {
         "additionalProperties": false,
         "description": "A \"Resource object\" representing a access_gateway",
@@ -9313,6 +9365,7 @@
                               "type": "string"
                             },
                             "organization_id": {
+                              "description": "Field included by default.",
                               "format": "uuid",
                               "type": "string"
                             },
@@ -9412,54 +9465,29 @@
       "delete": {
         "callbacks": {},
         "deprecated": false,
-        "description": "Removes a domain row — :custom only. The platform row is load-\nbearing (every instance's default hostname points at it) and is\nnever removable; the guard below is the resource-level backstop to\nOperations.RemoveAccessDomain's own kind check.\n",
+        "description": "Removes a custom domain — the full removal operation. Refuses the\nplatform kind and a domain that still serves hostnames.\n",
         "parameters": [
           {
             "in": "path",
             "name": "id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "type": "string"
             },
             "style": "form"
-          },
-          {
-            "description": "Relationship paths to include in the response",
-            "explode": false,
-            "in": "query",
-            "name": "include",
-            "required": false,
-            "schema": {
-              "pattern": "^()(,())*$",
-              "type": "string"
-            },
-            "style": "form"
-          },
-          {
-            "description": "Limits the response fields to only those listed for each type",
-            "in": "query",
-            "name": "fields",
-            "required": false,
-            "schema": {
-              "additionalProperties": true,
-              "example": {
-                "access_domain": "id,domain,kind,state,organization_id"
-              },
-              "properties": {
-                "access_domain": {
-                  "description": "Comma separated field names for access_domain",
-                  "example": "id,domain,kind,state,organization_id",
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
-            "style": "deepObject"
           }
         ],
         "responses": {
           "200": {
-            "description": "Deleted successfully"
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/access_domain-type"
+                }
+              }
+            },
+            "description": "Success"
           },
           "default": {
             "$ref": "#/components/responses/errors"
@@ -9546,6 +9574,7 @@
                               "type": "string"
                             },
                             "organization_id": {
+                              "description": "Field included by default.",
                               "format": "uuid",
                               "type": "string"
                             },
@@ -9762,6 +9791,7 @@
                               "type": "string"
                             },
                             "organization_id": {
+                              "description": "Field included by default.",
                               "format": "uuid",
                               "type": "string"
                             },
@@ -16687,6 +16717,7 @@
                                 "type": "string"
                               },
                               "organization_id": {
+                                "description": "Field included by default.",
                                 "format": "uuid",
                                 "type": "string"
                               },

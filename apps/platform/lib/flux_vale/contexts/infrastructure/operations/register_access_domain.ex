@@ -12,29 +12,20 @@ defmodule FluxVale.Infrastructure.Operations.RegisterAccessDomain do
   reached. Only `Operations.VerifyAccessDomains`, reading the Ready
   condition, promotes to `:verified`.
 
-  The cluster call rides the create's transaction via an after_action:
-  a failure rolls the row back WITH it, so a failed registration is
-  the owner's retry (the AccessGateway create discipline — there is no
-  stranded half-registered row to sweep).
-
-  **Accepted residue:** when issuance fails, this operation
-  best-effort deletes the Certificate it may have just landed (one
-  delete, 404 tolerated). If that delete fails too, an orphaned
-  Certificate object can survive on the cluster — the row rolled back,
-  so nothing references it, and a wildcard cert alone grants nothing.
-  S3's API-client lane owns a namespace sweep for these.
+  The cluster call rides the create's transaction — as the register
+  action's own `AccessDomain.MintCertificate` change, so the panel
+  operation and the API route share ONE mint. A failure rolls the row
+  back with it: a failed registration is the owner's retry (the
+  AccessGateway create discipline — there is no stranded
+  half-registered row to sweep). The change module owns the
+  transactional argument and the accepted Certificate residue.
 
   The Certificate (and the Secret its wildcard lands in) is named by
   `AccessDomain.certificate_spec/1` — the one owner of the identity,
   shared with the verify pass's reconcile limb.
   """
 
-  alias FluxVale.Clients.K8s
-  alias FluxVale.Clients.K8s.Error
-  alias FluxVale.Clients.K8s.Resources.Certificate
   alias FluxVale.Infrastructure.AccessDomain
-
-  require Logger
 
   @doc """
   `{:ok, domain}` or `{:error, reason}` — `reason` being the
@@ -51,64 +42,6 @@ defmodule FluxVale.Infrastructure.Operations.RegisterAccessDomain do
       actor: opts[:actor],
       authorize?: Keyword.get(opts, :authorize?, true)
     )
-    |> Ash.Changeset.after_action(fn _changeset, domain ->
-      with :ok <- issue_certificate(domain) do
-        {:ok, domain}
-      end
-    end)
     |> Ash.create()
-  end
-
-  # Inside the create's transaction: an error return rolls the row back.
-  defp issue_certificate(domain) do
-    config = Application.fetch_env!(:flux_vale, :access_domains)
-    name = AccessDomain.certificate_name(domain)
-
-    case K8s.kubeconfig() do
-      {:ok, kubeconfig} ->
-        case Certificate.create(
-               kubeconfig,
-               Keyword.fetch!(config, :certificate_namespace),
-               name,
-               AccessDomain.certificate_spec(domain)
-             ) do
-          {:ok, _body} ->
-            :ok
-
-          {:error, reason} ->
-            cleanup_attempt(kubeconfig, config, domain, name)
-            {:error, reason}
-        end
-
-      # No kubeconfig — nothing was applied, nothing to clean.
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  # Best-effort cleanup of the object this attempt may have half-landed
-  # (an SSA timeout can leave it behind): one delete, 404 tolerated. If
-  # the delete fails too, the residual Certificate is accepted and
-  # logged (see the moduledoc's accepted-residue note).
-  defp cleanup_attempt(kubeconfig, config, domain, name) do
-    case Certificate.delete(
-           kubeconfig,
-           Keyword.fetch!(config, :certificate_namespace),
-           name
-         ) do
-      :ok ->
-        :ok
-
-      {:error, %Error{reason: :not_found}} ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning(
-          "Access domain #{domain.domain}: rollback Certificate delete failed " <>
-            "(residual object accepted): #{inspect(reason)}"
-        )
-
-        :ok
-    end
   end
 end
