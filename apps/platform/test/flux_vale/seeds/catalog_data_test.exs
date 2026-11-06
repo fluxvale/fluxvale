@@ -209,6 +209,49 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert guidance =~ "claim the instance promptly"
     end
 
+    test "shipped catalog_data.yaml normalizes the ActualBudget entry (#492)" do
+      entry = entry_by_slug("finance")
+
+      assert entry.category == %{
+               name: "Finance",
+               slug: "finance",
+               description: "Budgeting and money apps for the household."
+             }
+
+      assert [%{slug: "actualbudget"} = app] = entry.apps
+      assert app.name == "ActualBudget"
+      assert app.source_url == "https://github.com/actualbudget/actual"
+      # A budget app's data dir is the app's own business — raw WebDAV
+      # into financial records is a footgun (#190's per-app reasoning).
+      assert app.file_access == false
+
+      version = hd(app.versions)
+      assert version.version == "26.11.0"
+      # The canonical upstream image; ghcr and Docker Hub publish the
+      # same build (identical amd64 digest).
+      assert version.image == "ghcr.io/actualbudget/actual-server:26.11.0"
+      assert version.port == 5006
+      assert version.healthcheck_path == "/health"
+      # /data is the image's default data dir — no mount override.
+      assert version.storage_mount_path == "/data"
+      assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.5"))
+      assert version.default_memory_mb == 512
+      assert version.default_storage_gb == 10
+      assert version.recommended_size == "small"
+      assert version.published_at == ~U[2026-11-02 01:54:02Z]
+
+      # No env surface at boot: all server config is in-app.
+      assert version.default_env_vars == %{}
+      assert version.configurable_env_vars == %{}
+
+      # First open claims the server by setting the shared password
+      # (ADR-0034 Am. 1) — nothing to pin, nothing to lock.
+      assert version.first_run["pattern"] == "first_open_sets_password"
+      assert version.first_run["env"] == %{}
+      assert version.first_run["forbidden_env"] == []
+      assert version.first_run["guidance"] =~ "set the server password"
+    end
+
     test "comments-only and empty files parse to []" do
       comments_only = tmp_path("# comments only\n")
       assert CatalogData.entries(comments_only) == []

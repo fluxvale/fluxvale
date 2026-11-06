@@ -358,3 +358,89 @@
               required: true
               secret: true
 
+- category:
+    name: Finance
+    slug: finance
+    description: >-
+      Budgeting and money apps for the household.
+  apps:
+    - name: ActualBudget
+      slug: actualbudget
+      tagline: Envelope budgeting shared by the whole household
+      description: |
+        Local-first envelope budgeting for the household. Budgets sync
+        across devices and family members sign in with the shared
+        server password you set on first open. Transactions, reports,
+        and statement imports run in the browser, and budget files
+        live on a dedicated volume. Bank sync works with your own
+        SimpleFIN token.
+      icon_url: https://raw.githubusercontent.com/actualbudget/actual/v26.11.0/packages/component-library/src/icons/logo/logo.svg
+      source_url: https://github.com/actualbudget/actual
+      docs_url: https://actualbudget.org/docs/
+      versions:
+        - version: "26.11.0"          # upstream stable, 2026-11-02
+          # The canonical image: ghcr and Docker Hub publish the same
+          # build (identical amd64 manifest digest, sha256:c56adb68…),
+          # and ghcr dodges Docker Hub's anonymous pull limits on
+          # shared CI runners. This is the project's own supported
+          # container (actualbudget.org/docs/install/docker), not a
+          # community repackage.
+          image: ghcr.io/actualbudget/actual-server:26.11.0
+          port: 5006
+          # Sync-server router (v26.11.0 tag): GET /health answers 200
+          # {"status":"UP"} with no dependency checks.
+          healthcheck_path: /health
+          # The image's data dir defaults to /data when it exists, and
+          # the server splits state under it: account.sqlite (hashed
+          # server password + budget file list) in /data/server-files,
+          # budget blobs in /data/user-files. The default volume root
+          # is the right mount, no per-app override needed. The image
+          # runs as UID 1001 (upstream USER_UID) and only chowns /data
+          # at build time, so the volume must be writable by that UID —
+          # local-path provisioning is; a root-owned CSI volume would
+          # need an fsGroup the deployer does not set today.
+          storage_mount_path: /data
+          default_cpu_cores: "0.5"
+          default_memory_mb: 512
+          default_storage_gb: 10
+          # The priced unit (#125): `small` is 0.5 CPU / 512 MB / 10 GB —
+          # exactly this version's allocation ($3.35/mo, $0.40 stopped —
+          # B′). Idle RSS measured ~110 MB on 26.11.0, so `micro` boots.
+          # The rungs differ in CPU and storage, not memory (both are
+          # 512 MB): 0.25 CPU throttles sync and report work on real
+          # budgets, and attachments grow past 5 GB. The stepper's
+          # first impression should not undersell a financial records
+          # app; `small` matches the shipped unit.
+          recommended_size: small
+          release_notes: |
+            First FluxVale catalog release, tracking upstream v26.11.0.
+            SQLite on a dedicated volume mounted at /data. The first
+            open sets the server password, which family members share
+            to sign in.
+          published_at: "2026-11-02T01:54:02Z"
+          # First-run contract (#492, ADR-0034 Am. 1): a fresh sync
+          # server ships unclaimed (GET /account/needs-bootstrap →
+          # bootstrapped:false), and the web UI's first open IS the
+          # claim — set the server password (POST /account/bootstrap,
+          # one-time, refuses after). There is no registration and no
+          # admin seat: everyone signs in with that one shared
+          # password, so `first_registered_user_admin` misnames it.
+          # The `first_open_sets_password` pattern documents the shape.
+          # Upstream does have server-level env knobs (login method,
+          # trusted proxies, provider credentials) but this packaging
+          # ships none of them, so nothing needs pinning or locking and
+          # env and forbidden_env stay empty. Verified against
+          # ghcr.io/actualbudget/actual-server:26.11.0: the
+          # bootstrapped flag and the password survive a pod recreation
+          # on the same volume.
+          first_run:
+            pattern: first_open_sets_password
+            env: {}
+            forbidden_env: []
+            guidance: >-
+              Open the instance URL and set the server password. That
+              first open claims the instance, so do it right after
+              deploying, and the password you choose is what everyone
+              signs in with. Share it only with people you trust with
+              your budget. Change the password from Actual's user menu
+              to cut off access later.

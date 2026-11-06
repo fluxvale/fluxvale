@@ -6,8 +6,11 @@ defmodule FluxVale.Catalog.Types.FirstRunContract do
 
     * `pattern` — the taxonomy atom (`first_registered_user_admin`:
       registration open on first boot, the first registrant becomes the
-      admin). Adding a pattern = add the atom here and document it in
-      the ADR; the field generalizes to the next catalog app.
+      admin; `first_open_sets_password`: the server ships unclaimed and
+      the first open sets the shared server password — no registration,
+      no admin seat, everyone signs in with the one password). Adding a
+      pattern = add the atom here and document it in the ADR; the field
+      generalizes to the next catalog app.
     * `env` — the guaranteed env posture (string → string). Applied by
       `DeriveFromAppVersion` **above** every deploy-time layer; user
       values naming these keys are rejected loudly.
@@ -37,9 +40,9 @@ defmodule FluxVale.Catalog.Types.FirstRunContract do
           guidance: String.t()
         }
 
-  @type pattern :: :first_registered_user_admin
+  @type pattern :: :first_registered_user_admin | :first_open_sets_password
 
-  @known_patterns [:first_registered_user_admin]
+  @known_patterns [:first_registered_user_admin, :first_open_sets_password]
   @pattern_atoms Map.new(@known_patterns, &{Atom.to_string(&1), &1})
   @known_fields MapSet.new(~w(pattern env forbidden_env guidance)a)
 

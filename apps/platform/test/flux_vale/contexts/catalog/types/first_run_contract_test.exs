@@ -79,6 +79,25 @@ defmodule FluxVale.Catalog.Types.FirstRunContractTest do
       assert message =~ ~s(unknown pattern "install_wizard")
     end
 
+    test "casts the second pattern atom — first_open_sets_password (#492)" do
+      assert {:ok, contract} =
+               FirstRunContract.new(%{
+                 "pattern" => "first_open_sets_password",
+                 "guidance" => "Set the server password on first open."
+               })
+
+      assert contract.pattern == :first_open_sets_password
+      assert contract.env == %{}
+      assert contract.forbidden_env == []
+
+      # The atom survives the jsonb round-trip as its string form.
+      dumped = FirstRunContract.dump(contract)
+      assert dumped["pattern"] == "first_open_sets_password"
+
+      round_tripped = FirstRunContract.new(dumped)
+      assert {:ok, ^contract} = round_tripped
+    end
+
     test "requires pattern and guidance" do
       assert {:error, "pattern is required"} = FirstRunContract.new(%{"guidance" => "g"})
 
