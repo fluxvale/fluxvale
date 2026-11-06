@@ -14,11 +14,20 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
   """
 
   use FluxVale.DataCase, async: true
+  use Mimic
 
   alias FluxVale.Billing
   alias FluxVale.Billing.LedgerEntry
+  alias FluxVale.Clients.K8s
+  alias FluxVale.Clients.K8s.Error
+  alias FluxVale.Clients.K8s.Resources.Deployment
+  alias FluxVale.Clients.K8s.Resources.PersistentVolumeClaim
+  alias FluxVale.Clients.K8s.Resources.ResourceQuota
+  alias FluxVale.Clients.K8s.Resources.Secret
+  alias FluxVale.Clients.K8s.Resources.StorageClass
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.Pricing
   alias FluxVale.Pricing.Size
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -439,6 +448,250 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
 
       assert {:error, %Ash.Error.Forbidden{}} = Ash.update(changeset, actor: user)
     end
+  end
+
+  # #493: the resize settles the open interval at the in-force rate
+  # BEFORE flipping allocation/pricing — no hour straddles two prices.
+  # The cursor advance is the shared idempotency arbiter, and the
+  # runway projection prices through the same resolver, so post-resize
+  # runway and settle agree by construction. The resize here runs
+  # authorize?: false — the wallet is grant-free by design and #124's
+  # funded gate is settle-orthogonal (the setup's create stance).
+  describe "across a resize (#493)" do
+    setup do
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+
+      # Storage-up resize: the probe must bless the grow.
+      stub(StorageClass, :default_allows_expansion?, fn _kc -> {:ok, true} end)
+
+      :ok
+    end
+
+    test "the resize posts the open interval at the OLD stopped rate; the next settle bills the NEW one",
+         %{wallet: wallet, instance: instance} do
+      stopped = stopped!(instance)
+      fifteen_days = 15 * 86_400
+
+      backdate!(stopped,
+        storage_metering_since: ago(fifteen_days),
+        running_since: nil,
+        unbilled_running_usec: 0
+      )
+
+      assert {:ok, resized} =
+               Instance.resize(stopped, %{storage_gb: 10}, authorize?: false)
+
+      # 15 days at the OLD snapshot's stopped rate (@stopped_cents).
+      old_dec = prorated_stopped(@stopped_cents, fifteen_days)
+
+      old_posted =
+        old_dec
+        |> Decimal.round(0, :floor)
+        |> Decimal.to_integer()
+        |> div(10_000)
+
+      assert usage_entries(wallet) == [%{amount: -old_posted}]
+
+      # The row now prices at the NEW allocation (formula — storage left
+      # the version's default).
+      assert resized.size_id == nil
+
+      new_stopped =
+        Pricing.price_allocation(%{
+          cpu_cores: resized.cpu_cores,
+          memory_mb: resized.memory_mb,
+          storage_gb: resized.storage_gb
+        }).stopped_monthly_cents
+
+      # The next tick: another 15 days at the NEW stopped rate — plus
+      # the pooled sub-cent fraction of the first post flushing in
+      # (#120's no-dust rule: carryover + µ¢ rounds out), so the
+      # exact-cent assertion rides total-billed µ¢ instead.
+      fresh = reload_instance!(resized)
+
+      backdate!(fresh,
+        storage_metering_since: ago(fifteen_days),
+        running_since: nil,
+        unbilled_running_usec: 0
+      )
+
+      assert {:ok, _settled} = settle!(fresh)
+
+      old_rounded =
+        old_dec
+        |> Decimal.round(0, :floor)
+        |> Decimal.to_integer()
+
+      new_dec = prorated_stopped(new_stopped, fifteen_days)
+
+      new_micros =
+        new_dec
+        |> Decimal.round(0, :floor)
+        |> Decimal.to_integer()
+
+      # The bound absorbs the µ¢ of settle latency between the backdate
+      # and the tick (this file's drift discipline).
+      assert billed_micro(wallet) in (old_rounded + new_micros)..(old_rounded + new_micros + 3)
+    end
+
+    # The central billing-atomicity pin: the settle runs inside the
+    # action's transaction, so a post-settle cluster operand failing
+    # rolls the settled interval back with the refused resize — no
+    # ledger row, cursor parked at the backdated instant.
+    test "a failed cluster operand rolls the settle back — nothing bills, the cursor parks", %{
+      wallet: wallet,
+      instance: instance
+    } do
+      stopped = stopped!(instance)
+      fifteen_days = 15 * 86_400
+      backdated = ago(fifteen_days)
+
+      deployed =
+        InstanceFixtures.pin!(stopped,
+          namespace: "fluxvale-app-#{stopped.id}",
+          storage_metering_since: backdated,
+          running_since: nil,
+          unbilled_running_usec: 0
+        )
+
+      # The cluster operands before the failing one are stubbed: the
+      # point is the settle's rollback, not the apply.
+      stub(ResourceQuota, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      stub(PersistentVolumeClaim, :get, fn _kc, _ns, "app-data" ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub(PersistentVolumeClaim, :upsert, fn _kc, _ns, "app-data", _spec -> {:ok, %{}} end)
+
+      stub(Secret, :get, fn _kc, _ns, "app-env" ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub(Deployment, :get, fn _kc, _ns, "app" ->
+        {:ok, %{"spec" => %{"replicas" => 0}}}
+      end)
+
+      stub(Deployment, :create, fn _kc, _ns, _n, _spec ->
+        {:error, K8s.Error.connection_error("cluster on fire")}
+      end)
+
+      assert {:error, _reason} =
+               Instance.resize(deployed, %{storage_gb: 10}, authorize?: false)
+
+      assert usage_entries(wallet) == []
+
+      fresh = reload_instance!(deployed)
+      assert fresh.storage_metering_since == backdated
+    end
+
+    test "replay: a second settle after the resize posts nothing", %{
+      wallet: wallet,
+      instance: instance
+    } do
+      stopped = stopped!(instance)
+      fifteen_days = 15 * 86_400
+
+      backdate!(stopped,
+        storage_metering_since: ago(fifteen_days),
+        running_since: nil,
+        unbilled_running_usec: 0
+      )
+
+      assert {:ok, resized} =
+               Instance.resize(stopped, %{storage_gb: 10}, authorize?: false)
+
+      assert {:ok, _settled} = settle!(reload_instance!(resized))
+      assert {:ok, _settled} = settle!(reload_instance!(resized))
+
+      # One post, from the resize — the settles found an empty interval
+      # (the cursor advanced with it).
+      assert length(usage_entries(wallet)) == 1
+    end
+
+    test "a resize with cursor ≈ now posts nothing at the resize", %{
+      wallet: wallet,
+      instance: instance
+    } do
+      stopped = stopped!(instance)
+
+      backdate!(stopped, storage_metering_since: ago(1), running_since: nil)
+
+      assert {:ok, _resized} =
+               Instance.resize(stopped, %{storage_gb: 10}, authorize?: false)
+
+      assert usage_entries(wallet) == []
+      assert {:ok, 0} = Billing.balance(wallet, authorize?: false)
+
+      # The cursor advanced with the no-amount settle.
+      fresh = reload_instance!(instance)
+      assert DateTime.compare(fresh.storage_metering_since, ago(1)) == :gt
+    end
+
+    test "post-resize runway agrees with what the next hour bills (#153 agreement)", %{
+      wallet: wallet,
+      instance: instance
+    } do
+      stopped = stopped!(instance)
+
+      assert {:ok, resized} =
+               Instance.resize(stopped, %{storage_gb: 10}, authorize?: false)
+
+      new_stopped =
+        Pricing.price_allocation(%{
+          cpu_cores: resized.cpu_cores,
+          memory_mb: resized.memory_mb,
+          storage_gb: resized.storage_gb
+        }).stopped_monthly_cents
+
+      fresh = reload_instance!(resized)
+
+      backdate!(fresh,
+        storage_metering_since: ago(3_600),
+        running_since: nil,
+        unbilled_running_usec: 0
+      )
+
+      assert {:ok, runway} = Billing.compute_runway(wallet)
+      assert {:ok, _settled} = settle!(fresh)
+
+      burn = hourly(new_stopped)
+      assert runway.burn_micro_cents_per_hour == burn
+      assert billed_micro(wallet) in burn..(burn + 5)
+    end
+  end
+
+  # Stopped-stream proration at an arbitrary monthly rate — the resize
+  # tests' NEW-rate leg prices off the formula, not the fixture constants.
+  defp prorated_stopped(monthly_cents, secs) do
+    monthly_cents
+    |> Decimal.new()
+    |> Decimal.mult(Decimal.new(10_000))
+    |> Decimal.mult(Decimal.new(secs))
+    |> Decimal.div(Decimal.new(@month_seconds))
+  end
+
+  # Monthly cents → integer µ¢/h over the average Gregorian month (the
+  # #153 agreement tests' divisor — Billing.Month's constant).
+  defp hourly(monthly_cents) do
+    div(monthly_cents * 10_000 * 3600, @month_seconds)
+  end
+
+  # What settle actually billed: the posted usage cents plus the
+  # sub-cent fraction pooled in the carryover (#120's no-dust rule).
+  defp billed_micro(%Billing.Wallet{} = wallet) do
+    fresh = Ash.get!(Billing.Wallet, wallet.id, authorize?: false)
+
+    entries =
+      LedgerEntry
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(wallet_id == ^wallet.id and reason == :usage)
+      |> Ash.read!(authorize?: false)
+
+    amounts = Enum.map(entries, & &1.amount)
+    posted = -Enum.sum(amounts)
+
+    posted * 10_000 + fresh.carryover
   end
 
   defp settle!(instance) do

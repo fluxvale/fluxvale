@@ -70,3 +70,16 @@ billed hourly (µs accrual — Decision §3 here,
 **Amends**: the calibration basis of Decision §1
 ([pricing-calibration.md](../pricing-calibration.md) now carries the
 B′ table).
+
+## Amendment 3 — allocation eras re-snapshot at resize (2026-11-06)
+
+Instance resize (#493, [ADR-0043](00043-instance-resize.md)) extends
+the snapshot model: allocation eras re-snapshot at create AND at every
+resize, through the one shared snapshot choice
+(`Instance.PricingSnapshot.snapshot/3`) — so resize cents are identical
+to destroy-and-recreate by construction, and the 1-year grandfather
+clock restarts with each era (the old clock dies with the old
+allocation). The append-only era trail
+(`instance_allocation_snapshots`) records the history; the instance row
+stays the live read path. Settlement and the runway projection are
+unchanged — they price the row's current era exactly as before.

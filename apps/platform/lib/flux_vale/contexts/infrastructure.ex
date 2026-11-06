@@ -44,6 +44,7 @@ defmodule FluxVale.Infrastructure do
   resources do
     resource(FluxVale.Infrastructure.Cluster)
     resource(FluxVale.Infrastructure.Instance)
+    resource(FluxVale.Infrastructure.InstanceAllocationSnapshot)
     resource(FluxVale.Infrastructure.BackupSetting)
     resource(FluxVale.Infrastructure.BackupRun)
     resource(FluxVale.Infrastructure.AccessGateway)

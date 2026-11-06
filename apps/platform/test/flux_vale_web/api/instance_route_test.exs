@@ -454,6 +454,50 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
     end
   end
 
+  describe "PATCH /api/v1/instances/:id/resize (#493)" do
+    test "flips the allocation on a stopped member's row", %{conn: conn} do
+      {user, created} = member_with_instance()
+      instance = InstanceFixtures.walk_to!(created, :stopped)
+      pat = ApiPat.mint!(user.email, ["instances:write"])
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> patch("/api/v1/instances/#{instance.id}/resize", %{
+          "data" => %{
+            "type" => "instance",
+            "id" => instance.id,
+            "attributes" => %{"memory_mb" => 1024}
+          }
+        })
+
+      assert %{"data" => %{"attributes" => %{"memory_mb" => 1024}}} = json_response(conn, 200)
+    end
+
+    test "a non-stopped row is refused with the guard's message", %{conn: conn} do
+      {user, instance} = member_with_instance()
+      pat = ApiPat.mint!(user.email, ["instances:write"])
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> patch("/api/v1/instances/#{instance.id}/resize", %{
+          "data" => %{
+            "type" => "instance",
+            "id" => instance.id,
+            "attributes" => %{"memory_mb" => 1024}
+          }
+        })
+
+      # The guard's invalid rides the 400 Invalid class (measured — the
+      # same class a bad body gets).
+      assert %{"errors" => [error]} = json_response(conn, 400)
+      assert error["detail"] =~ "cannot resize instance in pending"
+    end
+  end
+
   describe "DELETE /api/v1/instances/:id" do
     test "hard-deletes a never-deployed row (the UI's generic :delete)", %{conn: conn} do
       {user, instance} = member_with_instance()
