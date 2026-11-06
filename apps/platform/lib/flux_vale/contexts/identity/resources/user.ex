@@ -173,16 +173,21 @@ defmodule FluxVale.Identity.User do
 
     # The #502 invited state — all nullable, nil for every normal
     # account (a normal account answers :none from invite_state).
+    # The invite stamps are PRIVATE: no JSON:API surface consumes them
+    # (the /me route pins its field list, AshAdmin reads attributes
+    # regardless, and the admin dashboard rides domain reads). Public
+    # here would grow the OpenAPI user schema and drift the CLI's
+    # generated types for nothing.
     attribute :invited_at, :utc_datetime_usec do
-      public?(true)
+      public?(false)
     end
 
     attribute :invite_accepted_at, :utc_datetime_usec do
-      public?(true)
+      public?(false)
     end
 
     attribute :invite_withdrawn_at, :utc_datetime_usec do
-      public?(true)
+      public?(false)
     end
 
     # SHA-256 hex digest of the raw accept token — the only form ever
@@ -198,7 +203,7 @@ defmodule FluxVale.Identity.User do
     # fresh signup must carry nil in all five columns). :invite and
     # :reinvite set the window explicitly.
     attribute :invite_expires_at, :utc_datetime do
-      public?(true)
+      public?(false)
     end
   end
 
