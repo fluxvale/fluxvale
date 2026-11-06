@@ -410,11 +410,16 @@ jobs:
           test -n "$version"
           echo "go=$version" >>"$GITHUB_OUTPUT"
 
-      # v7.0.0 — pinned to commit: mutable tags execute unreviewed code
+      # v7.0.0 — pinned to commit: mutable tags execute unreviewed code.
+      # cache-dependency-path: no root go.sum exists, and without this
+      # input setup-go looks for one at the workspace root, fails, and
+      # downgrades to a WARNING — the module cache silently never
+      # saves, every run a cold full-tree download.
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ steps.go.outputs.go }}
+          cache-dependency-path: apps/tfprovider/go.sum
 
       # Fails on any output: the files gofmt would rewrite.
       - name: gofmt

@@ -94,7 +94,9 @@ func (p *fluxvaleProvider) Configure(ctx context.Context, req provider.Configure
 		return
 	}
 
-	token := stringValue(config.Token)
+	// Symmetric trim: a stray space in either source must not become a
+	// confusing 401 blamed on the token itself.
+	token := strings.TrimSpace(stringValue(config.Token))
 	if token == "" {
 		token = strings.TrimSpace(os.Getenv(envToken))
 	}
@@ -102,6 +104,18 @@ func (p *fluxvaleProvider) Configure(ctx context.Context, req provider.Configure
 		resp.Diagnostics.AddError(
 			"Missing FluxVale API token",
 			"Set the \"token\" provider attribute or the "+envToken+" environment variable.",
+		)
+		return
+	}
+
+	// An unknown api_url is an error, not the default: silently
+	// substituting production would send this credential to the wrong
+	// environment (staging setups point here).
+	if config.APIURL.IsUnknown() {
+		resp.Diagnostics.AddError(
+			"API URL is not known yet",
+			"The \"api_url\" provider attribute is computed from a value that is not known at plan time. "+
+				"Set a known URL, or leave it unset for the default ("+defaultAPIURL+").",
 		)
 		return
 	}

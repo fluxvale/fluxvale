@@ -193,3 +193,33 @@ func TestSchemaContract(t *testing.T) {
 		t.Errorf("defaultAPIURL = %q, want the documented default", defaultAPIURL)
 	}
 }
+
+// An api_url unknown at plan time must error, not silently resolve to
+// the production default — the credential would hit the wrong
+// environment.
+func TestConfigureUnknownAPIURLErrors(t *testing.T) {
+	srv, _ := meServer(t, http.StatusOK, meDocument)
+
+	resp := configure(context.Background(), t, unknownStr, str("fvpat_test"), nullStr)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatalf("unknown api_url: no error, want the not-known diagnostic (server %s never hit)", srv.URL)
+	}
+	summary := resp.Diagnostics.Errors()[0].Summary()
+	if !strings.Contains(summary, "API URL is not known yet") {
+		t.Errorf("summary = %q, want the not-known wording", summary)
+	}
+}
+
+func TestConfigureTrimsConfigToken(t *testing.T) {
+	srv, auth := meServer(t, http.StatusOK, meDocument)
+
+	resp := configure(context.Background(), t, str(srv.URL), str(" fvpat_x "), nullStr)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Configure with a padded token: %+v", resp.Diagnostics)
+	}
+	if *auth != "Bearer fvpat_x" {
+		t.Errorf("ping Authorization = %q, want the trimmed token", *auth)
+	}
+}

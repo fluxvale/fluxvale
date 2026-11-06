@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -99,5 +100,99 @@ func TestNonJSONErrorBodyStillTyped(t *testing.T) {
 	}
 	if apiErr.Status != http.StatusBadGateway {
 		t.Errorf("Status = %d, want 502", apiErr.Status)
+	}
+}
+
+func TestDoSendsJSONBody(t *testing.T) {
+	var gotCT string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCT = r.Header.Get("Content-Type")
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decode request body: %v", err)
+		}
+		fmt.Fprint(w, meDocument)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "fvpat_test", "test", srv.Client())
+	if _, err := c.Do(context.Background(), http.MethodPost, "/api/v1/instances", map[string]any{"name": "app"}); err != nil {
+		t.Fatalf("Do with a body: %v", err)
+	}
+	if gotCT != "application/vnd.api+json" {
+		t.Errorf("Content-Type = %q, want JSON:API", gotCT)
+	}
+	if gotBody["name"] != "app" {
+		t.Errorf("body = %+v, want the marshaled map", gotBody)
+	}
+}
+
+// The resources slices POST everything — a base URL with a trailing
+// slash must not double-slash the path.
+func TestNewTrimsTrailingSlash(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/me" {
+			fmt.Fprint(w, meDocument)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL+"/", "fvpat_test", "test", srv.Client())
+	if _, err := c.Me(context.Background()); err != nil {
+		t.Fatalf("Me with a trailing-slash base URL: %v", err)
+	}
+}
+
+func TestMeShapeDriftIsAnError(t *testing.T) {
+	noID := `{"data": {"type": "user", "attributes": {"email": "me@fluxvale.com"}}}`
+	srv := testServer(t, http.StatusOK, noID)
+	defer srv.Close()
+	c := New(srv.URL, "fvpat_test", "test", srv.Client())
+	if _, err := c.Me(context.Background()); err == nil || !strings.Contains(err.Error(), "no id") {
+		t.Fatalf("no-id document: err = %v, want the shape-drift error", err)
+	}
+
+	noEmail := `{"data": {"id": "u-1", "attributes": {}}}`
+	srv2 := testServer(t, http.StatusOK, noEmail)
+	defer srv2.Close()
+	c2 := New(srv2.URL, "fvpat_test", "test", srv2.Client())
+	if _, err := c2.Me(context.Background()); err == nil || !strings.Contains(err.Error(), "no email") {
+		t.Fatalf("no-email document: err = %v, want the shape-drift error", err)
+	}
+}
+
+func TestErrorStringArms(t *testing.T) {
+	cases := []struct {
+		name string
+		err  *APIError
+		want string
+	}{
+		{"title only", &APIError{Status: 422, Errors: []ErrorObject{{Title: "Invalid"}}}, "fluxvale API: status 422: Invalid"},
+		{"detail only", &APIError{Status: 422, Errors: []ErrorObject{{Detail: "bad size"}}}, "fluxvale API: status 422: bad size"},
+		{"no errors, no snippet", &APIError{Status: 500}, "fluxvale API: status 500"},
+	}
+	for _, tc := range cases {
+		if got := tc.err.Error(); got != tc.want {
+			t.Errorf("%s: Error() = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestNonJSONErrorSnippetIsTrimmed(t *testing.T) {
+	srv := testServer(t, http.StatusBadGateway, strings.Repeat("x", 300))
+	defer srv.Close()
+
+	c := New(srv.URL, "fvpat_test", "test", srv.Client())
+	_, err := c.Me(context.Background())
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("err = %v, want *APIError", err)
+	}
+	got := apiErr.Error()
+	if !strings.Contains(got, "status 502") || strings.Contains(got, strings.Repeat("x", 201)) {
+		t.Errorf("Error() snippet is untrimmed or status-less: %d chars", len(got))
 	}
 }
