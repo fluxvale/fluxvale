@@ -162,10 +162,11 @@ defmodule FluxVale.RuntimeConfigTest do
   describe "ACCESS_DOMAINS_ISSUER (ADR-0040 S1)" do
     test "is inert in test — a stray export never re-points the registry's issuer" do
       with_env(%{"ACCESS_DOMAINS_ISSUER" => "evil-issuer"}, fn ->
-        assert read!(:test)
-
-        assert Application.fetch_env!(:flux_vale, :access_domains)[:issuer] ==
-                 "letsencrypt-staging"
+        # Pin the READ result, not the app env: Config.Reader never
+        # touches the app env, so only the read proves the guard held
+        # (CodeRabbit #494: an app-env assertion cannot fail on the
+        # regression this test exists to catch).
+        assert read!(:test)[:flux_vale][:access_domains][:issuer] == "letsencrypt-staging"
       end)
     end
 
