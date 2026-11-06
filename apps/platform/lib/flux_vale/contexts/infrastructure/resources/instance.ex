@@ -65,6 +65,7 @@ defmodule FluxVale.Infrastructure.Instance do
   alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.Instance.AdoptCurrentRow
   alias FluxVale.Infrastructure.Instance.AdoptCurrentRowOnSleep
+  alias FluxVale.Infrastructure.Instance.AppendAllocationSnapshot
   alias FluxVale.Infrastructure.Instance.DeriveFromAppVersion
   alias FluxVale.Infrastructure.Instance.GenerateSlug
   alias FluxVale.Infrastructure.Instance.MaintainAnchors
@@ -72,6 +73,8 @@ defmodule FluxVale.Infrastructure.Instance do
   alias FluxVale.Infrastructure.Instance.PerformReconcile
   alias FluxVale.Infrastructure.Instance.PerformSettle
   alias FluxVale.Infrastructure.Instance.PerformTeardown
+  alias FluxVale.Infrastructure.Instance.ResizeGuard
+  alias FluxVale.Infrastructure.Instance.ResizePricing
   alias FluxVale.Infrastructure.Instance.ResolveCluster
   alias FluxVale.Infrastructure.Instance.SetOrganizationFromActor
   alias FluxVale.Infrastructure.Instance.StatusMarkers
@@ -80,6 +83,7 @@ defmodule FluxVale.Infrastructure.Instance do
   alias FluxVale.Infrastructure.Instance.WakeMarkers
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.Infrastructure.Operations.ResizeInstance
   alias FluxVale.Infrastructure.Operations.SetExposure
   alias FluxVale.Infrastructure.Operations.SleepInstance
   alias FluxVale.Infrastructure.Operations.StartInstance
@@ -163,6 +167,9 @@ defmodule FluxVale.Infrastructure.Instance do
       patch(:start, route: "/instances/:id/start", default_fields: @detail_fields)
       patch(:set_always_on, route: "/instances/:id/always-on", default_fields: @detail_fields)
       patch(:set_exposure, route: "/instances/:id/exposure", default_fields: @detail_fields)
+
+      # instances:write — the stopped-first resize (#493).
+      patch(:resize, route: "/instances/:id/resize", default_fields: @detail_fields)
 
       # instances:write — the generic :delete the UI calls (async
       # teardown), NOT destroy :destroy.
@@ -307,6 +314,15 @@ defmodule FluxVale.Infrastructure.Instance do
 
     policy action(:start) do
       description("Resume needs membership AND a funded wallet (#124)")
+      forbid_unless(relates_to_actor_via([:organization, :members]))
+      authorize_if(FluxVale.Checks.ActorOrgWalletFunded)
+    end
+
+    policy action(:resize) do
+      description(
+        "Re-allocation needs membership AND a funded wallet (#124 — resize changes burn like a fresh start)"
+      )
+
       forbid_unless(relates_to_actor_via([:organization, :members]))
       authorize_if(FluxVale.Checks.ActorOrgWalletFunded)
     end
@@ -942,6 +958,48 @@ defmodule FluxVale.Infrastructure.Instance do
       end)
     end
 
+    # #493: stopped-first re-allocation. The guard owns the checks in
+    # one module (status → no-op → storage monotonic → capability),
+    # settling the open interval at the in-force rate before the flip;
+    # pricing reuses the create's one snapshot choice; the audit trail
+    # closes era N and appends N+1. The cluster re-apply rides
+    # after_action (the set_exposure contract: the row may not claim an
+    # allocation the cluster hasn't reached — a failed apply rolls the
+    # whole resize back).
+    update :resize do
+      description(
+        "Stopped-first re-allocation (#493): CPU/RAM both ways, storage up-only — priced like a fresh create (fresh 1-year clock), applied to the cluster while stopped, runs at the new size on next start."
+      )
+
+      require_atomic?(false)
+      accept([:cpu_cores, :memory_mb, :storage_gb])
+
+      # Racing resizes refuse the slower one cleanly (the set_exposure
+      # precedent).
+      change(optimistic_lock(:version))
+
+      change(ResizeGuard)
+      change(ResizePricing)
+      change(AppendAllocationSnapshot)
+
+      change(fn changeset, _context ->
+        instance = changeset.data
+
+        if cluster_managed?(instance) do
+          # The apply holds the org's wallet advisory lock (the settle
+          # shares the transaction) — ADR-0043 Stopped-first owns the trade-off.
+          Ash.Changeset.after_action(changeset, fn _changeset, updated ->
+            case ResizeInstance.call(updated, instance.storage_gb) do
+              :ok -> {:ok, updated}
+              {:error, _reason} = error -> error
+            end
+          end)
+        else
+          changeset
+        end
+      end)
+    end
+
     action :delete, :struct do
       description("""
       Deletes an instance (async teardown). Deployed instances flip to
@@ -1165,6 +1223,7 @@ defmodule FluxVale.Infrastructure.Instance do
     define(:touch)
     define(:set_always_on)
     define(:set_exposure)
+    define(:resize)
   end
 
   identities do

@@ -42,6 +42,11 @@ if Mix.env() == :test do
   Mimic.copy(FluxVale.Clients.K8s.Resources.RoleBinding)
   Mimic.copy(FluxVale.Clients.K8s.Resources.BackupJob)
   Mimic.copy(FluxVale.Clients.K8s.Resources.RestoreJob)
+  # #493: the resize's capability probe stubs the StorageClass read
+  Mimic.copy(FluxVale.Clients.K8s.Resources.StorageClass)
+  # #493 Finding A: the resize's 0→N crossing on a file-access app
+  # re-lands the edge arms via the shared seam
+  Mimic.copy(FluxVale.Infrastructure.Operations.EdgeRoutes)
   # The restore operation's status funnel: tests force the :restoring write
   # to fail (the row-settling arm) without a hand-edited state machine.
   Mimic.copy(FluxVale.Infrastructure.Operations.InstanceK8s)

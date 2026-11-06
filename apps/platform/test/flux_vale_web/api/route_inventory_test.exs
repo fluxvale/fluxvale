@@ -26,6 +26,8 @@ defmodule FluxValeWeb.Api.RouteInventoryTest do
     {:patch, "/instances/:id/start"},
     {:patch, "/instances/:id/always-on"},
     {:patch, "/instances/:id/exposure"},
+    # #493: the stopped-first resize.
+    {:patch, "/instances/:id/resize"},
     {:delete, "/instances/:id"},
     # backups:read / backups:write
     {:get, "/instances/:instance_id/backup-setting"},

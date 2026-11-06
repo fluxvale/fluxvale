@@ -52,6 +52,8 @@ defmodule FluxVale.Api.Scopes do
     {{"PATCH", ["instances", :_, "start"]}, "instances:write"},
     {{"PATCH", ["instances", :_, "always-on"]}, "instances:write"},
     {{"PATCH", ["instances", :_, "exposure"]}, "instances:write"},
+    # #493: the stopped-first resize rides the same write scope.
+    {{"PATCH", ["instances", :_, "resize"]}, "instances:write"},
     {{"DELETE", ["instances", :_]}, "instances:write"},
     # Backups.
     {{"GET", ["instances", :_, "backup-setting"]}, "backups:read"},

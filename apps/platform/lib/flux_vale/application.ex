@@ -44,6 +44,10 @@ defmodule FluxVale.Application do
           {Phoenix.PubSub, name: FluxVale.PubSub},
           # AccessRules snapshot cache (#26) — lazy reads, no startup DB hit
           FluxVale.Ops.AccessRules.Cache,
+          # Storage-expansion capability cache (#493) — the resize
+          # guard's live allowVolumeExpansion probe, cached per cluster
+          # (the process only owns the ETS table; probes run in callers).
+          FluxVale.Infrastructure.Operations.StorageExpansion,
           # Edge activity debounce (#203, ADR-0036) — the beacon's
           # in-memory last-flush markers; DB state survives restarts.
           FluxVale.Edge.Activity,
