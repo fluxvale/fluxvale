@@ -297,6 +297,59 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert contract.guidance =~ "set the server password"
     end
 
+    test "seeds the shipped Memos entry and its first-run contract (#492)" do
+      assert :ok == Seeds.seed_pricing!()
+      assert :ok == Seeds.seed_catalog!()
+
+      category = Category.get_by_slug!("productivity", authorize?: false)
+      assert category.name == "Productivity"
+
+      app = App.get_by_slug!("memos", authorize?: false)
+      assert app.category_id == category.id
+      assert app.source_url == "https://github.com/usememos/memos"
+      # A note stream ingests nothing from outside; the toggle ships off.
+      assert app.file_access == false
+
+      version =
+        "memos"
+        |> App.get_by_slug!(authorize?: false)
+        |> Ash.load!([app_versions: :recommended_size], authorize?: false)
+        |> Map.fetch!(:app_versions)
+        |> hd()
+
+      assert version.version == "26.11.0"
+      # The canonical upstream image (its own release workflow pushes
+      # the same tags to Docker Hub and GHCR), not a mirror.
+      assert version.image == "ghcr.io/usememos/memos:26.11.0"
+      assert version.port == 5230
+      # Upstream's ready endpoint (returns 200 "Service ready.").
+      assert version.healthcheck_path == "/healthz"
+      # The image's own VOLUME and working directory — the SQLite DB
+      # only survives a pod restart when the PVC lands exactly there.
+      assert version.storage_mount_path == "/var/opt/memos"
+      # The featherweight allocation, kept equal to `micro` by
+      # ValidateSizeMatchesAllocation (the seed would refuse a drift).
+      assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.25"))
+      assert version.default_memory_mb == 512
+      assert version.default_storage_gb == 5
+      assert version.recommended_size.slug == "micro"
+
+      # SQLite is the upstream driver default; no env ships at boot.
+      assert version.default_env_vars == %{}
+      assert version.configurable_env_vars == %{}
+
+      contract = version.first_run
+      assert %FirstRunContract{} = contract
+      assert contract.pattern == :first_registered_user_admin
+      # Nothing to pin and nothing to lock: the first account becomes
+      # the host, and closing sign-up afterwards is a stored instance
+      # setting with no env override (upstream's tests pin registration
+      # open as the default).
+      assert contract.env == %{}
+      assert contract.forbidden_env == []
+      assert contract.guidance =~ "first account becomes the host"
+    end
+
     test "re-seeding the shipped catalog converges without dupes" do
       assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()

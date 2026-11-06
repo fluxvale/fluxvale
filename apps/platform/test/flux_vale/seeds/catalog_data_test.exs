@@ -252,6 +252,48 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert version.first_run["guidance"] =~ "set the server password"
     end
 
+    test "shipped catalog_data.yaml normalizes the Memos entry (#492)" do
+      entry = entry_by_slug("productivity")
+
+      assert entry.category == %{
+               name: "Productivity",
+               slug: "productivity",
+               description: "Notes and personal knowledge apps."
+             }
+
+      assert [%{slug: "memos"} = app] = entry.apps
+      assert app.name == "Memos"
+      assert app.source_url == "https://github.com/usememos/memos"
+      # A note stream ingests nothing from outside — the toggle ships off
+      assert app.file_access == false
+
+      version = hd(app.versions)
+      assert version.version == "26.11.0"
+      # The canonical upstream image (its own release workflow), not a
+      # re-published mirror.
+      assert version.image == "ghcr.io/usememos/memos:26.11.0"
+      assert version.port == 5230
+      assert version.healthcheck_path == "/healthz"
+      # Memos' state lives under its working dir (/var/opt/memos, the
+      # image's own VOLUME), not the volume root.
+      assert version.storage_mount_path == "/var/opt/memos"
+      assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.25"))
+      assert version.default_memory_mb == 512
+      assert version.default_storage_gb == 5
+      assert version.recommended_size == "micro"
+      assert version.published_at == ~U[2026-11-01 14:04:41Z]
+
+      # SQLite is the upstream default; no env surface at boot.
+      assert version.default_env_vars == %{}
+      assert version.configurable_env_vars == %{}
+
+      # Register-first-host, with no env keys to pin or lock.
+      assert version.first_run["pattern"] == "first_registered_user_admin"
+      assert version.first_run["env"] == %{}
+      assert version.first_run["forbidden_env"] == []
+      assert version.first_run["guidance"] =~ "first account becomes the host"
+    end
+
     test "comments-only and empty files parse to []" do
       comments_only = tmp_path("# comments only\n")
       assert CatalogData.entries(comments_only) == []
