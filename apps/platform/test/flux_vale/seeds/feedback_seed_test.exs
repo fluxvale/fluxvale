@@ -23,6 +23,7 @@ defmodule FluxVale.Seeds.FeedbackSeedTest do
   alias FluxVale.Feedback.Tag
   alias FluxVale.Feedback.Vote
   alias FluxVale.Identity.User
+  alias FluxVale.Repo
   alias FluxVale.Seeds
   alias FluxVale.TestSupport.FeedbackFixtures
 
@@ -264,6 +265,31 @@ defmodule FluxVale.Seeds.FeedbackSeedTest do
       assert error.message =~ "missing-original-slug"
       assert error.message =~ "list the original entry before the duplicate"
     end
+
+    test "a title deriving to a reserved stem fails — the seed cannot claim /feedback/new" do
+      assert :ok == Seeds.seed_admin!()
+
+      # The forced-slug path must not bypass the reserved-stem rule: a
+      # seed forcing "new" would shadow the fixed /feedback/new route.
+      # The derivation the guard compares against runs the reserved
+      # rules with every candidate free, so the authored slug has to be
+      # what a free table would derive ("new-2").
+      entry = %{
+        slug: "new",
+        title: "New!",
+        description: "x",
+        status: :open,
+        votes: 0,
+        comments: [],
+        age_days: 1,
+        status_age_days: 0
+      }
+
+      error = assert_raise(RuntimeError, fn -> Seeds.seed_feedback!([entry]) end)
+
+      assert error.message =~ "new-2"
+      assert error.message =~ "fix the entry's title to derive it"
+    end
   end
 
   describe "idempotency" do
@@ -470,15 +496,57 @@ defmodule FluxVale.Seeds.FeedbackSeedTest do
       end)
     end
 
-    test "a duplicated (post, author, body) comment triple fails naming the dedupe" do
+    test "the (post, author, body) identity rejects a duplicate triple at the DB" do
       post = seed_light_entry!()
 
       author = User.get_by_email!("mara@fluxvale.test", authorize?: false)
 
+      # Ash.seed! is the states-actions-cannot-produce harness: the
+      # entry's own comment holds (mara, first-reply), so the harness
+      # mints a DISTINCT triple first, then repeats it — the repeat
+      # must die on the #508 identity's unique index, which is the DB
+      # guarantee that keeps find_comment's corruption guard an
+      # impossibility answer instead of a live path.
+      Ash.Seed.seed!(FluxVale.Feedback.Comment, %{
+        post_id: post.id,
+        author_user_id: author.id,
+        body: "A distinct harness body."
+      })
+
+      raised =
+        try do
+          Ash.Seed.seed!(FluxVale.Feedback.Comment, %{
+            post_id: post.id,
+            author_user_id: author.id,
+            body: "A distinct harness body."
+          })
+
+          nil
+        rescue
+          error -> error
+        end
+
+      assert raised, "expected the duplicate triple to violate the unique identity"
+      assert Exception.message(raised) =~ "already been taken"
+    end
+
+    test "the corruption guard answers a duplicated triple when the identity is absent" do
+      post = seed_light_entry!()
+
+      author = User.get_by_email!("mara@fluxvale.test", authorize?: false)
+
+      # The triple must be the ENTRY'S OWN (mara, first-reply): with the
+      # identity dropped, the two harness rows turn the seeded triple
+      # into a multiples set find_comment cannot answer with one row.
       body = "First reply, mostly to follow the thread."
 
-      # Ash.seed!: two identical rows on a non-unique triple is exactly
-      # the states-actions-cannot-produce corruption the guard answers.
+      # Postgres DDL is transactional: the sandbox transaction drops
+      # the identity, mints the exact duplicates it forbids, and the
+      # rollback restores the index. That is the pre-#508 state the
+      # guard exists to answer — a bare multi-result error is what a
+      # duplicated triple would poison every later run with.
+      Repo.query!("DROP INDEX feedback_comments_unique_body_per_post_author_index")
+
       Enum.each(1..2, fn _i ->
         Ash.Seed.seed!(FluxVale.Feedback.Comment, %{
           post_id: post.id,
@@ -490,6 +558,53 @@ defmodule FluxVale.Seeds.FeedbackSeedTest do
       error = assert_raise(RuntimeError, fn -> Seeds.seed_feedback!([light_entry()]) end)
 
       assert error.message =~ "dedupe feedback_comments"
+    end
+
+    test "a comment mint that fails and finds no identity row fails loudly naming it" do
+      assert :ok == Seeds.seed_admin!()
+
+      # A body over the 5000 cap fails the create's validation: the
+      # mint errors, the re-find holds no row, and the seed fails
+      # loudly instead of answering the failure with silence.
+      entry = %{
+        slug: "overlong-comment-entry",
+        title: "Overlong comment entry",
+        description: "x",
+        status: :open,
+        votes: 0,
+        comments: [String.duplicate("x", 5001)],
+        age_days: 1,
+        status_age_days: 0
+      }
+
+      error = assert_raise(RuntimeError, fn -> Seeds.seed_feedback!([entry]) end)
+
+      assert error.message =~ "mint failed and no row holds the identity"
+      assert error.message =~ "re-run"
+    end
+
+    test "a post mint that fails and finds no slug row fails loudly naming it" do
+      assert :ok == Seeds.seed_admin!()
+
+      # A description over the 5000 cap passes the slug derivation and
+      # fails the create's validation: the mint errors, the re-find
+      # holds no slug row, and the seed fails loudly instead of
+      # answering the failure with silence.
+      entry = %{
+        slug: "overlong-description-entry",
+        title: "Overlong description entry",
+        description: String.duplicate("x", 5001),
+        status: :open,
+        votes: 0,
+        comments: [],
+        age_days: 1,
+        status_age_days: 0
+      }
+
+      error = assert_raise(RuntimeError, fn -> Seeds.seed_feedback!([entry]) end)
+
+      assert error.message =~ "overlong-description-entry"
+      assert error.message =~ "mint failed and no row holds the slug"
     end
   end
 end

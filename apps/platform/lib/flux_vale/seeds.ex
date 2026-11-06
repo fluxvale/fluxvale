@@ -21,6 +21,7 @@ defmodule FluxVale.Seeds do
   alias FluxVale.Catalog.Category
   alias FluxVale.Feedback.Comment
   alias FluxVale.Feedback.Post
+  alias FluxVale.Feedback.Post.DeriveSlug
   alias FluxVale.Feedback.Tag
   alias FluxVale.Feedback.Vote
   alias FluxVale.Identity.User
@@ -643,6 +644,11 @@ defmodule FluxVale.Seeds do
   construction. Posts an earlier run already seeded still get activity
   minted and counters converged, which is what heals the pre-#471
   environments whose counters were stamped with no rows behind them.
+
+  Safe under concurrent seeders (#508): every mint rides a DB identity
+  (post slug, vote per org, comment per triple, commenter email, voter
+  org slug), so a racing pair converges — the loser of each mint
+  catches the collision and re-finds the winner's row.
   """
   @spec seed_feedback! :: :ok
   def seed_feedback!, do: seed_feedback!(@feedback_entries)
@@ -685,13 +691,57 @@ defmodule FluxVale.Seeds do
   end
 
   defp seed_feedback_post!(entry, admin, index) do
-    created =
-      Post.create!(
-        %{title: entry.title, description: String.trim(entry.description)},
-        actor: admin,
-        authorize?: false
-      )
+    # The authored slug is forced onto the changeset (DeriveSlug skips
+    # derivation when a slug is forced) so the unique_slug identity, not
+    # the probe, arbitrates a seeding race (#508) — a probe-suffixed
+    # loser would mint an unfindable stray post instead of converging.
+    # The derivation contract still holds: a title whose derived form
+    # misses the authored slug is seed-data corruption, checked before
+    # the mint. The derive runs with every candidate FREE — a DB-free
+    # derivation, so the answer cannot depend on racing rows — while
+    # the reserved-stem rules still apply (a seeded "New!" must derive
+    # "new-2", never the reserved "/feedback/new" stem).
+    derived = DeriveSlug.derive_unique(entry.title, fn _candidate -> true end)
 
+    if derived != entry.slug do
+      raise "seed feedback: #{inspect(entry.title)} derives slug #{inspect(derived)}, expected #{inspect(entry.slug)} — fix the entry's title to derive it"
+    end
+
+    # The slug identity backstops the create: a seeder losing the post
+    # race catches the collision and converges on the winner's row —
+    # mint its activity and converge the counters, never the content
+    # (the already-seeded posture, the seed_feedback!/1 find arm's
+    # exact shape).
+    case Post
+         |> Ash.Changeset.for_create(
+           :create,
+           %{title: entry.title, description: String.trim(entry.description)},
+           actor: admin,
+           authorize?: false
+         )
+         |> Ash.Changeset.force_change_attribute(:slug, entry.slug)
+         |> Ash.create() do
+      {:ok, created} ->
+        seed_feedback_post_winner!(entry, admin, created, index)
+
+      {:error, collision} ->
+        case find_feedback_post(entry.slug) do
+          nil ->
+            # The mint failed for a reason the slug row cannot answer
+            # (a rolled-back winner, a DB failure, or a validation
+            # failure a fixture entry can produce) — fail loudly naming
+            # the failure (the heal_seed_admin! _owner_gone posture).
+            raise "seed feedback: post #{inspect(entry.slug)} mint failed and no row holds the slug — #{Exception.message(collision)} — re-run"
+
+          post ->
+            converge_feedback_post!(entry, post, index)
+        end
+    end
+  end
+
+  # The winner's continuation: the slug guard, status move, tags,
+  # activity, display patch, counters — unchanged.
+  defp seed_feedback_post_winner!(entry, admin, created, index) do
     # The authored slug is the get-or-create key: a future entry whose
     # title no longer derives to it would mint an unfindable duplicate
     # on every re-run. Fail the seed loudly instead.
@@ -787,11 +837,55 @@ defmodule FluxVale.Seeds do
   defp demo_voter_org!(n) do
     slug = "demo-voters-#{String.pad_leading(Integer.to_string(n), 2, "0")}"
 
-    case Organization
-         |> Ash.Query.filter(slug == ^slug)
-         |> Ash.read_one!(authorize?: false) do
-      nil -> Organization.create!(%{name: "Demo voters #{n}", slug: slug}, authorize?: false)
-      org -> org
+    case find_demo_voter_org!(slug) do
+      nil ->
+        # The slug identity backstops the mint (#508): a race loser
+        # catches the collision and re-finds the winner's org.
+        mint_or_refind!(
+          fn ->
+            Organization.create(%{name: "Demo voters #{n}", slug: slug}, authorize?: false)
+          end,
+          fn -> find_demo_voter_org!(slug) end
+        )
+
+      org ->
+        org
+    end
+  end
+
+  defp find_demo_voter_org!(slug) do
+    Organization
+    |> Ash.Query.filter(slug == ^slug)
+    |> Ash.read_one!(authorize?: false)
+  end
+
+  # A seed mint raced and lost (#508): every seed identity carries a DB
+  # unique index now (the comment identity is an md5 expression index —
+  # the same exact-match semantics find_comment matches with), so the
+  # old find-then-create window resolves as a caught collision instead
+  # of a duplicate row (or a raw crash). The re-find coming back empty
+  # means the identity row cannot answer the failure — a rolled-back
+  # winner, a DB failure, or a validation failure a fixture entry can
+  # produce — and the seed fails loudly naming it (the heal_seed_admin!
+  # _owner_gone posture).
+  defp mint_or_refind!(mint, refind) do
+    case mint.() do
+      {:ok, row} ->
+        row
+
+      {:error, collision} ->
+        case refind.() do
+          nil ->
+            # The mint failed for a reason the identity row cannot
+            # answer (a rolled-back winner, a DB failure, or a
+            # validation failure a fixture entry can produce) — fail
+            # loudly naming the failure (the heal_seed_admin!
+            # _owner_gone posture).
+            raise "seed feedback: mint failed and no row holds the identity — #{Exception.message(collision)} — re-run"
+
+          row ->
+            row
+        end
     end
   end
 
@@ -802,18 +896,23 @@ defmodule FluxVale.Seeds do
         # probe: run-opts on Ash.create!/cast! never reached them), and
         # the forced timestamp rides the same probe-verified shape —
         # Comment and Vote carry no update action, so backdating can
-        # only happen at create.
-        vote =
-          Vote
-          |> Ash.Changeset.for_create(
-            :cast,
-            %{post_id: post.id, organization_id: org.id},
-            authorize?: false
-          )
-          |> Ash.Changeset.force_change_attribute(:created_at, backdate(age_days, i))
-          |> Ash.create!()
+        # only happen at create. The vote identity backstops the mint
+        # (#508): a race loser catches the collision and re-finds.
+        mint_or_refind!(
+          fn ->
+            Vote
+            |> Ash.Changeset.for_create(
+              :cast,
+              %{post_id: post.id, organization_id: org.id},
+              authorize?: false
+            )
+            |> Ash.Changeset.force_change_attribute(:created_at, backdate(age_days, i))
+            |> Ash.create()
+          end,
+          fn -> find_vote(post.id, org.id) end
+        )
 
-        vote
+        nil
 
       _vote ->
         nil
@@ -830,15 +929,30 @@ defmodule FluxVale.Seeds do
 
     case find_comment(post.id, author.id, body) do
       nil ->
-        Comment
-        |> Ash.Changeset.for_create(
-          :create,
-          %{post_id: post.id, body: body},
-          actor: author,
-          authorize?: false
+        # The #508 identity backstops the mint: two racing seeders used
+        # to both see nil here and both mint (the incident). The loser
+        # catches the collision and re-finds, converging on the
+        # winner's row. Backdating rides the same forced-attribute
+        # shape as the vote (no update action exists).
+        mint_or_refind!(
+          fn ->
+            Comment
+            |> Ash.Changeset.for_create(
+              :create,
+              %{post_id: post.id, body: body},
+              actor: author,
+              authorize?: false
+            )
+            |> Ash.Changeset.force_change_attribute(
+              :created_at,
+              backdate(age_days, comment_index)
+            )
+            |> Ash.create()
+          end,
+          fn -> find_comment(post.id, author.id, body) end
         )
-        |> Ash.Changeset.force_change_attribute(:created_at, backdate(age_days, comment_index))
-        |> Ash.create!()
+
+        nil
 
       _comment ->
         nil
@@ -846,12 +960,29 @@ defmodule FluxVale.Seeds do
   end
 
   defp demo_commenter!(email) do
+    case find_commenter!(email) do
+      nil ->
+        # The email identity backstops the JIT mint (#508): a race
+        # loser catches the collision and re-reads the winner's user.
+        mint_or_refind!(
+          fn -> User.create(email, %{}, authorize?: false) end,
+          fn -> find_commenter!(email) end
+        )
+
+      user ->
+        user
+    end
+  end
+
+  # The table-backed lookup the mint races against (nil = no verified
+  # mirror row resolves the address).
+  defp find_commenter!(email) do
     case User.get_by_email(email, authorize?: false) do
       {:ok, user} ->
         user
 
       {:error, _not_found} ->
-        User.create!(email, %{}, authorize?: false)
+        nil
     end
   end
 
@@ -874,10 +1005,13 @@ defmodule FluxVale.Seeds do
       [comment] ->
         comment
 
-      # (post, author, body) carries no DB identity, so a duplicated row
-      # is data corruption a read_one! would answer with a bare
-      # multi-result error on every later run — name the dedupe instead
-      # (the seed_app_version!/1 posture).
+      # The #508 identity makes a duplicated (post, author, body) row
+      # DB-impossible; the guard stays for the corruption answer — a
+      # pre-identity row or a dropped index would otherwise answer a
+      # bare multi-result error on every later run — and it names the
+      # dedupe instead (the seed_app_version!/1 posture). The
+      # transactional DROP INDEX test drives this arm against a real
+      # duplicated table.
       multiples ->
         raise "seed feedback: #{length(multiples)} comments exist for one (post, author, body) — dedupe feedback_comments, then re-run"
     end
