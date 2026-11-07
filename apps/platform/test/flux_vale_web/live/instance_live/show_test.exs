@@ -723,10 +723,12 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       # (#558), shown in the instance's own vocabulary.
       assert has_element?(view, "[data-testid=instance-price]", ~r/asleep/)
 
+      stopped_fee = Pricing.storage_monthly_cents(sleeping.storage_gb)
+
       assert has_element?(
                view,
                "[data-testid=instance-price]",
-               Pricing.format_usd(Pricing.storage_monthly_cents(sleeping.storage_gb))
+               Pricing.format_usd(stopped_fee)
              )
 
       refute_k8s_terms(render(view))
