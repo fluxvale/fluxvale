@@ -125,6 +125,18 @@ jobs:
     # not a target; the default 360 would let a hang sit all night.
     timeout-minutes: 45
     services:
+      # (#241, #578 audit) The shared-test-DB flake class cannot arise
+      # here today: this is the ONLY platform-test job in any workflow,
+      # each GitHub job runs on its own ephemeral runner (service
+      # containers are never shared between jobs), this job's two test
+      # runs are sequential, and they use distinct DBs (flux_vale_test
+      # below; the prod-gate proof pins DATABASE_URL to its own). So no
+      # MIX_TEST_PARTITION is wired — it would separate nothing. The
+      # standing convention stays for what it actually guards:
+      # concurrent LOCAL lanes on one machine. The day this job splits
+      # into a parallel matrix, EVERY leg must set MIX_TEST_PARTITION
+      # (config/test.exs appends it to the DB name) or the
+      # exactly-one-cluster flakes return.
       postgres:
         image: postgres:18
         env:
