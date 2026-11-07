@@ -151,6 +151,11 @@ if (phase === "full") {
   const withdraw = pendingRow.locator("[data-testid^='admin-people-withdraw-']");
   await withdraw.hover();
   await page.waitForTimeout(400);
+  // Park the row at a fixed height so the panel below it (with its
+  // action strip) stays inside the video crop.
+  const rowBox = await pendingRow.boundingBox();
+  await page.mouse.wheel(0, rowBox.y - 640);
+  await page.waitForTimeout(300);
   const box = await withdraw.boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 });
   await page.mouse.down();
