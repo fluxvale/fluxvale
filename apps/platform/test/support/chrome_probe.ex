@@ -27,10 +27,15 @@ defmodule FluxVale.TestSupport.ChromeProbe do
     """
   end
 
-  # Signed-in chrome: a plain map as current_user (chrome reads only
-  # username/primary_email/email and is_nil-guards around them) so the
-  # user_menu renders and the folded-row flow is testable without a DB.
+  # Signed-in chrome: a plain map as current_user (chrome reads the
+  # username/primary_email/email trio and is_nil-guards around them,
+  # plus platform_role for the Admin row's gate, #551) so the user_menu
+  # renders and the folded-row flow is testable without a DB.
+  # platform_role rides the map so the gate is testable at both
+  # answers — nil and :user stay non-admin, :admin is the door's own
+  # answer.
   attr(:nav_section, :atom, default: nil)
+  attr(:platform_role, :atom, default: nil)
 
   def signed_in(assigns) do
     ~H"""
@@ -38,7 +43,14 @@ defmodule FluxVale.TestSupport.ChromeProbe do
       flash={%{}}
       personal_org_id="org_1"
       username="terence"
-      current_user={%{username: "terence", primary_email: nil, email: "terence@fluxvale.test"}}
+      current_user={
+        %{
+          username: "terence",
+          primary_email: nil,
+          email: "terence@fluxvale.test",
+          platform_role: @platform_role
+        }
+      }
       nav_section={@nav_section}
     >
       hello

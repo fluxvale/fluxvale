@@ -56,7 +56,8 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
   landing signed out, dashboard + user menu signed in.
 - `switcher-dismiss.spec.ts` — #284: the org switcher closes on
   outside click and Esc (native `<details>` only closes on a summary
-  re-click). Signed-in chrome, so the same gates as sign-in.
+  re-click). #551: the account user menu rides the same hook and the
+  same two pins. Signed-in chrome, so the same gates as sign-in.
 - `sign-in.spec.ts` — the human login flow via TestInbox; staging and
   local.
 - `actual-lifecycle.spec.ts` — ActualBudget's lifecycle (#492): deploy

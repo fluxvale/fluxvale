@@ -178,8 +178,8 @@ defmodule FluxValeWeb.PageControllerTest do
   # the app chrome hides its three header links (`hidden sm:block`) and
   # the user menu re-serves Catalog/Instances/Feedback (`sm:hidden`
   # rows) — a fold, not a removal: no width renders both copies, no
-  # width loses them. Billing and Pricing ride the menu at every width
-  # (#467), so they show up here without a header copy at any width.
+  # width loses them. Billing rides the menu at every width (#467) and
+  # shows up here without a header copy at any width.
   test "GET / folds the chrome's surface links into the user menu below sm (#255)", %{
     conn: conn
   } do
@@ -194,7 +194,7 @@ defmodule FluxValeWeb.PageControllerTest do
     assert html =~ ~s(href="/instances")
 
     # …and the panel carries the folded rows alongside the every-width
-    # Billing and Pricing rows.
+    # Billing row.
     panel =
       html
       |> String.split(~s(data-testid="user-menu-panel"))
@@ -208,8 +208,9 @@ defmodule FluxValeWeb.PageControllerTest do
   end
 
   # The landing chrome never had the surface links, so its menu stays
-  # fold-free — `app_links` is the app chrome's flag alone. Pricing is
-  # gated the same way (#398): the public chrome's footer carries it.
+  # fold-free — `app_links` is the app chrome's flag alone. Pricing
+  # left the menu entirely (#551): the public chrome's header and
+  # footer carry the page instead.
   test "GET /about for a signed-in visitor keeps the menu fold-free (#255)", %{conn: conn} do
     {_user, session_conn} = SessionHelpers.user_with_session(conn)
 
@@ -231,12 +232,11 @@ defmodule FluxValeWeb.PageControllerTest do
     assert panel =~ ~s(href="/billing")
   end
 
-  # #467: Pricing left the app chrome header with the nav-row swap —
-  # the menu's every-width row is /pricing's only signed-in path now
-  # (the app chrome has no footer; the public chrome's carries it). The
-  # signed-in / renders the dashboard, whose body links no /pricing, so
-  # exactly one occurrence survives: the menu row.
-  test "GET / (signed in) keeps Pricing reachable through the menu only (#467)", %{
+  # #551: Pricing and About left the menu — the signed-in app chrome
+  # renders no /pricing link at all (the dashboard body links none and
+  # the app chrome has no footer). The pages stay public: /pricing via
+  # the public chrome's header and footer, /about via the landing.
+  test "GET / (signed in) renders no Pricing menu row (#551)", %{
     conn: conn
   } do
     {_user, session_conn} = SessionHelpers.user_with_session(conn)
@@ -244,14 +244,15 @@ defmodule FluxValeWeb.PageControllerTest do
     conn = get(session_conn, ~p"/")
     html = html_response(conn, 200)
 
-    assert length(String.split(html, ~s(href="/pricing"))) - 1 == 1
+    assert length(String.split(html, ~s(href="/pricing"))) - 1 == 0
 
     panel =
       html
       |> String.split(~s(data-testid="user-menu-panel"))
       |> List.last()
 
-    assert panel =~ ~s(href="/pricing")
+    refute panel =~ ~s(href="/pricing")
+    refute panel =~ "About FluxVale"
     assert panel =~ ~s(href="/billing")
   end
 

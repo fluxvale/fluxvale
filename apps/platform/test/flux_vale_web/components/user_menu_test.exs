@@ -12,6 +12,7 @@ defmodule FluxValeWeb.Components.UserMenuTest do
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias FluxVale.Identity
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.AuthCodeHelpers
   alias FluxVale.TestSupport.SessionHelpers
   alias FluxValeWeb.CoreComponents
@@ -142,7 +143,7 @@ defmodule FluxValeWeb.Components.UserMenuTest do
           nav_section: :instances
         )
 
-      for label <- ["Catalog", "Billing", "Pricing", "Feedback"] do
+      for label <- ["Catalog", "Billing", "Feedback"] do
         link = row(html, label)
         assert LazyHTML.attribute(link, "aria-current") == []
 
@@ -164,6 +165,73 @@ defmodule FluxValeWeb.Components.UserMenuTest do
 
       class = class_of(billing)
       assert class =~ "text-ink-muted"
+    end
+  end
+
+  describe "the Admin row (#551)" do
+    # The row is fed, never derived: default off, rendered only when the
+    # chrome's gate answer says so. No Pricing and no About FluxVale
+    # either — #551 retired those rows.
+    defp admin_links(html) do
+      html
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("[data-testid='user-menu-admin']")
+      |> Enum.to_list()
+    end
+
+    test "the details carries the DetailsDismiss hook and its DOM id" do
+      html =
+        render_component(&CoreComponents.user_menu/1,
+          username: "terence",
+          email: "inbox@fluxvale.test"
+        )
+
+      details =
+        html
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query("[data-testid='user-menu']")
+        |> Enum.at(0)
+
+      assert LazyHTML.attribute(details, "id") == ["user-menu"]
+      assert LazyHTML.attribute(details, "phx-hook") == ["DetailsDismiss"]
+    end
+
+    test "default: no Admin row renders" do
+      html =
+        render_component(&CoreComponents.user_menu/1,
+          username: "terence",
+          email: "inbox@fluxvale.test"
+        )
+
+      assert admin_links(html) == []
+    end
+
+    test "platform_admin: true renders the Admin row at /admin" do
+      html =
+        render_component(&CoreComponents.user_menu/1,
+          username: "terence",
+          email: "inbox@fluxvale.test",
+          platform_admin: true
+        )
+
+      assert [link] = admin_links(html)
+      assert LazyHTML.attribute(link, "href") == ["/admin"]
+
+      raw_label = LazyHTML.text(link)
+      assert String.trim(raw_label) == "Admin"
+    end
+
+    test "the menu carries no Pricing and no About FluxVale rows" do
+      html =
+        render_component(&CoreComponents.user_menu/1,
+          username: "terence",
+          email: "inbox@fluxvale.test",
+          app_links: true,
+          platform_admin: true
+        )
+
+      assert row(html, "Pricing") == nil
+      assert row(html, "About FluxVale") == nil
     end
   end
 
@@ -218,6 +286,44 @@ defmodule FluxValeWeb.Components.UserMenuTest do
       panel = menu_panel(html)
       assert panel =~ promoted
       refute panel =~ mirror
+    end
+  end
+
+  describe "the Admin row on the signed-in surfaces (#551)" do
+    # The web-level pin for #551: the platform admin sees the Admin row
+    # through the REAL session pipeline (the same resolve_user the door
+    # re-checks), a member's DOM carries no row at all — app chrome (/),
+    # public chrome (/catalog), and the landing's own menu (/about).
+    test "renders for a platform admin on every chrome", %{conn: conn} do
+      conn = SessionHelpers.sign_in(conn, AccountsFixtures.platform_admin!())
+
+      for path <- [~p"/", ~p"/catalog", ~p"/about"] do
+        link =
+          conn
+          |> get(path)
+          |> html_response(200)
+          |> LazyHTML.from_fragment()
+          |> LazyHTML.query("[data-testid='user-menu-admin']")
+          |> Enum.at(0)
+
+        assert LazyHTML.attribute(link, "href") == ["/admin"]
+      end
+    end
+
+    test "never renders for a member, on any chrome", %{conn: conn} do
+      conn = SessionHelpers.sign_in(conn, SessionHelpers.user!())
+
+      for path <- [~p"/", ~p"/catalog", ~p"/about"] do
+        links =
+          conn
+          |> get(path)
+          |> html_response(200)
+          |> LazyHTML.from_fragment()
+          |> LazyHTML.query("[data-testid='user-menu-admin']")
+          |> Enum.to_list()
+
+        assert links == []
+      end
     end
   end
 end
