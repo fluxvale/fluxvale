@@ -4,7 +4,9 @@
 # baseline: every entry pins the exact VALUE that may appear and
 # says why it is safe. A key-name match would also hide a REAL
 # secret pasted as that key's value - a pinned value only ever
-# matches itself.
+# matches itself, in any file (the pathless blind side: these
+# literals are already public in this repo, so nothing worth
+# gating can collide).
 #
 # The value entries carry no paths, on purpose. In dir mode a path
 # match on a global allowlist skips the whole file before any
@@ -21,8 +23,9 @@
 [extend]
 useDefault = true
 
-# This file itself. It pins its literals in the clear, so without
-# this entry the scanner could flag its own config. Safe: every
+# This file itself: it pins its literals in the clear. Redundant
+# with the upstream default allowlist today, kept so an upstream
+# default change cannot expose this file. Safe either way: every
 # literal here is already public in this repo (the dev configs and
 # the fixture predate this file). The fragment alternative (regexes
 # built so this file never holds a full literal) was rejected as
