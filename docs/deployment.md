@@ -27,15 +27,16 @@ envs at different times)  (verifies the whole
 chain: DNS → Cloudflare → Traefik → pod; zero cluster credentials in CI)
    │
    ▼
-CI job 3: smoke
+CI job 3: smoke (settles on rollout-complete + hold, retries
+    │  each leg once, #556)
     ├─ staging: Bruno suite + full Playwright — lifecycle included
     │  since staging went instance-capable (Cluster row + wildcard
     │  cert, #116)
     └─ prod:    Bruno suite + read-only Playwright subset (no side effects)
     │
     ▼
-green → Grafana deploy annotation, done
-red  → alert (email — routing is email-only for now, phone push
+green / recovered-on-retry → Grafana deploy annotation, done
+red (confirmed: both attempts red)  → alert (email — routing is email-only for now, phone push
         deferred per observability.md; the failing run's URL rides the
         red check, PR comment, and annotation) + auto-opened revert PR
         + PR comment + annotation. The revert PR's CI is dispatched
@@ -377,12 +378,16 @@ Manifest-caused failures (bad limits, Traefik config): revert the
 
 ## On failure: automate detection and preparation, keep the decision human
 
-On **deploy-gated** smoke failure, automation **alerts** (email,
+On **deploy-gated** smoke failure **confirmed by the retry** (both
+attempts red, #556), automation **alerts** (email,
 deep-linked), **opens the revert PR** (`gh pr revert <n>`) and
 dispatches CI onto its branch (CI-opened PRs fire no events of their
 own), comments on the offending PR, posts a Grafana annotation. A
 human merges (one tap) or writes the proper counter-migration PR. No
-auto-merge. One structural limit: CI's own token cannot push commits
+auto-merge. A first-attempt failure that passes the retry is
+flake-class: recovered annotation + run summary row, green run, no
+revert (#556 closed five flake-class auto-reverts in one day). One
+structural limit: CI's own token cannot push commits
 touching `.github/workflows` — a workflow-touching PR reverts by hand;
 the comment says so when it happens. **Scheduled** failures get the
 annotation only — no revert PR (nothing deployed to blame); they page

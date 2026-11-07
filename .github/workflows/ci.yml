@@ -36,6 +36,7 @@ jobs:
       e2e: ${{ steps.filter.outputs.e2e }}
       cli: ${{ steps.filter.outputs.cli }}
       tfprovider: ${{ steps.filter.outputs.tfprovider }}
+      smoke-verdict: ${{ steps.filter.outputs.smoke-verdict }}
     steps:
       # persist-credentials: false — later steps run no git-authenticated ops
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -95,6 +96,14 @@ jobs:
               # there must run the lane that consumes it.
               - "mise.toml"
               - ".github/workflows/ci.yml"
+            smoke-verdict:
+              # The auto-revert gate (#556): its classifier and the red
+              # path wiring are load-bearing in both directions (flake
+              # must not revert, a real failure must). Every CI
+              # workflow touch re-runs the lane that pins them.
+              - ".github/workflows/ci.yml"
+              - "scripts/smoke-verdict.sh"
+              - "scripts/test-smoke-verdict.sh"
 
   platform:
     name: Platform CI
@@ -519,6 +528,27 @@ jobs:
 
       - run: ./scripts/lint-skill-frontmatter.sh
 
+  # The auto-revert gate's brain (#556): scripts/smoke-verdict.sh turns
+  # the eight smoke outcomes into the verdict the red path gates on. A
+  # bug there reverts on flakes or swallows real failures, silently, so
+  # the lane pins both acceptance paths (fixture suite) plus the
+  # workflow wiring, on every CI-workflow touch.
+  smoke-verdict-lint:
+    name: Smoke verdict tests
+    needs: check-changes
+    if: needs.check-changes.outputs.smoke-verdict == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # shellcheck is preinstalled on runners (same as the cli lane)
+      - run: shellcheck scripts/smoke-verdict.sh scripts/test-smoke-verdict.sh
+
+      - run: ./scripts/test-smoke-verdict.sh
+
   # Linked issues (umbrella close): a body that closes an issue while
   # calling itself an incomplete slice — `Closes #N (slice 1 of 4)` —
   # closes that issue on merge, before the other slices exist. #62 did it
@@ -894,6 +924,13 @@ jobs:
   # Playwright subset
   # ([ADR-0024](../../docs/adr/00024-e2e-review-environments.md)).
   #
+  # #556: the legs settle after watch-deploy (rollout-complete check
+  # plus a hold), retry once, and only a CONFIRMED failure (red twice)
+  # takes the red path. A first-attempt failure that passes the retry
+  # is a yellow-noted success: recovered annotation, green run, no
+  # revert. Five flake-class auto-reverts in one day (issue #556's
+  # timestamps) were all deploy-roll races this closes.
+  #
   # Red path per deployment.md: Grafana annotation + auto-opened revert
   # PR of the merged platform PR + PR comment — a human merges
   # ([ADR-0015](../../docs/adr/00015-no-auto-remediation.md)). CI is
@@ -907,8 +944,9 @@ jobs:
     # e2e job gives 45 min — cold Forgejo pull, minute-granularity
     # reconcile, retries: 1. A timeout would cancel past the red path
     # (outcome "cancelled" ≠ "failure"), so the ceiling must hold the
-    # worst case, not the typical one.
-    timeout-minutes: 45
+    # worst case, not the typical one. #556 doubles that worst case
+    # (a failing long leg now runs twice), hence 60.
+    timeout-minutes: 60
     permissions:
       # Red path only: open the revert PR, comment, and dispatch CI
       # onto its branch (the dispatch needs actions: write — GITHUB_TOKEN
@@ -943,9 +981,9 @@ jobs:
           mise x -- npm ci
           mise x -- npx playwright install --with-deps chromium
 
-      # One env per step, continue-on-error: every leg runs (a prod leg
-      # result is triage data during a staging failure), the red path
-      # collects outcomes.
+      # One env per leg, attempt 1 + retry, continue-on-error: every
+      # leg runs (a prod leg result is triage data during a staging
+      # failure), the verdict step collects outcomes.
       # Config failures must not ride the red path: a missing secret
       # fails HERE with its own message, not as a smoke failure blaming
       # an innocent merged PR (and paging via the dead-man).
@@ -957,8 +995,48 @@ jobs:
           test -n "$SMOKE_PAT_STAGING" || { echo "::error::SMOKE_PAT_STAGING is not set — mint per docs/deployment.md"; exit 1; }
           test -n "$SMOKE_PAT_PRODUCTION" || { echo "::error::SMOKE_PAT_PRODUCTION is not set — mint per docs/deployment.md"; exit 1; }
 
+      # Settle first (#556): watch-deploy's /health poll can pass while
+      # sibling pods are still rolling. Any ready pod answers for the
+      # service, so "serves the new sha" ≠ "rollout complete". Same
+      # check as watch-deploy (unauthenticated /health version, ADR-0007:
+      # zero cluster credentials), then a hold for the rollout tail.
+      # Failure here skips the legs: no smoke verdict, no revert, the
+      # job reds on this step alone.
+      - name: Settle - rollout complete on both envs
+        id: settle
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          expected="sha-$SHA"
+          deadline=$((SECONDS + 600)) # 10 min. watch-deploy already waited the 20
+          while (( SECONDS < deadline )); do
+            staging="$(curl -fsS --max-time 10 https://staging.fluxvale.com/health | jq -r .version)" || staging=""
+            prod="$(curl -fsS --max-time 10 https://fluxvale.com/health | jq -r .version)" || prod=""
+            echo "[${SECONDS}s] staging=$staging prod=$prod (want $expected)"
+            if [ "$staging" = "$expected" ] && [ "$prod" = "$expected" ]; then
+              echo "Both environments serve $expected, holding 30s for the rollout tail"
+              sleep 30
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::Rollout did not settle: both environments did not report $expected within 10 min"
+          exit 1
+
+      # Each leg: attempt 1 + one retry (#556). The retry runs only on
+      # a red attempt 1 and both feed the verdict step. A red attempt 1
+      # alone is flake-class until the retry confirms it.
       - name: Bruno — staging
-        id: bruno_staging
+        id: bruno_staging_1
+        working-directory: apps/smoke
+        continue-on-error: true
+        env:
+          SMOKE_PAT: ${{ secrets.SMOKE_PAT_STAGING }}
+        run: mise x -- npx bru run --env Staging --env-var pat="$SMOKE_PAT"
+
+      - name: Bruno — staging (retry)
+        id: bruno_staging_2
+        if: steps.bruno_staging_1.outcome == 'failure'
         working-directory: apps/smoke
         continue-on-error: true
         env:
@@ -966,7 +1044,16 @@ jobs:
         run: mise x -- npx bru run --env Staging --env-var pat="$SMOKE_PAT"
 
       - name: Bruno — production
-        id: bruno_production
+        id: bruno_production_1
+        working-directory: apps/smoke
+        continue-on-error: true
+        env:
+          SMOKE_PAT: ${{ secrets.SMOKE_PAT_PRODUCTION }}
+        run: mise x -- npx bru run --env Production --env-var pat="$SMOKE_PAT"
+
+      - name: Bruno — production (retry)
+        id: bruno_production_2
+        if: steps.bruno_production_1.outcome == 'failure'
         working-directory: apps/smoke
         continue-on-error: true
         env:
@@ -975,10 +1062,11 @@ jobs:
 
       # The smoke PAT doubles as the TestInbox token: both are the
       # staging admin's credential (docs/deployment.md oracle split).
-      # Own report dir per leg — the default location is shared and
-      # the second run would clobber the first's evidence.
+      # Own report dir per attempt. The default location is shared,
+      # and a retry into the same dir would clobber attempt 1's
+      # evidence.
       - name: Playwright — staging
-        id: pw_staging
+        id: pw_staging_1
         working-directory: apps/e2e
         continue-on-error: true
         env:
@@ -988,16 +1076,39 @@ jobs:
           PLAYWRIGHT_HTML_REPORT: staging-report
         run: mise x -- npx playwright test
 
+      - name: Playwright — staging (retry)
+        id: pw_staging_2
+        if: steps.pw_staging_1.outcome == 'failure'
+        working-directory: apps/e2e
+        continue-on-error: true
+        env:
+          BASE_URL: https://staging.fluxvale.com
+          E2E_RUNTIME: staging
+          E2E_TESTINBOX_TOKEN: ${{ secrets.SMOKE_PAT_STAGING }}
+          PLAYWRIGHT_HTML_REPORT: staging-report-retry
+        run: mise x -- npx playwright test
+
       # Read-only: no PAT, no TestInbox — sign-in on prod would send a
       # real email and provision a user (ADR-0024: no side effects).
       - name: Playwright — production (read-only)
-        id: pw_production
+        id: pw_production_1
         working-directory: apps/e2e
         continue-on-error: true
         env:
           BASE_URL: https://fluxvale.com
           E2E_RUNTIME: production
           PLAYWRIGHT_HTML_REPORT: production-report
+        run: mise x -- npx playwright test
+
+      - name: Playwright — production (read-only, retry)
+        id: pw_production_2
+        if: steps.pw_production_1.outcome == 'failure'
+        working-directory: apps/e2e
+        continue-on-error: true
+        env:
+          BASE_URL: https://fluxvale.com
+          E2E_RUNTIME: production
+          PLAYWRIGHT_HTML_REPORT: production-report-retry
         run: mise x -- npx playwright test
 
       - name: Upload Playwright reports
@@ -1007,15 +1118,57 @@ jobs:
           name: smoke-playwright-reports
           path: |
             apps/e2e/staging-report
+            apps/e2e/staging-report-retry
             apps/e2e/production-report
+            apps/e2e/production-report-retry
 
-      # The red path (docs/deployment.md): annotation, revert PR, PR
-      # comment — then fail the run. Every leg is best-effort with its
-      # failure logged: one broken leg (a Grafana 502 mid-incident) must
-      # not take the others down with it, and the verdict is exit 1
-      # regardless.
+      # Verdict (#556): classify all eight outcomes. CONFIRMED (both
+      # attempts failed) is the only revert trigger. Recovered (red
+      # attempt 1, green retry) is a yellow-noted success. The
+      # classifier is pure bash, pinned by scripts/test-smoke-verdict.sh
+      # (the smoke-verdict lane). !cancelled() so a superseded run
+      # (concurrency cancel) produces no verdict and no revert. A
+      # settle failure lands here with every leg skipped → not_run.
+      - name: Verdict
+        id: verdict
+        if: ${{ !cancelled() }}
+        env:
+          OUTCOME_BRUNO_STAGING_1: ${{ steps.bruno_staging_1.outcome }}
+          OUTCOME_BRUNO_STAGING_2: ${{ steps.bruno_staging_2.outcome }}
+          OUTCOME_PW_STAGING_1: ${{ steps.pw_staging_1.outcome }}
+          OUTCOME_PW_STAGING_2: ${{ steps.pw_staging_2.outcome }}
+          OUTCOME_BRUNO_PRODUCTION_1: ${{ steps.bruno_production_1.outcome }}
+          OUTCOME_BRUNO_PRODUCTION_2: ${{ steps.bruno_production_2.outcome }}
+          OUTCOME_PW_PRODUCTION_1: ${{ steps.pw_production_1.outcome }}
+          OUTCOME_PW_PRODUCTION_2: ${{ steps.pw_production_2.outcome }}
+        run: scripts/smoke-verdict.sh
+
+      # Yellow note (#556): a recovered run stays green but the retry
+      # must be visible where the fleet watches. The run summary table
+      # is written by the classifier itself. Best-effort, like every
+      # leg below.
+      - name: Recovered path - annotation
+        if: ${{ !cancelled() && steps.verdict.outputs.verdict == 'recovered' }}
+        env:
+          GRAFANA_URL: ${{ secrets.GRAFANA_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.GRAFANA_SERVICE_ACCOUNT_TOKEN }}
+          RECOVERED: ${{ steps.verdict.outputs.recovered }}
+        run: |
+          echo "smoke recovered on retry (first attempt failed) on:$RECOVERED"
+          curl -fsS --retry 3 --retry-all-errors --retry-delay 2 --max-time 15 -X POST "$GRAFANA_URL/api/annotations" \
+            -H "Authorization: Bearer $GRAFANA_SERVICE_ACCOUNT_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\": \"Post-deploy smoke RECOVERED on retry (first attempt failed) on:$RECOVERED - $RUN_URL\", \"tags\": [\"deploy\", \"smoke\", \"recovered\"]}" \
+            || echo "annotation failed (Grafana unreachable?)"
+
+      # The red path (docs/deployment.md, #556): fires ONLY on a
+      # confirmed verdict (both attempts red). Annotation, revert PR,
+      # PR comment - then fail the run. Every leg of it is best-effort
+      # with its failure logged: one broken leg (a Grafana 502
+      # mid-incident) must not take the others down with it, and the
+      # verdict is exit 1 regardless.
       - name: Red path — annotation, revert PR, PR comment
-        if: ${{ steps.bruno_staging.outcome == 'failure' || steps.bruno_production.outcome == 'failure' || steps.pw_staging.outcome == 'failure' || steps.pw_production.outcome == 'failure' }}
+        if: ${{ !cancelled() && steps.verdict.outputs.verdict == 'failed' }}
         env:
           # Step-scoped: the smoke legs run PR-influenced npm/test code
           # and must not see the write token (only this step needs it).
@@ -1023,19 +1176,18 @@ jobs:
           GRAFANA_URL: ${{ secrets.GRAFANA_URL }}
           GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.GRAFANA_SERVICE_ACCOUNT_TOKEN }}
           HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          CONFIRMED: ${{ steps.verdict.outputs.confirmed }}
+          RECOVERED: ${{ steps.verdict.outputs.recovered }}
         run: |
-          failed=""
-          [ "${{ steps.bruno_staging.outcome }}" = failure ] && failed="$failed staging(bruno)"
-          [ "${{ steps.pw_staging.outcome }}" = failure ] && failed="$failed staging(playwright)"
-          [ "${{ steps.bruno_production.outcome }}" = failure ] && failed="$failed production(bruno)"
-          [ "${{ steps.pw_production.outcome }}" = failure ] && failed="$failed production(playwright)"
-          echo "smoke failed on:$failed"
+          failed="$CONFIRMED"
+          echo "smoke CONFIRMED on:$failed (both attempts red)"
+          [ -n "$RECOVERED" ] && echo "also recovered on retry:$RECOVERED (reported, not reverted)"
 
           annotation_error=""
           curl -fsS --retry 3 --retry-all-errors --retry-delay 2 --max-time 15 -X POST "$GRAFANA_URL/api/annotations" \
             -H "Authorization: Bearer $GRAFANA_SERVICE_ACCOUNT_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"text\": \"Post-deploy smoke FAILED on:$failed — $RUN_URL\", \"tags\": [\"deploy\", \"smoke\", \"failed\"]}" \
+            -d "{\"text\": \"Post-deploy smoke FAILED on:$failed (confirmed on retry) - $RUN_URL\", \"tags\": [\"deploy\", \"smoke\", \"failed\"]}" \
             || annotation_error="annotation failed (Grafana unreachable?)"
 
           # GitHub appends the PR number to the squash-merge subject as
@@ -1051,11 +1203,11 @@ jobs:
 
           revert_url=""
           if [ -n "$pr_number" ]; then
-            revert_body="Automated revert of #$pr_number — post-deploy smoke failed on:$failed.
+            revert_body="Automated revert of #$pr_number - post-deploy smoke failed twice (confirmed on retry) on:$failed.
           Run: $RUN_URL
           A human merges or closes (ADR-0015). CI is dispatched onto this branch so its checks land."
             revert_output="$(gh pr revert "$pr_number" \
-              --title "revert: post-deploy smoke failed (#$pr_number)" \
+              --title "revert: post-deploy smoke failed twice (#$pr_number)" \
               --body "$revert_body" 2>&1 || true)"
             revert_url="$(printf '%s' "$revert_output" | grep -oE 'https://[^ ]+/pull/[0-9]+' | head -1 || true)"
             # GITHUB_TOKEN cannot push commits touching .github/workflows —
@@ -1072,7 +1224,7 @@ jobs:
             fi
           fi
 
-          comment_body="Post-deploy smoke failed on:$failed.
+          comment_body="Post-deploy smoke failed twice (confirmed on retry) on:$failed.
           Run: $RUN_URL
           Revert PR: ${revert_url:-FAILED TO OPEN — see the job log}
           ${annotation_error}"
@@ -1091,7 +1243,7 @@ jobs:
   # checks run — a green umbrella that proved nothing.
   wait-for-ci:
     name: Wait for CI
-    needs: [check-changes, platform, cli-gates, cli-matrix, tfprovider, docs-lint, skills-lint, linked-issues, e2e, deploy-image, watch-deploy, smoke]
+    needs: [check-changes, platform, cli-gates, cli-matrix, tfprovider, docs-lint, skills-lint, smoke-verdict-lint, linked-issues, e2e, deploy-image, watch-deploy, smoke]
 
     if: always()
     runs-on: ubuntu-24.04
