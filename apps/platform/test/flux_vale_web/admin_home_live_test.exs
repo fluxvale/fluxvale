@@ -2,14 +2,13 @@ defmodule FluxValeWeb.AdminHomeLiveTest do
   @moduledoc false
 
   # The custom operator console home (ADR-0027 Am. 3, #501): the /admin
-  # landing renders the surface map — five unbuilt surfaces, each
-  # honestly badged, plus the live catalog card (this lane's slice) and
-  # the two generated tools on their demoted debug subpaths. No data
-  # queries, so one admin mount covers the whole module. The gate arms
-  # here are the route-level ones (the anonymous 302, the non-admin
-  # 403); the on_mount socket re-check is the shared AdminGate hook,
-  # already covered by admin_mount_test — this route adds no hook of
-  # its own.
+  # landing renders a STATIC surface map — six unbuilt surfaces, each
+  # honestly badged, plus the two generated tools on their demoted
+  # debug subpaths. No data queries, so one admin mount covers the
+  # whole module. The gate arms here are the route-level ones (the
+  # anonymous 302, the non-admin 403); the on_mount socket re-check is
+  # the shared AdminGate hook, already covered by admin_mount_test —
+  # this route adds no hook of its own.
 
   use FluxValeWeb.ConnCase, async: false
 
@@ -21,8 +20,9 @@ defmodule FluxValeWeb.AdminHomeLiveTest do
   @admin_email "admin-home-admin@fluxvale.com"
   @user_email "admin-home-user@fluxvale.com"
 
-  @unbuilt_surface_testids ~w(
+  @surface_testids ~w(
     admin-surface-people
+    admin-surface-catalog
     admin-surface-wallets
     admin-surface-feedback
     admin-surface-orgs
@@ -52,17 +52,9 @@ defmodule FluxValeWeb.AdminHomeLiveTest do
 
       # Every unbuilt surface renders a card, and every card is
       # honestly badged — nothing on the map fakes being live.
-      for testid <- @unbuilt_surface_testids do
+      for testid <- @surface_testids do
         assert has_element?(view, "[data-testid='#{testid}']", "Coming in this lane")
       end
-
-      # The catalog surface is live (this lane's slice): its card is a
-      # link into the surgery surface, with the Open affordance in the
-      # badge's slot, no longer badged.
-      assert has_element?(view, "[data-testid='admin-surface-catalog'][href='/admin/catalog']")
-      assert has_element?(view, "[data-testid='admin-surface-catalog']", "Open")
-
-      refute has_element?(view, "[data-testid='admin-surface-catalog']", "Coming in this lane")
 
       # The generated tools link from the deep debugging section at
       # their demoted subpaths.

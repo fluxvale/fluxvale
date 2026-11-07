@@ -118,12 +118,10 @@ margin, not the anchor, when those get real.
 
 ## Changing prices
 
-Edit `pricing_data.yaml` (or the admin console at /admin/catalog, whose
-generated fallback at /admin/ash still takes raw edits) and re-run
-seeds — convergence is idempotent. The `pricing_data_test.exs`
-calibration tests fail on drift from the anchor: re-anchor deliberately,
-update this doc in the same PR, and note it on the issue. Instances
-snapshot their creation-time
+Edit `pricing_data.yaml` (or AshAdmin) and re-run seeds — convergence is
+idempotent. The `pricing_data_test.exs` calibration tests fail on drift
+from the anchor: re-anchor deliberately, update this doc in the same
+PR, and note it on the issue. Instances snapshot their creation-time
 price for one year from create, then reprice live (#121's call, shipped
 with the settle trigger — existing rows were backfilled from their
 version's size; sizeless legacy rows stay unpriced and logged). The

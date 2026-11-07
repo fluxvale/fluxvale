@@ -5,14 +5,11 @@ defmodule FluxVale.Pricing.Size.ValidateAllocationFrozen do
   The version-side half of the coherence contract lives in
   `FluxVale.Catalog.AppVersion.ValidateSizeMatchesAllocation` (a version's
   defaults must equal its recommended size). This is the size-side half:
-  repricing (cents) is free — the whole point of prices-as-data — but a
-  reallocation of a referenced size from an admin surface would silently
-  fork every referencing version's billing envelope from its
-  provisioning quota in one write. Rejected: re-point or retire the
-  versions first, then move the size. (The operator edit surface is the
-  console at /admin/catalog, which explains this validation instead of
-  bypassing it; the generated admin at /admin/ash is the debug
-  fallback.)
+  repricing (cents) is free — the whole point of prices-as-data — but an
+  AshAdmin reallocation of a referenced size would silently fork every
+  referencing version's billing envelope from its provisioning quota in
+  one write. Rejected: re-point or retire the versions first, then move
+  the size.
 
   authorize?: false on the reference probe: a data-integrity check, not
   an authorization decision (see the version-side validation).

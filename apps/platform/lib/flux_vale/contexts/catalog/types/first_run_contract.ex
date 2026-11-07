@@ -46,15 +46,6 @@ defmodule FluxVale.Catalog.Types.FirstRunContract do
   @pattern_atoms Map.new(@known_patterns, &{Atom.to_string(&1), &1})
   @known_fields MapSet.new(~w(pattern env forbidden_env guidance)a)
 
-  @doc """
-  The known pattern atoms. The admin edit surface derives its select
-  from this one list, so adding a pattern here can never leave a
-  version carrying it outside the select's reach (where a defaulting
-  select would silently delete the contract on the next save).
-  """
-  @spec known_patterns() :: [pattern()]
-  def known_patterns, do: @known_patterns
-
   @impl Ash.Type
   def storage_type(_constraints), do: :map
 
