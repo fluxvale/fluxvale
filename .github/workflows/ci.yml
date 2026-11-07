@@ -80,6 +80,10 @@ jobs:
               # that regenerates it must run the CLI lane, or the drift
               # reds the next cli PR instead.
               - "apps/platform/priv/open_api.json"
+              # The coverage flag's shape (paths/ignore) lives here — a
+              # config change must re-run the lane so codecov recomputes
+              # against it (#506's generated-lines red).
+              - "codecov.yml"
               - ".github/workflows/ci.yml"
               # The release lane drives the same assets (the tag gate
               # script, the 4-leg matrix) — a bump here is a cli change,

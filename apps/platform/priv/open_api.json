@@ -13,6 +13,590 @@
       }
     },
     "schemas": {
+      "access_domain": {
+        "additionalProperties": false,
+        "description": "A \"Resource object\" representing a access_domain",
+        "properties": {
+          "attributes": {
+            "additionalProperties": false,
+            "description": "An attributes object for a access_domain",
+            "properties": {
+              "domain": {
+                "description": "Field included by default.",
+                "type": "string"
+              },
+              "kind": {
+                "description": "Field included by default.",
+                "enum": [
+                  "platform",
+                  "custom"
+                ],
+                "type": "string"
+              },
+              "organization_id": {
+                "description": "Field included by default.",
+                "format": "uuid",
+                "type": "string"
+              },
+              "state": {
+                "description": "Field included by default.",
+                "enum": [
+                  "pending",
+                  "verified",
+                  "suspended",
+                  "failed",
+                  "needs_attention"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "domain",
+              "kind",
+              "state",
+              "organization_id"
+            ],
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "relationships": {
+            "additionalProperties": false,
+            "description": "A relationships object for a access_domain",
+            "properties": {
+              "organization": {
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "description": "An identifier for organization",
+                    "nullable": true,
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "meta": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "id"
+                    ],
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            "type": "object"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "type": "object"
+      },
+      "access_domain-filter": {
+        "additionalProperties": false,
+        "description": "Filters the query to results matching the given filter object",
+        "example": "",
+        "properties": {
+          "and": {
+            "items": {
+              "$ref": "#/components/schemas/access_domain-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "domain": {
+            "$ref": "#/components/schemas/access_domain-filter-domain"
+          },
+          "id": {
+            "$ref": "#/components/schemas/access_domain-filter-id"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/access_domain-filter-kind"
+          },
+          "not": {
+            "$ref": "#/components/schemas/access_domain-filter"
+          },
+          "or": {
+            "items": {
+              "$ref": "#/components/schemas/access_domain-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "organization": {
+            "$ref": "#/components/schemas/organization-filter"
+          },
+          "organization_id": {
+            "$ref": "#/components/schemas/access_domain-filter-organization_id"
+          },
+          "state": {
+            "$ref": "#/components/schemas/access_domain-filter-state"
+          }
+        },
+        "type": "deepObject"
+      },
+      "access_domain-filter-domain": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "range_adjacent": {
+            "type": "string"
+          },
+          "range_contains": {
+            "type": "string"
+          },
+          "range_overlaps": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "access_domain-filter-id": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "range_adjacent": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "range_contains": {
+            "type": "string"
+          },
+          "range_overlaps": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "access_domain-filter-kind": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "enum": [
+              "platform",
+              "custom"
+            ],
+            "type": "string"
+          },
+          "greater_than": {
+            "enum": [
+              "platform",
+              "custom"
+            ],
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "enum": [
+              "platform",
+              "custom"
+            ],
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "enum": [
+                "platform",
+                "custom"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "enum": [
+              "platform",
+              "custom"
+            ],
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "enum": [
+              "platform",
+              "custom"
+            ],
+            "type": "string"
+          },
+          "less_than": {
+            "enum": [
+              "platform",
+              "custom"
+            ],
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "enum": [
+              "platform",
+              "custom"
+            ],
+            "type": "string"
+          },
+          "not_eq": {
+            "enum": [
+              "platform",
+              "custom"
+            ],
+            "type": "string"
+          },
+          "range_adjacent": {
+            "enum": [
+              "platform",
+              "custom"
+            ],
+            "type": "string"
+          },
+          "range_contains": {
+            "type": "string"
+          },
+          "range_overlaps": {
+            "enum": [
+              "platform",
+              "custom"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "access_domain-filter-organization_id": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "range_adjacent": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "range_contains": {
+            "type": "string"
+          },
+          "range_overlaps": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "access_domain-filter-state": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "enum": [
+              "pending",
+              "verified",
+              "suspended",
+              "failed",
+              "needs_attention"
+            ],
+            "type": "string"
+          },
+          "greater_than": {
+            "enum": [
+              "pending",
+              "verified",
+              "suspended",
+              "failed",
+              "needs_attention"
+            ],
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "enum": [
+              "pending",
+              "verified",
+              "suspended",
+              "failed",
+              "needs_attention"
+            ],
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "enum": [
+                "pending",
+                "verified",
+                "suspended",
+                "failed",
+                "needs_attention"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "enum": [
+              "pending",
+              "verified",
+              "suspended",
+              "failed",
+              "needs_attention"
+            ],
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "enum": [
+              "pending",
+              "verified",
+              "suspended",
+              "failed",
+              "needs_attention"
+            ],
+            "type": "string"
+          },
+          "less_than": {
+            "enum": [
+              "pending",
+              "verified",
+              "suspended",
+              "failed",
+              "needs_attention"
+            ],
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "enum": [
+              "pending",
+              "verified",
+              "suspended",
+              "failed",
+              "needs_attention"
+            ],
+            "type": "string"
+          },
+          "not_eq": {
+            "enum": [
+              "pending",
+              "verified",
+              "suspended",
+              "failed",
+              "needs_attention"
+            ],
+            "type": "string"
+          },
+          "range_adjacent": {
+            "enum": [
+              "pending",
+              "verified",
+              "suspended",
+              "failed",
+              "needs_attention"
+            ],
+            "type": "string"
+          },
+          "range_contains": {
+            "type": "string"
+          },
+          "range_overlaps": {
+            "enum": [
+              "pending",
+              "verified",
+              "suspended",
+              "failed",
+              "needs_attention"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "access_domain-type": {
+        "additionalProperties": false,
+        "properties": {
+          "domain": {
+            "description": "Field included by default.",
+            "type": "string"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Field included by default."
+          },
+          "kind": {
+            "description": "Field included by default.",
+            "enum": [
+              "platform",
+              "custom"
+            ],
+            "type": "string"
+          },
+          "organization_id": {
+            "description": "Field included by default.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "state": {
+            "description": "Field included by default.",
+            "enum": [
+              "pending",
+              "verified",
+              "suspended",
+              "failed",
+              "needs_attention"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain",
+          "kind",
+          "state",
+          "organization_id"
+        ],
+        "type": "object"
+      },
       "access_gateway": {
         "additionalProperties": false,
         "description": "A \"Resource object\" representing a access_gateway",
@@ -8735,6 +9319,652 @@
   },
   "openapi": "3.0.0",
   "paths": {
+    "/api/v1/access-domains": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Registers the org's own domain as :pending and :custom (ADR-0040).\nThe row claims nothing yet: verification is issuance, and only the\nobserver pass — after reading the Certificate's Ready condition —\npromotes to :verified. Platform rows are system-minted\n(:mint_platform), never member-registered, hence the forced kind.\n",
+        "parameters": [
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "access_domain": "id,domain,kind,state,organization_id"
+              },
+              "properties": {
+                "access_domain": {
+                  "description": "Comma separated field names for access_domain",
+                  "example": "id,domain,kind,state,organization_id",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/vnd.api+json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "attributes": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "domain": {
+                            "type": "string"
+                          },
+                          "organization_id": {
+                            "anyOf": [
+                              {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "domain"
+                        ],
+                        "type": "object"
+                      },
+                      "relationships": {
+                        "additionalProperties": false,
+                        "properties": {},
+                        "type": "object"
+                      },
+                      "type": {
+                        "enum": [
+                          "access_domain"
+                        ]
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Request body for the /access-domains operation on access_domain resource",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "additionalProperties": false,
+                      "description": "A \"Resource object\" representing a access_domain",
+                      "properties": {
+                        "attributes": {
+                          "additionalProperties": false,
+                          "description": "An attributes object for a access_domain",
+                          "properties": {
+                            "domain": {
+                              "description": "Field included by default.",
+                              "type": "string"
+                            },
+                            "kind": {
+                              "description": "Field included by default.",
+                              "enum": [
+                                "platform",
+                                "custom"
+                              ],
+                              "type": "string"
+                            },
+                            "organization_id": {
+                              "description": "Field included by default.",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "state": {
+                              "description": "Field included by default.",
+                              "enum": [
+                                "pending",
+                                "verified",
+                                "suspended",
+                                "failed",
+                                "needs_attention"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "domain",
+                            "kind",
+                            "state",
+                            "organization_id"
+                          ],
+                          "type": "object"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "relationships": {
+                          "additionalProperties": false,
+                          "description": "A relationships object for a access_domain",
+                          "properties": {
+                            "organization": {
+                              "properties": {
+                                "data": {
+                                  "additionalProperties": false,
+                                  "description": "An identifier for organization",
+                                  "nullable": true,
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "meta": {
+                                      "additionalProperties": true,
+                                      "type": "object"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "id"
+                                  ],
+                                  "type": "object"
+                                }
+                              }
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "access_domain"
+        ]
+      }
+    },
+    "/api/v1/access-domains/{id}": {
+      "delete": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Removes a custom domain — the full removal operation. Refuses the\nplatform kind and a domain that still serves hostnames.\n",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/access_domain-type"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "access_domain"
+        ]
+      },
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Get a domain by id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "access_domain": "id,domain,kind,state,organization_id"
+              },
+              "properties": {
+                "access_domain": {
+                  "description": "Comma separated field names for access_domain",
+                  "example": "id,domain,kind,state,organization_id",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "additionalProperties": false,
+                      "description": "A \"Resource object\" representing a access_domain",
+                      "properties": {
+                        "attributes": {
+                          "additionalProperties": false,
+                          "description": "An attributes object for a access_domain",
+                          "properties": {
+                            "domain": {
+                              "description": "Field included by default.",
+                              "type": "string"
+                            },
+                            "kind": {
+                              "description": "Field included by default.",
+                              "enum": [
+                                "platform",
+                                "custom"
+                              ],
+                              "type": "string"
+                            },
+                            "organization_id": {
+                              "description": "Field included by default.",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "state": {
+                              "description": "Field included by default.",
+                              "enum": [
+                                "pending",
+                                "verified",
+                                "suspended",
+                                "failed",
+                                "needs_attention"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "domain",
+                            "kind",
+                            "state",
+                            "organization_id"
+                          ],
+                          "type": "object"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "relationships": {
+                          "additionalProperties": false,
+                          "description": "A relationships object for a access_domain",
+                          "properties": {
+                            "organization": {
+                              "properties": {
+                                "data": {
+                                  "additionalProperties": false,
+                                  "description": "An identifier for organization",
+                                  "nullable": true,
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "meta": {
+                                      "additionalProperties": true,
+                                      "type": "object"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "id"
+                                  ],
+                                  "type": "object"
+                                }
+                              }
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "access_domain"
+        ]
+      }
+    },
+    "/api/v1/access-domains/{id}/resume": {
+      "patch": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "The owner's funded resume of a suspended domain — the row back to\n:verified, the tailnet claim and the domain's access arms\nre-minted (see Resume).\n",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "access_domain": "id,domain,kind,state,organization_id"
+              },
+              "properties": {
+                "access_domain": {
+                  "description": "Comma separated field names for access_domain",
+                  "example": "id,domain,kind,state,organization_id",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/vnd.api+json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "attributes": {
+                        "additionalProperties": false,
+                        "properties": {},
+                        "type": "object"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "relationships": {
+                        "additionalProperties": false,
+                        "properties": {},
+                        "type": "object"
+                      },
+                      "type": {
+                        "enum": [
+                          "access_domain"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Request body for the /access-domains/:id/resume operation on access_domain resource",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "additionalProperties": false,
+                      "description": "A \"Resource object\" representing a access_domain",
+                      "properties": {
+                        "attributes": {
+                          "additionalProperties": false,
+                          "description": "An attributes object for a access_domain",
+                          "properties": {
+                            "domain": {
+                              "description": "Field included by default.",
+                              "type": "string"
+                            },
+                            "kind": {
+                              "description": "Field included by default.",
+                              "enum": [
+                                "platform",
+                                "custom"
+                              ],
+                              "type": "string"
+                            },
+                            "organization_id": {
+                              "description": "Field included by default.",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "state": {
+                              "description": "Field included by default.",
+                              "enum": [
+                                "pending",
+                                "verified",
+                                "suspended",
+                                "failed",
+                                "needs_attention"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "domain",
+                            "kind",
+                            "state",
+                            "organization_id"
+                          ],
+                          "type": "object"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "relationships": {
+                          "additionalProperties": false,
+                          "description": "A relationships object for a access_domain",
+                          "properties": {
+                            "organization": {
+                              "properties": {
+                                "data": {
+                                  "additionalProperties": false,
+                                  "description": "An identifier for organization",
+                                  "nullable": true,
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "meta": {
+                                      "additionalProperties": true,
+                                      "type": "object"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "id"
+                                  ],
+                                  "type": "object"
+                                }
+                              }
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "access_domain"
+        ]
+      }
+    },
     "/api/v1/access-gateways": {
       "post": {
         "callbacks": {},
@@ -15484,6 +16714,208 @@
         },
         "tags": [
           "organization"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organization_id}/access-domains": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "The org's access domains (the provider's list)",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "organization_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Filters the query to results with attributes matching the given filter object",
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/access_domain-filter"
+            },
+            "style": "deepObject"
+          },
+          {
+            "description": "Sort order to apply to the results",
+            "explode": false,
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "pattern": "^(id|-id|\\+\\+id|--id|domain|-domain|\\+\\+domain|--domain|kind|-kind|\\+\\+kind|--kind|state|-state|\\+\\+state|--state|organization_id|-organization_id|\\+\\+organization_id|--organization_id)(,(id|-id|\\+\\+id|--id|domain|-domain|\\+\\+domain|--domain|kind|-kind|\\+\\+kind|--kind|state|-state|\\+\\+state|--state|organization_id|-organization_id|\\+\\+organization_id|--organization_id))*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "access_domain": "id,domain,kind,state,organization_id"
+              },
+              "properties": {
+                "access_domain": {
+                  "description": "Comma separated field names for access_domain",
+                  "example": "id,domain,kind,state,organization_id",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "description": "An array of resource objects representing a access_domain",
+                      "items": {
+                        "additionalProperties": false,
+                        "description": "A \"Resource object\" representing a access_domain",
+                        "properties": {
+                          "attributes": {
+                            "additionalProperties": false,
+                            "description": "An attributes object for a access_domain",
+                            "properties": {
+                              "domain": {
+                                "description": "Field included by default.",
+                                "type": "string"
+                              },
+                              "kind": {
+                                "description": "Field included by default.",
+                                "enum": [
+                                  "platform",
+                                  "custom"
+                                ],
+                                "type": "string"
+                              },
+                              "organization_id": {
+                                "description": "Field included by default.",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "state": {
+                                "description": "Field included by default.",
+                                "enum": [
+                                  "pending",
+                                  "verified",
+                                  "suspended",
+                                  "failed",
+                                  "needs_attention"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "domain",
+                              "kind",
+                              "state",
+                              "organization_id"
+                            ],
+                            "type": "object"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "relationships": {
+                            "additionalProperties": false,
+                            "description": "A relationships object for a access_domain",
+                            "properties": {
+                              "organization": {
+                                "properties": {
+                                  "data": {
+                                    "additionalProperties": false,
+                                    "description": "An identifier for organization",
+                                    "nullable": true,
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "meta": {
+                                        "additionalProperties": true,
+                                        "type": "object"
+                                      },
+                                      "type": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "id"
+                                    ],
+                                    "type": "object"
+                                  }
+                                }
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "id"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "access_domain"
         ]
       }
     },

@@ -69,6 +69,14 @@ defmodule FluxVale.Api.Scopes do
     {{"PATCH", ["access-gateways", :_, "resume"]}, "gateways:write"},
     {{"POST", ["access-gateways", :_, "attachments"]}, "gateways:write"},
     {{"DELETE", ["access-gateways", :_, "attachments", :_]}, "gateways:write"},
+    # Access domains (#482, ADR-0040): custom domains serve the
+    # private-access edge, so they ride the gateways domain — no new
+    # scope string, the catalog stays five domains.
+    {{"POST", ["access-domains"]}, "gateways:write"},
+    {{"GET", ["organizations", :_, "access-domains"]}, "gateways:read"},
+    {{"GET", ["access-domains", :_]}, "gateways:read"},
+    {{"PATCH", ["access-domains", :_, "resume"]}, "gateways:write"},
+    {{"DELETE", ["access-domains", :_]}, "gateways:write"},
     # Wallet (read-only in S1).
     {{"GET", ["organizations", :_, "wallet"]}, "wallet:read"},
     {{"GET", ["organizations", :_, "wallet", "runway"]}, "wallet:read"},

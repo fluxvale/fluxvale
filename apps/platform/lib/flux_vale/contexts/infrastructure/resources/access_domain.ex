@@ -29,10 +29,61 @@ defmodule FluxVale.Infrastructure.AccessDomain do
     otp_app: :flux_vale,
     domain: FluxVale.Infrastructure,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshJsonApi.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias Ash.Error.Changes.InvalidArgument
   alias FluxVale.Infrastructure.AccessDomain.EnsureRegistrable
   alias FluxVale.Infrastructure.InstanceHostname
+
+  # #482 P2 (ADR-0019 §1): the custom-domain family's wire contract —
+  # the provider's register/list/inspect/resume/remove. Public
+  # attributes only; cert_secret_ref is an internal k8s object name,
+  # not API surface — off every list. organization_id is the org
+  # reference the provider wants on the wire.
+  @domain_fields [:id, :domain, :kind, :state, :organization_id]
+
+  json_api do
+    type("access_domain")
+
+    routes do
+      # gateways:read — the org's domains (the provider's list). A
+      # foreign org's list answers 200 [] (index semantics): a mistyped
+      # org id reads as "no domains", so source organization ids from
+      # the org list (GET /organizations), never hand-typed.
+      index(:list_for_org,
+        route: "/organizations/:organization_id/access-domains",
+        default_fields: @domain_fields
+      )
+
+      # gateways:read
+      get(:get_by_id, route: "/access-domains/:id", default_fields: @domain_fields)
+
+      # gateways:write — the register action carries the full
+      # registration: the row AND the wildcard Certificate mint, one
+      # transaction (MintCertificate). Gates ride the policy:
+      # membership AND a paid-once wallet AND a funded wallet (ADR-0040
+      # Am. 2). The org rides the organization_id argument
+      # (member-fenced, #408); no argument keeps the personal-org
+      # default.
+      post(:register, route: "/access-domains", default_fields: @domain_fields)
+
+      # gateways:write — resume's gates are lighter than register's:
+      # membership AND a funded wallet (no paid-once gate — resuming is
+      # not unlocking).
+      patch(:resume, route: "/access-domains/:id/resume", default_fields: @domain_fields)
+
+      # gateways:write — the wire's remove runs the FULL operation
+      # (remove_via_api below), in its safety order: tailnet unclaim,
+      # THEN the row destroy, the Corefile re-render, and the
+      # Certificate safe-delete — live TLS state must never be deleted
+      # while the row still stands, and a destroyed row is the only
+      # point from which the cert delete is safe. Routing the raw
+      # :remove destroy instead would leak a Certificate per provider
+      # retry — no row left to re-derive the unclaim from.
+      route(:delete, "access-domains/:id", :remove_via_api)
+    end
+  end
 
   postgres do
     table("access_domains")
@@ -104,8 +155,9 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       forbid_if(always())
     end
 
-    # Resuming a suspended domain uses the entitlement again: membership
-    # AND a funded wallet (the same gate registration carries).
+    # Resuming a suspended domain: membership AND a funded wallet —
+    # NOT the paid-once gate register carries (resuming is not
+    # unlocking).
     policy action(:resume) do
       description("Members resume their org's own domain — membership AND a funded wallet")
       forbid_unless(relates_to_actor_via([:organization, :members]))
@@ -115,6 +167,17 @@ defmodule FluxVale.Infrastructure.AccessDomain do
     policy action(:remove) do
       description("Members remove their org's custom domains")
       authorize_if(relates_to_actor_via([:organization, :members]))
+    end
+
+    # The wire's remove verb (#482 P2): the actor fence is the
+    # authorized get_by_id inside the action (the Instance :delete
+    # stance) — a non-member's row is 404 before any cluster call.
+    policy action(:remove_via_api) do
+      description(
+        "The API remove: ownership is enforced by the authorized get_by_id inside the action"
+      )
+
+      authorize_if(actor_present())
     end
   end
 
@@ -207,6 +270,12 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       # custom uniqueness) — checked here so no caller can bypass them.
       change(EnsureRegistrable)
 
+      # The cluster leg (ADR-0040 S1): the wildcard Certificate lands
+      # inside the create's transaction — after_action, so a failure
+      # rolls the row back WITH it. Every register entry point (panel
+      # operation, API route) mints through this one change.
+      change(FluxVale.Infrastructure.AccessDomain.MintCertificate)
+
       # Normalize before validation: trimmed + downcased, so
       # "Apps.Customer.COM." -style input lands canonical and the
       # unique (organization_id, domain) identity can't be forked by
@@ -265,6 +334,15 @@ defmodule FluxVale.Infrastructure.AccessDomain do
     # list_all stance: unbounded + actorless, system seam only).
     read :list_all do
       description("Every access domain (the verify pass's input)")
+    end
+
+    # #482 P2: the provider's per-org list — the route path's
+    # organization_id feeds the filter, and the read policy's membership
+    # fence keeps another org's rows invisible.
+    read :list_for_org do
+      description("The org's access domains (the provider's list)")
+      argument(:organization_id, :uuid, allow_nil?: false)
+      filter(expr(organization_id == ^arg(:organization_id)))
     end
 
     # The state funnels — one per transition, system-only (policies
@@ -355,6 +433,38 @@ defmodule FluxVale.Infrastructure.AccessDomain do
         end
       end)
     end
+
+    # #482 P2: the wire's remove verb — the gateway family's generic-
+    # action shape. The authorized get_by_id is the ownership fence
+    # (a non-member's row is 404 before any cluster call), then the
+    # operation through the domain seam owns the rest: the platform
+    # and hostnames guards, the tailnet unclaim, the row, the Corefile
+    # re-render, the Certificate safe-delete.
+    action :remove_via_api, :struct do
+      description("""
+      Removes a custom domain — the full removal operation. Refuses the
+      platform kind and a domain that still serves hostnames.
+      """)
+
+      argument(:id, :uuid, allow_nil?: false, public?: true)
+      constraints(instance_of: __MODULE__)
+
+      run(fn input, %{actor: actor, authorize?: authorize?} ->
+        case get_by_id(input.arguments.id, actor: actor, authorize?: authorize?) do
+          {:ok, domain} ->
+            case FluxVale.Infrastructure.remove_access_domain(domain,
+                   actor: actor,
+                   authorize?: authorize?
+                 ) do
+              :ok -> {:ok, domain}
+              {:error, reason} -> {:error, remove_error(reason)}
+            end
+
+          {:error, _reason} = error ->
+            error
+        end
+      end)
+    end
   end
 
   code_interface do
@@ -364,12 +474,14 @@ defmodule FluxVale.Infrastructure.AccessDomain do
     define(:mint_platform)
     define(:get_by_id, args: [:id])
     define(:list_all)
+    define(:list_for_org, args: [:organization_id])
     define(:mark_verified)
     define(:mark_failed)
     define(:mark_needs_attention)
     define(:mark_suspended)
     define(:resume)
     define(:remove)
+    define(:remove_via_api, args: [:id])
   end
 
   identities do
@@ -427,4 +539,23 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       issuer: Keyword.fetch!(config, :issuer)
     }
   end
+
+  # --- the API remove verb's helpers (#482 P2) -----------------------
+
+  # The operation's guard atoms carry no message of their own; give
+  # them the owner's plain words (the Instance backup verbs' stance).
+  # Anything else (an unclaim failure, a K8s error, Forbidden) passes
+  # through untouched — the honest 5xx/403 shape.
+  @remove_refusals %{
+    platform_kind: "the platform domain is not removable",
+    hostnames_present: "this domain still serves instance hostnames. Remove them first"
+  }
+
+  defp remove_error(reason) when is_map_key(@remove_refusals, reason) do
+    message = Map.fetch!(@remove_refusals, reason)
+
+    InvalidArgument.exception(message: message)
+  end
+
+  defp remove_error(reason), do: reason
 end

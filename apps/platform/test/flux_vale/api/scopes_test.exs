@@ -159,6 +159,20 @@ defmodule FluxVale.Api.ScopesTest do
                Scopes.required_scope("DELETE", ["access-gateways", "g", "attachments", "i"])
     end
 
+    test "access-domain routes ride the gateways domain" do
+      assert {:ok, "gateways:write"} = Scopes.required_scope("POST", ["access-domains"])
+
+      assert {:ok, "gateways:read"} =
+               Scopes.required_scope("GET", ["organizations", "org-1", "access-domains"])
+
+      assert {:ok, "gateways:read"} = Scopes.required_scope("GET", ["access-domains", "d"])
+
+      assert {:ok, "gateways:write"} =
+               Scopes.required_scope("PATCH", ["access-domains", "d", "resume"])
+
+      assert {:ok, "gateways:write"} = Scopes.required_scope("DELETE", ["access-domains", "d"])
+    end
+
     test "wallet and catalog routes are read-only" do
       assert {:ok, "wallet:read"} = Scopes.required_scope("GET", ["organizations", "o", "wallet"])
 

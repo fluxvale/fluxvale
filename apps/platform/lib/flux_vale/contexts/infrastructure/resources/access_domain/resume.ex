@@ -62,6 +62,10 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
   claim operation's own gate): arming routes toward a scaled-to-zero
   tunnel would serve a dead tailnet address. The owner resumes the
   gateway first, then the domain.
+
+  **A non-suspended row is a true no-op**: the hooks (drift, render)
+  register only when the row is `:suspended` — a resume that changes
+  nothing also re-renders nothing.
   """
 
   use Ash.Resource.Change
@@ -96,25 +100,24 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
 
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
-    # The drift hook registers in the CHANGE phase: hooks added inside
-    # a before_action callback are not on the changeset the engine
-    # hands to after_transaction (the instance SetExposure precedent
-    # registers there for the same reason).
-    changeset
-    |> Ash.Changeset.after_transaction(fn changeset, result ->
-      settle_down(changeset.data, result)
-    end)
-    |> Ash.Changeset.before_action(fn changeset ->
-      domain = changeset.data
-
-      # Only a suspended domain resumes; a double-click is a no-op,
-      # not a second claim.
-      if domain.state == :suspended do
-        resume(changeset)
-      else
-        changeset
-      end
-    end)
+    # Only a suspended domain resumes. Anything else (:verified,
+    # :failed, :needs_attention — a double-click, or the wire reaching
+    # a serving row) is a no-op, and a no-op skips the hooks ENTIRELY:
+    # the render hook alone is a full cluster-wide gather + ConfigMap
+    # write, and nothing changed to re-render.
+    if changeset.data.state == :suspended do
+      # The drift hook registers in the CHANGE phase: hooks added inside
+      # a before_action callback are not on the changeset the engine
+      # hands to after_transaction (the instance SetExposure precedent
+      # registers there for the same reason).
+      changeset
+      |> Ash.Changeset.after_transaction(fn changeset, result ->
+        settle_down(changeset.data, result)
+      end)
+      |> Ash.Changeset.before_action(&resume/1)
+    else
+      changeset
+    end
   end
 
   @impl Ash.Resource.Change

@@ -2,6 +2,1760 @@
 // Codegen tool versions (from apps/cli/xtask/Cargo.toml): anyhow 1.0.104, prettyplease 0.3.0, rustfmt-wrapper 0.2.1, schemars 0.8.22, serde_json 1.0.154, syn 3.0.2, typify 0.8.0.
 // DO NOT EDIT BY HAND — regenerate, and CI diffs this file against the spec.
 
+///A "Resource object" representing a access_domain
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AccessDomain {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub attributes: ::std::option::Option<AccessDomainAttributes>,
+    pub id: ::std::string::String,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub relationships: ::std::option::Option<AccessDomainRelationships>,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
+///An attributes object for a access_domain
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AccessDomainAttributes {
+    ///Field included by default.
+    pub domain: ::std::string::String,
+    ///Field included by default.
+    pub kind: AccessDomainAttributesKind,
+    ///Field included by default.
+    pub organization_id: ::std::string::String,
+    ///Field included by default.
+    pub state: AccessDomainAttributesState,
+}
+///Field included by default.
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainAttributesKind {
+    #[serde(rename = "platform")]
+    Platform,
+    #[serde(rename = "custom")]
+    Custom,
+}
+impl ::std::fmt::Display for AccessDomainAttributesKind {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Platform => f.write_str("platform"),
+            Self::Custom => f.write_str("custom"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainAttributesKind {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "platform" => Ok(Self::Platform),
+            "custom" => Ok(Self::Custom),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainAttributesKind {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainAttributesKind {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///Field included by default.
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainAttributesState {
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "verified")]
+    Verified,
+    #[serde(rename = "suspended")]
+    Suspended,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "needs_attention")]
+    NeedsAttention,
+}
+impl ::std::fmt::Display for AccessDomainAttributesState {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Pending => f.write_str("pending"),
+            Self::Verified => f.write_str("verified"),
+            Self::Suspended => f.write_str("suspended"),
+            Self::Failed => f.write_str("failed"),
+            Self::NeedsAttention => f.write_str("needs_attention"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainAttributesState {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "pending" => Ok(Self::Pending),
+            "verified" => Ok(Self::Verified),
+            "suspended" => Ok(Self::Suspended),
+            "failed" => Ok(Self::Failed),
+            "needs_attention" => Ok(Self::NeedsAttention),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainAttributesState {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainAttributesState {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///Filters the query to results matching the given filter object
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct AccessDomainFilter {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub and: ::std::option::Option<::std::vec::Vec<AccessDomainFilter>>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub domain: ::std::option::Option<AccessDomainFilterDomain>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub id: ::std::option::Option<AccessDomainFilterId>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub kind: ::std::option::Option<AccessDomainFilterKind>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not: ::std::option::Option<::std::boxed::Box<AccessDomainFilter>>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub or: ::std::option::Option<::std::vec::Vec<AccessDomainFilter>>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub organization: ::std::option::Option<OrganizationFilter>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub organization_id: ::std::option::Option<AccessDomainFilterOrganizationId>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub state: ::std::option::Option<AccessDomainFilterState>,
+}
+///`AccessDomainFilterDomain`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct AccessDomainFilterDomain {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub contains: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub ilike: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub like: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_adjacent: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_contains: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_overlaps: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub string_ends_with: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub string_starts_with: ::std::option::Option<::std::string::String>,
+}
+///`AccessDomainFilterId`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct AccessDomainFilterId {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_adjacent: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_contains: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_overlaps: ::std::option::Option<::std::string::String>,
+}
+///`AccessDomainFilterKind`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct AccessDomainFilterKind {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<AccessDomainFilterKindEq>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<AccessDomainFilterKindGreaterThan>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<AccessDomainFilterKindGreaterThanOrEqual>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<AccessDomainFilterKindInItem>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<AccessDomainFilterKindIsDistinctFrom>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<AccessDomainFilterKindIsNotDistinctFrom>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<AccessDomainFilterKindLessThan>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<AccessDomainFilterKindLessThanOrEqual>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<AccessDomainFilterKindNotEq>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_adjacent: ::std::option::Option<AccessDomainFilterKindRangeAdjacent>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_contains: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_overlaps: ::std::option::Option<AccessDomainFilterKindRangeOverlaps>,
+}
+///`AccessDomainFilterKindEq`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterKindEq {
+    #[serde(rename = "platform")]
+    Platform,
+    #[serde(rename = "custom")]
+    Custom,
+}
+impl ::std::fmt::Display for AccessDomainFilterKindEq {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Platform => f.write_str("platform"),
+            Self::Custom => f.write_str("custom"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterKindEq {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "platform" => Ok(Self::Platform),
+            "custom" => Ok(Self::Custom),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterKindEq {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterKindEq {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccessDomainFilterKindGreaterThan`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterKindGreaterThan {
+    #[serde(rename = "platform")]
+    Platform,
+    #[serde(rename = "custom")]
+    Custom,
+}
+impl ::std::fmt::Display for AccessDomainFilterKindGreaterThan {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Platform => f.write_str("platform"),
+            Self::Custom => f.write_str("custom"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterKindGreaterThan {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "platform" => Ok(Self::Platform),
+            "custom" => Ok(Self::Custom),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterKindGreaterThan {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterKindGreaterThan {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccessDomainFilterKindGreaterThanOrEqual`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterKindGreaterThanOrEqual {
+    #[serde(rename = "platform")]
+    Platform,
+    #[serde(rename = "custom")]
+    Custom,
+}
+impl ::std::fmt::Display for AccessDomainFilterKindGreaterThanOrEqual {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Platform => f.write_str("platform"),
+            Self::Custom => f.write_str("custom"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterKindGreaterThanOrEqual {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "platform" => Ok(Self::Platform),
+            "custom" => Ok(Self::Custom),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterKindGreaterThanOrEqual {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterKindGreaterThanOrEqual {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccessDomainFilterKindInItem`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterKindInItem {
+    #[serde(rename = "platform")]
+    Platform,
+    #[serde(rename = "custom")]
+    Custom,
+}
+impl ::std::fmt::Display for AccessDomainFilterKindInItem {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Platform => f.write_str("platform"),
+            Self::Custom => f.write_str("custom"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterKindInItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "platform" => Ok(Self::Platform),
+            "custom" => Ok(Self::Custom),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterKindInItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterKindInItem {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccessDomainFilterKindIsDistinctFrom`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterKindIsDistinctFrom {
+    #[serde(rename = "platform")]
+    Platform,
+    #[serde(rename = "custom")]
+    Custom,
+}
+impl ::std::fmt::Display for AccessDomainFilterKindIsDistinctFrom {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Platform => f.write_str("platform"),
+            Self::Custom => f.write_str("custom"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterKindIsDistinctFrom {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "platform" => Ok(Self::Platform),
+            "custom" => Ok(Self::Custom),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterKindIsDistinctFrom {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterKindIsDistinctFrom {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccessDomainFilterKindIsNotDistinctFrom`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterKindIsNotDistinctFrom {
+    #[serde(rename = "platform")]
+    Platform,
+    #[serde(rename = "custom")]
+    Custom,
+}
+impl ::std::fmt::Display for AccessDomainFilterKindIsNotDistinctFrom {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Platform => f.write_str("platform"),
+            Self::Custom => f.write_str("custom"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterKindIsNotDistinctFrom {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "platform" => Ok(Self::Platform),
+            "custom" => Ok(Self::Custom),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterKindIsNotDistinctFrom {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterKindIsNotDistinctFrom {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccessDomainFilterKindLessThan`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterKindLessThan {
+    #[serde(rename = "platform")]
+    Platform,
+    #[serde(rename = "custom")]
+    Custom,
+}
+impl ::std::fmt::Display for AccessDomainFilterKindLessThan {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Platform => f.write_str("platform"),
+            Self::Custom => f.write_str("custom"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterKindLessThan {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "platform" => Ok(Self::Platform),
+            "custom" => Ok(Self::Custom),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterKindLessThan {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterKindLessThan {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccessDomainFilterKindLessThanOrEqual`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterKindLessThanOrEqual {
+    #[serde(rename = "platform")]
+    Platform,
+    #[serde(rename = "custom")]
+    Custom,
+}
+impl ::std::fmt::Display for AccessDomainFilterKindLessThanOrEqual {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Platform => f.write_str("platform"),
+            Self::Custom => f.write_str("custom"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterKindLessThanOrEqual {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "platform" => Ok(Self::Platform),
+            "custom" => Ok(Self::Custom),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterKindLessThanOrEqual {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterKindLessThanOrEqual {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccessDomainFilterKindNotEq`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterKindNotEq {
+    #[serde(rename = "platform")]
+    Platform,
+    #[serde(rename = "custom")]
+    Custom,
+}
+impl ::std::fmt::Display for AccessDomainFilterKindNotEq {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Platform => f.write_str("platform"),
+            Self::Custom => f.write_str("custom"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterKindNotEq {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "platform" => Ok(Self::Platform),
+            "custom" => Ok(Self::Custom),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterKindNotEq {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterKindNotEq {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccessDomainFilterKindRangeAdjacent`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterKindRangeAdjacent {
+    #[serde(rename = "platform")]
+    Platform,
+    #[serde(rename = "custom")]
+    Custom,
+}
+impl ::std::fmt::Display for AccessDomainFilterKindRangeAdjacent {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Platform => f.write_str("platform"),
+            Self::Custom => f.write_str("custom"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterKindRangeAdjacent {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "platform" => Ok(Self::Platform),
+            "custom" => Ok(Self::Custom),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterKindRangeAdjacent {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterKindRangeAdjacent {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccessDomainFilterKindRangeOverlaps`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterKindRangeOverlaps {
+    #[serde(rename = "platform")]
+    Platform,
+    #[serde(rename = "custom")]
+    Custom,
+}
+impl ::std::fmt::Display for AccessDomainFilterKindRangeOverlaps {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Platform => f.write_str("platform"),
+            Self::Custom => f.write_str("custom"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterKindRangeOverlaps {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "platform" => Ok(Self::Platform),
+            "custom" => Ok(Self::Custom),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterKindRangeOverlaps {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterKindRangeOverlaps {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccessDomainFilterOrganizationId`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct AccessDomainFilterOrganizationId {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_adjacent: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_contains: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_overlaps: ::std::option::Option<::std::string::String>,
+}
+///`AccessDomainFilterState`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct AccessDomainFilterState {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<AccessDomainFilterStateEq>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<AccessDomainFilterStateGreaterThan>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<AccessDomainFilterStateGreaterThanOrEqual>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<AccessDomainFilterStateInItem>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<AccessDomainFilterStateIsDistinctFrom>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<AccessDomainFilterStateIsNotDistinctFrom>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<AccessDomainFilterStateLessThan>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<AccessDomainFilterStateLessThanOrEqual>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<AccessDomainFilterStateNotEq>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_adjacent: ::std::option::Option<AccessDomainFilterStateRangeAdjacent>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_contains: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub range_overlaps: ::std::option::Option<AccessDomainFilterStateRangeOverlaps>,
+}
+///`AccessDomainFilterStateEq`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterStateEq {
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "verified")]
+    Verified,
+    #[serde(rename = "suspended")]
+    Suspended,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "needs_attention")]
+    NeedsAttention,
+}
+impl ::std::fmt::Display for AccessDomainFilterStateEq {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Pending => f.write_str("pending"),
+            Self::Verified => f.write_str("verified"),
+            Self::Suspended => f.write_str("suspended"),
+            Self::Failed => f.write_str("failed"),
+            Self::NeedsAttention => f.write_str("needs_attention"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterStateEq {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "pending" => Ok(Self::Pending),
+            "verified" => Ok(Self::Verified),
+            "suspended" => Ok(Self::Suspended),
+            "failed" => Ok(Self::Failed),
+            "needs_attention" => Ok(Self::NeedsAttention),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterStateEq {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterStateEq {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccessDomainFilterStateGreaterThan`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterStateGreaterThan {
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "verified")]
+    Verified,
+    #[serde(rename = "suspended")]
+    Suspended,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "needs_attention")]
+    NeedsAttention,
+}
+impl ::std::fmt::Display for AccessDomainFilterStateGreaterThan {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Pending => f.write_str("pending"),
+            Self::Verified => f.write_str("verified"),
+            Self::Suspended => f.write_str("suspended"),
+            Self::Failed => f.write_str("failed"),
+            Self::NeedsAttention => f.write_str("needs_attention"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterStateGreaterThan {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "pending" => Ok(Self::Pending),
+            "verified" => Ok(Self::Verified),
+            "suspended" => Ok(Self::Suspended),
+            "failed" => Ok(Self::Failed),
+            "needs_attention" => Ok(Self::NeedsAttention),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterStateGreaterThan {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterStateGreaterThan {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccessDomainFilterStateGreaterThanOrEqual`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterStateGreaterThanOrEqual {
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "verified")]
+    Verified,
+    #[serde(rename = "suspended")]
+    Suspended,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "needs_attention")]
+    NeedsAttention,
+}
+impl ::std::fmt::Display for AccessDomainFilterStateGreaterThanOrEqual {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Pending => f.write_str("pending"),
+            Self::Verified => f.write_str("verified"),
+            Self::Suspended => f.write_str("suspended"),
+            Self::Failed => f.write_str("failed"),
+            Self::NeedsAttention => f.write_str("needs_attention"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterStateGreaterThanOrEqual {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "pending" => Ok(Self::Pending),
+            "verified" => Ok(Self::Verified),
+            "suspended" => Ok(Self::Suspended),
+            "failed" => Ok(Self::Failed),
+            "needs_attention" => Ok(Self::NeedsAttention),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterStateGreaterThanOrEqual {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterStateGreaterThanOrEqual {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccessDomainFilterStateInItem`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterStateInItem {
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "verified")]
+    Verified,
+    #[serde(rename = "suspended")]
+    Suspended,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "needs_attention")]
+    NeedsAttention,
+}
+impl ::std::fmt::Display for AccessDomainFilterStateInItem {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Pending => f.write_str("pending"),
+            Self::Verified => f.write_str("verified"),
+            Self::Suspended => f.write_str("suspended"),
+            Self::Failed => f.write_str("failed"),
+            Self::NeedsAttention => f.write_str("needs_attention"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterStateInItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "pending" => Ok(Self::Pending),
+            "verified" => Ok(Self::Verified),
+            "suspended" => Ok(Self::Suspended),
+            "failed" => Ok(Self::Failed),
+            "needs_attention" => Ok(Self::NeedsAttention),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterStateInItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterStateInItem {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccessDomainFilterStateIsDistinctFrom`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterStateIsDistinctFrom {
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "verified")]
+    Verified,
+    #[serde(rename = "suspended")]
+    Suspended,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "needs_attention")]
+    NeedsAttention,
+}
+impl ::std::fmt::Display for AccessDomainFilterStateIsDistinctFrom {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Pending => f.write_str("pending"),
+            Self::Verified => f.write_str("verified"),
+            Self::Suspended => f.write_str("suspended"),
+            Self::Failed => f.write_str("failed"),
+            Self::NeedsAttention => f.write_str("needs_attention"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterStateIsDistinctFrom {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "pending" => Ok(Self::Pending),
+            "verified" => Ok(Self::Verified),
+            "suspended" => Ok(Self::Suspended),
+            "failed" => Ok(Self::Failed),
+            "needs_attention" => Ok(Self::NeedsAttention),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterStateIsDistinctFrom {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterStateIsDistinctFrom {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccessDomainFilterStateIsNotDistinctFrom`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterStateIsNotDistinctFrom {
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "verified")]
+    Verified,
+    #[serde(rename = "suspended")]
+    Suspended,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "needs_attention")]
+    NeedsAttention,
+}
+impl ::std::fmt::Display for AccessDomainFilterStateIsNotDistinctFrom {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Pending => f.write_str("pending"),
+            Self::Verified => f.write_str("verified"),
+            Self::Suspended => f.write_str("suspended"),
+            Self::Failed => f.write_str("failed"),
+            Self::NeedsAttention => f.write_str("needs_attention"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterStateIsNotDistinctFrom {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "pending" => Ok(Self::Pending),
+            "verified" => Ok(Self::Verified),
+            "suspended" => Ok(Self::Suspended),
+            "failed" => Ok(Self::Failed),
+            "needs_attention" => Ok(Self::NeedsAttention),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterStateIsNotDistinctFrom {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterStateIsNotDistinctFrom {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccessDomainFilterStateLessThan`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterStateLessThan {
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "verified")]
+    Verified,
+    #[serde(rename = "suspended")]
+    Suspended,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "needs_attention")]
+    NeedsAttention,
+}
+impl ::std::fmt::Display for AccessDomainFilterStateLessThan {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Pending => f.write_str("pending"),
+            Self::Verified => f.write_str("verified"),
+            Self::Suspended => f.write_str("suspended"),
+            Self::Failed => f.write_str("failed"),
+            Self::NeedsAttention => f.write_str("needs_attention"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterStateLessThan {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "pending" => Ok(Self::Pending),
+            "verified" => Ok(Self::Verified),
+            "suspended" => Ok(Self::Suspended),
+            "failed" => Ok(Self::Failed),
+            "needs_attention" => Ok(Self::NeedsAttention),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterStateLessThan {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterStateLessThan {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccessDomainFilterStateLessThanOrEqual`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterStateLessThanOrEqual {
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "verified")]
+    Verified,
+    #[serde(rename = "suspended")]
+    Suspended,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "needs_attention")]
+    NeedsAttention,
+}
+impl ::std::fmt::Display for AccessDomainFilterStateLessThanOrEqual {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Pending => f.write_str("pending"),
+            Self::Verified => f.write_str("verified"),
+            Self::Suspended => f.write_str("suspended"),
+            Self::Failed => f.write_str("failed"),
+            Self::NeedsAttention => f.write_str("needs_attention"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterStateLessThanOrEqual {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "pending" => Ok(Self::Pending),
+            "verified" => Ok(Self::Verified),
+            "suspended" => Ok(Self::Suspended),
+            "failed" => Ok(Self::Failed),
+            "needs_attention" => Ok(Self::NeedsAttention),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterStateLessThanOrEqual {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterStateLessThanOrEqual {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccessDomainFilterStateNotEq`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterStateNotEq {
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "verified")]
+    Verified,
+    #[serde(rename = "suspended")]
+    Suspended,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "needs_attention")]
+    NeedsAttention,
+}
+impl ::std::fmt::Display for AccessDomainFilterStateNotEq {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Pending => f.write_str("pending"),
+            Self::Verified => f.write_str("verified"),
+            Self::Suspended => f.write_str("suspended"),
+            Self::Failed => f.write_str("failed"),
+            Self::NeedsAttention => f.write_str("needs_attention"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterStateNotEq {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "pending" => Ok(Self::Pending),
+            "verified" => Ok(Self::Verified),
+            "suspended" => Ok(Self::Suspended),
+            "failed" => Ok(Self::Failed),
+            "needs_attention" => Ok(Self::NeedsAttention),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterStateNotEq {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterStateNotEq {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccessDomainFilterStateRangeAdjacent`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterStateRangeAdjacent {
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "verified")]
+    Verified,
+    #[serde(rename = "suspended")]
+    Suspended,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "needs_attention")]
+    NeedsAttention,
+}
+impl ::std::fmt::Display for AccessDomainFilterStateRangeAdjacent {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Pending => f.write_str("pending"),
+            Self::Verified => f.write_str("verified"),
+            Self::Suspended => f.write_str("suspended"),
+            Self::Failed => f.write_str("failed"),
+            Self::NeedsAttention => f.write_str("needs_attention"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterStateRangeAdjacent {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "pending" => Ok(Self::Pending),
+            "verified" => Ok(Self::Verified),
+            "suspended" => Ok(Self::Suspended),
+            "failed" => Ok(Self::Failed),
+            "needs_attention" => Ok(Self::NeedsAttention),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterStateRangeAdjacent {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterStateRangeAdjacent {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AccessDomainFilterStateRangeOverlaps`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainFilterStateRangeOverlaps {
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "verified")]
+    Verified,
+    #[serde(rename = "suspended")]
+    Suspended,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "needs_attention")]
+    NeedsAttention,
+}
+impl ::std::fmt::Display for AccessDomainFilterStateRangeOverlaps {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Pending => f.write_str("pending"),
+            Self::Verified => f.write_str("verified"),
+            Self::Suspended => f.write_str("suspended"),
+            Self::Failed => f.write_str("failed"),
+            Self::NeedsAttention => f.write_str("needs_attention"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainFilterStateRangeOverlaps {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "pending" => Ok(Self::Pending),
+            "verified" => Ok(Self::Verified),
+            "suspended" => Ok(Self::Suspended),
+            "failed" => Ok(Self::Failed),
+            "needs_attention" => Ok(Self::NeedsAttention),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainFilterStateRangeOverlaps {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainFilterStateRangeOverlaps {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///A relationships object for a access_domain
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct AccessDomainRelationships {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub organization: ::std::option::Option<AccessDomainRelationshipsOrganization>,
+}
+///`AccessDomainRelationshipsOrganization`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+pub struct AccessDomainRelationshipsOrganization {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub data: ::std::option::Option<AccessDomainRelationshipsOrganizationData>,
+}
+///An identifier for organization
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AccessDomainRelationshipsOrganizationData {
+    pub id: ::std::string::String,
+    #[serde(default, skip_serializing_if = "::serde_json::Map::is_empty")]
+    pub meta: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
+///`AccessDomainType`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AccessDomainType {
+    ///Field included by default.
+    pub domain: ::std::string::String,
+    ///Field included by default.
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub id: ::std::option::Option<::std::string::String>,
+    ///Field included by default.
+    pub kind: AccessDomainTypeKind,
+    ///Field included by default.
+    pub organization_id: ::std::string::String,
+    ///Field included by default.
+    pub state: AccessDomainTypeState,
+}
+///Field included by default.
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainTypeKind {
+    #[serde(rename = "platform")]
+    Platform,
+    #[serde(rename = "custom")]
+    Custom,
+}
+impl ::std::fmt::Display for AccessDomainTypeKind {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Platform => f.write_str("platform"),
+            Self::Custom => f.write_str("custom"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainTypeKind {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "platform" => Ok(Self::Platform),
+            "custom" => Ok(Self::Custom),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainTypeKind {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainTypeKind {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///Field included by default.
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AccessDomainTypeState {
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "verified")]
+    Verified,
+    #[serde(rename = "suspended")]
+    Suspended,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "needs_attention")]
+    NeedsAttention,
+}
+impl ::std::fmt::Display for AccessDomainTypeState {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Pending => f.write_str("pending"),
+            Self::Verified => f.write_str("verified"),
+            Self::Suspended => f.write_str("suspended"),
+            Self::Failed => f.write_str("failed"),
+            Self::NeedsAttention => f.write_str("needs_attention"),
+        }
+    }
+}
+impl ::std::str::FromStr for AccessDomainTypeState {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "pending" => Ok(Self::Pending),
+            "verified" => Ok(Self::Verified),
+            "suspended" => Ok(Self::Suspended),
+            "failed" => Ok(Self::Failed),
+            "needs_attention" => Ok(Self::NeedsAttention),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AccessDomainTypeState {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AccessDomainTypeState {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
 ///A "Resource object" representing a access_gateway
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
