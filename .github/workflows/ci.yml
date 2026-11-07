@@ -743,13 +743,14 @@ jobs:
     # (#578) 60, not 45: the ceiling must sit above the SUM of bounded
     # work or it cancels legitimate runs mid-suite. Old worst observed
     # leg ≈ 28.5m (timers, both attempts pull-bound) under a 45
-    # ceiling (16.5m slack); the warm-up (+≤8m budget) and the
-    # bootstrap's one bounded retry (+≤12m worst: attempt 1 dies ~12m
-    # in at the rollout wait, then the idempotent re-run rebuilds a
-    # fresh cached tag and re-waits up to 600s) push the legitimate
-    # worst to ≈ 48.5m — 60 leaves ~11.5m hang slack. Tighter than the
-    # old slack on purpose: the new worst already carries congestion
-    # padding the old one didn't. The waits themselves are unchanged.
+    # ceiling (16.5m slack); the warm-up (+≤8m TOTAL — pulls and
+    # imports share one deadline) and the bootstrap's one bounded
+    # retry (+≤12m worst: attempt 1 dies ~12m in at the rollout wait,
+    # then the idempotent re-run rebuilds a fresh cached tag and
+    # re-waits up to 600s) push the legitimate worst to ≈ 48.5m — 60
+    # leaves ~11.5m hang slack. Tighter than the old slack on purpose:
+    # the new worst already carries congestion padding the old one
+    # didn't. The waits themselves are unchanged.
     timeout-minutes: 60
     strategy:
       # A red leg must not cancel the others — its report is triage
@@ -842,14 +843,14 @@ jobs:
         # bootstraps dead in the same half-hour window at `rollout
         # status --timeout=600s` ("timed out waiting for the
         # condition"). A second attempt rides the congestion out; two
-        # failures is a real bootstrap bug, and it reds loudly — no
-        # third attempt to sleep it off.
+        # failures reds loudly (a real bug, or congestion that
+        # outlasted both attempts) — no third attempt to sleep it off.
         run: |
           attempts=0
           until mise x -- scripts/e2e-bootstrap.sh; do
             attempts=$((attempts + 1))
             if [ "$attempts" -ge 2 ]; then
-              echo "::error::bootstrap failed twice — the second attempt's error stands above (a real bug, not congestion)"
+              echo "::error::bootstrap failed twice — the second attempt's error stands above (a real bug, or congestion that outlasted both attempts)"
               exit 1
             fi
             echo "bootstrap-retry: attempt 1 failed — retrying in 10s (idempotent re-run; the marker keeps the flake rate measurable)"
@@ -875,11 +876,11 @@ jobs:
       # Refs come from the sources of truth, keyed by slug (catalog)
       # and by config (the file-access sidecar — not catalog data):
       # the bootstrap's parse-don't-fork stance for Tiltfile pins.
-      # Pulls are best-effort under a TOTAL budget — congestion (the
-      # timeout exit, 124) warns and the suite keeps its own budgets;
-      # the leg's fate stays with the suite. A ref that fails TWICE
-      # outright, though, is a repo bug: red here, loudly, not as a
-      # cryptic ImagePullBackOff 15 minutes in.
+      # Pulls AND imports run best-effort under ONE total budget —
+      # congestion never reds the leg here; the leg's fate stays with
+      # the suite, which surfaces a genuinely broken ref with its own
+      # evidence. A missing slug/ref in the parsed sources, though, is
+      # a deterministic repo bug: red here, loudly, not 15 minutes in.
       - name: Warm the leg's catalog images onto the node
         env:
           LEG_WARM_APPS: ${{ matrix.leg.warm_apps }}
@@ -920,6 +921,9 @@ jobs:
             [ "$?" -eq 124 ] && return 1
             return 2
           }
+          # The deadline bounds the WHOLE step — pulls and imports both —
+          # so the warm-up's worst case is one number, not a sum of
+          # per-ref guards (the job ceiling is sized against it).
           for ref in $refs; do
             if [ "$SECONDS" -ge "$deadline" ]; then
               echo "::warning::warm-up budget spent before $ref — image stays cold; the suite's own deploy budget applies"
@@ -928,21 +932,30 @@ jobs:
             echo "warm-up: pulling $ref ($((deadline - SECONDS))s of budget left)"
             rc=0; pull_one "$((deadline - SECONDS))" "$ref" || rc=$?
             if [ "$rc" -eq 2 ]; then
-              # outright failure: one immediate retry — a transient
-              # blip passes, a broken ref fails twice and reds
+              # outright failure: one immediate retry — transient blips pass
               rc=0; pull_one "$((deadline - SECONDS))" "$ref" || rc=$?
-              if [ "$rc" -eq 0 ]; then
-                echo "::warning::warm-up: $ref failed once outright, succeeded on the immediate retry — transient?"
-              fi
             fi
             case "$rc" in
               0) ;;
               1) echo "::warning::warm-up: $ref did not finish in budget — image stays cold; the suite's own deploy budget applies"; continue ;;
-              *) echo "::error::warm-up: $ref is not pullable (failed twice outright) — a broken ref in the catalog/config, not congestion"; exit 1 ;;
+              *) # NB: NOT red. Fast-fail congestion (429 toomanyrequests,
+                 # registry 5xx, mid-layer EOF) is indistinguishable from a
+                 # broken ref here, and the step's contract says congestion
+                 # never reds the leg. A genuinely broken ref surfaces in
+                 # the suite with its own evidence (the deploy's
+                 # status_message + the platform-log artifact) — and this
+                 # annotation names the ref for triage.
+                 echo "::warning::warm-up: $ref failed twice outright — congestion or a broken ref; the suite will arbitrate"
+                 continue ;;
             esac
-            # local tar streaming (direct mode), no network — a 120s
-            # hang guard only; a failure warns, never reds the leg
-            if ! timeout 120 mise x -- k3d image import -m direct -c fluxvale "$ref" >/dev/null; then
+            # local tar streaming (direct mode), no network — bounded by
+            # the same total deadline; a failure warns, never reds
+            remaining=$((deadline - SECONDS))
+            if [ "$remaining" -le 0 ]; then
+              echo "::warning::warm-up: budget spent before importing $ref — image stays cold; the suite's own deploy budget applies"
+              continue
+            fi
+            if ! timeout "$remaining" mise x -- k3d image import -m direct -c fluxvale "$ref" >/dev/null; then
               echo "::warning::warm-up: import of $ref failed — image stays cold; the suite's own deploy budget applies"
             fi
           done
