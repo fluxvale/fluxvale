@@ -101,6 +101,10 @@ jobs:
               - ".github/workflows/ci.yml"
             mcp:
               - "apps/mcp/**"
+              # .dockerignore is a build input for the mcp image — a
+              # change here can silently strip context; it must fire
+              # the lane that builds the image.
+              - ".dockerignore"
               # The shared API crate (crates/, its own workspace) — a
               # crate change must compile-check against the MCP server
               # here, and run the crate's own gates in the same job.
@@ -1166,6 +1170,81 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  # MCP image publish (W3a of #484) — the build-side twin of
+  # deploy-image above, for the Rust MCP server. Joins the BUILD side
+  # only: no watch-deploy or readiness gate here — those watch the
+  # PLATFORM's environments, and the mcp service's staging/prod deploy
+  # is W3b, in the fleet repo, after this lands. Gating mirrors
+  # deploy-image: mcp-gates (not just check-changes) must have passed —
+  # never publish an image the CI that vets it hasn't. PRs build the
+  # image (proof) but never push.
+  mcp-image:
+    name: Build and push MCP image
+    needs: [check-changes, mcp-gates]
+    if: needs.check-changes.outputs.mcp == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      # v7.0.1 — pinned to commit, same pin as deploy-image
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      # Same assert shape as deploy-image's BASE_IMAGE check: the
+      # Dockerfile's RUST_IMAGE pin must carry rust-toolchain.toml's
+      # channel — the single source of truth local rustup and
+      # mcp-gates select — so the build compiler can't drift from the
+      # one the gates ran on.
+      - name: Assert RUST_IMAGE matches the toolchain pin
+        run: |
+          channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' apps/mcp/rust-toolchain.toml)"
+          image="$(sed -n 's/^ARG RUST_IMAGE=\([^ ]*\)$/\1/p' apps/mcp/Dockerfile | head -1)"
+          echo "RUST_IMAGE=$image channel=$channel"
+          test -n "$image" && test -n "$channel"
+          case "$image" in
+            "rust:$channel-"*) ;;
+            *) echo "::error::apps/mcp/Dockerfile RUST_IMAGE ($image) does not match rust-toolchain.toml channel ($channel) — bump the pins together"; exit 1 ;;
+          esac
+
+      # v4.6.0 — pinned to commit, same pin as deploy-image. Main-only:
+      # PR builds never authenticate, so a forked or hijacked PR event
+      # has no GHCR credentials at all.
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # v4.4.1 — pinned to commit (repo rule above)
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+
+      # v7.4.0 — pinned to commit, same pin as deploy-image. Same tag
+      # convention as the platform image (sha-<sha> + latest), same GHA
+      # layer cache. Context is the repo root — the server
+      # path-depends on crates/fluxvale-api across the trees, and the
+      # root .dockerignore keeps the context to exactly what the
+      # Dockerfile COPYs.
+      - name: Build (and on main, push) the MCP image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
+        with:
+          context: .
+          file: apps/mcp/Dockerfile
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: |
+            ghcr.io/fluxvale/fluxvale-mcp:sha-${{ github.sha }}
+            ghcr.io/fluxvale/fluxvale-mcp:latest
+          cache-from: type=gha
+          # This job runs on PRs, where the cache token is read-only —
+          # a cache-service failure must degrade to a cold build, never
+          # red the suite (the e2e-bootstrap.sh precedent).
+          cache-to: type=gha,mode=max,ignore-error=true
+
   # Deploy pipeline job 2 (docs/deployment.md): poll BOTH envs until
   # /health reports sha-<github.sha> — prod must not be readiness-gated
   # off the old image (Flux reconciles the envs at different times). The
@@ -1274,7 +1353,7 @@ jobs:
   # checks run — a green umbrella that proved nothing.
   wait-for-ci:
     name: Wait for CI
-    needs: [check-changes, platform, cli-gates, cli-matrix, mcp-gates, tfprovider, docs-lint, skills-lint, linked-issues, e2e, deploy-image, watch-deploy, readiness-gate]
+    needs: [check-changes, platform, cli-gates, cli-matrix, mcp-gates, mcp-image, tfprovider, docs-lint, skills-lint, linked-issues, e2e, deploy-image, watch-deploy, readiness-gate]
 
     if: always()
     runs-on: ubuntu-24.04

@@ -17,3 +17,22 @@ spec:
       services:
         - name: fluxvale-platform
           port: 4000
+---
+# The MCP server's route (W3a of #484): same entrypoint, same
+# self-signed default cert. Traefik preserves the client's Host
+# header, which is exactly why the mcp deployment sets
+# MCP_ALLOWED_HOSTS — the guard admits this hostname and nothing else.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: fluxvale-mcp
+  namespace: fluxvale-dev
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`mcp.fluxvale.lvh.me`)
+      kind: Rule
+      services:
+        - name: fluxvale-mcp
+          port: 4600

@@ -5,7 +5,8 @@ The FluxVale MCP server: FluxVale as tools for AI agents. Slices W2a
 the server core (rmcp streamable HTTP over the shared `/api/v1`
 client crate `crates/fluxvale-api`, personal access token passthrough,
 the read tools) plus the write surface: deploy through destroy, the
-destructive pair elicitation-gated.
+destructive pair elicitation-gated. W3a ships the container image,
+CI publish, and the k3d exposure ([running in k3d](#running-in-k3d)).
 
 ## The tools (W2a + W2b)
 
@@ -91,6 +92,7 @@ Env config, nothing else:
 | --- | --- | --- |
 | `MCP_PORT` | The port the server binds on 0.0.0.0. | `4600` |
 | `FLUXVALE_API_BASE_URL` | The platform origin the tools call. Required. | — |
+| `MCP_ALLOWED_HOSTS` | Comma-separated `Host` headers the DNS-rebinding guard admits. Unset or blank = rmcp's loopback-only default — a bare dev shell needs nothing. Never allow-all. Exact hosts only, optional `:port` — **no wildcards (a wildcard entry admits nothing)**. Add `localhost` alongside the ingress host if you `kubectl port-forward`. | — |
 
 Against a local platform (the repo-root stack):
 
@@ -122,14 +124,32 @@ protocol shapes work — the initialize handshake (protocol revs up to
 per-request metadata).
 
 Note for deployment: rmcp's DNS-rebinding guard only accepts loopback
-`Host` headers by default. W3's container deployment configures the
-public hostnames (`StreamableHttpServerConfig`'s allowed hosts) — this
-slice runs local only.
+`Host` headers by default. `MCP_ALLOWED_HOSTS` (W3a) is the
+deployment knob for that — it names exactly the hosts a deployment
+serves (`StreamableHttpServerConfig`'s allowed hosts); the k3d
+manifest sets `mcp.fluxvale.lvh.me`. `/health` rides the outer
+router, deliberately OUTSIDE the guard — probes carry no `Host` a
+deployment could pre-authorize, and a probe must never depend on the
+protocol layer's health.
+
+## Running in k3d
+
+The repo-root local stack carries the server
+(`deploy/local/k8s/16-mcp.yaml` — image built by the Tiltfile):
+`tilt up`, then the MCP endpoint is
+`https://mcp.fluxvale.lvh.me/mcp` — self-signed TLS through Traefik,
+the same certificate posture as the platform's
+`app.fluxvale.lvh.me` — and `https://mcp.fluxvale.lvh.me/health` for
+probing. The deployment points `FLUXVALE_API_BASE_URL` at the
+in-cluster platform service and sets
+`MCP_ALLOWED_HOSTS=mcp.fluxvale.lvh.me`, so the guard admits exactly
+the hostname the IngressRoute routes.
 
 ## Coming later (not in this slice)
 
-- **W3** — the container image, deployment, and the MCP gateway in
-  front of it.
+- **W3b** — the fleet-repo deploy of this image to staging/prod and
+  the MCP gateway in front of it. (The image itself, its CI publish,
+  and the k3d exposure above landed in W3a.)
 
 ## Gates
 

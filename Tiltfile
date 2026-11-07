@@ -78,6 +78,22 @@ docker_build(
     ],
 )
 
+# ---- mcp server ------------------------------------------------------------
+# The image behind deploy/local/k8s/16-mcp.yaml. Context is the repo
+# ROOT, not apps/mcp: the server path-depends on crates/fluxvale-api
+# across the trees, and Docker can't COPY above a context. The root
+# .dockerignore keeps the context to exactly what apps/mcp/Dockerfile
+# COPYs; `only` keeps Tilt's rebuild triggers on the same trees —
+# without it, every file in the root context (the platform tree
+# included) would rebuild the mcp image. No live_update: a Rust
+# rebuild is the whole image, reload-in-place has nothing to sync.
+docker_build(
+    'fluxvale/mcp-dev',
+    context='.',
+    dockerfile='apps/mcp/Dockerfile',
+    only=['apps/mcp', 'crates/fluxvale-api', 'crates/Cargo.toml', '.dockerignore'],
+)
+
 k8s_yaml(
     [
         'deploy/local/k8s/00-namespace.yaml',
@@ -88,6 +104,10 @@ k8s_yaml(
         # #222: the e2e S3 target (plain core objects — Secret, PVC,
         # Deployment, Services, Job — so static parsing is fine here).
         'deploy/local/k8s/12-minio.yaml',
+        # W3a: the MCP server (plain core objects like MinIO's — the
+        # IngressRoute for it rides 15-ingressroute.yaml's custom
+        # deploy with the rest of the Traefik routing).
+        'deploy/local/k8s/16-mcp.yaml',
     ]
 )
 
