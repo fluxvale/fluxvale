@@ -59,6 +59,52 @@ defmodule FluxValeWeb.SettingsLiveTest do
     assert link =~ "Account settings"
   end
 
+  # -- The section sidebar (#551) -----------------------------------------
+
+  # The section-per-surface routing shape (org settings' tab idiom at
+  # account scope): each section is its own LiveView at its own path,
+  # and the sidebar marks exactly the mounted surface.
+  test "the sidebar marks Profile current and groups the cluster's sections", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/settings")
+
+    assert view.module == FluxValeWeb.SettingsLive
+
+    assert has_element?(view, "[data-testid='account-settings-section-account']")
+    assert has_element?(view, "[data-testid='account-settings-section-billing']")
+
+    profile = render(element(view, "[data-testid='account-settings-nav-profile']"))
+    assert profile =~ ~s(aria-current="page")
+    assert profile =~ ~s(href="/settings")
+
+    for key <- ["access", "wallet"] do
+      quiet = render(element(view, "[data-testid='account-settings-nav-#{key}']"))
+      refute quiet =~ "aria-current", "#{key} should stay quiet"
+    end
+  end
+
+  test "section navigation: the sidebar's Access entry crosses to the access surface", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/settings")
+
+    # One LiveView per section at its own path — following the entry
+    # pushes the client to the access surface's path.
+    assert {:error, {:live_redirect, %{to: to}}} =
+             view
+             |> element("[data-testid='account-settings-nav-access']")
+             |> render_click()
+
+    assert to == "/settings/access"
+
+    # The destination is the access panel — its own markers render, the
+    # profile surface's username form does not.
+    {:ok, access_view, _html} = live(conn, ~p"/settings/access")
+
+    assert has_element?(access_view, "[data-testid='device-sign-ins']")
+    assert has_element?(access_view, "[data-testid='api-tokens']")
+    refute has_element?(access_view, "#username-form")
+  end
+
   # -- Username rename (the #279 confirm-step pattern) --------------------
 
   test "a rename arms the confirm step naming its target; confirm applies it", %{
