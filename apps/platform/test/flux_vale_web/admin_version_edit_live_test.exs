@@ -1,12 +1,13 @@
 defmodule FluxValeWeb.AdminVersionEditLiveTest do
   @moduledoc false
 
-  # The version edit form (#501): blueprint and envelope together, the
+  # The version edit form (#501): blueprint and size together, the
   # coherence rule stated up front, a mismatch explained before any
   # submit, and first-run contract edits riding the key-ownership
   # validation. BOTH guards are pinned: surfaced pre-write through the
   # form AND still enforced at the action level (crafted direct writes
-  # fail).
+  # fail). Since #558 the coherence read is compute only — storage is
+  # the version's own honest default, saved freely on its axis.
 
   use FluxValeWeb.ConnCase, async: false
 
@@ -14,8 +15,8 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
 
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Identity.User
+  alias FluxVale.Pricing.Size
   alias FluxVale.TestSupport.InstanceFixtures
-  alias FluxVale.TestSupport.PricingFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
   @n :erlang.unique_integer([:positive])
@@ -37,11 +38,11 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
 
       {:ok, view, _html} = live(conn, "/admin/catalog/versions/#{version.id}")
 
-      # The coherence rule, up front.
+      # The coherence rule, up front: compute only (#558).
       assert has_element?(
                view,
                "[data-testid='admin-version-coherence-rule']",
-               "must describe the same allocation"
+               "The blueprint's compute defaults and the size must match"
              )
 
       # The current size is the selected option.
@@ -86,7 +87,8 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
       })
 
       # The loudest thing on the page names the drifted dimension and
-      # quotes the size's allocation.
+      # quotes the size's compute — never storage, which the coherence
+      # read does not pin (#558).
       assert has_element?(
                view,
                "[data-testid='admin-version-coherence-mismatch']",
@@ -96,12 +98,34 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
       assert has_element?(
                view,
                "[data-testid='admin-version-coherence-mismatch']",
-               "provides 0.5 CPU · 256 MB · 0 GB"
+               "provides 0.5 CPU · 256 MB"
              )
+
+      refute has_element?(view, "[data-testid='admin-version-coherence-mismatch']", "storage")
 
       # Save stays enabled on purpose: the action-level validation is
       # the enforcement.
       assert has_element?(view, "[data-testid='admin-version-save']")
+    end
+
+    # #558: the version's storage default is its own honest figure,
+    # priced per GB on its axis — moving it alone is coherent by
+    # design, with no mismatch callout.
+    test "a storage-default edit alone saves cleanly", %{conn: conn} do
+      version = built_version!()
+
+      {:ok, view, _html} = live(conn, "/admin/catalog/versions/#{version.id}")
+
+      params = app_version_params(version, %{"default_storage_gb" => "20"})
+
+      render_change(view, "validate", %{"app_version" => params})
+      refute has_element?(view, "[data-testid='admin-version-coherence-mismatch']")
+
+      render_submit(view, "save", %{"app_version" => params})
+
+      assert has_element?(view, "#flash-info", "Version saved.")
+
+      assert Ash.get!(AppVersion, version.id, authorize?: false).default_storage_gb == 20
     end
 
     test "a coherent edit shows no mismatch", %{conn: conn} do
@@ -140,9 +164,10 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
   end
 
   describe "saving" do
-    # A defaults-only edit cannot be coherent by design — the defaults
-    # must equal the size's allocation, so defaults can only move with
-    # the size (the re-point tests below). The plain-save arm is a
+    # A compute-defaults edit cannot be coherent by design — the
+    # compute defaults must equal the size's, so they can only move
+    # with the size (the re-point tests below). Storage edits ride
+    # free (#558, their own test above). The plain-save arm is a
     # no-change save: it runs the update action through the policies
     # and lands as a no-op.
     test "a coherent save runs the action with the admin actor", %{conn: conn} do
@@ -178,7 +203,7 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
       assert has_element?(view, "#flash-error", "Could not save the version")
 
       # The action's field-level error renders on the size select.
-      assert has_element?(view, "p", "must match the version's allocation")
+      assert has_element?(view, "p", "must match the version's compute defaults")
 
       # The row did not move.
       assert Ash.get!(AppVersion, version.id, authorize?: false).default_memory_mb == 256
@@ -190,11 +215,10 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
       version = built_version!()
 
       other =
-        PricingFixtures.size!(%{
+        size!(%{
           slug: "repoint-#{@n}",
           cpu_cores: Decimal.new("2"),
-          memory_mb: 4096,
-          storage_gb: 50
+          memory_mb: 4096
         })
 
       {:ok, view, _html} = live(conn, "/admin/catalog/versions/#{version.id}")
@@ -235,11 +259,10 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
       version = built_version!()
 
       other =
-        PricingFixtures.size!(%{
+        size!(%{
           slug: "repoint-bad-#{@n}",
           cpu_cores: Decimal.new("2"),
-          memory_mb: 4096,
-          storage_gb: 50
+          memory_mb: 4096
         })
 
       {:ok, view, _html} = live(conn, "/admin/catalog/versions/#{version.id}")
@@ -251,12 +274,15 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
 
       assert has_element?(view, "[data-testid='admin-version-coherence-mismatch']")
 
-      # Three drifted dimensions, named.
+      # Two drifted compute dimensions, named — storage is never among
+      # them (#558).
       assert has_element?(
                view,
                "[data-testid='admin-version-coherence-mismatch']",
-               "CPU cores, memory, storage do not match"
+               "CPU cores, memory do not match"
              )
+
+      refute has_element?(view, "[data-testid='admin-version-coherence-mismatch']", "storage")
 
       assert has_element?(view, "[data-testid='admin-version-repoint']")
 
@@ -369,15 +395,14 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
 
       app = Ash.load!(InstanceFixtures.app_version!(), [:app]).app
 
-      # The seed needs a recommended size matching the resource
-      # defaults (the present + coherence validations hold even for
-      # seeded rows the suite reads back through actions).
+      # The seed needs a recommended size matching the resource's
+      # compute defaults (the present + coherence validations hold
+      # even for seeded rows the suite reads back through actions).
       matching_size =
-        PricingFixtures.size!(%{
+        size!(%{
           slug: "seed-mate-#{@n}",
           cpu_cores: Decimal.new("0.5"),
-          memory_mb: 256,
-          storage_gb: 0
+          memory_mb: 256
         })
 
       seeded =
@@ -474,11 +499,10 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
       app = Ash.load!(InstanceFixtures.app_version!(), [:app]).app
 
       matching_size =
-        PricingFixtures.size!(%{
+        size!(%{
           slug: "switch-mate-#{@n}",
           cpu_cores: Decimal.new("0.5"),
-          memory_mb: 256,
-          storage_gb: 0
+          memory_mb: 256
         })
 
       seeded =
@@ -529,11 +553,10 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
       app = Ash.load!(InstanceFixtures.app_version!(), [:app]).app
 
       matching_size =
-        PricingFixtures.size!(%{
+        size!(%{
           slug: "partial-mate-#{@n}",
           cpu_cores: Decimal.new("0.5"),
-          memory_mb: 256,
-          storage_gb: 0
+          memory_mb: 256
         })
 
       seeded =
@@ -588,11 +611,10 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
       app = Ash.load!(InstanceFixtures.app_version!(), [:app]).app
 
       matching_size =
-        PricingFixtures.size!(%{
+        size!(%{
           slug: "edited-env-#{@n}",
           cpu_cores: Decimal.new("0.5"),
-          memory_mb: 256,
-          storage_gb: 0
+          memory_mb: 256
         })
 
       seeded =
@@ -660,7 +682,7 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
              )
 
     assert error.field == :recommended_size_id
-    assert error.message == "must match the version's allocation"
+    assert error.message == "must match the version's compute defaults"
 
     assert Ash.get!(AppVersion, version.id, authorize?: false).default_memory_mb == 256
   end
@@ -697,5 +719,20 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
       },
       overrides
     )
+  end
+
+  # Local: PricingFixtures.size! still passes #558-removed keys, so the
+  # page's size preconditions go through the create action directly.
+  defp size!(overrides) do
+    n = System.unique_integer()
+
+    %{
+      slug: "size-#{n}",
+      cpu_cores: Decimal.new("1"),
+      memory_mb: 1024,
+      monthly_cents: 500
+    }
+    |> Map.merge(Map.new(overrides))
+    |> Size.create!(authorize?: false)
   end
 end

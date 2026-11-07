@@ -3,7 +3,7 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
 
   # The size edit form (#501): prices are freely editable — on frozen
   # sizes too — with the price edit's settle reach stated honestly;
-  # the allocation controls lock with the count and the path named.
+  # the compute controls lock with the count and the path named.
   # BOTH guards are pinned: surfaced pre-write through the surface AND
   # still enforced at the action level (a crafted direct write fails,
   # and a raced write through the still-open form flips the page to
@@ -18,7 +18,6 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Pricing.Size
   alias FluxVale.TestSupport.InstanceFixtures
-  alias FluxVale.TestSupport.PricingFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
   @n :erlang.unique_integer([:positive])
@@ -38,8 +37,7 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
 
   describe "a referenced size (the freeze surfaced pre-write)" do
     test "the lock names the count and the path, with nothing to submit", %{
-      conn: conn,
-      admin: admin
+      conn: conn
     } do
       size = referenced_size!()
 
@@ -56,11 +54,24 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
       assert has_element?(
                view,
                "[data-testid='admin-size-freeze-lock']",
+               "Its compute defaults must keep matching this size"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-size-freeze-lock']",
                "Re-point those versions to another size, or retire them in the debug admin"
              )
 
+      assert has_element?(
+               view,
+               "[data-testid='admin-size-freeze-lock']",
+               "Then this compute can move."
+             )
+
       # The locked group renders as data, not as a disabled form: a
-      # Locked chip over filled read-only fields, full ink.
+      # Locked chip over filled read-only fields, full ink — and
+      # compute only: a size carries no storage axis (#558).
       assert has_element?(view, "[data-testid='admin-size-locked-chip']", "Locked")
 
       assert has_element?(
@@ -70,7 +81,7 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
              )
 
       assert has_element?(view, "[data-testid='admin-size-alloc-memory']", "1024")
-      assert has_element?(view, "[data-testid='admin-size-alloc-storage']", "10")
+      refute has_element?(view, "[data-testid='admin-size-alloc-storage']")
 
       # And there is no submit at all — the action's validation, not a
       # silent server-side strip, is what would catch a bypass.
@@ -83,7 +94,15 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
 
       {:ok, view, _html} = live(conn, "/admin/catalog/sizes/#{size.id}")
 
-      params = %{"size" => %{"monthly_cents" => "999", "stopped_monthly_cents" => "88"}}
+      # The prices card states what the monthly rate prices: the
+      # compute class, storage aside.
+      assert has_element?(
+               view,
+               "[data-testid='admin-size-prices']",
+               "The monthly rate prices this compute class"
+             )
+
+      params = %{"size" => %{"monthly_cents" => "999"}}
       render_change(view, "validate-price", params)
       render_submit(view, "save-price", params)
 
@@ -91,7 +110,6 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
 
       reloaded = Ash.get!(Size, size.id, authorize?: false)
       assert reloaded.monthly_cents == 999
-      assert reloaded.stopped_monthly_cents == 88
       # The frozen dimensions did not move with the prices.
       assert reloaded.memory_mb == size.memory_mb
     end
@@ -135,8 +153,7 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
     end
 
     test "an instance outside the actor's read scope is never claimed", %{
-      conn: conn,
-      admin: admin
+      conn: conn
     } do
       size = referenced_size!()
 
@@ -156,10 +173,9 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
     end
 
     test "the consequence line states the reach even with zero instances", %{
-      conn: conn,
-      admin: admin
+      conn: conn
     } do
-      size = PricingFixtures.size!(%{slug: "quiet-price-#{@n}"})
+      size = size!(%{slug: "quiet-price-#{@n}"})
 
       {:ok, view, _html} = live(conn, "/admin/catalog/sizes/#{size.id}")
 
@@ -177,12 +193,11 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
     end
   end
 
-  describe "a free size (the allocation editable, the freeze one version away)" do
+  describe "a free size (the compute editable, the freeze one version away)" do
     test "the open callout explains the coming freeze and the form saves", %{
-      conn: conn,
-      admin: admin
+      conn: conn
     } do
-      size = PricingFixtures.size!(%{slug: "free-#{@n}"})
+      size = size!(%{slug: "free-#{@n}"})
 
       {:ok, view, _html} = live(conn, "/admin/catalog/sizes/#{size.id}")
 
@@ -195,10 +210,14 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
       assert has_element?(
                view,
                "[data-testid='admin-size-freeze-open']",
-               "It freezes once a version points here."
+               "The compute is editable now. It freezes once a version points here."
              )
 
       assert has_element?(view, "#size-allocation-form")
+
+      # The form is compute only — a size carries no storage axis
+      # (#558).
+      refute has_element?(view, "[data-testid='admin-size-alloc-storage']")
 
       # cpu_cores rides the params too (the string arm of the input's
       # value read); the save keeps it equal to the record.
@@ -218,10 +237,9 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
     end
 
     test "a price-only save leaves the allocation untouched, even with crafted keys", %{
-      conn: conn,
-      admin: admin
+      conn: conn
     } do
-      size = PricingFixtures.size!(%{slug: "free-price-#{@n}"})
+      size = size!(%{slug: "free-price-#{@n}"})
 
       {:ok, view, _html} = live(conn, "/admin/catalog/sizes/#{size.id}")
 
@@ -240,7 +258,7 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
     end
 
     test "a negative price fails honestly and lands nowhere", %{conn: conn} do
-      size = PricingFixtures.size!(%{slug: "bad-price-#{@n}"})
+      size = size!(%{slug: "bad-price-#{@n}"})
 
       {:ok, view, _html} = live(conn, "/admin/catalog/sizes/#{size.id}")
 
@@ -255,7 +273,7 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
     end
 
     test "a crafted event with no size payload carries no opinion", %{conn: conn} do
-      size = PricingFixtures.size!(%{slug: "empty-payload-#{@n}"})
+      size = size!(%{slug: "empty-payload-#{@n}"})
 
       {:ok, view, _html} = live(conn, "/admin/catalog/sizes/#{size.id}")
 
@@ -269,7 +287,7 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
     test "an allocation that breaks a constraint fails honestly and lands nowhere", %{
       conn: conn
     } do
-      size = PricingFixtures.size!(%{slug: "bad-alloc-#{@n}"})
+      size = size!(%{slug: "bad-alloc-#{@n}"})
 
       {:ok, view, _html} = live(conn, "/admin/catalog/sizes/#{size.id}")
 
@@ -286,7 +304,7 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
 
   describe "raced writes (the page follows the server, never contradicts it)" do
     test "a raced freeze rejection re-probes and flips the page to the lock", %{conn: conn} do
-      size = PricingFixtures.size!(%{slug: "raced-#{@n}"})
+      size = size!(%{slug: "raced-#{@n}"})
 
       # The page mounts while the size is free: the allocation form is
       # live on the page.
@@ -307,7 +325,7 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
       assert has_element?(
                view,
                "#flash-error",
-               "The action rejected the move. This allocation is frozen while versions point at it."
+               "The action rejected the move. This compute is frozen while versions point at it."
              )
 
       assert has_element?(
@@ -323,7 +341,7 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
     end
 
     test "a price save follows a raced re-point into the lock", %{conn: conn} do
-      size = PricingFixtures.size!(%{slug: "raced-price-#{@n}"})
+      size = size!(%{slug: "raced-price-#{@n}"})
 
       {:ok, view, _html} = live(conn, "/admin/catalog/sizes/#{size.id}")
       refute has_element?(view, "[data-testid='admin-size-freeze-lock']")
@@ -356,7 +374,7 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
     # The validator's message is the contract; its field placement is
     # its own untouched business (this surface answers with the
     # card-level lock, not a field error).
-    assert error.message =~ "allocation is frozen while versions reference this size"
+    assert error.message =~ "compute is frozen while versions reference this size"
 
     # The row did not move.
     assert Ash.get!(Size, size.id, authorize?: false).memory_mb == size.memory_mb
@@ -364,7 +382,7 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
 
   test "a non-admin actor is Forbidden on the write" do
     user = SessionHelpers.user!()
-    size = PricingFixtures.size!(%{slug: "forbidden-#{@n}"})
+    size = size!(%{slug: "forbidden-#{@n}"})
 
     assert {:error, %Ash.Error.Forbidden{}} =
              Size.update(size, %{monthly_cents: 1}, actor: user, authorize?: true)
@@ -384,9 +402,10 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
   # The precondition: a size one fixture version points at. The fixture
   # fabricates its own matching size, so this re-points the version
   # through the sanctioned update path first (authorize?: false — a
-  # test precondition, the bootstrap posture).
+  # test precondition, the bootstrap posture). Coherence is compute
+  # only (#558): the version's storage default rides its own axis.
   defp referenced_size! do
-    size = PricingFixtures.size!(%{slug: "frozen-#{@n}"})
+    size = size!(%{slug: "frozen-#{@n}"})
     point_version_at!(size)
     size
   end
@@ -400,7 +419,6 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
         %{
           default_cpu_cores: size.cpu_cores,
           default_memory_mb: size.memory_mb,
-          default_storage_gb: size.storage_gb,
           recommended_size_id: size.id
         },
         authorize?: false
@@ -421,7 +439,6 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
         %{
           default_cpu_cores: size.cpu_cores,
           default_memory_mb: size.memory_mb,
-          default_storage_gb: size.storage_gb,
           recommended_size_id: size.id
         },
         authorize?: false
@@ -443,5 +460,20 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
       namespace: "fluxvale-app-#{instance.id}",
       grandfathered_until: until
     )
+  end
+
+  # Local: PricingFixtures.size! still passes #558-removed keys, so the
+  # edit page's preconditions go through the create action directly.
+  defp size!(overrides) do
+    n = System.unique_integer()
+
+    %{
+      slug: "size-#{n}",
+      cpu_cores: Decimal.new("1"),
+      memory_mb: 1024,
+      monthly_cents: 500
+    }
+    |> Map.merge(Map.new(overrides))
+    |> Size.create!(authorize?: false)
   end
 end
