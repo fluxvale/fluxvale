@@ -26,8 +26,7 @@ defmodule FluxValeWeb.AdminLive.Home do
       %{
         testid: "admin-surface-people",
         title: gettext("People and invites"),
-        blurb: gettext("Invitations, accounts, and the people behind them."),
-        href: ~p"/admin/people"
+        blurb: gettext("Invitations, accounts, and the people behind them.")
       },
       %{
         testid: "admin-surface-catalog",

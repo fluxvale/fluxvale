@@ -506,12 +506,6 @@ defmodule FluxValeWeb.Router do
       ] do
       live("/", FluxValeWeb.AdminLive.Home)
 
-      # The people surface (#501): the invitation list, the invite form,
-      # and the per-invitation support actions. Every read and write
-      # rides the identity domain with the platform-admin actor and
-      # authorize?: true — the domain policies decide, never the UI.
-      live("/people", FluxValeWeb.AdminLive.People)
-
       # The catalog + pricing surgery surface (#501): the lane's first
       # write surface. Every write rides the resource actions with the
       # platform-admin actor and authorize?: true — the domain policies
