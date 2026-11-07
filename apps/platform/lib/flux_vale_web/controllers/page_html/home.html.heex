@@ -1,12 +1,9 @@
-<%!-- Self-contained landing page: its own header/footer, no phx-click
-bindings — plain server-rendered HEEx for a fast first paint. (The
-shared user_menu carries a phx-hook attribute; it is inert without a
-LiveView.) Session logic stays display-only (#205): the template
-branches on @current_user for the chrome (user menu, dashboard CTA) but
-the anonymous render is unchanged. The landing
-is also mounted at /about — canonical to / — so the marketing page keeps a
-permalink once / becomes the dashboard. (#551 retired the menu's About row:
-nothing links /about now, the route stays public.)
+<%!-- Self-contained landing page: its own header/footer, no phx-* attributes
+— plain server-rendered HEEx for a fast first paint. Session logic stays
+display-only (#205): the template branches on @current_user for the chrome
+(user menu, dashboard CTA) but the anonymous render is unchanged. The landing
+is also mounted at /about — canonical to / — so signed-in sessions keep a
+path to it once / becomes the dashboard.
 Copy lives in gettext — the msgid is the source of truth; the wording is
 reviewed at merge (#164). Not extracted: standalone proper nouns
 (FluxVale, Forgejo, Kavita), and the aria-hidden mock status panel
@@ -62,12 +59,10 @@ layout's flex contract while scoping the landing styles. --%>
           </li>
           <li :if={@current_user}>
             <%!-- #285 T4: handle + PRIMARY address, mirror fallback (see
-            User.primary_email) — same contract as the app chrome's menu.
-            #551: the Admin row rides the same feed the chrome uses. --%>
+            User.primary_email) — same contract as the app chrome's menu. --%>
             <.user_menu
               username={@current_user.username}
               email={@current_user.primary_email || @current_user.email}
-              platform_admin={ActorIsPlatformAdmin.platform_admin?(@current_user)}
             />
           </li>
         </ul>

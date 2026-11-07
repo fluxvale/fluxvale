@@ -27,9 +27,7 @@ defmodule FluxValeWeb.PageController do
   # renders the marketing page (user-menu chrome when signed in),
   # canonical to `/` — the same self-canonical the landing now carries
   # (the launch SEO audit lean: `/` shipped none, and og:url emits only
-  # alongside one) — so both surfaces fold into `/` for crawlers. #551
-  # retired the menu's About row: the route stays public (typed URLs)
-  # and nothing links it.
+  # alongside one) — so both surfaces fold into `/` for crawlers.
   def about(conn, _params), do: landing(conn)
 
   # :page_title carries the brand because the root layout's <title> swaps

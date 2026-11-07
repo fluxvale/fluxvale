@@ -36,12 +36,6 @@ defmodule FluxValeWeb.Storybook.Components.UserMenu do
         description:
           "App chrome below sm (#255): the header's Catalog/Instances links fold into the panel",
         attributes: %{username: "terence", email: "terence@fluxvale.com", app_links: true}
-      },
-      %Variation{
-        id: :platform_admin,
-        description:
-          "Platform admin (#551): the chrome feeds the door's own predicate, so the panel gains the Admin row",
-        attributes: %{username: "terence", email: "terence@fluxvale.com", platform_admin: true}
       }
     ]
   end

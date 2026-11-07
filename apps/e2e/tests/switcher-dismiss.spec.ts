@@ -9,7 +9,6 @@ import { TestInbox } from "./helpers/test-inbox";
 // hook carries the GitHub-style dismissal. Signed-in chrome only, so
 // the gates match the other sign-in specs: never production (sign-in
 // JIT-provisions a user), and skipped wherever TestInbox is unreachable.
-// #551: the account user menu rides the same hook — same gates.
 const testInboxToken = process.env.E2E_TESTINBOX_TOKEN;
 const runId = process.env.E2E_RUN_ID ?? `run${Date.now()}`;
 const runtime = runtimeFor(process.env.BASE_URL);
@@ -59,39 +58,4 @@ test("a click outside closes the open switcher", async ({ page, request }) => {
   await page.locator("main").click({ position: { x: 5, y: 5 } });
   await expect(page.locator("#org-switcher")).not.toHaveAttribute("open");
   await expect(page.getByTestId("org-switcher-panel")).toBeHidden();
-});
-
-test("escape closes the open user menu", async ({ page, request }) => {
-  const email = `test+menu-esc-${runId}@fluxvale.com`;
-  await signIn(page, new TestInbox(request, testInboxToken!), email);
-  await page.goto("/");
-  await waitForLiveViewJoin(page);
-
-  await page.getByTestId("user-menu-button").click();
-  await expect(page.locator("#user-menu")).toHaveAttribute("open");
-
-  // The APG posture: focus a panel row first — Esc returns focus to
-  // the summary (DetailsDismiss's summary.focus() arm). Billing is the
-  // every-width row, visible at any viewport.
-  await page.getByTestId("user-menu-panel").getByRole("link", { name: "Billing" }).focus();
-
-  await page.keyboard.press("Escape");
-  await expect(page.locator("#user-menu")).not.toHaveAttribute("open");
-  await expect(page.getByTestId("user-menu-panel")).toBeHidden();
-  await expect(page.getByTestId("user-menu-button")).toBeFocused();
-});
-
-test("a click outside closes the open user menu", async ({ page, request }) => {
-  const email = `test+menu-outside-${runId}@fluxvale.com`;
-  await signIn(page, new TestInbox(request, testInboxToken!), email);
-  await page.goto("/");
-  await waitForLiveViewJoin(page);
-
-  await page.getByTestId("user-menu-button").click();
-  await expect(page.locator("#user-menu")).toHaveAttribute("open");
-
-  // The page's own main content, in its padding — no link, no panel.
-  await page.locator("main").click({ position: { x: 5, y: 5 } });
-  await expect(page.locator("#user-menu")).not.toHaveAttribute("open");
-  await expect(page.getByTestId("user-menu-panel")).toBeHidden();
 });

@@ -126,9 +126,9 @@ defmodule FluxValeWeb.Components.LayoutsTest do
       end
     end
 
-    # #467/#551: the signed-in nav row renders exactly Catalog,
-    # Instances, Feedback — Billing moved to the account menu, Pricing
-    # left the chrome entirely (the menu row retired with #551).
+    # #467: the signed-in nav row renders exactly Catalog, Instances,
+    # Feedback — Billing moved to the account menu, Pricing left the
+    # row for the menu's every-width row.
     test "the signed-in header row renders exactly Catalog, Instances, Feedback" do
       html = render_component(&ChromeProbe.signed_in/1, [])
       doc = LazyHTML.from_fragment(html)
@@ -150,54 +150,15 @@ defmodule FluxValeWeb.Components.LayoutsTest do
       refute rows["Billing"] =~ "sm:hidden"
     end
 
-    # #551: Pricing and About left the account menu. The pages stay
-    # public — /pricing rides the public chrome's header and footer,
-    # /about is the landing — only the menu rows are gone.
-    test "the menu carries no Pricing and no About FluxVale (#551)" do
+    # #467: Pricing keeps a menu row so /pricing stays reachable — the
+    # app chrome has no footer, so below sm no longer gates it.
+    test "the menu carries Pricing at every width" do
       html = render_component(&ChromeProbe.signed_in/1, [])
       doc = LazyHTML.from_fragment(html)
 
       rows = menu_row_classes(doc)
-
-      refute Map.has_key?(rows, "Pricing")
-      refute Map.has_key?(rows, "About FluxVale")
-    end
-
-    # #551: the Admin row rides only for a platform admin — the chrome
-    # feeds FluxVale.Checks.ActorIsPlatformAdmin, the same predicate the
-    # admin door's plug and on_mount answer. A member or a role-less
-    # map renders no row at all: the link never exists to click.
-    test "the Admin row renders only for a platform admin, at /admin (#551)" do
-      admin_html = render_component(&ChromeProbe.signed_in/1, platform_role: :admin)
-      doc = LazyHTML.from_fragment(admin_html)
-
-      assert menu_labels(doc) == [
-               "Catalog",
-               "Instances",
-               "Feedback",
-               "Billing",
-               "Account settings",
-               "Admin"
-             ]
-
-      admin_link =
-        doc
-        |> LazyHTML.query("[data-testid='user-menu-admin']")
-        |> Enum.at(0)
-
-      assert LazyHTML.attribute(admin_link, "href") == ["/admin"]
-
-      for role <- [nil, :user] do
-        html = render_component(&ChromeProbe.signed_in/1, platform_role: role)
-        non_admin = LazyHTML.from_fragment(html)
-        labels = menu_labels(non_admin)
-
-        refute Enum.member?(labels, "Admin")
-
-        assert non_admin
-               |> LazyHTML.query("[data-testid='user-menu-admin']")
-               |> Enum.to_list() == []
-      end
+      assert rows["Pricing"] =~ "text-ink-muted"
+      refute rows["Pricing"] =~ "sm:hidden"
     end
 
     # #255's fold is per-row: each mirror of a below-sm-hidden header
@@ -215,9 +176,8 @@ defmodule FluxValeWeb.Components.LayoutsTest do
 
     # #255's fold survives the reshuffle: Catalog/Instances/Feedback
     # mirror the below-sm-hidden header links, then the every-width
-    # rows and the account entries. #551: Pricing and About are gone,
-    # so the account entries end the list. The panel carries Sign out.
-    test "the dropdown reads surface fold, then the account entries" do
+    # rows and the account entries. The panel text carries Sign out.
+    test "the dropdown reads surface fold, then Pricing, then account entries" do
       html = render_component(&ChromeProbe.signed_in/1, [])
       doc = LazyHTML.from_fragment(html)
 
@@ -225,8 +185,10 @@ defmodule FluxValeWeb.Components.LayoutsTest do
                "Catalog",
                "Instances",
                "Feedback",
+               "Pricing",
                "Billing",
-               "Account settings"
+               "Account settings",
+               "About FluxVale"
              ]
 
       panel_text =
