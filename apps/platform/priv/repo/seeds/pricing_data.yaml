@@ -1,11 +1,20 @@
-# FluxVale pricing seed data — the priceable allocation sizes (#125,
-# ADR-0028). Curve v5 (#206, decided on #200): the market reference
-# curve v4 (recorded 2026-10-12; the named source stays out of the
-# repo, ADR-0018 Am. 1) times the Nuremberg surcharge B′ ×1.2 — the
-# decided option in docs/pricing-recalibration-2026-10.md, whose table
-# is the ground truth for these cents (the calibration tests pin them
-# to the doc). The SG variant (×1.25) is decided but on standby: no
-# SG rows ship here until the SG box exists.
+# FluxVale pricing seed data — the compute classes (#125, ADR-0028;
+# #558 split storage onto its own axis). Curve v5 (#206, decided on
+# #200): the market reference curve v4 (recorded 2026-10-12; the named
+# source stays out of the repo, ADR-0018 Am. 1) times the Nuremberg
+# surcharge B′ ×1.2 — the decided option in
+# docs/pricing-recalibration-2026-10.md, whose table is the ground
+# truth for these cents (the calibration tests pin them to the doc).
+# The SG variant (×1.25) is decided but on standby: no SG rows ship
+# here until the SG box exists.
+#
+# A size row is COMPUTE ONLY (#558): CPU, memory, and the monthly rate
+# for that shape — the curve's CPU + memory terms, half-up rounded.
+# Storage prices per GB on its own axis (the curve's storage term,
+# PriceAllocation.storage_cents/2 — also the stopped fee at any
+# storage), so no storage and no stopped rate rides a size: a stopped
+# instance pays only for its storage, which a compute class cannot
+# know.
 #
 # The #233 top-rung proposal was REJECTED (#399, owner ruling): the
 # ladder stops at pro. The two proposed rows shipped under #233 and are
@@ -18,52 +27,40 @@
 # to match the YAML, idempotently. Removing a size is subtractive: drop
 # its entry and re-run seeds, and the row is deleted — the seed refuses
 # loudly while instances or versions still reference it. Cents edits
-# are always safe; ALLOCATION edits freeze while versions reference
-# the size — move catalog_data.yaml's version defaults in the same
+# are always safe; COMPUTE edits freeze while versions reference the
+# size — move catalog_data.yaml's version compute defaults in the same
 # seed run.
 #
 # Lookup key — never rename an existing slug: renaming orphans the old
 # row instead of converging it.
 #
 # Field notes: cpu_cores is a QUOTED string (preserves Decimal
-# precision). monthly_cents is the running flat rate;
-# stopped_monthly_cents is the storage-only fee (ADR-0028 §2). Every
-# field is required. App versions name one of these slugs as their
-# recommended_size (catalog_data.yaml), and the version's resource
-# defaults must equal the size's allocation.
+# precision). monthly_cents is the running rate for the compute shape.
+# Every field is required. App versions name one of these slugs as
+# their recommended_size (catalog_data.yaml); the version's compute
+# defaults must equal the size's compute, and its default_storage_gb is
+# the app's own honest storage default, priced per GB.
 - slug: micro
   cpu_cores: "0.25"
   memory_mb: 512
-  storage_gb: 5
-  monthly_cents: 283
-  stopped_monthly_cents: 24
+  monthly_cents: 259
 - slug: small
   cpu_cores: "0.5"
   memory_mb: 512
-  storage_gb: 10
-  monthly_cents: 335
-  stopped_monthly_cents: 40
+  monthly_cents: 295
 - slug: medium
   cpu_cores: "0.5"
   memory_mb: 1024
-  storage_gb: 10
-  monthly_cents: 409
-  stopped_monthly_cents: 40
+  monthly_cents: 369
 - slug: standard
   cpu_cores: "1"
   memory_mb: 2048
-  storage_gb: 20
-  monthly_cents: 621
-  stopped_monthly_cents: 68
+  monthly_cents: 553
 - slug: plus
   cpu_cores: "2"
   memory_mb: 4096
-  storage_gb: 50
-  monthly_cents: 996
-  stopped_monthly_cents: 135
+  monthly_cents: 861
 - slug: pro
   cpu_cores: "4"
   memory_mb: 8192
-  storage_gb: 100
-  monthly_cents: 1606
-  stopped_monthly_cents: 228
+  monthly_cents: 1379
