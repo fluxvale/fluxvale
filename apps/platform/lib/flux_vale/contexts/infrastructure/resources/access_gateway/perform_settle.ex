@@ -40,19 +40,13 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformSettle do
 
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
-  alias FluxVale.Billing.Month
+  alias FluxVale.Billing.Proration
   alias FluxVale.Billing.Wallet
+  alias FluxVale.Billing.WalletLock
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Repo
 
   require Ash.Query
-
-  @micros_per_cent Decimal.new(10_000)
-
-  # The shared constant (FluxVale.Billing.Month) as a Decimal — bound
-  # through a function, not a module attribute, so the constant module
-  # carries no compile-order dependency on this resource.
-  defp month_useconds, do: Decimal.new(Month.useconds())
 
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
@@ -82,8 +76,8 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformSettle do
   # may not run until up to 15 minutes later — billing to `now()` would
   # charge that gap, in which the gateway gave the owner no reachability.
   defp settle_interval(%AccessGateway{} = fresh, %Wallet{} = wallet) do
-    usecs = usecs_between(fresh.metering_since, interval_end(fresh))
-    micros = prorate(fresh.monthly_cents, usecs)
+    usecs = Proration.usecs_between(fresh.metering_since, interval_end(fresh))
+    micros = Proration.prorate_micro_cents(fresh.monthly_cents, usecs)
     post_debit(wallet, fresh, micros)
   end
 
@@ -134,7 +128,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformSettle do
   end
 
   defp lock_wallet(%Wallet{} = wallet) do
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", [wallet.id])
+    WalletLock.acquire(wallet)
     :ok
   end
 
@@ -180,8 +174,8 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformSettle do
 
   defp settle_fresh(%AccessGateway{} = fresh, %Wallet{} = wallet) do
     now = DateTime.utc_now()
-    usecs = usecs_between(fresh.metering_since, now)
-    micros = prorate(fresh.monthly_cents, usecs)
+    usecs = Proration.usecs_between(fresh.metering_since, now)
+    micros = Proration.prorate_micro_cents(fresh.monthly_cents, usecs)
 
     with :ok <- post_debit(wallet, fresh, micros),
          {:ok, updated} <- advance(fresh, now) do
@@ -193,21 +187,6 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformSettle do
         Repo.rollback(reason)
         # coveralls-ignore-stop
     end
-  end
-
-  defp usecs_between(from, to), do: max(DateTime.diff(to, from, :microsecond), 0)
-
-  # Integer micro-cents, floored — the same rounding as the instance
-  # settle's prorate. The floored sub-µ¢ fraction is discarded (too small
-  # for the ledger's unit); only the wallet's sub-CENT carryover pools.
-  defp prorate(cents, usecs) do
-    cents
-    |> Decimal.new()
-    |> Decimal.mult(@micros_per_cent)
-    |> Decimal.mult(usecs)
-    |> Decimal.div(month_useconds())
-    |> Decimal.round(0, :floor)
-    |> Decimal.to_integer()
   end
 
   # Zero accrued: no ledger row (the instance settle's stance). The
