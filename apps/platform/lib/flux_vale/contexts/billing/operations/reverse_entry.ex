@@ -18,7 +18,6 @@ defmodule FluxVale.Billing.Operations.ReverseEntry do
   alias FluxVale.Billing.LedgerEntry
   alias FluxVale.Billing.Operations.PostEntry
   alias FluxVale.Billing.Wallet
-  alias FluxVale.Billing.WalletLock
 
   require Ash.Query
 
@@ -35,7 +34,7 @@ defmodule FluxVale.Billing.Operations.ReverseEntry do
   defp reverse(wallet, original, opts) do
     outcome =
       FluxVale.Repo.transaction(fn ->
-        WalletLock.acquire(wallet)
+        FluxVale.Repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", [wallet.id])
 
         case existing_reversal(original) do
           {:ok, [reversal | _rest]} ->

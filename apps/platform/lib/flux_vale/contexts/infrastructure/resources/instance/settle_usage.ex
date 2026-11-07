@@ -46,9 +46,8 @@ defmodule FluxVale.Infrastructure.Instance.SettleUsage do
 
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
-  alias FluxVale.Billing.Proration
+  alias FluxVale.Billing.Month
   alias FluxVale.Billing.Wallet
-  alias FluxVale.Billing.WalletLock
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Pricing
   alias FluxVale.Repo
@@ -56,8 +55,13 @@ defmodule FluxVale.Infrastructure.Instance.SettleUsage do
   require Ash.Query
   require Logger
 
-  # Time is integer microseconds end to end; the month constant and the
-  # rate division live in FluxVale.Billing.Proration.
+  # 365.2425-day average Gregorian month, in microseconds — integer
+  # time end to end; Decimal only at the rate division. The shared
+  # constant (`Billing.Month`) as a Decimal — bound through a
+  # function, not a module attribute, so the constant module carries
+  # no compile-order dependency on the caller.
+  defp month_useconds, do: Decimal.new(Month.useconds())
+  @micros_per_cent Decimal.new(10_000)
 
   @doc """
   Settles `record`'s open interval at the in-force rate, now. Returns
@@ -107,7 +111,7 @@ defmodule FluxVale.Infrastructure.Instance.SettleUsage do
   # FIRST — concurrent posters (another instance's settle in the same
   # org) serialize here, and each reads the other's committed state.
   defp lock_wallet(%Wallet{} = wallet) do
-    WalletLock.acquire(wallet)
+    Repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", [wallet.id])
     :ok
   end
 
@@ -196,7 +200,7 @@ defmodule FluxVale.Infrastructure.Instance.SettleUsage do
 
       {:ok, rates} ->
         cursor = fresh.storage_metering_since
-        total_usecs = Proration.usecs_between(cursor, now)
+        total_usecs = usecs_between(cursor, now)
         running_usecs = running_usecs(fresh, cursor, now)
         stopped_usecs = max(total_usecs - running_usecs, 0)
 
@@ -237,22 +241,29 @@ defmodule FluxVale.Infrastructure.Instance.SettleUsage do
 
   defp open_usecs(started, cursor, now) do
     bounded = max_datetime(started, cursor)
-    Proration.usecs_between(bounded, now)
+    usecs_between(bounded, now)
   end
+
+  defp usecs_between(from, to), do: max(DateTime.diff(to, from, :microsecond), 0)
 
   # Integer micro-cents, floored — the sub-µ¢ residue is orders of
   # magnitude below the per-wallet carryover's pooling granularity.
-  # This settle's contract: prorate the running and stopped shares
-  # exactly, ADD them, then floor once. (The gateway settle floors
-  # each rate; the two contracts are deliberate, see Proration.)
   defp accrue(rates, running_usecs, stopped_usecs) do
-    running = Proration.prorate_decimal(rates.running, running_usecs)
-    stopped = Proration.prorate_decimal(rates.stopped, stopped_usecs)
+    running = prorate(rates.running, running_usecs)
+    stopped = prorate(rates.stopped, stopped_usecs)
 
     running
     |> Decimal.add(stopped)
     |> Decimal.round(0, :floor)
     |> Decimal.to_integer()
+  end
+
+  defp prorate(cents, usecs) do
+    cents
+    |> Decimal.new()
+    |> Decimal.mult(@micros_per_cent)
+    |> Decimal.mult(usecs)
+    |> Decimal.div(month_useconds())
   end
 
   # Zero accrued (fresh tick, retry after commit, or a fully-clamped

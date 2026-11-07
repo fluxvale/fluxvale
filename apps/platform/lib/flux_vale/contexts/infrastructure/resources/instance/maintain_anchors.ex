@@ -40,7 +40,6 @@ defmodule FluxVale.Infrastructure.Instance.MaintainAnchors do
   use Ash.Resource.Change
 
   alias Ash.Changeset
-  alias FluxVale.Billing.Proration
 
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
@@ -121,7 +120,7 @@ defmodule FluxVale.Infrastructure.Instance.MaintainAnchors do
     started = data.running_since || now
     bounded = max_datetime(started, data.storage_metering_since || started)
 
-    Proration.usecs_between(bounded, now)
+    max(DateTime.diff(now, bounded, :microsecond), 0)
   end
 
   defp max_datetime(a, b) do

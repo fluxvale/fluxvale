@@ -116,6 +116,9 @@ defmodule FluxVale.Billing.Wallet do
     create_actions([])
     update_actions([:set_waiver])
     destroy_actions([])
+  end
+
+  admin do
     # The operator table: org-first (the way an operator looks for a
     # wallet), the paywall waiver, and the ladder's decision state.
     # :balance is the live sum aggregate; the full field set stays on
