@@ -57,8 +57,10 @@ defmodule FluxValeWeb.AdminHomeLiveTest do
       end
 
       # The catalog surface is live (this lane's slice): its card is a
-      # link into the surgery surface, no longer badged.
+      # link into the surgery surface, with the Open affordance in the
+      # badge's slot, no longer badged.
       assert has_element?(view, "[data-testid='admin-surface-catalog'][href='/admin/catalog']")
+      assert has_element?(view, "[data-testid='admin-surface-catalog']", "Open")
 
       refute has_element?(view, "[data-testid='admin-surface-catalog']", "Coming in this lane")
 

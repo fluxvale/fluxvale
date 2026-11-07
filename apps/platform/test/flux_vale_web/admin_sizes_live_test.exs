@@ -50,23 +50,30 @@ defmodule FluxValeWeb.AdminSizesLiveTest do
     {:ok, view, _html} = live(conn, "/admin/catalog/sizes")
 
     # Rows are keyed by slug; the allocation is the one shared formatter
-    # (the fixture's defaults are 0.5 CPU, 256 MB, 0 GB).
+    # (the fixture's defaults are 0.5 CPU, 256 MB, 0 GB, middle dots).
     assert has_element?(
              view,
              "#size-row-#{referenced_size.slug}",
-             "0.5 CPU, 256 MB, 0 GB"
+             "0.5 CPU · 256 MB · 0 GB"
            )
 
     assert has_element?(view, "#size-row-#{free.slug}")
 
-    # The freeze state as a count: one ladder row referenced, one free.
-    assert has_element?(view, "#size-row-#{referenced_size.slug}", "1 version")
-    assert has_element?(view, "#size-row-#{free.slug}", "0 versions")
+    # The freeze state as a count: referenced sizes badge it, a free
+    # row reads a plain zero.
+    assert has_element?(
+             view,
+             "[data-testid='admin-size-versions-#{referenced_size.slug}']",
+             "1 version"
+           )
 
-    # Rates render through the one dollars formatter, never literals.
-    rate = FluxVale.Pricing.format_usd(referenced_size.monthly_cents)
+    assert has_element?(view, "[data-testid='admin-size-versions-#{free.slug}']", "0")
+
+    # Rates render in the product's one-string idiom, from the one
+    # dollars formatter, never literals.
+    rate = "#{FluxVale.Pricing.format_usd(referenced_size.monthly_cents)}/mo"
     assert has_element?(view, "#size-row-#{referenced_size.slug}", rate)
-    stopped = FluxVale.Pricing.format_usd(referenced_size.stopped_monthly_cents)
+    stopped = "#{FluxVale.Pricing.format_usd(referenced_size.stopped_monthly_cents)}/mo"
     assert has_element?(view, "#size-row-#{referenced_size.slug}", stopped)
 
     # Each row hands off to its edit form.

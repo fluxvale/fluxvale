@@ -7,14 +7,21 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
   blueprint defaults (what provisioning grants) and the recommended
   size's envelope (what billing prices) must describe the same
   allocation. While the admin edits, the page compares the defaults
-  against the selected size and says a mismatch will not pass, before
-  any submit. The comparison is display data — the action's
-  `ValidateSizeMatchesAllocation` stays the enforcement, and a save
-  with a mismatch fails there with its honest error.
+  against the selected size and names the mismatched dimensions before
+  any submit, quoting the size's allocation. The comparison is display
+  data — the action's `ValidateSizeMatchesAllocation` stays the
+  enforcement, and a save with a mismatch fails there with its honest
+  error.
 
   First-run contract edits ride the page too: the pattern, guaranteed
   env, forbidden keys, and guidance land in the same save, and the
-  `ValidateFirstRunEnv` key-ownership rule fails loudly on overlap.
+  `ValidateFirstRunEnv` key-ownership rule fails loudly on overlap,
+  naming where the colliding fields are edited today (the debug admin).
+  The pattern select derives from the contract type's own pattern list,
+  so a new pattern can never fall outside the select and be silently
+  deleted by a default. An untouched contract block is never rebuilt:
+  the KEY=VALUE round-trip is lossy, so the stored struct rides the
+  save unchanged unless the operator actually edited the text.
   Every write runs through the action with the platform-admin actor and
   `authorize?: true` — the domain policies decide, never the UI.
   """
@@ -22,13 +29,16 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
   use FluxValeWeb, :live_view
 
   alias FluxVale.Catalog.AppVersion
+  alias FluxVale.Catalog.Types.FirstRunContract
   alias FluxVale.Pricing.Size
   alias FluxValeWeb.AdminComponents
-  alias FluxValeWeb.UserAuth
 
   @impl Phoenix.LiveView
-  def mount(%{"id" => id}, session, socket) do
-    admin = UserAuth.resolve_user(session)
+  def mount(%{"id" => id}, _session, socket) do
+    # The chrome assigns (current_user, username, nav_section) ride the
+    # AdminChrome on_mount on the :admin live_session — this mount adds
+    # only the page's own data.
+    admin = socket.assigns.current_user
 
     with {:ok, version} <- Ash.get(AppVersion, id, actor: admin, authorize?: true),
          {:ok, version} <- Ash.load(version, [:app, :recommended_size], actor: admin) do
@@ -36,16 +46,7 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
 
       {:ok,
        socket
-       |> assign(
-         current_user: admin,
-         actor_orgs: [],
-         personal_org_id: nil,
-         username: admin && admin.username,
-         nav_section: nil,
-         version: version,
-         sizes: sizes(admin),
-         pattern_options: pattern_options()
-       )
+       |> assign(version: version, sizes: sizes(admin), pattern_options: pattern_options())
        |> assign(contract_text(version))
        |> assign_edit_state(form)}
     else
@@ -66,13 +67,24 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
     |> Ash.read!()
   end
 
+  # Derived from the type's own pattern list: a third pattern added to
+  # the type appears here automatically, and can never be silently
+  # replaced by a select default on save. A pattern unknown to the type
+  # needs no guard of its own: the type's cast rejects it on every
+  # write path (actions and Ash.Seed alike), so such a row cannot exist
+  # to be rendered.
   defp pattern_options do
-    [
-      {gettext("No contract"), ""},
-      {gettext("First registered user is the admin"), "first_registered_user_admin"},
-      {gettext("First open sets the server password"), "first_open_sets_password"}
-    ]
+    [{gettext("No contract"), ""}] ++
+      Enum.map(FirstRunContract.known_patterns(), fn pattern ->
+        {pattern_label(pattern), Atom.to_string(pattern)}
+      end)
   end
+
+  defp pattern_label(:first_registered_user_admin),
+    do: gettext("First registered user is the admin")
+
+  defp pattern_label(:first_open_sets_password),
+    do: gettext("First open sets the server password")
 
   defp build_form(version, admin) do
     version
@@ -112,13 +124,14 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
 
   @impl Phoenix.LiveView
   def handle_event("validate", params, socket) do
-    form = AshPhoenix.Form.validate(socket.assigns.form, merged_params(params))
+    form =
+      AshPhoenix.Form.validate(socket.assigns.form, merged_params(params, socket.assigns.version))
 
     {:noreply, assign_edit_state(socket, form)}
   end
 
   def handle_event("save", params, socket) do
-    av_params = merged_params(params)
+    av_params = merged_params(params, socket.assigns.version)
     form = AshPhoenix.Form.validate(socket.assigns.form, av_params)
 
     case AshPhoenix.Form.submit(form, params: av_params) do
@@ -129,7 +142,7 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
         {:noreply,
          socket
          |> put_flash(:info, gettext("Version saved."))
-         |> assign(version: version)
+         |> assign(version: version, sizes: sizes(admin))
          |> assign(contract_text(version))
          |> assign(form: build_form(version, admin))
          |> assign(mismatch: nil, repointed: nil, first_run_errors: [])}
@@ -149,28 +162,89 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
   # into the one `first_run` param the action accepts. Absent keys
   # carry no opinion, so a crafted partial event cannot silently strip
   # a contract.
-  defp merged_params(params) do
+  defp merged_params(params, version) do
     av = params["app_version"] || %{}
 
-    case contract_params(params) do
+    case contract_params(params, version) do
       :unchanged -> av
       {:contract, contract} -> Map.put(av, "first_run", contract)
     end
   end
 
-  defp contract_params(%{"first_run_pattern" => ""}), do: {:contract, nil}
+  defp contract_params(%{"first_run_pattern" => pattern} = params, version) do
+    loaded = version.first_run
 
-  defp contract_params(%{"first_run_pattern" => pattern} = params) when is_binary(pattern) do
-    {:contract,
-     %{
-       "pattern" => pattern,
-       "env" => parse_env(params["first_run_env"] || ""),
-       "forbidden_env" => parse_lines(params["first_run_forbidden"] || ""),
-       "guidance" => params["first_run_guidance"] || ""
-     }}
+    cond do
+      # "No contract" on a version without one: nothing to say.
+      pattern == "" and is_nil(loaded) ->
+        :unchanged
+
+      # "No contract" on a contracted version: an explicit removal.
+      pattern == "" ->
+        {:contract, nil}
+
+      # The form shows exactly what is stored: the operator touched
+      # nothing in the block, so the stored struct rides the save
+      # untouched (an absent param means keep). The KEY=VALUE
+      # round-trip is lossy (embedded newlines, trailing whitespace),
+      # and rebuilding would silently rewrite data nobody edited.
+      not is_nil(loaded) and pattern == Atom.to_string(loaded.pattern) and
+          untouched_texts?(params, loaded) ->
+        :unchanged
+
+      true ->
+        {:contract, rebuilt(params, loaded, pattern)}
+    end
   end
 
-  defp contract_params(_params), do: :unchanged
+  defp contract_params(_params, _version), do: :unchanged
+
+  defp untouched_texts?(params, loaded) do
+    (params["first_run_env"] || "") == env_lines(loaded.env) and
+      (params["first_run_forbidden"] || "") == Enum.join(loaded.forbidden_env, "\n") and
+      (params["first_run_guidance"] || "") == loaded.guidance
+  end
+
+  # Per-field carry: a textarea that still shows what the page loaded
+  # contributes the stored value, not a re-parse of its own rendering.
+  defp rebuilt(params, loaded, pattern) do
+    %{
+      "pattern" => pattern,
+      "env" =>
+        carried(
+          params["first_run_env"],
+          loaded,
+          fn c -> env_lines(c.env) end,
+          fn c -> c.env end,
+          &parse_env/1
+        ),
+      "forbidden_env" =>
+        carried(
+          params["first_run_forbidden"],
+          loaded,
+          fn c -> Enum.join(c.forbidden_env, "\n") end,
+          fn c -> c.forbidden_env end,
+          &parse_lines/1
+        ),
+      "guidance" => carried_text(params["first_run_guidance"], loaded)
+    }
+  end
+
+  defp carried(param, loaded, render, read, parse) do
+    cond do
+      is_nil(loaded) -> parse.(param || "")
+      param == render.(loaded) -> read.(loaded)
+      true -> parse.(param || "")
+    end
+  end
+
+  defp carried_text(param, loaded) do
+    cond do
+      is_nil(loaded) -> param || ""
+      param == loaded.guidance -> loaded.guidance
+      true -> param || ""
+    end
+  end
 
   defp parse_env(text) do
     text
@@ -193,23 +267,39 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
   end
 
   # The page's display-side coherence read: the defaults as they stand
-  # in the form against the selected size's allocation. nil whenever
-  # anything is unparseable — the field errors carry that story.
+  # in the form against the selected size's allocation, per dimension.
+  # nil whenever anything is unparseable — the field errors carry that
+  # story.
   defp mismatch(assigns, form) do
     size = selected_size(assigns, form)
     values = default_values(assigns.version, form)
 
     if size && values do
-      matches? =
-        Decimal.eq?(size.cpu_cores, values.cpu) and
-          size.memory_mb == values.memory_mb and
-          size.storage_gb == values.storage_gb
-
-      if matches?, do: nil, else: size
+      dims = mismatched_dims(size, values)
+      if dims == [], do: nil, else: %{size: size, dims: dims}
     else
       nil
     end
   end
+
+  defp mismatched_dims(size, values) do
+    Enum.filter(
+      [:cpu, :memory, :storage],
+      fn
+        :cpu -> not Decimal.eq?(size.cpu_cores, values.cpu)
+        :memory -> size.memory_mb != values.memory_mb
+        :storage -> size.storage_gb != values.storage_gb
+      end
+    )
+  end
+
+  defp dim_names(dims) do
+    Enum.map_join(dims, ", ", &dim_name/1)
+  end
+
+  defp dim_name(:cpu), do: gettext("CPU cores")
+  defp dim_name(:memory), do: gettext("memory")
+  defp dim_name(:storage), do: gettext("storage")
 
   defp default_values(version, form) do
     cpu_text =
@@ -325,10 +415,11 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
             id="version-edit-form"
             phx-change="validate"
             phx-submit="save"
-            class="rise space-y-6 max-w-3xl"
+            class="rise space-y-6"
           >
-            <%!-- Blueprint and envelope, presented together, the rule
-            stated before any editing starts. --%>
+            <%!-- Blueprint and envelope, presented together. The static
+            rule is a quiet note; the live mismatch is the loudest thing
+            on the page, naming the dimensions that drifted. --%>
             <.card class="space-y-5" data-testid="admin-version-allocation">
               <div>
                 <h2 class="text-base font-medium text-ink">{gettext("Blueprint and size")}</h2>
@@ -337,11 +428,7 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
                 </p>
               </div>
 
-              <.callout
-                tone="info"
-                title={gettext("The coherence rule")}
-                data-testid="admin-version-coherence-rule"
-              >
+              <.callout tone="info" data-testid="admin-version-coherence-rule">
                 <p>
                   {gettext(
                     "The blueprint defaults and the size envelope must describe the same allocation. Every save checks them against each other."
@@ -360,14 +447,16 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
               <.callout
                 :if={@mismatch}
                 tone="warning"
-                title={gettext("This save will not pass")}
                 data-testid="admin-version-coherence-mismatch"
               >
                 <p>
-                  {gettext(
-                    "The size %{slug} provides %{allocation}. The defaults must match it exactly.",
-                    slug: @mismatch.slug,
-                    allocation: AdminComponents.allocation_text(@mismatch)
+                  {ngettext(
+                    "%{dims} does not match the size. The size %{slug} provides %{allocation}.",
+                    "%{dims} do not match the size. The size %{slug} provides %{allocation}.",
+                    length(@mismatch.dims),
+                    dims: dim_names(@mismatch.dims),
+                    slug: @mismatch.size.slug,
+                    allocation: AdminComponents.allocation_text(@mismatch.size)
                   )}
                 </p>
               </.callout>
@@ -412,7 +501,8 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
             </.card>
 
             <%!-- The first-run contract, edited in place. The key-ownership
-            rule rides the same save. --%>
+            rule rides the same save, and the failure names where the
+            colliding fields live. --%>
             <.card class="space-y-5" data-testid="admin-version-firstrun">
               <div>
                 <h2 class="text-base font-medium text-ink">{gettext("First-run contract")}</h2>
@@ -430,6 +520,11 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
                 <ul class="list-disc pl-4">
                   <li :for={message <- @first_run_errors}>{message}</li>
                 </ul>
+                <p>
+                  {gettext(
+                    "A collision is with the blueprint env fields: default_env_vars, configurable_env_vars, or the instance URL env. Those fields are edited in the debug admin at /admin/ash."
+                  )}
+                </p>
               </.callout>
 
               <.input
@@ -464,6 +559,18 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
                 rows="3"
                 data-testid="admin-version-firstrun-guidance"
               />
+
+              <%!-- The deploy's own env var, read-only here: contract keys
+              must stay out of it too, and the admin should see it while
+              editing the contract. --%>
+              <div :if={@version.instance_url_env} data-testid="admin-version-instance-url-env">
+                <p class="mb-1.5 text-sm font-medium text-ink-muted">
+                  {gettext("Instance URL env")}
+                </p>
+                <div class="rounded-control border border-line bg-panel-raised px-3 py-2 font-mono text-sm text-ink">
+                  {@version.instance_url_env}
+                </div>
+              </div>
             </.card>
 
             <.button type="submit" data-testid="admin-version-save">

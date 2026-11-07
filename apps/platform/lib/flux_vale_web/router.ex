@@ -501,7 +501,8 @@ defmodule FluxValeWeb.Router do
     live_session :admin,
       on_mount: [
         {FluxValeWeb.Locale, :set_locale},
-        {FluxValeWeb.AdminGate, :ensure_admin}
+        {FluxValeWeb.AdminGate, :ensure_admin},
+        {FluxValeWeb.AdminChrome, :assign_chrome}
       ] do
       live("/", FluxValeWeb.AdminLive.Home)
 

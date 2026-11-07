@@ -1,11 +1,11 @@
 defmodule FluxValeWeb.AdminLive.Catalog do
   @moduledoc """
-  The admin catalog surgery list (ADR-0027 Am. 3, #501): every app with
-  its versions, each version showing its allocation, the price it rides
-  (its recommended size's monthly rate), and whether a first-run
-  contract is present. Reads run through the public catalog reads with
-  the platform-admin actor; the edit links hand off to the surgery
-  forms. The size ladder lives one hop away.
+  The admin catalog surgery list (ADR-0027 Am. 3, #501): every app's
+  versions in one grouped table, each version showing its allocation,
+  the price it rides (its recommended size's monthly rate), and whether
+  a first-run contract is present. Reads run through the public catalog
+  reads with the platform-admin actor; the edit links hand off to the
+  surgery forms. The size ladder lives one hop away.
   """
 
   use FluxValeWeb, :live_view
@@ -13,30 +13,19 @@ defmodule FluxValeWeb.AdminLive.Catalog do
   alias FluxVale.Catalog.App
   alias FluxVale.Pricing
   alias FluxValeWeb.AdminComponents
-  alias FluxValeWeb.UserAuth
 
   @impl Phoenix.LiveView
-  def mount(_params, session, socket) do
-    # Chrome-only resolution, display seam (UserAuth): the route gate
-    # (:admin_auth) plus the AdminGate on_mount have already decided
-    # this session is a platform admin — the same posture as the home.
-    current_user = UserAuth.resolve_user(session)
-
+  def mount(_params, _session, socket) do
+    # The chrome assigns (current_user, username, nav_section) ride the
+    # AdminChrome on_mount on the :admin live_session — this mount adds
+    # only the page's own data.
     apps =
       App
-      |> Ash.Query.for_read(:list, %{}, actor: current_user)
+      |> Ash.Query.for_read(:list, %{}, actor: socket.assigns.current_user)
       |> Ash.Query.load(category: [], app_versions: [:recommended_size])
       |> Ash.read!()
 
-    {:ok,
-     assign(socket,
-       current_user: current_user,
-       actor_orgs: [],
-       personal_org_id: nil,
-       username: current_user && current_user.username,
-       nav_section: nil,
-       apps: apps
-     )}
+    {:ok, assign(socket, rows: rows(apps))}
   end
 
   @impl Phoenix.LiveView
@@ -75,65 +64,68 @@ defmodule FluxValeWeb.AdminLive.Catalog do
           </div>
         </section>
 
+        <%!-- One grouped table: the app rides an eyebrow-and-name column,
+        versions are rows — no box-in-box borders, no repeated header
+        rows. Price scannability stays per-version. --%>
         <section class="wrap pt-8 pb-16">
           <div class="rise space-y-4" data-testid="admin-catalog-list">
-            <.empty_state
-              :if={@apps == []}
-              title={gettext("No apps in the catalog yet.")}
-            />
+            <.empty_state :if={@rows == []} title={gettext("No apps in the catalog yet.")} />
 
-            <.card :for={app <- @apps} class="space-y-4" data-testid={"admin-app-#{app.slug}"}>
-              <div class="flex items-baseline justify-between gap-2">
-                <div>
-                  <p class="eyebrow">{app.category.name}</p>
-                  <h2 class="mt-0.5 text-base font-medium text-ink">{app.name}</h2>
+            <.table
+              :if={@rows != []}
+              id="admin-catalog-versions"
+              rows={@rows}
+              row_id={&"catalog-version-#{&1.version.id}"}
+            >
+              <:col :let={row} label={gettext("App")}>
+                <div data-testid={"admin-app-cell-#{row.app.slug}"}>
+                  <p class="eyebrow">{row.app.category.name}</p>
+                  <p class="mt-0.5 text-sm font-medium text-ink">{row.app.name}</p>
                 </div>
-              </div>
-
-              <.table id={"admin-versions-#{app.slug}"} rows={sorted_versions(app)}>
-                <:col :let={version} label={gettext("Version")}>
-                  <span class="font-mono text-xs">{version.version}</span>
-                </:col>
-                <:col :let={version} label={gettext("Allocation")}>
-                  <span data-testid={"admin-version-allocation-#{version.id}"}>
-                    {AdminComponents.allocation_text(version)}
-                  </span>
-                </:col>
-                <:col :let={version} label={gettext("Price")}>
-                  <%= if version.recommended_size do %>
-                    <span data-testid={"admin-version-price-#{version.id}"}>
-                      <span class="font-mono text-xs">{version.recommended_size.slug}</span>
-                      <span class="ml-1.5">
-                        {Pricing.format_usd(version.recommended_size.monthly_cents)}
-                        {gettext("/mo")}
-                      </span>
+              </:col>
+              <:col :let={row} label={gettext("Version")}>
+                <span class="font-mono text-xs" data-testid={"admin-version-name-#{row.version.id}"}>
+                  {row.version.version}
+                </span>
+              </:col>
+              <:col :let={row} label={gettext("Allocation")}>
+                <span data-testid={"admin-version-allocation-#{row.version.id}"}>
+                  {AdminComponents.allocation_text(row.version)}
+                </span>
+              </:col>
+              <:col :let={row} label={gettext("Price")}>
+                <span data-testid={"admin-version-price-#{row.version.id}"}>
+                  <%= if row.version.recommended_size do %>
+                    <span class="font-mono text-xs">{row.version.recommended_size.slug}</span>
+                    <span class="ml-1.5">
+                      {gettext("%{rate}/mo",
+                        rate: Pricing.format_usd(row.version.recommended_size.monthly_cents)
+                      )}
                     </span>
                   <% else %>
-                    <span data-testid={"admin-version-price-#{version.id}"}>
-                      {gettext("No size")}
-                    </span>
+                    {gettext("No size")}
                   <% end %>
-                </:col>
-                <:col :let={version} label={gettext("First run")}>
-                  <span data-testid={"admin-version-firstrun-#{version.id}"}>
-                    <%= if version.first_run do %>
-                      <.badge tone="primary">{gettext("Contract")}</.badge>
-                    <% else %>
-                      <.badge>{gettext("None")}</.badge>
-                    <% end %>
-                  </span>
-                </:col>
-                <:action :let={version}>
-                  <.link
-                    navigate={~p"/admin/catalog/versions/#{version.id}"}
-                    data-testid={"admin-version-edit-#{version.id}"}
-                    class="text-sm font-medium text-link underline-offset-2 hover:underline"
-                  >
-                    {gettext("Edit")}
-                  </.link>
-                </:action>
-              </.table>
-            </.card>
+                </span>
+              </:col>
+              <:col :let={row} label={gettext("First run")}>
+                <span data-testid={"admin-version-firstrun-#{row.version.id}"}>
+                  <%= if row.version.first_run do %>
+                    <.badge tone="primary">{gettext("Contract")}</.badge>
+                  <% else %>
+                    <.badge>{gettext("None")}</.badge>
+                  <% end %>
+                </span>
+              </:col>
+              <:action :let={row}>
+                <.link
+                  navigate={~p"/admin/catalog/versions/#{row.version.id}"}
+                  data-testid={"admin-version-edit-#{row.version.id}"}
+                  class="text-sm font-medium text-link underline-offset-2 hover:underline"
+                >
+                  {gettext("Edit")}
+                </.link>
+              </:action>
+            </.table>
           </div>
         </section>
       </div>
@@ -141,8 +133,13 @@ defmodule FluxValeWeb.AdminLive.Catalog do
     """
   end
 
-  # The version rows read newest-first, matching the app page's own
-  # order (the :list_for_app sort).
+  # The table's flat rows: {app, version} pairs in the app page's own
+  # order — apps by name, each app's versions newest-first (the
+  # :list_for_app sort).
+  defp rows(apps) do
+    for app <- apps, version <- sorted_versions(app), do: %{app: app, version: version}
+  end
+
   defp sorted_versions(app) do
     Enum.sort_by(app.app_versions, & &1.version, :desc)
   end

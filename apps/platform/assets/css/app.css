@@ -98,6 +98,15 @@
 /* from the measured Direction C tables (#277); derived values are     */
 /* commented.                                                          */
 /* ------------------------------------------------------------------ */
+
+/* Native widgets follow the theme's color-scheme: without it, number
+   steppers, scrollbars, and form controls render light-chrome in dark
+   mode (the browser's default is light). Declared beside the token
+   blocks so the scheme flips exactly where the tokens flip. */
+:root {
+  color-scheme: light;
+}
+
 :root {
   /* Action — the dark pairing (#471): amber family end to end, fill
      and ink from one ramp, so the primary button reads tonal in both
@@ -205,6 +214,8 @@
 [data-theme="dark"],
 .dark,
 [data-psb-color-mode="dark"] {
+  color-scheme: dark;
+
   --primary: var(--color-brand-400);
   --primary-hover: var(--color-brand-300);
   --primary-active: var(--color-brand-500);

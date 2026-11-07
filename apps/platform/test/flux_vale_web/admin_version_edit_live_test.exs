@@ -85,17 +85,23 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
         }
       })
 
+      # The loudest thing on the page names the drifted dimension and
+      # quotes the size's allocation.
       assert has_element?(
                view,
                "[data-testid='admin-version-coherence-mismatch']",
-               "This save will not pass"
+               "memory does not match the size"
              )
 
       assert has_element?(
                view,
                "[data-testid='admin-version-coherence-mismatch']",
-               "provides 0.5 CPU, 256 MB, 0 GB"
+               "provides 0.5 CPU · 256 MB · 0 GB"
              )
+
+      # Save stays enabled on purpose: the action-level validation is
+      # the enforcement.
+      assert has_element?(view, "[data-testid='admin-version-save']")
     end
 
     test "a coherent edit shows no mismatch", %{conn: conn} do
@@ -244,6 +250,14 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
       render_change(view, "validate", %{"app_version" => params})
 
       assert has_element?(view, "[data-testid='admin-version-coherence-mismatch']")
+
+      # Three drifted dimensions, named.
+      assert has_element?(
+               view,
+               "[data-testid='admin-version-coherence-mismatch']",
+               "CPU cores, memory, storage do not match"
+             )
+
       assert has_element?(view, "[data-testid='admin-version-repoint']")
 
       render_submit(view, "save", %{"app_version" => params})
@@ -293,9 +307,17 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
     } do
       # The overlap is case-insensitive (the validator's rule): the
       # contract key ADMIN_USER vs the shipped default admin_user.
-      version = built_version!(%{default_env_vars: %{"admin_user" => "nope"}})
+      version =
+        built_version!(%{
+          default_env_vars: %{"admin_user" => "nope"},
+          instance_url_env: "APP_URL"
+        })
 
       {:ok, view, _html} = live(conn, "/admin/catalog/versions/#{version.id}")
+
+      # The deploy's own env var reads read-only in the card: contract
+      # keys must stay out of it too.
+      assert has_element?(view, "[data-testid='admin-version-instance-url-env']", "APP_URL")
 
       params =
         app_version_params(version, %{
@@ -313,10 +335,84 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
                "the contract is the sole owner of its keys"
              )
 
+      # The failure names where the colliding fields are edited today.
+      assert has_element?(
+               view,
+               "[data-testid='admin-version-firstrun-errors']",
+               "default_env_vars, configurable_env_vars, or the instance URL env"
+             )
+
+      assert has_element?(view, "[data-testid='admin-version-firstrun-errors']", "/admin/ash")
+
       render_submit(view, "save", params)
 
       assert has_element?(view, "#flash-error", "Could not save the version")
       assert is_nil(Ash.get!(AppVersion, version.id, authorize?: false).first_run)
+    end
+
+    # The KEY=VALUE round-trip is lossy (embedded newlines, trailing
+    # whitespace), so an untouched contract block must never rebuild:
+    # the seeded value carries a newline the textareas cannot round-
+    # trip, and the save must leave it byte-for-byte. The params here
+    # are exactly what the browser submits: the textarea contents the
+    # page rendered.
+    test "an untouched contract block rides the save unchanged, byte-for-byte", %{conn: conn} do
+      newline_value = "line1\nline2"
+
+      contract =
+        %FluxVale.Catalog.Types.FirstRunContract{
+          pattern: :first_open_sets_password,
+          env: %{"POSTGRES_PASSWORD" => newline_value},
+          forbidden_env: ["registration_enabled"],
+          guidance: "Set the password on first open. "
+        }
+
+      app = Ash.load!(InstanceFixtures.app_version!(), [:app]).app
+
+      # The seed needs a recommended size matching the resource
+      # defaults (the present + coherence validations hold even for
+      # seeded rows the suite reads back through actions).
+      matching_size =
+        PricingFixtures.size!(%{
+          slug: "seed-mate-#{@n}",
+          cpu_cores: Decimal.new("0.5"),
+          memory_mb: 256,
+          storage_gb: 0
+        })
+
+      seeded =
+        Ash.Seed.seed!(AppVersion, %{
+          version: "9.9.#{rem(@n, 100)}",
+          image: "registry.example.com/app:9.9",
+          port: 3000,
+          app_id: app.id,
+          recommended_size_id: matching_size.id,
+          first_run: contract
+        })
+
+      version = Ash.load!(seeded, [:app, :recommended_size])
+
+      {:ok, view, _html} = live(conn, "/admin/catalog/versions/#{version.id}")
+
+      base = app_version_params(version)
+
+      params =
+        Map.merge(base, %{
+          "first_run_pattern" => "first_open_sets_password",
+          "first_run_env" => "POSTGRES_PASSWORD=line1\nline2",
+          "first_run_forbidden" => "registration_enabled",
+          "first_run_guidance" => "Set the password on first open. "
+        })
+
+      render_change(view, "validate", params)
+      render_submit(view, "save", params)
+
+      assert has_element?(view, "#flash-info", "Version saved.")
+
+      reloaded = Ash.get!(AppVersion, version.id, authorize?: false)
+      assert reloaded.first_run.env == %{"POSTGRES_PASSWORD" => newline_value}
+      assert reloaded.first_run.guidance == "Set the password on first open. "
+      assert reloaded.first_run.forbidden_env == ["registration_enabled"]
     end
 
     test "removing a contract takes the No contract path", %{conn: conn} do
@@ -357,6 +453,180 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
 
       assert has_element?(view, "#flash-info", "Version saved.")
       assert is_nil(Ash.get!(AppVersion, version.id, authorize?: false).first_run)
+    end
+
+    # A pattern switch is a rebuild, but only of what the operator
+    # actually changed: the untouched textareas carry the stored values
+    # (env and forbidden keys byte-for-byte, including the embedded
+    # newline the KEY=VALUE round-trip would otherwise lose), and only
+    # the pattern moves.
+    test "a pattern switch carries the untouched contract data", %{conn: conn} do
+      newline_value = "line1\nline2"
+
+      contract =
+        %FluxVale.Catalog.Types.FirstRunContract{
+          pattern: :first_open_sets_password,
+          env: %{"POSTGRES_PASSWORD" => newline_value},
+          forbidden_env: ["registration_enabled"],
+          guidance: "Set the password on first open."
+        }
+
+      app = Ash.load!(InstanceFixtures.app_version!(), [:app]).app
+
+      matching_size =
+        PricingFixtures.size!(%{
+          slug: "switch-mate-#{@n}",
+          cpu_cores: Decimal.new("0.5"),
+          memory_mb: 256,
+          storage_gb: 0
+        })
+
+      seeded =
+        Ash.Seed.seed!(FluxVale.Catalog.AppVersion, %{
+          version: "8.8.#{rem(@n, 100)}",
+          image: "registry.example.com/app:8.8",
+          port: 3000,
+          app_id: app.id,
+          recommended_size_id: matching_size.id,
+          first_run: contract
+        })
+
+      version = Ash.load!(seeded, [:app, :recommended_size])
+
+      {:ok, view, _html} = live(conn, "/admin/catalog/versions/#{version.id}")
+
+      params =
+        app_version_params(version, %{
+          "first_run_pattern" => "first_registered_user_admin",
+          "first_run_env" => "POSTGRES_PASSWORD=line1\nline2",
+          "first_run_forbidden" => "registration_enabled",
+          "first_run_guidance" => "Set the password on first open."
+        })
+
+      render_change(view, "validate", params)
+      render_submit(view, "save", params)
+
+      assert has_element?(view, "#flash-info", "Version saved.")
+
+      reloaded = Ash.get!(FluxVale.Catalog.AppVersion, version.id, authorize?: false)
+      assert reloaded.first_run.pattern == :first_registered_user_admin
+      assert reloaded.first_run.env == %{"POSTGRES_PASSWORD" => newline_value}
+      assert reloaded.first_run.forbidden_env == ["registration_enabled"]
+      assert reloaded.first_run.guidance == "Set the password on first open."
+    end
+
+    test "a partial edit rebuilds only the edited textarea and carries the rest", %{conn: conn} do
+      newline_value = "line1\nline2"
+
+      contract =
+        %FluxVale.Catalog.Types.FirstRunContract{
+          pattern: :first_open_sets_password,
+          env: %{"POSTGRES_PASSWORD" => newline_value},
+          forbidden_env: ["registration_enabled"],
+          guidance: "Set the password on first open."
+        }
+
+      app = Ash.load!(InstanceFixtures.app_version!(), [:app]).app
+
+      matching_size =
+        PricingFixtures.size!(%{
+          slug: "partial-mate-#{@n}",
+          cpu_cores: Decimal.new("0.5"),
+          memory_mb: 256,
+          storage_gb: 0
+        })
+
+      seeded =
+        Ash.Seed.seed!(FluxVale.Catalog.AppVersion, %{
+          version: "8.7.#{rem(@n, 100)}",
+          image: "registry.example.com/app:8.7",
+          port: 3000,
+          app_id: app.id,
+          recommended_size_id: matching_size.id,
+          first_run: contract
+        })
+
+      version = Ash.load!(seeded, [:app, :recommended_size])
+
+      {:ok, view, _html} = live(conn, "/admin/catalog/versions/#{version.id}")
+
+      # Only the guidance text changes: the env textarea still shows
+      # what the page rendered.
+      params =
+        app_version_params(version, %{
+          "first_run_pattern" => "first_open_sets_password",
+          "first_run_env" => "POSTGRES_PASSWORD=line1\nline2",
+          "first_run_forbidden" => "registration_enabled",
+          "first_run_guidance" => "Set the password, then close registration."
+        })
+
+      render_change(view, "validate", params)
+      render_submit(view, "save", params)
+
+      assert has_element?(view, "#flash-info", "Version saved.")
+
+      reloaded = Ash.get!(FluxVale.Catalog.AppVersion, version.id, authorize?: false)
+      assert reloaded.first_run.guidance == "Set the password, then close registration."
+
+      # The untouched env rode the stored value: the newline survives a
+      # rebuild it could not round-trip through.
+      assert reloaded.first_run.env == %{"POSTGRES_PASSWORD" => newline_value}
+      assert reloaded.first_run.forbidden_env == ["registration_enabled"]
+    end
+
+    test "an edited env textarea re-parses (the operator owns the loss)", %{conn: conn} do
+      newline_value = "line1\nline2"
+
+      contract =
+        %FluxVale.Catalog.Types.FirstRunContract{
+          pattern: :first_open_sets_password,
+          env: %{"POSTGRES_PASSWORD" => newline_value},
+          forbidden_env: ["registration_enabled"],
+          guidance: "Set the password on first open."
+        }
+
+      app = Ash.load!(InstanceFixtures.app_version!(), [:app]).app
+
+      matching_size =
+        PricingFixtures.size!(%{
+          slug: "edited-env-#{@n}",
+          cpu_cores: Decimal.new("0.5"),
+          memory_mb: 256,
+          storage_gb: 0
+        })
+
+      seeded =
+        Ash.Seed.seed!(FluxVale.Catalog.AppVersion, %{
+          version: "8.6.#{rem(@n, 100)}",
+          image: "registry.example.com/app:8.6",
+          port: 3000,
+          app_id: app.id,
+          recommended_size_id: matching_size.id,
+          first_run: contract
+        })
+
+      version = Ash.load!(seeded, [:app, :recommended_size])
+
+      {:ok, view, _html} = live(conn, "/admin/catalog/versions/#{version.id}")
+
+      # The env textarea itself is rewritten: the rebuild parses what
+      # the operator typed, newline or not.
+      params =
+        app_version_params(version, %{
+          "first_run_pattern" => "first_open_sets_password",
+          "first_run_env" => "POSTGRES_PASSWORD=line3",
+          "first_run_forbidden" => "registration_enabled",
+          "first_run_guidance" => "Set the password on first open."
+        })
+
+      render_change(view, "validate", params)
+      render_submit(view, "save", params)
+
+      assert has_element?(view, "#flash-info", "Version saved.")
+
+      reloaded = Ash.get!(FluxVale.Catalog.AppVersion, version.id, authorize?: false)
+      assert reloaded.first_run.env == %{"POSTGRES_PASSWORD" => "line3"}
+      assert reloaded.first_run.guidance == "Set the password on first open."
     end
 
     test "guidance is required while a pattern is set (the honest failure)", %{conn: conn} do

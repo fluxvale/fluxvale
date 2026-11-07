@@ -10,27 +10,12 @@ defmodule FluxValeWeb.AdminLive.Home do
 
   use FluxValeWeb, :live_view
 
-  alias FluxValeWeb.UserAuth
-
   @impl Phoenix.LiveView
-  def mount(_params, session, socket) do
-    # Chrome-only resolution, display seam (UserAuth): the route gate
-    # (:admin_auth) plus the AdminGate on_mount have already decided
-    # this session is a platform admin — this read feeds the app
-    # chrome's user menu. The rest of the chrome assigns are
-    # console-neutral: the admin live_session mounts no org/nav hooks,
-    # and this surface runs no data queries.
-    current_user = UserAuth.resolve_user(session)
-
-    {:ok,
-     assign(socket,
-       current_user: current_user,
-       actor_orgs: [],
-       personal_org_id: nil,
-       username: current_user && current_user.username,
-       nav_section: nil,
-       surfaces: surfaces()
-     )}
+  def mount(_params, _session, socket) do
+    # The chrome assigns (current_user, username, nav_section) ride the
+    # AdminChrome on_mount on the :admin live_session — this surface is
+    # still zero data queries; the mount adds only the surface map.
+    {:ok, assign(socket, surfaces: surfaces())}
   end
 
   # The surface map, in the order the lane ships it. Copy stays here so
@@ -97,9 +82,11 @@ defmodule FluxValeWeb.AdminLive.Home do
           </div>
         </section>
 
-        <%!-- The surface map: one mosaic. Unbuilt surfaces keep the
-        honest card and badge; a live surface is a link with the same
-        hover lift as the deep-debugging cards below. --%>
+        <%!-- The surface map: one mosaic, one card shape. Both variants
+        carry the same two-row build — header row (title plus a
+        same-height right slot: the badge for unbuilt, the Open
+        affordance for live) over the blurb — so every description
+        sits on one baseline across the grid. --%>
         <section class="wrap pt-14 pb-16">
           <div class="rise space-y-4">
             <h2 class="eyebrow">{gettext("Surfaces")}</h2>
@@ -115,23 +102,25 @@ defmodule FluxValeWeb.AdminLive.Home do
                       "space-y-2",
                       "transition-[box-shadow] duration-(--motion-base) ease-(--motion-ease-out) group-hover:shadow-md"
                     ]}>
-                      <h3 class="text-base font-medium text-ink transition-colors duration-(--motion-fast) group-hover:text-link">
-                        {surface.title}
-                      </h3>
+                      <div class="flex h-6 items-center justify-between gap-2">
+                        <h3 class="min-w-0 truncate text-base font-medium text-ink transition-colors duration-(--motion-fast) group-hover:text-link">
+                          {surface.title}
+                        </h3>
+                        <span class="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-link">
+                          {gettext("Open")}
+                          <.icon
+                            name="hero-chevron-right"
+                            class="size-4 transition-opacity duration-(--motion-fast) opacity-0 group-hover:opacity-100"
+                          />
+                        </span>
+                      </div>
                       <p class="text-sm text-ink-muted">{surface.blurb}</p>
-                      <p class="flex items-center gap-1 text-sm font-medium text-link">
-                        {gettext("Open")}
-                        <.icon
-                          name="hero-chevron-right"
-                          class="size-4 transition-opacity duration-(--motion-fast) opacity-0 group-hover:opacity-100"
-                        />
-                      </p>
                     </.card>
                   </.link>
                 <% else %>
                   <.card class="space-y-2" data-testid={surface.testid}>
-                    <div class="flex items-center justify-between gap-2">
-                      <h3 class="text-base font-medium text-ink">{surface.title}</h3>
+                    <div class="flex h-6 items-center justify-between gap-2">
+                      <h3 class="min-w-0 truncate text-base font-medium text-ink">{surface.title}</h3>
                       <.badge>{gettext("Coming in this lane")}</.badge>
                     </div>
                     <p class="text-sm text-ink-muted">{surface.blurb}</p>

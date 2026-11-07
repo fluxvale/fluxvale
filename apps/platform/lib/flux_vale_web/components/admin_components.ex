@@ -10,9 +10,11 @@ defmodule FluxValeWeb.AdminComponents do
 
   @doc """
   The allocation a size (or a version's blueprint defaults — both field
-  shapes appear on the admin surfaces) reads as: "0.5 CPU, 256 MB,
-  0 GB". cpu_cores is a Decimal on both; memory and storage are
-  integers.
+  shapes appear on the admin surfaces) reads as: "0.5 CPU · 256 MB ·
+  0 GB". The middle-dot shape matches the product's own allocation
+  strings (the catalog and instance surfaces); the formatter stays
+  admin-local on purpose. cpu_cores is a Decimal on both resources;
+  memory and storage are integers.
   """
   @spec allocation_text(map()) :: String.t()
   def allocation_text(record) do
@@ -21,7 +23,7 @@ defmodule FluxValeWeb.AdminComponents do
     storage = dim(record, :storage_gb, :default_storage_gb)
 
     gettext(
-      "%{cpu} CPU, %{memory} MB, %{storage} GB",
+      "%{cpu} CPU · %{memory} MB · %{storage} GB",
       cpu: Decimal.to_string(cpu),
       memory: Integer.to_string(memory),
       storage: Integer.to_string(storage)

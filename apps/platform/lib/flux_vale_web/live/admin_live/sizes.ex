@@ -12,30 +12,24 @@ defmodule FluxValeWeb.AdminLive.Sizes do
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Pricing.Size
   alias FluxValeWeb.AdminComponents
-  alias FluxValeWeb.UserAuth
 
   @impl Phoenix.LiveView
-  def mount(_params, session, socket) do
-    # Chrome-only resolution, display seam (UserAuth): the route gate
-    # (:admin_auth) plus the AdminGate on_mount have already decided
-    # this session is a platform admin — the same posture as the home.
-    current_user = UserAuth.resolve_user(session)
+  def mount(_params, _session, socket) do
+    # The chrome assigns (current_user, username, nav_section) ride the
+    # AdminChrome on_mount on the :admin live_session — this mount adds
+    # only the page's own data.
+    admin = socket.assigns.current_user
 
     sizes =
       Size
-      |> Ash.Query.for_read(:read, %{}, actor: current_user)
+      |> Ash.Query.for_read(:read, %{}, actor: admin)
       |> Ash.Query.sort(monthly_cents: :asc)
       |> Ash.read!()
 
     {:ok,
      assign(socket,
-       current_user: current_user,
-       actor_orgs: [],
-       personal_org_id: nil,
-       username: current_user && current_user.username,
-       nav_section: nil,
        sizes: sizes,
-       version_counts: version_counts(current_user)
+       version_counts: version_counts(admin)
      )}
   end
 
@@ -97,21 +91,27 @@ defmodule FluxValeWeb.AdminLive.Sizes do
               row_id={&"size-row-#{&1.slug}"}
             >
               <:col :let={size} label={gettext("Size")}>
-                <span class="font-mono text-xs">{size.slug}</span>
+                <span class="font-medium text-ink">{size.slug}</span>
               </:col>
               <:col :let={size} label={gettext("Allocation")}>
                 {AdminComponents.allocation_text(size)}
               </:col>
               <:col :let={size} label={gettext("Running rate")}>
-                {FluxVale.Pricing.format_usd(size.monthly_cents)}
-                {gettext("/mo")}
+                {gettext("%{rate}/mo", rate: FluxVale.Pricing.format_usd(size.monthly_cents))}
               </:col>
               <:col :let={size} label={gettext("Stopped rate")}>
-                {FluxVale.Pricing.format_usd(size.stopped_monthly_cents)}
-                {gettext("/mo")}
+                {gettext("%{rate}/mo", rate: FluxVale.Pricing.format_usd(size.stopped_monthly_cents))}
               </:col>
               <:col :let={size} label={gettext("Versions")}>
-                {ngettext("1 version", "%{count} versions", @version_counts[size.id] || 0)}
+                <span data-testid={"admin-size-versions-#{size.slug}"}>
+                  <%= if (@version_counts[size.id] || 0) > 0 do %>
+                    <.badge tone="warning">
+                      {ngettext("1 version", "%{count} versions", @version_counts[size.id])}
+                    </.badge>
+                  <% else %>
+                    <span class="text-ink-muted">0</span>
+                  <% end %>
+                </span>
               </:col>
               <:action :let={size}>
                 <.link
