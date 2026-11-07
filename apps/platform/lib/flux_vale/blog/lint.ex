@@ -1,17 +1,19 @@
 defmodule FluxVale.Blog.Lint do
   @moduledoc """
   The content lint (ADR-00025 §1: "a mix task validates frontmatter so
-  agent-authored posts fail CI loudly"): every `*.md` under
-  `priv/content/blog` must carry parseable YAML frontmatter with the
+  agent-authored posts fail CI loudly"): every `*.md` under the
+  content directory must carry parseable YAML frontmatter with the
   required fields; a post's slug equals its filename stem; slugs are
   unique; an `og_image` must resolve to a shipped static file. `mix
   blog.lint` (in `mix ci`) is the caller — invalid content cannot
   merge, and `FluxVale.Blog.Loader.load!/1` re-checks at boot so it
   cannot deploy either.
 
-  This module also owns frontmatter parsing (the split + YAML read) —
-  the Loader depends on it, never the other way around.
+  Frontmatter parsing lives in `FluxVale.Markdown` (shared with the
+  docs lane since ADR-0044); the shape rules above are this module's.
   """
+
+  alias FluxVale.Markdown
 
   @known_fields ~w(title description date slug author draft og_image tags)
   @required_fields ~w(title description date slug author)
@@ -54,32 +56,14 @@ defmodule FluxVale.Blog.Lint do
   Splits one post file into its frontmatter map (string keys, raw YAML
   values) and the markdown body. `{:error, reason}` for a missing or
   malformed frontmatter block or invalid YAML.
+
+  The split itself lives in `FluxVale.Markdown` since ADR-0044 gave
+  the docs lane the same grammar — this keeps the blog's public seam
+  stable while both lanes parse identically.
   """
   @spec parse(Path.t()) ::
           {:ok, %{required(String.t()) => term()}, String.t()} | {:error, String.t()}
-  def parse(path) do
-    path
-    |> File.read!()
-    |> parse_contents()
-  end
-
-  defp parse_contents("---" <> rest = contents) do
-    case String.split(rest, ["\n---\n", "\n---\r\n", "\n---"], parts: 2) do
-      [frontmatter, body] ->
-        case YamlElixir.read_from_string(frontmatter) do
-          {:ok, attrs} when is_map(attrs) -> {:ok, attrs, body}
-          {:ok, _other} -> {:error, "frontmatter must be a YAML mapping"}
-          {:error, error} -> {:error, "invalid YAML frontmatter: #{Exception.message(error)}"}
-        end
-
-      _no_closing_delimiter ->
-        {:error, "missing closing --- delimiter (#{inspect(String.slice(contents, 0, 20))}…)"}
-    end
-  end
-
-  defp parse_contents(_not_delimited) do
-    {:error, "missing frontmatter (must open with a --- block)"}
-  end
+  def parse(path), do: Markdown.parse_file(path)
 
   defp validate_files(paths, static_root) do
     Enum.reduce(paths, [], fn path, errors ->

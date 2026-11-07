@@ -79,6 +79,12 @@ fi
 # pin it, or a different current context takes every apply below.
 kubectl config use-context k3d-fluxvale
 
+# ---- content: sync into the dev image's context (ADR-0044). The
+# build context is apps/platform and the priv copies are gitignored, so
+# docs/public and docs/blog must exist there before docker build — the
+# same channel CI's deploy-image job uses.
+scripts/sync-content.sh
+
 # ---- dev image: build on the host, push to the k3d registry the nodes
 # pull from (never docker.io). Fresh tag per run so a re-run always
 # rolls a genuinely new image (IfNotPresent would cache a same-tag push).

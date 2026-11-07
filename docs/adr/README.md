@@ -33,7 +33,7 @@ already ruled out.
 | [ADR-0022](00022-talos-linux.md) | Talos Linux: the OS *is* the cluster; Ansible exits; Omni deferred | Accepted (amended — see Amendment 1) |
 | [ADR-0023](00023-day-one-gates.md) | Day-one gates: AccessRule (staging/beta invites) + FeatureFlag design | Accepted (amended — see Amendments 1–6) |
 | [ADR-0024](00024-e2e-review-environments.md) | E2E + review environments: per-PR Playwright, fleet-repo-provisioned | Accepted (amended — see Amendments 1–2) |
-| [ADR-0025](00025-seo-content-architecture.md) | SEO: in-app blog at /blog, catalog as programmatic SEO, noindex non-prod | Accepted (amended — Am. 1) |
+| [ADR-0025](00025-seo-content-architecture.md) | SEO: in-app blog at /blog, catalog as programmatic SEO, noindex non-prod | Accepted (amended — Am. 1–2) |
 | [ADR-0026](00026-feedback-board.md) | Feedback board: in-app, public read, paying-customers-write | Accepted (amended — see Amendment 1) |
 | [ADR-0027](00027-admin-surface-ashadmin.md) | Admin surface: AshAdmin (generated CRUD through Ash actions) | Accepted (amended — see Amendment 1) |
 | [ADR-0028](00028-flat-rate-pricing.md) | Pricing: allocation-based flat monthly rates, not measured usage | Accepted (amended — see Amendments 1–3) |
@@ -52,6 +52,7 @@ already ruled out.
 | [ADR-0041](00041-gettext-i18n-foundation.md) | Gettext i18n foundation: en-only now; one locale seam (`FluxValeWeb.Locale`, session-first) + `lang` attribute; extract `--check-up-to-date` in `mix ci`; phase 2 extracts authed surfaces post-redesign, email copy via an explicit-locale mailer API | Accepted |
 | [ADR-0042](00042-user-created-organizations.md) | User-created organizations: create-with-owner under a 10-org cap, the `personal_owner_id` marker, per-org wallets with their own top-up (Option A), Stripe-model membership via invites; transfers deferred | Accepted |
 | [ADR-0043](00043-instance-resize.md) | Instance resize: stopped-first apply, CPU/RAM both ways, storage up-only behind a live StorageClass capability probe, create-equivalent re-pricing (fresh 1-year clock), append-only allocation-era trail | Accepted (amended — see Amendment 1) |
+| [ADR-0044](00044-public-docs-surface.md) | Content home: `docs/public` + `docs/blog` source of truth, synced gitignored priv copies, `FluxVale.Docs` mirroring the blog lane, `/docs` SSR pages, lint-enforced public/internal boundary | Accepted |
 
 ## Conventions
 

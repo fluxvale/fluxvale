@@ -104,5 +104,11 @@ config :flux_vale, :storybook_enabled, true
 # code reloading doesn't watch it — with this flag the blog controllers
 # stat-check the content dir per request and recompile on change, so
 # writing a post locally needs no restart. Unset in test/prod (a no-op
-# there; FluxVale.Blog.maybe_hot_reload/0 reads it).
+# there; FluxVale.Blog.maybe_hot_reload/0 reads it). NB the sync since
+# ADR-0044: edit docs/blog, run `mix content.sync`, and the reload
+# picks the priv copy up — the source tree lives outside the app dir.
 config :flux_vale, :blog_hot_reload, true
+
+# Docs hot reload (ADR-0044 §3): the same flag for the public docs
+# tree, same sync loop (edit docs/public, run `mix content.sync`).
+config :flux_vale, :docs_hot_reload, true

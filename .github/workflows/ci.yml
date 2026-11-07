@@ -46,6 +46,14 @@ jobs:
           filters: |
             platform:
               - "apps/platform/**"
+              # ADR-0044: the content home (docs/public, docs/blog)
+              # feeds the platform's loaders, lints, and tests
+              # (content.sync copies both into priv before the suite) —
+              # a content change is a platform change. The sync script
+              # rides the same lanes.
+              - "docs/public/**"
+              - "docs/blog/**"
+              - "scripts/sync-content.sh"
               - "mise.toml"
               - ".github/workflows/ci.yml"
             docs:
@@ -974,6 +982,14 @@ jobs:
       # install_and_run's existence checks look. Local release builds:
       # .prebuilt/ holds only .gitkeep, default fetch paths unchanged.
       - uses: ./.github/actions/prebuilt
+
+      # ADR-0044 §2: the priv content copies are gitignored and the
+      # build context is apps/platform — stage docs/public and docs/blog
+      # into it before the image build, the same channel the e2e
+      # bootstrap and Tiltfile use. Without it the image ships an empty
+      # /docs and /blog.
+      - name: Sync content into the build context
+        run: scripts/sync-content.sh
 
       # v7.4.0 — pinned to commit (repo rule above). GHA cache: the
       # release build is dominated by deps.compile + app compile; layers

@@ -39,6 +39,12 @@ npm-debug.log
 # Dialyzer PLT (mix.exs dialyzer config) — rebuilt, never committed
 /priv/plts/
 
+# Synced content trees (ADR-0044): generated from docs/public and
+# docs/blog by scripts/sync-content.sh (mix content.sync) — the repo
+# root trees are the one source of truth, these copies never commit.
+/priv/content/docs/
+/priv/content/blog/
+
 # ExCoveralls crash-export artifacts
 *.coverdata
 

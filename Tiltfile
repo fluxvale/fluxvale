@@ -52,6 +52,13 @@ if not BASE_IMAGE.find('erlang-%s' % mise_otp) >= 0:
     fail('BASE_IMAGE %r does not match mise.toml erlang %r — bump BASE_IMAGE alongside mise' % (BASE_IMAGE, mise_otp))
 
 # ---- platform app ----------------------------------------------------------
+# Content (ADR-0044): docs/public and docs/blog are the source of
+# truth, the dev image serves the priv copies, and the build context is
+# apps/platform — so sync before the build. live_update's priv sync
+# carries a later re-run (scripts/sync-content.sh after editing
+# content) into the container without an image rebuild.
+local('../../scripts/sync-content.sh')
+
 docker_build(
     'fluxvale/platform-dev',
     context='apps/platform',

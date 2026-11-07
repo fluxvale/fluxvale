@@ -14,8 +14,7 @@ defmodule FluxVale.Blog.Loader do
 
   alias FluxVale.Blog.Lint
   alias FluxVale.Blog.Post
-
-  alias MDEx
+  alias FluxVale.Markdown
 
   @posts_key {__MODULE__, :posts}
   @stamp_key {__MODULE__, :stamp}
@@ -67,7 +66,7 @@ defmodule FluxVale.Blog.Loader do
     end
   end
 
-  @doc "The content dir this release carries (ADR-00025 §1's path)."
+  @doc "The content dir this release carries (ADR-00025 §1's path — the synced docs/blog copy, ADR-0044 §2)."
   @spec default_dir() :: Path.t()
   def default_dir, do: Application.app_dir(:flux_vale, "priv/content/blog")
 
@@ -97,11 +96,7 @@ defmodule FluxVale.Blog.Loader do
     }
   end
 
-  defp render(body) do
-    MDEx.to_html!(body,
-      extension: [table: true, strikethrough: true, tasklist: true, autolink: true]
-    )
-  end
+  defp render(body), do: Markdown.render(body)
 
   # yaml_elixir hands dates over as ISO strings (probed — quoted or
   # not), and the lint already guaranteed parseability by the time the

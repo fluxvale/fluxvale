@@ -21,6 +21,11 @@ defmodule FluxVale.Application do
     # CI first; this is the deploy-time backstop).
     Loader.load!()
 
+    # Public docs pages (ADR-0044 §3): the same boot semantics for the
+    # docs tree (the synced docs/public copy in priv) — mix docs.lint
+    # gates the source in CI, this is the deploy-time backstop.
+    FluxVale.Docs.Loader.load!()
+
     # Request/query tracing handlers attach before anything serves
     # traffic (#98, ADR-0012 Am. 1).
     FluxVale.Observability.setup_instrumentation()
