@@ -83,6 +83,11 @@ defmodule FluxVale.Catalog.Category do
       argument(:slug, :string, allow_nil?: false)
       filter(expr(slug == ^arg(:slug)))
     end
+
+    read :list_with_apps do
+      description "The browse surfaces' category list: name-sorted with its apps loaded"
+      prepare(build(sort: :name, load: [:apps]))
+    end
   end
 
   code_interface do
@@ -91,6 +96,7 @@ defmodule FluxVale.Catalog.Category do
     define(:create)
     define(:update)
     define(:get_by_slug, args: [:slug])
+    define(:list_with_apps)
   end
 
   identities do
