@@ -127,7 +127,10 @@ defmodule FluxValeWeb.AdminShell do
           # the wallet table and the per-wallet detail (a sub-route,
           # which marks this entry aria-current="location").
           %{key: "wallets", label: gettext("Wallets and billing"), path: ~p"/admin/billing"},
-          %{key: "feedback", label: gettext("Feedback moderation")},
+          # #501's feedback moderation section: live. The surface owns
+          # the posts list, the per-post expansion, and the tag
+          # vocabulary.
+          %{key: "feedback", label: gettext("Feedback moderation"), path: ~p"/admin/moderation"},
           %{key: "orgs", label: gettext("Orgs and instances")},
           %{key: "gateways", label: gettext("Access gateways and domains")}
         ]
