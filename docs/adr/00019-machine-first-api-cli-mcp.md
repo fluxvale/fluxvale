@@ -122,9 +122,9 @@ in follow-up slices (#482).
 Distribution mirrors Am. 3's posture: manual-first via GitHub
 Releases carrying registry-shaped archives
 (`terraform-provider-fluxvale_vX.Y.Z_OS_ARCH.zip` + `SHA256SUMS`)
-under namespaced `tf-v*` tags. registry.terraform.io (a dedicated
-`terraform-provider-fluxvale` repo + GPG signing) is deferred until a
-second user exists.
+under namespaced `tf-v*` tags. registry.terraform.io (a
+dedicated `terraform-provider-fluxvale` repo + GPG signing) is
+deferred until a second user exists.
 
 Compatibility contract: config attribute names
 (`api_url`/`token`/`organization`), `FLUXVALE_PAT`, and

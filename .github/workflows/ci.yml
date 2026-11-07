@@ -440,7 +440,16 @@ jobs:
     needs: check-changes
     if: needs.check-changes.outputs.tfprovider == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # The gates + the real-tofu smoke (a real OpenTofu CLI driving the
+    # real compiled binary: plan, apply, destroy — ~1 min with the
+    # toolchain download; the 10s of the gateway-observe poll inside).
+    # 25 is a ceiling, not a target.
+    timeout-minutes: 25
+    env:
+      # mise x must USE the installed tofu without auto-installing the
+      # config's other pins (erlang = source compile, 15+ min — the
+      # abandoned CI path in AGENTS.md)
+      MISE_AUTO_INSTALL: "0"
     defaults:
       run:
         working-directory: apps/tfprovider
@@ -484,6 +493,40 @@ jobs:
       - run: go test ./...
 
       - run: go build ./...
+
+      # The release-tag gate (#482 P7) proven here on every
+      # provider-touching PR — the same shape the cli lane runs for
+      # its script (the test-script shape the linked-issues lane uses).
+      - run: ./scripts/test-check-tag-version.sh
+
+      - run: shellcheck scripts/*.sh
+
+      # The real-tofu smoke (TFPROVIDER_E2E=1 below): a real OpenTofu
+      # CLI driving the real compiled binary — the gate that catches
+      # what in-process tests cannot (it caught the reserved-`provider`
+      # root attribute and the plan-time-unknown organization seed on
+      # its first runs). Same pins + install shape as the e2e job:
+      # binaries verified against mise.lock; install the ONE tool this
+      # job needs, never the whole config.
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          version: 2026.9.14
+          install: false
+      - run: mise install opentofu
+
+      # Examples are user-facing copy-paste: formatting is part of the
+      # contract. Offline — no provider install, just the formatter.
+      - name: tofu fmt (examples)
+        run: mise x -- tofu fmt -check -recursive examples
+
+      # Offline (the fake is an httptest server; dev_overrides needs no
+      # registry): plan → apply → destroy against the freshly built
+      # binary. See internal/provider/e2e_test.go for what this gate is
+      # for.
+      - name: Real-tofu smoke
+        env:
+          TFPROVIDER_E2E: "1"
+        run: mise x -- go test ./internal/provider -run TestRealTofuSmoke -count=1 -v
 
   # Conventions enforcement (docs/adr/README.md): amended ADRs must be
   # marked in the index — 9 of 14 were unmarked when this landed (#36

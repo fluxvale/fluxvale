@@ -1,0 +1,354 @@
+# The tfprovider's release engineering — apps/cli's release lane
+# (.github/workflows/cli-release.yml, ADR-0019 Am. 3/4) mirrored for the
+# Terraform/OpenTofu provider: the same 4-target matrix, registry-shaped
+# archives, per-leg checksums, and a GitHub Release per tf-v* tag.
+#
+# The tag scheme is NAMESPACED: `tf-v*` only, so cli-v* (and the BEAM
+# side's scheme, whenever it lands) can never collide with this
+# trigger. Same caveat cli-release.yml carries: releases/latest is the
+# newest release in the repo, whatever the namespace — a provider
+# release becomes "latest", and the CLI installer's releases/latest
+# fetch 404s until the next CLI tag (its installer refuses a non-cli-v*
+# tag, so it fails loudly, but users piping the one-liner in that
+# window hit the 404 first). Revisit if both namespaces ship regularly.
+#
+# Version wiring: the tag NAMES the release; the BINARY's version comes
+# from the const in apps/tfprovider/internal/provider/version.go (one
+# source — main.go wires it into the User-Agent and the -version flag).
+# check-tag fails the release when tag and const disagree, and every
+# build leg asserts the binary itself reports the release version via
+# `-version` — the provider's own clap-analog of `fluxvale --version`.
+# No ldflags stamping: the version is in the source, so what the
+# binary reports is what the tag's commit built.
+#
+# Archive shape is REGISTRY-SHAPED, two levels of naming (the
+# registry's packed convention): the ZIP is
+# `terraform-provider-fluxvale_<version>_<os>_<arch>.zip` — zip on ALL
+# platforms, os/arch in GOOS/GOARCH vocabulary, no `v`, NO version
+# directory in mirror use — and the binary INSIDE is
+# `terraform-provider-fluxvale_v<version>` (the `v` lives on the
+# binary). That is what filesystem mirrors and the eventual registry
+# expect (docs/install.md).
+#
+# workflow_dispatch is the DRY RUN: build + archive + checksums land as
+# run artifacts and publish never fires — the event gate in publish's
+# `if` holds even for a dispatch pointed at a tag ref. The tag path is
+# entered only by pushing a `tf-v*` tag.
+#
+# No install-smoke rehearsal (cli-release.yml's smoke-rehearsal/
+# smoke-released): the provider is not curl-installed — its install
+# path is tofu's filesystem_mirror, exercised by tofu itself, and the
+# real-tofu smoke gate in ci.yml drives the real CLI against the real
+# binary on every provider-touching PR.
+name: tfprovider release
+
+on:
+  push:
+    tags:
+      - "tf-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-tag:
+    name: Tag matches version.go version
+    if: startsWith(github.ref, 'refs/tags/tf-v')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Assert the tag's version equals the provider's version source
+        run: apps/tfprovider/scripts/check-tag-version.sh "$GITHUB_REF_NAME"
+
+  # build deliberately does NOT need check-tag: a `needs` here would
+  # skip the matrix on branch dispatches (check-tag is ref-gated) and
+  # kill the dry run. The cost: a tag that fails check-tag still burns
+  # one matrix run — publish (which needs both) is what actually gates
+  # the release.
+  build:
+    name: Build + archive (${{ matrix.leg.name }})
+    runs-on: ${{ matrix.leg.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Same four legs as cli-release.yml's matrix (native runners:
+        # linux aarch64 on the free arm label, macos-latest is arm64,
+        # windows-latest is x64). goos/goarch name the archive —
+        # the registry's vocabulary, not the leg names'.
+        leg:
+          - name: linux-amd64
+            os: ubuntu-24.04
+            os_arch: linux_amd64
+            binary: terraform-provider-fluxvale
+          - name: linux-aarch64
+            os: ubuntu-24.04-arm
+            os_arch: linux_arm64
+            binary: terraform-provider-fluxvale
+          - name: macos-aarch64
+            os: macos-latest
+            os_arch: darwin_arm64
+            binary: terraform-provider-fluxvale
+          - name: windows-x64
+            os: windows-latest
+            os_arch: windows_amd64
+            binary: terraform-provider-fluxvale.exe
+    defaults:
+      run:
+        working-directory: apps/tfprovider
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Same install as ci.yml's tfprovider lane: parse (not install)
+      # from mise.toml — the release build and the per-PR proof can't
+      # drift from the pin.
+      - name: Read Go version from mise.toml
+        id: go
+        working-directory: .
+        run: |
+          version="$(sed -n 's/^go *= *"\([^"]*\)".*/\1/p' mise.toml)"
+          echo "go=$version"
+          test -n "$version"
+          echo "go=$version" >>"$GITHUB_OUTPUT"
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ steps.go.outputs.go }}
+          # Release artifacts build from a cold cache: nothing restored
+          # can enter a published, checksummed binary (zizmor's
+          # cache-poisoning class). The PR lane keeps caching — different
+          # risk posture, nothing it builds is published.
+          cache: false
+
+      - name: Build the provider binary
+        run: go build -trimpath -o ${{ matrix.leg.binary }} .
+
+      # The release version: the tag's, in tag mode (check-tag already
+      # asserted version.go equality); version.go's in the dispatch dry
+      # run (no tag — and that is the same const the binary's -version
+      # prints). shell: bash on every leg so the sed is one dialect.
+      # The charset guard is injection-safety only — it accepts semver's
+      # whole grammar (alnum, dots, dashes for pre-releases, plus for
+      # build metadata) because grammar policy lives in version.go via
+      # check-tag, not here.
+      - name: Parse the release version
+        id: version
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version="${GITHUB_REF_NAME#tf-v}"
+          else
+            version="$(sed -n 's/^const Version = "\([^"]*\)"/\1/p' internal/provider/version.go | head -1)"
+          fi
+          case "$version" in
+            *[!0-9A-Za-z.+-]*) echo "::error::release version '$version' has characters outside semver's grammar"; exit 1 ;;
+          esac
+          test -n "$version"
+          echo "release version: $version"
+          {
+            echo "version<<EOF"
+            echo "$version"
+            echo "EOF"
+          } >>"$GITHUB_OUTPUT"
+
+      # The end-to-end version proof, per leg: the binary that goes in
+      # the archive must self-report the release version — providerserver
+      # exposes no --version of its own, so main.go's -version flag
+      # prints the const (see the header). VERSION is env-indirected,
+      # not ${{ }}-inline — the house posture for caller-influenced
+      # values (the tag name is one).
+      - name: Assert the binary reports the release version
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          actual="$(./${{ matrix.leg.binary }} -version)"
+          echo "binary reports: $actual"
+          case "$actual" in
+            *" $VERSION") echo "matches the release version" ;;
+            *) echo "::error::terraform-provider-fluxvale -version ($actual) does not carry the release version ($VERSION)"; exit 1 ;;
+          esac
+
+      # Registry-shaped archive, two levels (see the header): the zip
+      # keeps its `_<version>_<os>_<arch>` name, the binary is STAGED
+      # under the registry's inner name — `terraform-provider-fluxvale_v<version>`,
+      # flat at the zip root. The proof ASSERTS the exact entry list,
+      # it doesn't print it. zip on ALL platforms: the runner's zip on
+      # unix, PowerShell's Compress-Archive on Windows (no zip.exe
+      # there; Git Bash's `zip` is absent too).
+      - name: Archive the binary (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          OS_ARCH: ${{ matrix.leg.os_arch }}
+        run: |
+          archive="terraform-provider-fluxvale_${VERSION}_${OS_ARCH}.zip"
+          inner="terraform-provider-fluxvale_v${VERSION}"
+          cp "${{ matrix.leg.binary }}" "$inner"
+          zip -q "$archive" "$inner"
+          entries="$(unzip -Z1 "$archive")"
+          echo "archive entries: $entries"
+          if [ "$entries" != "$inner" ]; then
+            echo "::error::$archive entries = [$entries], want exactly [$inner]"
+            exit 1
+          fi
+
+      - name: Archive the binary (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          OS_ARCH: ${{ matrix.leg.os_arch }}
+        run: |
+          $archive = "terraform-provider-fluxvale_${env:VERSION}_${env:OS_ARCH}.zip"
+          $inner = "terraform-provider-fluxvale_v${env:VERSION}"
+          Copy-Item "${{ matrix.leg.binary }}" $inner
+          Compress-Archive -Path $inner -DestinationPath $archive
+          # Flat-entry proof: exactly one root entry, the registry-named binary.
+          $entries = ([System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $archive))).Entries |
+            Select-Object -ExpandProperty FullName
+          Write-Host "archive entries: $entries"
+          if ("$entries" -ne $inner) {
+            Write-Error "::error::$archive entries = [$entries], want exactly [$inner]"
+            exit 1
+          }
+
+      # Per-leg checksum file (SHA256SUMS.<os>_<arch>); the publish job
+      # concatenates the parts and runs `sha256sum -c` over the whole
+      # set before anything attaches to a release. shasum is macOS's
+      # fallback (same `<hash>  <file>` format).
+      - name: Checksum the archive
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          OS_ARCH: ${{ matrix.leg.os_arch }}
+        run: |
+          archive="terraform-provider-fluxvale_${VERSION}_${OS_ARCH}.zip"
+          test -f "$archive" || { echo "::error::no archive for this leg"; exit 1; }
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$archive" > "SHA256SUMS.${OS_ARCH}"
+          else
+            shasum -a 256 "$archive" > "SHA256SUMS.${OS_ARCH}"
+          fi
+          cat "SHA256SUMS.${OS_ARCH}"
+
+      # `terraform-provider-fluxvale_*` is deliberately NOT the glob for
+      # the checkout dir — it lives in apps/tfprovider and nothing else
+      # in here matches, but exact extensions keep the artifact set
+      # exact anyway.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ matrix.leg.name }}
+          path: |
+            apps/tfprovider/terraform-provider-fluxvale_*.zip
+            apps/tfprovider/SHA256SUMS.*
+          if-no-files-found: error
+
+  # Pushes of `tf-v*` tags only. Dispatch NEVER publishes — including a
+  # dispatch pointed at a tag ref (`gh workflow run --ref tf-v1.2.3` is
+  # legal), which is why the event gate is in the `if` below, not just
+  # the trigger. A failed build also auto-skips this job, so the
+  # conjunction below is exact: publish fires on a green,
+  # version-checked tag push, nothing else.
+  publish:
+    name: Publish GitHub Release
+    needs: [check-tag, build]
+    if: github.event_name == 'push' && needs.build.result == 'success' && needs.check-tag.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      # The install primer composes from apps/tfprovider/docs/install.md
+      # — the repo checkout is what the body links to, hence checkout.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+
+      - name: Merge and verify the checksums
+        run: |
+          cd dist
+          cat SHA256SUMS.* > SHA256SUMS
+          rm SHA256SUMS.*
+          cat SHA256SUMS
+          sha256sum -c SHA256SUMS
+
+      # The registry layout wants one zip per os_arch — name the four,
+      # never a glob that could quietly match three.
+      - name: Assert the artifact set is complete
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version="${REF_NAME#tf-v}"
+          for os_arch in linux_amd64 linux_arm64 darwin_arm64 windows_amd64; do
+            if [ ! -f "dist/terraform-provider-fluxvale_${version}_${os_arch}.zip" ]; then
+              echo "::error::missing dist/terraform-provider-fluxvale_${version}_${os_arch}.zip"
+              exit 1
+            fi
+          done
+
+      # Static manual-install primer: the registry isn't live (ADR-0019
+      # Am. 4 — manual-first), so the body carries the filesystem-
+      # mirror recipe's PACKED layout (zips directly in the type dir —
+      # no version directory) and points at docs/install.md pinned to
+      # this tag.
+      - name: Compose the release notes
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          version="${REF_NAME#tf-v}"
+          cat > notes.md <<EOF
+          ## Install (manual — the registry switch comes later, [ADR-0019](https://github.com/fluxvale/fluxvale/blob/main/docs/adr/00019-machine-first-api-cli-mcp.md) Am. 4)
+
+          Download the zip for your platform, verify your line of the merged \`SHA256SUMS\`
+          (\`grep <your-zip> SHA256SUMS | sha256sum -c -\`), then lay the zips into a
+          [filesystem mirror](https://opentofu.org/docs/cli/config/files/) — the
+          packed layout, zips directly in the type directory (no version directory):
+
+          \`\`\`
+          ~/.tfplugins-mirror/
+            registry.terraform.io/
+              fluxvale/
+                fluxvale/
+                  terraform-provider-fluxvale_${version}_linux_amd64.zip
+                  terraform-provider-fluxvale_${version}_darwin_arm64.zip
+                  ...
+          \`\`\`
+
+          The copy-paste recipe — mirror layout, checksum verify, the CLI
+          \`provider_installation\` block, and the dev_overrides loop — lives in
+          [apps/tfprovider/docs/install.md](${REPO_URL}/blob/${REF_NAME}/apps/tfprovider/docs/install.md).
+          EOF
+          cat notes.md
+
+      # The release title strips the tf-v namespace prefix — the tag is
+      # for the trigger and the archives, the title is for humans.
+      - name: Derive the release title
+        id: title
+        run: echo "name=fluxvale Terraform provider ${GITHUB_REF_NAME#tf-v}" >>"$GITHUB_OUTPUT"
+
+      # v3.0.3 — pinned to the SAME commit cli-release.yml uses: one
+      # reviewed action version across the release lanes. Notes: the
+      # static primer (composed above), not auto-generated notes —
+      # those list every PR in the repo (#480).
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          name: ${{ steps.title.outputs.name }}
+          body_path: notes.md
+          files: |
+            dist/terraform-provider-fluxvale_*.zip
+            dist/SHA256SUMS
+          fail_on_unmatched_files: true
