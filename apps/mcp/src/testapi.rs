@@ -112,6 +112,10 @@ mod tests {
             .unwrap();
         let mut head = String::new();
         let mut buf = [0u8; 4096];
+        // The `read == 0` break below is the loop's EOF guard — the
+        // deliberate coverage exclusion here (race-window class): this
+        // server always answers a full head, so the client never sees
+        // a premature close on the read side.
         while !head.contains("\r\n\r\n") {
             let read = std::io::Read::read(&mut stream, &mut buf).unwrap();
             if read == 0 {

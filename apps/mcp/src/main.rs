@@ -123,7 +123,12 @@ fn init_tracing() {
         .init();
 }
 
-/// The one production shutdown signal: Ctrl-C.
+/// The one production shutdown signal: Ctrl-C. main/init_tracing/
+/// this fn are the deliberate coverage exclusions (the lane's
+/// documented "prod-only" class): the process entry, the global
+/// subscriber install (a second install panics in-process), and the
+/// OS signal arm are unreachable in an in-process test — `serve` and
+/// the router are fully covered below.
 async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
 }
