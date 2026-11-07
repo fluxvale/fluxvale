@@ -16,6 +16,11 @@ defmodule FluxValeWeb.Layouts do
   # guard (#462)
   alias FluxValeWeb.ReturnPath
 
+  # The user menu's Admin row (#551) rides the door's own predicate —
+  # plug, on_mount, and menu all answer one module, so the gate cannot
+  # fork (see FluxVale.Checks.ActorIsPlatformAdmin).
+  alias FluxVale.Checks.ActorIsPlatformAdmin
+
   # Shared chrome pieces (header shell, footer) live here as private
   # components so `app/1` and `public/1` render the same frame — the
   # design system's single nav bar (#178).
@@ -261,7 +266,8 @@ defmodule FluxValeWeb.Layouts do
             </li>
             <%!-- #467: Feedback takes Pricing's seat — the board is a
             live surface and Pricing is marketing, not product chrome
-            (it rides the user menu now). No nav_section: not a working
+            (#551 retires the menu row too; the public chrome's header
+            and footer carry Pricing). No nav_section: not a working
             section, so the link stays quiet. Below sm the user menu's
             folded row carries it. --%>
             <li :if={@apps} class="hidden sm:block">
@@ -299,12 +305,15 @@ defmodule FluxValeWeb.Layouts do
               User.primary_email). #319: nav_section rides along so the
               menu rows can mark the section active — the below-sm
               folded rows, and Billing's every-width row since its
-              header link retired (#467). --%>
+              header link retired (#467). #551: the Admin row rides the
+              same feed — the door's own predicate over current_user
+              (nil-safe), so an anonymous render derives no row. --%>
               <.user_menu
                 username={@current_user.username}
                 email={@current_user.primary_email || @current_user.email}
                 app_links={@apps}
                 nav_section={@nav_section}
+                platform_admin={ActorIsPlatformAdmin.platform_admin?(@current_user)}
               />
             </li>
             <li :if={is_nil(@current_user)} class="ml-1">

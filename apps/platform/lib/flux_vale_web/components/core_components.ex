@@ -1249,9 +1249,15 @@ defmodule FluxValeWeb.CoreComponents do
   ~133px with the dropdown closed, so below sm the header links hide
   (`hidden sm:block`, app chrome's own `<li>`s) and reappear here
   (`sm:hidden` rows) — nothing is unreachable at any width. Billing
-  and Pricing ride the menu at every width (#467): Billing is an
-  account destination beside Account settings, and the app chrome has
-  no footer to carry Pricing (the public chrome's footer does).
+  rides the menu at every width (#467), an account destination beside
+  Account settings. Pricing and About rode it too until #551 retired
+  them — the pages stay public: Pricing through the public chrome's
+  header and footer, /about through its permalink route (unlinked now
+  that the row is gone). The Admin row is gate-fed (#551): the chrome
+  answers `FluxVale.Checks.ActorIsPlatformAdmin.platform_admin?/1` —
+  the same predicate the admin door's plug and on_mount use — so the
+  menu cannot fork from the door; the component renders what it is
+  given, like every other attr.
 
   ## Examples
 
@@ -1271,7 +1277,7 @@ defmodule FluxValeWeb.CoreComponents do
 
   attr(:app_links, :boolean,
     default: false,
-    doc: "app chrome's surface rows: the sm:hidden fold plus Pricing (see user_menu/1)"
+    doc: "app chrome's surface rows: the sm:hidden fold (see user_menu/1)"
   )
 
   # The chrome's active-nav section (#319): the menu rows that stand in
@@ -1281,6 +1287,10 @@ defmodule FluxValeWeb.CoreComponents do
   # header's hanging underline is a header-row idiom, not a
   # dropdown-row one).
   attr(:nav_section, :atom, default: nil)
+
+  # #551: the Admin row is fed, never derived — the component reads no
+  # records (see user_menu/1).
+  attr(:platform_admin, :boolean, default: false)
 
   attr(:class, :any, default: nil)
   attr(:rest, :global)
@@ -1351,18 +1361,6 @@ defmodule FluxValeWeb.CoreComponents do
         >
           Feedback
         </.link>
-        <%!-- #467: Pricing rides the menu at every width — the app
-        chrome has no footer (the public chrome's carries it there), so
-        this row is /pricing's only signed-in path at sm and up. Gated
-        on app_links like the fold. No section, so no active state;
-        href, not navigate, the same close-on-click posture (#205). --%>
-        <.link
-          :if={@app_links}
-          href={~p"/pricing"}
-          class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
-        >
-          Pricing
-        </.link>
         <%!-- #467: Billing is an account destination, so it sits beside
         Account settings at every width. Its header link is gone, making
         this row the section's only link — the active mark rides without
@@ -1388,11 +1386,16 @@ defmodule FluxValeWeb.CoreComponents do
         >
           Account settings
         </.link>
+        <%!-- #551: the admin console, fed by the chrome's gate answer —
+        a non-admin's DOM carries no row at all, not a hidden one. href,
+        not navigate, the same close-on-click posture (#205). --%>
         <.link
-          href={~p"/about"}
+          :if={@platform_admin}
+          href={~p"/admin"}
           class="block rounded-control px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+          data-testid="user-menu-admin"
         >
-          About FluxVale
+          Admin
         </.link>
         <div class="my-1 border-t border-line" aria-hidden="true"></div>
         <form action={~p"/auth/session"} method="post">
