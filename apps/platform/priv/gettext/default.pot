@@ -734,7 +734,7 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/catalog.ex:47
 #: lib/flux_vale_web/live/admin_live/home.ex:77
 #: lib/flux_vale_web/live/admin_live/people.ex:371
-#: lib/flux_vale_web/live/admin_live/size_edit.ex:257
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:256
 #: lib/flux_vale_web/live/admin_live/sizes.ex:63
 #: lib/flux_vale_web/live/admin_live/version_edit.ex:388
 #, elixir-autogen, elixir-format
