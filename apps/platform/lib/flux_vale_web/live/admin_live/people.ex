@@ -181,7 +181,6 @@ defmodule FluxValeWeb.AdminLive.People do
   # check and a raced acceptance (or a crafted frame naming an accepted
   # account) never opens a confirm the domain would refuse anyway.
   def handle_event("open-withdraw", %{"id" => id}, socket) do
-    File.write!("/tmp/opencode/probe_open.txt", "entered", [:append])
     admin = socket.assigns.current_user
 
     with {:ok, user} <- Ash.get(User, id, actor: admin, load: [:invite_state]),

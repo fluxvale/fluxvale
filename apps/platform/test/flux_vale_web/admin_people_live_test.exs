@@ -377,8 +377,6 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
       |> render_click()
 
       # The consequence panel: the link dies, the account stays inert.
-      File.write!("/tmp/opencode/fv501_confirm.html", render(view))
-
       assert has_element?(view, "[data-testid='destructive-confirm']")
       assert has_element?(view, "[data-testid='destructive-confirm']", "stops working")
       assert has_element?(view, "[data-testid='destructive-confirm']", "remains inert")
