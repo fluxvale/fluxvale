@@ -85,13 +85,18 @@ defmodule FluxValeWeb.AllocationSliders do
   """
   @spec storage_dimension() :: map()
   def storage_dimension do
-    # coveralls-ignore-next-line - defensive: resource_dimensions/0 is
-    # a literal list that always carries the storage key; the raise
-    # names a future editor's mistake loudly rather than returning nil
-    # into the template.
-    Enum.find(resource_dimensions(), &(&1.key == "storage_gb")) ||
-      raise(ArgumentError, "storage dimension missing from resource_dimensions/0")
+    Enum.find(resource_dimensions(), &(&1.key == "storage_gb")) || missing_storage_dimension!()
   end
+
+  # coveralls-ignore-start - defensive: resource_dimensions/0 is a
+  # literal list that always carries the storage key; the raise names
+  # a future editor's mistake loudly rather than returning nil into
+  # the template.
+  defp missing_storage_dimension! do
+    raise(ArgumentError, "storage dimension missing from resource_dimensions/0")
+  end
+
+  # coveralls-ignore-stop
 
   @doc """
   The rung numerically closest to `value`; a tie takes the cheaper
