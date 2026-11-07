@@ -39,6 +39,7 @@ defmodule FluxValeWeb.Webhooks.PolarController do
   alias FluxVale.Billing
   alias FluxVale.Billing.Providers.Polar
   alias FluxVale.Billing.TopupOutcomeMail
+  alias FluxValeWeb.Webhooks.Plumbing
 
   require Logger
 
@@ -50,33 +51,10 @@ defmodule FluxValeWeb.Webhooks.PolarController do
     case verify(conn) do
       {:ok, payload} ->
         result = process_event(payload)
-        respond(result, conn)
+        Plumbing.respond(result, conn, "Polar", @terminal_outcomes)
 
-      {:error, :no_raw_body} ->
-        Logger.error("Polar webhook rejected: no raw body in conn (RawBody plug misconfigured)")
-
-        conn
-        |> put_status(:internal_server_error)
-        |> json(%{error: "misconfigured"})
-
-      {:error, verification} when verification in [:missing_signature, :signature_mismatch] ->
-        Logger.warning("Polar webhook rejected: #{inspect(verification)}")
-
-        conn
-        |> put_status(:unauthorized)
-        |> json(%{error: "invalid_signature"})
-
-      {:error, :missing_config} ->
-        Logger.error("Polar webhook rejected: webhook secret not configured")
-
-        conn
-        |> put_status(:internal_server_error)
-        |> json(%{error: "misconfigured"})
-
-      {:error, :invalid_json} ->
-        # Valid signature, unusable payload — retrying won't help.
-        Logger.warning("Polar webhook rejected: invalid JSON payload")
-        json(conn, %{received: true})
+      {:error, error} ->
+        Plumbing.verify_error(conn, error, "Polar", "secret")
     end
   end
 
@@ -84,10 +62,10 @@ defmodule FluxValeWeb.Webhooks.PolarController do
   # everything downstream runs only on verified facts.
   @spec verify(Plug.Conn.t()) :: {:ok, map()} | {:error, term()}
   defp verify(conn) do
-    with {:ok, raw_body} <- read_raw_body(conn),
+    with {:ok, raw_body} <- Plumbing.read_raw_body(conn),
          {:ok, composed} <- composed_signature(conn),
          :ok <- Polar.verify_webhook(raw_body, composed) do
-      parse_payload(raw_body)
+      Plumbing.parse_payload(raw_body)
     end
   end
 
@@ -186,53 +164,6 @@ defmodule FluxValeWeb.Webhooks.PolarController do
     case get_in(data, ["metadata", "topup_id"]) do
       topup_id when is_binary(topup_id) and topup_id != "" -> Map.put(base, :topup_id, topup_id)
       _absent -> base
-    end
-  end
-
-  @spec respond(term(), Plug.Conn.t()) :: Plug.Conn.t()
-  defp respond(result, conn) do
-    case result do
-      {:ok, _result} ->
-        json(conn, %{received: true})
-
-      :ok ->
-        json(conn, %{received: true})
-
-      # Terminal mismatches — retrying can't change them; the error log
-      # is the operator signal.
-      {:error, reason} when reason in @terminal_outcomes ->
-        Logger.error("Polar webhook not credited, #{inspect(reason)}")
-        json(conn, %{received: true})
-
-      # A credit that failed on a payment we accepted — 500 so Polar
-      # retries (the idempotency key makes the retry safe).
-      {:error, reason} ->
-        Logger.error("Polar webhook credit failed: #{inspect(reason)}")
-
-        conn
-        |> put_status(:internal_server_error)
-        |> json(%{error: "internal_error"})
-    end
-  end
-
-  @spec read_raw_body(Plug.Conn.t()) :: {:ok, binary()} | {:error, :no_raw_body}
-  defp read_raw_body(conn) do
-    case conn.assigns[:raw_body] do
-      body when is_binary(body) and byte_size(body) > 0 -> {:ok, body}
-      _empty -> {:error, :no_raw_body}
-    end
-  end
-
-  @spec parse_payload(binary()) :: {:ok, map()} | {:error, :invalid_json}
-  defp parse_payload(raw_body) do
-    case Phoenix.json_library().decode(raw_body) do
-      {:ok, parsed} when is_map(parsed) -> {:ok, parsed}
-      {:ok, _non_object} -> {:error, :invalid_json}
-      # Unreachable through the endpoint: Plug.Parsers raises ParseError
-      # (400) on undecodable bodies before the router. Defense-in-depth
-      # for callers of the controller outside the endpoint pipeline.
-      # coveralls-ignore-next-line
-      {:error, _decode_error} -> {:error, :invalid_json}
     end
   end
 end
