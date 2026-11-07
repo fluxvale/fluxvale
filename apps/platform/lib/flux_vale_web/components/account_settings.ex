@@ -6,9 +6,10 @@ defmodule FluxValeWeb.AccountSettings do
   account scope).
 
   Sections group the existing surfaces — Account (Profile, Access) and
-  Billing (Wallet). No dead entries ship: the Access entry renders only
-  for an actor with a personal org (OrgNav's degradation stance, the
-  same gate the settings page's access card rides).
+  Billing (Wallet). No dead entries ship: Access and Billing ride the
+  personal-org gate, since both targets flash and navigate away for the
+  seeded/legacy no-org actor (the settings page's access card hid on the
+  same condition; BillingLive's mount degrades identically).
   """
 
   use FluxValeWeb, :html
@@ -38,13 +39,13 @@ defmodule FluxValeWeb.AccountSettings do
         <p class="font-mono text-xs font-medium uppercase tracking-[0.18em] text-ink-subtle">
           {section.label}
         </p>
-        <div class="mt-1 flex flex-wrap gap-x-4 gap-y-1 md:mt-2 md:flex-col md:items-stretch md:gap-0.5">
+        <div class="mt-1 flex flex-col items-stretch gap-0.5 md:mt-2">
           <.link
             :for={entry <- section.entries}
             navigate={entry.path}
             aria-current={entry.key == @current && "page"}
             class={[
-              "border-l-2 py-0.5 pl-3 pr-1 text-sm outline-offset-2 outline-focus focus-visible:outline-2 motion-safe:transition-colors motion-safe:duration-(--motion-fast) max-md:border-l-0 max-md:pl-0",
+              "border-l-2 py-0.5 pl-3 pr-1 text-sm outline-offset-2 outline-focus focus-visible:outline-2 motion-safe:transition-colors motion-safe:duration-(--motion-fast)",
               entry.key == @current && "border-focus font-medium text-ink",
               entry.key != @current &&
                 "border-transparent text-ink-muted hover:border-line hover:text-ink"
@@ -59,22 +60,18 @@ defmodule FluxValeWeb.AccountSettings do
     """
   end
 
-  # The Access entry rides behind the personal-org gate: a member-only
-  # actor's target would be a dead-end not-found (the settings page's
-  # access card hides on the same condition).
-  defp sections(personal_org_id) do
-    access_entry =
-      if is_nil(personal_org_id) do
-        []
-      else
-        [%{key: "access", label: "Access", path: ~p"/settings/access"}]
-      end
+  # The org-gated sections: both gated targets flash and navigate away
+  # for the seeded/legacy no-org actor — the settings page's access card
+  # hid on this exact condition, and BillingLive's mount degrades
+  # identically. The gate leaves the no-org sidebar at Profile alone.
+  defp sections(nil), do: [%{key: "account", label: "Account", entries: [profile()]}]
 
+  defp sections(_personal_org_id) do
     [
       %{
         key: "account",
         label: "Account",
-        entries: [%{key: "profile", label: "Profile", path: ~p"/settings"}] ++ access_entry
+        entries: [profile(), %{key: "access", label: "Access", path: ~p"/settings/access"}]
       },
       %{
         key: "billing",
@@ -83,4 +80,6 @@ defmodule FluxValeWeb.AccountSettings do
       }
     ]
   end
+
+  defp profile, do: %{key: "profile", label: "Profile", path: ~p"/settings"}
 end

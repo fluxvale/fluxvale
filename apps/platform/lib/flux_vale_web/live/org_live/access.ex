@@ -790,7 +790,6 @@ defmodule FluxValeWeb.OrganizationLive.Access do
                   <span aria-hidden="true">&larr;</span> Settings
                 </.link>
                 <div class="mt-3 min-w-0">
-                  <p class="eyebrow">Account</p>
                   <h1 class="page-title mt-1.5" data-testid="settings-title">
                     Account settings
                   </h1>

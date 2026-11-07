@@ -12,7 +12,9 @@ defmodule FluxValeWeb.SettingsLive do
   the operations, so a crafted or stale event meets the domain's own
   refusal, rendered as copy.
 
-  The Access card (S5) links `/settings/access` — the personal org's
+  The sidebar (#551) is the cluster's way between sections — Profile,
+  Access, Wallet — fed by the same personal-org gate the surfaces
+  themselves degrade on. `/settings/access` is the personal org's
   gateway panel, served by `OrganizationLive.Access` without a slug.
   """
 
@@ -344,7 +346,6 @@ defmodule FluxValeWeb.SettingsLive do
                 <span aria-hidden="true">&larr;</span> Dashboard
               </.link>
               <div class="mt-3 min-w-0">
-                <p class="eyebrow">Account</p>
                 <h1 class="page-title mt-1.5" data-testid="settings-title">
                   Account settings
                 </h1>
@@ -553,30 +554,6 @@ defmodule FluxValeWeb.SettingsLive do
                   </p>
                 </.form>
               </.card>
-
-              <%!-- S5: the personal org's access panel lives in user settings —
-            this row is the way there (the instance page's Settings → Access
-            link lands on /settings/access for personal-org instances).
-            Hidden without a personal org (OrgNav's degradation stance): a
-            member-only actor's target would be a dead-end not-found.
-            In-grammar: the whole card IS the link (the grammar's a.card —
-            the lift fires because the card is the clickable unit), the
-            dashboard row's chevron as the affordance. --%>
-              <.link
-                :if={@personal_org_id}
-                navigate={~p"/settings/access"}
-                id="settings-access-card"
-                data-testid="settings-access-link"
-                class="card max-w-2xl flex flex-wrap items-center justify-between gap-3 p-5"
-              >
-                <div>
-                  <h2 class="text-base font-medium text-ink">Access</h2>
-                  <p class="mt-1 text-sm text-ink-muted">
-                    Reach your private apps from your own Tailscale network.
-                  </p>
-                </div>
-                <.icon name="hero-chevron-right" class="size-4 shrink-0 text-ink-subtle" />
-              </.link>
             </div>
           </div>
         </section>
