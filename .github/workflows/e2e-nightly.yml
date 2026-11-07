@@ -81,6 +81,10 @@ jobs:
       - uses: ./.github/actions/prebuilt
 
       - name: Bootstrap the local stack
+        # Deliberately cold and un-retried, unlike the ci.yml e2e legs
+        # (#578): this is the fidelity guard — its 300m ceiling absorbs
+        # cold pulls and its reds ARE the signal, so it keeps the raw
+        # bootstrap path (no warm-up step, no retry) on purpose.
         run: mise x -- scripts/e2e-bootstrap.sh
 
       # Same key as the e2e job — one lockfile, one browser set.

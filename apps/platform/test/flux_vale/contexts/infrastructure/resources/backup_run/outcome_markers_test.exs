@@ -31,8 +31,16 @@ defmodule FluxVale.Infrastructure.BackupRun.OutcomeMarkersTest do
   end
 
   test "a successful finalize emits kind/status and the wall-clock duration", %{version: version} do
+    # Both stamps are PINNED (#578): duration is finished_at − started_at
+    # off the row, so taking finished_at from a fresh utc_now put the
+    # wall time of the two DB-backed Ash updates BETWEEN the stamps —
+    # under CI load that gap beat the old range's 0.5s headroom and
+    # reded the lane across three PRs (green isolated, green on
+    # re-run). Pinned stamps make the expectation exact: the emitter's
+    # arithmetic is under test, not the runner's clock.
     now = DateTime.utc_now(:second)
     started = DateTime.add(now, -10, :second)
+    finished = DateTime.add(started, 6, :second)
     run = run!(version, %{kind: :scheduled, started_at: started})
 
     {:ok, done} =
@@ -44,11 +52,9 @@ defmodule FluxVale.Infrastructure.BackupRun.OutcomeMarkersTest do
 
     drain_events()
 
-    finished_at = DateTime.utc_now(:second)
-
     {:ok, succeeded} =
       done
-      |> for_update(:update, %{status: :succeeded, finished_at: finished_at})
+      |> for_update(:update, %{status: :succeeded, finished_at: finished})
       |> Ash.update(authorize?: false)
 
     assert succeeded.status == :succeeded
@@ -56,9 +62,8 @@ defmodule FluxVale.Infrastructure.BackupRun.OutcomeMarkersTest do
     assert_receive {:telemetry_event, @run_event, %{count: 1, duration: duration},
                     %{kind: :scheduled, status: :succeeded}}
 
-    # started_at/finished_at are :utc_datetime (second precision), so
-    # the truncation wobbles the true -10s by up to a second.
-    assert duration >= 9.0 and duration <= 10.5
+    # second-precision columns, both pinned: the diff is exactly 6.0
+    assert duration == 6.0
   end
 
   test "the apply-failure arm (fail_now's shape) emits :failed straight from :pending", %{
