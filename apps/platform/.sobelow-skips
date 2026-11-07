@@ -3,9 +3,19 @@
 # fingerprint. Every entry below is a sweep-verified by-design
 # finding (Phase-1 triage, Nov 7 2026, re-verified Nov 8 against the
 # code each entry points at). A finding NOT listed here reds the
-# nightly. Regenerate entries after code motion with
-# `sobelow --private --skip --mark-skip-all`, then re-justify here:
-# comments ride at the top and survive that rewrite.
+# nightly.
+#
+# What actually suppresses a finding is the FINGERPRINT (a phash2 of
+# type, source, file, LINE - sobelow 0.18.1): the type and file:line
+# columns are for humans and go stale silently. Code motion therefore
+# re-reds moved findings (fail-closed): after a refactor, regenerate
+# with `sobelow --legacy-skips --mark-skip-all` - the plain
+# `--mark-skip-all` form REWRITES this whole file and scrambles the
+# comment pairing, do not use it. The legacy form appends only and
+# never prunes stale fingerprints: after regenerating, delete dead
+# entries and their justification pairs by hand. The drift-free
+# alternative is inline `# sobelow_skip` annotations at each site -
+# revisit if line-motion reds become a chore.
 #
 # Config.CSP router.ex:14 - browser pipeline runs put_secure_browser_headers,
 # no CSP directive is set anywhere in the app (accepted Phoenix default)
@@ -17,12 +27,13 @@
 # 401s session writes before any handler runs (router comment)
 # Config.CSRF router.ex:84 - mcp is PAT-only de facto, connect/2 401s any
 # session-resolved caller (router comment)
-# Config.CSRF router.ex:436 - test_inbox_api is admin-gated JSON, no-CSRF is
-# the documented ADR-0023 stance (router comment)
+# Config.CSRF router.ex:436 - test_inbox_api is admin-gated JSON and its
+# scope is GET-only (router.ex:457-458), no state change to forge
 # Config.CSRF router.ex:446 - test_inbox_browser clear-mailbox form carries no
 # CSRF token by design, admin-gated non-prod (router comment)
 # Config.CSWH endpoint.ex:14 - /live socket origin checks are configured at
-# app level (check_origin in config/runtime.exs), invisible to the scanner
+# app level (check_origin in config/runtime.exs), a non-literal list the
+# scanner cannot resolve
 # Config.CSWH endpoint.ex:42 - live_reload socket compiles only under
 # code_reloading (dev), where check_origin: false is deliberate
 # Config.Headers router.ex:173 - storybook_browser 404s unless
@@ -31,8 +42,8 @@
 # zero interpolation, a one-shot backfill
 # Traversal.FileModule blog/lint.ex:62 - paths come from the priv blog
 # wildcard, operator-authored content only
-# Traversal.FileModule clients/k8s.ex:81 - namespace_file is
-# Path.join(@sa_dir, "namespace"), a module-attribute constant
+# Traversal.FileModule clients/k8s.ex:81 - the namespace_file value is
+# built at k8s.ex:49 from Path.join(@sa_dir, "namespace"), a constant
 # Traversal.FileModule contexts/billing/countries.ex:64 - default_path() is a
 # code-owned priv YAML, no user input
 # Traversal.FileModule seeds/catalog_data.ex:55 - same priv static data file

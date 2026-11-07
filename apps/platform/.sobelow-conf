@@ -3,9 +3,12 @@
 # the same gate the nightly workflow runs. The skip list lives in
 # .sobelow-skips, one sweep-verified by-design entry per line with
 # its justification. exit: :low means any finding at any confidence
-# level that is NOT in the skip list fails the run.
+# level that is NOT in the skip list fails the run. strict fails the
+# run on unparseable sources (a file sobelow cannot read is a file
+# it did not scan).
 [
   exit: :low,
   skip: true,
-  private: true
+  private: true,
+  strict: true
 ]
