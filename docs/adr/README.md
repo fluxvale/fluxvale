@@ -27,8 +27,8 @@ already ruled out.
 | [ADR-00016](00016-deferred-triggers.md) | Named revisit triggers for deferred items | Accepted |
 | [ADR-00017](00017-docs-home-adr-scope.md) | Docs home: one ADR log here, covering the product + org-wide infra | Accepted |
 | [ADR-00018](00018-repo-visibility.md) | Repo visibility: app public under FSL, fleet repo private | Accepted (amended — see Amendment 1) |
-| [ADR-00019](00019-machine-first-api-cli-mcp.md) | Machine-first API: JSON:API + CLI + MCP server from day one | Accepted (amended — see Amendments 1–4) |
-| [ADR-0020](00020-local-dev-parity.md) | Local dev: production parity via k3d + Tilt + CNPG + local overlay | Accepted (amended — see Amendments 1–4) |
+| [ADR-00019](00019-machine-first-api-cli-mcp.md) | Machine-first API: JSON:API + CLI + MCP server from day one | Accepted (amended — see Amendments 1–5) |
+| [ADR-0020](00020-local-dev-parity.md) | Local dev: production parity via k3d + Tilt + CNPG + local overlay | Accepted (amended — see Amendments 1–5) |
 | [ADR-0021](00021-secrets-bws-operator.md) | Secrets: BWS Kubernetes operator primary (per-env machine accounts; EU vault) | Superseded (amended — see Amendment 3) |
 | [ADR-0022](00022-talos-linux.md) | Talos Linux: the OS *is* the cluster; Ansible exits; Omni deferred | Accepted (amended — see Amendment 1) |
 | [ADR-0023](00023-day-one-gates.md) | Day-one gates: AccessRule (staging/beta invites) + FeatureFlag design | Accepted (amended — see Amendments 1–6) |

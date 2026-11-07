@@ -120,11 +120,9 @@ server-side — the provider re-implements nothing. v0 is a scaffold
 in follow-up slices (#482).
 
 Distribution mirrors Am. 3's posture: manual-first via GitHub
-Releases carrying registry-shaped archives (zip named
-`terraform-provider-fluxvale_X.Y.Z_OS_ARCH.zip`, the binary INSIDE
-named `terraform-provider-fluxvale_vX.Y.Z` — the registry's packed
-convention: no `v` in the zip name, `v` on the binary — plus
-`SHA256SUMS`) under namespaced `tf-v*` tags. registry.terraform.io (a
+Releases carrying registry-shaped archives
+(`terraform-provider-fluxvale_vX.Y.Z_OS_ARCH.zip` + `SHA256SUMS`)
+under namespaced `tf-v*` tags. registry.terraform.io (a
 dedicated `terraform-provider-fluxvale` repo + GPG signing) is
 deferred until a second user exists.
 

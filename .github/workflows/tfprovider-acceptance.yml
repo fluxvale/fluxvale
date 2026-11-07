@@ -29,8 +29,10 @@
 #     on the branch).
 #
 # The CLI driver: plugin-testing drives a terraform-shaped CLI —
-# TF_ACC_TERRAFORM_PATH points at the mise-pinned tofu and
-# TF_ACC_TERRAFORM_VERSION declares its version (the documented pair
+# TF_ACC_TERRAFORM_PATH points at the mise-pinned tofu,
+# TF_ACC_TERRAFORM_VERSION declares its version, and
+# TF_ACC_PROVIDER_NAMESPACE/HOST pin the registry address tofu
+# resolves against (OpenTofu documents all four for acceptance
 # for OpenTofu; the path env also keeps the runner from hunting for a
 # terraform binary that isn't installed).
 name: tfprovider acceptance
@@ -113,6 +115,22 @@ jobs:
           TF_ACC: "1"
           TF_ACC_API_URL: https://staging.fluxvale.com
           TF_ACC_PAT: ${{ secrets.TF_ACC_PAT }}
+          # Optional classes — unset secrets resolve to empty strings
+          # and accSkip skips their tests (the tiered header contract).
+          TF_ACC_APP_SLUG: ${{ secrets.TF_ACC_APP_SLUG }}
+          TF_ACC_BACKUP_ENDPOINT: ${{ secrets.TF_ACC_BACKUP_ENDPOINT }}
+          TF_ACC_BACKUP_BUCKET: ${{ secrets.TF_ACC_BACKUP_BUCKET }}
+          TF_ACC_BACKUP_ACCESS_KEY_ID: ${{ secrets.TF_ACC_BACKUP_ACCESS_KEY_ID }}
+          TF_ACC_BACKUP_SECRET_ACCESS_KEY: ${{ secrets.TF_ACC_BACKUP_SECRET_ACCESS_KEY }}
+          TF_ACC_TAILNET_DOMAIN: ${{ secrets.TF_ACC_TAILNET_DOMAIN }}
+          TF_ACC_TAILSCALE_AUTH_KEY: ${{ secrets.TF_ACC_TAILSCALE_AUTH_KEY }}
+          TF_ACC_DOMAIN: ${{ secrets.TF_ACC_DOMAIN }}
+          # plugin-testing registers the in-process provider under its
+          # default registry.terraform.io address; tofu resolves the
+          # implicit provider against registry.opentofu.org — the two
+          # must agree or the first init fails.
+          TF_ACC_PROVIDER_NAMESPACE: hashicorp
+          TF_ACC_PROVIDER_HOST: registry.opentofu.org
         run: |
           TF_ACC_TERRAFORM_PATH="$(mise which tofu)"
           TF_ACC_TERRAFORM_VERSION="$(mise x -- tofu version | head -1 | sed 's/^OpenTofu v//')"

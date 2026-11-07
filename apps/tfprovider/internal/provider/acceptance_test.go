@@ -42,7 +42,8 @@ import (
 //
 // The driver: plugin-testing needs a real terraform-shaped CLI in
 // PATH or TF_ACC_TERRAFORM_PATH — the workflow points the latter at
-// the mise-pinned tofu and sets TF_ACC_TERRAFORM_VERSION (the
+// the mise-pinned tofu, sets TF_ACC_TERRAFORM_VERSION, and pins
+// TF_ACC_PROVIDER_NAMESPACE/HOST to tofu's registry address (the
 // documented pair for driving OpenTofu). The real-tofu smoke gate
 // (e2e_test.go) is the cheap sibling: fake API, every PR.
 const (

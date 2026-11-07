@@ -120,7 +120,11 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ steps.go.outputs.go }}
-          cache-dependency-path: apps/tfprovider/go.sum
+          # Release artifacts build from a cold cache: nothing restored
+          # can enter a published, checksummed binary (zizmor's
+          # cache-poisoning class). The PR lane keeps caching — different
+          # risk posture, nothing it builds is published.
+          cache: false
 
       - name: Build the provider binary
         run: go build -trimpath -o ${{ matrix.leg.binary }} .
