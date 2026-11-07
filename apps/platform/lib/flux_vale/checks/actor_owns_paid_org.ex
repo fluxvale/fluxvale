@@ -23,15 +23,19 @@ defmodule FluxVale.Checks.ActorOwnsPaidOrg do
     and fails closed when it cannot, or when the actor is absent —
     anonymous gets nothing.
 
-  The org in play follows the org-in-play discipline (see
-  ActorOrgHasPaid): a CREATE answers the org the write NAMES — the
-  action's `organization_id` argument, falling back to the attribute —
-  and when the write names nothing, the actor's personal org (the
-  SetActorDefaults pattern, so check and change agree on the same row).
-  Update/destroy re-read the ROW from the database: an in-process
-  caller controls the changeset's in-memory struct, and the gate must
-  not be caller-controlled. Any org that cannot resolve fails closed,
-  as does any non-changeset subject.
+  The org in play follows the org-in-play discipline — see
+  `FluxVale.Checks.OrgInPlay` for the shared resolver the wallet gates
+  use; this check keeps its own simpler variant because its rows are
+  org-scoped (no instance hop), its create reads the argument before
+  the attribute, and an actorless default resolves the personal org
+  inline rather than answering `:actor`: a CREATE answers the org the
+  write NAMES — the action's `organization_id` argument, falling back
+  to the attribute — and when the write names nothing, the actor's
+  personal org (the SetActorDefaults pattern, so check and change
+  agree on the same row). Update/destroy re-read the ROW from the
+  database: an in-process caller controls the changeset's in-memory
+  struct, and the gate must not be caller-controlled. Any org that
+  cannot resolve fails closed, as does any non-changeset subject.
   """
 
   use Ash.Policy.SimpleCheck
