@@ -11,43 +11,43 @@
 msgid ""
 msgstr ""
 
-#: lib/flux_vale_web/components/core_components.ex:718
+#: lib/flux_vale_web/components/core_components.ex:682
 #, elixir-autogen, elixir-format
 msgid "Actions"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:445
-#: lib/flux_vale_web/components/layouts.ex:460
+#: lib/flux_vale_web/components/layouts.ex:457
+#: lib/flux_vale_web/components/layouts.ex:472
 #, elixir-autogen, elixir-format
 msgid "Attempting to reconnect"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:516
+#: lib/flux_vale_web/components/layouts.ex:528
 #, elixir-autogen, elixir-format
 msgid "Dark theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:489
+#: lib/flux_vale_web/components/layouts.ex:501
 #, elixir-autogen, elixir-format
 msgid "Follow system theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:504
+#: lib/flux_vale_web/components/layouts.ex:516
 #, elixir-autogen, elixir-format
 msgid "Light theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:452
+#: lib/flux_vale_web/components/layouts.ex:464
 #, elixir-autogen, elixir-format
 msgid "Something went wrong!"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:477
+#: lib/flux_vale_web/components/layouts.ex:489
 #, elixir-autogen, elixir-format
 msgid "Theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:437
+#: lib/flux_vale_web/components/layouts.ex:449
 #, elixir-autogen, elixir-format
 msgid "We can't find the internet"
 msgstr ""
@@ -290,7 +290,7 @@ msgstr ""
 msgid "Sizes start at %{rate}/mo, billed hourly while running"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:352
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:359
 #, elixir-autogen, elixir-format
 msgid "Privacy"
 msgstr ""
@@ -677,119 +677,9 @@ msgstr ""
 msgid "You top up your wallet in USD. Apps bill hourly against your wallet balance, and every rate above is a monthly equivalent. There are no subscriptions."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:68
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:355
 #, elixir-autogen, elixir-format
-msgid "Access gateways and domains"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:91
-#, elixir-autogen, elixir-format
-msgid "Admin"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:138
-#, elixir-autogen, elixir-format
-msgid "AshAdmin"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:54
-#, elixir-autogen, elixir-format
-msgid "Balances, top-ups, and billing oversight."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:48
-#, elixir-autogen, elixir-format
-msgid "Catalog and pricing surgery"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:109
-#, elixir-autogen, elixir-format
-msgid "Coming in this lane"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:122
-#, elixir-autogen, elixir-format
-msgid "Deep debugging"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:49
-#, elixir-autogen, elixir-format
-msgid "Edit catalog entries and price ladders."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:58
-#, elixir-autogen, elixir-format
-msgid "Feedback moderation"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:140
-#, elixir-autogen, elixir-format
-msgid "Generated views over the shown domains."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:44
-#, elixir-autogen, elixir-format
-msgid "Invitations, accounts, and the people behind them."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:153
-#, elixir-autogen, elixir-format
-msgid "LiveDashboard"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:59
-#, elixir-autogen, elixir-format
-msgid "Moderate the public feedback board."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:90
-#, elixir-autogen, elixir-format
-msgid "Operator console"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:63
-#, elixir-autogen, elixir-format
-msgid "Orgs and instances"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:43
-#, elixir-autogen, elixir-format
-msgid "People and invites"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:69
-#, elixir-autogen, elixir-format
-msgid "Read-only gateway and domain inspection."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:64
-#, elixir-autogen, elixir-format
-msgid "Read-only sweeps across orgs and instances."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:104
-#, elixir-autogen, elixir-format
-msgid "Surfaces"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:124
-#, elixir-autogen, elixir-format
-msgid "The generated tools. They run as trusted superuser without the resource policies. For emergencies and data surgery."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:93
-#, elixir-autogen, elixir-format
-msgid "The operator console. Surfaces build out across this lane."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:155
-#, elixir-autogen, elixir-format
-msgid "This node's BEAM and database telemetry."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/home.ex:53
-#, elixir-autogen, elixir-format
-msgid "Wallets and billing"
+msgid "Guides"
 msgstr ""
 
 #: lib/flux_vale_web/components/core_components.ex:1104
