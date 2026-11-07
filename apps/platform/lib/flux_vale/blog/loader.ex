@@ -24,11 +24,15 @@ defmodule FluxVale.Blog.Loader do
   @doc """
   Lints and compiles a content directory and publishes it to
   persistent_term. Raises `ArgumentError` on lint failure — a bad post
-  stops the boot, never serves half-parsed.
+  stops the boot, never serves half-parsed. A missing content root
+  also raises (ADR-0044 §2 made the tree sync-generated: a silent
+  empty boot would serve a content-less /blog with no trace).
   """
   @spec load!(Path.t() | nil) :: :ok
   def load!(dir \\ nil) do
     dir = dir || default_dir()
+
+    ensure_content_root!(dir)
 
     case Lint.check(dir) do
       :ok ->
@@ -45,7 +49,9 @@ defmodule FluxVale.Blog.Loader do
     :ok
   end
 
-  @doc "The published post set (newest first) — the zero-cost read."
+  @doc """
+  The published post set (newest first) — the zero-cost read.
+  """
   @spec loaded() :: [Post.t()]
   def loaded, do: :persistent_term.get(@posts_key, [])
 
@@ -78,6 +84,17 @@ defmodule FluxVale.Blog.Loader do
       build_post(path, attrs, body)
     end)
     |> Enum.sort_by(& &1.date, {:desc, Date})
+  end
+
+  # The sync made the tree build-generated (ADR-0044 §2) — a missing
+  # root is "the sync never ran", which must stop the boot loudly
+  # instead of serving a content-less surface (the sync script's own
+  # stance, mirrored at the loader backstop).
+  defp ensure_content_root!(dir) do
+    unless File.dir?(dir) do
+      raise ArgumentError,
+            "blog content directory missing: #{dir} (run mix content.sync — ADR-0044 §2)"
+    end
   end
 
   defp build_post(path, attrs, body) do

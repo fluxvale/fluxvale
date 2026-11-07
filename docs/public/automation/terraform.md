@@ -14,7 +14,7 @@ The provider is not on the public registry yet. You install it from a release ar
 1. Download the zip for your platform from the releases page, tagged `tf-v*`, together with `SHA256SUMS`. Verify the archive:
 
    ```sh
-   grep terraform-provider-fluxvale_1.2.3_linux_amd64.zip SHA256SUMS | sha256sum -c -
+   grep terraform-provider-fluxvale_0.1.0_linux_amd64.zip SHA256SUMS | sha256sum -c -
    ```
 
 2. Place the zip in a local mirror:

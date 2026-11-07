@@ -99,6 +99,15 @@ defmodule FluxVale.Docs.LintTest do
       assert error =~ ~s("title" must be a string)
     end
 
+    test "a non-string slug is rejected", %{dir: dir} do
+      slugged_base = page_frontmatter("slugged")
+      slugged = List.replace_at(slugged_base, 3, "slug: [slugged]")
+      write_page!(dir, "guides", "slugged", slugged)
+
+      assert {:error, errors} = Lint.check(dir)
+      assert Enum.any?(errors, &(&1 =~ ~s("slug" must be a string)))
+    end
+
     test "a slug that is not the filename stem is rejected", %{dir: dir} do
       write_page!(dir, "guides", "wrong-file", page_frontmatter("different-slug"))
 
@@ -149,16 +158,45 @@ defmodule FluxVale.Docs.LintTest do
     test "an unknown section directory is rejected", %{dir: dir} do
       write_page!(dir, "pricing-notes", "secret", page_frontmatter("secret"))
 
-      assert {:error, [error]} = Lint.check(dir)
-      assert error =~ "pricing-notes/secret.md"
-      assert error =~ "known section"
+      assert {:error, errors} = Lint.check(dir)
+      # Both the directory and the page inside it are boundary failures.
+      assert Enum.any?(errors, &(&1 =~ "pricing-notes: unexpected directory"))
+      assert Enum.any?(errors, &(&1 =~ "pricing-notes/secret.md"))
+      assert Enum.all?(errors, &(&1 =~ "known section"))
     end
 
     test "a nested directory inside a section is rejected", %{dir: dir} do
       write_page!(dir, "guides/sub", "nested", page_frontmatter("nested"))
 
+      assert {:error, errors} = Lint.check(dir)
+      assert Enum.any?(errors, &(&1 =~ "guides/sub: unexpected directory"))
+      assert Enum.any?(errors, &(&1 =~ "guides/sub/nested.md"))
+    end
+
+    test "an empty stray directory is rejected even with no file inside", %{dir: dir} do
+      stray_dir = Path.join(dir, "adr-drafts")
+      File.mkdir_p!(stray_dir)
+
       assert {:error, [error]} = Lint.check(dir)
-      assert error =~ "guides/sub/nested.md"
+      assert error =~ "adr-drafts: unexpected directory"
+    end
+
+    test "a dotfile is rejected (editor droppings must not ride the sync)", %{dir: dir} do
+      guides_dir = Path.join(dir, "guides")
+      File.mkdir_p!(guides_dir)
+      store_path = Path.join(guides_dir, ".DS_Store")
+      File.write!(store_path, "junk")
+
+      assert {:error, [error]} = Lint.check(dir)
+      assert error =~ "guides/.DS_Store"
+      assert error =~ "known section"
+    end
+
+    test "a hidden directory is rejected", %{dir: dir} do
+      write_page!(dir, ".hidden", "secret", page_frontmatter("secret"))
+
+      assert {:error, errors} = Lint.check(dir)
+      assert Enum.any?(errors, &(&1 =~ ".hidden: unexpected directory"))
     end
 
     test "a non-markdown file is rejected", %{dir: dir} do

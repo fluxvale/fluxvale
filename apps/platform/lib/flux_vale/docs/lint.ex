@@ -62,18 +62,51 @@ defmodule FluxVale.Docs.Lint do
 
   # ---- Boundary ----
 
+  # match_dot: true — editor droppings (.DS_Store, .hidden/) are
+  # invisible to the default glob and would ride the sync into priv
+  # unnoticed; the boundary must SEE them, even though they can never
+  # serve (the page glob in file_paths keeps excluding them).
   defp boundary_errors(dir) do
     dir
     |> Path.join("**/*")
-    |> Path.wildcard()
-    |> Enum.filter(fn path -> File.regular?(path) and not section_page?(path) end)
-    |> Enum.map(&boundary_error(&1, dir))
+    |> Path.wildcard(match_dot: true)
+    |> Enum.flat_map(&entry_errors(&1, dir))
   end
 
-  defp boundary_error(path, dir) do
+  defp entry_errors(path, dir) do
+    rel = Path.relative_to(path, dir)
+
+    if File.dir?(path) do
+      directory_errors(rel)
+    else
+      file_boundary_errors(path, rel)
+    end
+  end
+
+  # Directories: exactly the known section dirs at depth one — a
+  # stray, nested, or empty directory is a boundary failure even with
+  # no file inside it (ADR-0044 §4's "no nested directories, no
+  # unknown sections" covers the tree, not just its files).
+  defp directory_errors(rel) do
     sections = Enum.join(Sections.keys(), ", ")
 
-    "#{Path.relative_to(path, dir)}: docs pages are <section>/<slug>.md under a known section (#{sections})"
+    if rel in Sections.keys() do
+      []
+    else
+      [
+        "#{rel}: unexpected directory — docs trees are <section>/<slug>.md under a known section (#{sections})"
+      ]
+    end
+  end
+
+  defp file_boundary_errors(path, rel) do
+    sections = Enum.join(Sections.keys(), ", ")
+
+    if section_page?(path) do
+      []
+    else
+      ["#{rel}: docs pages are <section>/<slug>.md under a known section (#{sections})"]
+    end
   end
 
   defp section_page?(path) do

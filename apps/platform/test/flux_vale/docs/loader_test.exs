@@ -93,6 +93,16 @@ defmodule FluxVale.Docs.LoaderTest do
                      Loader.load!(dir)
                    end
     end
+
+    test "a missing content root stops the load loudly (the sync never ran)", %{dir: dir} do
+      missing = Path.join(dir, "absent")
+
+      assert_raise ArgumentError,
+                   ~r{docs content directory missing: .*absent.*mix content\.sync}s,
+                   fn ->
+                     Loader.load!(missing)
+                   end
+    end
   end
 
   describe "reload_if_changed!/1" do
