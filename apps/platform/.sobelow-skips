@@ -1,0 +1,83 @@
+# Sobelow skip list (#528 pentest stage), loaded by `--skip`
+# (see .sobelow-conf). One entry per line: finding type, file:line,
+# fingerprint. Every entry below is a sweep-verified by-design
+# finding (Phase-1 triage, Nov 7 2026, re-verified Nov 8 against the
+# code each entry points at). A finding NOT listed here reds the
+# nightly. Regenerate entries after code motion with
+# `sobelow --private --skip --mark-skip-all`, then re-justify here:
+# comments ride at the top and survive that rewrite.
+#
+# Config.CSP router.ex:14 - browser pipeline runs put_secure_browser_headers,
+# no CSP directive is set anywhere in the app (accepted Phoenix default)
+# Config.CSP router.ex:39 - sitemap pipeline serves XML only, no browser
+# document for a CSP to protect
+# Config.CSP router.ex:448 - test_inbox_browser is a config-gated non-prod
+# ops surface (404s unless TEST_INBOX_ENABLED)
+# Config.CSRF router.ex:59 - api_auth is token-authed JSON, AuthorizeApiScopes
+# 401s session writes before any handler runs (router comment)
+# Config.CSRF router.ex:84 - mcp is PAT-only de facto, connect/2 401s any
+# session-resolved caller (router comment)
+# Config.CSRF router.ex:436 - test_inbox_api is admin-gated JSON, no-CSRF is
+# the documented ADR-0023 stance (router comment)
+# Config.CSRF router.ex:446 - test_inbox_browser clear-mailbox form carries no
+# CSRF token by design, admin-gated non-prod (router comment)
+# Config.CSWH endpoint.ex:14 - /live socket origin checks are configured at
+# app level (check_origin in config/runtime.exs), invisible to the scanner
+# Config.CSWH endpoint.ex:42 - live_reload socket compiles only under
+# code_reloading (dev), where check_origin: false is deliberate
+# Config.Headers router.ex:173 - storybook_browser 404s unless
+# STORYBOOK_ENABLED and is internal-only by fleet hostname routing
+# SQL.Query personal_owner_backfill.ex:74 - sql() is a static heredoc with
+# zero interpolation, a one-shot backfill
+# Traversal.FileModule blog/lint.ex:62 - paths come from the priv blog
+# wildcard, operator-authored content only
+# Traversal.FileModule clients/k8s.ex:81 - namespace_file is
+# Path.join(@sa_dir, "namespace"), a module-attribute constant
+# Traversal.FileModule contexts/billing/countries.ex:64 - default_path() is a
+# code-owned priv YAML, no user input
+# Traversal.FileModule seeds/catalog_data.ex:55 - same priv static data file
+# Traversal.FileModule seeds/pricing_data.ex:42 - same priv static data file
+# Traversal.FileModule seeds/tax_rate_data.ex:36 - same priv static data file
+# XSS.Raw blog_html/show.html.heex:23 - raw(@post.html) is server-rendered
+# operator-authored markdown
+# XSS.Raw blog_html/show.html.heex:31 - raw(@json_ld) is Jason :html_safe
+# encoded by the controller (template comment)
+# XSS.Raw catalog_html/show.html.heex:113 - raw(@json_ld), same #164 pattern
+# XSS.Raw feedback_html/show.html.heex:79 - raw(@description_html) is the
+# sanitized UGC markdown renderer (template comment)
+# XSS.Raw pricing_html/show.html.heex:85 - raw(@json_ld) is Jason :html_safe
+# encoded, nil on unseeded tables
+# XSS.Raw feedback_live/comments_island.ex:158 - raw(comment.body_html) rides
+# the same sanitized renderer (#488)
+# XSS.SendResp feed_controller.ex:20 - AtomFeed.build escapes every
+# interpolation via FluxValeWeb.XML.escape
+# XSS.SendResp sitemap_controller.ex:44 - SitemapXML.build escapes every
+# interpolation via FluxValeWeb.XML.escape
+# XSS.SendResp wake.ex:81 - bodies are static literals passed by the two wake
+# controllers (the shared transport since that refactor)
+Config.CSP: Missing Content-Security-Policy,lib/flux_vale_web/router.ex:14,67F3024
+Config.CSP: Missing Content-Security-Policy,lib/flux_vale_web/router.ex:39,3B7371D
+Config.CSP: Missing Content-Security-Policy,lib/flux_vale_web/router.ex:448,20C5D3D
+Config.CSRF: Missing CSRF Protections,lib/flux_vale_web/router.ex:59,45970C4
+Config.CSRF: Missing CSRF Protections,lib/flux_vale_web/router.ex:84,27C2C83
+Config.CSRF: Missing CSRF Protections,lib/flux_vale_web/router.ex:436,75DBC0E
+Config.CSRF: Missing CSRF Protections,lib/flux_vale_web/router.ex:446,3AA2CB3
+Config.CSWH: Cross-Site Websocket Hijacking,lib/flux_vale_web/endpoint.ex:14,5E9E795
+Config.CSWH: Cross-Site Websocket Hijacking,lib/flux_vale_web/endpoint.ex:42,737217C
+Config.Headers: Missing Secure Browser Headers,lib/flux_vale_web/router.ex:173,58D185C
+SQL.Query: SQL injection,lib/flux_vale/contexts/accounts/resources/organization/personal_owner_backfill.ex:74,67B03F4
+Traversal.FileModule: Directory Traversal in `File.read!`,lib/flux_vale/blog/lint.ex:62,5B4B634
+Traversal.FileModule: Directory Traversal in `File.read!`,lib/flux_vale/clients/k8s.ex:81,6A07B12
+Traversal.FileModule: Directory Traversal in `File.read!`,lib/flux_vale/contexts/billing/countries.ex:64,66D3D7B
+Traversal.FileModule: Directory Traversal in `File.read!`,lib/flux_vale/seeds/catalog_data.ex:55,6449890
+Traversal.FileModule: Directory Traversal in `File.read!`,lib/flux_vale/seeds/pricing_data.ex:42,516B278
+Traversal.FileModule: Directory Traversal in `File.read!`,lib/flux_vale/seeds/tax_rate_data.ex:36,5D151D7
+XSS.Raw: XSS,lib/flux_vale_web/controllers/blog_html/show.html.heex:23,3236334
+XSS.Raw: XSS,lib/flux_vale_web/controllers/blog_html/show.html.heex:31,44CAFEB
+XSS.Raw: XSS,lib/flux_vale_web/controllers/catalog_html/show.html.heex:113,2DBCBD4
+XSS.Raw: XSS,lib/flux_vale_web/controllers/feedback_html/show.html.heex:79,4E21CC6
+XSS.Raw: XSS,lib/flux_vale_web/controllers/pricing_html/show.html.heex:85,1744370
+XSS.Raw: XSS,lib/flux_vale_web/live/feedback_live/comments_island.ex:158,7CDABB1
+XSS.SendResp: XSS in `send_resp`,lib/flux_vale_web/controllers/feed_controller.ex:20,3BA012B
+XSS.SendResp: XSS in `send_resp`,lib/flux_vale_web/controllers/sitemap_controller.ex:44,5912C23
+XSS.SendResp: XSS in `send_resp`,lib/flux_vale_web/wake.ex:81,2A94C5B
