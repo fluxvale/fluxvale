@@ -25,6 +25,7 @@ defmodule FluxVale.Identity.User do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshAuthentication, AshJsonApi.Resource]
 
+  alias FluxVale.Api.Scopes
   alias FluxVale.Identity.User.DeriveUsername
   alias FluxVale.Identity.User.MirrorSignupEmail
   alias FluxVale.Identity.User.ProvisionPersonalOrg
@@ -118,7 +119,34 @@ defmodule FluxVale.Identity.User do
       # GET /api/v1/me — the current actor's record, no id (#24). The only
       # public User surface: deliberately no collection routes (listing
       # users is not a machine API — ADR-0019 §1).
-      get(:me, route: "/me", default_fields: [:primary_email, :platform_role, :username])
+      #
+      # #484 (W2b): the meta carries the CALLING token's scope list —
+      # the wire introspection MCP tool filtering needs (read domains
+      # are probeable via the boundary's 403s; write domains are not).
+      # Scopes belong to the token, not the user, so they ride
+      # request-scoped meta instead of a field — and a session caller
+      # (no PAT ⇒ no context entry, the
+      # PutPatScopesInAshContext bridge) gets no key at all: the
+      # omission is the honest answer, never null or an empty list.
+      # The key is owned by FluxVale.Api.Scopes (the plug writes the
+      # same one); a non-list value RAISES — drift must crash, not
+      # silently render the session answer for a PAT caller.
+      get(:me,
+        route: "/me",
+        default_fields: [:primary_email, :platform_role, :username],
+        metadata: fn _query, _user, request ->
+          key = Scopes.pat_scopes_context_key()
+
+          case request.context do
+            %{^key => scopes} when is_list(scopes) -> %{scopes: scopes}
+            # The plug only writes the row's {:array, :string}; drift
+            # must crash, not render the session answer for a caller.
+            # coveralls-ignore-next-line
+            %{^key => _not_a_list} -> raise "pat scopes context must be a list"
+            _no_pat_context -> %{}
+          end
+        end
+      )
     end
   end
 
