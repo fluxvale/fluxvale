@@ -179,6 +179,23 @@ defmodule FluxValeWeb.Components.UserMenuTest do
       |> Enum.to_list()
     end
 
+    test "the details carries the DetailsDismiss hook and its DOM id" do
+      html =
+        render_component(&CoreComponents.user_menu/1,
+          username: "terence",
+          email: "inbox@fluxvale.test"
+        )
+
+      details =
+        html
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query("[data-testid='user-menu']")
+        |> Enum.at(0)
+
+      assert LazyHTML.attribute(details, "id") == ["user-menu"]
+      assert LazyHTML.attribute(details, "phx-hook") == ["DetailsDismiss"]
+    end
+
     test "default: no Admin row renders" do
       html =
         render_component(&CoreComponents.user_menu/1,

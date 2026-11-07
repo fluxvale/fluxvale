@@ -1241,7 +1241,13 @@ defmodule FluxValeWeb.CoreComponents do
   it needs zero JS on the dead marketing pages (phx-click bindings
   only fire with a live socket), toggles by keyboard, and closes on
   link navigation — the links are plain hrefs, so every navigation is
-  a full page load and no live patch can strand the panel open.
+  a full page load and no live patch can strand the panel open, with
+  no JS at all on pages that mount no LiveView. Where a LiveView DOES
+  wrap the menu (the app chrome), the shared DetailsDismiss hook (#284)
+  adds the GitHub-style dismissal — outside click and Escape close it,
+  Escape returning focus to the summary — the org switcher's exact
+  mechanism (#551). The public chrome's SSR surfaces and the landing
+  keep navigation-close only.
 
   `app_links` folds the app chrome's header links (Catalog/Instances/
   Feedback) into the dropdown below sm (#255): the header row — logo +
@@ -1292,6 +1298,11 @@ defmodule FluxValeWeb.CoreComponents do
   # records (see user_menu/1).
   attr(:platform_admin, :boolean, default: false)
 
+  attr(:id, :string,
+    default: "user-menu",
+    doc: "unique DOM id — the DetailsDismiss hook's target"
+  )
+
   attr(:class, :any, default: nil)
   attr(:rest, :global)
 
@@ -1299,7 +1310,13 @@ defmodule FluxValeWeb.CoreComponents do
     assigns = assign(assigns, :name, menu_name(assigns.username, assigns.email))
 
     ~H"""
-    <details data-testid="user-menu" class={["group relative", @class]} {@rest}>
+    <details
+      id={@id}
+      phx-hook="DetailsDismiss"
+      data-testid="user-menu"
+      class={["group relative", @class]}
+      {@rest}
+    >
       <summary
         class="flex cursor-pointer list-none items-center gap-1.5 rounded-full border border-line bg-panel p-1 pr-2.5 [box-shadow:var(--elevation-sm)] outline-offset-2 outline-focus focus-visible:outline-2 transition-colors hover:bg-panel-raised [&::-webkit-details-marker]:hidden"
         aria-label="Account menu"
