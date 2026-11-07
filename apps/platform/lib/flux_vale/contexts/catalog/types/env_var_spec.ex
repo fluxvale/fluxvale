@@ -11,6 +11,8 @@ defmodule FluxVale.Catalog.Types.EnvVarSpec do
   render these).
   """
 
+  alias FluxVale.Catalog.Types.KnownFields
+
   defstruct [:label, :description, :type, :default, required: false, secret: false]
 
   @type t :: %__MODULE__{
@@ -50,7 +52,7 @@ defmodule FluxVale.Catalog.Types.EnvVarSpec do
     # Returns errors, never raises — this runs inside an Ash cast path,
     # whose contract is {:ok, _} | {:error, _}.
     with {:ok, input} <- normalize_keys(input),
-         :ok <- reject_unknown_fields(input),
+         :ok <- KnownFields.reject(input, @known_fields),
          {:ok, label} <- cast_label(input),
          {:ok, description} <- cast_description(input),
          {:ok, type} <- cast_type(input),
@@ -86,12 +88,12 @@ defmodule FluxVale.Catalog.Types.EnvVarSpec do
   end
 
   # String → atom for known field names only; unknown names pass through
-  # as strings so reject_unknown_fields/1 reports them (no String.to_atom/1
+  # as strings so KnownFields.reject/2 reports them (no String.to_atom/1
   # on arbitrary input).
   @field_atoms Map.new(@known_fields, &{Atom.to_string(&1), &1})
 
   defp normalize_keys(input) do
-    # Unknown string names pass through as strings so reject_unknown_fields/1
+    # Unknown string names pass through as strings so KnownFields.reject/2
     # reports them (no String.to_atom/1 on arbitrary input); non-string,
     # non-atom keys are an error, not a crash — this runs inside a cast.
     initial = {:ok, %{}}
@@ -106,17 +108,6 @@ defmodule FluxVale.Catalog.Types.EnvVarSpec do
       {key, _value}, _acc ->
         {:halt, {:error, "spec keys must be strings or atoms, got: #{inspect(key)}"}}
     end)
-  end
-
-  defp reject_unknown_fields(input) do
-    unknown = Map.keys(input) -- MapSet.to_list(@known_fields)
-
-    if unknown == [] do
-      :ok
-    else
-      {:error,
-       "unknown field(s) #{inspect(unknown)}; supported: #{inspect(Enum.sort(MapSet.to_list(@known_fields)))}"}
-    end
   end
 
   defp cast_label(input) do
