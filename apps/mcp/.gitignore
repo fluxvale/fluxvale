@@ -1,0 +1,3 @@
+/target/
+# llvm-cov output (mcp-coverage writes lcov.info in apps/mcp/)
+lcov.info

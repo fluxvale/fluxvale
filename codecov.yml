@@ -16,6 +16,9 @@ coverage:
       cli:
         flags: [cli]
         threshold: 1% # default 0% fails on any drop, however small
+      mcp:
+        flags: [mcp]
+        threshold: 1% # default 0% fails on any drop, however small
     patch:
       platform:
         flags: [platform]
@@ -24,6 +27,9 @@ coverage:
         # Set target: 100% to hard-require tested new lines.
       cli:
         flags: [cli]
+        # target auto, same stance as platform
+      mcp:
+        flags: [mcp]
         # target auto, same stance as platform
 
 flags:
@@ -38,6 +44,11 @@ flags:
     # too (produced by the second llvm-cov block in the CLI gates job).
     paths: [apps/cli/, crates/]
     # false: the flag reports only when the cli coverage job ran
+    # (path-gated CI) — nothing stale carries into PRs that skip it
+    carryforward: false
+  mcp:
+    paths: [apps/mcp/]
+    # false: the flag reports only when the MCP gates job ran
     # (path-gated CI) — nothing stale carries into PRs that skip it
     carryforward: false
 

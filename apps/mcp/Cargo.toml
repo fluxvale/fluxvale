@@ -1,0 +1,51 @@
+# The MCP server workspace (slice W2a of #484): rmcp streamable HTTP
+# over the shared /api/v1 client. Its own workspace — the same shape
+# as crates/ and apps/cli (absorption guard: an empty [workspace] table
+# stops a repo-root manifest from ever pulling this tree into another
+# workspace's resolution).
+[workspace]
+
+[package]
+name = "fluxvale-mcp"
+version = "0.1.0"
+edition = "2024"
+license = "FSL-1.1-ALv2"
+publish = false # workspace-internal; ships as a container image in W3
+
+[[bin]]
+name = "fluxvale-mcp"
+path = "src/main.rs"
+
+[dependencies]
+# The lockfile pins rmcp 3.9.0: the tool macros' generated code shape
+# changes between minors, so a lockfile bump is a deliberate,
+# reviewable diff. The requirement follows the repo's Rust style
+# (caret, like apps/cli's) — the lockfile is the pin.
+rmcp = { version = "3.9.0", features = [
+    "server",
+    "macros",
+    "schemars",
+    "elicitation", # the W2b confirm flows ride it
+    "transport-streamable-http-server",
+] }
+fluxvale-api = { path = "../../crates/fluxvale-api" } # the /api/v1 client: wire + redacted token (repo-root crates/ workspace)
+# The serving stack: rmcp's streamable-http server ships a tower
+# service, and the SDK's own examples (counter_streamhttp,
+# simple_auth_streamhttp, tag rmcp-v3.9.0) mount it with axum 0.8 —
+# the documented pattern. axum re-exports the same http 1.x types the
+# injected request Parts carry.
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+schemars = "1.0" # the tool schemas' derive (rmcp's own pin)
+anyhow = "1.0.104" # top-level error plumbing (matches the CLI's)
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+# Collecting the axum response body in router-oneshot tests.
+http-body-util = "0.1"
+# Router oneshot() in the router-level tests — a test-only trait
+# (axum pulls tower itself at runtime; naming the trait needs the dep).
+tower = { version = "0.5", features = ["util"] }
