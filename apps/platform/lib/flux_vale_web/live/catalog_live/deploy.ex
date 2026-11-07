@@ -970,9 +970,6 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
     }
   end
 
-  # The sub-line under a preset's slug (#558): its compute shape — the
-  # price beside it is the compute rate, and storage rides the user's
-  # own rung on the axis.
   # The version's whole recommendation (#558): the compute class's rate
   # plus the storage axis at the version's own default — the same
   # figure the catalog card badge quotes. The caller's :if guards the
@@ -982,6 +979,9 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
     FluxVale.Pricing.format_monthly_rate(rates.monthly_cents)
   end
 
+  # The sub-line under a preset's slug (#558): its compute shape — the
+  # price beside it is the compute rate, and storage rides the user's
+  # own rung on the axis.
   defp size_allocation(size) do
     "#{decimal_string(size.cpu_cores)} CPU · #{size.memory_mb} MB + your storage"
   end

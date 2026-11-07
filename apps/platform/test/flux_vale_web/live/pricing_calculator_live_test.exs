@@ -1122,9 +1122,9 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
   end
 
   # A Size row through the create action, `authorize?: false` — the
-  # fixtures' bootstrap posture. PricingFixtures itself still ships
-  # the removed storage keys (#558 foundation), so this lane builds
-  # compute-only rows directly.
+  # fixtures' bootstrap posture. Local to this lane so the fallback
+  # tests can shape sizes no fixture default covers (cheapest-only
+  # tables, off-ladder compute).
   defp create_size!(attrs) do
     n = System.unique_integer()
 

@@ -1,14 +1,15 @@
 defmodule FluxVale.Pricing do
   @moduledoc """
-  Pricing: the priceable allocation sizes behind ADR-0028's flat monthly
-  rate ("Kavita: $X/mo, done", #125) and — since the checkout tax layer
-  (#138, ADR-0029 Am. 3 gate 2) — the per-country VAT rate table the
-  checkout resolves against. Reads are any signed-in actor (the price
-  shows in every catalog/provisioning surface); mutation is
-  platform-admin-only. Opts into AshAdmin (ADR-0027) like Catalog:
-  price and rate changes are business data — admin-editable, and the
-  tax rates ship as YAML seed diffs (rate changes land as reviewable
-  edits, per the settled #138 stance).
+  Pricing: the compute classes and the per-GB storage axis behind
+  ADR-0028's flat monthly rate ("Kavita: $X/mo, done", #125, storage
+  decoupled by #558) and — since the checkout tax layer (#138,
+  ADR-0029 Am. 3 gate 2) — the per-country VAT rate table the checkout
+  resolves against. Reads are any signed-in actor (the price shows in
+  every catalog/provisioning surface); mutation is platform-admin-only.
+  Opts into AshAdmin (ADR-0027) like Catalog: price and rate changes
+  are business data — admin-editable, and the tax rates ship as YAML
+  seed diffs (rate changes land as reviewable edits, per the settled
+  #138 stance).
   """
 
   use Ash.Domain,

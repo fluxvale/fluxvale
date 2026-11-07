@@ -433,8 +433,9 @@
           default_cpu_cores: "0.25"
           default_memory_mb: 512
           default_storage_gb: 5
-          # The priced unit (#125): `micro` is 0.25 CPU / 512 MB / 5 GB —
-          # exactly this version's allocation ($2.83/mo, $0.24 stopped — B′).
+          # The compute class (#125, #558): `micro` is 0.25 CPU / 512 MB —
+          # exactly this version's compute ($2.59/mo), and 5 GB is the
+          # app's own storage default ($0.24/mo per-GB — B′).
           # The honest floor: Pocket ID is a single static Go binary with
           # an embedded SQLite DB, idling at tens of MB. Availability is
           # not a sizing question for the identity instance (#511): it

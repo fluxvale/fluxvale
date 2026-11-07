@@ -184,7 +184,8 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert version.oidc_callback_path == "/identity/connect/oidc-signin"
       assert version.default_env_vars == %{}
       assert version.first_run == nil
-      # The priced unit: micro (0.25 / 512 / 5, $2.83 at B′) — the
+      # The compute class: micro (0.25 / 512, $2.59 at B′) plus the
+      # version's own 5 GB storage default ($0.24 per-GB) — the
       # version compute defaults must equal the size's compute (#558)
       # (ValidateSizeMatchesAllocation enforces it at write time; this
       # asserts the shipped pairing).
