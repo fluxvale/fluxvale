@@ -1180,7 +1180,7 @@ msgstr ""
 msgid "Its compute defaults must keep matching this size. Re-point those versions to another size, or retire them in the debug admin. Then this compute can move."
 msgstr ""
 
-#: lib/flux_vale_web/components/allocation_sliders.ex:226
+#: lib/flux_vale_web/components/allocation_sliders.ex:231
 #, elixir-autogen, elixir-format
 msgid "Priced per GB of storage, including while the instance is stopped."
 msgstr ""
