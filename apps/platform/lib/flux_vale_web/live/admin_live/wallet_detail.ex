@@ -4,30 +4,35 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   runway projection via the domain's `compute_runway/1`), the paywall
   waiver with its contract in plain copy, and the ledger — keyset
   paginated, newest first, the #123 history shape. The writes are the
-  two the surface owns:
+  three the surface owns:
 
   - the paywall waiver flip (`Wallet :set_waiver`, the one
     actor-facing wallet update): confirmed inline where the toggle
-    lives, with the contract in the confirm copy — the waiver satisfies
-    only the has-paid gate (private access, backups), moves no money,
-    posts no ledger row, waives nothing spendable;
-  - the goodwill credit (`LedgerEntry :grant_goodwill`, #140): posts
-    immediately as an `:adjustment` credit through the same GrantCredits
-    seam as every other posting. The action is KEYLESS by deliberation
-    (the domain comment owns the reasoning), so the surface fences the
-    wire (`phx-disable-with`) and the posted row renders at the top of
-    the ledger with a reversal affordance — the operator review of the
-    posted row is the guard the domain names.
+    lives. The card carries the contract (the waiver satisfies only
+    the has-paid gate, moves no money, posts no ledger row); the
+    confirm states the delta, branching on purchase history — the
+    gate reads the waiver OR the ledger's purchase rows, so removing
+    the flag from an org that has paid closes nothing;
+  - the goodwill credit (`LedgerEntry :grant_goodwill`, #140): the
+    submit opens a confirm that states the consequence, because the
+    post is irreversible. The action is KEYLESS by deliberation (the
+    domain comment owns the reasoning), so the surface fences the
+    wire at both clicks (`phx-disable-with`) and the posted row
+    renders at the top of the ledger with a reversal affordance — the
+    operator review of the posted row is the guard the domain names;
+  - the reversal (`Billing.reverse_entry/2`, the compensating
+    unwind): confirmed under its row, the original stays.
 
-  Reversal rides the system seam (`Billing.reverse_entry/2`, the
-  compensating unwind). No actor-facing reversal action exists (the
-  flagged gap, reported on the lane), so the handler enforces the gate
-  itself: the platform-admin predicate (covering the demotion window
-  the AdminGate mount check cannot) plus a fresh actor-authorized read
-  of the entry, then the seam.
+  Every write re-resolves the actor from the session first
+  (`UserAuth.resolve_user/1`, which also re-checks token revocation)
+  and requires the platform-admin role on the fresh struct: AdminChrome
+  resolves `current_user` once, at mount, and a socket outlives a
+  demotion. The reversal rides the system seam (no actor-facing
+  reversal action exists — the flagged gap, reported on the lane), so
+  this per-event gate is what the seam cannot do for itself.
 
-  Every read rides the billing domain with the platform-admin actor and
-  authorization on. No `authorize?: false` anywhere on this surface.
+  Reads ride the billing domain with the authorization on. No
+  `authorize?: false` anywhere on this surface.
   """
 
   use FluxValeWeb, :live_view
@@ -37,15 +42,19 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   alias FluxVale.Billing.LedgerEntry
   alias FluxVale.Billing.Wallet
   alias FluxVale.Checks.ActorIsPlatformAdmin
+  alias FluxVale.Identity.User
   alias FluxValeWeb.AdminComponents
   alias FluxValeWeb.BillingComponents
+  alias FluxValeWeb.UserAuth
+
+  require Ash.Query
 
   # Mirrors the org billing page's ledger window — the same read, the
   # same sort, one page size for every ledger surface.
   @page_size 25
 
   @impl Phoenix.LiveView
-  def mount(%{"id" => id}, _session, socket) do
+  def mount(%{"id" => id}, session, socket) do
     admin = socket.assigns.current_user
 
     with {:ok, wallet} <- Ash.get(Wallet, id, actor: admin),
@@ -57,6 +66,9 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
           {:ok,
            socket
            |> assign(
+             # The session map, kept for the per-write actor re-resolve
+             # (see `reauthorized_actor/1`).
+             admin_session: session,
              wallet: wallet,
              org: org,
              runway: runway,
@@ -64,7 +76,8 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
              ledger_empty?: page.results == [],
              reversed_ids: reversed_ids(page.results),
              confirm: nil,
-             goodwill_form: to_form(%{"amount_cents" => ""}, as: :goodwill)
+             goodwill_form: to_form(%{"amount_cents" => ""}, as: :goodwill),
+             goodwill_echo: nil
            )
            |> stream(:entries, page.results)}
 
@@ -95,7 +108,9 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   # The waiver lever's click. The reveal rides a fresh domain read, so
   # the direction the confirm states is the wallet's CURRENT state, not
   # the mounted snapshot's (a flip raced between mount and click reads
-  # the truth).
+  # the truth). The purchase-existence check rides along: the removal
+  # copy branches on it, because the gate reads the waiver OR the
+  # ledger's purchase rows.
   @impl Phoenix.LiveView
   # coveralls-ignore-start - OTP 28 cover never attributes a count to
   # this clause head; the clause demonstrably runs (the waiver tests
@@ -106,7 +121,10 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
 
     case Ash.get(Wallet, socket.assigns.wallet.id, actor: admin) do
       {:ok, fresh} ->
-        {:noreply, assign(socket, confirm: {:waiver, not fresh.paywall_waived}, wallet: fresh)}
+        paid? = has_purchase?(fresh, admin)
+
+        {:noreply,
+         assign(socket, confirm: {:waiver, not fresh.paywall_waived, paid?}, wallet: fresh)}
 
       # Wallet rows are never deleted, so this arm is the DB-down
       # class — not simulatable under the sandbox.
@@ -129,30 +147,27 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   # flipped in between (last confirmed intent wins — the flash states
   # the resulting state either way).
   def handle_event("confirm-waiver", _params, socket) do
-    admin = socket.assigns.current_user
-    {:waiver, target} = socket.assigns.confirm
+    case socket.assigns.confirm do
+      {:waiver, target, paid?} ->
+        case reauthorized_actor(socket) do
+          {:ok, admin} ->
+            attempt_waiver(socket, target, paid?, admin)
 
-    case Wallet.set_waiver(socket.assigns.wallet, %{paywall_waived: target}, actor: admin) do
-      {:ok, waived} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, waiver_flash(target))
-         |> assign(wallet: waived, confirm: nil)}
+          :revoked ->
+            {:noreply,
+             socket
+             |> put_flash(:error, revoked_copy())
+             |> assign(confirm: nil)}
+        end
 
-      # The policy admits this actor (the mount gate), so the residual
-      # error class is DB-down — not simulatable under the sandbox.
-      # coveralls-ignore-start
-      {:error, _refused} ->
-        {:noreply,
-         socket
-         |> put_flash(:error, gettext("The waiver was refused. Try again."))
-         |> assign(confirm: nil)}
-
-        # coveralls-ignore-stop
+      # A second confirm click (or a stale frame naming the other
+      # panel): the confirm already closed. A quiet no-op — the panel
+      # the event belonged to is gone, so there is nothing to say.
+      _expired ->
+        {:noreply, socket}
     end
   end
 
-  @impl Phoenix.LiveView
   def handle_event("cancel-confirm", _params, socket) do
     case socket.assigns.confirm do
       {:reverse, entry} ->
@@ -162,58 +177,75 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
          |> assign(confirm: nil)
          |> stream_insert(:entries, entry)}
 
-      _waiver_or_nil ->
+      _other_or_nil ->
         {:noreply, assign(socket, confirm: nil)}
     end
   end
 
-  # The goodwill credit (#140): keyless by deliberation, so the button
-  # fences the wire (phx-disable-with) and each submit posts. The copy
-  # says so before the click and the posted row lands at the top of
-  # the ledger for the operator's review.
+  # The dollar echo under the cents input: live, so the operator sees
+  # the money they are about to confirm before the confirm exists.
+  @impl Phoenix.LiveView
+  def handle_event("goodwill-echo", %{"goodwill" => %{"amount_cents" => raw}}, socket) do
+    echo =
+      case parse_cents(raw) do
+        {:ok, cents} -> BillingComponents.format_balance(cents)
+        :error -> nil
+      end
+
+    {:noreply, assign(socket, goodwill_echo: echo)}
+  end
+
+  # The goodwill submit opens the confirm — it does not post. The
+  # action is keyless by deliberation (each submit posts), so the
+  # surface puts a confirm between the click and the wire and fences
+  # both clicks with phx-disable-with.
   @impl Phoenix.LiveView
   # coveralls-ignore-start - the same clause-head cover artifact; the
   # goodwill tests drive it and the body's lines carry counts
   def handle_event("grant-goodwill", %{"goodwill" => %{"amount_cents" => raw}}, socket) do
-    admin = socket.assigns.current_user
     # coveralls-ignore-stop
 
     # The surface refuses politely before the domain ever sees it: a
-    # whole number of cents, at least 1. The action's own constraint
+    # whole number of US cents, at least 1. The action's own constraint
     # stays the arbiter.
     case parse_cents(raw) do
       {:ok, cents} ->
-        case LedgerEntry.grant_goodwill(socket.assigns.wallet.id, cents, actor: admin) do
-          {:ok, entry} ->
-            {:noreply,
-             socket
-             |> put_flash(:info, goodwill_posted_copy(cents))
-             |> assign(goodwill_form: to_form(%{"amount_cents" => ""}, as: :goodwill))
-             |> assign(ledger_empty?: false)
-             |> refresh_facts()
-             |> stream_insert(:entries, entry, at: 0)}
-
-          # The policy admits this actor (the mount gate) and the
-          # amount passed the guard above, so the residual error class
-          # is DB-down — not simulatable under the sandbox.
-          # coveralls-ignore-start
-          {:error, _refused} ->
-            refused =
-              put_flash(
-                socket,
-                :error,
-                gettext("The credit was refused. Nothing was posted. Try again.")
-              )
-
-            {:noreply, refused}
-            # coveralls-ignore-stop
-        end
+        {:noreply,
+         assign(socket,
+           confirm: {:goodwill, cents},
+           goodwill_form: to_form(%{"amount_cents" => raw}, as: :goodwill)
+         )}
 
       :error ->
         {:noreply,
          socket
-         |> put_flash(:error, amount_invalid_copy())
+         |> put_flash(:error, amount_invalid_copy(raw))
          |> assign(goodwill_form: to_form(%{"amount_cents" => raw}, as: :goodwill))}
+    end
+  end
+
+  # The goodwill write. Irreversible by design (no unpost, only a
+  # compensating reversal), gated on the re-resolved actor like every
+  # write here.
+  # coveralls-ignore-start - the same clause-head cover artifact; the
+  # goodwill confirm tests drive it and the body's lines carry counts
+  def handle_event("confirm-goodwill", _params, socket) do
+    # coveralls-ignore-stop
+    case socket.assigns.confirm do
+      {:goodwill, cents} ->
+        case reauthorized_actor(socket) do
+          {:ok, admin} ->
+            attempt_goodwill(socket, cents, admin)
+
+          :revoked ->
+            {:noreply,
+             socket
+             |> put_flash(:error, revoked_copy())
+             |> assign(confirm: nil)}
+        end
+
+      _expired ->
+        {:noreply, socket}
     end
   end
 
@@ -243,22 +275,27 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
 
   # The compensating unwind. The seam is system-level (no actor-facing
   # reversal action exists — the flagged gap), so the admin gate is
-  # enforced here: the platform-admin predicate first (the demotion
-  # window), then the fresh actor-authorized read, then the seam. The
+  # enforced here per event: the actor re-resolves from the session
+  # (a mount-resolved admin survives a demotion; this re-read does
+  # not), then the fresh actor-authorized read, then the seam. The
   # domain's own guard refuses a double reversal.
   def handle_event("confirm-reverse", _params, socket) do
-    admin = socket.assigns.current_user
-    {:reverse, entry} = socket.assigns.confirm
+    case socket.assigns.confirm do
+      {:reverse, entry} ->
+        case reauthorized_actor(socket) do
+          {:ok, admin} ->
+            attempt_reverse(socket, admin, entry)
 
-    if ActorIsPlatformAdmin.platform_admin?(admin) do
-      attempt_reverse(socket, admin, entry)
-    else
-      # The mount gate checked at mount; a socket outlives a demotion.
-      # Not simulatable past the mount (a demoted session cannot
-      # mount) — the mount gate's own suite covers that path.
-      # coveralls-ignore-start
-      {:noreply, reverse_refused(socket)}
-      # coveralls-ignore-stop
+          :revoked ->
+            {:noreply,
+             socket
+             |> put_flash(:error, revoked_copy())
+             |> assign(confirm: nil)
+             |> refresh_ledger()}
+        end
+
+      _expired ->
+        {:noreply, socket}
     end
   end
 
@@ -270,11 +307,17 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
       # coveralls-ignore-stop
       {:ok, page} ->
         # Exhaustion is uniform here: an empty last page appends nothing
-        # and retires the button (more? false).
+        # and retires the button (more? false). The reversed-set merges
+        # each page's compensation markers: a reversal sorts ABOVE its
+        # original (newest first), so an original on a later page can
+        # carry its reversal from a page already loaded.
+        page_reversed = reversed_ids(page.results)
+        merged = MapSet.union(socket.assigns.reversed_ids, page_reversed)
+
         {:noreply,
          socket
          |> stream(:entries, page.results, at: -1)
-         |> assign(page: page)}
+         |> assign(page: page, reversed_ids: merged)}
 
       # defensive: DB read failure between render and click — not
       # simulatable under the sandbox; the next click retries.
@@ -284,6 +327,87 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
 
         Logger.error("Ledger page load failed: #{inspect(reason)}")
         {:noreply, socket}
+        # coveralls-ignore-stop
+    end
+  end
+
+  # -- the gate -------------------------------------------------------------
+
+  # The demotion-window gate behind every write. AdminChrome resolves
+  # the actor ONCE, at mount, and a socket outlives a demotion — so the
+  # write handlers re-resolve from the session (which also re-checks
+  # token revocation) and require the platform-admin role on the FRESH
+  # struct. Reads keep the mount-resolved actor: the route pipeline and
+  # the AdminGate mount check own that window; the writes own this one.
+  defp reauthorized_actor(socket) do
+    case UserAuth.resolve_user(socket.assigns.admin_session) do
+      %User{} = actor ->
+        if ActorIsPlatformAdmin.platform_admin?(actor), do: {:ok, actor}, else: :revoked
+
+      # The revoked-token arm: same refusal as the demoted actor, and
+      # unreachable in a test without minting and revoking the live
+      # session's jti out-of-band — the demoted-actor test carries the
+      # gate's behavior.
+      # coveralls-ignore-start
+      _not_signed_in ->
+        :revoked
+        # coveralls-ignore-stop
+    end
+  end
+
+  defp attempt_waiver(socket, target, paid?, admin) do
+    case Wallet.set_waiver(socket.assigns.wallet, %{paywall_waived: target}, actor: admin) do
+      {:ok, waived} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, waiver_flash(target, paid?))
+         |> assign(wallet: waived, confirm: nil)}
+
+      # The policy admits this actor (re-resolved above), so the
+      # residual error class is DB-down — not simulatable under the
+      # sandbox.
+      # coveralls-ignore-start
+      {:error, _refused} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, gettext("The waiver was refused. Try again."))
+         |> assign(confirm: nil)}
+
+        # coveralls-ignore-stop
+    end
+  end
+
+  # coveralls-ignore-start - the same clause-head cover artifact; the
+  # goodwill confirm tests drive it and the body's lines carry counts
+  defp attempt_goodwill(socket, cents, admin) do
+    case LedgerEntry.grant_goodwill(socket.assigns.wallet.id, cents, actor: admin) do
+      # coveralls-ignore-stop
+      {:ok, entry} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, goodwill_posted_copy(cents))
+         |> assign(
+           goodwill_form: to_form(%{"amount_cents" => ""}, as: :goodwill),
+           goodwill_echo: nil,
+           ledger_empty?: false,
+           confirm: nil
+         )
+         |> refresh_facts()
+         |> stream_insert(:entries, entry, at: 0)}
+
+      # The policy admits this actor (re-resolved above) and the
+      # amount passed the guard, so the residual error class is
+      # DB-down — not simulatable under the sandbox.
+      # coveralls-ignore-start
+      {:error, _refused} ->
+        refused =
+          put_flash(
+            socket,
+            :error,
+            gettext("The credit was refused. Nothing was posted. Try again.")
+          )
+
+        {:noreply, refused}
         # coveralls-ignore-stop
     end
   end
@@ -342,6 +466,17 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
     {:ok, orgs}
   end
 
+  # The removal copy's branch fact: the has-paid gate reads the waiver
+  # OR the ledger's purchase rows, so removing the waiver from an org
+  # that HAS paid closes nothing. This read is the check, through the
+  # domain with the admin actor.
+  defp has_purchase?(wallet, admin) do
+    LedgerEntry
+    |> Ash.Query.for_read(:read, %{}, actor: admin)
+    |> Ash.Query.filter(wallet_id == ^wallet.id and reason == :purchase)
+    |> Ash.exists?(actor: admin)
+  end
+
   # Post-write facts refresh: the balance and the runway projection move
   # with every posted row. Wallet rows are never deleted, so the plain
   # match is the DB-down class by construction.
@@ -384,7 +519,9 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
     |> stream_insert(:entries, reversal, at: 0)
   end
 
-  # coveralls-ignore-start - the demotion-window arm above
+  # Reached only through the DB-down arms above (the demotion arm has
+  # its own flash now) — not simulatable under the sandbox.
+  # coveralls-ignore-start
   defp reverse_refused(socket) do
     socket
     |> put_flash(:error, gettext("The reversal was refused. The ledger is refreshed."))
@@ -395,8 +532,8 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
 
   # -- input ----------------------------------------------------------------
 
-  # A whole number of US cents, at least 1. Trailing junk ("5.50") is
-  # refused, not truncated.
+  # A whole number of US cents, at least 1. Anything else is refused,
+  # never truncated.
   defp parse_cents(raw) do
     trimmed = String.trim(raw || "")
 
@@ -408,26 +545,85 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
 
   # -- copy -----------------------------------------------------------------
 
-  defp amount_invalid_copy do
-    gettext("Enter a whole number of US cents, at least 1. Nothing was posted.")
+  defp amount_invalid_copy(raw) do
+    trimmed = String.trim(raw || "")
+
+    # A dollar-shaped amount ("5.50"): name the conversion, not just
+    # the rule. Two decimal places is the shape the product writes.
+    if Regex.match?(~r/^\d+\.\d{1,2}$/, trimmed) do
+      [dollars, frac] = String.split(trimmed, ".")
+
+      padded_frac = String.pad_trailing(frac, 2, "0")
+      cents = String.to_integer(dollars) * 100 + String.to_integer(padded_frac)
+
+      gettext(
+        "Whole cents only. Enter %{cents} for %{amount}. Nothing was posted.",
+        cents: Integer.to_string(cents),
+        amount: BillingComponents.format_balance(cents)
+      )
+    else
+      gettext("Enter a whole number of US cents, at least 1. Nothing was posted.")
+    end
   end
 
   defp goodwill_posted_copy(cents) do
     gettext(
       "Posted %{amount} as an adjustment credit. It sits at the top of the ledger. It cannot be un-posted, only reversed.",
-      amount: AdminComponents.money_text(cents)
+      amount: BillingComponents.format_balance(cents)
     )
   end
 
-  defp waiver_flash(true) do
+  defp goodwill_confirm_copy(cents) do
+    gettext(
+      "Posts %{amount} now as an adjustment credit. It cannot be un-posted, only reversed with a compensating entry.",
+      amount: BillingComponents.format_balance(cents)
+    )
+  end
+
+  defp goodwill_confirm_action(cents) do
+    gettext("Yes, post %{amount}", amount: BillingComponents.format_balance(cents))
+  end
+
+  defp revoked_copy do
+    gettext("Your admin access ended. Sign out and sign back in.")
+  end
+
+  # The confirm states the DELTA — the card above already carries the
+  # contract. Removal branches on purchase history: the gate reads the
+  # waiver OR the ledger's purchase rows, so a paid org loses nothing.
+  defp waiver_body(true, _paid?) do
+    gettext(
+      "The has-paid gate opens for this org: private access and backups unlock. No money moves."
+    )
+  end
+
+  defp waiver_body(false, true) do
+    gettext(
+      "The waiver flag comes off. The org's purchase history still satisfies the has-paid gate, so nothing changes for this org."
+    )
+  end
+
+  defp waiver_body(false, false) do
+    gettext(
+      "The has-paid gate closes again. Private access and backups lock until the org tops up. No money moves."
+    )
+  end
+
+  defp waiver_flash(true, _paid?) do
     gettext(
       "The paywall gate is waived for this org. Private access and backups are unlocked. No money moved."
     )
   end
 
-  defp waiver_flash(false) do
+  defp waiver_flash(false, true) do
     gettext(
-      "The waiver is removed. The has-paid gate is closed again. Private access and backups lock until the org tops up."
+      "The waiver flag is removed. The org's purchase history keeps the has-paid gate satisfied, so nothing changed for this org."
+    )
+  end
+
+  defp waiver_flash(false, false) do
+    gettext(
+      "The waiver is removed. The has-paid gate closes again. Private access and backups lock until the org tops up."
     )
   end
 
@@ -439,25 +635,13 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
     gettext("Remove the paywall waiver for %{org}?", org: org_name)
   end
 
-  # The contract, in the confirm where the click happens: what the
-  # waiver does, and what it never does. Removing names what closes.
-  defp waiver_body(true) do
-    gettext(
-      "The waiver satisfies only the has-paid gate. It unlocks private access and backups for this org. It moves no money, posts no ledger row, and waives nothing spendable."
-    )
-  end
-
-  defp waiver_body(false) do
-    gettext(
-      "The has-paid gate closes again. Private access and backups lock until the org tops up. No money moves."
-    )
-  end
-
   defp waiver_action(true), do: gettext("Yes, waive the gate")
   defp waiver_action(false), do: gettext("Yes, remove the waiver")
 
-  # Reached only under the match? guard in the template.
-  defp waiver_target({:waiver, target}), do: target
+  # Reached only under the match? guards in the template.
+  defp waiver_target({:waiver, target, _paid?}), do: target
+  defp waiver_paid({:waiver, _target, paid?}), do: paid?
+  defp goodwill_cents({:goodwill, cents}), do: cents
 
   defp flip_label(true), do: gettext("Remove the waiver")
   defp flip_label(false), do: gettext("Waive the gate")
@@ -470,7 +654,7 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
 
   defp reverse_title(entry) do
     gettext("Reverse the %{amount} credit?",
-      amount: AdminComponents.ledger_amount_text(entry.amount)
+      amount: BillingComponents.format_amount(entry.amount)
     )
   end
 
@@ -484,9 +668,11 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   defp stamp_text(stamp), do: Calendar.strftime(stamp, "%b %d, %Y")
 
   # Only a credit that is not itself a reversal, and has no reversal in
-  # the loaded window, offers the lever. A reversal parked on a later
-  # page still shows it, and the domain's own guard answers the click —
-  # the honest refresh is the fallback either way.
+  # the loaded pages, offers the lever. Reversals sort ABOVE their
+  # originals (newest first), so a page can carry a compensation whose
+  # original sits on a later page — load-more merges the markers, and
+  # the domain's own guard answers any residual stale click with the
+  # honest refresh.
   defp reversible?(entry, reversed_ids) do
     entry.type == :credit and is_nil(entry.reverses_id) and
       not MapSet.member?(reversed_ids, entry.id)
@@ -501,13 +687,29 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
     |> MapSet.delete(nil)
   end
 
+  # A netted row must not read as live money: the amount strikes and
+  # mutes once its compensation exists.
+  defp amount_class(entry, reversed_ids) do
+    if MapSet.member?(reversed_ids, entry.id) do
+      "text-ink-muted line-through decoration-ink-muted/60"
+    else
+      amount_color(entry.type)
+    end
+  end
+
+  defp amount_color(:credit), do: "text-success"
+  defp amount_color(:debit), do: "text-danger"
+
   # Distinct tone-and-shape pairs (the people surface's badge grammar):
-  # no two reasons ever share both tone and icon, in either theme.
+  # no two reasons ever share both tone and icon in either theme, and
+  # danger stays reserved for the destroy clock and the negative
+  # balance. Adjustment rides neutral with a dashed border, distinct
+  # from usage's solid neutral.
   defp reason_tone(:welcome), do: "primary"
   defp reason_tone(:purchase), do: "success"
   defp reason_tone(:usage), do: "neutral"
-  defp reason_tone(:refund), do: "primary"
-  defp reason_tone(:adjustment), do: "warning"
+  defp reason_tone(:refund), do: "warning"
+  defp reason_tone(:adjustment), do: "neutral"
 
   defp reason_icon(:welcome), do: "hero-sparkles"
   defp reason_icon(:purchase), do: "hero-credit-card"
@@ -515,14 +717,14 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   defp reason_icon(:refund), do: "hero-arrow-path"
   defp reason_icon(:adjustment), do: "hero-adjustments-horizontal"
 
+  defp reason_badge_class(:adjustment), do: "border-dashed"
+  defp reason_badge_class(_other), do: nil
+
   defp reason_label(:welcome), do: gettext("Welcome credit")
   defp reason_label(:purchase), do: gettext("Purchase")
   defp reason_label(:usage), do: gettext("Usage")
   defp reason_label(:refund), do: gettext("Refund")
   defp reason_label(:adjustment), do: gettext("Adjustment")
-
-  defp amount_color(:credit), do: "text-success"
-  defp amount_color(:debit), do: "text-danger"
 
   # The posting's provenance, read-only: the provider-prefixed
   # idempotency key (polar:<checkout>, the webhook's second lock) or
@@ -568,8 +770,8 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
         </section>
 
         <%!-- The destroy clock's honest gravity: a negative balance is
-        a countdown to data deletion, and the card says exactly what
-        the ladder does. --%>
+        a countdown to data deletion, and the card names the deadline,
+        not just the start. --%>
         <section class="wrap pt-2 pb-8">
           <div
             :if={destroy_clock?(@runway, @wallet)}
@@ -582,8 +784,9 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
             <p class="mt-1 text-sm text-ink">
               <%= if @wallet.negative_since do %>
                 {gettext(
-                  "The org's instances are stopped and its data is on a destroy clock: deletion lands 30 days after %{date}, the day the balance first went negative. A top-up that restores the balance clears the clock.",
-                  date: stamp_text(@wallet.negative_since)
+                  "The org's instances are stopped and its data is on a destroy clock. The clock started %{start}. Deletion lands %{deadline}. A top-up that restores the balance clears the clock.",
+                  start: stamp_text(@wallet.negative_since),
+                  deadline: AdminComponents.destroy_deadline_text(@wallet.negative_since)
                 )}
               <% else %>
                 {gettext(
@@ -597,7 +800,8 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
         <section class="wrap pt-4 pb-8">
           <div class="rise grid items-start gap-6 lg:grid-cols-2">
             <%!-- The waiver card: the contract in plain copy, the flip
-            confirmed inline where the toggle lives. --%>
+            confirmed inline where the toggle lives, the confirm stating
+            the delta. --%>
             <.card class="space-y-4" data-testid="admin-wallet-waiver-card">
               <div class="flex items-start justify-between gap-4">
                 <div class="min-w-0">
@@ -624,10 +828,10 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
                 {flip_label(@wallet.paywall_waived)}
               </.button>
 
-              <div :if={match?({:waiver, _}, @confirm)}>
+              <div :if={match?({:waiver, _, _}, @confirm)}>
                 <.confirm_block
                   title={waiver_title(waiver_target(@confirm), @org.name)}
-                  body={waiver_body(waiver_target(@confirm))}
+                  body={waiver_body(waiver_target(@confirm), waiver_paid(@confirm))}
                   action={waiver_action(waiver_target(@confirm))}
                   event="confirm-waiver"
                   action_testid="admin-wallet-waiver-confirm"
@@ -637,15 +841,15 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
               </div>
             </.card>
 
-            <%!-- The goodwill credit: the keyless post's fence is the
-            button, the consequence is the copy, and the guard is the
-            posted row at the top of the ledger. --%>
+            <%!-- The goodwill credit: the keyless post gets a confirm
+            between the click and the wire, because the post cannot be
+            undone. The echo shows the dollars before the confirm does. --%>
             <.card class="space-y-4" data-testid="admin-wallet-goodwill-card">
               <div>
                 <h2 class="text-base font-medium text-ink">{gettext("Goodwill credit")}</h2>
                 <p class="mt-1 text-sm text-ink-muted">
                   {gettext(
-                    "Posts immediately as an adjustment credit. A post cannot be undone, only reversed with a compensating entry. Each submit posts, so submit once."
+                    "Posts as an adjustment credit. A post cannot be undone, only reversed with a compensating entry."
                   )}
                 </p>
               </div>
@@ -653,24 +857,51 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
                 for={@goodwill_form}
                 id="admin-wallet-goodwill-form"
                 phx-submit="grant-goodwill"
+                phx-change="goodwill-echo"
                 class="space-y-4"
               >
-                <.input
-                  field={@goodwill_form[:amount_cents]}
-                  type="number"
-                  min="1"
-                  step="1"
-                  label={gettext("Amount (US cents)")}
-                  data-testid="admin-wallet-goodwill-amount"
-                />
+                <div>
+                  <.input
+                    field={@goodwill_form[:amount_cents]}
+                    type="number"
+                    min="1"
+                    step="1"
+                    label={gettext("Amount (US cents)")}
+                    data-testid="admin-wallet-goodwill-amount"
+                  />
+                  <p
+                    :if={@goodwill_echo}
+                    class="mt-1 text-xs text-ink-muted"
+                    data-testid="admin-wallet-goodwill-echo"
+                  >
+                    = {@goodwill_echo}
+                  </p>
+                </div>
                 <.button
                   type="submit"
-                  phx-disable-with={gettext("Posting...")}
+                  phx-disable-with={gettext("Reviewing...")}
                   data-testid="admin-wallet-goodwill-submit"
                 >
                   {gettext("Post credit")}
                 </.button>
               </.form>
+
+              <div :if={match?({:goodwill, _}, @confirm)}>
+                <.confirm_block
+                  title={
+                    gettext(
+                      "Post a %{amount} goodwill credit?",
+                      amount: BillingComponents.format_balance(goodwill_cents(@confirm))
+                    )
+                  }
+                  body={goodwill_confirm_copy(goodwill_cents(@confirm))}
+                  action={goodwill_confirm_action(goodwill_cents(@confirm))}
+                  event="confirm-goodwill"
+                  action_testid="admin-wallet-goodwill-confirm"
+                  cancel_testid="admin-wallet-goodwill-cancel"
+                  myself={nil}
+                />
+              </div>
             </.card>
           </div>
         </section>
@@ -680,86 +911,104 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
             <h2 class="text-lg font-semibold tracking-tight text-ink">{gettext("Ledger")}</h2>
 
             <.card>
-              <p
-                :if={@ledger_empty?}
-                class="text-sm text-ink-subtle"
-                data-testid="admin-wallet-ledger-empty"
-              >
-                {gettext("No activity yet.")}
-              </p>
+              <div :if={@ledger_empty?} data-testid="admin-wallet-ledger-empty">
+                <.empty_state title={gettext("No activity yet.")} />
+              </div>
 
-              <div id="admin-wallet-ledger" phx-update="stream">
-                <div
-                  :for={{dom_id, entry} <- @streams.entries}
-                  id={dom_id}
-                  data-testid={"admin-wallet-entry-#{entry.id}"}
-                  class="border-t border-line py-3 first:border-t-0"
-                >
-                  <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-                    <span class="whitespace-nowrap font-mono text-xs text-ink-muted">
-                      {Calendar.strftime(entry.created_at, "%b %d, %Y %H:%M UTC")}
-                    </span>
-                    <span class="flex flex-wrap items-center gap-1.5">
-                      <.badge tone={reason_tone(entry.reason)}>
-                        <.icon name={reason_icon(entry.reason)} class="size-3.5" />
-                        {reason_label(entry.reason)}
-                      </.badge>
-                      <.badge :if={entry.reverses_id} tone="danger">
-                        <.icon name="hero-arrow-uturn-left" class="size-3.5" />
-                        {gettext("Reversal")}
-                      </.badge>
-                      <.badge :if={MapSet.member?(@reversed_ids, entry.id)} tone="neutral">
-                        <.icon name="hero-arrow-uturn-right" class="size-3.5" />
-                        {gettext("Reversed")}
-                      </.badge>
-                    </span>
-                    <span
-                      class={[
-                        "whitespace-nowrap font-mono text-sm",
-                        amount_color(entry.type)
-                      ]}
-                      data-testid={"admin-wallet-amount-#{entry.id}"}
-                    >
-                      {AdminComponents.ledger_amount_text(entry.amount)}
-                    </span>
-                    <span
-                      class="min-w-0 max-w-[12rem] truncate font-mono text-xs text-ink-muted"
-                      title={reference_text(entry)}
-                      data-testid={"admin-wallet-reference-#{entry.id}"}
-                    >
-                      {reference_text(entry)}
-                    </span>
-                    <.button
-                      :if={reversible?(entry, @reversed_ids)}
-                      size="sm"
-                      variant="secondary"
-                      phx-click="open-reverse"
-                      phx-value-id={entry.id}
-                      phx-disable-with={gettext("Opening...")}
-                      data-testid={"admin-wallet-reverse-#{entry.id}"}
-                    >
-                      {gettext("Reverse")}
-                    </.button>
-                  </div>
+              <%!-- The scanning grid: date, entry, amount, reference,
+              action. One grid template shared by header and rows; the
+              amounts sit right on tabular figures so digits line up
+              down the column. --%>
+              <div :if={not @ledger_empty?}>
+                <div class="grid grid-cols-[10rem_minmax(9.5rem,1.4fr)_7rem_minmax(7rem,1fr)_5.5rem] items-center gap-x-3 border-b border-line px-4 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
+                  <div>{gettext("When")}</div>
+                  <div>{gettext("Entry")}</div>
+                  <div class="text-right">{gettext("Amount")}</div>
+                  <div>{gettext("Reference")}</div>
+                  <div class="sr-only">{gettext("Actions")}</div>
+                </div>
 
-                  <%!-- The confirm expands directly under the row that
-                  opened it; one confirm per page (@confirm is the
-                  expansion key), so the shared destructive-confirm
-                  testid stays safe. --%>
-                  <div :if={reversing?(entry, @confirm)} class="pt-3">
-                    <.confirm_block
-                      title={reverse_title(entry)}
-                      body={
-                        gettext(
-                          "A compensating debit is posted for the same amount. The original entry stays in the ledger. Net effect on the balance: zero."
-                        )
-                      }
-                      action={gettext("Yes, reverse this entry")}
-                      event="confirm-reverse"
-                      action_testid="admin-wallet-reverse-confirm"
-                      cancel_testid="admin-wallet-reverse-cancel"
-                      myself={nil}
-                    />
+                <div id="admin-wallet-ledger" phx-update="stream">
+                  <div
+                    :for={{dom_id, entry} <- @streams.entries}
+                    id={dom_id}
+                    data-testid={"admin-wallet-entry-#{entry.id}"}
+                    class="border-t border-line px-4 py-3 first:border-t-0"
+                  >
+                    <div class="grid grid-cols-[10rem_minmax(9.5rem,1.4fr)_7rem_minmax(7rem,1fr)_5.5rem] items-center gap-x-3 transition-colors hover:bg-panel-raised/60">
+                      <span class="whitespace-nowrap text-xs text-ink-muted">
+                        {Calendar.strftime(entry.created_at, "%b %d, %Y %H:%M UTC")}
+                      </span>
+                      <span class="flex flex-wrap items-center gap-1.5">
+                        <.badge
+                          tone={reason_tone(entry.reason)}
+                          class={reason_badge_class(entry.reason)}
+                        >
+                          <.icon name={reason_icon(entry.reason)} class="size-3.5" />
+                          {reason_label(entry.reason)}
+                        </.badge>
+                        <%!-- Reversal provenance stays neutral: danger is
+                        reserved for the destroy clock and the negative
+                        balance. --%>
+                        <.badge :if={entry.reverses_id} tone="neutral">
+                          <.icon name="hero-arrow-uturn-left" class="size-3.5" />
+                          {gettext("Reversal")}
+                        </.badge>
+                        <.badge :if={MapSet.member?(@reversed_ids, entry.id)} tone="neutral">
+                          <.icon name="hero-arrow-uturn-right" class="size-3.5" />
+                          {gettext("Reversed")}
+                        </.badge>
+                      </span>
+                      <span
+                        class={[
+                          "justify-self-end whitespace-nowrap text-sm tabular-nums",
+                          amount_class(entry, @reversed_ids)
+                        ]}
+                        data-testid={"admin-wallet-amount-#{entry.id}"}
+                      >
+                        {BillingComponents.format_amount(entry.amount)}
+                      </span>
+                      <span
+                        class="min-w-0 truncate font-mono text-xs text-ink-muted"
+                        title={reference_text(entry)}
+                        data-testid={"admin-wallet-reference-#{entry.id}"}
+                      >
+                        {reference_text(entry)}
+                      </span>
+                      <span class="justify-self-end">
+                        <.button
+                          :if={reversible?(entry, @reversed_ids)}
+                          size="sm"
+                          variant="secondary"
+                          phx-click="open-reverse"
+                          phx-value-id={entry.id}
+                          phx-disable-with={gettext("Opening...")}
+                          data-testid={"admin-wallet-reverse-#{entry.id}"}
+                        >
+                          {gettext("Reverse")}
+                        </.button>
+                      </span>
+                    </div>
+
+                    <%!-- The confirm expands directly under the row that
+                    opened it; one confirm per page (@confirm is the
+                    expansion key), so the shared destructive-confirm
+                    testid stays safe. --%>
+                    <div :if={reversing?(entry, @confirm)} class="pt-3">
+                      <.confirm_block
+                        title={reverse_title(entry)}
+                        body={
+                          gettext(
+                            "A compensating debit is posted for the same amount. The original entry stays in the ledger. Net effect on the balance: zero."
+                          )
+                        }
+                        action={gettext("Yes, reverse this entry")}
+                        event="confirm-reverse"
+                        action_testid="admin-wallet-reverse-confirm"
+                        cancel_testid="admin-wallet-reverse-cancel"
+                        myself={nil}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

@@ -44,7 +44,7 @@ defmodule FluxValeWeb.AdminBillingLiveTest do
     {renamed, wallet}
   end
 
-  defp funded_wallet!(opts \\ []) do
+  defp funded_wallet!(opts) do
     {org, wallet} = org_wallet!(opts)
     cents = Keyword.get(opts, :balance_cents, 10_000)
 
@@ -58,7 +58,7 @@ defmodule FluxValeWeb.AdminBillingLiveTest do
   # The precondition's flip rides the admin policy with a minted admin
   # actor (the seeds posture — the policy is what the detail suite
   # pins; the fixtures here just need the state).
-  defp waived_wallet!(opts \\ []) do
+  defp waived_wallet!(opts) do
     admin = admin_actor!()
     {org, wallet} = funded_wallet!(opts)
     {:ok, waived} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin)
@@ -68,7 +68,7 @@ defmodule FluxValeWeb.AdminBillingLiveTest do
   # A wallet below zero, anchored by the sweep's own write posture (the
   # ladder markers are states actions cannot produce — the sweep tests
   # use the same escape).
-  defp negative_wallet!(opts \\ []) do
+  defp negative_wallet!(opts) do
     {org, wallet} = funded_wallet!(Keyword.merge(opts, balance_cents: 500))
     {:ok, _debit} = Billing.debit_wallet(wallet, 1_000 * 10_000)
 
@@ -147,14 +147,64 @@ defmodule FluxValeWeb.AdminBillingLiveTest do
       {:ok, view, _html} = live(conn, "/admin/billing")
 
       # The countdown badge: tone (danger) plus the non-color cue (the
-      # clock icon and the label), with the anchor date beside it.
+      # clock icon and the label), and the dates name the anchor AND
+      # the deadline, so the countdown reads as one.
       badge = "[data-testid='admin-billing-negative-#{negative.id}']"
       assert has_element?(view, badge, "Destroy clock")
       assert has_element?(view, badge <> " .hero-clock")
-      refute text_of(view, badge) == "Destroy clock"
+
+      anchored_at = DateTime.add(DateTime.utc_now(), -2, :day)
+      anchor = Calendar.strftime(anchored_at, "%b %d, %Y")
+      deadline_at = DateTime.add(anchored_at, 30, :day)
+      deadline = Calendar.strftime(deadline_at, "%b %d, %Y")
+      badge_text = text_of(view, badge)
+      assert badge_text =~ anchor
+      assert badge_text =~ deadline
+      assert badge_text =~ "deletes"
 
       # Positive rows carry no countdown.
       refute has_element?(view, "[data-testid='admin-billing-negative-#{plain.id}']")
+    end
+
+    test "negative balances pin to the top, then newest provisioned first", %{conn: conn} do
+      # The oldest wallet goes negative LAST: under provisioning-time
+      # order it would sink under every newer signup — the exact row
+      # the surface exists to surface.
+      {old_org, old} = funded_wallet!(name: "old co")
+      {_mid_org, mid} = funded_wallet!(name: "mid co")
+      {_new_org, new} = funded_wallet!(name: "new co")
+
+      {:ok, _debit} = Billing.debit_wallet(old, 5_000 * 10_000)
+
+      old
+      |> Ash.Changeset.for_update(
+        :set_ladder_state,
+        %{negative_since: DateTime.add(DateTime.utc_now(), -1, :day)},
+        authorize?: false
+      )
+      |> Ash.update!()
+
+      {:ok, view, _html} = live(conn, "/admin/billing")
+
+      ids =
+        view
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query("#admin-billing-table > div")
+        |> Enum.map(fn row ->
+          row
+          |> LazyHTML.query("[data-testid^='admin-billing-org-']")
+          |> Enum.at(0)
+          |> LazyHTML.attribute("data-testid")
+          |> Enum.join("")
+          |> String.replace_prefix("admin-billing-org-", "")
+        end)
+
+      # The countdown pins first; the positives keep provisioning
+      # order. (The setup admin's own personal-org wallet trails.)
+      assert Enum.take(ids, 3) == [old.id, new.id, mid.id]
+
+      assert old_org
     end
 
     test "a negative balance with no anchor yet shows the badge without a date", %{conn: conn} do
@@ -212,6 +262,7 @@ defmodule FluxValeWeb.AdminBillingLiveTest do
       {:ok, view, _html} = live(conn, "/admin/billing")
 
       assert has_element?(view, "[data-testid='admin-billing-capped']", "latest 100")
+      assert has_element?(view, "[data-testid='admin-billing-capped']", "pin to the top")
       assert has_element?(view, "[data-testid='admin-billing-org-#{newest.id}']")
       refute has_element?(view, "[data-testid='admin-billing-org-#{oldest.id}']")
     end

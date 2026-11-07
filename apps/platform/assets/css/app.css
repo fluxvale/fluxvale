@@ -398,4 +398,12 @@ html {
 body {
   background-color: var(--canvas);
   color: var(--ink);
+
+  /* Switzer's space advance is ~0.17em (2px at text-xs), which paints
+     at small sizes as a missing space ("Destroyclock", "deletesDec" —
+     the #501 review's vision passes). One em-relative bump restores a
+     legible word gap at every size without touching the type tokens.
+     Type-lane trigger: if #563 amends the Switzer file or ships a
+     different UI face, re-measure and drop this. */
+  word-spacing: 0.1em;
 }

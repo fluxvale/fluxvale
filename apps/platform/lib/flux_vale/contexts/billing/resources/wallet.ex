@@ -17,7 +17,8 @@ defmodule FluxVale.Billing.Wallet do
   and carryover/ladder writes are system operations (`authorize?:
   false` — the posting machinery). The one actor-facing write is
   `:set_waiver` — the paywall waiver (see the attribute), flipped by a
-  platform admin from the /admin edit form.
+  platform admin from the admin wallets surface's confirmed flip
+  (the AshAdmin edit form keeps its emergency checkbox).
   """
 
   use Ash.Resource,
@@ -177,8 +178,8 @@ defmodule FluxVale.Billing.Wallet do
     # spendable. Has-paid for revenue purposes stays DERIVED ledger
     # truth — deliberately NOT mirrored into a column, so a waived org
     # can never be counted as a payer by a conversion/revenue query.
-    # Written only by :set_waiver (platform admin, the /admin edit
-    # form).
+    # Written only by :set_waiver (platform admin — via the admin
+    # wallets surface's confirmed flip or the AshAdmin edit form).
     attribute :paywall_waived, :boolean do
       allow_nil?(false)
       default(false)

@@ -26,6 +26,7 @@ defmodule FluxValeWeb.AdminLive.Billing do
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing.Wallet
   alias FluxValeWeb.AdminComponents
+  alias FluxValeWeb.BillingComponents
 
   require Ash.Query
   require Ash.Expr
@@ -60,9 +61,11 @@ defmodule FluxValeWeb.AdminLive.Billing do
 
   # -- reads ----------------------------------------------------------------
 
-  # Newest first (the operator scans for what just happened), capped one
-  # past the cap so the overflow question answers without a count. The
-  # org names ride the flagged lookup seam — one read for the page's ids,
+  # Attention first: the destroy-clock rows pin to the top (by anchor
+  # recency), then newest provisioned — a long-standing org that just
+  # went negative must not sink under fresh signups. Capped one past
+  # the cap so the overflow question answers without a count. The org
+  # names ride the flagged lookup seam — one read for the page's ids,
   # mapped by id; a wallet whose org vanished (the FK has no ON DELETE,
   # so this cannot happen today) would simply render without a name.
   defp refresh_rows(socket) do
@@ -71,7 +74,7 @@ defmodule FluxValeWeb.AdminLive.Billing do
     fetched =
       Wallet
       |> Ash.Query.for_read(:read, %{}, actor: admin)
-      |> Ash.Query.sort(created_at: :desc)
+      |> Ash.Query.sort(negative_since: :desc_nils_last, created_at: :desc)
       |> maybe_search(socket.assigns.query)
       |> Ash.Query.limit(@list_cap + 1)
       |> Ash.Query.load(:balance)
@@ -95,7 +98,16 @@ defmodule FluxValeWeb.AdminLive.Billing do
   # address), nothing past it. The relationship filter runs at the data
   # layer — no Organization read rides the search.
   defp maybe_search(query, term) do
-    pattern = "%#{term}%"
+    # ILIKE wildcards in the term are literals: escaped before the
+    # pattern wraps both ends (the backslash first, or it would
+    # double-escape the ones below).
+    escaped =
+      term
+      |> String.replace("\\", "\\\\")
+      |> String.replace("%", "\\%")
+      |> String.replace("_", "\\_")
+
+    pattern = "%#{escaped}%"
 
     # Non-keyword call form: filter/2 routes it through Ash.Expr.expr,
     # where the exists()/ilike() calls and the relationship path parse
@@ -154,7 +166,7 @@ defmodule FluxValeWeb.AdminLive.Billing do
   defp waiver_label(true), do: gettext("Waived")
   defp waiver_label(false), do: gettext("Not waived")
 
-  defp stamp_text(nil), do: nil
+  # Reached only under the negative_since guard in the template.
   defp stamp_text(stamp), do: Calendar.strftime(stamp, "%b %d, %Y")
 
   @impl Phoenix.LiveView
@@ -194,7 +206,9 @@ defmodule FluxValeWeb.AdminLive.Billing do
         </section>
 
         <section class="wrap pt-8 pb-8">
-          <div class="rise">
+          <%!-- The search card rides the same two-column proportion the
+          people surface set. --%>
+          <div class="rise grid items-start gap-6 lg:grid-cols-2">
             <.card class="space-y-4" data-testid="admin-billing-search-card">
               <div>
                 <h2 class="text-base font-medium text-ink">{gettext("Find a wallet")}</h2>
@@ -227,7 +241,7 @@ defmodule FluxValeWeb.AdminLive.Billing do
             a module attribute reads as assigns inside HEEx); move the
             two together. --%>
             <p :if={@rows_capped?} class="text-sm text-ink-muted" data-testid="admin-billing-capped">
-              {gettext("Showing the latest 100 wallets.")}
+              {gettext("Showing the latest 100 wallets. Negative balances pin to the top.")}
             </p>
 
             <.empty_state :if={@rows_empty? and @query == ""} title={gettext("No wallets yet.")}>
@@ -251,7 +265,7 @@ defmodule FluxValeWeb.AdminLive.Billing do
                 never drift. --%>
                 <div class="grid grid-cols-[minmax(14rem,2fr)_8rem_9rem_minmax(11rem,1.5fr)_5rem] items-center gap-x-2 border-b border-line px-4 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
                   <div>{gettext("Organization")}</div>
-                  <div>{gettext("Balance")}</div>
+                  <div class="text-right">{gettext("Balance")}</div>
                   <div>{gettext("Paywall waiver")}</div>
                   <div>{gettext("Negative since")}</div>
                   <div class="sr-only">{gettext("Actions")}</div>
@@ -263,7 +277,7 @@ defmodule FluxValeWeb.AdminLive.Billing do
                     id={dom_id}
                     class={[
                       "grid grid-cols-[minmax(14rem,2fr)_8rem_9rem_minmax(11rem,1.5fr)_5rem] items-center gap-x-2 border-b border-line px-4 py-3 transition-colors last:border-0 hover:bg-panel-raised/60",
-                      negative?(wallet) && "bg-danger-muted/40"
+                      negative?(wallet) && "bg-danger-muted"
                     ]}
                   >
                     <div class="min-w-0" data-testid={"admin-billing-org-#{wallet.id}"}>
@@ -279,15 +293,15 @@ defmodule FluxValeWeb.AdminLive.Billing do
                         {org_slug(@orgs, wallet)}
                       </p>
                     </div>
-                    <div>
+                    <div class="text-right">
                       <span
                         class={[
-                          "whitespace-nowrap font-mono text-sm",
+                          "whitespace-nowrap text-sm tabular-nums",
                           wallet.balance < 0 && "font-semibold text-danger"
                         ]}
                         data-testid={"admin-billing-balance-#{wallet.id}"}
                       >
-                        {AdminComponents.money_text(wallet.balance)}
+                        {BillingComponents.format_balance(wallet.balance)}
                       </span>
                     </div>
                     <div>
@@ -302,22 +316,28 @@ defmodule FluxValeWeb.AdminLive.Billing do
                         </.badge>
                       </span>
                     </div>
-                    <%!-- The destroy clock (#124): the anchor is a
-                    countdown, not a date. The badge carries the
+                    <%!-- The destroy clock (#124): the badge carries the
                     non-color cue (tone plus clock), the tint above
-                    carries the weight, and the date names the anchor. --%>
+                    carries the weight, and the dates name the anchor
+                    AND the deadline, so the countdown reads as one. --%>
                     <div>
                       <span
                         :if={negative?(wallet)}
-                        class="inline-flex items-center gap-2"
+                        class="inline-flex flex-col gap-0.5"
                         data-testid={"admin-billing-negative-#{wallet.id}"}
                       >
-                        <.badge tone="danger">
+                        <.badge tone="danger" class="self-start">
                           <.icon name="hero-clock" class="size-3.5" />
-                          {gettext("Destroy clock")}
+                          <span>{gettext("Destroy clock")}</span>
                         </.badge>
-                        <span class="whitespace-nowrap text-xs text-ink-muted">
-                          {stamp_text(wallet.negative_since)}
+                        <span
+                          :if={wallet.negative_since}
+                          class="whitespace-nowrap text-xs text-ink-muted"
+                        >
+                          {gettext("since %{start}, deletes %{deadline}",
+                            start: stamp_text(wallet.negative_since),
+                            deadline: AdminComponents.destroy_deadline_text(wallet.negative_since)
+                          )}
                         </span>
                       </span>
                     </div>

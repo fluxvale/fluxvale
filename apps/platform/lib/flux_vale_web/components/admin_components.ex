@@ -11,38 +11,16 @@ defmodule FluxValeWeb.AdminComponents do
 
   use FluxValeWeb, :html
 
-  alias FluxVale.Pricing
-
   @doc """
-  The signed-cents money string the admin billing surfaces print for a
-  BALANCE: "-$3.00" / "$12.34". `Pricing.format_usd/1` formats
-  non-negative magnitudes only; the balance is the live ledger sum and
-  can go negative, so the sign is this display seam's job. One shape,
-  one formatter, so the wallet table and the wallet detail can never
-  disagree about what a balance reads as.
+  The destroy clock's deadline string: the anchor plus 30 days, the
+  sweep's own constant (SweepZeroBalance's @destroy_after_days). One
+  formatter so the wallet table and the wallet detail can never
+  disagree about when a countdown lands.
   """
-  @spec money_text(integer()) :: String.t()
-  def money_text(cents) when cents < 0 do
-    "-" <> Pricing.format_usd(-cents)
-  end
-
-  def money_text(cents) when is_integer(cents) do
-    Pricing.format_usd(cents)
-  end
-
-  @doc """
-  The ledger row's signed amount: "+$12.34" / "-$3.00" — a posting is a
-  delta, and the sign carries the direction the type badge names
-  (BillingComponents' ledger grammar; the admin ledger prints the same
-  dollars the org billing page does).
-  """
-  @spec ledger_amount_text(integer()) :: String.t()
-  def ledger_amount_text(cents) when cents < 0 do
-    "-" <> Pricing.format_usd(-cents)
-  end
-
-  def ledger_amount_text(cents) when is_integer(cents) do
-    "+" <> Pricing.format_usd(cents)
+  @spec destroy_deadline_text(DateTime.t()) :: String.t()
+  def destroy_deadline_text(negative_since) do
+    deadline = DateTime.add(negative_since, 30, :day)
+    Calendar.strftime(deadline, "%b %d, %Y")
   end
 
   @doc """

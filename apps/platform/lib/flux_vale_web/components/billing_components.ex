@@ -114,14 +114,21 @@ defmodule FluxValeWeb.BillingComponents do
     """
   end
 
-  # Prices (Pricing.format_usd/1) are non-negative by constraint; the
-  # ledger carries signed cents — negative balances and debit rows get
-  # their own sign handling here, at the billing display seam.
-  defp format_balance(cents) when cents < 0 do
+  @doc """
+  The signed-cents BALANCE string: "-$3.00" / "$12.34". Prices
+  (Pricing.format_usd/1) are non-negative by constraint; the balance is
+  the live ledger sum and can go negative, so the sign is this billing
+  display seam's job. Public since the admin wallets surface (#501):
+  one formatter per shape means the operator table, the wallet detail,
+  and the member billing page can never disagree about what a balance
+  reads as.
+  """
+  @spec format_balance(integer()) :: String.t()
+  def format_balance(cents) when cents < 0 do
     "-" <> Pricing.format_usd(-cents)
   end
 
-  defp format_balance(cents) do
+  def format_balance(cents) when is_integer(cents) do
     Pricing.format_usd(cents)
   end
 
@@ -172,11 +179,18 @@ defmodule FluxValeWeb.BillingComponents do
   defp plural(1, unit), do: unit
   defp plural(_n, unit), do: "#{unit}s"
 
-  defp format_amount(cents) when cents < 0 do
+  @doc """
+  The ledger row's signed amount: "+$12.34" / "-$3.00" — a posting is a
+  delta, and the sign carries the direction the row's type names. Same
+  display seam as `format_balance/1`; the admin ledger prints the same
+  dollars the org billing page does.
+  """
+  @spec format_amount(integer()) :: String.t()
+  def format_amount(cents) when cents < 0 do
     "-" <> Pricing.format_usd(-cents)
   end
 
-  defp format_amount(cents) do
+  def format_amount(cents) when is_integer(cents) do
     "+" <> Pricing.format_usd(cents)
   end
 

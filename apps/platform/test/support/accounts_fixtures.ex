@@ -26,6 +26,14 @@ defmodule FluxVale.TestSupport.AccountsFixtures do
     User.create!(email, %{}, authorize?: false)
   end
 
+  @doc "A platform admin through the create action (the admin suites' actor)."
+  @spec admin!(String.t() | nil) :: User.t()
+  def admin!(local_part \\ nil) do
+    email = "#{local_part || "admin-#{System.unique_integer([:positive])}"}@fluxvale.test"
+
+    User.create!(email, %{platform_role: :admin}, authorize?: false)
+  end
+
   @doc "The user's personal org (loud failure if JIT provisioning didn't run)."
   @spec personal_org!(User.t()) :: FluxVale.Accounts.Organization.t()
   def personal_org!(%User{} = user) do

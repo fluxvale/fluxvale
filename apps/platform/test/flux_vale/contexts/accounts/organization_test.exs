@@ -368,6 +368,52 @@ defmodule FluxVale.Accounts.OrganizationTest do
     end
   end
 
+  describe "admin_lookup (the admin surfaces' flagged org lookup, #501)" do
+    # The lookup is the ONE admin-readable org path: platform-admin by
+    # its own scoped policy, the member read policy untouched. These
+    # tests pin the door from every side.
+    test "a platform admin looks orgs up by id, and only the public fields come back" do
+      user = AccountsFixtures.user!()
+      org = AccountsFixtures.personal_org!(user)
+      admin = AccountsFixtures.admin!()
+
+      {:ok, [found]} = run_lookup([org.id], actor: admin)
+
+      assert %{id: id, name: name, slug: slug} = found
+      assert id == org.id
+      assert name == org.name
+      assert slug == org.slug
+    end
+
+    test "a non-admin actor is Forbidden" do
+      org = AccountsFixtures.personal_org!(AccountsFixtures.user!())
+      outsider = AccountsFixtures.user!()
+
+      assert {:error, %Ash.Error.Forbidden{}} = run_lookup([org.id], actor: outsider)
+    end
+
+    test "a nil actor is Forbidden" do
+      org = AccountsFixtures.personal_org!(AccountsFixtures.user!())
+
+      assert {:error, %Ash.Error.Forbidden{}} = run_lookup([org.id], actor: nil)
+    end
+
+    test "the member read policy stays untouched: a plain admin read is still member-scoped" do
+      org = AccountsFixtures.personal_org!(AccountsFixtures.user!())
+      admin = AccountsFixtures.admin!()
+
+      # The admin is not a member: the plain read denies them exactly
+      # as before the lookup existed.
+      assert {:error, %Invalid{}} = Organization.get_by_id(org.id, actor: admin)
+    end
+  end
+
+  defp run_lookup(ids, opts) do
+    Organization
+    |> Ash.ActionInput.for_action(:admin_lookup, %{ids: ids}, Keyword.take(opts, [:actor]))
+    |> Ash.run_action()
+  end
+
   defp owned_org!(owner) do
     Organization
     |> Ash.Changeset.for_create(:create_with_owner, %{

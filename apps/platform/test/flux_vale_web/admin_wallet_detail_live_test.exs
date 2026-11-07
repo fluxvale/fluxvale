@@ -2,17 +2,20 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
   @moduledoc false
 
   # The wallet detail surface (#501): the facts, the ledger with its
-  # keyset pagination, and the two writes. The route gates are the
-  # shared live_session's arms; the write paths are additionally
-  # pinned at the domain seam with a non-admin actor (Forbidden),
-  # because the route gate is the only thing standing between a
-  # non-admin and these views. The reversal seam is system-level by
-  # design (no actor-facing reversal action exists — the flagged gap),
-  # so its gate is pinned as the surface enforces it: the
-  # actor-authorized read plus the platform-admin predicate.
+  # keyset pagination, and the three writes. The route gates are the
+  # shared live_session's arms; the write paths are additionally pinned
+  # at the domain seam with a non-admin actor (Forbidden), because the
+  # route gate is the only thing standing between a non-admin and these
+  # views. The demotion window — the gap the mount-time gate cannot
+  # cover, since a socket outlives a demotion — is pinned by the
+  # demote-then-click test: every write re-resolves the actor from the
+  # session first. The reversal seam is system-level by design (no
+  # actor-facing reversal action exists — the flagged gap), so that
+  # per-event gate is the surface's own.
 
   use FluxValeWeb.ConnCase, async: false
 
+  import Ecto.Query, only: [from: 2]
   import Phoenix.LiveViewTest
 
   alias FluxVale.Accounts
@@ -110,9 +113,7 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
              )
     end
 
-    test "the destroy clock reads with honest gravity when the balance is below zero", %{
-      conn: conn
-    } do
+    test "the destroy clock names the deadline, not just the start", %{conn: conn} do
       {org, wallet} = funded_wallet!(balance_cents: 500)
       {:ok, _debit} = Billing.debit_wallet(wallet, 1_000 * 10_000)
 
@@ -128,14 +129,20 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
 
       assert has_element?(view, "[data-testid='admin-wallet-destroy-clock']")
       assert has_element?(view, "[data-testid='admin-wallet-destroy-clock']", "below zero")
-      assert has_element?(view, "[data-testid='admin-wallet-destroy-clock']", "30 days after")
+      assert has_element?(view, "[data-testid='admin-wallet-destroy-clock']", "The clock started")
+      assert has_element?(view, "[data-testid='admin-wallet-destroy-clock']", "Deletion lands")
+
+      # The deadline is the anchor plus the sweep's 30 days: both dates
+      # render, so the countdown reads as one.
+      deadline_at = DateTime.add(anchored_at, 30, :day)
+      deadline = Calendar.strftime(deadline_at, "%b %d, %Y")
+      anchor = Calendar.strftime(anchored_at, "%b %d, %Y")
+
+      assert text_of(view, "[data-testid='admin-wallet-destroy-clock']") =~ anchor
+      assert text_of(view, "[data-testid='admin-wallet-destroy-clock']") =~ deadline
 
       # The runway names the depletion the member surface sees too.
       assert text_of(view, "[data-testid='wallet-runway']") =~ "Depleted"
-
-      # The anchored date renders: the countdown's anchor, not a mystery.
-      assert text_of(view, "[data-testid='admin-wallet-destroy-clock']") =~
-               Calendar.strftime(anchored_at, "%b %d, %Y")
 
       assert org
     end
@@ -162,7 +169,7 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
   end
 
   describe "the waiver flip" do
-    test "confirms with the contract in the copy, then flips", %{
+    test "confirms with the delta copy, then flips", %{
       conn: conn,
       admin: admin,
       wallet: wallet
@@ -175,18 +182,14 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
       |> element("[data-testid='admin-wallet-waiver-flip']")
       |> render_click()
 
-      # The consequence panel states exactly what the waiver does and
-      # what it never does.
+      # The card carries the contract; the confirm states what changes.
       assert has_element?(view, "[data-testid='destructive-confirm']")
-      assert has_element?(view, "[data-testid='destructive-confirm']", "has-paid gate")
-      assert has_element?(view, "[data-testid='destructive-confirm']", "private access")
-      assert has_element?(view, "[data-testid='destructive-confirm']", "moves no money")
-      assert has_element?(view, "[data-testid='destructive-confirm']", "posts no ledger row")
+      assert has_element?(view, "[data-testid='destructive-confirm']", "has-paid gate opens")
 
       assert has_element?(
                view,
                "[data-testid='destructive-confirm']",
-               "waives nothing spendable"
+               "private access and backups unlock"
              )
 
       assert has_element?(view, "[data-testid='admin-wallet-waiver-confirm']")
@@ -218,7 +221,13 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
       assert flipped.paywall_waived == true
     end
 
-    test "removing the waiver names what closes", %{conn: conn, admin: admin, wallet: wallet} do
+    test "removing the waiver from an unpaid org names what closes", %{
+      conn: conn,
+      admin: admin,
+      wallet: wallet
+    } do
+      # The setup wallet's funding is an adjustment credit: no purchase
+      # rows, so the gate reads the waiver alone.
       {:ok, _waived} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin)
 
       {:ok, view, _html} = live(conn, "/admin/billing/wallets/#{wallet.id}")
@@ -241,12 +250,119 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
       |> element("[data-testid='admin-wallet-waiver-confirm']")
       |> render_click()
 
-      assert has_element?(view, "#flash-info", "The has-paid gate is closed again")
+      assert has_element?(view, "#flash-info", "The has-paid gate closes again")
       assert text_of(view, "[data-testid='admin-wallet-waiver-state']") == "Not waived"
+    end
+
+    test "removing the waiver from a PAID org closes nothing, and says so", %{
+      conn: conn,
+      admin: admin
+    } do
+      {org, wallet} = funded_wallet!()
+
+      # One purchase row: the has-paid gate reads the waiver OR the
+      # purchase history, so the flag is not the only thing holding
+      # the gate open.
+      {:ok, _purchase} = Billing.credit_wallet(wallet, 100)
+      {:ok, _waived} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin)
+
+      {:ok, view, _html} = live(conn, "/admin/billing/wallets/#{wallet.id}")
+
+      view
+      |> element("[data-testid='admin-wallet-waiver-flip']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='destructive-confirm']", "purchase history")
+
+      assert has_element?(
+               view,
+               "[data-testid='destructive-confirm']",
+               "nothing changes for this org"
+             )
+
+      view
+      |> element("[data-testid='admin-wallet-waiver-confirm']")
+      |> render_click()
+
+      assert has_element?(view, "#flash-info", "keeps the has-paid gate satisfied")
+      assert has_element?(view, "#flash-info", "nothing changed for this org")
+      assert text_of(view, "[data-testid='admin-wallet-waiver-state']") == "Not waived"
+
+      assert org
     end
   end
 
   describe "the goodwill credit" do
+    test "the submit opens a confirm and nothing posts until it", %{
+      conn: conn,
+      admin: admin,
+      wallet: wallet
+    } do
+      {:ok, view, _html} = live(conn, "/admin/billing/wallets/#{wallet.id}")
+
+      view
+      |> element("#admin-wallet-goodwill-form")
+      |> render_submit(%{"goodwill" => %{"amount_cents" => "500"}})
+
+      # The confirm names the irreversibility and echoes the money.
+      assert has_element?(view, "[data-testid='destructive-confirm']")
+      assert has_element?(view, "[data-testid='destructive-confirm']", "$5.00")
+
+      assert has_element?(
+               view,
+               "[data-testid='destructive-confirm']",
+               "cannot be un-posted, only reversed"
+             )
+
+      assert has_element?(view, "[data-testid='admin-wallet-goodwill-confirm']")
+      assert has_element?(view, "[data-testid='admin-wallet-goodwill-cancel']")
+
+      # Nothing moved yet: the ledger and the balance are unmoved.
+      assert length(ledger_entries!(wallet, admin)) == 1
+      assert text_of(view, "[data-testid='wallet-balance']") =~ "$100.00"
+
+      # Cancel is a way out: still nothing posted.
+      view
+      |> element("[data-testid='admin-wallet-goodwill-cancel']")
+      |> render_click()
+
+      refute has_element?(view, "[data-testid='destructive-confirm']")
+      assert length(ledger_entries!(wallet, admin)) == 1
+
+      # This time the decisive button: the keyless post lands, the
+      # row renders at the top (the operator review the domain names
+      # as the guard), and the form clears.
+      view
+      |> element("#admin-wallet-goodwill-form")
+      |> render_submit(%{"goodwill" => %{"amount_cents" => "500"}})
+
+      view
+      |> element("[data-testid='admin-wallet-goodwill-confirm']")
+      |> render_click()
+
+      assert has_element?(view, "#flash-info", "Posted $5.00 as an adjustment credit")
+      assert has_element?(view, "#flash-info", "cannot be un-posted, only reversed")
+
+      [posted | _rest] = ledger_entries!(wallet, admin)
+      rows = row_ids(view)
+      assert List.first(rows) == posted.id
+
+      assert text_of(view, "[data-testid='admin-wallet-amount-#{posted.id}']") == "+$5.00"
+      assert has_element?(view, "[data-testid='admin-wallet-entry-#{posted.id}']", "Adjustment")
+      assert text_of(view, "[data-testid='wallet-balance']") =~ "$105.00"
+      assert length(ledger_entries!(wallet, admin)) == 2
+
+      input =
+        view
+        |> element("#admin-wallet-goodwill-form")
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query("[data-testid='admin-wallet-goodwill-amount']")
+        |> Enum.at(0)
+
+      assert LazyHTML.attribute(input, "value") == [""]
+    end
+
     test "the submit fences the wire (the keyless post's double-click guard)", %{
       conn: conn,
       wallet: wallet
@@ -264,10 +380,22 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
         |> LazyHTML.query("[data-testid='admin-wallet-goodwill-submit']")
         |> Enum.at(0)
 
-      assert LazyHTML.attribute(button, "phx-disable-with") == ["Posting..."]
+      assert LazyHTML.attribute(button, "phx-disable-with") == ["Reviewing..."]
     end
 
-    test "posts immediately as an adjustment and renders the row at the top", %{
+    test "a live dollar echo rides the input", %{conn: conn, wallet: wallet} do
+      {:ok, view, _html} = live(conn, "/admin/billing/wallets/#{wallet.id}")
+
+      render_change(view, "goodwill-echo", %{"goodwill" => %{"amount_cents" => "500"}})
+
+      assert text_of(view, "[data-testid='admin-wallet-goodwill-echo']") == "= $5.00"
+
+      # A non-amount silences the echo rather than echoing junk.
+      render_change(view, "goodwill-echo", %{"goodwill" => %{"amount_cents" => "abc"}})
+      refute has_element?(view, "[data-testid='admin-wallet-goodwill-echo']")
+    end
+
+    test "fractional cents are refused with the honest conversion", %{
       conn: conn,
       admin: admin,
       wallet: wallet
@@ -276,31 +404,15 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
 
       view
       |> element("#admin-wallet-goodwill-form")
-      |> render_submit(%{"goodwill" => %{"amount_cents" => "500"}})
+      |> render_submit(%{"goodwill" => %{"amount_cents" => "5.50"}})
 
-      # The consequence copy states the keyless contract.
-      assert has_element?(view, "#flash-info", "Posted $5.00 as an adjustment credit")
-      assert has_element?(view, "#flash-info", "cannot be un-posted, only reversed")
+      assert has_element?(view, "#flash-error", "Whole cents only. Enter 550 for $5.50.")
+      assert has_element?(view, "#flash-error", "Nothing was posted")
 
-      # The posted row sits at the top of the ledger (the operator
-      # review the domain names as the guard). The setup wallet's
-      # funding grant sits below it.
-      [posted | _rest] = ledger_entries!(wallet, admin)
-      rows = row_ids(view)
-      assert List.first(rows) == posted.id
-
-      assert text_of(view, "[data-testid='admin-wallet-amount-#{posted.id}']") ==
-               "+$5.00"
-
-      assert has_element?(view, "[data-testid='admin-wallet-entry-#{posted.id}']", "Adjustment")
-
-      # The facts moved with the post.
-      assert text_of(view, "[data-testid='wallet-balance']") =~ "$105.00"
-
-      # The ledger truth behind the row.
-      assert posted.type == :credit
-      assert posted.reason == :adjustment
-      assert posted.amount == 500
+      # The typed value stays so the operator sees what they typed.
+      assert has_element?(view, "[data-testid='admin-wallet-goodwill-amount']")
+      entries = ledger_entries!(wallet, admin)
+      assert length(entries) == 1
     end
 
     test "an amount that is not a whole positive number of cents is refused", %{
@@ -310,7 +422,7 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
       {org, wallet} = funded_wallet!(balance_cents: 0)
       {:ok, view, _html} = live(conn, "/admin/billing/wallets/#{wallet.id}")
 
-      for bad <- ["0", "-3", "abc", "", "5.50"] do
+      for bad <- ["0", "-3", "abc", "", "5.505"] do
         view
         |> element("#admin-wallet-goodwill-form")
         |> render_submit(%{"goodwill" => %{"amount_cents" => bad}})
@@ -355,7 +467,6 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
       |> render_click()
 
       refute has_element?(view, "[data-testid='destructive-confirm']")
-
       entries = ledger_entries!(wallet, admin)
       assert [] = Enum.filter(entries, &(&1.reverses_id == original.id))
 
@@ -371,20 +482,34 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
       assert has_element?(view, "#flash-info", "compensating reversal")
       assert has_element?(view, "#flash-info", "original entry stays")
 
-      # The reversal renders at the top with its own badge; the
-      # original stays in the ledger, marked reversed, lever gone.
+      # The reversal renders at the top with its neutral provenance
+      # chip; the original stays in the ledger, struck and muted, its
+      # lever gone.
       rows = row_ids(view)
       assert [reversal_id, original_id] = Enum.take(rows, 2)
       assert reversal_id != original.id
       assert original_id == original.id
 
-      assert text_of(view, "[data-testid='admin-wallet-amount-#{reversal_id}']") ==
-               "-$2.50"
+      assert text_of(view, "[data-testid='admin-wallet-amount-#{reversal_id}']") == "-$2.50"
 
       assert has_element?(view, "[data-testid='admin-wallet-entry-#{reversal_id}']", "Reversal")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-wallet-entry-#{original.id}'] .hero-arrow-uturn-right"
+             )
+
       assert has_element?(view, "[data-testid='admin-wallet-entry-#{original.id}']", "Reversed")
 
       refute has_element?(view, "[data-testid='admin-wallet-reverse-#{original.id}']")
+
+      # The struck amount: the netted row reads muted, not live money.
+      amount_html =
+        view
+        |> element("[data-testid='admin-wallet-amount-#{original.id}']")
+        |> render()
+
+      assert amount_html =~ "line-through"
 
       # The balance is back where the credit found it.
       assert text_of(view, "[data-testid='wallet-balance']") =~ "$100.00"
@@ -493,6 +618,50 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
       assert admin
     end
 
+    test "load-more merges the reversed markers: a page-2 original whose reversal rode page 1 stays netted",
+         %{
+           conn: conn,
+           admin: admin,
+           wallet: wallet
+         } do
+      # The pair lands OLDEST (reversals sort above their originals),
+      # then 24 grants fill page 1: the reversal rides page 1, its
+      # original waits on page 2.
+      {:ok, original} = LedgerEntry.grant_goodwill(wallet.id, 250, actor: admin)
+      {:ok, _reversal} = Billing.reverse_entry(original)
+
+      for _n <- 1..24 do
+        {:ok, _grant} = Billing.grant_credits(wallet, 1, reason: :adjustment)
+      end
+
+      {:ok, view, _html} = live(conn, "/admin/billing/wallets/#{wallet.id}")
+
+      # Page 1: the 24 grants plus the reversal — the original is not here.
+      rows = row_ids(view)
+      assert length(rows) == 25
+      refute Enum.member?(rows, original.id)
+
+      view
+      |> element("[data-testid='admin-wallet-load-more']")
+      |> render_click()
+
+      # The original arrives already netted: the Reversed badge and no
+      # live lever, because the page-1 reversal merged into the set.
+      assert has_element?(
+               view,
+               "[data-testid='admin-wallet-entry-#{original.id}'] .hero-arrow-uturn-right"
+             )
+
+      refute has_element?(view, "[data-testid='admin-wallet-reverse-#{original.id}']")
+
+      amount_html =
+        view
+        |> element("[data-testid='admin-wallet-amount-#{original.id}']")
+        |> render()
+
+      assert amount_html =~ "line-through"
+    end
+
     test "an empty ledger reads honestly", %{conn: conn} do
       {_org, wallet} = funded_wallet!(balance_cents: 0)
       {:ok, view, _html} = live(conn, "/admin/billing/wallets/#{wallet.id}")
@@ -530,7 +699,113 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
                "Welcome credit"
              )
 
-      assert has_element?(view, "[data-testid='admin-wallet-entry-#{welcome.id}'] .hero-sparkles")
+      assert has_element?(
+               view,
+               "[data-testid='admin-wallet-entry-#{welcome.id}'] .hero-sparkles"
+             )
+    end
+  end
+
+  describe "the confirm guards" do
+    test "a second confirm click is a quiet no-op, not a crash", %{conn: conn, wallet: wallet} do
+      {:ok, view, _html} = live(conn, "/admin/billing/wallets/#{wallet.id}")
+
+      # Confirm events with nothing open: the expired arm, all three.
+      render_click(view, "confirm-waiver", %{})
+      render_click(view, "confirm-reverse", %{})
+      render_click(view, "confirm-goodwill", %{})
+
+      # The page is alive and nothing happened.
+      assert has_element?(view, "[data-testid='admin-wallet-detail']")
+      refute has_element?(view, "[data-testid='destructive-confirm']")
+    end
+
+    test "a confirm event naming the OTHER panel is a no-op too", %{conn: conn, wallet: wallet} do
+      {:ok, view, _html} = live(conn, "/admin/billing/wallets/#{wallet.id}")
+
+      view
+      |> element("[data-testid='admin-wallet-waiver-flip']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='admin-wallet-waiver-confirm']")
+
+      # The reversal confirm arrives while the waiver panel is open:
+      # stale frame, nothing to do.
+      render_click(view, "confirm-reverse", %{})
+
+      # The waiver panel stays open, the page is alive.
+      assert has_element?(view, "[data-testid='admin-wallet-waiver-confirm']")
+      assert has_element?(view, "[data-testid='admin-wallet-detail']")
+    end
+  end
+
+  describe "the demotion window" do
+    test "a mid-session demotion cannot post: every write re-resolves the actor", %{
+      conn: conn,
+      admin: admin,
+      wallet: wallet
+    } do
+      {:ok, entry} = LedgerEntry.grant_goodwill(wallet.id, 100, actor: admin)
+
+      {:ok, view, _html} = live(conn, "/admin/billing/wallets/#{wallet.id}")
+
+      # While the session still resolves an admin, the confirms open.
+      render_click(view, "open-waiver", %{})
+      assert has_element?(view, "[data-testid='admin-wallet-waiver-confirm']")
+      render_click(view, "cancel-confirm", %{})
+
+      render_click(view, "open-reverse", %{"id" => entry.id})
+      assert has_element?(view, "[data-testid='admin-wallet-reverse-confirm']")
+      render_click(view, "cancel-confirm", %{})
+
+      # Demote the actor under the live session. User carries no
+      # role-write action and Ash.Seed is create-only, so this one
+      # precondition rides the data layer directly (tests own their
+      # preconditions; the write gate is what the test pins).
+      query = from(u in "users", where: u.id == ^Ecto.UUID.dump!(admin.id))
+      {updated, nil} = FluxVale.Repo.update_all(query, set: [platform_role: "user"])
+      assert updated == 1
+
+      # Each refusal clears the one-open confirm, so each write
+      # re-reveals first (the reveals are reads; the writes are the
+      # gate).
+      render_click(view, "open-reverse", %{"id" => entry.id})
+
+      view
+      |> element("[data-testid='admin-wallet-reverse-confirm']")
+      |> render_click()
+
+      assert has_element?(view, "#flash-error", "Your admin access ended")
+
+      entries = ledger_entries!(wallet, admin)
+      assert [] = Enum.filter(entries, &(&1.reverses_id == entry.id))
+
+      render_click(view, "open-waiver", %{})
+
+      view
+      |> element("[data-testid='admin-wallet-waiver-confirm']")
+      |> render_click()
+
+      assert has_element?(view, "#flash-error", "Your admin access ended")
+
+      {:ok, fresh} = Wallet.get_by_organization(wallet.organization_id, actor: admin)
+      assert fresh.paywall_waived == false
+
+      view
+      |> element("#admin-wallet-goodwill-form")
+      |> render_submit(%{"goodwill" => %{"amount_cents" => "300"}})
+
+      assert has_element?(view, "[data-testid='admin-wallet-goodwill-confirm']")
+
+      view
+      |> element("[data-testid='admin-wallet-goodwill-confirm']")
+      |> render_click()
+
+      assert has_element?(view, "#flash-error", "Your admin access ended")
+
+      # The ledger holds exactly what it held before the demotion:
+      # the funding grant and the pre-seeded goodwill entry.
+      assert length(ledger_entries!(wallet, admin)) == 2
     end
   end
 

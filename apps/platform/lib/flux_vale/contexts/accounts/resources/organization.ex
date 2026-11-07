@@ -346,11 +346,15 @@ defmodule FluxVale.Accounts.Organization do
     # applicable policies with AND, so :read never widens), admin-only
     # by policy, and it returns only the switcher's public fields
     # (#362 T6a posture: id, slug, name — nothing org-internal). The
-    # inner read is system machinery (authorize?: false) — the gate is
-    # this action's own policy below, the same posture as Wallet
-    # :runway. Revisit trigger: the first admin surface that needs more
-    # than these three fields, at which point this grows the explicit
-    # field list rather than leaking structs.
+    # inner read is system machinery, hard-coded `authorize?: false`
+    # behind this action's own scoped policy — NOT Wallet :runway's
+    # posture (runway forwards the caller's authorize? into its inner
+    # read, whose membership policy does the refusing; here the gate
+    # is this action's policy alone). Same safety — the policy is the
+    # only door — different posture, stated precisely. Revisit
+    # trigger: the first admin surface that needs more than these
+    # three fields, at which point this grows the explicit field list
+    # rather than leaking structs.
     action :admin_lookup, {:array, :map} do
       description("Platform-admin org lookup for the admin surfaces (#501)")
 
