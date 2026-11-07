@@ -21,9 +21,10 @@ comment in a YAML file.
    declares, per app, how first open works — one generalized field for
    every catalog app:
 
-   - `pattern` — the taxonomy atom. One value exists today:
+   - `pattern` — the taxonomy atom. Two values exist today:
      `first_registered_user_admin` (registration open on first boot,
-     first registrant becomes the admin). Adding a pattern = add the
+     first registrant becomes the admin) and `first_open_sets_password`
+     (Amendment 1). Adding a pattern = add the
      atom to the type's known set plus a row here; nothing else in the
      machinery is pattern-specific.
    - `env` — the guaranteed env posture. `DeriveFromAppVersion`
@@ -117,9 +118,18 @@ owner shares the password with signs in with it. The new
 `FirstRunContract`'s known set per the generalized path above).
 
 Upstream ships server-level env knobs (login method, trusted proxies,
-provider credentials), but this packaging exposes none of them, so
-nothing needs pinning and the contract carries empty `env` and
-`forbidden_env` — the same mechanism-agnostic shape as Kavita's.
-Verified against the real image
+provider credentials), but this packaging exposes none of them as
+shipped config — and the contract's `forbidden_env` lock keeps the
+one injectable path to a forced claim: free-form user env (#482) can
+carry upstream keys to the container, and `ACTUAL_OPENID_DISCOVERY_URL`
+or `ACTUAL_OPENID_AUTHORIZATION_ENDPOINT` triggers the boot-time OIDC
+bootstrap that (with injected client id and server hostname) claims
+the server before the owner's first open. Those two triggers are
+locked by name; the remaining OIDC knobs cannot trigger a claim
+without them, and the login-method knobs cannot break the
+shared-password flow (the shipped client always requests password
+login and the server falls back to the active auth row). Otherwise
+the contract carries empty `env` — the same mechanism-agnostic shape
+as Kavita's. Verified against the real image
 (`ghcr.io/actualbudget/actual-server:26.11.0`): the bootstrapped flag
 and password live entirely under `/data` and survive pod recreation.

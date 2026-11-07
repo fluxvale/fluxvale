@@ -282,10 +282,16 @@ defmodule FluxVale.Seeds.CatalogDataTest do
                version.configurable_env_vars["ACTUAL_OPENID_CLIENT_SECRET"]
 
       # First open claims the server by setting the shared password
-      # (ADR-0034 Am. 1) — nothing to pin, nothing to lock.
+      # (ADR-0034 Am. 1) — nothing to pin; the lock exists for the
+      # user-env injection path (#482), not shipped config.
       assert version.first_run["pattern"] == "first_open_sets_password"
       assert version.first_run["env"] == %{}
-      assert version.first_run["forbidden_env"] == []
+
+      assert version.first_run["forbidden_env"] == [
+               "ACTUAL_OPENID_DISCOVERY_URL",
+               "ACTUAL_OPENID_AUTHORIZATION_ENDPOINT"
+             ]
+
       assert version.first_run["guidance"] =~ "set the server password"
     end
 

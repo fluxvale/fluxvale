@@ -9,6 +9,10 @@ defmodule FluxVale.Seeds.CatalogData do
   Pocket ID (#492) joined it: the passkey-first OIDC provider, and the
   first app whose upstream demands a deploy-time secret (its
   ENCRYPTION_KEY ships as the version's one required env input).
+  ActualBudget (#492) joined it: the first-open-sets-password pattern
+  (ADR-0034 Am. 1) landed with it, plus the forbidden-env lock that
+  keeps user-injected env from triggering an OIDC self-claim ahead of
+  the owner's first open.
 
   Adding a catalog app is purely additive: append a YAML entry. The seed
   runner (`FluxVale.Seeds.seed_catalog!/0`) looks each record up by its
