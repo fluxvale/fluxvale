@@ -307,7 +307,7 @@ msgid "See all sizes"
 msgstr ""
 
 #: lib/flux_vale_web/controllers/catalog_html/index.html.heex:69
-#: lib/flux_vale_web/live/catalog_live/index.ex:154
+#: lib/flux_vale_web/live/catalog_live/index.ex:149
 #, elixir-autogen, elixir-format
 msgid "from %{rate}"
 msgstr ""

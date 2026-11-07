@@ -18,13 +18,8 @@ defmodule FluxValeWeb.CatalogLive.Index do
     # The mosaic renders the flat {app, category} stream only — there is
     # no category assign left to render (hostile-341 F10); the :apps
     # load feeds catalog_apps/1.
-    catalog_apps =
-      Category
-      |> Ash.Query.for_read(:read, %{}, actor: socket.assigns.current_user)
-      |> Ash.Query.sort(:name)
-      |> Ash.Query.load(:apps)
-      |> Ash.read!()
-      |> catalog_apps()
+    categories = Category.list_with_apps!(actor: socket.assigns.current_user)
+    catalog_apps = catalog_apps(categories)
 
     {:ok,
      assign(socket,

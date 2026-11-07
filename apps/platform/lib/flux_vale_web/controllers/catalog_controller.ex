@@ -18,12 +18,7 @@ defmodule FluxValeWeb.CatalogController do
   @catalog_description "A curated catalog of open source apps, ready to run in minutes."
 
   def index(conn, _params) do
-    categories =
-      Category
-      |> Ash.Query.for_read(:read, %{}, actor: nil)
-      |> Ash.Query.sort(:name)
-      |> Ash.Query.load(:apps)
-      |> Ash.read!()
+    categories = Category.list_with_apps!(actor: nil)
 
     conn
     |> assign(:page_title, "App catalog · FluxVale")
