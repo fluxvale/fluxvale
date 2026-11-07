@@ -1,8 +1,7 @@
 /* FluxVale Storybook bundle (#178).
  *
  * PhoenixStorybook loads THIS file instead of app.css, so it mirrors
- * the app's token directives — ramp, Switzer/Instrument Serif/JetBrains
- * Mono faces, semantic vars (Grove,
+ * the app's token directives — ramp, Inter, semantic vars (Grove,
  * #277), elevation/radius/motion, dark-mode variant, heroicons plugin
  * — exactly; if the bundles diverge the workshop lies. Deliberately NO
  * daisyUI — the design system is hand-written Tailwind, and the
@@ -44,36 +43,39 @@
      only where a scanned source uses them — core_components now
      consumes rounded-panel/control and the motion durations (#277 T2). */
 
-  /* Type system (#557): mirrors app.css's three voices. */
-  --font-sans: "Switzer", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Instrument Serif", Georgia, serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-/* Type system (#557) — same vendored woff2 set app.css declares
-   (priv/static/fonts), so the workshop renders the real system. */
-@font-face {
-  font-family: "Switzer";
-  font-style: normal;
-  font-weight: 100 900;
-  font-display: swap;
-  src: url("/fonts/switzer-latin-wght-normal.woff2") format("woff2");
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 }
 
 @font-face {
-  font-family: "Instrument Serif";
+  font-family: "Inter";
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url("/fonts/instrument-serif-latin-400-normal.woff2") format("woff2");
+  src: url("/fonts/inter-latin-400-normal.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "JetBrains Mono";
+  font-family: "Inter";
   font-style: normal;
-  font-weight: 100 800;
+  font-weight: 500;
   font-display: swap;
-  src: url("/fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2");
+  src: url("/fonts/inter-latin-500-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/inter-latin-600-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/inter-latin-700-normal.woff2") format("woff2");
 }
 
 /* ------------------------------------------------------------------ */

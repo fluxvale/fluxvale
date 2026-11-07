@@ -7,8 +7,8 @@
  *    so light+dark flip for free.
  *
  * The measure is the design decision: long-form lines read at ~66ch
- * (max-width in ch, capped by the layout's own width), 17px Switzer at
- * a 1.75 line-height. Grammar mirrors the Offset landing (eyebrow with
+ * (max-width in ch, capped by the layout's own width), 17px Inter at a
+ * 1.75 line-height. Grammar mirrors the Offset landing (eyebrow with
  * the amber dash, display h2 on the index) at reading scale — no scroll
  * reveals, no motion beyond the token-timed color transitions.
  */
@@ -39,11 +39,10 @@
 }
 
 .blog .display-h2 {
-  font-family: var(--font-display);
-  font-weight: 400;
-  font-size: clamp(34px, 4vw, 44px);
-  letter-spacing: -0.01em;
-  line-height: 1.08;
+  font-weight: 900;
+  font-size: clamp(32px, 4vw, 44px);
+  letter-spacing: -0.03em;
+  line-height: 1.05;
   margin-top: 18px;
 }
 

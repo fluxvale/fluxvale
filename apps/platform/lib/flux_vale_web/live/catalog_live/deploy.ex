@@ -214,7 +214,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                     </span>
                     <span
                       :if={version.recommended_size}
-                      class="ml-1 font-mono text-xs text-ink-subtle"
+                      class="ml-1 text-xs text-ink-subtle"
                       data-testid={"version-price-#{version.version}"}
                     >
                       {FluxVale.Pricing.format_monthly_rate(version.recommended_size.monthly_cents)}

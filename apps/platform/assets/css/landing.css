@@ -8,40 +8,30 @@
  *
  * Tokens are the app's own (app.css): colors, radii, elevation, motion.
  * The only landing-local tokens are the two overlap offsets that
- * tokenize the section seams. Display headings ride the app's
- * --font-display token (Instrument Serif, #557); mono accents use the
- * app's --font-mono stack.
+ * tokenize the section seams. Display weights 800/900 ride the vendored
+ * Inter set below; mono accents use the app's --font-mono stack.
  */
 
-/* Instrument Serif is a 400-only display face: display headings drop
- * Inter's weight-900 styling for family + slight metric retuning
- * (the serif runs tighter than Inter did at these sizes). */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("/fonts/inter-latin-800-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url("/fonts/inter-latin-900-normal.woff2") format("woff2");
+}
 
 /* Overlap offsets — the discipline is these two numbers. */
 .landing {
   --overlap-y: clamp(72px, 9vw, 150px);
   --straddle: -26px;
-}
-
-.landing .display {
-  font-family: var(--font-display);
-  font-weight: 400;
-  font-size: clamp(48px, 6.8vw, 100px);
-  line-height: 1.02;
-  letter-spacing: -0.01em;
-  /* Instrument Serif's ch is narrower than Inter's was (#557): 11ch
-     starved the mobile measure and stranded "cloud". */
-  max-width: 12ch;
-  text-wrap: balance;
-}
-
-/* Section display h2s (steps + catalog; pricing tunes its own size). */
-.landing .display-h2 {
-  font-family: var(--font-display);
-  font-weight: 400;
-  font-size: clamp(34px, 4vw, 56px);
-  letter-spacing: -0.01em;
-  line-height: 1.05;
 }
 
 /* Layered hero offsets must never pan the page; clipped on html + body
@@ -60,8 +50,23 @@ body:has(.landing) {
   padding-inline: clamp(20px, 4vw, 52px);
 }
 
-/* ---- Display type + eyebrow ---- (the .display rules live at the top
- * of this file, beside the font-metric note they implement). */
+/* ---- Display type + eyebrow. ---- */
+.landing .display {
+  font-weight: 900;
+  font-size: clamp(46px, 6.8vw, 100px);
+  line-height: 0.99;
+  letter-spacing: -0.035em;
+  max-width: 11ch;
+  text-wrap: balance;
+}
+
+/* Section display h2s (steps + catalog; pricing tunes its own size). */
+.landing .display-h2 {
+  font-weight: 900;
+  font-size: clamp(32px, 4vw, 56px);
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+}
 
 .landing .eyebrow {
   font-family: var(--font-mono);
@@ -589,11 +594,10 @@ body:has(.landing) {
 }
 
 .landing .pricing-in h2 {
-  font-family: var(--font-display);
-  font-weight: 400;
-  font-size: clamp(36px, 4.4vw, 62px);
-  letter-spacing: -0.01em;
-  line-height: 1.05;
+  font-weight: 900;
+  font-size: clamp(34px, 4.4vw, 62px);
+  letter-spacing: -0.03em;
+  line-height: 1.02;
 }
 
 .landing .pricing-in .sub {

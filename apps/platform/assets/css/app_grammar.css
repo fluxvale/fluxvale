@@ -24,7 +24,7 @@
  * Type: the working-page scale (`.eyebrow`, `.page-title`) is a step
  * above the app's `text-2xl` headers but far under the landing's
  * display sizes — the app is a working surface. Weight 800 rides the
- * Switzer variable face app.css declares (same bundle).
+ * vendored Inter 800 face landing.css declares (same bundle).
  *
  * Straddle contract (the one thing a consuming page must know):
  *   1. A straddling card must be TALLER than `--straddle-y` — the pull

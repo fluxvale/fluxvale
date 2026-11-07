@@ -56,40 +56,41 @@
      only where a scanned source uses them — core_components now
      consumes rounded-panel/control and the motion durations (#277 T2). */
 
-  /* Type system (#557): three voices. Switzer is the interface sans,
-     Instrument Serif the display voice (marketing headings only —
-     never small UI sizes), JetBrains Mono the code/identifier voice. */
-  --font-sans: "Switzer", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Instrument Serif", Georgia, serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 }
 
-/* Type system (#557) — vendored woff2 (priv/static/fonts), no external
-   requests. The Switzer and JetBrains Mono files are variable: one file
-   covers every weight the system uses, replacing the six static Inter
-   faces (400-900). Licenses: priv/static/fonts/FONTS.md. */
+/* Inter, v1 heritage — vendored woff2 (priv/static/fonts), no external
+   requests. Weights 400/500/600/700 only: what the system uses. */
 @font-face {
-  font-family: "Switzer";
-  font-style: normal;
-  font-weight: 100 900;
-  font-display: swap;
-  src: url("/fonts/switzer-latin-wght-normal.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "Instrument Serif";
+  font-family: "Inter";
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url("/fonts/instrument-serif-latin-400-normal.woff2") format("woff2");
+  src: url("/fonts/inter-latin-400-normal.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "JetBrains Mono";
+  font-family: "Inter";
   font-style: normal;
-  font-weight: 100 800;
+  font-weight: 500;
   font-display: swap;
-  src: url("/fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2");
+  src: url("/fonts/inter-latin-500-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/inter-latin-600-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/inter-latin-700-normal.woff2") format("woff2");
 }
 
 /* ------------------------------------------------------------------ */
