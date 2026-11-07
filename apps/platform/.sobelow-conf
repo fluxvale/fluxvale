@@ -1,0 +1,14 @@
+# Sobelow gate config (#528 pentest stage), auto-read from this
+# directory. Local parity: a bare `sobelow` run in apps/platform is
+# the same gate the nightly workflow runs. The skip list lives in
+# .sobelow-skips, one sweep-verified by-design entry per line with
+# its justification. exit: :low means any finding at any confidence
+# level that is NOT in the skip list fails the run. strict fails the
+# run on unparseable sources (a file sobelow cannot read is a file
+# it did not scan).
+[
+  exit: :low,
+  skip: true,
+  private: true,
+  strict: true
+]
