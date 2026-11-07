@@ -276,7 +276,11 @@ defmodule FluxVale.Seeds.CatalogDataTest do
 
       assert version.default_env_vars == %{}
 
-      assert Map.has_key?(version.configurable_env_vars, "ACTUAL_OPENID_DISCOVERY_URL")
+      # #521: the discovery URL is the first-run contract's to lock
+      # (a boot-time discovery URL self-claims the server), so it is
+      # NOT a deploy input — the contract owns the key exclusively
+      # (ValidateFirstRunEnv).
+      refute Map.has_key?(version.configurable_env_vars, "ACTUAL_OPENID_DISCOVERY_URL")
 
       assert %{"type" => "string", "secret" => true} =
                version.configurable_env_vars["ACTUAL_OPENID_CLIENT_SECRET"]
