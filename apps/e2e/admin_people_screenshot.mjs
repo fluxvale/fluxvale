@@ -13,7 +13,7 @@
  *   node admin_people_screenshot.mjs <outdir> full
  *     — against the staged data (pending, accepted, withdrawn,
  *       expired): the list, the inline confirm, the form's honest
- *       flashes, search both ways, the home card, and the reveal GIF.
+ *       flashes, search both ways, and the reveal GIF.
  */
 import { chromium } from "@playwright/test";
 import { mkdirSync } from "node:fs";
@@ -84,6 +84,9 @@ if (phase === "full") {
 
     // -- the seeded list: pending, accepted, withdrawn, expired --
     await page.goto(`${BASE}/admin/people`, { waitUntil: "networkidle" });
+    // A 500 or a bounce must never masquerade as a capture: the
+    // sidebar testid is the page-mounted assertion (Am. 4's shell).
+    await page.waitForSelector("[data-testid='admin-sidebar']");
     await setTheme(page, mode);
     await page.waitForSelector("[data-testid^='admin-people-email-']");
     await page.screenshot({ path: `${outdir}/admin-people-${mode}.png`, fullPage: true });
@@ -118,12 +121,6 @@ if (phase === "full") {
       fullPage: true,
     });
     console.log(`captured admin-people-search-empty-${mode}.png`);
-
-    // -- the home card in its Open state --
-    await page.goto(`${BASE}/admin`, { waitUntil: "networkidle" });
-    await page.waitForSelector("[data-testid='admin-surface-people']");
-    await page.screenshot({ path: `${outdir}/admin-home-card-${mode}.png`, fullPage: true });
-    console.log(`captured admin-home-card-${mode}.png`);
 
     await ctx.close();
   }

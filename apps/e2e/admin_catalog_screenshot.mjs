@@ -29,7 +29,7 @@ const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
 const page = await ctx.newPage();
 
 // One signed-in context — the session POST mints the cookie the admin
-// gate reads (the admin_home_screenshot.mjs pattern).
+// gate reads (the admin_shell_screenshot.mjs pattern).
 await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
 const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
 await page.request.post(`${BASE}/auth/session`, {

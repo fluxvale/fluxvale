@@ -510,20 +510,23 @@ defmodule FluxValeWeb.Router do
   scope "/admin" do
     pipe_through([:browser, :admin_auth])
 
-    # The custom operator console (Am. 3, #501): the /admin landing is
-    # FluxVale's own surface on the design system — a static map of the
-    # admin surfaces, zero data queries. Its live_session carries the
-    # same two arms for the same two jobs as the app's :authenticated
-    # session: Locale first (the LiveView process re-resolves from the
-    # session), then the AdminGate socket re-check (the demotion
-    # window). The route gate is the scope's :admin_auth pipeline.
+    # The custom operator console (Am. 3, #501; Am. 4, Nov 8): the
+    # surfaces live in the :admin live_session, each rendered beside
+    # the shared section sidebar (AdminShell — the #568 account-settings
+    # idiom). There is no homepage: `/admin` is the People mount's
+    # :home action, which pushes navigation to the first live section.
+    # The session carries the same two arms for the same two jobs as
+    # the app's :authenticated session: Locale first (the LiveView
+    # process re-resolves from the session), then the AdminGate socket
+    # re-check (the demotion window). The route gate is the scope's
+    # :admin_auth pipeline.
     live_session :admin,
       on_mount: [
         {FluxValeWeb.Locale, :set_locale},
         {FluxValeWeb.AdminGate, :ensure_admin},
         {FluxValeWeb.AdminChrome, :assign_chrome}
       ] do
-      live("/", FluxValeWeb.AdminLive.Home)
+      live("/", FluxValeWeb.AdminLive.People, :home)
 
       # The people surface (#501): the invitation list, the invite form,
       # and the per-invitation support actions. Every read and write

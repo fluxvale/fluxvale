@@ -33,6 +33,7 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
   alias FluxVale.Catalog.Types.FirstRunContract
   alias FluxVale.Pricing.Size
   alias FluxValeWeb.AdminComponents
+  alias FluxValeWeb.AdminShell
 
   @impl Phoenix.LiveView
   def mount(%{"id" => id}, _session, socket) do
@@ -404,174 +405,184 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
           </div>
         </section>
 
+        <%!-- The section sidebar (Am. 4, the #568 idiom); the version
+            edit is a catalog sub-route, so it marks the catalog entry
+            as an ancestor (aria-current="location"). The back link
+            stays — it is intra-section. --%>
         <section class="wrap pt-8 pb-16">
-          <.form
-            for={@form}
-            id="version-edit-form"
-            phx-change="validate"
-            phx-submit="save"
-            class="rise space-y-6"
-          >
-            <%!-- Blueprint and size, presented together. The static
+          <div class="rise flex flex-col gap-8 md:flex-row md:gap-12">
+            <AdminShell.sidebar current="catalog" exact={false} />
+
+            <div class="min-w-0 flex-1">
+              <.form
+                for={@form}
+                id="version-edit-form"
+                phx-change="validate"
+                phx-submit="save"
+                class="space-y-6"
+              >
+                <%!-- Blueprint and size, presented together. The static
             rule is a quiet note; the live mismatch is the loudest thing
             on the page, naming the dimensions that drifted. --%>
-            <.card class="space-y-5" data-testid="admin-version-allocation">
-              <div>
-                <h2 class="text-base font-medium text-ink">{gettext("Blueprint and size")}</h2>
-                <p class="mt-1 text-sm text-ink-muted">
-                  {gettext("What provisioning grants and what billing prices, in one place.")}
-                </p>
-              </div>
+                <.card class="space-y-5" data-testid="admin-version-allocation">
+                  <div>
+                    <h2 class="text-base font-medium text-ink">{gettext("Blueprint and size")}</h2>
+                    <p class="mt-1 text-sm text-ink-muted">
+                      {gettext("What provisioning grants and what billing prices, in one place.")}
+                    </p>
+                  </div>
 
-              <.callout tone="info" data-testid="admin-version-coherence-rule">
-                <p>
-                  {gettext(
-                    "The blueprint's compute defaults and the size must match. Every save checks them against each other."
-                  )}
-                </p>
-              </.callout>
+                  <.callout tone="info" data-testid="admin-version-coherence-rule">
+                    <p>
+                      {gettext(
+                        "The blueprint's compute defaults and the size must match. Every save checks them against each other."
+                      )}
+                    </p>
+                  </.callout>
 
-              <.input
-                field={@form[:recommended_size_id]}
-                type="select"
-                label={gettext("Recommended size")}
-                options={size_options(@sizes)}
-                data-testid="admin-version-size-select"
-              />
+                  <.input
+                    field={@form[:recommended_size_id]}
+                    type="select"
+                    label={gettext("Recommended size")}
+                    options={size_options(@sizes)}
+                    data-testid="admin-version-size-select"
+                  />
 
-              <.callout
-                :if={@mismatch}
-                tone="warning"
-                data-testid="admin-version-coherence-mismatch"
-              >
-                <p>
-                  {ngettext(
-                    "%{dims} does not match the size. The size %{slug} provides %{compute}.",
-                    "%{dims} do not match the size. The size %{slug} provides %{compute}.",
-                    length(@mismatch.dims),
-                    dims: dim_names(@mismatch.dims),
-                    slug: @mismatch.size.slug,
-                    compute: AdminComponents.compute_text(@mismatch.size)
-                  )}
-                </p>
-              </.callout>
+                  <.callout
+                    :if={@mismatch}
+                    tone="warning"
+                    data-testid="admin-version-coherence-mismatch"
+                  >
+                    <p>
+                      {ngettext(
+                        "%{dims} does not match the size. The size %{slug} provides %{compute}.",
+                        "%{dims} do not match the size. The size %{slug} provides %{compute}.",
+                        length(@mismatch.dims),
+                        dims: dim_names(@mismatch.dims),
+                        slug: @mismatch.size.slug,
+                        compute: AdminComponents.compute_text(@mismatch.size)
+                      )}
+                    </p>
+                  </.callout>
 
-              <.callout
-                :if={@repointed}
-                tone="warning"
-                title={gettext("Re-point ahead")}
-                data-testid="admin-version-repoint"
-              >
-                <p>
-                  {gettext(
-                    "This version will point at %{slug}. Future deploys provision and bill %{slug} at %{rate}.",
-                    slug: @repointed.slug,
-                    rate: FluxVale.Pricing.format_monthly_rate(@repointed.monthly_cents)
-                  )}
-                </p>
-              </.callout>
+                  <.callout
+                    :if={@repointed}
+                    tone="warning"
+                    title={gettext("Re-point ahead")}
+                    data-testid="admin-version-repoint"
+                  >
+                    <p>
+                      {gettext(
+                        "This version will point at %{slug}. Future deploys provision and bill %{slug} at %{rate}.",
+                        slug: @repointed.slug,
+                        rate: FluxVale.Pricing.format_monthly_rate(@repointed.monthly_cents)
+                      )}
+                    </p>
+                  </.callout>
 
-              <div class="grid gap-4 sm:grid-cols-3">
-                <.input
-                  field={@form[:default_cpu_cores]}
-                  value={cpu_value(assigns)}
-                  label={gettext("Default CPU cores")}
-                  data-testid="admin-version-cpu"
-                />
-                <.input
-                  field={@form[:default_memory_mb]}
-                  type="number"
-                  min="1"
-                  label={gettext("Default memory (MB)")}
-                  data-testid="admin-version-memory"
-                />
-                <.input
-                  field={@form[:default_storage_gb]}
-                  type="number"
-                  min="0"
-                  label={gettext("Default storage (GB)")}
-                  data-testid="admin-version-storage"
-                />
-              </div>
-            </.card>
+                  <div class="grid gap-4 sm:grid-cols-3">
+                    <.input
+                      field={@form[:default_cpu_cores]}
+                      value={cpu_value(assigns)}
+                      label={gettext("Default CPU cores")}
+                      data-testid="admin-version-cpu"
+                    />
+                    <.input
+                      field={@form[:default_memory_mb]}
+                      type="number"
+                      min="1"
+                      label={gettext("Default memory (MB)")}
+                      data-testid="admin-version-memory"
+                    />
+                    <.input
+                      field={@form[:default_storage_gb]}
+                      type="number"
+                      min="0"
+                      label={gettext("Default storage (GB)")}
+                      data-testid="admin-version-storage"
+                    />
+                  </div>
+                </.card>
 
-            <%!-- The first-run contract, edited in place. The key-ownership
+                <%!-- The first-run contract, edited in place. The key-ownership
             rule rides the same save, and the failure names where the
             colliding fields live. --%>
-            <.card class="space-y-5" data-testid="admin-version-firstrun">
-              <div>
-                <h2 class="text-base font-medium text-ink">{gettext("First-run contract")}</h2>
-                <p class="mt-1 text-sm text-ink-muted">
-                  {gettext("How the app becomes usable on first open.")}
-                </p>
-              </div>
+                <.card class="space-y-5" data-testid="admin-version-firstrun">
+                  <div>
+                    <h2 class="text-base font-medium text-ink">{gettext("First-run contract")}</h2>
+                    <p class="mt-1 text-sm text-ink-muted">
+                      {gettext("How the app becomes usable on first open.")}
+                    </p>
+                  </div>
 
-              <.callout
-                :if={@first_run_errors != []}
-                tone="danger"
-                title={gettext("The contract failed the save")}
-                data-testid="admin-version-firstrun-errors"
-              >
-                <ul class="list-disc pl-4">
-                  <li :for={message <- @first_run_errors}>{message}</li>
-                </ul>
-                <p>
-                  {gettext(
-                    "A collision is with the blueprint env fields: default_env_vars, configurable_env_vars, or the instance URL env. Those fields are edited in the debug admin at /admin/ash."
-                  )}
-                </p>
-              </.callout>
+                  <.callout
+                    :if={@first_run_errors != []}
+                    tone="danger"
+                    title={gettext("The contract failed the save")}
+                    data-testid="admin-version-firstrun-errors"
+                  >
+                    <ul class="list-disc pl-4">
+                      <li :for={message <- @first_run_errors}>{message}</li>
+                    </ul>
+                    <p>
+                      {gettext(
+                        "A collision is with the blueprint env fields: default_env_vars, configurable_env_vars, or the instance URL env. Those fields are edited in the debug admin at /admin/ash."
+                      )}
+                    </p>
+                  </.callout>
 
-              <.input
-                type="select"
-                name="first_run_pattern"
-                label={gettext("Pattern")}
-                options={@pattern_options}
-                value={@first_run_pattern}
-                data-testid="admin-version-firstrun-pattern"
-              />
-              <.input
-                type="textarea"
-                name="first_run_env"
-                label={gettext("Guaranteed env, one KEY=VALUE per line")}
-                value={@first_run_env}
-                rows="3"
-                data-testid="admin-version-firstrun-env"
-              />
-              <.input
-                type="textarea"
-                name="first_run_forbidden"
-                label={gettext("Forbidden env keys, one per line")}
-                value={@first_run_forbidden}
-                rows="2"
-                data-testid="admin-version-firstrun-forbidden"
-              />
-              <.input
-                type="textarea"
-                name="first_run_guidance"
-                label={gettext("Owner guidance")}
-                value={@first_run_guidance}
-                rows="3"
-                data-testid="admin-version-firstrun-guidance"
-              />
+                  <.input
+                    type="select"
+                    name="first_run_pattern"
+                    label={gettext("Pattern")}
+                    options={@pattern_options}
+                    value={@first_run_pattern}
+                    data-testid="admin-version-firstrun-pattern"
+                  />
+                  <.input
+                    type="textarea"
+                    name="first_run_env"
+                    label={gettext("Guaranteed env, one KEY=VALUE per line")}
+                    value={@first_run_env}
+                    rows="3"
+                    data-testid="admin-version-firstrun-env"
+                  />
+                  <.input
+                    type="textarea"
+                    name="first_run_forbidden"
+                    label={gettext("Forbidden env keys, one per line")}
+                    value={@first_run_forbidden}
+                    rows="2"
+                    data-testid="admin-version-firstrun-forbidden"
+                  />
+                  <.input
+                    type="textarea"
+                    name="first_run_guidance"
+                    label={gettext("Owner guidance")}
+                    value={@first_run_guidance}
+                    rows="3"
+                    data-testid="admin-version-firstrun-guidance"
+                  />
 
-              <%!-- The deploy's own env var, read-only here: contract keys
+                  <%!-- The deploy's own env var, read-only here: contract keys
               must stay out of it too, and the admin should see it while
               editing the contract. --%>
-              <div :if={@version.instance_url_env} data-testid="admin-version-instance-url-env">
-                <p class="mb-1.5 text-sm font-medium text-ink-muted">
-                  {gettext("Instance URL env")}
-                </p>
-                <div class="rounded-control border border-line bg-panel-raised px-3 py-2 font-mono text-sm text-ink">
-                  {@version.instance_url_env}
-                </div>
-              </div>
-            </.card>
+                  <div :if={@version.instance_url_env} data-testid="admin-version-instance-url-env">
+                    <p class="mb-1.5 text-sm font-medium text-ink-muted">
+                      {gettext("Instance URL env")}
+                    </p>
+                    <div class="rounded-control border border-line bg-panel-raised px-3 py-2 font-mono text-sm text-ink">
+                      {@version.instance_url_env}
+                    </div>
+                  </div>
+                </.card>
 
-            <.button type="submit" data-testid="admin-version-save">
-              {gettext("Save version")}
-            </.button>
-          </.form>
+                <.button type="submit" data-testid="admin-version-save">
+                  {gettext("Save version")}
+                </.button>
+              </.form>
+            </div>
+          </div>
         </section>
       </div>
     </Layouts.app>
