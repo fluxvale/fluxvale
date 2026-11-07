@@ -520,6 +520,17 @@ defmodule FluxValeWeb.Router do
       live("/catalog/sizes", FluxValeWeb.AdminLive.Sizes)
       live("/catalog/sizes/:id", FluxValeWeb.AdminLive.SizeEdit)
       live("/catalog/versions/:id", FluxValeWeb.AdminLive.VersionEdit)
+
+      # The wallets + billing oversight surface (#501): the wallet table
+      # (org-first, the domain's stated operator contract) and the
+      # per-wallet detail with its ledger, the waiver flip, and the
+      # goodwill credit. Reads and writes ride the billing domain with
+      # the platform-admin actor and authorize?: true — the domain
+      # policies decide, never the UI. The reversal rides the system
+      # seam behind the admin gate the handler enforces itself (the
+      # flagged gap: no actor-facing reversal action exists).
+      live("/billing", FluxValeWeb.AdminLive.Billing)
+      live("/billing/wallets/:id", FluxValeWeb.AdminLive.WalletDetail)
     end
 
     # LiveDashboard on the debug subpath (Am. 3): this node's BEAM and
