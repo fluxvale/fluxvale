@@ -3,7 +3,6 @@
 # Bruno against both envs every 30 min, plus the version-currency
 # check (#242): each env's /health
 # version current within a grace window of the newest platform-carrying
-# version current within a grace window of the newest platform-carrying
 # sha on main — a deploy that never shipped pages, not just a broken
 # one. On FULL success the run remote-writes
 # `fluxvale_smoke_heartbeat_count` to the hosted Prom; any failure

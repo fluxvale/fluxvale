@@ -946,12 +946,17 @@ jobs:
     # the sha; the gate re-asserts it (the version pin is the gate's
     # core, #556) with a short bounded window for the tail. A timeout
     # here is a red, never a flake-retry: a version that will not serve
-    # will not serve.
+    # will not serve. Timeout posts the Grafana failure annotation (the
+    # same route the retired smoke red path used — observability gaps
+    # are loud, never silent), then fails the run.
     timeout-minutes: 15
     steps:
       - name: Assert both envs serve the merge sha with 200
         env:
           SHA: ${{ github.sha }}
+          GRAFANA_URL: ${{ secrets.GRAFANA_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.GRAFANA_SERVICE_ACCOUNT_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           expected="sha-$SHA"
           deadline=$((SECONDS + 600)) # 10 min bounded window
@@ -971,6 +976,11 @@ jobs:
             sleep 15
           done
           echo "::error::Readiness gate timed out after 10 min: the deployed version never matched $expected with 200 on both envs (last: staging=$s_ver/$s_code prod=$p_ver/$p_code)"
+          curl -fsS --retry 3 --retry-all-errors --retry-delay 2 --max-time 15 -X POST "$GRAFANA_URL/api/annotations" \
+            -H "Authorization: Bearer $GRAFANA_SERVICE_ACCOUNT_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\": \"Readiness gate FAILED: sha-$SHA never served with 200 on both envs (staging=$s_ver/$s_code prod=$p_ver/$p_code) — $RUN_URL\", \"tags\": [\"deploy\", \"readiness\", \"failed\"]}" \
+            || echo "annotation failed (Grafana unreachable?)"
           exit 1
 
   # The umbrella: branch protection requires THIS check. Runs regardless

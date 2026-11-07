@@ -75,9 +75,11 @@ endpoints. So the oracles authenticate differently:
   fetches the code via the **TestInbox helper** (Swoosh-local JSON
   endpoint on staging/local/review envs — admin-gated; Postmark
   Messages API on prod), submits, observes logged-in state. The
-  email-code flow is exercised on the scheduled cadence — exactly when
-  it changes. The smoke account needs a throttle exemption/dedicated
-  bucket on the send-code endpoint so scheduled passes
+  email-code flow is exercised by the nightly Playwright suite — on
+  the local k3d stack; against staging, the scheduled Bruno auth-gate
+  check covers sign-in surface only since #556 retired the per-merge
+  Playwright leg. The smoke account keeps a throttle exemption/dedicated
+  bucket on the send-code endpoint so suite passes
   don't trip their own rate limit.
 - **CLI login follows the PAT model** (gh-style): create a PAT in the
   web UI, paste into the CLI — no email-code-over-API endpoints.
@@ -120,7 +122,8 @@ also prints the accept link instead of a code.
    the same Grafana pipeline.
 2. **Correctness — scheduled Bruno** (30 min cron,
    `smoke.yml`): deep, authenticated business flows against both envs —
-   the same collection that gates deploys, changed in the same PR as
+   the collection #556's readiness gate no longer runs per-merge,
+   changed in the same PR as
    the API. GitHub's cron being best-effort is fine now that
    availability is Synthetics' job. Failures post a Grafana annotation
    carrying the run URL and write **no heartbeat**.
