@@ -86,7 +86,7 @@ defmodule FluxValeWeb.AdminMountTest do
     } do
       conn = admin_session_conn(conn, admin)
 
-      {:ok, view, _html} = live(conn, "/admin")
+      {:ok, view, _html} = live(conn, "/admin/ash")
 
       # The sidebar's per-domain toggles are the structured nav; resource
       # links only render inside an expanded domain, so absence is
@@ -111,7 +111,7 @@ defmodule FluxValeWeb.AdminMountTest do
 
       conn = admin_session_conn(conn, admin)
 
-      assert {:ok, view, html} = live(conn, "/admin?domain=Infrastructure&resource=Cluster")
+      assert {:ok, view, html} = live(conn, "/admin/ash?domain=Infrastructure&resource=Cluster")
 
       assert has_element?(view, "table")
       assert html =~ "admin-mount-cluster"
@@ -152,7 +152,7 @@ defmodule FluxValeWeb.AdminMountTest do
       # ArgumentError inside LiveView's mount lifecycle here.
       conn = put_req_header(conn, "authorization", "Bearer " <> pat)
 
-      assert {:error, {:redirect, %{to: "/sign-in"}}} = live(conn, "/admin")
+      assert {:error, {:redirect, %{to: "/sign-in"}}} = live(conn, "/admin/ash")
     end
   end
 

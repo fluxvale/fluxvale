@@ -51,7 +51,7 @@ defmodule FluxValeWeb.AdminDashboardMountTest do
 
   describe "route-level auth (the AdminMount vocabulary)" do
     test "anonymous bounces to /sign-in", %{conn: conn} do
-      conn = get(conn, "/admin/dashboard")
+      conn = get(conn, "/admin/debug/dashboard")
 
       assert conn.status == 302
       assert ["/sign-in"] = get_resp_header(conn, "location")
@@ -63,7 +63,7 @@ defmodule FluxValeWeb.AdminDashboardMountTest do
       conn =
         conn
         |> admin_session_conn(user)
-        |> get("/admin/dashboard")
+        |> get("/admin/debug/dashboard")
 
       assert conn.status == 403
     end
@@ -76,7 +76,7 @@ defmodule FluxValeWeb.AdminDashboardMountTest do
       # dashboard settles (the surface this mount exists for).
       {:ok, _view, html} =
         conn
-        |> live("/admin/dashboard")
+        |> live("/admin/debug/dashboard")
         |> follow_redirect(conn)
 
       assert html =~ "Metrics"

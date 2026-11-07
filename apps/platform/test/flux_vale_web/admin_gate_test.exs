@@ -31,14 +31,16 @@ defmodule FluxValeWeb.AdminGateTest do
     end
 
     test "deep admin paths bounce too — the auth covers the whole surface" do
-      conn = get(https_conn(), "/admin/Infrastructure/Cluster")
+      # Am. 3: the generated surface is the /admin/ash subtree — a deep
+      # page inside it must bounce the same way the mount's root does.
+      conn = get(https_conn(), "/admin/ash/Infrastructure/Cluster")
 
       assert conn.status == 302
       assert ["/sign-in"] = get_resp_header(conn, "location")
     end
 
     test "the dashboard mount is alive at its path — anonymous bounces, never 404s" do
-      conn = get(https_conn(), "/admin/dashboard")
+      conn = get(https_conn(), "/admin/debug/dashboard")
 
       assert conn.status == 302
       assert ["/sign-in"] = get_resp_header(conn, "location")

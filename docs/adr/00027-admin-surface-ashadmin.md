@@ -109,3 +109,26 @@ operational seam disappears: staging's BWS-rendered key and the
 One operational seam appears, accepted: the surface ships ON in new
 environments by default — worth remembering when a fresh environment
 first serves traffic.
+
+## Amendment 3 (2026-11-07): the custom dashboard takes /admin; the generated admins demote to debug subpaths
+
+Issue #501, owner ruling: FluxVale builds its own operator surface on
+the design system. The custom admin home lives at `/admin`, AshAdmin
+moves to `/admin/ash`, and Phoenix LiveDashboard moves to
+`/admin/debug/dashboard`.
+
+Why: the friends beta makes the admin surface a daily tool. Daily
+work means invites, catalog and pricing surgery, billing oversight, and
+moderation. The component library and design system already exist, so a
+purpose-built console is now cheap to build and the daily workflows
+deserve real UX. The generated tools stay for emergency data surgery,
+which is what they are good at.
+
+The gate does not move: every surface on the mount keeps the exact same
+triple gate (browser pipeline, the `:admin_auth` route pipeline, and
+the `FluxValeWeb.AdminGate` on_mount socket re-check) and AshAdmin
+keeps its current §3 opt-in domain set.
+
+What does NOT change: the §3 opt-in posture for AshAdmin exposure, the
+Identity/Accounts exclusion, AshAdmin's `authorize?: false`
+trusted-superuser reality (Am. 1), and Am. 2's always-mounted stance.
