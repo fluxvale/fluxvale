@@ -172,18 +172,35 @@ expect_eq "all green: no confirmed" "" "$confirmed"
 expect_eq "all green: no recovered" "" "$recovered"
 
 # Wiring pins: the revert step in ci.yml gates on the classifier
-# verdict, not on a raw single-attempt outcome, and every leg carries
-# an attempt-1 step plus a retry gated on that attempt's failure.
+# verdict, not on a raw single-attempt outcome. Every leg consumes its
+# attempt-1 outcome in the verdict env and carries a retry gated on
+# that attempt's failure (a dangling renamed id would read empty,
+# classify skipped, and green a run with zero smoke evidence). The
+# settle step sits before the legs with its health check intact.
 wf="$(cat "$workflow")"
 expect_contains "red path gates on verdict output" "steps.verdict.outputs.verdict == 'failed'" "$wf"
 expect_not_contains "no raw single-attempt red path left" "steps.bruno_staging.outcome == 'failure'" "$wf"
-expect_contains "verdict step consumes attempt outcomes" "OUTCOME_BRUNO_STAGING_1: \${{ steps.bruno_staging_1.outcome }}" "$wf"
-expect_contains "retry exists for bruno staging" "id: bruno_staging_2" "$wf"
-expect_contains "retry exists for pw staging" "id: pw_staging_2" "$wf"
-expect_contains "retry exists for bruno production" "id: bruno_production_2" "$wf"
-expect_contains "retry exists for pw production" "id: pw_production_2" "$wf"
-expect_contains "settle step runs before the legs" "id: settle" "$wf"
-expect_contains "settle reuses the watch-deploy health check" "jq -r .version" "$wf"
+expect_contains "verdict consumes bruno staging attempt outcome" "OUTCOME_BRUNO_STAGING_1: \${{ steps.bruno_staging_1.outcome }}" "$wf"
+expect_contains "verdict consumes pw staging attempt outcome" "OUTCOME_PW_STAGING_1: \${{ steps.pw_staging_1.outcome }}" "$wf"
+expect_contains "verdict consumes bruno production attempt outcome" "OUTCOME_BRUNO_PRODUCTION_1: \${{ steps.bruno_production_1.outcome }}" "$wf"
+expect_contains "verdict consumes pw production attempt outcome" "OUTCOME_PW_PRODUCTION_1: \${{ steps.pw_production_1.outcome }}" "$wf"
+
+for leg in bruno_staging pw_staging bruno_production pw_production; do
+  expect_contains "$leg retry gated on its attempt 1" "if: steps.${leg}_1.outcome == 'failure'" "$wf"
+done
+
+settle_line="$(grep -n '^        id: settle$' "$workflow" | cut -d: -f1)"
+first_leg_line="$(grep -n '^        id: bruno_staging_1$' "$workflow" | cut -d: -f1)"
+if [ -n "$settle_line" ] && [ -n "$first_leg_line" ] && [ "$settle_line" -lt "$first_leg_line" ]; then
+  echo "ok: settle precedes the legs"
+else
+  echo "FAIL: settle step missing or not before the legs"
+  failures=$((failures + 1))
+fi
+
+settle_block="$(sed -n '/^        id: settle$/,/^      - name:/p' "$workflow")"
+expect_contains "settle block polls health versions" "jq -r .version" "$settle_block"
+expect_contains "settle block holds after rollout" "sleep 30" "$settle_block"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures assertion(s) failed"
