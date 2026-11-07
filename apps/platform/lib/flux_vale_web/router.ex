@@ -318,13 +318,6 @@ defmodule FluxValeWeb.Router do
     get("/policies/terms", PolicyController, :terms)
     get("/policies/acceptable-use", PolicyController, :acceptable_use)
     get("/policies/privacy", PolicyController, :privacy)
-
-    # #511: the sign-in-with-Pocket ID guide — public and anonymous-OK
-    # like the policies. The wiring steps are identical before and
-    # after sign-in, and the honest weights (an identity instance wants
-    # always-on, destroying one loses the identities it holds) inform
-    # the deploy that usually comes first.
-    get("/guides/sign-in-with-pocket-id", GuideController, :sign_in_with_pocket_id)
   end
 
   scope "/", FluxValeWeb do

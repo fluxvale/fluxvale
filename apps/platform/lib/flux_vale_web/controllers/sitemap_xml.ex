@@ -39,9 +39,8 @@ defmodule FluxValeWeb.SitemapXML do
   def build(apps, posts, feedback_posts) do
     # ADR-00025 §3's static slice: the landing, the catalog index, the
     # pricing page (#396), the feedback board (#412), the blog index,
-    # the published policy pages (#140), and the published guide (#511)
-    # — canonical public URLs without a lastmod (nothing timestamped to
-    # show).
+    # and the published policy pages (#140) — canonical public URLs
+    # without a lastmod (nothing timestamped to show).
     static_urls = [
       Seo.canonical_origin() <> "/",
       Seo.canonical_origin() <> "/catalog",
@@ -53,11 +52,7 @@ defmodule FluxValeWeb.SitemapXML do
       Seo.canonical_origin() <> "/policies/acceptable-use",
       # fv332 D5 added privacy after this slice shipped — the SEO lean
       # closes the omission (a published policy like its siblings).
-      Seo.canonical_origin() <> "/policies/privacy",
-      # #511: the sign-in-with-Pocket ID guide rides the same shape —
-      # a published public page with SEO assigns and footer links, so
-      # the slice carries it like the policies.
-      Seo.canonical_origin() <> "/guides/sign-in-with-pocket-id"
+      Seo.canonical_origin() <> "/policies/privacy"
     ]
 
     [

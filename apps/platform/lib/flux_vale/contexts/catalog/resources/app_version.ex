@@ -33,7 +33,6 @@ defmodule FluxVale.Catalog.AppVersion do
           :port,
           :healthcheck_path,
           :storage_mount_path,
-          :oidc_callback_path,
           :default_cpu_cores,
           :default_memory_mb,
           :default_storage_gb,
@@ -56,7 +55,6 @@ defmodule FluxVale.Catalog.AppVersion do
           :port,
           :healthcheck_path,
           :storage_mount_path,
-          :oidc_callback_path,
           :default_cpu_cores,
           :default_memory_mb,
           :default_storage_gb,
@@ -163,20 +161,6 @@ defmodule FluxVale.Catalog.AppVersion do
       constraints(match: ~r/^[A-Za-z_][A-Za-z0-9_]*$/)
     end
 
-    # The app's OIDC callback path, as an identity provider needs it at
-    # client registration (#511): Pocket ID only redirects to the
-    # callback URLs listed on its client, and the exact path is the
-    # mistyped-URL failure class its own troubleshooting names first.
-    # The instance's public URL prefixes the stored path (the ingress
-    # URL isn't catalog data — the ROOT_URL reasoning), so this carries
-    # the path only. nil = the version exposes no OIDC consumer surface
-    # (opt-in per catalog app, the instance_url_env precedent; the
-    # identity provider itself — Pocket ID — is the nil case).
-    attribute :oidc_callback_path, :string do
-      public?(true)
-      constraints(match: ~r{^/[\w/.-]*$})
-    end
-
     # Always-shipped env (operator-owned; deployer stringifies values).
     attribute :default_env_vars, :map do
       allow_nil?(false)
@@ -259,7 +243,6 @@ defmodule FluxVale.Catalog.AppVersion do
         :storage_mount_path,
         :instance_url_env,
         :host_allowlist_env,
-        :oidc_callback_path,
         :default_env_vars,
         :configurable_env_vars,
         :first_run,
@@ -290,7 +273,6 @@ defmodule FluxVale.Catalog.AppVersion do
         :storage_mount_path,
         :instance_url_env,
         :host_allowlist_env,
-        :oidc_callback_path,
         :default_env_vars,
         :configurable_env_vars,
         :first_run,

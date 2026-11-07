@@ -116,25 +116,6 @@ defmodule FluxVale.Catalog.AppVersionTest do
       assert {:error, %Ash.Error.Invalid{}} = AppVersion.create(spaces, authorize?: false)
     end
 
-    test "bounds oidc_callback_path to a root-anchored URL path (#511)" do
-      relative = version_attrs(app(), %{oidc_callback_path: "auth/callback"})
-      spaces = version_attrs(app(), %{oidc_callback_path: "/a b"})
-
-      assert {:error, %Ash.Error.Invalid{}} = AppVersion.create(relative, authorize?: false)
-
-      assert {:error, %Ash.Error.Invalid{}} = AppVersion.create(spaces, authorize?: false)
-
-      # The seed converges through the update action — the constraint
-      # holds there too.
-      attrs = version_attrs(app())
-      version = AppVersion.create!(attrs, authorize?: false)
-
-      rejected =
-        AppVersion.update(version, %{oidc_callback_path: "auth/callback"}, authorize?: false)
-
-      assert {:error, %Ash.Error.Invalid{}} = rejected
-    end
-
     test "enforces unique version per app" do
       attrs = version_attrs(app())
       AppVersion.create!(attrs, authorize?: false)

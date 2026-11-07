@@ -44,14 +44,6 @@
           # Forgejo needs ROOT_URL for correct absolute links behind the
           # proxy.
           instance_url_env: FORGEJO__server__ROOT_URL
-          # #511: the OIDC callback path for sign-in-with-Pocket ID —
-          # the callback URL registered on the Pocket ID client is the
-          # instance URL plus this path. The path's third segment is the
-          # authentication source's name, and Forgejo stores that config
-          # in its own database (Site Administration → Authentication
-          # Sources — no env surface), so the guide pins the name
-          # `PocketID` to keep the two ends matching.
-          oidc_callback_path: /user/oauth2/PocketID/callback
           default_cpu_cores: "0.5"
           default_memory_mb: 512
           default_storage_gb: 10
@@ -161,11 +153,6 @@
           # lands at /kavita/config (#189). The deployer's per-version
           # mount path makes that catalog data instead of a special case.
           storage_mount_path: /kavita/config
-          # #511: the OIDC callback path for sign-in-with-Pocket ID —
-          # Kavita's OIDC setup (Settings → Server → OpenID Connect) is
-          # in-app with a restart to apply, no env surface. The guide's
-          # optional logout callback is /signout-callback-oidc.
-          oidc_callback_path: /signin-oidc
           default_cpu_cores: "0.5"
           default_memory_mb: 512
           default_storage_gb: 10
@@ -230,13 +217,6 @@
           # there (the Kavita reasoning — state must land under the
           # app's own paths to survive a pod restart).
           storage_mount_path: /var/opt/memos
-          # #511: the OIDC callback path for sign-in-with-Pocket ID —
-          # Memos' SSO settings (Settings → SSO, the Custom template)
-          # are in-app, with the authorization, token, and userinfo
-          # endpoints entered explicitly because Memos reads no
-          # discovery URL. The identifier maps to preferred_username
-          # (Pocket ID's own Memos guide).
-          oidc_callback_path: /auth/callback
           default_cpu_cores: "0.25"
           default_memory_mb: 512
           default_storage_gb: 5
@@ -306,10 +286,6 @@
           # var (Forgejo's ROOT_URL pattern): Vaultwarden derives absolute
           # URLs (web vault, attachments) from DOMAIN.
           instance_url_env: DOMAIN
-          # #511: the OIDC callback path for sign-in-with-Pocket ID —
-          # the URL registered on the Pocket ID client is the instance
-          # URL plus this path (upstream's SSO wiki pins it).
-          oidc_callback_path: /identity/connect/oidc-signin
           default_cpu_cores: "0.25"
           default_memory_mb: 512
           default_storage_gb: 5
@@ -349,33 +325,6 @@
               label: Restrict sign-ups to an email domain
               description: Only email addresses at this domain can register. Leave empty to let anyone with the URL register.
               type: string
-            # #511: the SSO wiring as deploy-time inputs — env is a
-            # deploy-time snapshot (no post-deploy editing), so an
-            # already-running instance is wired by redeploying with the
-            # values. SSO_PKCE and SSO_SCOPES keep upstream defaults,
-            # which match a Pocket ID client created with PKCE on.
-            # SSO_AUTHORITY must equal the Pocket ID instance URL
-            # exactly (it is the issuer). The master password keeps
-            # unlocking the vault regardless: SSO gates the front door
-            # only.
-            SSO_ENABLED:
-              label: Enable Pocket ID sign-in
-              description: Sign in through the OpenID Connect provider below. The master password keeps unlocking the vault either way.
-              type: boolean
-              default: false
-            SSO_AUTHORITY:
-              label: OIDC issuer URL
-              description: The Pocket ID instance's public URL with no trailing slash. It must match exactly.
-              type: string
-            SSO_CLIENT_ID:
-              label: OIDC client ID
-              description: The client ID from the Pocket ID OIDC client.
-              type: string
-            SSO_CLIENT_SECRET:
-              label: OIDC client secret
-              description: The client secret from the Pocket ID OIDC client. Pocket ID shows it once when the client is created.
-              type: string
-              secret: true
 
 - category:
     name: Identity
@@ -392,13 +341,7 @@
         passwords, with OIDC client management, users and groups, and a
         sign-in audit log. The embedded SQLite database and uploads live
         on a dedicated volume, and all configuration happens in the web
-        UI after a one-time encryption key at deploy. Other apps can use
-        this instance as their sign-in provider, which makes it
-        load-bearing. Turn on the always-on flag after deploy, because
-        a sleeping Pocket ID answers your apps' sign-ins with errors
-        while it wakes. Keep the instance public so your apps can reach
-        it, and save the encryption key, because restoring a backup
-        needs it.
+        UI after a one-time encryption key at deploy.
       icon_url: https://raw.githubusercontent.com/pocket-id/pocket-id/main/frontend/static/img/static-logo.svg
       source_url: https://github.com/pocket-id/pocket-id
       docs_url: https://pocket-id.org/docs/introduction
@@ -430,9 +373,7 @@
           # The priced unit (#125): `micro` is 0.25 CPU / 512 MB / 5 GB —
           # exactly this version's allocation ($2.83/mo, $0.24 stopped — B′).
           # The honest floor: Pocket ID is a single static Go binary with
-          # an embedded SQLite DB, idling at tens of MB. Availability is
-          # not a sizing question for the identity instance (#511): it
-          # wants the instance's always-on flag, not a bigger size.
+          # an embedded SQLite DB, idling at tens of MB.
           recommended_size: micro
           release_notes: |
             First FluxVale catalog release, tracking upstream v2.19.2.
@@ -476,9 +417,7 @@
               label: Encryption key
               description: >-
                 Encrypts Pocket ID's stored secrets. Generate one with
-                openssl rand -base64 32 (at least 16 characters) and
-                save it somewhere safe, because restoring a backup of
-                this instance needs it.
+                openssl rand -base64 32 (at least 16 characters).
               type: string
               required: true
               secret: true
@@ -525,15 +464,6 @@
           # local-path provisioning is; a root-owned CSI volume would
           # need an fsGroup the deployer does not set today.
           storage_mount_path: /data
-          # #73's deploy op fills this with the instance's public URL
-          # (the Forgejo ROOT_URL pattern): upstream's OpenID setup
-          # needs the server hostname so the provider redirects back
-          # here. Inert until OpenID is configured.
-          instance_url_env: ACTUAL_OPENID_SERVER_HOSTNAME
-          # #511: the OIDC callback path for sign-in-with-Pocket ID —
-          # upstream pins <server hostname>/openid/callback as the
-          # redirect URI to register on the provider's client.
-          oidc_callback_path: /openid/callback
           default_cpu_cores: "0.5"
           default_memory_mb: 512
           default_storage_gb: 10
@@ -552,28 +482,6 @@
             open sets the server password, which family members share
             to sign in.
           published_at: "2026-11-02T01:54:02Z"
-          # #511: the OpenID wiring as deploy-time inputs (the
-          # Vaultwarden SSO reasoning — env is a deploy-time snapshot).
-          # The first successful OpenID sign-in becomes the server
-          # owner and cannot be reassigned from the UI.
-          configurable_env_vars:
-            ACTUAL_OPENID_DISCOVERY_URL:
-              label: OpenID discovery URL
-              description: The Pocket ID instance's public URL. Actual discovers the OpenID endpoints from it.
-              type: string
-            ACTUAL_OPENID_CLIENT_ID:
-              label: OpenID client ID
-              description: The client ID from the Pocket ID OIDC client.
-              type: string
-            ACTUAL_OPENID_CLIENT_SECRET:
-              label: OpenID client secret
-              description: The client secret from the Pocket ID OIDC client. Pocket ID shows it once when the client is created.
-              type: string
-              secret: true
-            ACTUAL_USER_CREATION_MODE:
-              label: Create users on first sign-in
-              description: Set to login to create an account the first time someone signs in with OpenID. Leave empty to pre-create accounts in Actual's Users screen instead.
-              type: string
           # First-run contract (#492, ADR-0034 Am. 1): a fresh sync
           # server ships unclaimed (GET /account/needs-bootstrap →
           # bootstrapped:false), and the web UI's first open IS the

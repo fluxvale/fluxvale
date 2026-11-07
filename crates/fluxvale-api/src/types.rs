@@ -2319,9 +2319,6 @@ pub struct AppVersionAttributes {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub instance_url_env: ::std::option::Option<::std::string::String>,
     ///Field included by default.
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub oidc_callback_path: ::std::option::Option<::std::string::String>,
-    ///Field included by default.
     pub port: i64,
     ///Field included by default.
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -2371,8 +2368,6 @@ pub struct AppVersionFilter {
     pub instance_url_env: ::std::option::Option<AppVersionFilterInstanceUrlEnv>,
     #[serde(default)]
     pub not: ::std::boxed::Box<::std::option::Option<AppVersionFilter>>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub oidc_callback_path: ::std::option::Option<AppVersionFilterOidcCallbackPath>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub or: ::std::option::Option<::std::vec::Vec<AppVersionFilter>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -2807,51 +2802,6 @@ pub struct AppVersionFilterImage {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
 #[serde(deny_unknown_fields)]
 pub struct AppVersionFilterInstanceUrlEnv {
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub contains: ::std::option::Option<::std::string::String>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub eq: ::std::option::Option<::std::string::String>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub greater_than: ::std::option::Option<::std::string::String>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub greater_than_or_equal: ::std::option::Option<::std::string::String>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub ilike: ::std::option::Option<::std::string::String>,
-    #[serde(
-        rename = "in",
-        default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
-    )]
-    pub in_: ::std::vec::Vec<::std::string::String>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub is_distinct_from: ::std::option::Option<::std::string::String>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub is_nil: ::std::option::Option<bool>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub is_not_distinct_from: ::std::option::Option<::std::string::String>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub less_than: ::std::option::Option<::std::string::String>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub less_than_or_equal: ::std::option::Option<::std::string::String>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub like: ::std::option::Option<::std::string::String>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub not_eq: ::std::option::Option<::std::string::String>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub range_adjacent: ::std::option::Option<::std::string::String>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub range_contains: ::std::option::Option<::std::string::String>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub range_overlaps: ::std::option::Option<::std::string::String>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub string_ends_with: ::std::option::Option<::std::string::String>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub string_starts_with: ::std::option::Option<::std::string::String>,
-}
-///`AppVersionFilterOidcCallbackPath`
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
-#[serde(deny_unknown_fields)]
-pub struct AppVersionFilterOidcCallbackPath {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub contains: ::std::option::Option<::std::string::String>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]

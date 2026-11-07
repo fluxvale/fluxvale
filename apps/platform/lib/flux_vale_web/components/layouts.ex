@@ -395,18 +395,6 @@ defmodule FluxValeWeb.Layouts do
                 Acceptable use
               </.link>
             </li>
-            <%!-- #511: the how-to guides live beside the policies — the
-            sign-in-with-Pocket ID guide is the first one, and the
-            footer is the one chrome every public surface renders. --%>
-            <li>
-              <.link
-                navigate={~p"/guides/sign-in-with-pocket-id"}
-                class="text-sm text-ink-muted hover:text-ink"
-                data-testid="footer-guides"
-              >
-                Guides
-              </.link>
-            </li>
             <%!-- fv332 D5: privacy rides every chrome'd surface beside
             the other legal pages, and the landing footer mirrors it. --%>
             <li>

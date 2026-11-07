@@ -16,38 +16,38 @@ msgstr ""
 msgid "Actions"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:457
-#: lib/flux_vale_web/components/layouts.ex:472
+#: lib/flux_vale_web/components/layouts.ex:445
+#: lib/flux_vale_web/components/layouts.ex:460
 #, elixir-autogen, elixir-format
 msgid "Attempting to reconnect"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:528
+#: lib/flux_vale_web/components/layouts.ex:516
 #, elixir-autogen, elixir-format
 msgid "Dark theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:501
+#: lib/flux_vale_web/components/layouts.ex:489
 #, elixir-autogen, elixir-format
 msgid "Follow system theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:516
+#: lib/flux_vale_web/components/layouts.ex:504
 #, elixir-autogen, elixir-format
 msgid "Light theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:464
+#: lib/flux_vale_web/components/layouts.ex:452
 #, elixir-autogen, elixir-format
 msgid "Something went wrong!"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:489
+#: lib/flux_vale_web/components/layouts.ex:477
 #, elixir-autogen, elixir-format
 msgid "Theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:449
+#: lib/flux_vale_web/components/layouts.ex:437
 #, elixir-autogen, elixir-format
 msgid "We can't find the internet"
 msgstr ""
@@ -290,7 +290,7 @@ msgstr ""
 msgid "Sizes start at %{rate}/mo, billed hourly while running"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:359
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:352
 #, elixir-autogen, elixir-format
 msgid "Privacy"
 msgstr ""
@@ -675,11 +675,6 @@ msgstr ""
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:41
 #, elixir-autogen, elixir-format
 msgid "You top up your wallet in USD. Apps bill hourly against your wallet balance, and every rate above is a monthly equivalent. There are no subscriptions."
-msgstr ""
-
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:355
-#, elixir-autogen, elixir-format
-msgid "Guides"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/home.ex:68
