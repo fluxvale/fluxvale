@@ -181,6 +181,9 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       # State on the volume root — the loader default carries.
       assert version.storage_mount_path == "/data"
       assert version.instance_url_env == "DOMAIN"
+      # #511: the OIDC callback path lands in the DB row, pinned from
+      # upstream's SSO wiki.
+      assert version.oidc_callback_path == "/identity/connect/oidc-signin"
       assert version.default_env_vars == %{}
       assert version.first_run == nil
       # The priced unit: micro (0.25 / 512 / 5, $2.83 at B′) — the
@@ -202,6 +205,18 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert %EnvVarSpec{} = whitelist
       assert whitelist.type == :string
       assert whitelist.secret != true
+
+      # #511: the SSO wiring casts through the typed schema — the
+      # toggle defaults off, the client secret rides as a secret.
+      enabled = version.configurable_env_vars["SSO_ENABLED"]
+      assert %EnvVarSpec{} = enabled
+      assert enabled.type == :boolean
+      assert enabled.default == false
+
+      secret = version.configurable_env_vars["SSO_CLIENT_SECRET"]
+      assert %EnvVarSpec{} = secret
+      assert secret.type == :string
+      assert secret.secret == true
     end
 
     test "seeds the shipped Pocket ID entry and its first-run contract (#492)" do
@@ -282,10 +297,21 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert version.healthcheck_path == "/health"
       assert version.storage_mount_path == "/data"
       assert version.default_storage_gb == 10
+      # #511: the deploy op fills the server hostname (the OpenID
+      # redirect target) and the callback path lands in the row.
+      assert version.instance_url_env == "ACTUAL_OPENID_SERVER_HOSTNAME"
+      assert version.oidc_callback_path == "/openid/callback"
       # The priced unit, pinned by slug like the sibling entries
       # (ValidateSizeMatchesAllocation enforces the pairing at write
       # time; this asserts the shipped one).
       assert version.recommended_size.slug == "small"
+
+      # #511: the OpenID wiring casts through the typed schema — the
+      # client secret rides as a secret.
+      secret = version.configurable_env_vars["ACTUAL_OPENID_CLIENT_SECRET"]
+      assert %EnvVarSpec{} = secret
+      assert secret.type == :string
+      assert secret.secret == true
 
       contract = version.first_run
       assert %FirstRunContract{} = contract
@@ -348,6 +374,26 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert contract.env == %{}
       assert contract.forbidden_env == []
       assert contract.guidance =~ "first account becomes the host"
+    end
+
+    test "seeds the OIDC callback paths for the five consumers (#511)" do
+      assert :ok == Seeds.seed_pricing!()
+      assert :ok == Seeds.seed_catalog!()
+
+      # The pinned values — Pocket ID is the provider, so its own row
+      # carries no callback surface (nil).
+      expected = %{
+        "forgejo" => "/user/oauth2/PocketID/callback",
+        "kavita" => "/signin-oidc",
+        "vaultwarden" => "/identity/connect/oidc-signin",
+        "actualbudget" => "/openid/callback",
+        "memos" => "/auth/callback",
+        "pocket-id" => nil
+      }
+
+      for {slug, path} <- expected do
+        assert version_for!(slug).oidc_callback_path == path
+      end
     end
 
     test "re-seeding the shipped catalog converges without dupes" do
@@ -496,6 +542,20 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert :ok == seed_fixture!()
 
       assert version_for!("testapp").first_run.pattern == :first_registered_user_admin
+    end
+
+    test "converges a drifted OIDC callback path back to the YAML (#511)" do
+      assert :ok = seed_fixture!()
+
+      # The fixture names no callback path, so the shipped shape is nil
+      # — the same drift-to-nil the Pocket ID provider row exercises
+      # against the shipped data.
+      version = version_for!("testapp")
+      AppVersion.update!(version, %{oidc_callback_path: "/stale/path"}, authorize?: false)
+
+      assert :ok = seed_fixture!()
+
+      assert version_for!("testapp").oidc_callback_path == nil
     end
 
     test "converges drifted category and app data too (symmetric convergence)" do

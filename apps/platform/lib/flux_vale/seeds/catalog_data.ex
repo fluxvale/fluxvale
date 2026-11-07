@@ -116,6 +116,10 @@ defmodule FluxVale.Seeds.CatalogData do
       healthcheck_path: Map.get(version, "healthcheck_path", "/"),
       storage_mount_path: Map.get(version, "storage_mount_path", "/data"),
       instance_url_env: version["instance_url_env"],
+      # The OIDC callback path an identity provider needs at client
+      # registration (#511) — raw pass-through like instance_url_env;
+      # the attribute's match constraint owns validation at write time.
+      oidc_callback_path: version["oidc_callback_path"],
       default_env_vars: Map.get(version, "default_env_vars", %{}),
       configurable_env_vars: Map.get(version, "configurable_env_vars", %{}),
       # First-run contract (#181, ADR-0034): raw pass-through, string

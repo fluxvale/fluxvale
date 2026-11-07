@@ -43,6 +43,10 @@ defmodule FluxVale.Seeds.CatalogDataTest do
 
       assert version.default_env_vars["FORGEJO__database__DB_TYPE"] == "sqlite3"
 
+      # #511: the callback path pins the auth-source name the guide
+      # tells the reader to use (the name is part of Forgejo's path).
+      assert version.oidc_callback_path == "/user/oauth2/PocketID/callback"
+
       assert Map.has_key?(version.configurable_env_vars, "FORGEJO__mailer__SMTP_ADDR")
 
       # First-run contract passes through raw (string keys — #181);
@@ -81,6 +85,8 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert version.healthcheck_path == "/api/health"
       # Kavita's state lives under its working dir, not the volume root.
       assert version.storage_mount_path == "/kavita/config"
+      # #511: the OIDC callback path — config is in-app, no env surface.
+      assert version.oidc_callback_path == "/signin-oidc"
       assert version.default_memory_mb == 512
       assert version.default_storage_gb == 10
       assert version.recommended_size == "small"
@@ -150,12 +156,21 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       # The instance's public URL rides the Forgejo-ROOT_URL mechanism.
       assert version.instance_url_env == "DOMAIN"
 
-      # One deploy-time setting: the sign-ups domain whitelist. The
-      # SIGNUPS_ALLOWED lockout footgun is deliberately not shipped (see
-      # the YAML comment), and the spec is raw pass-through here —
-      # string keys, the EnvVarSchema type owns validation at write time.
+      # #511: the OIDC callback path, pinned from upstream's SSO wiki.
+      assert version.oidc_callback_path == "/identity/connect/oidc-signin"
+
+      # The sign-ups domain whitelist (the SIGNUPS_ALLOWED lockout
+      # footgun is deliberately not shipped — see the YAML comment) and
+      # the #511 SSO wiring. Raw pass-through here — string keys, the
+      # EnvVarSchema type owns validation at write time.
       assert Map.has_key?(version.configurable_env_vars, "SIGNUPS_DOMAINS_WHITELIST")
       assert version.configurable_env_vars["SIGNUPS_DOMAINS_WHITELIST"]["type"] == "string"
+
+      assert %{"type" => "boolean", "default" => false} =
+               version.configurable_env_vars["SSO_ENABLED"]
+
+      assert %{"type" => "string", "secret" => true} =
+               version.configurable_env_vars["SSO_CLIENT_SECRET"]
     end
 
     test "shipped catalog_data.yaml normalizes the Pocket ID entry (#492)" do
@@ -172,6 +187,16 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert app.source_url == "https://github.com/pocket-id/pocket-id"
       # Identity state is not file-ingest; the toggle ships off by default.
       assert app.file_access == false
+
+      # #511: the honest-copy weight lives in the catalog description —
+      # the instance is load-bearing, wants always-on, and the
+      # encryption key is recovery material. Compared flattened: the
+      # YAML hard-wraps.
+      flat_description = String.replace(app.description, ~r/\s+/, " ")
+
+      assert flat_description =~ "load-bearing"
+      assert flat_description =~ "always-on"
+      assert flat_description =~ "restoring a backup needs it"
 
       version = hd(app.versions)
       assert version.version == "2.19.2"
@@ -199,6 +224,10 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       # secret input: the encryption key.
       assert %{"required" => true, "secret" => true, "type" => "string"} =
                version.configurable_env_vars["ENCRYPTION_KEY"]
+
+      # #511: the input description states the recovery weight.
+      assert version.configurable_env_vars["ENCRYPTION_KEY"]["description"] =~
+               "restoring a backup"
 
       # Setup-page-first-admin, with no env keys to pin or lock.
       assert version.first_run["pattern"] == "first_registered_user_admin"
@@ -240,9 +269,17 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert version.recommended_size == "small"
       assert version.published_at == ~U[2026-11-02 01:54:02Z]
 
-      # No env surface at boot: all server config is in-app.
+      # #511: the deploy op fills the server hostname (the OpenID
+      # redirect target) and the wiring rides deploy-time inputs.
+      assert version.instance_url_env == "ACTUAL_OPENID_SERVER_HOSTNAME"
+      assert version.oidc_callback_path == "/openid/callback"
+
       assert version.default_env_vars == %{}
-      assert version.configurable_env_vars == %{}
+
+      assert Map.has_key?(version.configurable_env_vars, "ACTUAL_OPENID_DISCOVERY_URL")
+
+      assert %{"type" => "string", "secret" => true} =
+               version.configurable_env_vars["ACTUAL_OPENID_CLIENT_SECRET"]
 
       # First open claims the server by setting the shared password
       # (ADR-0034 Am. 1) — nothing to pin, nothing to lock.
@@ -277,6 +314,8 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       # Memos' state lives under its working dir (/var/opt/memos, the
       # image's own VOLUME), not the volume root.
       assert version.storage_mount_path == "/var/opt/memos"
+      # #511: the OIDC callback path — config is in-app, Custom template.
+      assert version.oidc_callback_path == "/auth/callback"
       assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.25"))
       assert version.default_memory_mb == 512
       assert version.default_storage_gb == 5
@@ -353,6 +392,7 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert version.configurable_env_vars == %{}
       assert version.first_run == nil
       assert version.storage_mount_path == "/data"
+      assert version.oidc_callback_path == nil
       assert version.recommended_size == "s"
 
       # #190: the toggle is optional and defaults off

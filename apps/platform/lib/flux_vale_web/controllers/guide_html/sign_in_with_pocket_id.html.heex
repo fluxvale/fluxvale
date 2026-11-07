@@ -1,0 +1,204 @@
+<Layouts.public flash={@flash} current_user={@current_user} return_to={@return_to}>
+  <div class="mx-auto max-w-2xl space-y-8">
+    <.header>
+      Sign in with Pocket ID
+      <:subtitle>One passkey identity for your app suite, wired app by app.</:subtitle>
+    </.header>
+
+    <%!-- #511 v1: the wiring guide, docs and catalog data only. The
+    callback paths mirror the catalog's oidc_callback_path values (the
+    seed tests pin both ends). Plain sentences by design: no em-dashes,
+    no semicolons. --%>
+    <.card class="space-y-4" data-testid="sign-in-with-pocket-id-guide">
+      <h2 class="text-base font-medium text-ink">What this gives you</h2>
+      <p class="text-sm text-ink-muted">
+        Pocket ID is the identity app in the catalog. Deploy it, claim
+        it, add a passkey, and your other apps can hand their sign-in
+        to it.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Five catalog apps consume it today: Forgejo, Kavita,
+        Vaultwarden, ActualBudget, and Memos. The first four speak
+        OpenID Connect natively. Memos connects through its Custom SSO
+        template with the endpoints entered by hand.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Deploy Pocket ID first</h2>
+      <p class="text-sm text-ink-muted">
+        The order matters for two of the five. Vaultwarden and
+        ActualBudget read their provider settings from environment
+        inputs that the deploy form collects, so their Pocket ID
+        clients must exist before those apps deploy. An app that is
+        already running is wired by redeploying it with the values.
+        Forgejo, Kavita, and Memos are configured inside the app after
+        deploy, so their order is loose.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Keep the Pocket ID instance public. An app's server fetches
+        tokens from Pocket ID directly, so the issuer URL has to work
+        from the app's container and not only in your browser.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Keep Pocket ID awake</h2>
+      <p class="text-sm text-ink-muted">
+        Run the identity instance always-on. Pick its size on the
+        deploy form as usual, then turn on Always-on on the instance
+        page after deploy. Always-on is not a plan tier. The instance
+        simply never sleeps, and it never stops accruing its running
+        rate.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Here is what sleeping does instead. A browser that opens the
+        URL sees a waking page while the instance comes up. Your apps'
+        servers get an error with a retry hint, so the first sign-in
+        after a wake can fail. Already-signed-in sessions keep working.
+        New sign-ins fail while the identity sleeps, and every app that
+        points at it fails with them.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Create one client per app</h2>
+      <p class="text-sm text-ink-muted">
+        In Pocket ID open Administration, then OIDC Clients, then Add
+        OIDC Client. Name the client after the app and add its callback
+        URL. The callback URL is your app's instance URL plus the path
+        from this table.
+      </p>
+      <div class="space-y-2 text-sm">
+        <div class="flex flex-wrap items-baseline justify-between gap-x-4 rounded-lg bg-panel-raised px-3 py-2">
+          <span class="font-medium text-ink">Forgejo</span>
+          <span class="font-mono text-xs text-ink-muted">/user/oauth2/PocketID/callback</span>
+        </div>
+        <div class="flex flex-wrap items-baseline justify-between gap-x-4 rounded-lg bg-panel-raised px-3 py-2">
+          <span class="font-medium text-ink">Kavita</span>
+          <span class="font-mono text-xs text-ink-muted">/signin-oidc</span>
+        </div>
+        <div class="flex flex-wrap items-baseline justify-between gap-x-4 rounded-lg bg-panel-raised px-3 py-2">
+          <span class="font-medium text-ink">Vaultwarden</span>
+          <span class="font-mono text-xs text-ink-muted">/identity/connect/oidc-signin</span>
+        </div>
+        <div class="flex flex-wrap items-baseline justify-between gap-x-4 rounded-lg bg-panel-raised px-3 py-2">
+          <span class="font-medium text-ink">ActualBudget</span>
+          <span class="font-mono text-xs text-ink-muted">/openid/callback</span>
+        </div>
+        <div class="flex flex-wrap items-baseline justify-between gap-x-4 rounded-lg bg-panel-raised px-3 py-2">
+          <span class="font-medium text-ink">Memos</span>
+          <span class="font-mono text-xs text-ink-muted">/auth/callback</span>
+        </div>
+      </div>
+      <p class="text-sm text-ink-muted">
+        Choose who may sign in under Allowed User Groups, or pick All
+        Users. The client's page shows the client ID, the client
+        secret, and the discovery URL. The secret is shown once, so
+        copy it when you create the client. For the Vaultwarden client,
+        turn on PKCE.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Wire Forgejo</h2>
+      <p class="text-sm text-ink-muted">
+        In Forgejo open Site Administration, then Identity &amp; Access,
+        then Authentication Sources. Add a source of type OAuth2 with
+        the OpenID Connect provider. Name it PocketID, because the name
+        is part of the callback path. Paste the discovery URL, the
+        client ID, and the client secret from Pocket ID. Set the
+        additional scopes to openid email profile.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Wire Kavita</h2>
+      <p class="text-sm text-ink-muted">
+        In Kavita open Settings, then Server, then OpenID Connect.
+        Enter the Pocket ID URL as the Authority with no trailing
+        slash, plus the client ID and the client secret. Save and
+        restart Kavita for the settings to take effect. In Pocket ID
+        you can also add /signout-callback-oidc as the client's logout
+        callback. If you sync roles from a claim, the new roles apply
+        after a full sign-out and sign-in.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Wire Vaultwarden</h2>
+      <p class="text-sm text-ink-muted">
+        Set the four inputs on the deploy form: enable Pocket ID
+        sign-in, the issuer URL, the client ID, and the client secret.
+        The issuer URL is your Pocket ID instance's public URL, exactly.
+        Vaultwarden uses PKCE by default, which matches the client you
+        created with PKCE on.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Two honest notes. The master password still unlocks the vault.
+        SSO only gates the front door. And keep a second passkey for
+        Pocket ID somewhere outside Vaultwarden, because a passkey that
+        lives only inside the vault locks the identity behind the vault.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Wire ActualBudget</h2>
+      <p class="text-sm text-ink-muted">
+        Set the discovery URL, the client ID, and the client secret on
+        the deploy form. The discovery URL is your Pocket ID instance's
+        public URL. The instance's own URL is filled in for you. The
+        first successful OpenID sign-in becomes the server owner, so
+        make it yours.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Household members get accounts on their first sign-in if you
+        set the creation mode input to login. Otherwise pre-create them
+        in Actual's Users screen with matching usernames.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Wire Memos</h2>
+      <p class="text-sm text-ink-muted">
+        In Memos open Settings, then SSO, then Create. Pick the Custom
+        template. Memos reads no discovery URL, so paste the
+        authorization, token, and userinfo endpoints from the client's
+        page in Pocket ID. Show more details lists them. Set the
+        identifier to preferred_username, the display name to name, and
+        the email field to email. Set the scopes to openid email
+        profile.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Keep one admin password login as your recovery path, even after
+        you disable passwords for regular users. Memos never links an
+        SSO identity to an existing account by username.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">If Pocket ID goes down or away</h2>
+      <p class="text-sm text-ink-muted">
+        Connected apps degrade. They do not die. Already-signed-in
+        sessions persist. New sign-ins fail while the issuer is
+        unreachable and come back when it is reachable again.
+      </p>
+      <p class="text-sm text-ink-muted" data-testid="destroy-loses-identities">
+        Destroying the Pocket ID instance is the permanent case. A
+        destroy deletes the instance and its data for good. The
+        identities it holds are lost with it, unless you can restore
+        from a backup you own. A restore needs the backup password and
+        the encryption key you chose at deploy, so save both somewhere
+        safe today. Restoring into a new instance is manual work today.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Keep one local way in per app. Forgejo and Memos keep their
+        local logins. Kavita's recovery is documented upstream. Remove
+        the OIDC block and password login returns. Vaultwarden always
+        keeps the master password. ActualBudget keeps the server
+        password unless you enforced OpenID. The platform's own sign-in
+        never depends on Pocket ID.
+      </p>
+    </.card>
+  </div>
+</Layouts.public>
