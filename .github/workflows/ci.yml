@@ -740,15 +740,29 @@ jobs:
     needs: check-changes
     if: needs.check-changes.outputs.e2e == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # (#578) 60, not 45: the ceiling must sit above the SUM of bounded
+    # work or it cancels legitimate runs mid-suite. Old worst observed
+    # leg ≈ 28.5m (timers, both attempts pull-bound) under a 45
+    # ceiling (16.5m slack); the warm-up (+≤8m budget) and the
+    # bootstrap's one bounded retry (+≤12m worst: attempt 1 dies ~12m
+    # in at the rollout wait, then the idempotent re-run rebuilds a
+    # fresh cached tag and re-waits up to 600s) push the legitimate
+    # worst to ≈ 48.5m — 60 leaves ~11.5m hang slack. Tighter than the
+    # old slack on purpose: the new worst already carries congestion
+    # padding the old one didn't. The waits themselves are unchanged.
+    timeout-minutes: 60
     strategy:
       # A red leg must not cancel the others — its report is triage
       # data (legs stay independent, never sharing state)
       fail-fast: false
       matrix:
         leg:
+          # warm_apps (#578): the catalog slugs this leg's specs deploy —
+          # the warm-up step pre-pulls their images before the suite.
+          # Empty on pages: its specs deploy nothing.
           - name: pages
             specs: tests/health.spec.ts tests/landing.spec.ts tests/org-pages.spec.ts tests/policies.spec.ts tests/public-pages.spec.ts tests/root-session.spec.ts tests/sign-in.spec.ts tests/switcher-dismiss.spec.ts
+            warm_apps: ""
           - name: lifecycle
             # pocket-id joined here in #510's pass — it had shipped
             # (#492's catalog PRs) without joining a leg, so PR CI
@@ -756,6 +770,7 @@ jobs:
             # does now; the per-merge post-deploy smoke retired with
             # #556. apps/e2e/README.md warns exactly about this gap).
             specs: tests/forgejo-lifecycle.spec.ts tests/actual-lifecycle.spec.ts tests/vaultwarden-lifecycle.spec.ts tests/memos-lifecycle.spec.ts tests/pocket-id-lifecycle.spec.ts tests/file-access.spec.ts tests/backups.spec.ts
+            warm_apps: forgejo actualbudget vaultwarden memos pocket-id kavita
           # #210 part 3: threshold 45s + probe window 150s are safe
           # HERE only — this leg's instance gets no traffic, so the
           # 30s beacon staleness that guards the other legs' 180s
@@ -765,6 +780,7 @@ jobs:
             specs: tests/scale-to-zero.spec.ts
             idle_sleep_seconds: "45"
             probe_window_ms: "150000"
+            warm_apps: forgejo
     env:
       # mise x must USE the four installed binaries without
       # auto-installing the config's other pins (erlang = source
@@ -818,7 +834,119 @@ jobs:
       - name: Bootstrap the local stack
         env:
           E2E_IDLE_SLEEP_AFTER_SECONDS: ${{ matrix.leg.idle_sleep_seconds }}
-        run: mise x -- scripts/e2e-bootstrap.sh
+        # (#578) One bounded retry, the apply_with_retry stance: the
+        # script is idempotent by design (cluster/charts/manifests
+        # updated in place), and the banked red class is a TRANSIENT
+        # rollout-wait timeout under runner-wide registry congestion —
+        # runs 42346721386/42346929756/42348696195, all three legs'
+        # bootstraps dead in the same half-hour window at `rollout
+        # status --timeout=600s` ("timed out waiting for the
+        # condition"). A second attempt rides the congestion out; two
+        # failures is a real bootstrap bug, and it reds loudly — no
+        # third attempt to sleep it off.
+        run: |
+          attempts=0
+          until mise x -- scripts/e2e-bootstrap.sh; do
+            attempts=$((attempts + 1))
+            if [ "$attempts" -ge 2 ]; then
+              echo "::error::bootstrap failed twice — the second attempt's error stands above (a real bug, not congestion)"
+              exit 1
+            fi
+            echo "bootstrap-retry: attempt 1 failed — retrying in 10s (idempotent re-run; the marker keeps the flake rate measurable)"
+            if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+              echo "::warning::bootstrap-retry: attempt 1 failed — retrying (transient rollout-wait timeout class, #578)"
+            fi
+            sleep 10
+          done
+
+      # (#578) Warm the leg's catalog images onto the k3d node BEFORE
+      # the suite. The banked timeout class: the specs' deploy-walk
+      # waits were being spent on cold registry pulls under congestion
+      # — run 42324879960 (timers leg) died at exactly 720000ms twice
+      # ("status never reached Running"), the pull owning the clock
+      # instead of the platform. App images are version-tagged and the
+      # pod specs set no imagePullPolicy, so kubelet resolves them
+      # IfNotPresent: a node that already carries the image makes the
+      # deploy walk measure the platform. k3d v5 has no `image pull`
+      # — the documented path is host `docker pull` + `k3d image
+      # import -m direct` (direct streams the local tarball into the
+      # node's containerd; the default tools-node mode would itself
+      # pull k3d-tools from Docker Hub — the congestion class again).
+      # Refs come from the sources of truth, keyed by slug (catalog)
+      # and by config (the file-access sidecar — not catalog data):
+      # the bootstrap's parse-don't-fork stance for Tiltfile pins.
+      # Pulls are best-effort under a TOTAL budget — congestion (the
+      # timeout exit, 124) warns and the suite keeps its own budgets;
+      # the leg's fate stays with the suite. A ref that fails TWICE
+      # outright, though, is a repo bug: red here, loudly, not as a
+      # cryptic ImagePullBackOff 15 minutes in.
+      - name: Warm the leg's catalog images onto the node
+        env:
+          LEG_WARM_APPS: ${{ matrix.leg.warm_apps }}
+        run: |
+          if [ -z "$LEG_WARM_APPS" ]; then
+            echo "warm-up: this leg deploys no catalog apps — nothing to warm"
+            exit 0
+          fi
+          catalog=apps/platform/priv/repo/seeds/catalog_data.yaml
+          config=apps/platform/config/config.exs
+          deadline=$((SECONDS + 480)) # 8 min TOTAL: several warm pulls + slack for one slow one
+          refs=""
+          for app in $LEG_WARM_APPS; do
+            app_refs="$(
+              awk -v app="$app" '
+                $1 == "slug:" { hit = ($2 == app) }
+                hit && $1 == "image:" { print $2 }
+              ' "$catalog"
+            )"
+            if [ -z "$app_refs" ]; then
+              echo "::error::$app has no image: line in $catalog — did the seed YAML change shape?"
+              exit 1
+            fi
+            refs="$refs $app_refs"
+          done
+          # The file-access sidecar rides any file-access instance
+          # (file-access.spec runs on the lifecycle leg); its pin
+          # lives in config.exs, not the catalog — parse that too.
+          sidecar="$(sed -n 's/^ *image: "\(rclone\/rclone:[^"]*\)".*/\1/p' "$config" | head -1)"
+          if [ -z "$sidecar" ]; then
+            echo "::error::no rclone/rclone image pin found in $config — did the file_access config change shape?"
+            exit 1
+          fi
+          refs="$refs $sidecar"
+          # 0 = pulled, 1 = budget-exhausted (timeout's 124), 2 = outright
+          pull_one() {
+            if timeout "$1" docker pull -q "$2"; then return 0; fi
+            [ "$?" -eq 124 ] && return 1
+            return 2
+          }
+          for ref in $refs; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::warning::warm-up budget spent before $ref — image stays cold; the suite's own deploy budget applies"
+              exit 0
+            fi
+            echo "warm-up: pulling $ref ($((deadline - SECONDS))s of budget left)"
+            rc=0; pull_one "$((deadline - SECONDS))" "$ref" || rc=$?
+            if [ "$rc" -eq 2 ]; then
+              # outright failure: one immediate retry — a transient
+              # blip passes, a broken ref fails twice and reds
+              rc=0; pull_one "$((deadline - SECONDS))" "$ref" || rc=$?
+              if [ "$rc" -eq 0 ]; then
+                echo "::warning::warm-up: $ref failed once outright, succeeded on the immediate retry — transient?"
+              fi
+            fi
+            case "$rc" in
+              0) ;;
+              1) echo "::warning::warm-up: $ref did not finish in budget — image stays cold; the suite's own deploy budget applies"; continue ;;
+              *) echo "::error::warm-up: $ref is not pullable (failed twice outright) — a broken ref in the catalog/config, not congestion"; exit 1 ;;
+            esac
+            # local tar streaming (direct mode), no network — a 120s
+            # hang guard only; a failure warns, never reds the leg
+            if ! timeout 120 mise x -- k3d image import -m direct -c fluxvale "$ref" >/dev/null; then
+              echo "::warning::warm-up: import of $ref failed — image stays cold; the suite's own deploy budget applies"
+            fi
+          done
+          echo "warm-up: done — node carries:$refs"
 
       # #210: npm ci + playwright install re-downloaded everything
       # every run — and stalled 12m once (runner/network variance).
