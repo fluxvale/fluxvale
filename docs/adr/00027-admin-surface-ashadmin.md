@@ -132,3 +132,17 @@ keeps its current §3 opt-in domain set.
 What does NOT change: the §3 opt-in posture for AshAdmin exposure, the
 Identity/Accounts exclusion, AshAdmin's `authorize?: false`
 trusted-superuser reality (Am. 1), and Am. 2's always-mounted stance.
+
+## Amendment 4 (2026-11-08): the homepage cards retire; the console is sidebar sections
+
+Owner ruling: the admin dashboard is organized as **sidebar sections**
+on the account-settings sidebar's idiom (PR #568), and the /admin
+homepage-cards layout is retired. Every /admin surface renders the
+shared section sidebar (`FluxValeWeb.AdminShell`): live workflows at
+their routes, workflows not yet built as honest Coming entries with no
+link (the cards' honesty grammar, kept). `/admin` itself redirects to
+the first live section — no homepage of its own. The remaining
+workflows (billing #571, then feedback, orgs, gateways) land as
+sections in later slices and flip their sidebar entries live when they
+merge. The gate does not move; Am. 3's triple gate stays on every
+surface.

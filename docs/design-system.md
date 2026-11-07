@@ -76,6 +76,12 @@ by index (one arrow press = one rung, thumb never between rungs), the
 tick row labels the rungs and highlights the active one, and the
 readout names the stopped value.
 
+The admin surfaces ride the section sidebar (#501, ADR-0027 Am. 4):
+`AdminShell` — the settings-sidebar idiom (#568) shared at admin
+scope, one `nav` of mono-eyebrow groups beside every surface's
+content, live sections at their routes, unbuilt ones as linkless
+Coming entries.
+
 ## The resource picker (#195, rungs-only #221)
 
 ![Resources step, light](screenshots/design/resource-picker/resources-picker-light.png)

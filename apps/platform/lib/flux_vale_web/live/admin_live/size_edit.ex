@@ -30,6 +30,7 @@ defmodule FluxValeWeb.AdminLive.SizeEdit do
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Pricing.Size
+  alias FluxValeWeb.AdminShell
 
   require Ash.Query
 
@@ -271,161 +272,172 @@ defmodule FluxValeWeb.AdminLive.SizeEdit do
           </div>
         </section>
 
+        <%!-- The section sidebar (Am. 4, the #568 idiom); the size
+        edit is a catalog sub-route, so it marks the catalog entry.
+        The back link stays — it is intra-section. --%>
         <section class="wrap pt-8 pb-16">
-          <div class="rise grid gap-6 lg:grid-cols-2">
-            <%!-- Prices: business data, freely editable — the admin path
+          <div class="rise flex flex-col gap-8 md:flex-row md:gap-12">
+            <AdminShell.sidebar current="catalog" />
+
+            <div class="min-w-0 flex-1">
+              <div class="grid gap-6 lg:grid-cols-2">
+                <%!-- Prices: business data, freely editable — the admin path
             this resource exists for. The consequence callout states the
             reach: past-grace running instances settle at the new rate
             at their next settle. --%>
-            <.card class="space-y-4" data-testid="admin-size-prices">
-              <div>
-                <h2 class="text-base font-medium text-ink">{gettext("Prices")}</h2>
-                <p class="mt-1 text-sm text-ink-muted">
-                  {gettext(
-                    "Prices are business data. Edit them freely. The monthly rate prices this compute class. Storage prices per GB on its own axis."
-                  )}
-                </p>
-              </div>
+                <.card class="space-y-4" data-testid="admin-size-prices">
+                  <div>
+                    <h2 class="text-base font-medium text-ink">{gettext("Prices")}</h2>
+                    <p class="mt-1 text-sm text-ink-muted">
+                      {gettext(
+                        "Prices are business data. Edit them freely. The monthly rate prices this compute class. Storage prices per GB on its own axis."
+                      )}
+                    </p>
+                  </div>
 
-              <.callout
-                tone="warning"
-                title={gettext("This price reaches running instances")}
-                data-testid="admin-size-price-reach"
-              >
-                <div class="space-y-1.5">
-                  <p>
-                    {gettext(
-                      "A price edit reaches running instances on this size at their next settle, once their first-year price lock lapses."
-                    )}
-                  </p>
-                  <p :if={@price_reach && @price_reach.lapsed > 0}>
-                    {ngettext(
-                      "Visible to your account: 1 running instance already settles at this rate.",
-                      "Visible to your account: %{count} running instances already settle at this rate.",
-                      @price_reach.lapsed
-                    )}
-                  </p>
-                  <p :if={@price_reach && @price_reach.grace > 0}>
-                    {ngettext(
-                      "Visible to your account: 1 more is still inside its first-year price lock. It moves to this rate when the lock lapses.",
-                      "Visible to your account: %{count} more are still inside their first-year price locks. They move to this rate when the locks lapse.",
-                      @price_reach.grace
-                    )}
-                  </p>
-                </div>
-              </.callout>
+                  <.callout
+                    tone="warning"
+                    title={gettext("This price reaches running instances")}
+                    data-testid="admin-size-price-reach"
+                  >
+                    <div class="space-y-1.5">
+                      <p>
+                        {gettext(
+                          "A price edit reaches running instances on this size at their next settle, once their first-year price lock lapses."
+                        )}
+                      </p>
+                      <p :if={@price_reach && @price_reach.lapsed > 0}>
+                        {ngettext(
+                          "Visible to your account: 1 running instance already settles at this rate.",
+                          "Visible to your account: %{count} running instances already settle at this rate.",
+                          @price_reach.lapsed
+                        )}
+                      </p>
+                      <p :if={@price_reach && @price_reach.grace > 0}>
+                        {ngettext(
+                          "Visible to your account: 1 more is still inside its first-year price lock. It moves to this rate when the lock lapses.",
+                          "Visible to your account: %{count} more are still inside their first-year price locks. They move to this rate when the locks lapse.",
+                          @price_reach.grace
+                        )}
+                      </p>
+                    </div>
+                  </.callout>
 
-              <.form
-                for={@price_form}
-                id="size-price-form"
-                phx-change="validate-price"
-                phx-submit="save-price"
-                class="space-y-4"
-              >
-                <.input
-                  field={@price_form[:monthly_cents]}
-                  type="number"
-                  min="0"
-                  label={gettext("Monthly rate (US cents)")}
-                  data-testid="admin-size-price-monthly"
-                />
-                <.button type="submit" data-testid="admin-size-price-save">
-                  {gettext("Save prices")}
-                </.button>
-              </.form>
-            </.card>
+                  <.form
+                    for={@price_form}
+                    id="size-price-form"
+                    phx-change="validate-price"
+                    phx-submit="save-price"
+                    class="space-y-4"
+                  >
+                    <.input
+                      field={@price_form[:monthly_cents]}
+                      type="number"
+                      min="0"
+                      label={gettext("Monthly rate (US cents)")}
+                      data-testid="admin-size-price-monthly"
+                    />
+                    <.button type="submit" data-testid="admin-size-price-save">
+                      {gettext("Save prices")}
+                    </.button>
+                  </.form>
+                </.card>
 
-            <%!-- Allocation: the freeze as UI. Locked sizes render
+                <%!-- Allocation: the freeze as UI. Locked sizes render
             filled read-only fields behind a Locked chip, with the
             count and the path named in a standard callout — the
             compute shape, not the warning, is the loudest thing here.
             Free sizes render a live form and the note that the freeze
             is one pointing-version away. --%>
-            <.card class="space-y-4" data-testid="admin-size-allocation">
-              <div>
-                <h2 class="text-base font-medium text-ink">{gettext("Allocation")}</h2>
-                <p class="mt-1 text-sm text-ink-muted">
-                  {gettext("The compute a version's blueprint must match.")}
-                </p>
-              </div>
-
-              <.callout
-                :if={@referenced_count > 0}
-                tone="warning"
-                title={
-                  ngettext(
-                    "1 version points at this size",
-                    "%{count} versions point at this size",
-                    @referenced_count
-                  )
-                }
-                data-testid="admin-size-freeze-lock"
-              >
-                <p>
-                  {gettext(
-                    "Its compute defaults must keep matching this size. Re-point those versions to another size, or retire them in the debug admin. Then this compute can move."
-                  )}
-                </p>
-              </.callout>
-
-              <.callout
-                :if={@referenced_count == 0}
-                tone="info"
-                title={gettext("No versions point at this size")}
-                data-testid="admin-size-freeze-open"
-              >
-                <p>
-                  {gettext("The compute is editable now. It freezes once a version points here.")}
-                </p>
-              </.callout>
-
-              <.form
-                :if={@referenced_count == 0}
-                for={@allocation_form}
-                id="size-allocation-form"
-                phx-change="validate-allocation"
-                phx-submit="save-allocation"
-                class="space-y-4"
-              >
-                <.input
-                  field={@allocation_form[:cpu_cores]}
-                  value={alloc_cpu_value(assigns)}
-                  label={gettext("CPU cores")}
-                  data-testid="admin-size-alloc-cpu"
-                />
-                <.input
-                  field={@allocation_form[:memory_mb]}
-                  type="number"
-                  min="1"
-                  label={gettext("Memory (MB)")}
-                  data-testid="admin-size-alloc-memory"
-                />
-                <.button type="submit" data-testid="admin-size-alloc-save">
-                  {gettext("Save allocation")}
-                </.button>
-              </.form>
-
-              <div :if={@referenced_count > 0} class="space-y-4">
-                <div class="flex items-center gap-1.5" data-testid="admin-size-locked-chip">
-                  <.badge tone="warning">
-                    <.icon name="hero-lock-closed" class="size-3.5" />
-                    {gettext("Locked")}
-                  </.badge>
-                </div>
-                <div data-testid="admin-size-alloc-cpu">
-                  <p class="mb-1.5 text-sm font-medium text-ink-muted">{gettext("CPU cores")}</p>
-                  <div class="rounded-control border border-line bg-panel-raised px-3 py-2 text-sm text-ink">
-                    {alloc_cpu_value(assigns)}
+                <.card class="space-y-4" data-testid="admin-size-allocation">
+                  <div>
+                    <h2 class="text-base font-medium text-ink">{gettext("Allocation")}</h2>
+                    <p class="mt-1 text-sm text-ink-muted">
+                      {gettext("The compute a version's blueprint must match.")}
+                    </p>
                   </div>
-                </div>
-                <div data-testid="admin-size-alloc-memory">
-                  <p class="mb-1.5 text-sm font-medium text-ink-muted">{gettext("Memory (MB)")}</p>
-                  <div class="rounded-control border border-line bg-panel-raised px-3 py-2 text-sm text-ink">
-                    {@size.memory_mb}
+
+                  <.callout
+                    :if={@referenced_count > 0}
+                    tone="warning"
+                    title={
+                      ngettext(
+                        "1 version points at this size",
+                        "%{count} versions point at this size",
+                        @referenced_count
+                      )
+                    }
+                    data-testid="admin-size-freeze-lock"
+                  >
+                    <p>
+                      {gettext(
+                        "Its compute defaults must keep matching this size. Re-point those versions to another size, or retire them in the debug admin. Then this compute can move."
+                      )}
+                    </p>
+                  </.callout>
+
+                  <.callout
+                    :if={@referenced_count == 0}
+                    tone="info"
+                    title={gettext("No versions point at this size")}
+                    data-testid="admin-size-freeze-open"
+                  >
+                    <p>
+                      {gettext("The compute is editable now. It freezes once a version points here.")}
+                    </p>
+                  </.callout>
+
+                  <.form
+                    :if={@referenced_count == 0}
+                    for={@allocation_form}
+                    id="size-allocation-form"
+                    phx-change="validate-allocation"
+                    phx-submit="save-allocation"
+                    class="space-y-4"
+                  >
+                    <.input
+                      field={@allocation_form[:cpu_cores]}
+                      value={alloc_cpu_value(assigns)}
+                      label={gettext("CPU cores")}
+                      data-testid="admin-size-alloc-cpu"
+                    />
+                    <.input
+                      field={@allocation_form[:memory_mb]}
+                      type="number"
+                      min="1"
+                      label={gettext("Memory (MB)")}
+                      data-testid="admin-size-alloc-memory"
+                    />
+                    <.button type="submit" data-testid="admin-size-alloc-save">
+                      {gettext("Save allocation")}
+                    </.button>
+                  </.form>
+
+                  <div :if={@referenced_count > 0} class="space-y-4">
+                    <div class="flex items-center gap-1.5" data-testid="admin-size-locked-chip">
+                      <.badge tone="warning">
+                        <.icon name="hero-lock-closed" class="size-3.5" />
+                        {gettext("Locked")}
+                      </.badge>
+                    </div>
+                    <div data-testid="admin-size-alloc-cpu">
+                      <p class="mb-1.5 text-sm font-medium text-ink-muted">{gettext("CPU cores")}</p>
+                      <div class="rounded-control border border-line bg-panel-raised px-3 py-2 text-sm text-ink">
+                        {alloc_cpu_value(assigns)}
+                      </div>
+                    </div>
+                    <div data-testid="admin-size-alloc-memory">
+                      <p class="mb-1.5 text-sm font-medium text-ink-muted">
+                        {gettext("Memory (MB)")}
+                      </p>
+                      <div class="rounded-control border border-line bg-panel-raised px-3 py-2 text-sm text-ink">
+                        {@size.memory_mb}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                </.card>
               </div>
-            </.card>
+            </div>
           </div>
         </section>
       </div>

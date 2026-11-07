@@ -12,6 +12,7 @@ defmodule FluxValeWeb.AdminLive.Sizes do
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Pricing.Size
   alias FluxValeWeb.AdminComponents
+  alias FluxValeWeb.AdminShell
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
@@ -80,46 +81,55 @@ defmodule FluxValeWeb.AdminLive.Sizes do
           </div>
         </section>
 
+        <%!-- The section sidebar (Am. 4, the #568 idiom); the sizes
+        ladder is a catalog sub-route, so it marks the catalog entry.
+        The back link stays — it is intra-section. --%>
         <section class="wrap pt-8 pb-16">
-          <div class="rise space-y-4">
-            <.empty_state :if={@sizes == []} title={gettext("No sizes seeded yet.")} />
+          <div class="rise flex flex-col gap-8 md:flex-row md:gap-12">
+            <AdminShell.sidebar current="catalog" />
 
-            <.table
-              :if={@sizes != []}
-              id="admin-size-ladder"
-              rows={@sizes}
-              row_id={&"size-row-#{&1.slug}"}
-            >
-              <:col :let={size} label={gettext("Size")}>
-                <span class="font-medium text-ink">{size.slug}</span>
-              </:col>
-              <:col :let={size} label={gettext("Allocation")}>
-                {AdminComponents.compute_text(size)}
-              </:col>
-              <:col :let={size} label={gettext("Running rate")}>
-                {gettext("%{rate}/mo", rate: FluxVale.Pricing.format_usd(size.monthly_cents))}
-              </:col>
-              <:col :let={size} label={gettext("Versions")}>
-                <span data-testid={"admin-size-versions-#{size.slug}"}>
-                  <%= if (@version_counts[size.id] || 0) > 0 do %>
-                    <.badge tone="warning">
-                      {ngettext("1 version", "%{count} versions", @version_counts[size.id])}
-                    </.badge>
-                  <% else %>
-                    <span class="text-ink-muted">0</span>
-                  <% end %>
-                </span>
-              </:col>
-              <:action :let={size}>
-                <.link
-                  navigate={~p"/admin/catalog/sizes/#{size.id}"}
-                  data-testid={"admin-size-edit-#{size.slug}"}
-                  class="text-sm font-medium text-link underline-offset-2 hover:underline"
+            <div class="min-w-0 flex-1 space-y-6">
+              <div class="space-y-4">
+                <.empty_state :if={@sizes == []} title={gettext("No sizes seeded yet.")} />
+
+                <.table
+                  :if={@sizes != []}
+                  id="admin-size-ladder"
+                  rows={@sizes}
+                  row_id={&"size-row-#{&1.slug}"}
                 >
-                  {gettext("Edit")}
-                </.link>
-              </:action>
-            </.table>
+                  <:col :let={size} label={gettext("Size")}>
+                    <span class="font-medium text-ink">{size.slug}</span>
+                  </:col>
+                  <:col :let={size} label={gettext("Allocation")}>
+                    {AdminComponents.compute_text(size)}
+                  </:col>
+                  <:col :let={size} label={gettext("Running rate")}>
+                    {gettext("%{rate}/mo", rate: FluxVale.Pricing.format_usd(size.monthly_cents))}
+                  </:col>
+                  <:col :let={size} label={gettext("Versions")}>
+                    <span data-testid={"admin-size-versions-#{size.slug}"}>
+                      <%= if (@version_counts[size.id] || 0) > 0 do %>
+                        <.badge tone="warning">
+                          {ngettext("1 version", "%{count} versions", @version_counts[size.id])}
+                        </.badge>
+                      <% else %>
+                        <span class="text-ink-muted">0</span>
+                      <% end %>
+                    </span>
+                  </:col>
+                  <:action :let={size}>
+                    <.link
+                      navigate={~p"/admin/catalog/sizes/#{size.id}"}
+                      data-testid={"admin-size-edit-#{size.slug}"}
+                      class="text-sm font-medium text-link underline-offset-2 hover:underline"
+                    >
+                      {gettext("Edit")}
+                    </.link>
+                  </:action>
+                </.table>
+              </div>
+            </div>
           </div>
         </section>
       </div>

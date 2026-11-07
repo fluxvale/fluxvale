@@ -17,12 +17,17 @@ defmodule FluxValeWeb.AdminLive.People do
   resolves the occupant and refuses live accounts), withdrawals through
   `Identity.withdraw_invite/3`. No `authorize?: false` anywhere on this
   surface.
+
+  `/admin` mounts this module's :home action and bounces to
+  `/admin/people` (Am. 4 — the homepage cards retired, the first live
+  section is the landing).
   """
 
   use FluxValeWeb, :live_view
 
   alias FluxVale.Identity
   alias FluxVale.Identity.User
+  alias FluxValeWeb.AdminShell
 
   require Ash.Query
 
@@ -32,6 +37,16 @@ defmodule FluxValeWeb.AdminLive.People do
   # anyway. Revisit trigger: pagination and an invited_at index once
   # invitation volume approaches the cap.
   @list_cap 100
+
+  @impl Phoenix.LiveView
+  # `/admin` is no longer a surface of its own (Am. 4): the homepage
+  # cards retired, the path bounces to the first live section. The
+  # named :home action keeps this head apart from the surface's own
+  # :index mount (the access panel's :personal posture, S5). Flash-free
+  # — nothing failed.
+  def mount(_params, _session, %{assigns: %{live_action: :home}} = socket) do
+    {:ok, push_navigate(socket, to: ~p"/admin/people")}
+  end
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
@@ -375,237 +390,243 @@ defmodule FluxValeWeb.AdminLive.People do
                   "Invitations and the accounts they made. A support surface, not a user directory. Accounts with no invitation story are not this page's business."
                 )}
               </p>
-              <div class="mt-4">
-                <.link
-                  navigate={~p"/admin"}
-                  data-testid="admin-people-back-link"
-                  class="text-sm font-medium text-link underline-offset-2 hover:underline"
-                >
-                  {gettext("Back to the admin console")}
-                </.link>
-              </div>
             </div>
           </div>
         </section>
 
-        <section class="wrap pt-8 pb-8">
-          <div class="rise grid items-start gap-6 lg:grid-cols-2">
-            <%!-- The page's primary action. The consequence is named
-            before the click: one email, one-time link, inert account. --%>
-            <.card class="space-y-4" data-testid="admin-people-invite-card">
-              <div>
-                <h2 class="text-base font-medium text-ink">{gettext("Invite someone")}</h2>
-                <p class="mt-1 text-sm text-ink-muted">
-                  {gettext(
-                    "One email goes out with a one-time accept link. The account stays inert until the link is used."
-                  )}
-                </p>
-              </div>
-              <.form
-                for={@invite_form}
-                id="admin-people-invite-form"
-                phx-submit="invite"
-                class="space-y-4"
-              >
-                <.input
-                  field={@invite_form[:email]}
-                  type="email"
-                  label={gettext("Email")}
-                  data-testid="admin-people-invite-email"
-                />
-                <.button
-                  type="submit"
-                  phx-disable-with={gettext("Sending...")}
-                  data-testid="admin-people-invite-submit"
-                >
-                  {gettext("Send invite")}
-                </.button>
-              </.form>
-            </.card>
+        <%!-- The section sidebar (Am. 4, the #568 idiom) owns
+        cross-section wayfinding — no console-level back link. --%>
+        <section class="wrap pt-8 pb-16">
+          <div class="rise flex flex-col gap-8 md:flex-row md:gap-12">
+            <AdminShell.sidebar current="people" />
 
-            <.card class="space-y-4" data-testid="admin-people-search-card">
-              <div>
-                <h2 class="text-base font-medium text-ink">{gettext("Find an invitation")}</h2>
-                <p class="mt-1 text-sm text-ink-muted">
-                  {gettext(
-                    "Search narrows this list by invitation address. It never reaches past it."
-                  )}
-                </p>
-              </div>
-              <.form
-                for={@search_form}
-                id="admin-people-search"
-                phx-change="search"
-                phx-submit="search"
-              >
-                <.input
-                  field={@search_form[:query]}
-                  type="text"
-                  label={gettext("Email")}
-                  placeholder={gettext("Search by invitation address")}
-                  phx-debounce="200"
-                  data-testid="admin-people-search-input"
-                />
-              </.form>
-            </.card>
-          </div>
-        </section>
+            <div class="min-w-0 flex-1 space-y-6">
+              <div class="grid items-start gap-6 lg:grid-cols-2">
+                <%!-- The page's primary action. The consequence is named
+                before the click: one email, one-time link, inert account. --%>
+                <.card class="space-y-4" data-testid="admin-people-invite-card">
+                  <div>
+                    <h2 class="text-base font-medium text-ink">{gettext("Invite someone")}</h2>
+                    <p class="mt-1 text-sm text-ink-muted">
+                      {gettext(
+                        "One email goes out with a one-time accept link. The account stays inert until the link is used."
+                      )}
+                    </p>
+                  </div>
+                  <.form
+                    for={@invite_form}
+                    id="admin-people-invite-form"
+                    phx-submit="invite"
+                    class="space-y-4"
+                  >
+                    <.input
+                      field={@invite_form[:email]}
+                      type="email"
+                      label={gettext("Email")}
+                      data-testid="admin-people-invite-email"
+                    />
+                    <.button
+                      type="submit"
+                      phx-disable-with={gettext("Sending...")}
+                      data-testid="admin-people-invite-submit"
+                    >
+                      {gettext("Send invite")}
+                    </.button>
+                  </.form>
+                </.card>
 
-        <section class="wrap pt-4 pb-16">
-          <div class="rise space-y-4" data-testid="admin-people-list">
-            <%!-- The count is the @list_cap above (kept literal here —
+                <.card class="space-y-4" data-testid="admin-people-search-card">
+                  <div>
+                    <h2 class="text-base font-medium text-ink">{gettext("Find an invitation")}</h2>
+                    <p class="mt-1 text-sm text-ink-muted">
+                      {gettext(
+                        "Search narrows this list by invitation address. It never reaches past it."
+                      )}
+                    </p>
+                  </div>
+                  <.form
+                    for={@search_form}
+                    id="admin-people-search"
+                    phx-change="search"
+                    phx-submit="search"
+                  >
+                    <.input
+                      field={@search_form[:query]}
+                      type="text"
+                      label={gettext("Email")}
+                      placeholder={gettext("Search by invitation address")}
+                      phx-debounce="200"
+                      data-testid="admin-people-search-input"
+                    />
+                  </.form>
+                </.card>
+              </div>
+
+              <div class="space-y-4" data-testid="admin-people-list">
+                <%!-- The count is the @list_cap above (kept literal here —
             a module attribute reads as assigns inside HEEx); move the
             two together. --%>
-            <p :if={@rows_capped?} class="text-sm text-ink-muted" data-testid="admin-people-capped">
-              {gettext("Showing the latest 100 invitations.")}
-            </p>
+                <p
+                  :if={@rows_capped?}
+                  class="text-sm text-ink-muted"
+                  data-testid="admin-people-capped"
+                >
+                  {gettext("Showing the latest 100 invitations.")}
+                </p>
 
-            <.empty_state :if={@rows_empty? and @query == ""} title={gettext("No invitations yet.")}>
-              {gettext(
-                "Invites you send, and the accounts they made, show up here. Accounts without an invitation story are not this page's business."
-              )}
-            </.empty_state>
+                <.empty_state
+                  :if={@rows_empty? and @query == ""}
+                  title={gettext("No invitations yet.")}
+                >
+                  {gettext(
+                    "Invites you send, and the accounts they made, show up here. Accounts without an invitation story are not this page's business."
+                  )}
+                </.empty_state>
 
-            <.empty_state
-              :if={@rows_empty? and @query != ""}
-              title={gettext("No invitation matches that email.")}
-            />
+                <.empty_state
+                  :if={@rows_empty? and @query != ""}
+                  title={gettext("No invitation matches that email.")}
+                />
 
-            <div
-              :if={not @rows_empty?}
-              class="overflow-x-auto rounded-panel border border-line bg-panel text-ink"
-            >
-              <div class="min-w-[53rem]">
-                <%!-- One grid template shared by the header and every
+                <div
+                  :if={not @rows_empty?}
+                  class="overflow-x-auto rounded-panel border border-line bg-panel text-ink"
+                >
+                  <div class="min-w-[53rem]">
+                    <%!-- One grid template shared by the header and every
                 row (kept literal in both spots), so the columns can
                 never drift. --%>
-                <div class="grid grid-cols-[minmax(15.5rem,2.2fr)_6.5rem_repeat(4,minmax(5.75rem,1fr))_10rem] items-center gap-x-2 border-b border-line px-4 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
-                  <div>{gettext("Email")}</div>
-                  <div>{gettext("State")}</div>
-                  <div>{gettext("Invited")}</div>
-                  <div>{gettext("Expires")}</div>
-                  <div>{gettext("Accepted")}</div>
-                  <div>{gettext("Withdrawn")}</div>
-                  <div class="sr-only">{gettext("Actions")}</div>
-                </div>
-
-                <div id="admin-people-table" phx-update="stream">
-                  <div
-                    :for={{dom_id, user} <- @streams.people}
-                    id={dom_id}
-                    class="border-b border-line last:border-0"
-                  >
-                    <div class="grid grid-cols-[minmax(15.5rem,2.2fr)_6.5rem_repeat(4,minmax(5.75rem,1fr))_10rem] items-center gap-x-2 px-4 py-3 transition-colors hover:bg-panel-raised/60">
-                      <div class="min-w-0">
-                        <span
-                          class="block truncate whitespace-nowrap font-medium text-ink"
-                          data-testid={"admin-people-email-#{user.id}"}
-                          title={user.email}
-                        >
-                          {user.email}
-                        </span>
-                      </div>
-                      <div>
-                        <span data-testid={"admin-people-state-#{user.id}"}>
-                          <.badge tone={state_tone(user.invite_state)}>
-                            <%= case state_cue(user.invite_state) do %>
-                              <% {:dot, :pulse} -> %>
-                                <span class="size-1.5 rounded-full bg-current motion-safe:animate-pulse" />
-                              <% {:icon, name} -> %>
-                                <.icon name={name} class="size-3.5" />
-                              <% nil -> %>
-                                <%!-- the resting states carry no cue --%>
-                            <% end %>
-                            {state_label(user.invite_state)}
-                          </.badge>
-                        </span>
-                      </div>
-                      <div>
-                        <span
-                          class="whitespace-nowrap text-xs text-ink-muted"
-                          data-testid={"admin-people-invited-#{user.id}"}
-                        >
-                          {stamp_text(user.invited_at)}
-                        </span>
-                      </div>
-                      <%!-- expiry is only meaningful while the link can
-                      still be used; closed rows leave the cell empty --%>
-                      <div>
-                        <span
-                          :if={user.invite_state == :pending}
-                          class="whitespace-nowrap text-xs text-ink-muted"
-                          data-testid={"admin-people-expires-#{user.id}"}
-                        >
-                          {stamp_text(user.invite_expires_at)}
-                        </span>
-                      </div>
-                      <div>
-                        <span
-                          class="whitespace-nowrap text-xs text-ink-muted"
-                          data-testid={"admin-people-accepted-#{user.id}"}
-                        >
-                          {stamp_text(user.invite_accepted_at)}
-                        </span>
-                      </div>
-                      <div>
-                        <span
-                          class="whitespace-nowrap text-xs text-ink-muted"
-                          data-testid={"admin-people-withdrawn-#{user.id}"}
-                        >
-                          {stamp_text(user.invite_withdrawn_at)}
-                        </span>
-                      </div>
-                      <div>
-                        <div class="flex items-center justify-end gap-4">
-                          <button
-                            :if={reinvite?(user.invite_state)}
-                            type="button"
-                            phx-click="reinvite"
-                            phx-value-email={user.email}
-                            phx-disable-with={gettext("Sending...")}
-                            class="text-sm font-medium text-link underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50"
-                            data-testid={"admin-people-reinvite-#{user.id}"}
-                          >
-                            {gettext("Reinvite")}
-                          </button>
-                          <.button
-                            :if={withdrawable?(user.invite_state)}
-                            size="sm"
-                            variant="secondary"
-                            phx-click="open-withdraw"
-                            phx-value-id={user.id}
-                            phx-disable-with={gettext("Opening...")}
-                            data-testid={"admin-people-withdraw-#{user.id}"}
-                          >
-                            {gettext("Withdraw")}
-                          </.button>
-                        </div>
-                      </div>
+                    <div class="grid grid-cols-[minmax(15.5rem,2.2fr)_6.5rem_repeat(4,minmax(5.75rem,1fr))_10rem] items-center gap-x-2 border-b border-line px-4 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
+                      <div>{gettext("Email")}</div>
+                      <div>{gettext("State")}</div>
+                      <div>{gettext("Invited")}</div>
+                      <div>{gettext("Expires")}</div>
+                      <div>{gettext("Accepted")}</div>
+                      <div>{gettext("Withdrawn")}</div>
+                      <div class="sr-only">{gettext("Actions")}</div>
                     </div>
 
-                    <%!-- The confirm expands directly under the row that
+                    <div id="admin-people-table" phx-update="stream">
+                      <div
+                        :for={{dom_id, user} <- @streams.people}
+                        id={dom_id}
+                        class="border-b border-line last:border-0"
+                      >
+                        <div class="grid grid-cols-[minmax(15.5rem,2.2fr)_6.5rem_repeat(4,minmax(5.75rem,1fr))_10rem] items-center gap-x-2 px-4 py-3 transition-colors hover:bg-panel-raised/60">
+                          <div class="min-w-0">
+                            <span
+                              class="block truncate whitespace-nowrap font-medium text-ink"
+                              data-testid={"admin-people-email-#{user.id}"}
+                              title={user.email}
+                            >
+                              {user.email}
+                            </span>
+                          </div>
+                          <div>
+                            <span data-testid={"admin-people-state-#{user.id}"}>
+                              <.badge tone={state_tone(user.invite_state)}>
+                                <%= case state_cue(user.invite_state) do %>
+                                  <% {:dot, :pulse} -> %>
+                                    <span class="size-1.5 rounded-full bg-current motion-safe:animate-pulse" />
+                                  <% {:icon, name} -> %>
+                                    <.icon name={name} class="size-3.5" />
+                                  <% nil -> %>
+                                    <%!-- the resting states carry no cue --%>
+                                <% end %>
+                                {state_label(user.invite_state)}
+                              </.badge>
+                            </span>
+                          </div>
+                          <div>
+                            <span
+                              class="whitespace-nowrap text-xs text-ink-muted"
+                              data-testid={"admin-people-invited-#{user.id}"}
+                            >
+                              {stamp_text(user.invited_at)}
+                            </span>
+                          </div>
+                          <%!-- expiry is only meaningful while the link can
+                      still be used; closed rows leave the cell empty --%>
+                          <div>
+                            <span
+                              :if={user.invite_state == :pending}
+                              class="whitespace-nowrap text-xs text-ink-muted"
+                              data-testid={"admin-people-expires-#{user.id}"}
+                            >
+                              {stamp_text(user.invite_expires_at)}
+                            </span>
+                          </div>
+                          <div>
+                            <span
+                              class="whitespace-nowrap text-xs text-ink-muted"
+                              data-testid={"admin-people-accepted-#{user.id}"}
+                            >
+                              {stamp_text(user.invite_accepted_at)}
+                            </span>
+                          </div>
+                          <div>
+                            <span
+                              class="whitespace-nowrap text-xs text-ink-muted"
+                              data-testid={"admin-people-withdrawn-#{user.id}"}
+                            >
+                              {stamp_text(user.invite_withdrawn_at)}
+                            </span>
+                          </div>
+                          <div>
+                            <div class="flex items-center justify-end gap-4">
+                              <button
+                                :if={reinvite?(user.invite_state)}
+                                type="button"
+                                phx-click="reinvite"
+                                phx-value-email={user.email}
+                                phx-disable-with={gettext("Sending...")}
+                                class="text-sm font-medium text-link underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50"
+                                data-testid={"admin-people-reinvite-#{user.id}"}
+                              >
+                                {gettext("Reinvite")}
+                              </button>
+                              <.button
+                                :if={withdrawable?(user.invite_state)}
+                                size="sm"
+                                variant="secondary"
+                                phx-click="open-withdraw"
+                                phx-value-id={user.id}
+                                phx-disable-with={gettext("Opening...")}
+                                data-testid={"admin-people-withdraw-#{user.id}"}
+                              >
+                                {gettext("Withdraw")}
+                              </.button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <%!-- The confirm expands directly under the row that
                     opened it (the backups page's posture): the action
                     and its consequence share one visual block. One
                     confirm per page — @withdrawing_id is the expansion
                     key, so the shared destructive-confirm testid stays
                     safe. The reveal rode a fresh domain read
                     (open-withdraw). --%>
-                    <div :if={@withdrawing_id == user.id} class="px-4 pb-4">
-                      <.confirm_block
-                        title={
-                          gettext("Withdraw the invite for %{email}?", email: @withdrawing_user.email)
-                        }
-                        body={
-                          gettext(
-                            "Their accept link stops working. The account remains inert until someone invites them again."
-                          )
-                        }
-                        action={gettext("Yes, withdraw this invite")}
-                        event="confirm-withdraw"
-                        action_testid="admin-people-withdraw-confirm"
-                        cancel_testid="admin-people-withdraw-cancel"
-                        myself={nil}
-                      />
+                        <div :if={@withdrawing_id == user.id} class="px-4 pb-4">
+                          <.confirm_block
+                            title={
+                              gettext("Withdraw the invite for %{email}?",
+                                email: @withdrawing_user.email
+                              )
+                            }
+                            body={
+                              gettext(
+                                "Their accept link stops working. The account remains inert until someone invites them again."
+                              )
+                            }
+                            action={gettext("Yes, withdraw this invite")}
+                            event="confirm-withdraw"
+                            action_testid="admin-people-withdraw-confirm"
+                            cancel_testid="admin-people-withdraw-cancel"
+                            myself={nil}
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>

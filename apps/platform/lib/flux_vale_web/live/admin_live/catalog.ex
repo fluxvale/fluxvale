@@ -13,6 +13,7 @@ defmodule FluxValeWeb.AdminLive.Catalog do
   alias FluxVale.Catalog.App
   alias FluxVale.Pricing
   alias FluxValeWeb.AdminComponents
+  alias FluxValeWeb.AdminShell
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
@@ -67,65 +68,77 @@ defmodule FluxValeWeb.AdminLive.Catalog do
         <%!-- One grouped table: the app rides an eyebrow-and-name column,
         versions are rows — no box-in-box borders, no repeated header
         rows. Price scannability stays per-version. --%>
+        <%!-- The section sidebar (Am. 4, the #568 idiom) owns
+        cross-section wayfinding; the sizes link stays — it is
+        intra-section. --%>
         <section class="wrap pt-8 pb-16">
-          <div class="rise space-y-4" data-testid="admin-catalog-list">
-            <.empty_state :if={@rows == []} title={gettext("No apps in the catalog yet.")} />
+          <div class="rise flex flex-col gap-8 md:flex-row md:gap-12">
+            <AdminShell.sidebar current="catalog" />
 
-            <.table
-              :if={@rows != []}
-              id="admin-catalog-versions"
-              rows={@rows}
-              row_id={&"catalog-version-#{&1.version.id}"}
-            >
-              <:col :let={row} label={gettext("App")}>
-                <div data-testid={"admin-app-cell-#{row.app.slug}"}>
-                  <p class="eyebrow">{row.app.category.name}</p>
-                  <p class="mt-0.5 text-sm font-medium text-ink">{row.app.name}</p>
-                </div>
-              </:col>
-              <:col :let={row} label={gettext("Version")}>
-                <span class="font-mono text-xs" data-testid={"admin-version-name-#{row.version.id}"}>
-                  {row.version.version}
-                </span>
-              </:col>
-              <:col :let={row} label={gettext("Allocation")}>
-                <span data-testid={"admin-version-allocation-#{row.version.id}"}>
-                  {AdminComponents.allocation_text(row.version)}
-                </span>
-              </:col>
-              <:col :let={row} label={gettext("Price")}>
-                <span data-testid={"admin-version-price-#{row.version.id}"}>
-                  <%= if row.version.recommended_size do %>
-                    <span class="font-mono text-xs">{row.version.recommended_size.slug}</span>
-                    <span class="ml-1.5">
-                      {gettext("%{rate}/mo",
-                        rate: Pricing.format_usd(row.version.recommended_size.monthly_cents)
-                      )}
-                    </span>
-                  <% else %>
-                    {gettext("No size")}
-                  <% end %>
-                </span>
-              </:col>
-              <:col :let={row} label={gettext("First run")}>
-                <span data-testid={"admin-version-firstrun-#{row.version.id}"}>
-                  <%= if row.version.first_run do %>
-                    <.badge tone="primary">{gettext("Contract")}</.badge>
-                  <% else %>
-                    <.badge>{gettext("None")}</.badge>
-                  <% end %>
-                </span>
-              </:col>
-              <:action :let={row}>
-                <.link
-                  navigate={~p"/admin/catalog/versions/#{row.version.id}"}
-                  data-testid={"admin-version-edit-#{row.version.id}"}
-                  class="text-sm font-medium text-link underline-offset-2 hover:underline"
+            <div class="min-w-0 flex-1 space-y-6">
+              <div class="space-y-4" data-testid="admin-catalog-list">
+                <.empty_state :if={@rows == []} title={gettext("No apps in the catalog yet.")} />
+
+                <.table
+                  :if={@rows != []}
+                  id="admin-catalog-versions"
+                  rows={@rows}
+                  row_id={&"catalog-version-#{&1.version.id}"}
                 >
-                  {gettext("Edit")}
-                </.link>
-              </:action>
-            </.table>
+                  <:col :let={row} label={gettext("App")}>
+                    <div data-testid={"admin-app-cell-#{row.app.slug}"}>
+                      <p class="eyebrow">{row.app.category.name}</p>
+                      <p class="mt-0.5 text-sm font-medium text-ink">{row.app.name}</p>
+                    </div>
+                  </:col>
+                  <:col :let={row} label={gettext("Version")}>
+                    <span
+                      class="font-mono text-xs"
+                      data-testid={"admin-version-name-#{row.version.id}"}
+                    >
+                      {row.version.version}
+                    </span>
+                  </:col>
+                  <:col :let={row} label={gettext("Allocation")}>
+                    <span data-testid={"admin-version-allocation-#{row.version.id}"}>
+                      {AdminComponents.allocation_text(row.version)}
+                    </span>
+                  </:col>
+                  <:col :let={row} label={gettext("Price")}>
+                    <span data-testid={"admin-version-price-#{row.version.id}"}>
+                      <%= if row.version.recommended_size do %>
+                        <span class="font-mono text-xs">{row.version.recommended_size.slug}</span>
+                        <span class="ml-1.5">
+                          {gettext("%{rate}/mo",
+                            rate: Pricing.format_usd(row.version.recommended_size.monthly_cents)
+                          )}
+                        </span>
+                      <% else %>
+                        {gettext("No size")}
+                      <% end %>
+                    </span>
+                  </:col>
+                  <:col :let={row} label={gettext("First run")}>
+                    <span data-testid={"admin-version-firstrun-#{row.version.id}"}>
+                      <%= if row.version.first_run do %>
+                        <.badge tone="primary">{gettext("Contract")}</.badge>
+                      <% else %>
+                        <.badge>{gettext("None")}</.badge>
+                      <% end %>
+                    </span>
+                  </:col>
+                  <:action :let={row}>
+                    <.link
+                      navigate={~p"/admin/catalog/versions/#{row.version.id}"}
+                      data-testid={"admin-version-edit-#{row.version.id}"}
+                      class="text-sm font-medium text-link underline-offset-2 hover:underline"
+                    >
+                      {gettext("Edit")}
+                    </.link>
+                  </:action>
+                </.table>
+              </div>
+            </div>
           </div>
         </section>
       </div>
