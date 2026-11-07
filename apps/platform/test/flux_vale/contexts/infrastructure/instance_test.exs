@@ -125,7 +125,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
 
   describe "create/1 — blueprint snapshot" do
     test "snapshots the pricing triple — size, cents, and the 1-year clock together (#121)" do
-      version = InstanceFixtures.app_version!(monthly_cents: 335, stopped_monthly_cents: 40)
+      version = InstanceFixtures.app_version!(monthly_cents: 295, default_storage_gb: 10)
       InstanceFixtures.local_cluster!()
 
       before = DateTime.utc_now()
@@ -154,7 +154,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
     end
 
     test "a custom allocation snapshots the formula's cents with the same 1-year clock, no size (#186)" do
-      version = InstanceFixtures.app_version!(monthly_cents: 335, stopped_monthly_cents: 40)
+      version = InstanceFixtures.app_version!(monthly_cents: 295, default_storage_gb: 10)
       InstanceFixtures.local_cluster!()
 
       before = DateTime.utc_now()
@@ -175,10 +175,11 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       after_create = DateTime.utc_now()
 
       # No size row — the anchor formula prices the allocation, and the
-      # wizard shows exactly these cents (391/40 at 1 CPU / 512 MB /
-      # 10 GB; the fabricated size price of 335 must NOT bleed in).
+      # wizard shows exactly these cents (390/40 at 1 CPU / 512 MB /
+      # 10 GB, per-axis rounded #558; the fabricated size price must
+      # NOT bleed in).
       assert instance.size_id == nil
-      assert instance.grandfathered_monthly_cents == 391
+      assert instance.grandfathered_monthly_cents == 390
       assert instance.grandfathered_stopped_monthly_cents == 40
 
       assert DateTime.compare(instance.grandfathered_until, DateTime.shift(before, year: 1)) ==

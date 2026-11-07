@@ -92,6 +92,39 @@ defmodule FluxValeWeb.AllocationSlidersTest do
     refute disabled?(doc, "resource-cpu")
   end
 
+  # #558: storage renders as its own control — its own labeled section,
+  # separate from the compute sliders, with the per-GB pricing note.
+  test "storage renders in its own section with the per-GB note, compute grouped apart" do
+    doc = render_sliders([], nil)
+
+    storage_group = LazyHTML.query(doc, "[data-testid='allocation-storage-group']")
+    assert LazyHTML.attribute(storage_group, "aria-label") == ["Storage"]
+    assert LazyHTML.text(storage_group) =~ "Priced per GB of storage"
+
+    compute_group = LazyHTML.query(doc, "[data-testid='allocation-compute-group']")
+    assert LazyHTML.attribute(compute_group, "aria-label") == ["Compute"]
+    # The compute group holds CPU and memory only — storage is not a
+    # size rung anymore.
+    cpu_in_compute = LazyHTML.query(compute_group, "[data-testid='resource-cpu']")
+    assert LazyHTML.attribute(cpu_in_compute, "data-testid") == ["resource-cpu"]
+
+    memory_in_compute = LazyHTML.query(compute_group, "[data-testid='resource-memory']")
+    assert LazyHTML.attribute(memory_in_compute, "data-testid") == ["resource-memory"]
+
+    storage_in_compute = LazyHTML.query(compute_group, "[data-testid='resource-storage']")
+    assert LazyHTML.attribute(storage_in_compute, "data-testid") == []
+  end
+
+  test "a hidden storage dimension drops its whole section, compute stays" do
+    doc = render_sliders([], nil, hidden: ["storage_gb"])
+
+    storage_group = LazyHTML.query(doc, "[data-testid='allocation-storage-group']")
+    assert LazyHTML.attribute(storage_group, "data-testid") == []
+
+    compute_group = LazyHTML.query(doc, "[data-testid='allocation-compute-group']")
+    assert LazyHTML.attribute(compute_group, "aria-label") == ["Compute"]
+  end
+
   test "a locked slider's active tick reads muted (the enabled one reads primary)" do
     locked_doc = render_sliders(["storage_gb"], nil, [])
 

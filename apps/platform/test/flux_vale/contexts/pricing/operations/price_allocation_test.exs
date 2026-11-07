@@ -10,24 +10,49 @@ defmodule FluxVale.Pricing.Operations.PriceAllocationTest do
   use ExUnit.Case, async: true
 
   alias FluxVale.Pricing
+  alias FluxVale.Pricing.Operations.PriceAllocation
   alias FluxVale.Seeds.PricingData
 
   describe "calibration: the seeded table is the curve at size points" do
-    test "every shipped size prices to exactly its seeded cents, running and stopped" do
+    test "every shipped size's monthly rate is the curve's compute axis exactly" do
+      # #558: a size row prices the compute class — CPU + memory terms,
+      # storage excluded. The storage axis (below) prices separately.
       for size <- PricingData.entries() do
-        allocation = %{
-          cpu_cores: size.cpu_cores,
-          memory_mb: size.memory_mb,
-          storage_gb: size.storage_gb
-        }
+        compute =
+          PriceAllocation.compute_cents(
+            %{cpu_cores: size.cpu_cores, memory_mb: size.memory_mb},
+            :nuremberg
+          )
 
+        assert compute == size.monthly_cents,
+               "size #{size.slug}: the compute axis drifted from the seed table"
+      end
+    end
+
+    test "the storage axis prices the reference ladder exactly (#558)" do
+      # The old bundled table's stopped column IS the per-GB axis at the
+      # historical bundled storages — unchanged cents, now stated as its
+      # own dimension (docs/pricing-calibration.md's amended table).
+      assert PriceAllocation.storage_cents(5, :nuremberg) == 24
+      assert PriceAllocation.storage_cents(10, :nuremberg) == 40
+      assert PriceAllocation.storage_cents(20, :nuremberg) == 68
+      assert PriceAllocation.storage_cents(50, :nuremberg) == 135
+      assert PriceAllocation.storage_cents(100, :nuremberg) == 228
+    end
+
+    test "a whole allocation prices as the two axes summed, never a third way" do
+      for allocation <- allocations(100) do
+        compute =
+          PriceAllocation.compute_cents(
+            %{cpu_cores: allocation.cpu_cores, memory_mb: allocation.memory_mb},
+            :nuremberg
+          )
+
+        storage = PriceAllocation.storage_cents(allocation.storage_gb, :nuremberg)
         rates = Pricing.price_allocation(allocation)
 
-        assert rates == %{
-                 monthly_cents: size.monthly_cents,
-                 stopped_monthly_cents: size.stopped_monthly_cents
-               },
-               "size #{size.slug}: the curve drifted from the seed table"
+        assert rates.monthly_cents == compute + storage
+        assert rates.stopped_monthly_cents == storage
       end
     end
 
@@ -35,7 +60,8 @@ defmodule FluxVale.Pricing.Operations.PriceAllocationTest do
       # pricing-calibration.md's own anchor verification: the source's
       # public calculator shows $1.80 for its 0.25/0.25/0 default — v4.
       # v5 surcharges the curve (B′ ×1.2): 180¢ → 216¢, the value
-      # docs/pricing-recalibration-2026-10.md pins for B′.
+      # docs/pricing-recalibration-2026-10.md pins for B′. Zero storage
+      # makes the point per-axis exact by construction.
       rates =
         Pricing.price_allocation(%{
           cpu_cores: Decimal.new("0.25"),
@@ -57,15 +83,18 @@ defmodule FluxVale.Pricing.Operations.PriceAllocationTest do
 
     # The SG extension proof: a ×1.25 variant slots in as ONE map
     # entry in PriceAllocation (no migration, no curve rewrite) — this
-    # pins the standby variant to the recalibration doc's B′-SG table,
-    # ready for the day SG prices seed. No SG rows ship in the YAML.
+    # pins the standby variant to the recalibration doc's B′-SG table
+    # as amended for #558's per-axis rounding, ready for the day SG
+    # prices seed. No SG rows ship in the YAML.
     test ":singapore (standby, unseeded) prices the doc's B′-SG table exactly" do
       # Ground truth: docs/pricing-recalibration-2026-10.md, "The
-      # Singapore extension" — B′-SG ×1.25 column.
+      # Singapore extension" — B′-SG ×1.25 column, per-axis rounded
+      # (#558): medium's total reads 426¢ here where the round-the-sum
+      # figure was 427¢.
       b_prime_sg = %{
         micro: {294, 25},
         small: {349, 42},
-        medium: {427, 42},
+        medium: {426, 42},
         standard: {647, 71},
         plus: {1038, 141},
         pro: {1673, 237}
@@ -189,15 +218,26 @@ defmodule FluxVale.Pricing.Operations.PriceAllocationTest do
     end)
   end
 
-  # The seeded allocation behind a slug (PricingData carries the eight
-  # sizes) — table-driven tests iterate the doc's per-size tables.
+  # The reference allocation behind a slug (#558): the size row carries
+  # the compute shape; the storage GB is the size's historical bundled
+  # value, kept here as the doc tables' reference point.
+  @reference_storage %{
+    "micro" => 5,
+    "small" => 10,
+    "medium" => 10,
+    "standard" => 20,
+    "plus" => 50,
+    "pro" => 100
+  }
+
   defp allocation_for(slug) do
-    size = Enum.find(PricingData.entries(), &(&1.slug == Atom.to_string(slug)))
+    slug_string = Atom.to_string(slug)
+    size = Enum.find(PricingData.entries(), &(&1.slug == slug_string))
 
     %{
       cpu_cores: size.cpu_cores,
       memory_mb: size.memory_mb,
-      storage_gb: size.storage_gb
+      storage_gb: Map.fetch!(@reference_storage, slug_string)
     }
   end
 

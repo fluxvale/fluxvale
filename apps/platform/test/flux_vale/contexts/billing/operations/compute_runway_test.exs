@@ -5,7 +5,8 @@ defmodule FluxVale.Billing.Operations.ComputeRunwayTest do
   # live rates through the one settlement resolver (#153) — running at
   # the resolved running rate, stopped at the storage-only rate,
   # nothing else, priced over the same Gregorian month settle prorates
-  # by. Amounts come from the fixture size (100¢/mo, 10¢ stopped).
+  # by. Amounts come from the fixture's compute class (100¢/mo) plus
+  # the 10 GB storage axis (40¢/mo — #558's per-GB pricing).
 
   use FluxVale.DataCase, async: true
 
@@ -21,14 +22,15 @@ defmodule FluxVale.Billing.Operations.ComputeRunwayTest do
   require Ash.Query
 
   # The average Gregorian month (#121's constant — settle's proration
-  # base) and the fixture size's default prices.
+  # base) and the fixture's reference rates.
   @month_seconds 2_629_746
-  @monthly_cents 100
-  @stopped_cents 10
+  @compute_cents 100
+  @stopped_cents 40
+  @monthly_cents @compute_cents + @stopped_cents
 
   setup do
     InstanceFixtures.local_cluster!()
-    version = InstanceFixtures.app_version!()
+    version = InstanceFixtures.app_version!(monthly_cents: @compute_cents, default_storage_gb: 10)
     {:ok, version: version}
   end
 
@@ -149,7 +151,9 @@ defmodule FluxVale.Billing.Operations.ComputeRunwayTest do
 
       assert {:ok, runway} = Billing.compute_runway(wallet)
 
-      assert runway.burn_micro_cents_per_hour == hourly(999)
+      # The live compute rate (999¢ after the reprice) plus the row's
+      # own storage axis (10 GB → 40¢).
+      assert runway.burn_micro_cents_per_hour == hourly(999 + @stopped_cents)
     end
 
     # The resolver's safe default for rows the backfill missed: no
@@ -165,7 +169,7 @@ defmodule FluxVale.Billing.Operations.ComputeRunwayTest do
 
       assert {:ok, runway} = Billing.compute_runway(wallet)
 
-      assert runway.burn_micro_cents_per_hour == hourly(999)
+      assert runway.burn_micro_cents_per_hour == hourly(999 + @stopped_cents)
     end
 
     test "a version re-point to a pricier size does not reprice the instance", %{
@@ -176,7 +180,7 @@ defmodule FluxVale.Billing.Operations.ComputeRunwayTest do
       # matters below, not the binding.
       instance!(user, :running, version)
 
-      # Same allocation (ValidateSizeMatchesAllocation), double price —
+      # Same compute (ValidateSizeMatchesAllocation), double price —
       # the old runway followed the version's recommended_size and
       # would burn the new rate; the snapshot keeps the old one.
       pricier =
@@ -185,9 +189,7 @@ defmodule FluxVale.Billing.Operations.ComputeRunwayTest do
             slug: "repriced-#{System.unique_integer()}",
             cpu_cores: Decimal.new("0.5"),
             memory_mb: 256,
-            storage_gb: 0,
-            monthly_cents: 200,
-            stopped_monthly_cents: 20
+            monthly_cents: 200
           },
           authorize?: false
         )
@@ -220,9 +222,10 @@ defmodule FluxVale.Billing.Operations.ComputeRunwayTest do
 
       assert {:ok, runway} = Billing.compute_runway(wallet)
 
-      # 1 CPU / 512 MB / 10 GB on the v5 curve (#206): 391¢/mo — the
-      # same figure the wizard shows and settle bills.
-      assert runway.burn_micro_cents_per_hour == hourly(391)
+      # 1 CPU / 512 MB / 10 GB on the v5 curve (#206, per-axis rounded
+      # #558): 390¢/mo — the same figure the wizard shows and settle
+      # bills.
+      assert runway.burn_micro_cents_per_hour == hourly(390)
     end
 
     test "a hand-built half-snapshot (sizeless, clock set, cents nil) burns nothing", %{
@@ -313,7 +316,8 @@ defmodule FluxVale.Billing.Operations.ComputeRunwayTest do
       assert {:ok, runway} = Billing.compute_runway(wallet)
       assert {:ok, _settled} = settle!(instance)
 
-      burn = hourly(999)
+      # The live burn = the repriced compute rate + the storage axis.
+      burn = hourly(999 + @stopped_cents)
       assert runway.burn_micro_cents_per_hour == burn
       assert billed_micro(wallet) in burn..(burn + 20)
     end

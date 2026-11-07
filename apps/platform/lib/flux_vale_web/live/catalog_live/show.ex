@@ -173,15 +173,16 @@ defmodule FluxValeWeb.CatalogLive.Show do
                   <.badge>{version.default_storage_gb} GB storage</.badge>
                   <.price_badge version={version} />
                   <.stopped_rate version={version} />
-                  <%!-- #398: the published ladder is one hop away — the
-                  card shows this version's plan, /pricing#sizes shows
-                  every size. --%>
+                  <%!-- #398: pricing is one hop away — the card shows
+                  this version's plan, /pricing prices every resource
+                  (#558: compute classes and storage price apart, so
+                  no sizes list exists to link at). --%>
                   <.link
-                    navigate={~p"/pricing#sizes"}
+                    navigate={~p"/pricing"}
                     class="self-center text-sm font-medium text-link hover:underline"
                     data-testid={"see-all-sizes-#{version.version}"}
                   >
-                    {gettext("See all sizes")}
+                    {gettext("See pricing")}
                   </.link>
                 </div>
               </.card>
@@ -198,29 +199,37 @@ defmodule FluxValeWeb.CatalogLive.Show do
   # apps (a #70-era non-problem, noted here so nobody trusts it early).
   defp sorted_desc(versions), do: Enum.sort_by(versions, & &1.version, :desc)
 
-  # ADR-0028's live estimate. Hidden rather than crash on a nil size:
-  # pre-#125 rows heal through seed convergence, not a backfill.
+  # ADR-0028's live estimate. #558: the recommended compute class's
+  # rate plus the storage axis at the version's own default — priced
+  # through Pricing.version_rates/1, never the size row alone (its
+  # monthly rate carries no storage). Hidden rather than crash on a
+  # sizeless version: pre-#125 rows heal through seed convergence, not
+  # a backfill.
   defp price_badge(assigns) do
+    assigns = assign(assigns, :rates, FluxVale.Pricing.version_rates(assigns.version))
+
     ~H"""
     <.badge
-      :if={@version.recommended_size}
+      :if={@rates}
       tone="primary"
       data-testid={"price-#{@version.version}"}
     >
-      {FluxVale.Pricing.format_monthly_rate(@version.recommended_size.monthly_cents)}
+      {FluxVale.Pricing.format_monthly_rate(@rates.monthly_cents)}
     </.badge>
     """
   end
 
   # #398: the storage-only fee beside the running rate — ADR-0028 §2,
-  # in the /pricing table's "%{rate}/mo while stopped" idiom. Hidden
+  # in the /pricing table's "%{rate}/mo while stopped" idiom. #558: it
+  # is the storage axis alone, from the same version_rates read. Hidden
   # with the price badge on a sizeless version.
   defp stopped_rate(assigns) do
+    assigns = assign(assigns, :rates, FluxVale.Pricing.version_rates(assigns.version))
+
     ~H"""
-    <.badge :if={@version.recommended_size} data-testid={"stopped-price-#{@version.version}"}>
-      {gettext(
-        "%{rate}/mo while stopped",
-        rate: FluxVale.Pricing.format_usd(@version.recommended_size.stopped_monthly_cents)
+    <.badge :if={@rates} data-testid={"stopped-price-#{@version.version}"}>
+      {gettext("%{rate}/mo while stopped",
+        rate: FluxVale.Pricing.format_usd(@rates.stopped_monthly_cents)
       )}
     </.badge>
     """

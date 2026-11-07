@@ -1,10 +1,10 @@
 defmodule FluxValeWeb.AdminLive.Sizes do
   @moduledoc """
-  The admin size ladder (#501): the seeded sizes with their allocations
-  and prices, plus how many versions point at each. That count is the
-  freeze state the edit form explains: an allocation with referencing
-  versions is frozen until they re-point or retire. Prices ride
-  `Pricing.format_usd` — the one cents-to-dollars formatter.
+  The admin size ladder (#501): the seeded compute classes with their
+  compute and prices, plus how many versions point at each. That count
+  is the freeze state the edit form explains: a compute shape with
+  referencing versions is frozen until they re-point or retire. Prices
+  ride `Pricing.format_usd` — the one cents-to-dollars formatter.
   """
 
   use FluxValeWeb, :live_view
@@ -64,7 +64,7 @@ defmodule FluxValeWeb.AdminLive.Sizes do
               <h1 class="page-title mt-1.5">{gettext("Size ladder")}</h1>
               <p class="mt-2 max-w-prose text-base text-ink-muted">
                 {gettext(
-                  "The sizes and their prices. A size's allocation freezes while versions point at it. Its price never freezes."
+                  "The compute classes and their prices. A size's compute freezes while versions point at it. Its price never freezes."
                 )}
               </p>
               <div class="mt-4">
@@ -94,13 +94,10 @@ defmodule FluxValeWeb.AdminLive.Sizes do
                 <span class="font-medium text-ink">{size.slug}</span>
               </:col>
               <:col :let={size} label={gettext("Allocation")}>
-                {AdminComponents.allocation_text(size)}
+                {AdminComponents.compute_text(size)}
               </:col>
               <:col :let={size} label={gettext("Running rate")}>
                 {gettext("%{rate}/mo", rate: FluxVale.Pricing.format_usd(size.monthly_cents))}
-              </:col>
-              <:col :let={size} label={gettext("Stopped rate")}>
-                {gettext("%{rate}/mo", rate: FluxVale.Pricing.format_usd(size.stopped_monthly_cents))}
               </:col>
               <:col :let={size} label={gettext("Versions")}>
                 <span data-testid={"admin-size-versions-#{size.slug}"}>

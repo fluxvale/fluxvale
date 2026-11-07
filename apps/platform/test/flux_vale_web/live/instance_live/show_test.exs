@@ -94,11 +94,9 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     assert has_element?(view, "[data-testid='instance-price']", "$1.00/mo · billed hourly")
   end
 
-  test "a stopped instance shows the storage-only fee", %{
-    conn: conn,
-    user: user,
-    version: version
-  } do
+  test "a stopped instance shows the storage-only fee — the per-GB axis at its own storage (#558)",
+       %{conn: conn, user: user} do
+    version = InstanceFixtures.app_version!(default_storage_gb: 10)
     pending = create_instance!(version, user)
     instance = InstanceFixtures.walk_to!(pending, :stopped)
     {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
@@ -106,7 +104,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     assert has_element?(
              view,
              "[data-testid='instance-price']",
-             "$0.10/mo while stopped · billed hourly"
+             "$0.40/mo while stopped · billed hourly"
            )
   end
 
@@ -721,15 +719,16 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       refute has_element?(view, "[data-testid=stop-button]")
 
       # Storage-only while asleep — the sleeping bill is the stopped
-      # bill (ADR-0028 §2), shown in the instance's own vocabulary.
-      loaded = Ash.load!(sleeping, app_version: :recommended_size)
-      size = loaded.app_version.recommended_size
+      # bill (ADR-0028 §2): the per-GB axis at the row's own storage
+      # (#558), shown in the instance's own vocabulary.
       assert has_element?(view, "[data-testid=instance-price]", ~r/asleep/)
+
+      stopped_fee = Pricing.storage_monthly_cents(sleeping.storage_gb)
 
       assert has_element?(
                view,
                "[data-testid=instance-price]",
-               FluxVale.Pricing.format_usd(size.stopped_monthly_cents)
+               Pricing.format_usd(stopped_fee)
              )
 
       refute_k8s_terms(render(view))
@@ -805,15 +804,17 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       instance = create_instance!(version, user)
       {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
 
-      # The fixture settles at 100¢ running / 10¢ storage-only — both
-      # figures ride the confirm, monthly-equivalent · billed hourly
-      # (#206), with the immediate wake stated.
+      # The fixture settles at 100¢ running (compute only — the
+      # default version carries no storage, so the stopped fee is
+      # $0.00, the axis at zero GB) — both figures ride the confirm,
+      # monthly-equivalent · billed hourly (#206), with the immediate
+      # wake stated.
       enable = element(view, "[data-testid=always-on-toggle]")
       confirm = render(enable)
 
       assert confirm =~ "data-confirm="
       assert confirm =~ "$1.00/mo"
-      assert confirm =~ "$0.10/mo"
+      assert confirm =~ "$0.00/mo"
       assert confirm =~ "billed hourly"
       assert confirm =~ "wakes immediately"
 
@@ -1949,7 +1950,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       assert has_element?(
                view,
                "[data-testid='resize-off-ladder-note']",
-               "storage only grows, so it rounds up"
+               "Storage only grows, so it rounds up"
              )
 
       assert render(element(view, "[data-testid='resource-memory']")) =~ "512 MB"
@@ -2158,10 +2159,10 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       assert has_element?(
                view,
                "[data-testid='resize-price']",
-               "From $1.00/mo to $1.00/mo · billed hourly"
+               "From $1.24/mo to $1.24/mo · billed hourly"
              )
 
-      assert has_element?(view, "[data-testid='resize-price']", "$0.10/mo while stopped")
+      assert has_element?(view, "[data-testid='resize-price']", "$0.24/mo while stopped")
     end
 
     test "a custom allocation reprices by the formula — the charged snapshot", %{
@@ -2374,10 +2375,11 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       open_resize_panel(view)
 
       price_html = render(element(view, "[data-testid='resize-price']"))
-      assert price_html =~ "From $4.20/mo to $1.00/mo · billed hourly"
+      assert price_html =~ "From $4.20/mo to $1.24/mo · billed hourly"
       # The while-stopped figure is the CANDIDATE's stopped rate (the
-      # size row's), not the row's grandfathered one.
-      assert price_html =~ "$0.10/mo while stopped"
+      # per-GB axis at the candidate's storage), not the row's
+      # grandfathered one.
+      assert price_html =~ "$0.24/mo while stopped"
     end
 
     test "a change that stops the candidate pricing drops the panel back to :choose", %{

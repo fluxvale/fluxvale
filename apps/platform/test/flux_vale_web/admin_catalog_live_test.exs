@@ -14,8 +14,8 @@ defmodule FluxValeWeb.AdminCatalogLiveTest do
 
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Identity.User
+  alias FluxVale.Pricing.Size
   alias FluxVale.TestSupport.InstanceFixtures
-  alias FluxVale.TestSupport.PricingFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
   @n :erlang.unique_integer([:positive])
@@ -103,13 +103,18 @@ defmodule FluxValeWeb.AdminCatalogLiveTest do
     test "a version's siblings follow the catalog's own string-desc order", %{conn: conn} do
       v9 = InstanceFixtures.app_version!(%{version: "1.0.9"})
 
+      # Local: PricingFixtures.size! still passes #558-removed keys, so
+      # the mate goes through the create action directly.
       matching_size =
-        PricingFixtures.size!(%{
-          slug: "sort-mate-#{@n}",
-          cpu_cores: Decimal.new("0.5"),
-          memory_mb: 256,
-          storage_gb: 0
-        })
+        Size.create!(
+          %{
+            slug: "sort-mate-#{@n}",
+            cpu_cores: Decimal.new("0.5"),
+            memory_mb: 256,
+            monthly_cents: 100
+          },
+          authorize?: false
+        )
 
       _v10 =
         AppVersion.create!(

@@ -16,8 +16,8 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
   alias FluxVale.Catalog.Category
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Pricing
+  alias FluxVale.Pricing.Size
   alias FluxVale.TestSupport.InstanceFixtures
-  alias FluxVale.TestSupport.PricingFixtures
   alias FluxValeWeb.AllocationSliders
 
   # The seeded six (micro..pro): the sliders' ladders and the mount's
@@ -45,6 +45,22 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
 
     assert_total(view, small_allocation())
     assert has_element?(view, "[data-testid='calculator-allocation']", "0.5 CPU · 512 MB · 10 GB")
+  end
+
+  # #558: sizes carry no storage, so the default's storage half is a
+  # pinned literal — the first paint's price must not move with the
+  # decoupling: small compute plus 10 GB stays $3.35/mo running, $0.40
+  # stopped (the old bundled default's exact totals).
+  test "the default first paint still prices 335 running and 40 stopped", %{conn: conn} do
+    {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
+
+    assert has_element?(view, "[data-testid='calculator-total']", "$3.35/mo · billed hourly")
+
+    assert has_element?(
+             view,
+             "[data-testid='calculator-price-stopped']",
+             "$0.40/mo while stopped"
+           )
   end
 
   test "the sliders sit at the small rung indices at mount", %{conn: conn} do
@@ -118,18 +134,25 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
 
   # --- Seeded allocations ---------------------------------------------------------
 
-  test "the total equals price_allocation at every seeded allocation, driven by the sliders", %{
-    conn: conn
-  } do
+  # #558 decoupled the axes, so the pinned surface is the cross
+  # product: every seeded compute class at every storage rung, each
+  # total exactly price_allocation/1's word for the combination.
+  test "the total equals price_allocation at every seeded compute class and storage rung",
+       %{conn: conn} do
     {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
 
-    for size <- seeded_sizes!() do
-      move_rungs(view, size)
+    storage_rungs =
+      Enum.with_index(AllocationSliders.storage_dimension().values, fn value, index ->
+        {Integer.to_string(index), String.to_integer(value)}
+      end)
+
+    for size <- seeded_sizes!(), {storage_index, storage_gb} <- storage_rungs do
+      move_rungs(view, size, storage_index)
 
       allocation = %{
         cpu_cores: size.cpu_cores,
         memory_mb: size.memory_mb,
-        storage_gb: size.storage_gb
+        storage_gb: storage_gb
       }
 
       assert_total(view, allocation)
@@ -141,8 +164,9 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
   test "a representable recommendation snaps the sliders, re-prices, and names the app", %{
     conn: conn
   } do
-    # The fixture's recommended size is its defaults: 0.5 cores, 2048 MB,
-    # 20 GB — all three on the ladders.
+    # The fixture's recommended size is its compute defaults: 0.5
+    # cores, 2048 MB — both on the ladders — and the version's storage
+    # default is 20 GB, itself a rung.
     fixture = InstanceFixtures.app_version!(default_memory_mb: 2048, default_storage_gb: 20)
     version = Ash.load!(fixture, :recommended_size, authorize?: false)
     slug = app_slug!(version)
@@ -163,7 +187,7 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     allocation = %{
       cpu_cores: version.recommended_size.cpu_cores,
       memory_mb: version.recommended_size.memory_mb,
-      storage_gb: version.recommended_size.storage_gb
+      storage_gb: version.default_storage_gb
     }
 
     assert_total(view, allocation)
@@ -184,6 +208,32 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
 
     refute has_element?(view, "#calculator-use-recommended")
     refute has_element?(view, "#calculator-add-instances[disabled]")
+  end
+
+  # #558: the snap is version-shaped — compute rungs from the size,
+  # storage rung from the version's own default floored onto the
+  # ladder. 7 GB is not a rung; 10 GB is the smallest that holds it.
+  test "a pick floors an off-ladder storage default up to the next rung", %{conn: conn} do
+    fixture = InstanceFixtures.app_version!(default_memory_mb: 2048, default_storage_gb: 7)
+    version = Ash.load!(fixture, :recommended_size, authorize?: false)
+
+    {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
+    pick_app(view, app_slug!(version))
+
+    # Compute holds the size; storage floors 7 GB up to the 10 rung.
+    assert has_element?(view, "#resource-cpu-cores[value='1']")
+    assert has_element?(view, "#resource-memory-mb[value='2']")
+    assert has_element?(view, "#resource-storage-gb[value='1']")
+
+    assert_total(view, %{cpu_cores: Decimal.new("0.5"), memory_mb: 2048, storage_gb: 10})
+
+    # The line states the floored amount — the allocation the sliders
+    # hold and the price charges, never the inexpressible 7 GB.
+    assert has_element?(
+             view,
+             "[data-testid='calculator-recommended-allocation']",
+             "0.5 CPU · 2048 MB · 10 GB"
+           )
   end
 
   test "a manual edit keeps the line and Use recommended restores the snap", %{conn: conn} do
@@ -211,22 +261,25 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     allocation = %{
       cpu_cores: version.recommended_size.cpu_cores,
       memory_mb: version.recommended_size.memory_mb,
-      storage_gb: version.recommended_size.storage_gb
+      storage_gb: version.default_storage_gb
     }
 
     assert_total(view, allocation)
   end
 
-  # #440 + #469: the nil/off-ladder arm is a no-op on the RUNGS — no
-  # snap, no line — but the app still selects (Add needs a choice; the
-  # honesty rule only ever governed the callout, never the selection).
-  test "an off-ladder recommendation selects the app without a callout or a snap", %{conn: conn} do
-    # 3 cores, 3000 MB, 7 GB: none of the three names a rung.
+  # #440 + #469 + #558: the nil/off-ladder arm is a no-op on the RUNGS
+  # — no snap, no line — but the app still selects (Add needs a choice;
+  # the honesty rule only ever governed the callout, never the
+  # selection). Since #558 only the COMPUTE rungs can veto a snap
+  # (storage always floors onto its ladder), so the fixture keeps
+  # storage on-ladder: the off-ladder compute is the whole veto.
+  test "off-ladder compute yields no recommendation line and no snap", %{conn: conn} do
+    # 3 cores, 3000 MB: neither names a compute rung.
     version =
       InstanceFixtures.app_version!(
         default_cpu_cores: Decimal.new("3"),
         default_memory_mb: 3000,
-        default_storage_gb: 7
+        default_storage_gb: 20
       )
 
     slug = app_slug!(Ash.load!(version, :recommended_size, authorize?: false))
@@ -287,17 +340,11 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     older = InstanceFixtures.app_version!(default_memory_mb: 1024, default_storage_gb: 10)
     app = Ash.load!(older, :app, authorize?: false).app
 
-    # A newer version on the same app, recommending the standard-ish
-    # point 1 core, 2048 MB, 20 GB — the size matches its allocation
-    # (ValidateSizeMatchesAllocation's contract).
-    newer_size =
-      PricingFixtures.size!(
-        cpu_cores: Decimal.new("1"),
-        memory_mb: 2048,
-        storage_gb: 20,
-        monthly_cents: 621,
-        stopped_monthly_cents: 68
-      )
+    # A newer version on the same app, recommending the standard
+    # compute point 1 core, 2048 MB — matched by the version's compute
+    # defaults (ValidateSizeMatchesAllocation's contract); its storage
+    # default is its own 20 GB.
+    newer_size = create_size!(cpu_cores: Decimal.new("1"), memory_mb: 2048, monthly_cents: 621)
 
     AppVersion.create!(
       %{
@@ -944,31 +991,30 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
 
   @tag no_seed: true
   test "without a small size the cheapest size is the default", %{conn: conn} do
-    cheap = PricingFixtures.size!(monthly_cents: 500)
-    PricingFixtures.size!(monthly_cents: 900, cpu_cores: Decimal.new("2"), memory_mb: 2048)
+    cheap = create_size!(cpu_cores: Decimal.new("1"), memory_mb: 1024, monthly_cents: 500)
+    create_size!(cpu_cores: Decimal.new("2"), memory_mb: 2048, monthly_cents: 900)
 
     {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
 
-    allocation = %{
-      cpu_cores: cheap.cpu_cores,
-      memory_mb: cheap.memory_mb,
-      storage_gb: cheap.storage_gb
-    }
+    # The compute rungs take the cheapest size; storage keeps its
+    # pinned default (#558 — no size carries one anymore).
+    allocation = %{cpu_cores: cheap.cpu_cores, memory_mb: cheap.memory_mb, storage_gb: 10}
 
     assert_total(view, allocation)
     assert has_element?(view, "#resource-cpu-cores[value='2']")
   end
 
   @tag no_seed: true
-  test "with no size rows at all the rungs floor to the ladders' bottoms", %{conn: conn} do
+  test "with no size rows at all the compute rungs floor and storage keeps its pinned default",
+       %{conn: conn} do
     {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
 
-    allocation = %{cpu_cores: Decimal.new("0.25"), memory_mb: 512, storage_gb: 5}
+    allocation = %{cpu_cores: Decimal.new("0.25"), memory_mb: 512, storage_gb: 10}
 
     assert_total(view, allocation)
     assert has_element?(view, "#resource-cpu-cores[value='0']")
     assert has_element?(view, "#resource-memory-mb[value='0']")
-    assert has_element?(view, "#resource-storage-gb[value='0']")
+    assert has_element?(view, "#resource-storage-gb[value='1']")
   end
 
   # --- Helpers ----------------------------------------------------------------
@@ -1075,18 +1121,36 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     |> Ash.read!()
   end
 
-  # Drives the sliders to a size's rungs: each dimension's rung value is
-  # translated to its ladder index, the way a thumb move arrives.
-  defp move_rungs(view, size) do
-    rungs =
-      Map.new(
-        %{
-          "cpu_cores" => rung_index("cpu_cores", size.cpu_cores),
-          "memory_mb" => rung_index("memory_mb", size.memory_mb),
-          "storage_gb" => rung_index("storage_gb", size.storage_gb)
-        },
-        fn {key, index} -> {key, Integer.to_string(index)} end
-      )
+  # A Size row through the create action, `authorize?: false` — the
+  # fixtures' bootstrap posture. Local to this lane so the fallback
+  # tests can shape sizes no fixture default covers (cheapest-only
+  # tables, off-ladder compute).
+  defp create_size!(attrs) do
+    n = System.unique_integer()
+
+    defaults = %{
+      slug: "size-#{n}",
+      cpu_cores: Decimal.new("1"),
+      memory_mb: 1024,
+      monthly_cents: 500
+    }
+
+    merged = Map.merge(defaults, Map.new(attrs))
+    Size.create!(merged, authorize?: false)
+  end
+
+  # Drives the sliders to a compute class's rungs plus a storage rung
+  # index: every dimension travels as its ladder index, the way a
+  # thumb move arrives.
+  defp move_rungs(view, size, storage_index) do
+    cpu_index = rung_index("cpu_cores", size.cpu_cores)
+    memory_index = rung_index("memory_mb", size.memory_mb)
+
+    rungs = %{
+      "cpu_cores" => Integer.to_string(cpu_index),
+      "memory_mb" => Integer.to_string(memory_index),
+      "storage_gb" => storage_index
+    }
 
     render_change(view, "resources-change", %{"resources" => rungs})
   end

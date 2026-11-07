@@ -25,8 +25,9 @@ defmodule FluxValeWeb.CatalogController do
     |> assign(:page_description, @catalog_description)
     |> assign(:canonical_path, "/catalog")
     |> assign(:categories, categories)
-    # The card from-price (#398): the ladder floor, computed once per
-    # request — every card carries the same number.
+    # The card from-price (#398, #558): the compute-class floor,
+    # computed once per request — every card carries the same number,
+    # and the copy adds storage separately (per GB, its own axis).
     |> assign(:from_price_cents, Pricing.from_price_cents())
     |> render(:index)
   end

@@ -47,8 +47,11 @@ switcher moves you between the organizations you belong to.
   allocation (cpu/ram/storage) and shown as a **monthly-equivalent rate**
   ("$X.XX/mo · billed hourly" on every price surface, #206), charged from
   credits pro-rata (µs accrual) over elapsed time regardless
-  of actual usage. Running = flat rate; stopped = storage-only flat fee
-  ("pause it and it costs almost nothing"). No metered usage billing.
+  of actual usage. Sizes are compute classes (#558): a size prices a
+  CPU + memory shape, storage prices per GB on its own axis, and an
+  app version's defaults name one of each. Running = both axes; stopped =
+  the storage axis alone ("pause it and it costs almost nothing").
+  No metered usage billing.
 - **Scale-to-zero** ([ADR-0036](adr/00036-scale-to-zero-wake-on-use.md)):
   an instance with no visitors for an hour sleeps automatically —
   storage-only billing while asleep, waking in a few seconds on the next

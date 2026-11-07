@@ -4,14 +4,15 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
   `AppVersion`'s own `:update` action.
 
   The page's job is the coherence contract, stated up front: the
-  blueprint defaults (what provisioning grants) and the recommended
-  size's envelope (what billing prices) must describe the same
-  allocation. While the admin edits, the page compares the defaults
-  against the selected size and names the mismatched dimensions before
-  any submit, quoting the size's allocation. The comparison is display
-  data — the action's `ValidateSizeMatchesAllocation` stays the
-  enforcement, and a save with a mismatch fails there with its honest
-  error.
+  blueprint's compute defaults (what provisioning grants) and the
+  recommended compute class (what billing prices) must describe the
+  same CPU + memory shape — storage is the version's own honest
+  default, priced per GB on its axis (#558). While the admin edits,
+  the page compares the defaults against the selected size and names
+  the mismatched dimensions before any submit, quoting the size's
+  compute. The comparison is display data — the action's
+  `ValidateSizeMatchesAllocation` stays the enforcement, and a save
+  with a mismatch fails there with its honest error.
 
   First-run contract edits ride the page too: the pattern, guaranteed
   env, forbidden keys, and guidance land in the same save, and the
@@ -266,10 +267,10 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
     |> Enum.reject(&(&1 == ""))
   end
 
-  # The page's display-side coherence read: the defaults as they stand
-  # in the form against the selected size's allocation, per dimension.
-  # nil whenever anything is unparseable — the field errors carry that
-  # story.
+  # The page's display-side coherence read: the compute defaults as
+  # they stand in the form against the selected size's compute, per
+  # dimension. nil whenever anything is unparseable — the field errors
+  # carry that story.
   defp mismatch(assigns, form) do
     size = selected_size(assigns, form)
     values = default_values(assigns.version, form)
@@ -284,11 +285,10 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
 
   defp mismatched_dims(size, values) do
     Enum.filter(
-      [:cpu, :memory, :storage],
+      [:cpu, :memory],
       fn
         :cpu -> not Decimal.eq?(size.cpu_cores, values.cpu)
         :memory -> size.memory_mb != values.memory_mb
-        :storage -> size.storage_gb != values.storage_gb
       end
     )
   end
@@ -299,7 +299,6 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
 
   defp dim_name(:cpu), do: gettext("CPU cores")
   defp dim_name(:memory), do: gettext("memory")
-  defp dim_name(:storage), do: gettext("storage")
 
   defp default_values(version, form) do
     cpu_text =
@@ -308,13 +307,9 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
     memory_text =
       form_value(form, "default_memory_mb", Integer.to_string(version.default_memory_mb))
 
-    storage_text =
-      form_value(form, "default_storage_gb", Integer.to_string(version.default_storage_gb))
-
     with {cpu, ""} <- Decimal.parse(cpu_text),
-         {memory_mb, ""} <- Integer.parse(memory_text),
-         {storage_gb, ""} <- Integer.parse(storage_text) do
-      %{cpu: cpu, memory_mb: memory_mb, storage_gb: storage_gb}
+         {memory_mb, ""} <- Integer.parse(memory_text) do
+      %{cpu: cpu, memory_mb: memory_mb}
     else
       _unparseable -> nil
     end
@@ -417,7 +412,7 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
             phx-submit="save"
             class="rise space-y-6"
           >
-            <%!-- Blueprint and envelope, presented together. The static
+            <%!-- Blueprint and size, presented together. The static
             rule is a quiet note; the live mismatch is the loudest thing
             on the page, naming the dimensions that drifted. --%>
             <.card class="space-y-5" data-testid="admin-version-allocation">
@@ -431,7 +426,7 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
               <.callout tone="info" data-testid="admin-version-coherence-rule">
                 <p>
                   {gettext(
-                    "The blueprint defaults and the size envelope must describe the same allocation. Every save checks them against each other."
+                    "The blueprint's compute defaults and the size must match. Every save checks them against each other."
                   )}
                 </p>
               </.callout>
@@ -451,12 +446,12 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
               >
                 <p>
                   {ngettext(
-                    "%{dims} does not match the size. The size %{slug} provides %{allocation}.",
-                    "%{dims} do not match the size. The size %{slug} provides %{allocation}.",
+                    "%{dims} does not match the size. The size %{slug} provides %{compute}.",
+                    "%{dims} do not match the size. The size %{slug} provides %{compute}.",
                     length(@mismatch.dims),
                     dims: dim_names(@mismatch.dims),
                     slug: @mismatch.size.slug,
-                    allocation: AdminComponents.allocation_text(@mismatch.size)
+                    compute: AdminComponents.compute_text(@mismatch.size)
                   )}
                 </p>
               </.callout>
@@ -583,11 +578,11 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
     """
   end
 
-  # The select's options read as allocation facts: slug, then the
-  # envelope. The admin picks with the rule already visible.
+  # The select's options read as compute facts: slug, then the class.
+  # The admin picks with the rule already visible.
   defp size_options(sizes) do
     Enum.map(sizes, fn size ->
-      {"#{size.slug}: #{AdminComponents.allocation_text(size)}", size.id}
+      {"#{size.slug}: #{AdminComponents.compute_text(size)}", size.id}
     end)
   end
 end

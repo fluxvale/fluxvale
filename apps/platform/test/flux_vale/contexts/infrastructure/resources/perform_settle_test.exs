@@ -35,11 +35,14 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
   require Ash.Query
 
   # The average Gregorian month (PerformSettle's proration base) and the
-  # seeded "small" prices at B′ (#206) — assertions compute from the
+  # seeded "small" reference at B′ (#206, #558): the compute class at
+  # 295¢ plus the 10 GB storage axis at 40¢ — the running total is 335¢,
+  # stopped pays the storage axis alone. Assertions compute from the
   # spec formula.
   @month_seconds 2_629_746
-  @monthly_cents 335
+  @compute_cents 295
   @stopped_cents 40
+  @monthly_cents @compute_cents + @stopped_cents
 
   setup do
     # Grant-free org — the welcome grant rides JIT provisioning (#122),
@@ -48,8 +51,8 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
 
     version =
       InstanceFixtures.app_version!(
-        monthly_cents: @monthly_cents,
-        stopped_monthly_cents: @stopped_cents
+        monthly_cents: @compute_cents,
+        default_storage_gb: 10
       )
 
     InstanceFixtures.local_cluster!()
@@ -364,7 +367,10 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
 
       assert {:ok, _settled} = settle!(instance)
 
-      assert usage_entries(wallet) == [%{amount: -999}]
+      # #558: the live size row prices the compute axis (999¢ after the
+      # admin reprice); the storage axis prices per GB at the row's own
+      # 10 GB — 999 + 40.
+      assert usage_entries(wallet) == [%{amount: -1039}]
     end
 
     test "a custom allocation settles at its formula snapshot inside the grace (#186)", %{
@@ -387,7 +393,7 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
         )
 
       assert custom.size_id == nil
-      assert custom.grandfathered_monthly_cents == 391
+      assert custom.grandfathered_monthly_cents == 390
 
       running = running!(custom)
 
@@ -399,8 +405,9 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
       assert {:ok, _settled} = settle!(running)
 
       # A month running at 1 CPU / 512 MB / 10 GB: the v5 formula's
-      # 391¢ (the wizard shows the same figure).
-      assert usage_entries(wallet) == [%{amount: -391}]
+      # 390¢ (#558's per-axis rounding: compute 350¢ + storage 40¢ —
+      # the wizard shows the same figure).
+      assert usage_entries(wallet) == [%{amount: -390}]
     end
 
     test "a custom allocation past its grace settles at the live formula from its own allocation (#186)",
@@ -432,7 +439,7 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
       # instance's own allocation.
       assert {:ok, _settled} = settle!(running_lapsed)
 
-      assert usage_entries(wallet) == [%{amount: -391}]
+      assert usage_entries(wallet) == [%{amount: -390}]
     end
   end
 
@@ -479,7 +486,7 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
       )
 
       assert {:ok, resized} =
-               Instance.resize(stopped, %{storage_gb: 10}, authorize?: false)
+               Instance.resize(stopped, %{storage_gb: 20}, authorize?: false)
 
       # 15 days at the OLD snapshot's stopped rate (@stopped_cents).
       old_dec = prorated_stopped(@stopped_cents, fifteen_days)
@@ -492,9 +499,10 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
 
       assert usage_entries(wallet) == [%{amount: -old_posted}]
 
-      # The row now prices at the NEW allocation (formula — storage left
-      # the version's default).
-      assert resized.size_id == nil
+      # Storage grew, compute did not move: the row KEEPS its size
+      # (#558 — storage never kicks an instance off the compute class),
+      # and the storage axis re-prices the stopped stream.
+      assert resized.size_id != nil
 
       new_stopped =
         Pricing.price_allocation(%{
@@ -577,7 +585,7 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
       end)
 
       assert {:error, _reason} =
-               Instance.resize(deployed, %{storage_gb: 10}, authorize?: false)
+               Instance.resize(deployed, %{storage_gb: 20}, authorize?: false)
 
       assert usage_entries(wallet) == []
 
@@ -599,7 +607,7 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
       )
 
       assert {:ok, resized} =
-               Instance.resize(stopped, %{storage_gb: 10}, authorize?: false)
+               Instance.resize(stopped, %{storage_gb: 20}, authorize?: false)
 
       assert {:ok, _settled} = settle!(reload_instance!(resized))
       assert {:ok, _settled} = settle!(reload_instance!(resized))
@@ -618,7 +626,7 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
       backdate!(stopped, storage_metering_since: ago(1), running_since: nil)
 
       assert {:ok, _resized} =
-               Instance.resize(stopped, %{storage_gb: 10}, authorize?: false)
+               Instance.resize(stopped, %{storage_gb: 20}, authorize?: false)
 
       assert usage_entries(wallet) == []
       assert {:ok, 0} = Billing.balance(wallet, authorize?: false)
@@ -635,7 +643,7 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
       stopped = stopped!(instance)
 
       assert {:ok, resized} =
-               Instance.resize(stopped, %{storage_gb: 10}, authorize?: false)
+               Instance.resize(stopped, %{storage_gb: 20}, authorize?: false)
 
       new_stopped =
         Pricing.price_allocation(%{

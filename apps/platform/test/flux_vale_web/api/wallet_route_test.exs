@@ -72,7 +72,7 @@ defmodule FluxValeWeb.Api.WalletRouteTest do
       {user, org} = member_org!()
       InstanceFixtures.local_cluster!()
 
-      version = InstanceFixtures.app_version!(monthly_cents: 100, stopped_monthly_cents: 10)
+      version = InstanceFixtures.app_version!(monthly_cents: 100, default_storage_gb: 10)
 
       instance = InstanceFixtures.instance!(version, user)
       InstanceFixtures.walk_to!(instance, :running)

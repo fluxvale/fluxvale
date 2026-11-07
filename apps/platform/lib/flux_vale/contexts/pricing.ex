@@ -1,14 +1,15 @@
 defmodule FluxVale.Pricing do
   @moduledoc """
-  Pricing: the priceable allocation sizes behind ADR-0028's flat monthly
-  rate ("Kavita: $X/mo, done", #125) and — since the checkout tax layer
-  (#138, ADR-0029 Am. 3 gate 2) — the per-country VAT rate table the
-  checkout resolves against. Reads are any signed-in actor (the price
-  shows in every catalog/provisioning surface); mutation is
-  platform-admin-only. Opts into AshAdmin (ADR-0027) like Catalog:
-  price and rate changes are business data — admin-editable, and the
-  tax rates ship as YAML seed diffs (rate changes land as reviewable
-  edits, per the settled #138 stance).
+  Pricing: the compute classes and the per-GB storage axis behind
+  ADR-0028's flat monthly rate ("Kavita: $X/mo, done", #125, storage
+  decoupled by #558) and — since the checkout tax layer (#138,
+  ADR-0029 Am. 3 gate 2) — the per-country VAT rate table the checkout
+  resolves against. Reads are any signed-in actor (the price shows in
+  every catalog/provisioning surface); mutation is platform-admin-only.
+  Opts into AshAdmin (ADR-0027) like Catalog: price and rate changes
+  are business data — admin-editable, and the tax rates ship as YAML
+  seed diffs (rate changes land as reviewable edits, per the settled
+  #138 stance).
   """
 
   use Ash.Domain,
@@ -52,7 +53,10 @@ defmodule FluxVale.Pricing do
   ADR-0028's price = f(allocation) at ANY allocation (#186): the
   market-anchor curve behind the seeded table, in whole cents — the
   wizard's live estimate and the ledger's custom-allocation charge
-  both price through this one call. `region` selects the v5 regional
+  both price through this one call. Since #558 the compute and
+  storage axes round independently: monthly is the compute rate plus
+  the storage rate, stopped is the storage rate alone (see
+  `storage_monthly_cents/1`). `region` selects the v5 regional
   surcharge — the default lives HERE and nowhere else
   (`:nuremberg`, the one seeded region; `:singapore` on standby,
   unseeded).
@@ -64,6 +68,40 @@ defmodule FluxVale.Pricing do
   defdelegate price_allocation(allocation, region \\ :nuremberg),
     to: Operations.PriceAllocation,
     as: :call
+
+  @doc """
+  The storage axis rate (#558): the curve's per-GB pricing, unchanged
+  — the storage term at `storage_gb` in whole cents. This is the
+  stopped fee at any storage, and the storage component every running
+  rate carries; a compute class prices none of it.
+  """
+  @spec storage_monthly_cents(non_neg_integer()) :: non_neg_integer()
+  def storage_monthly_cents(storage_gb) when is_integer(storage_gb) and storage_gb >= 0 do
+    Operations.PriceAllocation.storage_cents(storage_gb, :nuremberg)
+  end
+
+  @doc """
+  The rates a version's recommendation carries (#558): the
+  recommended compute class's monthly rate plus the storage axis at
+  the version's own honest `default_storage_gb` — stopped is the
+  storage alone. `version` is version-shaped (a map reading
+  `recommended_size` — loaded — and `default_storage_gb`) so Pricing
+  stays decoupled from the AppVersion struct. nil on a sizeless
+  version: the unpriced drift shape, and billing never guesses.
+  """
+  @spec version_rates(map()) ::
+          %{monthly_cents: non_neg_integer(), stopped_monthly_cents: non_neg_integer()} | nil
+  def version_rates(version) do
+    case version.recommended_size do
+      nil ->
+        nil
+
+      size ->
+        storage = storage_monthly_cents(version.default_storage_gb)
+
+        %{monthly_cents: size.monthly_cents + storage, stopped_monthly_cents: storage}
+    end
+  end
 
   @doc """
   The customer-facing monthly-rate label (#206): the flat figure is a
@@ -78,11 +116,12 @@ defmodule FluxVale.Pricing do
   end
 
   @doc """
-  The ladder floor in cents (#398): the cheapest published size's monthly
-  rate — the "from" price every catalog card shows, since any app at the
-  same size costs the same. Computed over the public Size read on every
-  call (never a literal), so admin reprices move every card; nil on an
-  empty table (unseeded dev/test) — the surfaces hide the line.
+  The ladder floor in cents (#398): the cheapest published compute
+  class's monthly rate — the "from" price every catalog card shows
+  (compute only since #558; the storage axis prices per GB on top).
+  Computed over the public Size read on every call (never a literal),
+  so admin reprices move every card; nil on an empty table (unseeded
+  dev/test) — the surfaces hide the line.
   """
   @spec from_price_cents() :: non_neg_integer() | nil
   def from_price_cents do
@@ -107,10 +146,12 @@ defmodule FluxVale.Pricing do
   warning fires on the rate the wallet actually bleeds at): the
   creation-time `grandfathered_*` snapshot while `grandfathered_until`
   stands, then the live Size row by the snapshotted `size_id` (#134,
-  settled on #121). A custom allocation carries no size (#186) — after
-  the grace it prices by the live anchor formula from the instance's
-  own allocation. `instance` is instance-shaped (a map reading
-  `size_id`, `grandfathered_*`, `cpu_cores`, `memory_mb`,
+  settled on #121) — since #558 the size prices the compute axis and
+  the storage axis prices per GB at the instance's own `storage_gb`
+  (`storage_monthly_cents/1`). A custom allocation carries no size
+  (#186) — after the grace it prices by the live anchor formula from
+  the instance's own allocation. `instance` is instance-shaped (a map
+  reading `size_id`, `grandfathered_*`, `cpu_cores`, `memory_mb`,
   `storage_gb`) so Pricing stays decoupled from the Instance struct.
   `{:ok, nil}` is an unpriced instance (neither a size nor a formula
   snapshot — pre-#121 drift only): settle forgives the time, runway
@@ -135,7 +176,7 @@ defmodule FluxVale.Pricing do
         formula_rates(instance)
 
       true ->
-        live_rates(instance.size_id)
+        live_rates(instance)
     end
   end
 
@@ -167,10 +208,16 @@ defmodule FluxVale.Pricing do
     {:ok, %{running: rates.monthly_cents, stopped: rates.stopped_monthly_cents}}
   end
 
-  defp live_rates(size_id) do
-    case Ash.get(FluxVale.Pricing.Size, size_id, authorize?: false) do
+  defp live_rates(instance) do
+    case Ash.get(FluxVale.Pricing.Size, instance.size_id, authorize?: false) do
       {:ok, size} ->
-        {:ok, %{running: size.monthly_cents, stopped: size.stopped_monthly_cents}}
+        # #558: the size row prices the compute axis only; storage
+        # prices per GB at the instance's own GB — so an admin
+        # compute reprice reaches this instance while its storage
+        # rate always tracks the live axis.
+        storage = storage_monthly_cents(instance.storage_gb)
+
+        {:ok, %{running: size.monthly_cents + storage, stopped: storage}}
 
       # defensive: the instances → pricing_sizes FK has no ON DELETE, so
       # a missing row is data corruption — fail the caller, never price

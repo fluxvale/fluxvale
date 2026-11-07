@@ -14,12 +14,15 @@ defmodule FluxValeWeb.PricingCalculatorLive do
   paint carries rates. An app choice is required only to ADD: the Add
   button stays disabled until one is chosen, because the row carries
   the app's name, logo, and allocation. Picking an app snaps the
-  sliders to its latest version's recommended size when the sliders
-  can state it, and otherwise leaves the rungs where they are; the
-  recommendation line names the app and the amount, and a nil or
-  off-ladder recommendation renders no line (never a guessed one).
-  After a manual edit the line stays and offers "Use recommended",
-  which restores the snapped allocation. Add appends the current
+  sliders to the latest version's recommendation when the sliders can
+  state it — compute rungs from the recommended size, storage from the
+  version's own default floored onto the ladder (#558: storage is the
+  app's property, never a size's) — and otherwise leaves the rungs
+  where they are; the recommendation line names the app and the
+  amount, and a nil recommendation or off-ladder compute renders no
+  line (never a guessed one). After a manual edit the line stays and
+  offers "Use recommended", which restores the snapped allocation.
+  Add appends the current
   configuration as a row and resets — chooser emptied, rungs back to
   the default — for the next setup. Rows are removable and never
   collapse: two identical setups are two rows. Once rows exist the
@@ -44,9 +47,10 @@ defmodule FluxValeWeb.PricingCalculatorLive do
   session the embed rode is used only to re-resolve the locale — this
   view sits in no live_session, so no on_mount carries the hook.
 
-  Seeded sizes are internal presets now (#440 took the tiers off the
-  page): the mount resolves its starting allocation from them and
-  renders no size names.
+  Seeded sizes are internal compute presets now (#440 took the tiers
+  off the page, #558 took the storage off the size): the mount
+  resolves its starting compute rungs from them, pairs them with a
+  pinned storage default, and renders no size names.
   """
 
   use FluxValeWeb, :live_view
@@ -58,9 +62,16 @@ defmodule FluxValeWeb.PricingCalculatorLive do
   alias FluxValeWeb.AllocationSliders
   alias FluxValeWeb.Locale
 
-  # Default state (#397): the `small` rungs, resolved by slug at mount —
-  # never a literal index.
+  # Default state (#397): the `small` compute rungs, resolved by slug
+  # at mount — never a literal index.
   @default_size_slug "small"
+
+  # #558: a size carries no storage, so the default's storage half is
+  # pinned here. The pre-#558 first paint was the `small` size's old
+  # bundled allocation (0.5 cores, 512 MB, 10 GB) and that default's
+  # price stays $3.35/mo running, $0.40 stopped — 10 GB is that
+  # allocation's storage, kept as the literal.
+  @default_storage_rung "10"
 
   @impl Phoenix.LiveView
   def mount(_params, session, socket) do
@@ -455,14 +466,15 @@ defmodule FluxValeWeb.PricingCalculatorLive do
   def handle_event("resources-change", _params, socket), do: {:noreply, socket}
 
   # The app chooser: a pick snaps the sliders to the latest version's
-  # recommended size when the sliders can state it, and otherwise
+  # recommendation when the sliders can state it, and otherwise
   # selects the app and leaves the rungs alone — the sliders are a
   # working calculator with or without an app, so a recommendation-less
   # pick has nothing to snap and nothing to reset. The recommendation
-  # is remembered so the line survives manual edits. A nil or
-  # off-ladder recommendation renders no line: no snap, no guessed
-  # amount. The choice is a start-from picker, not a promise about the
-  # rungs, so the selection stays after a snap while the sliders move.
+  # is remembered so the line survives manual edits. A nil
+  # recommendation or off-ladder compute renders no line: no snap, no
+  # guessed amount. The choice is a start-from picker, not a promise
+  # about the rungs, so the selection stays after a snap while the
+  # sliders move.
   @impl Phoenix.LiveView
   def handle_event("pick-app", %{"slug" => slug}, socket) when is_binary(slug) do
     case Enum.find(socket.assigns.apps, &(&1.app.slug == slug)) do
@@ -505,8 +517,8 @@ defmodule FluxValeWeb.PricingCalculatorLive do
       nil ->
         {:noreply, socket}
 
-      size ->
-        {:noreply, assign(socket, :resources, size_resources(size))}
+      rungs ->
+        {:noreply, assign(socket, :resources, rungs)}
     end
   end
 
@@ -583,9 +595,10 @@ defmodule FluxValeWeb.PricingCalculatorLive do
 
   # The mount's starting point: the seeded Size rows, cheapest first —
   # the same public read the wizard presets render. Sizes are internal
-  # presets now (#440 took the tiers off the page): this list only
-  # resolves the default allocation, filtered to sizes the sliders can
-  # state so the default is always expressible (the wizard's stance).
+  # compute presets now (#440 took the tiers off the page, #558 the
+  # storage off the size): this list only resolves the default's
+  # compute rungs, filtered to sizes the sliders can state so the
+  # default is always expressible (the wizard's stance).
   defp sorted_sizes do
     Size
     |> Ash.Query.for_read(:read, %{}, actor: nil)
@@ -619,52 +632,82 @@ defmodule FluxValeWeb.PricingCalculatorLive do
     |> List.first()
   end
 
-  # `small`'s allocation, falling back to the cheapest size when the
-  # slug is absent (an admin edit), and to the ladders' floor when no
-  # Size row exists at all (fresh dev/test DB): the sliders need state,
-  # and the price stays whatever price_allocation/1 says it is.
+  # The default rungs (#397, #558): `small`'s compute plus the pinned
+  # storage rung, falling back to the cheapest representable size when
+  # the slug is absent (an admin edit), and to the compute ladders'
+  # floors when no Size row exists at all (fresh dev/test DB): the
+  # sliders need state, and the price stays whatever
+  # price_allocation/1 says it is.
   defp initial_resources(sizes) do
     default = Enum.find(sizes, &(&1.slug == @default_size_slug)) || List.first(sizes)
 
-    if default do
-      size_resources(default)
-    else
-      Map.new(AllocationSliders.resource_dimensions(), fn dimension ->
-        {dimension.key, List.first(dimension.values)}
-      end)
-    end
+    compute =
+      if default do
+        compute_resources(default)
+      else
+        Map.new(compute_dimensions(), fn dimension ->
+          {dimension.key, List.first(dimension.values)}
+        end)
+      end
+
+    Map.put(compute, "storage_gb", @default_storage_rung)
   end
 
-  defp size_resources(size) do
+  # A size's rungs — compute only (#558): storage is its own axis, so
+  # a size states just the CPU + memory shape.
+  defp compute_resources(size) do
     %{
       "cpu_cores" => decimal_string(size.cpu_cores),
-      "memory_mb" => Integer.to_string(size.memory_mb),
-      "storage_gb" => Integer.to_string(size.storage_gb)
+      "memory_mb" => Integer.to_string(size.memory_mb)
     }
+  end
+
+  # The sliders' compute dimensions (#558): every ladder dimension
+  # except storage, which stands in its own section.
+  defp compute_dimensions do
+    storage_key = AllocationSliders.storage_dimension().key
+    Enum.reject(AllocationSliders.resource_dimensions(), &(&1.key == storage_key))
   end
 
   # A size the sliders can state (#221's semantics, mirrored per #397 —
   # the wizard's helper is private, the comparison shape is the
-  # contract): every dimension's value must name a rung on its ladder.
+  # contract): every compute dimension's value must name a rung on its
+  # ladder. Storage needs no check (#558) — the version's default
+  # always lands on the ladder via floor_rung/2.
   defp representable_size?(size) do
-    values = size_resources(size)
+    values = compute_resources(size)
 
-    Enum.all?(AllocationSliders.resource_dimensions(), fn dimension ->
+    Enum.all?(compute_dimensions(), fn dimension ->
       values[dimension.key] in dimension.values
     end)
   end
 
   # The chooser's verdict on a version's recommendation: snap when the
-  # sliders can state it, silent no-op otherwise. A nil recommendation
-  # has nothing to snap to, and an off-ladder one has no state the
-  # sliders can express. Either way the line stays off: a guessed or
-  # unstateable amount would be dishonest.
-  defp recommendation(recommended) do
-    if is_nil(recommended) do
+  # sliders can state it, silent no-op otherwise. The recommendation
+  # is version-shaped (#558): compute rungs from the recommended size,
+  # storage rung from the version's own default floored onto the
+  # ladder — always expressible, so only the compute rungs can veto. A
+  # nil recommended size has nothing to snap to, and an off-ladder
+  # compute shape has no rungs the sliders can express. Either way the
+  # line stays off: a guessed or unstateable amount would be dishonest.
+  defp recommendation(version) do
+    size = version.recommended_size
+
+    if is_nil(size) do
       :noop
     else
-      if representable_size?(recommended), do: {:snap, recommended}, else: :noop
+      if representable_size?(size), do: {:snap, version_resources(version, size)}, else: :noop
     end
+  end
+
+  # The version's full allocation as rungs: the size's compute plus
+  # the version's storage default floored onto the ladder (an
+  # off-ladder default snaps up to the smallest rung that holds it,
+  # the wizard's seeding stance).
+  defp version_resources(version, size) do
+    rung = AllocationSliders.floor_rung("storage_gb", version.default_storage_gb)
+    compute = compute_resources(size)
+    Map.put(compute, "storage_gb", rung)
   end
 
   # The filter reads name and slug, case-insensitively — the two things
@@ -681,14 +724,15 @@ defmodule FluxValeWeb.PricingCalculatorLive do
   end
 
   # Whether the sliders still hold the recommended allocation. Any rung
-  # change makes "Use recommended" useful; the comparison is the same
-  # string map the snap wrote.
-  defp at_recommendation?(resources, size), do: resources == size_resources(size)
+  # change makes "Use recommended" useful; the recommendation is the
+  # rung map itself, so the comparison is the same string map the snap
+  # wrote.
+  defp at_recommendation?(resources, rungs), do: resources == rungs
 
   # Selecting an app: the choice sticks (name, logo, closed panel) and
   # the sliders take the recommendation when they can state it. A nil
-  # or off-ladder recommendation selects with no line and no snap —
-  # the rungs stay wherever the visitor left them.
+  # recommendation or off-ladder compute selects with no line and no
+  # snap — the rungs stay wherever the visitor left them.
   defp select_app(socket, chooser) do
     selected =
       socket
@@ -698,11 +742,11 @@ defmodule FluxValeWeb.PricingCalculatorLive do
       |> assign(:app_filter, "")
       |> assign(:app_picked, true)
 
-    case recommendation(chooser.version.recommended_size) do
-      {:snap, size} ->
+    case recommendation(chooser.version) do
+      {:snap, rungs} ->
         selected
-        |> assign(:recommendation, size)
-        |> assign(:resources, size_resources(size))
+        |> assign(:recommendation, rungs)
+        |> assign(:resources, rungs)
 
       :noop ->
         assign(selected, :recommendation, nil)
@@ -723,7 +767,7 @@ defmodule FluxValeWeb.PricingCalculatorLive do
   # --- Pricing -------------------------------------------------------------------
 
   # The typed allocation for pricing — total by construction: the state
-  # only ever holds rungs (or a whole size allocation, itself a set of
+  # only ever holds rungs (or a whole recommendation, itself a set of
   # rungs), and rungs parse.
   defp allocation(resources) do
     %{
@@ -765,7 +809,11 @@ defmodule FluxValeWeb.PricingCalculatorLive do
 
   # --- Formatting ----------------------------------------------------------------
 
-  defp size_text(size), do: allocation_text(size_resources(size))
+  # The recommendation line's amount (#558): the recommendation is the
+  # version's full allocation as rungs — compute plus the floored
+  # storage default — so it reads through the same text every
+  # allocation line uses.
+  defp size_text(recommendation), do: allocation_text(recommendation)
 
   defp allocation_text(resources) do
     "#{resources["cpu_cores"]} CPU · #{resources["memory_mb"]} MB · #{resources["storage_gb"]} GB"

@@ -19,7 +19,7 @@ defmodule FluxVale.Infrastructure.InstanceAllocationSnapshotTest do
   require Ash.Query
 
   test "a create appends exactly one open row mirroring the row" do
-    version = InstanceFixtures.app_version!(monthly_cents: 335, stopped_monthly_cents: 40)
+    version = InstanceFixtures.app_version!(monthly_cents: 295, default_storage_gb: 10)
     InstanceFixtures.local_cluster!()
 
     instance =
@@ -38,6 +38,8 @@ defmodule FluxVale.Infrastructure.InstanceAllocationSnapshotTest do
     assert era.memory_mb == instance.memory_mb
     assert era.storage_gb == instance.storage_gb
     assert era.size_id == instance.size_id
+    # The compute class (295¢) plus the 10 GB storage axis (40¢) —
+    # #558's decomposed snapshot.
     assert era.monthly_cents == 335
     assert era.stopped_monthly_cents == 40
     # Era 1 began when the row was born.
@@ -47,7 +49,7 @@ defmodule FluxVale.Infrastructure.InstanceAllocationSnapshotTest do
   end
 
   test "a custom-allocation create snapshots the formula pricing, no size" do
-    version = InstanceFixtures.app_version!(monthly_cents: 335, stopped_monthly_cents: 40)
+    version = InstanceFixtures.app_version!(monthly_cents: 295, default_storage_gb: 10)
     InstanceFixtures.local_cluster!()
 
     instance =

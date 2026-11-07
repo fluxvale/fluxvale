@@ -31,10 +31,12 @@ defmodule FluxValeWeb.PricingController do
 
   # The pricing page's Product block (the launch SEO audit lean):
   # shaped like Google's product rich result, carrying only numbers the
-  # page itself shows — the ladder floor is the same "from" price the
-  # landing band and catalog cards render (Pricing.from_price_cents/0).
-  # No seeded floor, no honest price claim: the assign is nil and the
-  # template skips the script, never a guessed price.
+  # page itself shows — the compute-class floor is the same "from"
+  # price the landing band and catalog cards render
+  # (Pricing.from_price_cents/0, compute only since #558; the
+  # description points at resources, so nothing claims storage is
+  # included). No seeded floor, no honest price claim: the assign is
+  # nil and the template skips the script, never a guessed price.
   defp json_ld do
     case Pricing.from_price_cents() do
       nil ->

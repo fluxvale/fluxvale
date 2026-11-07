@@ -263,6 +263,11 @@ derivations: A′-SG (63% fill): ×1.7; B′-SG (85% fill): ×1.25:
 | plus | 14.12 | 192 | 10.38 | 141 |
 | pro | 22.76 | 323 | 16.73 | 237 |
 
+(#558's per-axis rounding restates the B′-SG column for the day SG
+seeds — the standby the calibration test pins: medium reads 426¢
+where the round-the-sum figure above says 427¢, the other five rows
+unchanged. The option math depends on none of these rounding cents.)
+
 Break-even (`small`): A′-SG 26 lean / 29 full (57%/63%); B′-SG 35
 lean / 39 full (76%/85%). B′-SG margins at 50/70/85/100%: −49/−7/
 +12/+26 lean, −67/−20/+1/+16 full. At C-SG: BE-full 49 > 46 — **hold-

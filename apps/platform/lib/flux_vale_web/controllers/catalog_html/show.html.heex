@@ -88,15 +88,16 @@
             <.badge>{version.default_storage_gb} GB storage</.badge>
             <.price_badge version={version} />
             <.stopped_rate version={version} />
-            <%!-- #398: the published ladder is one hop away — the card
-            shows this version's plan, /pricing#sizes shows every size.
-            --%>
+            <%!-- #398: pricing is one hop away — the card shows this
+            version's plan, /pricing prices every resource (#558:
+            compute classes and storage price apart, so no sizes list
+            exists to link at). --%>
             <.link
-              navigate={~p"/pricing#sizes"}
+              navigate={~p"/pricing"}
               class="self-center text-sm font-medium text-link hover:underline"
               data-testid={"see-all-sizes-#{version.version}"}
             >
-              {gettext("See all sizes")}
+              {gettext("See pricing")}
             </.link>
           </div>
         </.card>

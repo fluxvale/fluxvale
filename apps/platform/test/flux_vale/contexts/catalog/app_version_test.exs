@@ -21,9 +21,11 @@ defmodule FluxVale.Catalog.AppVersionTest do
     )
   end
 
-  # Every version names a recommended_size equal to its effective
-  # allocation (the #125 contract the validations enforce) — the helper
-  # fabricates the matching size so tests only speak in version attrs.
+  # Every version names a recommended_size whose compute equals the
+  # version's cpu/memory defaults (the #125/#558 contract the
+  # validations enforce) — the helper fabricates the matching size so
+  # tests only speak in version attrs. default_storage_gb is the
+  # version's own honest default, never pinned to the size.
   defp version_attrs(app, overrides \\ %{}) do
     attrs =
       Map.merge(
@@ -49,9 +51,7 @@ defmodule FluxVale.Catalog.AppVersionTest do
           slug: "test-#{System.unique_integer()}",
           cpu_cores: attrs.default_cpu_cores,
           memory_mb: attrs.default_memory_mb,
-          storage_gb: attrs.default_storage_gb,
-          monthly_cents: 100,
-          stopped_monthly_cents: 10
+          monthly_cents: 100
         },
         Map.new(overrides)
       )
@@ -82,8 +82,7 @@ defmodule FluxVale.Catalog.AppVersionTest do
         recommended_size_id:
           size_for!(%{
             default_cpu_cores: Decimal.new("0.5"),
-            default_memory_mb: 256,
-            default_storage_gb: 0
+            default_memory_mb: 256
           }).id
       }
 
@@ -175,7 +174,7 @@ defmodule FluxVale.Catalog.AppVersionTest do
                AppVersion.update(version, %{image: "test/image:2.0"}, authorize?: false)
     end
 
-    test "size must match the version's allocation" do
+    test "size must match the version's compute; storage is the version's own (#558)" do
       app = app()
 
       allocation = %{
@@ -184,23 +183,35 @@ defmodule FluxVale.Catalog.AppVersionTest do
         default_storage_gb: 1
       }
 
-      one_dimension_off = [
+      compute_off = [
         # cpu off
-        %{cpu_cores: Decimal.new("1"), memory_mb: 256, storage_gb: 1},
+        %{cpu_cores: Decimal.new("1"), memory_mb: 256},
         # memory off
-        %{cpu_cores: Decimal.new("0.5"), memory_mb: 512, storage_gb: 1},
-        # storage off
-        %{cpu_cores: Decimal.new("0.5"), memory_mb: 256, storage_gb: 50}
+        %{cpu_cores: Decimal.new("0.5"), memory_mb: 512}
       ]
 
-      for size_shape <- one_dimension_off do
+      for size_shape <- compute_off do
         size = size_for!(allocation, size_shape)
         base = version_attrs(app, allocation)
         attrs = Map.put(base, :recommended_size_id, size.id)
 
         assert {:error, error} = AppVersion.create(attrs, authorize?: false)
-        assert Exception.message(error) =~ "must match the version's allocation"
+        assert Exception.message(error) =~ "must match the version's compute defaults"
       end
+
+      # A size states compute only, so any storage default fits it: the
+      # decoupling means default_storage_gb prices per GB and never
+      # forks the pin.
+      matching_compute = size_for!(allocation)
+      base = version_attrs(app, allocation)
+
+      attrs =
+        Map.merge(base, %{
+          recommended_size_id: matching_compute.id,
+          default_storage_gb: 50
+        })
+
+      assert {:ok, _version} = AppVersion.create(attrs, authorize?: false)
     end
 
     test "updating allocation without the size fails (and the reverse)" do
@@ -214,8 +225,7 @@ defmodule FluxVale.Catalog.AppVersionTest do
       other =
         size_for!(%{
           default_cpu_cores: Decimal.new("1"),
-          default_memory_mb: 2048,
-          default_storage_gb: 20
+          default_memory_mb: 2048
         })
 
       assert {:error, %Ash.Error.Invalid{}} =
@@ -232,8 +242,7 @@ defmodule FluxVale.Catalog.AppVersionTest do
     test "converging a legacy nil-size row through the seed's update" do
       version = unsized_version!()
 
-      size =
-        size_for!(Map.take(version, ~w(default_cpu_cores default_memory_mb default_storage_gb)a))
+      size = size_for!(Map.take(version, ~w(default_cpu_cores default_memory_mb)a))
 
       assert {:ok, updated} =
                AppVersion.update(version, %{recommended_size_id: size.id}, authorize?: false)

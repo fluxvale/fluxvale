@@ -849,8 +849,8 @@ defmodule FluxValeWeb.InstanceLive.Show do
         </p>
 
         <p :if={@off_ladder} class="text-xs text-ink-subtle" data-testid="resize-off-ladder-note">
-          Sizes not offered here move to the nearest offered size; storage only grows, so it rounds
-          up.
+          Values not offered here move to the nearest offered value. Storage only grows, so it
+          rounds up.
         </p>
 
         <%!-- The price is the resize's own snapshot choice (the domain's

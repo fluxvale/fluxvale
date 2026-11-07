@@ -53,10 +53,11 @@ defmodule FluxValeWeb.PageController do
     |> render(:home)
   end
 
-  # The landing pricing band's floor (#396): the ladder floor over the
-  # public Size read — Pricing.from_price_cents/0, shared with the
-  # catalog cards (#398). The landing (the crawler surface) carries a DB
-  # dependency by decision — `read!` 500s where the page previously
+  # The landing pricing band's floor (#396, #558): the compute-class
+  # floor over the public Size read — Pricing.from_price_cents/0,
+  # shared with the catalog cards (#398); the band's copy names storage
+  # as its own per-GB charge. The landing (the crawler surface) carries
+  # a DB dependency by decision — `read!` 500s where the page previously
   # rendered DB-free. Same failure envelope as CatalogController on the
   # same SEO scope. Revisit trigger: if the landing ever must render
   # during a DB outage.

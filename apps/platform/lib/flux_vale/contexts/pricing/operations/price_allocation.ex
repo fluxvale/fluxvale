@@ -15,17 +15,29 @@ defmodule FluxVale.Pricing.Operations.PriceAllocation do
   per-region surcharge m — pricing is per-datencenter, so a region's
   floor rides its own multiplier, not a second curve. `:nuremberg`
   (the one seeded region) is B′ ×1.2; `:singapore` is the decided
-  B′-SG ×1.25 on standby — present so the variant is structure, not
-  a rewrite, but seeded nowhere (no SG rows ship until the SG box
+  B′-SG ×1.25 on standby — present so the variant is structure, not a
+  rewrite, but seeded nowhere (no SG rows ship until the SG box
   exists; activating it is a seed diff plus region wiring, no
   migration).
 
   Stopped = the storage term alone (ADR-0028 §2), surcharge included.
   Whole US cents, halves rounded up — the same rounding the seeded
-  table was built with, so the formula reproduces every seeded size's
+  table was built with, so the curve reproduces every seeded row's
   cents exactly (pinned by the calibration tests). One module owns
   the curve: the seed-calibration tests assert the shipped YAML
   against THIS module, never a second copy of the constants.
+
+  #558 split storage onto its own axis: the curve's terms are
+  unchanged, but compute (CPU + memory) and storage now price and
+  ROUND independently — `compute_cents/2` is what a Size row carries,
+  `storage_cents/2` is the per-GB axis (and the stopped fee at any
+  storage). `call/2` states both arms as one allocation so a
+  decomposed surface (a compute class plus a storage choice) can
+  never quote a cent the whole-allocation call wouldn't charge. The
+  per-term rounding moves a decomposed total by at most a cent from
+  the old round-the-sum figure (one reference point does: pro-shape
+  compute plus 100 GB prices 1607¢, was 1606¢ bundled) — the curve
+  and every per-GB price are unchanged.
 
   Terence's #180 decision (option a, continuous formula): the wizard's
   live estimate and the ledger's charge both price through here, so a
@@ -57,10 +69,14 @@ defmodule FluxVale.Pricing.Operations.PriceAllocation do
 
   @doc """
   Prices an allocation: the flat monthly cents while running and the
-  storage-only cents while stopped. `cpu_cores` is a Decimal; memory
-  and storage are integers in MB / GB. The allocation is assumed
-  floor-legal (the Instance attribute constraints) — every floor-legal
-  value is mathematically fine here (0 storage prices to 0¢ stopped).
+  storage-only cents while stopped. Since #558 the axes round
+  independently — monthly is the compute rate plus the storage rate
+  (each half-up), stopped is the storage rate alone — so a decomposed
+  quote (compute class + storage choice) always matches this call.
+  `cpu_cores` is a Decimal; memory and storage are integers in MB /
+  GB. The allocation is assumed floor-legal (the Instance attribute
+  constraints) — every floor-legal value is mathematically fine here
+  (0 storage prices to 0¢ stopped).
 
   `region` selects the v5 surcharge — required here; the domain's
   `price_allocation/2` owns the default (`:nuremberg`, the one seeded
@@ -78,21 +94,34 @@ defmodule FluxVale.Pricing.Operations.PriceAllocation do
           }
   def call(allocation, region) do
     surcharge = regional_surcharge(region)
-    cpu_cores = Decimal.to_float(allocation.cpu_cores)
-    memory_gb = allocation.memory_mb / @gb_mb
-    storage_gb = allocation.storage_gb / 1
-
-    storage_usd = storage_term(storage_gb)
-
-    usd =
-      @cpu_multiplier * :math.pow(cpu_cores, @cpu_exponent) + @cpu_base +
-        @memory_multiplier * :math.pow(memory_gb, @memory_exponent) +
-        storage_usd
+    compute = compute_usd_cents(allocation, surcharge)
+    storage = storage_usd_cents(allocation.storage_gb, surcharge)
 
     %{
-      monthly_cents: half_up_cents(surcharge * usd),
-      stopped_monthly_cents: half_up_cents(surcharge * storage_usd)
+      monthly_cents: compute + storage,
+      stopped_monthly_cents: storage
     }
+  end
+
+  @doc """
+  The compute-class rate (#558): the curve's CPU and memory terms,
+  storage excluded, half-up cents — what a seeded `Size` row's
+  monthly rate is and what the calibration tests pin it against.
+  """
+  @spec compute_cents(%{cpu_cores: Decimal.t(), memory_mb: pos_integer()}, atom()) ::
+          non_neg_integer()
+  def compute_cents(allocation, region) do
+    compute_usd_cents(allocation, regional_surcharge(region))
+  end
+
+  @doc """
+  The storage axis rate (#558): the storage term alone, half-up
+  cents — unchanged per-GB pricing, and the stopped fee at any
+  storage.
+  """
+  @spec storage_cents(non_neg_integer(), atom()) :: non_neg_integer()
+  def storage_cents(storage_gb, region) do
+    storage_usd_cents(storage_gb, regional_surcharge(region))
   end
 
   defp regional_surcharge(region) do
@@ -102,8 +131,20 @@ defmodule FluxVale.Pricing.Operations.PriceAllocation do
     end
   end
 
-  defp storage_term(storage_gb) do
-    @storage_multiplier * :math.pow(storage_gb, @storage_exponent)
+  defp compute_usd_cents(allocation, surcharge) do
+    cpu_cores = Decimal.to_float(allocation.cpu_cores)
+    memory_gb = allocation.memory_mb / @gb_mb
+
+    usd =
+      @cpu_multiplier * :math.pow(cpu_cores, @cpu_exponent) + @cpu_base +
+        @memory_multiplier * :math.pow(memory_gb, @memory_exponent)
+
+    half_up_cents(surcharge * usd)
+  end
+
+  defp storage_usd_cents(storage_gb, surcharge) do
+    usd = @storage_multiplier * :math.pow(storage_gb / 1, @storage_exponent)
+    half_up_cents(surcharge * usd)
   end
 
   # Whole cents, exact halves up — the seed table's documented rounding

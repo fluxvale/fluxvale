@@ -1,15 +1,21 @@
 defmodule FluxVale.Infrastructure.Instance.PricingSnapshot do
   @moduledoc """
-  The one pricing-snapshot choice (#121/#186, shared per #493): given
-  an allocation, the AppVersion it came from, and now — what the
-  instance row's pricing triple is.
+  The one pricing-snapshot choice (#121/#186, shared per #493, storage
+  decoupled per #558): given an allocation, the AppVersion it came
+  from, and now — what the instance row's pricing triple is.
 
-  - At the version's recommendation (all three dimensions on its
-    defaults) the recommended `Size` row snapshots: `size_id` plus its
-    two cents fields. A sizeless recommendation → unpriced (all nil —
-    billing never guesses; the pre-#125 drift shape).
-  - Any dimension off → the anchor formula's cents
+  - Compute at the version's recommendation (CPU and memory on its
+    defaults, whatever the storage is) the recommended `Size` row
+    snapshots: `size_id` plus the compute class's monthly rate with
+    the storage axis's per-GB rate added at the row's own GB. A
+    sizeless recommendation → unpriced (all nil — billing never
+    guesses; the pre-#125 drift shape).
+  - Compute off → the anchor formula's cents
     (`Pricing.price_allocation/1`), no size.
+
+  Storage never moves an instance off its size (#558): the axis
+  prices independently, so its per-GB rate rides whichever arm the
+  compute chose.
 
   Always a fresh `now + 1 year` grandfather clock — except the unpriced
   arm, which carries a nil clock (mirroring create's no-op path).
@@ -54,29 +60,32 @@ defmodule FluxVale.Infrastructure.Instance.PricingSnapshot do
     if custom_allocation?(allocation, version) do
       formula_price(allocation, now)
     else
-      size_price(size, now)
+      size_price(size, allocation.storage_gb, now)
     end
   end
 
-  # A custom allocation: any dimension differs from the version's
-  # defaults (the caller passes the effective allocation — chosen dims
-  # over defaults at create, effective values at resize).
+  # A custom allocation: compute differs from the version's defaults
+  # (the caller passes the effective allocation — chosen dims over
+  # defaults at create, effective values at resize). Storage is not a
+  # defection (#558): the axis prices independently, so a storage
+  # choice keeps the size snapshot.
   defp custom_allocation?(allocation, version) do
     cpu_off = not Decimal.eq?(allocation.cpu_cores, version.default_cpu_cores)
     memory_off = allocation.memory_mb != version.default_memory_mb
-    storage_off = allocation.storage_gb != version.default_storage_gb
 
-    cpu_off or memory_off or storage_off
+    cpu_off or memory_off
   end
 
-  defp size_price(nil, _now),
+  defp size_price(nil, _storage_gb, _now),
     do: %{size_id: nil, monthly_cents: nil, stopped_monthly_cents: nil, grandfathered_until: nil}
 
-  defp size_price(size, now) do
+  defp size_price(size, storage_gb, now) do
+    storage = Pricing.storage_monthly_cents(storage_gb)
+
     %{
       size_id: size.id,
-      monthly_cents: size.monthly_cents,
-      stopped_monthly_cents: size.stopped_monthly_cents,
+      monthly_cents: size.monthly_cents + storage,
+      stopped_monthly_cents: storage,
       grandfathered_until: grace_clock(now)
     }
   end

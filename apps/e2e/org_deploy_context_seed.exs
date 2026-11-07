@@ -79,9 +79,7 @@ size =
       slug: "capture-orgctx-#{suffix}",
       cpu_cores: Decimal.new("0.5"),
       memory_mb: 256,
-      storage_gb: 10,
-      monthly_cents: 100,
-      stopped_monthly_cents: 10
+      monthly_cents: 100
     },
     authorize?: false
   )

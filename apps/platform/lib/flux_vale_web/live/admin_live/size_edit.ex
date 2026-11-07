@@ -5,12 +5,12 @@ defmodule FluxValeWeb.AdminLive.SizeEdit do
 
   Two panels, one action, the freeze made visible: prices (cents) are
   freely editable — prices-as-data is the whole point — while the
-  allocation controls lock when versions point at the size, with copy
+  compute controls lock when versions point at the size, with copy
   naming the count and the sanctioned path (re-point or retire first,
   then move the size). The lock is the UI explaining the resource's
   `ValidateAllocationFrozen`, never a bypass: the action-level
   validation stays the enforcement, and an unlocked size's form says
-  its allocation will freeze once versions point here.
+  its compute will freeze once versions point here.
 
   Prices carry their own consequence copy: an edit reaches running
   instances on this size at their next settle once their first-year
@@ -33,7 +33,7 @@ defmodule FluxValeWeb.AdminLive.SizeEdit do
 
   require Ash.Query
 
-  @price_keys ~w(monthly_cents stopped_monthly_cents)
+  @price_keys ~w(monthly_cents)
 
   @impl Phoenix.LiveView
   def mount(%{"id" => id}, _session, socket) do
@@ -83,8 +83,7 @@ defmodule FluxValeWeb.AdminLive.SizeEdit do
   # filter check, never a forbid), so these are the counts the actor
   # can actually see — the callout says so instead of passing them off
   # as global. nil on an unexpected read error: the callout keeps the
-  # unconditional consequence line. The stopped-fee reach (stopped
-  # instances at `stopped_monthly_cents`) is a refinement.
+  # unconditional consequence line.
   defp price_reach(size_id, admin) do
     now = DateTime.utc_now()
 
@@ -207,7 +206,7 @@ defmodule FluxValeWeb.AdminLive.SizeEdit do
         flash =
           if frozen_rejection?(error_form) do
             gettext(
-              "The action rejected the move. This allocation is frozen while versions point at it."
+              "The action rejected the move. This compute is frozen while versions point at it."
             )
           else
             gettext("Could not save the allocation. Check the errors below.")
@@ -226,7 +225,7 @@ defmodule FluxValeWeb.AdminLive.SizeEdit do
   defp frozen_rejection?(error_form) do
     error_form
     |> AshPhoenix.Form.errors(format: :simple)
-    |> Enum.any?(fn {_field, message} -> message =~ "allocation is frozen" end)
+    |> Enum.any?(fn {_field, message} -> message =~ "frozen" end)
   end
 
   # cpu_cores is a Decimal on the record and a string in the params;
@@ -282,7 +281,9 @@ defmodule FluxValeWeb.AdminLive.SizeEdit do
               <div>
                 <h2 class="text-base font-medium text-ink">{gettext("Prices")}</h2>
                 <p class="mt-1 text-sm text-ink-muted">
-                  {gettext("Prices are business data. Edit them freely.")}
+                  {gettext(
+                    "Prices are business data. Edit them freely. The monthly rate prices this compute class. Storage prices per GB on its own axis."
+                  )}
                 </p>
               </div>
 
@@ -328,13 +329,6 @@ defmodule FluxValeWeb.AdminLive.SizeEdit do
                   label={gettext("Monthly rate (US cents)")}
                   data-testid="admin-size-price-monthly"
                 />
-                <.input
-                  field={@price_form[:stopped_monthly_cents]}
-                  type="number"
-                  min="0"
-                  label={gettext("Stopped rate (US cents)")}
-                  data-testid="admin-size-price-stopped"
-                />
                 <.button type="submit" data-testid="admin-size-price-save">
                   {gettext("Save prices")}
                 </.button>
@@ -344,14 +338,14 @@ defmodule FluxValeWeb.AdminLive.SizeEdit do
             <%!-- Allocation: the freeze as UI. Locked sizes render
             filled read-only fields behind a Locked chip, with the
             count and the path named in a standard callout — the
-            envelope data, not the warning, is the loudest thing here.
+            compute shape, not the warning, is the loudest thing here.
             Free sizes render a live form and the note that the freeze
             is one pointing-version away. --%>
             <.card class="space-y-4" data-testid="admin-size-allocation">
               <div>
                 <h2 class="text-base font-medium text-ink">{gettext("Allocation")}</h2>
                 <p class="mt-1 text-sm text-ink-muted">
-                  {gettext("The envelope a version's blueprint must match.")}
+                  {gettext("The compute a version's blueprint must match.")}
                 </p>
               </div>
 
@@ -369,7 +363,7 @@ defmodule FluxValeWeb.AdminLive.SizeEdit do
               >
                 <p>
                   {gettext(
-                    "Its blueprint defaults must keep matching this envelope. Re-point those versions to another size, or retire them in the debug admin. Then this allocation can move."
+                    "Its compute defaults must keep matching this size. Re-point those versions to another size, or retire them in the debug admin. Then this compute can move."
                   )}
                 </p>
               </.callout>
@@ -381,7 +375,7 @@ defmodule FluxValeWeb.AdminLive.SizeEdit do
                 data-testid="admin-size-freeze-open"
               >
                 <p>
-                  {gettext("The allocation is editable now. It freezes once a version points here.")}
+                  {gettext("The compute is editable now. It freezes once a version points here.")}
                 </p>
               </.callout>
 
@@ -406,13 +400,6 @@ defmodule FluxValeWeb.AdminLive.SizeEdit do
                   label={gettext("Memory (MB)")}
                   data-testid="admin-size-alloc-memory"
                 />
-                <.input
-                  field={@allocation_form[:storage_gb]}
-                  type="number"
-                  min="0"
-                  label={gettext("Storage (GB)")}
-                  data-testid="admin-size-alloc-storage"
-                />
                 <.button type="submit" data-testid="admin-size-alloc-save">
                   {gettext("Save allocation")}
                 </.button>
@@ -435,12 +422,6 @@ defmodule FluxValeWeb.AdminLive.SizeEdit do
                   <p class="mb-1.5 text-sm font-medium text-ink-muted">{gettext("Memory (MB)")}</p>
                   <div class="rounded-control border border-line bg-panel-raised px-3 py-2 text-sm text-ink">
                     {@size.memory_mb}
-                  </div>
-                </div>
-                <div data-testid="admin-size-alloc-storage">
-                  <p class="mb-1.5 text-sm font-medium text-ink-muted">{gettext("Storage (GB)")}</p>
-                  <div class="rounded-control border border-line bg-panel-raised px-3 py-2 text-sm text-ink">
-                    {@size.storage_gb}
                   </div>
                 </div>
               </div>

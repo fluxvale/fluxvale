@@ -81,7 +81,7 @@ defmodule FluxValeWeb.CatalogLive.IndexTest do
     assert has_element?(
              view,
              "#app-#{app.id} [data-testid='from-price']",
-             "from #{Pricing.format_monthly_rate(233)}"
+             "from #{Pricing.format_monthly_rate(233)} plus storage"
            )
 
     Size.update!(cheapest, %{monthly_cents: 99}, authorize?: false)
@@ -93,13 +93,13 @@ defmodule FluxValeWeb.CatalogLive.IndexTest do
     assert has_element?(
              repriced_view,
              "#app-#{app.id} [data-testid='from-price']",
-             "from #{Pricing.format_monthly_rate(99)}"
+             "from #{Pricing.format_monthly_rate(99)} plus storage"
            )
 
     refute has_element?(
              repriced_view,
              "#app-#{app.id} [data-testid='from-price']",
-             "from #{Pricing.format_monthly_rate(233)}"
+             "from #{Pricing.format_monthly_rate(233)} plus storage"
            )
   end
 
@@ -132,7 +132,7 @@ defmodule FluxValeWeb.CatalogLive.IndexTest do
     assert has_element?(
              view,
              "#app-#{app.id} [data-testid='from-price']",
-             "from #{Pricing.format_monthly_rate(0)}"
+             "from #{Pricing.format_monthly_rate(0)} plus storage"
            )
   end
 

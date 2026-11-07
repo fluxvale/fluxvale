@@ -23,15 +23,16 @@ defmodule FluxVale.TestSupport.InstanceFixtures do
   @doc """
   Creates a category → app → version chain. `attrs` override the
   AppVersion defaults (image, port, env maps, resource defaults) plus
-  the fabricated size's prices (`monthly_cents`, `stopped_monthly_cents`
-  — #121's settlement tests pin them), the App's `file_access`
-  (#190's snapshot tests), and the App's `slug` (#232's wake-metric
-  label is the catalog slug — tests pin it readable).
+  the fabricated size's `monthly_cents` (#121's settlement tests pin
+  it; the stopped rate prices from the storage axis, #558), the App's
+  `file_access` (#190's snapshot tests), and the App's `slug` (#232's
+  wake-metric label is the catalog slug — tests pin it readable).
 
-  The version contract (#125) requires a `recommended_size` equal to the
-  version's allocation — one is fabricated to match the effective
-  defaults (resource defaults + `attrs` overrides), so callers never
-  hand-sync the two.
+  The version contract (#125, #558) requires a `recommended_size`
+  whose compute equals the version's cpu/memory defaults — one is
+  fabricated to match, so callers never hand-sync the two. The
+  version's `default_storage_gb` is the app's own storage default,
+  priced per GB on its axis.
   """
   @spec app_version!(map()) :: AppVersion.t()
   def app_version!(attrs \\ %{}) do
@@ -40,7 +41,6 @@ defmodule FluxVale.TestSupport.InstanceFixtures do
     {pricing, version_attrs} =
       Map.split(Map.new(attrs), [
         :monthly_cents,
-        :stopped_monthly_cents,
         :file_access,
         :app_slug,
         :icon_url
@@ -86,9 +86,7 @@ defmodule FluxVale.TestSupport.InstanceFixtures do
           slug: "test-#{n}",
           cpu_cores: version_attrs.default_cpu_cores,
           memory_mb: version_attrs.default_memory_mb,
-          storage_gb: version_attrs.default_storage_gb,
-          monthly_cents: Map.get(pricing, :monthly_cents, 100),
-          stopped_monthly_cents: Map.get(pricing, :stopped_monthly_cents, 10)
+          monthly_cents: Map.get(pricing, :monthly_cents, 100)
         },
         authorize?: false
       )

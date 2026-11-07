@@ -1,8 +1,11 @@
 defmodule FluxVale.Pricing.Size do
   @moduledoc """
-  Size — a priceable allocation envelope (#125): the flat monthly rate a
-  running instance pays (ADR-0028's price = f(allocation)) plus the
-  storage-only fee while stopped (ADR-0028 §2).
+  Size — a compute class (#125, storage decoupled by #558): a named
+  CPU + memory shape and the flat monthly rate that shape costs while
+  running. Storage is NOT part of a size (the #558 decoupling): it
+  prices per gigabyte on its own axis, so the row carries no storage
+  and no stopped rate — a stopped instance pays only for its storage
+  (ADR-0028 §2), which a compute class cannot know.
 
   Seeded from the market anchor curve — the category's proven
   willingness-to-pay point (ADR-0028; the named source stays out of
@@ -70,21 +73,10 @@ defmodule FluxVale.Pricing.Size do
       constraints(min: 1)
     end
 
-    # 0 is legal: config-only apps on a ~100 MB overlay (the anchor's floor).
-    attribute :storage_gb, :integer do
-      allow_nil?(false)
-      public?(true)
-      constraints(min: 0)
-    end
-
-    # Integer US cents — 1 credit = 1 US cent (docs/product.md).
+    # The compute class's running rate. Storage prices on its own axis
+    # (#558): no storage attribute, no stopped rate — stopped pays
+    # storage only, which the class cannot know.
     attribute :monthly_cents, :integer do
-      allow_nil?(false)
-      public?(true)
-      constraints(min: 0)
-    end
-
-    attribute :stopped_monthly_cents, :integer do
       allow_nil?(false)
       public?(true)
       constraints(min: 0)
@@ -96,13 +88,13 @@ defmodule FluxVale.Pricing.Size do
 
     create :create do
       primary?(true)
-      accept([:slug, :cpu_cores, :memory_mb, :storage_gb, :monthly_cents, :stopped_monthly_cents])
+      accept([:slug, :cpu_cores, :memory_mb, :monthly_cents])
     end
 
     update :update do
       primary?(true)
       # slug is the identity seeds look up by — immutable after create.
-      accept([:cpu_cores, :memory_mb, :storage_gb, :monthly_cents, :stopped_monthly_cents])
+      accept([:cpu_cores, :memory_mb, :monthly_cents])
 
       # Single-row admin/seed write; ValidateAllocationFrozen probes
       # referencing versions, which can't be one atomic expression.

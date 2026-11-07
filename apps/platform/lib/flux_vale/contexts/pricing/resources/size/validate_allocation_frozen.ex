@@ -1,16 +1,18 @@
 defmodule FluxVale.Pricing.Size.ValidateAllocationFrozen do
   @moduledoc """
-  A size's allocation freezes while versions point at it (#125).
+  A size's compute freezes while versions point at it (#125, storage
+  decoupled by #558).
 
   The version-side half of the coherence contract lives in
-  `FluxVale.Catalog.AppVersion.ValidateSizeMatchesAllocation` (a version's
-  defaults must equal its recommended size). This is the size-side half:
-  repricing (cents) is free — the whole point of prices-as-data — but a
-  reallocation of a referenced size from an admin surface would silently
-  fork every referencing version's billing envelope from its
-  provisioning quota in one write. Rejected: re-point or retire the
-  versions first, then move the size. (The operator edit surface is the
-  console at /admin/catalog, which explains this validation instead of
+  `FluxVale.Catalog.AppVersion.ValidateSizeMatchesAllocation` (a
+  version's compute defaults must equal its recommended size). This is
+  the size-side half: repricing (cents) is free — the whole point of
+  prices-as-data — but a compute reallocation of a referenced size
+  from an admin surface would silently fork every referencing
+  version's billing envelope from its provisioning quota in one
+  write. Rejected: re-point or retire the versions first, then move
+  the size. (The operator edit surface is the console at
+  /admin/catalog, which explains this validation instead of
   bypassing it; the generated admin at /admin/ash is the debug
   fallback.)
 
@@ -29,23 +31,20 @@ defmodule FluxVale.Pricing.Size.ValidateAllocationFrozen do
   @impl Validation
   def validate(changeset, _opts, _context) do
     if allocation_changing?(changeset) and referenced?(changeset.data.id) do
-      {:error,
-       field: :cpu_cores, message: "allocation is frozen while versions reference this size"}
+      {:error, field: :cpu_cores, message: "compute is frozen while versions reference this size"}
     else
       :ok
     end
   end
 
-  # Only a changed dimension trips the freeze — a cents-only reprice is
-  # the admin path this resource exists for.
+  # Only a changed compute dimension trips the freeze — a cents-only
+  # reprice is the admin path this resource exists for.
   defp allocation_changing?(changeset) do
     cpu = get(changeset, :cpu_cores)
     memory_mb = get(changeset, :memory_mb)
-    storage_gb = get(changeset, :storage_gb)
 
     not Decimal.eq?(cpu, changeset.data.cpu_cores) or
-      memory_mb != changeset.data.memory_mb or
-      storage_gb != changeset.data.storage_gb
+      memory_mb != changeset.data.memory_mb
   end
 
   defp get(changeset, field), do: Ash.Changeset.get_argument_or_attribute(changeset, field)

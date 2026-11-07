@@ -60,8 +60,10 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   // resources → name. The resources step exercises #186's formula
   // pricing with a custom allocation: cpu 1 over Forgejo's `small`
   // recommendation (0.5/512/10), the live estimate repricing to the
-  // v5 B′ curve's $3.91/mo before continuing (#206 — the label also
-  // states billed-hourly). The allocation is selected (#195 —
+  // v5 B′ curve's $3.90/mo before continuing (#206 — the label also
+  // states billed-hourly; #558 rounds the compute and storage axes
+  // independently, so the 1 CPU/512 MB compute plus 10 GB storage
+  // reads 390¢ where the round-the-sum figure was 391¢). The allocation is selected (#195 —
   // sliders + quick picks, no text field) and rungs-only (#221): the
   // range input addresses the ladder by index, so `fill("2")` sets
   // cpu to its third rung (1 core); `fill` sets a range input's
@@ -73,9 +75,9 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   await page.getByTestId("continue-version").click();
   await page.getByTestId("continue-env").click();
   await page.getByTestId("resource-cpu").fill("2");
-  await expect(page.getByTestId("resources-price")).toContainText("$3.91/mo · billed hourly");
+  await expect(page.getByTestId("resources-price")).toContainText("$3.90/mo · billed hourly");
   await page.getByTestId("continue-resources").click();
-  await expect(page.getByTestId("price-summary")).toContainText("$3.91/mo · billed hourly");
+  await expect(page.getByTestId("price-summary")).toContainText("$3.90/mo · billed hourly");
   const name = `e2e-forgejo-${runId}`;
   await page.getByTestId("instance-name").fill(name);
   await page.getByTestId("deploy-submit").click();
@@ -89,12 +91,12 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   await waitForStatus(page, "Running", 12 * 60_000);
 
   // The instance page shows the row's OWN settlement rate (#493 closed
-  // the #206-era gap): this custom-allocation instance bills its $3.91
+  // the #206-era gap): this custom-allocation instance bills its $3.90
   // formula snapshot (#186), and the Details row now says so — the
   // same resolver the accrual prices through. Framing is the same
   // monthly-equivalent/billed-hourly as every surface.
   await expect(page.getByTestId("instance-price")).toContainText(
-    "$3.91/mo · billed hourly",
+    "$3.90/mo · billed hourly",
   );
 
   // The instance URL opens through Traefik (self-signed — ignored at
