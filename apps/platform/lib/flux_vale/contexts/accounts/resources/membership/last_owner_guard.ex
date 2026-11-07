@@ -38,6 +38,19 @@ defmodule FluxVale.Accounts.Membership.LastOwnerGuard do
   @spec refusal_message() :: String.t()
   def refusal_message, do: @refusal_message
 
+  @doc """
+  Whether the errors carry the guard's own field-scoped refusal: a
+  `:role` InvalidAttribute whose message is `refusal_message/0`. The
+  domain seams classify exactly this error and own the flash copy.
+  """
+  @spec refusal?([term()]) :: boolean()
+  def refusal?(errors) do
+    Enum.any?(errors, fn error ->
+      match?(%Ash.Error.Changes.InvalidAttribute{field: :role}, error) and
+        error.message == @refusal_message
+    end)
+  end
+
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
     Ash.Changeset.before_action(changeset, &guard_last_owner/1)

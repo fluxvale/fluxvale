@@ -24,7 +24,7 @@ defmodule FluxVale.Accounts.Operations.RemoveMember do
         :ok
 
       {:error, %Ash.Error.Invalid{errors: errors}} = refusal ->
-        if last_owner_refusal?(errors), do: {:error, :last_owner}, else: refusal
+        if Membership.LastOwnerGuard.refusal?(errors), do: {:error, :last_owner}, else: refusal
 
       {:error, _refused} = refusal ->
         refusal
@@ -34,15 +34,4 @@ defmodule FluxVale.Accounts.Operations.RemoveMember do
   @doc "The plain sentence for the last-owner refusal — the Members tab's flash copy"
   @spec guard_message :: String.t()
   def guard_message, do: @guard_message
-
-  # The guard's field-scoped message, read from the resource (one
-  # constant, no fork — the ActorIsOrganizationOwner delegation stance).
-  # Any other Invalid error (a cast failure on :role, say) fails the
-  # first arm and bubbles as the raw refusal.
-  defp last_owner_refusal?(errors) do
-    Enum.any?(errors, fn error ->
-      match?(%Ash.Error.Changes.InvalidAttribute{field: :role}, error) and
-        error.message == Membership.LastOwnerGuard.refusal_message()
-    end)
-  end
 end
