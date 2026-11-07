@@ -144,8 +144,13 @@
 
 /* ---- Sidebar rail (section + article pages) ---- */
 
+/* minmax(0, 1fr) on every breakpoint: a grid item's min-width: auto
+ * would let a long unwrapped code line (cli.md's curl one-liners)
+ * force the column past the viewport — 0 lets pre's overflow-x own
+ * the scroll instead of the page. */
 .docs-with-nav {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2.5rem;
 }
 
