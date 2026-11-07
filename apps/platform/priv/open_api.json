@@ -192,15 +192,6 @@
           "not_eq": {
             "type": "string"
           },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "string"
-          },
           "string_ends_with": {
             "type": "string"
           },
@@ -252,17 +243,6 @@
             "type": "string"
           },
           "not_eq": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "format": "uuid",
             "type": "string"
           }
@@ -340,23 +320,6 @@
               "custom"
             ],
             "type": "string"
-          },
-          "range_adjacent": {
-            "enum": [
-              "platform",
-              "custom"
-            ],
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "enum": [
-              "platform",
-              "custom"
-            ],
-            "type": "string"
           }
         },
         "type": "object"
@@ -403,17 +366,6 @@
             "type": "string"
           },
           "not_eq": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "format": "uuid",
             "type": "string"
           }
@@ -510,29 +462,6 @@
             "type": "string"
           },
           "not_eq": {
-            "enum": [
-              "pending",
-              "verified",
-              "suspended",
-              "failed",
-              "needs_attention"
-            ],
-            "type": "string"
-          },
-          "range_adjacent": {
-            "enum": [
-              "pending",
-              "verified",
-              "suspended",
-              "failed",
-              "needs_attention"
-            ],
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "enum": [
               "pending",
               "verified",
@@ -2805,15 +2734,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
