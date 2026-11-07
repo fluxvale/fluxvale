@@ -125,7 +125,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     assert has_element?(
              view,
              "[data-testid='version-price-#{version.version}']",
-             "$1.00/mo · billed hourly"
+             "$1.40/mo · billed hourly"
            )
 
     assert html =~ "published"

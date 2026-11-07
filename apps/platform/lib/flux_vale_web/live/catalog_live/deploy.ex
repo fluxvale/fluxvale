@@ -223,7 +223,10 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                       class="ml-1 font-mono text-xs text-ink-subtle"
                       data-testid={"version-price-#{version.version}"}
                     >
-                      {FluxVale.Pricing.format_monthly_rate(version.recommended_size.monthly_cents)}
+                      <%!-- #558: the version's whole recommendation — the
+                      compute class plus its own storage default, the
+                      same figure the catalog card badge quotes. --%>
+                      {version_price(version)}
                     </span>
                   </span>
                 </label>
@@ -970,6 +973,15 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   # The sub-line under a preset's slug (#558): its compute shape — the
   # price beside it is the compute rate, and storage rides the user's
   # own rung on the axis.
+  # The version's whole recommendation (#558): the compute class's rate
+  # plus the storage axis at the version's own default — the same
+  # figure the catalog card badge quotes. The caller's :if guards the
+  # sizeless shape; version_rates/1 prices it.
+  defp version_price(version) do
+    rates = FluxVale.Pricing.version_rates(version)
+    FluxVale.Pricing.format_monthly_rate(rates.monthly_cents)
+  end
+
   defp size_allocation(size) do
     "#{decimal_string(size.cpu_cores)} CPU · #{size.memory_mb} MB + your storage"
   end

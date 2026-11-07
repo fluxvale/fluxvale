@@ -50,20 +50,34 @@ SG box exists).
 
 ## The table
 
-Prices are whole US cents (1 credit = 1 US cent), rounded half-up from
-curve v5 (= v4 × 1.2) at each size's allocation. Live in
+Prices are whole US cents (1 credit = 1 US cent), rounded half-up
+per axis (#558: the compute rate and the storage rate round
+independently and sum — a decomposed quote can never differ from the
+whole-allocation call; at the reference points below this reproduces
+the historical round-the-sum figures exactly, except `pro` + 100 GB
+which reads 1607¢ where the bundled figure was 1606¢). Live in
 `priv/repo/seeds/pricing_data.yaml`; the shipped Forgejo version
 recommends `small`. Shown everywhere as a monthly-equivalent rate,
 billed hourly (#206).
 
-| slug | CPU | RAM | Storage | $/mo running | stopped ¢/mo |
-|---|---|---|---|---|---|
-| micro | 0.25 | 512 MB | 5 GB | 2.83 | 24 |
-| small | 0.5 | 512 MB | 10 GB | 3.35 | 40 |
-| medium | 0.5 | 1 GB | 10 GB | 4.09 | 40 |
-| standard | 1 | 2 GB | 20 GB | 6.21 | 68 |
-| plus | 2 | 4 GB | 50 GB | 9.96 | 135 |
-| pro | 4 | 8 GB | 100 GB | 16.06 | 228 |
+**#558 (2026-11-07): sizes are compute classes.** The table's Storage
+column left the size rows — each app version carries its own honest
+storage default (`catalog_data.yaml`), priced per GB on the axis below.
+The reference totals hold at the historical pairings (a size's compute
+rate plus the axis at its former bundled storage).
+
+| slug | CPU | RAM | $/mo compute | axis at former storage ¢/mo |
+|---|---|---|---|---|
+| micro | 0.25 | 512 MB | 2.59 | 24 (5 GB) |
+| small | 0.5 | 512 MB | 2.95 | 40 (10 GB) |
+| medium | 0.5 | 1 GB | 3.69 | 40 (10 GB) |
+| standard | 1 | 2 GB | 5.53 | 68 (20 GB) |
+| plus | 2 | 4 GB | 8.61 | 135 (50 GB) |
+| pro | 4 | 8 GB | 13.79 | 228 (100 GB) |
+
+The storage axis (the curve's storage term, also the stopped fee at
+any storage): 5 GB → 24¢, 10 → 40¢, 20 → 68¢, 50 → 135¢, 100 → 228¢
+per month.
 
 **#233's proposed top rungs (beyond `pro`) are REJECTED** — owner
 ruling on [#399](https://github.com/fluxvale/fluxvale/issues/399): the
