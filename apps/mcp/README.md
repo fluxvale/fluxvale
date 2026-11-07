@@ -1,33 +1,70 @@
 # fluxvale-mcp
 
-The FluxVale MCP server: FluxVale as tools for AI agents. Slice W2a of
-[#484](https://github.com/fluxvale/fluxvale/issues/484) — the server
-core: rmcp streamable HTTP over the shared `/api/v1` client crate
-(`crates/fluxvale-api`), personal access token (PAT) passthrough, and
-the first five read tools.
+The FluxVale MCP server: FluxVale as tools for AI agents. Slices W2a
++ W2b of [#484](https://github.com/fluxvale/fluxvale/issues/484) —
+the server core (rmcp streamable HTTP over the shared `/api/v1`
+client crate `crates/fluxvale-api`, personal access token passthrough,
+the read tools) plus the write surface: deploy through destroy, the
+destructive pair elicitation-gated.
 
-## The tools (W2a)
+## The tools (W2a + W2b)
 
-| Tool | Answers |
-| --- | --- |
-| `whoami` | The identity the token carries — user id, email, platform role, username, organizations (id/slug/name). |
-| `apps_list` | The deployable app catalog, one entry per app. |
-| `apps_show` | One catalog app by its URL slug. |
-| `instances_list` | Your instances, one entry each. |
-| `instances_status` | One instance's full detail by id — or, with no id, the verbose list. |
+| Tool | Scope | Answers |
+| --- | --- | --- |
+| `whoami` | any | The identity the token carries — user id, email, platform role, username, organizations (id/slug/name). |
+| `apps_list` | `catalog:read` | The deployable app catalog, one entry per app. |
+| `apps_show` | `catalog:read` | One catalog app by its URL slug. |
+| `instances_list` | `instances:read` | Your instances, one entry each. |
+| `instances_status` | `instances:read` | One instance's full detail by id — or, with no id, the verbose list. |
+| `instances_deploy` | `instances:write` | Deploy an app: resolve the slug, pick the newest published version (or an exact one), create the instance, enqueue the deploy. |
+| `instances_stop` | `instances:write` | Scale to zero — the pause (storage keeps accruing). |
+| `instances_start` | `instances:write` | Start a stopped/sleeping instance back up. |
+| `instances_destroy` | `instances:write` — **confirm-gated** | Destroy an instance and all its data, after a yes/no confirmation. |
+| `backups_status` | `backups:read` | An instance's backup settings + latest run. |
+| `backups_configure` | `backups:write` | Save the backup destination (identifiers only — see below). |
+| `backups_run` | `backups:write` | Run a backup now. |
+| `backups_restore` | `backups:write` — **confirm-gated** | Restore a volume from the newest successful backup, after a yes/no confirmation. |
+| `wallet_balance` | `wallet:read` | The org wallet row. |
+| `wallet_runway` | `wallet:read` | The runway projection (burn rate, hours left). |
+| `wallet_ledger` | `wallet:read` | The ledger history, keyset-paginated (`next_cursor`). |
+| `topup` | any | The panel's top-up URL — a pointer for the human, no API call. |
 
-Tools are scope-filtered: `tools/list` offers only what the token's
-scopes cover (`whoami` for any live token, the apps pair under
-`catalog:read`, the instances pair under `instances:read`; a write
-scope implies its read). A probe failure fails the whole `tools/list`;
-only an explicit 403 hides a domain. The platform's own 403 is the
-real enforcement — a filtered-out tool called directly still refuses,
-with the API's own message.
+Tools are scope-filtered: `tools/list` reads the calling token's
+EXACT scope list from GET /me's `meta.scopes` (one upstream read) and
+offers only what it covers — `whoami`/`topup` for any live token,
+each domain's tools under its scope, and a domain's `write` scope
+implies its `read`. A zero-scope token still gets the scopeless pair.
+The platform's own 403s are the real enforcement — a filtered-out
+tool called directly still refuses, with the API's own message
+verbatim (the funded-wallet gate included: agents hit the same gate
+as the UI, no exceptions).
 
 Note that trace-level logging is unsafe on this server: a dependency
 dumps HTTP heads at trace, the Authorization header included — cap at
 `debug` (`RUST_LOG=info` is the default, and `ureq_proto` is pinned to
 `info` regardless).
+
+## Destructive tools: elicitation, honestly
+
+`instances_destroy` and `backups_restore` confirm before acting. The
+mechanism is the MCP stateless-protocol elicitation (SEP-2322): the
+first call answers with a yes/no confirm question naming the target;
+the verb only runs when the client's answer is an explicit "yes".
+"No", declining, or cancelling answers `cancelled. Nothing was
+changed.` The confirmed target rides a sealed state blob that is
+HMAC-bound to the calling token and expires after ten minutes — a
+re-sent confirmation cannot steer a different id, and a seal from
+another token never opens.
+
+A client that cannot confirm at all — anything not on the
+2026-07-28 stateless protocol revision with the elicitation
+capability declared — gets an honest error instead: `this client
+cannot confirm destructive actions … or the panel. Nothing was
+changed`. Never a silent no-op, never a crash, and the verb never
+runs. Clients known to drive the full flow: rmcp-based clients (the
+SDK retries the call with the answer automatically) and current
+Claude clients; when in doubt, the panel's destroy/restore is the
+fallback.
 
 ## Auth: PAT passthrough, nothing stored
 
@@ -39,7 +76,9 @@ The server holds no tokens, no session state, no secrets: no env-var
 token, no keychain. Mint a PAT in the panel with the scopes you want
 the agent to have.
 
-No tool parameter ever carries a secret — identifiers only.
+No tool parameter ever carries a secret — identifiers only. The
+backup destination's S3 secret key and restic password are write-only
+(#503): they are set in the panel and never ride this surface.
 
 ## Running
 
@@ -86,9 +125,6 @@ slice runs local only.
 
 ## Coming later (not in this slice)
 
-- **W2b** — the write tools (deploy/stop/start, backups, gateway) with
-  the destructive pair's confirmation flow, plus scope re-checks per
-  write dispatch.
 - **W3** — the container image, deployment, and the MCP gateway in
   front of it.
 

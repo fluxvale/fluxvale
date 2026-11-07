@@ -1,54 +1,53 @@
 //! The tool catalog's scope rule, replicated from the platform's own
 //! `FluxVale.Api.Scopes` (#361) as a pure function: which tool needs
 //! which scope, and write-implies-read. Pure — no client, no network —
-//! so the filter decision is testable on its own; the coverage
-//! (what the token may actually do) comes from the platform, which is
-//! the real enforcement either way.
+//! so the filter decision is testable on its own; the coverage (what
+//! the token may actually do) is the calling token's own scope list
+//! from GET /me's `meta.scopes` (#585, W2b), which is the real
+//! enforcement either way — the platform's 403s decide at the route.
 
 /// The required scope for a catalog tool name. `None` is the /me
 /// posture: any live token (identity reads are scopeless, scopes.ex's
-/// `:any`). Write tools (W2b) will land here with their `:write`
-/// scopes.
+/// `:any`). The write tools carry the domain's `:write` scope; the
+/// destructive pair is `instances:write`/`backups:write` like every
+/// other write of its domain — the elicitation gate is on top of the
+/// scope, not instead of it.
 pub(crate) fn required_scope(tool: &str) -> Option<&'static str> {
     match tool {
-        "whoami" => None,
+        "whoami" | "topup" => None,
         "apps_list" | "apps_show" => Some("catalog:read"),
         "instances_list" | "instances_status" => Some("instances:read"),
+        "instances_deploy" | "instances_stop" | "instances_start" | "instances_destroy" => {
+            Some("instances:write")
+        }
+        "backups_status" => Some("backups:read"),
+        "backups_configure" | "backups_run" | "backups_restore" => Some("backups:write"),
+        "wallet_balance" | "wallet_runway" | "wallet_ledger" => Some("wallet:read"),
         // Deny-by-default: a name outside the catalog is never visible.
         _ => Some(""),
     }
 }
 
-/// The scope set the tools/list probes discovered — the domains whose
-/// reads passed at the platform's own boundary. The write-implies-read
-/// rule is already inside these answers (a write-scoped token passes
-/// the read probe); this is the honest scope knowledge the wire gives.
-pub(crate) fn coverage(catalog_read: bool, instances_read: bool) -> Vec<&'static str> {
-    [
-        ("catalog:read", catalog_read),
-        ("instances:read", instances_read),
-    ]
-    .into_iter()
-    .filter_map(|(scope, ok)| ok.then_some(scope))
-    .collect()
-}
-
-/// Is `tool` in the catalog, and does the discovered coverage cover
-/// it? The tools/list filter: `whoami` always; anything else asks the
-/// platform's grant rule ([`grants`]) against what the probes found.
-/// Unknown tools are never visible.
-pub(crate) fn tool_visible(tool: &str, discovered: &[&str]) -> bool {
+/// Is `tool` in the catalog, and does the token's granted scope list
+/// cover it? The tools/list filter: the /me-scopeless pair always;
+/// anything else asks the platform's grant rule ([`grants`]) against
+/// the exact list /me reported. Unknown tools are never visible.
+pub(crate) fn tool_visible(tool: &str, granted: &[String]) -> bool {
     match required_scope(tool) {
         None => true,
-        Some(required) => grants(discovered, required),
+        Some("") => false,
+        Some(required) => grants(granted, required),
     }
 }
 
 /// Does `granted` cover `required`? An exact match always does, and a
 /// domain's `write` grant covers its `read` scope — write implies
 /// read (`Scopes.grants?`'s rule). `read` never implies `write`.
-pub(crate) fn grants(granted: &[&str], required: &str) -> bool {
-    granted.contains(&required) || granted.contains(&write_counterpart(required).as_str())
+pub(crate) fn grants(granted: &[String], required: &str) -> bool {
+    let write_counterpart = write_counterpart(required);
+    granted
+        .iter()
+        .any(|scope| scope == required || scope == &write_counterpart)
 }
 
 /// "instances:read" → "instances:write". For anything that isn't a
@@ -66,91 +65,154 @@ mod tests {
     use super::*;
 
     /// The catalog, in tools/list order (rmcp's list_all sorts by name).
-    const CATALOG: [&str; 5] = [
+    const CATALOG: [&str; 17] = [
         "apps_list",
         "apps_show",
+        "backups_configure",
+        "backups_restore",
+        "backups_run",
+        "backups_status",
+        "instances_deploy",
+        "instances_destroy",
         "instances_list",
+        "instances_start",
         "instances_status",
+        "instances_stop",
+        "topup",
+        "wallet_balance",
+        "wallet_ledger",
+        "wallet_runway",
         "whoami",
     ];
 
+    fn granted(scopes: &[&str]) -> Vec<String> {
+        scopes.iter().map(|scope| scope.to_string()).collect()
+    }
+
     fn visible(scopes: &[&str]) -> Vec<&'static str> {
-        // The full-scope discovery: the coverage a token's scopes give.
-        let discovered = coverage(
-            grants(scopes, "catalog:read"),
-            grants(scopes, "instances:read"),
-        );
+        let granted = granted(scopes);
         CATALOG
             .into_iter()
-            .filter(|tool| tool_visible(tool, &discovered))
+            .filter(|tool| tool_visible(tool, &granted))
             .collect()
     }
 
     #[test]
-    fn a_full_scope_token_sees_all_five_tools() {
-        let tools = visible(&["catalog:read", "instances:read"]);
-        assert_eq!(tools.len(), 5);
-        assert!(tools.contains(&"whoami"));
+    fn a_full_scope_token_sees_all_seventeen_tools() {
+        assert_eq!(
+            visible(&[
+                "catalog:read",
+                "instances:read",
+                "instances:write",
+                "backups:read",
+                "backups:write",
+                "wallet:read"
+            ])
+            .len(),
+            17
+        );
     }
 
     #[test]
-    fn a_catalog_only_token_sees_whoami_and_the_apps_pair() {
-        let tools = visible(&["catalog:read"]);
-        assert_eq!(tools, ["apps_list", "apps_show", "whoami"]);
+    fn a_catalog_only_token_sees_the_apps_pair_and_the_scopeless_pair() {
+        assert_eq!(
+            visible(&["catalog:read"]),
+            ["apps_list", "apps_show", "topup", "whoami"]
+        );
     }
 
     #[test]
-    fn an_instances_only_token_sees_whoami_and_the_instances_pair() {
-        let tools = visible(&["instances:read"]);
-        assert_eq!(tools, ["instances_list", "instances_status", "whoami"]);
+    fn an_instances_only_token_sees_the_instances_family() {
+        // Read scope: the reads, never the write verbs.
+        assert_eq!(
+            visible(&["instances:read"]),
+            ["instances_list", "instances_status", "topup", "whoami"]
+        );
     }
 
     #[test]
-    fn a_token_with_no_matching_scopes_still_gets_whoami() {
-        // The protocol stays; tools/list just omits what it can't call.
-        assert_eq!(visible(&[]), ["whoami"]);
-        assert_eq!(visible(&["wallet:read", "backups:write"]), ["whoami"]);
-    }
-
-    #[test]
-    fn write_implies_read_for_its_domain() {
-        // An instances:write token passes the instances:read probe at
-        // the platform (Scopes.grants?); the filter honors the same rule.
-        assert!(grants(&["instances:write"], "instances:read"));
-        assert!(grants(&["gateways:write"], "gateways:read"));
+    fn write_implies_read_and_unlocks_the_domains_verbs() {
+        // An instances:write token: the deploy/stop/start/destroy verbs
+        // AND the instances reads (write implies read) — but nothing
+        // else.
+        assert_eq!(
+            visible(&["instances:write"]),
+            [
+                "instances_deploy",
+                "instances_destroy",
+                "instances_list",
+                "instances_start",
+                "instances_status",
+                "instances_stop",
+                "topup",
+                "whoami"
+            ]
+        );
         // Read never implies write.
-        assert!(!grants(&["instances:read"], "instances:write"));
-        // Unrelated domains don't cover.
-        assert!(!grants(&["wallet:read"], "instances:read"));
-        // An exact match always does.
-        assert!(grants(&["catalog:read"], "catalog:read"));
+        assert!(!grants(&granted(&["instances:read"]), "instances:write"));
+        // Unrelated domains don't cover; an exact match does.
+        assert!(!grants(&granted(&["wallet:read"]), "instances:read"));
+        assert!(grants(&granted(&["backups:write"]), "backups:write"));
+    }
+
+    #[test]
+    fn a_token_with_no_scopes_still_gets_the_scopeless_pair() {
+        // The protocol stays; tools/list just omits what it can't call.
+        // /me renders a zero-scope PAT's list as [], never an omission.
+        assert_eq!(visible(&[]), ["topup", "whoami"]);
+        assert_eq!(visible(&["gateways:read"]), ["topup", "whoami"]);
+    }
+
+    #[test]
+    fn the_backups_and_wallet_families_gate_on_their_domains() {
+        assert_eq!(
+            visible(&["backups:read"]),
+            ["backups_status", "topup", "whoami"]
+        );
+        // backups:write implies backups:read (the status tool rides along).
+        assert_eq!(
+            visible(&["backups:write"]),
+            [
+                "backups_configure",
+                "backups_restore",
+                "backups_run",
+                "backups_status",
+                "topup",
+                "whoami"
+            ]
+        );
+        assert_eq!(
+            visible(&["wallet:read"]),
+            [
+                "topup",
+                "wallet_balance",
+                "wallet_ledger",
+                "wallet_runway",
+                "whoami"
+            ]
+        );
     }
 
     #[test]
     fn required_scope_names_the_catalog_rule() {
         assert_eq!(required_scope("whoami"), None);
+        assert_eq!(required_scope("topup"), None);
         assert_eq!(required_scope("apps_list"), Some("catalog:read"));
-        assert_eq!(required_scope("apps_show"), Some("catalog:read"));
-        assert_eq!(required_scope("instances_list"), Some("instances:read"));
-        assert_eq!(required_scope("instances_status"), Some("instances:read"));
+        assert_eq!(required_scope("instances_deploy"), Some("instances:write"));
+        assert_eq!(required_scope("instances_destroy"), Some("instances:write"));
+        assert_eq!(required_scope("backups_status"), Some("backups:read"));
+        assert_eq!(required_scope("backups_restore"), Some("backups:write"));
+        assert_eq!(required_scope("wallet_ledger"), Some("wallet:read"));
     }
 
     #[test]
     fn unknown_tools_are_never_visible() {
         // Deny-by-default: no name outside the catalog sneaks through,
-        // whatever the coverage.
+        // whatever the granted list.
         assert!(!tool_visible(
-            "wallet_balance",
-            &["catalog:read", "instances:read"]
+            "set_instance_exposure",
+            &granted(&["instances:write"])
         ));
-        assert_eq!(required_scope("destroy_instance"), Some(""));
-    }
-
-    #[test]
-    fn coverage_collects_only_the_passed_domains() {
-        assert_eq!(coverage(true, true), ["catalog:read", "instances:read"]);
-        assert_eq!(coverage(true, false), ["catalog:read"]);
-        assert_eq!(coverage(false, true), ["instances:read"]);
-        assert!(coverage(false, false).is_empty());
+        assert_eq!(required_scope("create_gateway"), Some(""));
     }
 }

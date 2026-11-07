@@ -1,7 +1,8 @@
-//! The FluxVale MCP server — slice W2a of #484: rmcp streamable HTTP
-//! over the shared `/api/v1` client, PAT passthrough, the first five
-//! read tools. Write tools, destructive gating, and deployment are
-//! W2b/W3.
+//! The FluxVale MCP server — slice W2a of #484 (rmcp streamable HTTP
+//! over the shared `/api/v1` client, PAT passthrough, the read
+//! tools) plus W2b's write surface: deploy through destroy, the
+//! destructive pair elicitation-gated, and the /me `meta.scopes`
+//! filter. Deployment is W3.
 //!
 //! Auth holds nothing: the client sends its PAT per request
 //! (`Authorization: Bearer fvpat_…`, how remote MCP clients are
@@ -9,6 +10,7 @@
 //! forgets it. No token storage, no env token, no keychain.
 
 mod auth;
+mod elicit;
 mod scopes;
 mod server;
 #[cfg(test)]

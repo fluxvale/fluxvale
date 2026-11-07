@@ -31,13 +31,19 @@ impl CannedApi {
 
 /// Serve canned `(path, status, body)` responses until dropped. A path
 /// with no entry answers 404 `{}` — the "route doesn't exist" shape.
+///
+/// A route key may carry a method — `"DELETE /api/v1/instances/i1"` —
+/// and then only that method matches it; a bare path matches any
+/// method (the W2a shape). The write verbs share paths with reads
+/// (`GET /instances/i1` vs `DELETE /instances/i1`), which is why the
+/// method-qualified form exists.
 pub(crate) fn serve(routes: &[(&str, u16, String)]) -> CannedApi {
     serve_n(routes, usize::MAX)
 }
 
 /// Like [`serve`], but the listener stops accepting after `accepts`
 /// connections — later calls get connection refused, the transport
-/// error shape the probes' fail-loud arms need.
+/// error shape the fail-loud arms need.
 pub(crate) fn serve_n(routes: &[(&str, u16, String)], accepts: usize) -> CannedApi {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
@@ -65,13 +71,18 @@ pub(crate) fn serve_n(routes: &[(&str, u16, String)], accepts: usize) -> CannedA
                 head.push_str(&String::from_utf8_lossy(&buf[..read]));
             }
             captured.lock().unwrap().push(head.clone());
-            let path = head
-                .lines()
-                .next()
-                .and_then(|line| line.split(' ').nth(1))
-                .unwrap_or("")
-                .to_string();
-            let response = match routes.iter().find(|(route_path, _, _)| path == *route_path) {
+            let request_line = head.lines().next().unwrap_or_default().to_string();
+            let mut parts = request_line.split(' ');
+            let verb = parts.next().unwrap_or_default().to_string();
+            let path = parts.next().unwrap_or("").to_string();
+            let response = match routes
+                .iter()
+                .find(|(route, _, _)| match route.split_once(' ') {
+                    Some((route_verb, route_path)) => {
+                        route_path == path && route_verb.eq_ignore_ascii_case(&verb)
+                    }
+                    None => route == &path,
+                }) {
                 Some((_, status, body)) => format!(
                     "HTTP/1.1 {}\r\nContent-Type: application/vnd.api+json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                     status_line(*status),
@@ -96,9 +107,11 @@ pub(crate) fn serve_n(routes: &[(&str, u16, String)], accepts: usize) -> CannedA
 fn status_line(status: u16) -> &'static str {
     match status {
         200 => "200 OK",
+        201 => "201 Created",
         401 => "401 Unauthorized",
         403 => "403 Forbidden",
         404 => "404 Not Found",
+        422 => "422 Unprocessable Entity",
         429 => "429 Too Many Requests",
         _ => "500 Internal Server Error",
     }
