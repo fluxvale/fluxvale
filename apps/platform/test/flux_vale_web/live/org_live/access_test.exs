@@ -196,6 +196,35 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
     end
   end
 
+  # The account cluster's section sidebar (#551): the personal head
+  # renders it with its own entry marked; the org head keeps the org
+  # rail — one navigation system per surface.
+  describe "the account sidebar" do
+    test "the personal head marks Access current, the other entries quiet", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      assert view.module == FluxValeWeb.OrganizationLive.Access
+
+      assert has_element?(view, "[data-testid='account-settings-sidebar']")
+
+      access = render(element(view, "[data-testid='account-settings-nav-access']"))
+      assert access =~ ~s(aria-current="page")
+      assert access =~ ~s(href="/settings/access")
+
+      for key <- ["profile", "wallet"] do
+        quiet = render(element(view, "[data-testid='account-settings-nav-#{key}']"))
+        refute quiet =~ "aria-current", "#{key} should stay quiet"
+      end
+    end
+
+    test "the org head keeps the org rail — no account sidebar", %{conn: conn, org: org} do
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      assert has_element?(view, "[data-testid='org-settings-tabs']")
+      refute has_element?(view, "[data-testid='account-settings-sidebar']")
+    end
+  end
+
   # The ENABLE describe rides the personal panel (/settings/access): the
   # personal org is the page org there, so its wallet is what the gates
   # and hints read (#408: every mount names its own page org). The actor
