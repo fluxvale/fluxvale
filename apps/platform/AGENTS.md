@@ -38,7 +38,10 @@ This is a web application written using the Phoenix web framework.
   `FluxVale.Checks.Actor<Assertion>` (e.g. `ActorIsPlatformAdmin`) —
   the Ash policy guide's grammar for actor questions. Policy checks and plug-land predicates for the same question share
   one module — the check delegates to the `*_?` predicate — so the
-  notion cannot fork.
+  notion cannot fork. A helper two checks share lives beside them as
+  a plain (non-check) module in the same directory —
+  `Checks.OrgInPlay`, the wallet gates' org resolver — the same
+  boundary rule at one remove.
 - **Ash authorization is on by default** — reads *and* generic actions
   run policies unless `authorize?: false`; no opt-in flag. A no-actor
   or non-admin call is `Forbidden`; bootstrap paths (seeds, test

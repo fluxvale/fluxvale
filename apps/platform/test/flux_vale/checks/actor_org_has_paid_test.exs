@@ -301,7 +301,7 @@ defmodule FluxVale.Checks.ActorOrgHasPaidTest do
     end
 
     test "a relationship-shaped create errors as Required instance_id — never a created row" do
-      # Accepted-with-rationale (the check module's comment): the
+      # Accepted-with-rationale (OrgInPlay's comment): the
       # resolver only sees a concrete `instance_id`. A create shaped
       # through the relationship instead fails the action's own
       # Required validation — the orgless-actor posture — so the actor
