@@ -76,11 +76,12 @@ to the k3d local registry — never docker.io.
   [`apps/platform/AGENTS.md`](apps/platform/AGENTS.md) (#86).
 - CI installs the BEAM via `erlef/setup-beam`, versions **parsed from
   `mise.toml`** — the single source of truth, so CI can't drift from
-  local. (`MISE_LOCKED=1` + mise-action was tried and abandoned:
-  identical lockfile + mise version failed on runners, and linux
-  erlang compiled from source — 15+ min per cache miss.) Never set `locked = true` in project mise config:
-  it applies to every config in scope and breaks teammates' global
-  tools, which can't be in this repo's lockfile.
+  local (`MISE_LOCKED=1` + mise-action was tried and abandoned:
+  runners failed on an identical lockfile + mise version, and linux
+  erlang compiled from source — 15+ min per cache miss). Never set
+  `locked = true` in project mise config: it applies to every config
+  in scope and breaks teammates' global tools, which can't be in this
+  repo's lockfile.
 - credo is exact-pinned: a linter upgrade changes the findings set —
   bumps are deliberate, never a side effect of `deps.update`.
 
@@ -89,15 +90,15 @@ to the k3d local registry — never docker.io.
 1. **Every PR starts in a sibling worktree — docs-only included**
    (`git worktree add ../fluxvale-<topic> -b <type>/<desc> main`):
    implement → `mix ci` green → push → PR (`Closes #N` only when it
-   completes the issue) → card → `In Review`. The main checkout stays on clean, synced `main` — an
-   unfamiliar sha in its `git log` reliably means a maintainer merge
-   (drift signal).
+   completes the issue) → card → `In Review`. The main checkout stays
+   on clean, synced `main` — an unfamiliar sha in its `git log`
+   reliably means a maintainer merge (drift signal).
    **Board moves: verify by read-back** (`gh project item-list`) — a
    CLI echo of what you asked for is not evidence (#6 sat in In
    Progress through a whole PR cycle that way). Prefer the `-id` flag
-   forms — `--single-select-option` without `-id` is not a flag, and
-   the name-based `--field <name> --value <name>` form exists but is
-   not the verified path:
+   forms (`--single-select-option` without `-id` is not a flag; the
+   name-based `--field <name> --value <name>` form exists but is not
+   the verified path):
 
    ```sh
    gh project field-list <N> --owner fluxvale --format json   # Status field + option IDs
@@ -119,23 +120,22 @@ to the k3d local registry — never docker.io.
 4. **Pre-merge freshness**: before asking for the merge, compare the
    run that went green against what `main` looks like now. If any PR
    has merged since that run started, rebase onto `main` and re-run
-   `mix ci` first - skip it only when the intervening merges touch
-   nothing in your dependency cone (same files, tests, or config),
-   and when unsure, re-run. PR checks validate the branch plus the
-   base **as they were when the run started**: a green run does not
-   cover a base that moved underneath it (#131 merged between the
-   accrual and billing-UI checks, and both merged on stale greens
-   that broke on zero-start wallet assertions). Minutes of CI are
-   cheaper than a red `main`.
+   `mix ci` first - skip only when the intervening merges demonstrably
+   touch nothing in your dependency cone (same files, tests, or
+   config), and when unsure, re-run. PR checks validate the branch
+   plus the base **as they were when the run started**: a green run
+   does not cover a base that moved underneath it (two stale-green
+   merges broke on zero-start wallet assertions, #131). Minutes of CI
+   are cheaper than a red `main`.
 5. The maintainer is the final gate, not the first reviewer. On
    approval: squash merge, remove the worktree, delete the branch,
    sync `main`, card → `Done`.
 
 **Verify contents, not just review status**: inspect the complete
 diff **from the target branch** to `HEAD` before pushing, and the
-full `gh pr diff` — never `--name-only` — before merging. A root-level `git add -A` is dangerous where app `.gitignore` files
-don't reach — #15 shipped 363k lines of `node_modules/` to `main` that
-way.
+full `gh pr diff` — never `--name-only` — before merging. A root-level
+`git add -A` is dangerous where app `.gitignore` files don't reach —
+#15 shipped 363k lines of `node_modules/` to `main` that way.
 
 ## PR workflow
 
@@ -150,7 +150,8 @@ way.
 ## AI-review protocol (CodeRabbit)
 
 ~1 review/hour at the 0-star OSS floor, one identity for every PR —
-**one review per PR** (#59). The full discipline lives in the
+**one review per PR** (#59). The full discipline — including the
+rate-limited fallback and the fresh-eyes pre-PR pass — lives in the
 [fluxvale-review-budget
 skill](.agents/skills/fluxvale-review-budget/SKILL.md)
 (`.coderabbit.yaml` guards only the automatic paths).
@@ -159,11 +160,10 @@ skill](.agents/skills/fluxvale-review-budget/SKILL.md)
 - Verify every finding against ground truth: adopt if real, rebut
   with evidence (the commands you ran) if not.
 - Green is **states, not counts** — every `gh pr checks` row `pass`
-  (required CodeRabbit check included; `grep -c pass` prints
-  numbers, not truth). The CodeRabbit check also reads `pass` when
-  rate-limited — pass ≠ reviewed; a rate-limited PR doesn't wait, the
-  skill's agent-review fallback substitutes and the gate is that +
-  green CI.
+  (required CodeRabbit check included; `grep -c pass` prints numbers,
+  not truth). The CodeRabbit check also reads `pass` when
+  rate-limited — pass ≠ reviewed; the skill's agent-review fallback
+  plus green CI is the gate then, and the PR doesn't wait.
 - Then verify **quiescence**: analysis comments land asynchronously
   *after* the check flips green (#19) — re-probe threads/comments
   after a few minutes; only an unchanged state is ready.
