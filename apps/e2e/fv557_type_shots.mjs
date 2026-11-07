@@ -28,10 +28,16 @@ async function signedIn(token, theme) {
   const page = await ctx.newPage();
   await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
   const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
-  await page.request.post(`${BASE}/auth/session`, {
+  const res = await page.request.post(`${BASE}/auth/session`, {
     form: { token },
     headers: { "x-csrf-token": csrf },
   });
+  // A rejected token lands on /sign-in and produces signed-out captures
+  // that look plausible — refuse to capture instead.
+  if (!res.ok() || res.url().includes("/sign-in")) {
+    console.error(`session rejected (${res.status()})`);
+    process.exit(1);
+  }
   return { ctx, page };
 }
 
@@ -58,7 +64,11 @@ for (const [name, path, token] of surfaces) {
     }
     await page.goto(`${BASE}${path}`, { waitUntil: "networkidle" });
     await page.waitForTimeout(900);
-    await page.screenshot({ path: `${outdir}/${name}-${theme}.png`, fullPage: false });
+    await page.screenshot({
+      path: `${outdir}/${name}-${theme}.png`,
+      fullPage: false,
+      animations: "disabled",
+    });
     console.log("captured", `${name}-${theme}.png`);
     await ctx.close();
   }
@@ -71,7 +81,10 @@ await ctx.addInitScript((t) => localStorage.setItem("phx:theme", t), "light");
 const page = await ctx.newPage();
 await page.goto(`${BASE}/about`, { waitUntil: "networkidle" });
 await page.waitForTimeout(900);
-await page.screenshot({ path: `${outdir}/landing-mobile-light.png` });
+await page.screenshot({
+  path: `${outdir}/landing-mobile-light.png`,
+  animations: "disabled",
+});
 console.log("captured", "landing-mobile-light.png");
 await ctx.close();
 

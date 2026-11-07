@@ -11,6 +11,11 @@ const TOKEN_USER = process.env.FV_TOKEN_USER ?? "";
 const outdir = process.argv[2] ?? "/tmp/opencode/fv557-baseline-shots";
 mkdirSync(outdir, { recursive: true });
 
+if (!TOKEN_ADMIN || !TOKEN_USER) {
+  console.error("FV_TOKEN_ADMIN and FV_TOKEN_USER required");
+  process.exit(1);
+}
+
 const browser = await chromium.launch();
 
 async function signedIn(token, theme) {
@@ -19,10 +24,16 @@ async function signedIn(token, theme) {
   const page = await ctx.newPage();
   await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
   const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
-  await page.request.post(`${BASE}/auth/session`, {
+  const res = await page.request.post(`${BASE}/auth/session`, {
     form: { token },
     headers: { "x-csrf-token": csrf },
   });
+  // A rejected token lands on /sign-in and produces signed-out captures
+  // that look plausible — refuse to capture instead.
+  if (!res.ok() || res.url().includes("/sign-in")) {
+    console.error(`session rejected for ${BASE} (${res.status()})`);
+    process.exit(1);
+  }
   return { ctx, page };
 }
 
@@ -43,7 +54,10 @@ for (const [name, path, token] of shots) {
   }
   await page.goto(`${BASE}${path}`, { waitUntil: "networkidle" });
   await page.waitForTimeout(900);
-  await page.screenshot({ path: `${outdir}/${name}.png` });
+  await page.screenshot({
+    path: `${outdir}/${name}.png`,
+    animations: "disabled",
+  });
   console.log("captured", `${name}.png`);
   await ctx.close();
 }
@@ -54,7 +68,7 @@ await ctx.addInitScript((t) => localStorage.setItem("phx:theme", t), "light");
 const page = await ctx.newPage();
 await page.goto(`${BASE}/about`, { waitUntil: "networkidle" });
 await page.waitForTimeout(900);
-await page.screenshot({ path: `${outdir}/landing-mobile.png` });
+await page.screenshot({ path: `${outdir}/landing-mobile.png`, animations: "disabled" });
 console.log("captured", "landing-mobile.png");
 await ctx.close();
 

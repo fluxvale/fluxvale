@@ -32,12 +32,22 @@ if instance do
       |> Ash.Query.filter(id == ^owner_id)
       |> Ash.read_one!(authorize?: false)
     else
-      [membership] =
+      # Team org: any member can view the instance page, so pick a
+      # deterministic one (first by user id) and say which org failed.
+      members =
         FluxVale.Accounts.Membership
         |> Ash.Query.filter(organization_id == ^org.id)
+        |> Ash.Query.sort(user_id: :asc)
         |> Ash.read!(authorize?: false)
 
-      Ash.load!(membership, :user, authorize?: false).user
+      member = List.first(members)
+
+      if is_nil(member) do
+        raise ArgumentError,
+          message: "org #{org.slug} (#{org.id}) has no memberships; cannot mint an owner token"
+      end
+
+      Ash.load!(member, :user, authorize?: false).user
     end
 
   {:ok, user_token, _} = Jwt.token_for_user(user)
