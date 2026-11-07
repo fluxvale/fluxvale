@@ -459,46 +459,73 @@ defmodule FluxValeWeb.Router do
     forward("/", FluxValeWeb.Plugs.TestInboxPreview)
   end
 
-  # The AshAdmin mount (ADR-0027 §2, built with #288; Am. 2 Nov 1,
+  # The admin surface (ADR-0027 §2, built with #288; Am. 3 Nov 7,
   # 2026): ALWAYS MOUNTED in every environment — the runtime
-  # ADMIN_MOUNT_KEY gate is retired; the platform-admin auth IS the
-  # gate. §2's route-level auth: the platform-admin session, the same
-  # stack the TestInbox rides. The on_mount hook re-checks at every
-  # socket mount — a LiveView socket never re-enters the router, so
-  # without it a demoted admin's session token outlives the demotion
-  # for the life of the tab. Which domains render is the §3 opt-in
-  # (`admin show?` per domain, config.exs — Identity/Accounts stay
-  # out); AshAdmin resolves that set at runtime, so nothing about the
-  # exposure is baked into this route.
+  # ADMIN_MOUNT_KEY gate is retired (Am. 2); the platform-admin auth IS
+  # the gate. §2's route-level auth: the platform-admin session, the
+  # same stack the TestInbox rides. Every surface below adds the
+  # on_mount re-check at every socket mount — a LiveView socket never
+  # re-enters the router, so without it a demoted admin's session token
+  # outlives the demotion for the life of the tab. Which domains render
+  # in AshAdmin is the §3 opt-in (`admin show?` per domain, config.exs —
+  # Identity/Accounts stay out); AshAdmin resolves that set at runtime,
+  # so nothing about the exposure is baked into these routes.
   pipeline :admin_auth do
     plug(FluxValeWeb.Plugs.Authenticate)
     plug(FluxValeWeb.Plugs.RequirePlatformAdmin, :html)
   end
 
+  # The scope stays alias-less on purpose: a scope alias would prefix
+  # the FULL module names the macros below compile against — including
+  # AshAdmin's own AshAdmin.PageLive, which it inlines directly in this
+  # scope (unlike live_dashboard, which wraps itself in an
+  # `alias: false` scope) — so `scope "/admin", FluxValeWeb` breaks the
+  # mount. The one module of ours here is fully qualified instead.
   scope "/admin" do
     pipe_through([:browser, :admin_auth])
 
-    # LiveDashboard on the admin surface (the LiveDashboard docs' prod
-    # pattern — no more /dev-only mount): the same triple gate as
-    # AshAdmin below (runtime key -> session auth -> platform-admin
-    # role), plus the SAME on_mount socket re-check — the macro accepts
-    # it and a LiveDashboard LiveView socket never re-enters the
-    # router, so a demoted admin's open tab cannot outlive the gate.
-    # Business telemetry (Telemetry.Metric definitions in
-    # FluxValeWeb.Telemetry) renders here; alert-worthy metrics ALSO
-    # flow to Grafana where the alert rules live.
+    # The custom operator console (Am. 3, #501): the /admin landing is
+    # FluxVale's own surface on the design system — a static map of the
+    # admin surfaces, zero data queries. Its live_session carries the
+    # same two arms for the same two jobs as the app's :authenticated
+    # session: Locale first (the LiveView process re-resolves from the
+    # session), then the AdminGate socket re-check (the demotion
+    # window). The route gate is the scope's :admin_auth pipeline.
+    live_session :admin,
+      on_mount: [
+        {FluxValeWeb.Locale, :set_locale},
+        {FluxValeWeb.AdminGate, :ensure_admin}
+      ] do
+      live("/", FluxValeWeb.AdminLive.Home)
+    end
+
+    # LiveDashboard on the debug subpath (Am. 3): this node's BEAM and
+    # Ecto telemetry, the LiveDashboard docs' prod pattern — no more
+    # /dev-only mount. The SAME triple gate as everything on this
+    # surface (the :browser pipeline, the :admin_auth route pipeline —
+    # session auth plus the platform-admin role — and the on_mount
+    # socket re-check): the macro accepts on_mount and a LiveDashboard
+    # LiveView socket never re-enters the router, so a demoted admin's
+    # open tab cannot outlive the gate. Business telemetry
+    # (Telemetry.Metric definitions in FluxValeWeb.Telemetry) renders
+    # here; alert-worthy metrics ALSO flow to Grafana where the alert
+    # rules live.
     #
     # ORDER MATTERS: this mount must precede ash_admin — AshAdmin's
     # page routes end in a segment wildcard, and router clauses compile
     # in source order: dashboard-after-ash_admin compiles (with a
     # warning) into unreachable clauses, every /admin/* path landing in
     # AshAdmin instead.
-    live_dashboard("/dashboard",
+    live_dashboard("/debug/dashboard",
       metrics: FluxValeWeb.Telemetry,
       ecto_repos: [FluxVale.Repo],
       on_mount: {FluxValeWeb.AdminGate, :ensure_admin}
     )
 
-    ash_admin("/", on_mount: {FluxValeWeb.AdminGate, :ensure_admin})
+    # AshAdmin on the debug subpath (Am. 3): the generated superuser
+    # surface, kept for emergency data surgery — it lands LAST because
+    # its own wildcard route would swallow any clause after it in this
+    # scope.
+    ash_admin("/ash", on_mount: {FluxValeWeb.AdminGate, :ensure_admin})
   end
 end

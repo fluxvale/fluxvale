@@ -1,9 +1,9 @@
-/* The paywall waiver's admin capture: the /admin wallet edit form showing
- * the paywall_waived checkbox (the one boolean an operator flips to pass
- * the paid gate for a designated org). The admin surface (AshAdmin) ships
- * its own stylesheet, so its light/dark split rides prefers-color-scheme —
- * captured with Playwright colorScheme contexts, not the app theme toggle.
- * Local dev target only.
+/* The paywall waiver's admin capture: the /admin/ash wallet edit form
+ * showing the paywall_waived checkbox (the one boolean an operator
+ * flips to pass the paid gate for a designated org). The admin surface
+ * (AshAdmin) ships its own stylesheet, so its light/dark split rides
+ * prefers-color-scheme — captured with Playwright colorScheme
+ * contexts, not the app theme toggle. Local dev target only.
  *
  * Usage: FV_BASE=http://127.0.0.1:4101 FV_TOKEN_ADMIN=<jwt> \
  *   FV_WALLET_ID=<uuid> node waiver_admin_screenshot.mjs <outdir>
@@ -32,7 +32,7 @@ const browser = await chromium.launch();
 // the wallet row's update form for the :set_waiver action, whose form is
 // exactly the paywall_waived checkbox.
 const editUrl =
-  `${BASE}/admin?domain=Billing&resource=Wallet&action_type=update` +
+  `${BASE}/admin/ash?domain=Billing&resource=Wallet&action_type=update` +
   `&action=set_waiver&table=billing_wallets&primary_key=${WALLET_ID}`;
 
 for (const mode of ["light", "dark"]) {
