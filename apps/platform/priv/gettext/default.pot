@@ -12,7 +12,6 @@ msgid ""
 msgstr ""
 
 #: lib/flux_vale_web/components/core_components.ex:718
-#: lib/flux_vale_web/live/admin_live/people.ex:489
 #, elixir-autogen, elixir-format
 msgid "Actions"
 msgstr ""
@@ -666,52 +665,52 @@ msgstr ""
 msgid "Guides"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:55
+#: lib/flux_vale_web/live/admin_live/home.ex:54
 #, elixir-autogen, elixir-format
 msgid "Access gateways and domains"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:78
+#: lib/flux_vale_web/live/admin_live/home.ex:77
 #, elixir-autogen, elixir-format
 msgid "Admin"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:156
+#: lib/flux_vale_web/live/admin_live/home.ex:155
 #, elixir-autogen, elixir-format
 msgid "AshAdmin"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:41
+#: lib/flux_vale_web/live/admin_live/home.ex:40
 #, elixir-autogen, elixir-format
 msgid "Balances, top-ups, and billing oversight."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:34
+#: lib/flux_vale_web/live/admin_live/home.ex:33
 #, elixir-autogen, elixir-format
 msgid "Catalog and pricing surgery"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:125
+#: lib/flux_vale_web/live/admin_live/home.ex:124
 #, elixir-autogen, elixir-format
 msgid "Coming in this lane"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:140
+#: lib/flux_vale_web/live/admin_live/home.ex:139
 #, elixir-autogen, elixir-format
 msgid "Deep debugging"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:35
+#: lib/flux_vale_web/live/admin_live/home.ex:34
 #, elixir-autogen, elixir-format
 msgid "Edit catalog entries and price ladders."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:45
+#: lib/flux_vale_web/live/admin_live/home.ex:44
 #, elixir-autogen, elixir-format
 msgid "Feedback moderation"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:158
+#: lib/flux_vale_web/live/admin_live/home.ex:157
 #, elixir-autogen, elixir-format
 msgid "Generated views over the shown domains."
 msgstr ""
@@ -721,19 +720,18 @@ msgstr ""
 msgid "Invitations, accounts, and the people behind them."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:171
+#: lib/flux_vale_web/live/admin_live/home.ex:170
 #, elixir-autogen, elixir-format
 msgid "LiveDashboard"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:46
+#: lib/flux_vale_web/live/admin_live/home.ex:45
 #, elixir-autogen, elixir-format
 msgid "Moderate the public feedback board."
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/catalog.ex:47
-#: lib/flux_vale_web/live/admin_live/home.ex:77
-#: lib/flux_vale_web/live/admin_live/people.ex:371
+#: lib/flux_vale_web/live/admin_live/home.ex:76
 #: lib/flux_vale_web/live/admin_live/size_edit.ex:256
 #: lib/flux_vale_web/live/admin_live/sizes.ex:63
 #: lib/flux_vale_web/live/admin_live/version_edit.ex:388
@@ -741,53 +739,52 @@ msgstr ""
 msgid "Operator console"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:50
+#: lib/flux_vale_web/live/admin_live/home.ex:49
 #, elixir-autogen, elixir-format
 msgid "Orgs and instances"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/home.ex:28
-#: lib/flux_vale_web/live/admin_live/people.ex:372
 #, elixir-autogen, elixir-format
 msgid "People and invites"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:56
+#: lib/flux_vale_web/live/admin_live/home.ex:55
 #, elixir-autogen, elixir-format
 msgid "Read-only gateway and domain inspection."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:51
+#: lib/flux_vale_web/live/admin_live/home.ex:50
 #, elixir-autogen, elixir-format
 msgid "Read-only sweeps across orgs and instances."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:93
+#: lib/flux_vale_web/live/admin_live/home.ex:92
 #, elixir-autogen, elixir-format
 msgid "Surfaces"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:142
+#: lib/flux_vale_web/live/admin_live/home.ex:141
 #, elixir-autogen, elixir-format
 msgid "The generated tools. They run as trusted superuser without the resource policies. For emergencies and data surgery."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:80
+#: lib/flux_vale_web/live/admin_live/home.ex:79
 #, elixir-autogen, elixir-format
 msgid "The operator console. Surfaces build out across this lane."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:173
+#: lib/flux_vale_web/live/admin_live/home.ex:172
 #, elixir-autogen, elixir-format
 msgid "This node's BEAM and database telemetry."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:40
+#: lib/flux_vale_web/live/admin_live/home.ex:39
 #, elixir-autogen, elixir-format
 msgid "Wallets and billing"
 msgstr ""
 
-#: lib/flux_vale_web/components/core_components.ex:1107
+#: lib/flux_vale_web/components/core_components.ex:1104
 #, elixir-autogen, elixir-format
 msgid "Cancel"
 msgstr ""
@@ -1014,7 +1011,7 @@ msgstr ""
 msgid "None"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/home.ex:111
+#: lib/flux_vale_web/live/admin_live/home.ex:110
 #, elixir-autogen, elixir-format
 msgid "Open"
 msgstr ""
@@ -1216,209 +1213,4 @@ msgstr ""
 #: lib/flux_vale_web/live/catalog_live/index.ex:151
 #, elixir-autogen, elixir-format
 msgid "from %{rate} plus storage"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:340
-#: lib/flux_vale_web/live/admin_live/people.ex:487
-#, elixir-autogen, elixir-format
-msgid "Accepted"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:413
-#: lib/flux_vale_web/live/admin_live/people.ex:444
-#: lib/flux_vale_web/live/admin_live/people.ex:483
-#, elixir-autogen, elixir-format
-msgid "Email"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:341
-#, elixir-autogen, elixir-format
-msgid "Expired"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:486
-#, elixir-autogen, elixir-format
-msgid "Expires"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:428
-#, elixir-autogen, elixir-format
-msgid "Find an invitation"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:374
-#, elixir-autogen, elixir-format
-msgid "Invitations and the accounts they made. A support surface, not a user directory. Accounts with no invitation story are not this page's business."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:397
-#, elixir-autogen, elixir-format
-msgid "Invite someone"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:239
-#, elixir-autogen, elixir-format
-msgid "Invite withdrawn. Their accept link no longer works. The account stays inert until someone invites them again."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:485
-#, elixir-autogen, elixir-format
-msgid "Invited"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:464
-#, elixir-autogen, elixir-format
-msgid "Invites you send, and the accounts they made, show up here. Accounts without an invitation story are not this page's business."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:471
-#, elixir-autogen, elixir-format
-msgid "No invitation matches that email."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:463
-#, elixir-autogen, elixir-format
-msgid "No invitations yet."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:399
-#, elixir-autogen, elixir-format
-msgid "One email goes out with a one-time accept link. The account stays inert until the link is used."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:339
-#, elixir-autogen, elixir-format
-msgid "Pending"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:569
-#, elixir-autogen, elixir-format
-msgid "Reinvite"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:421
-#, elixir-autogen, elixir-format
-msgid "Send invite"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:484
-#, elixir-autogen, elixir-format
-msgid "State"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:158
-#, elixir-autogen, elixir-format
-msgid "That account is already active. No link was sent."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:109
-#, elixir-autogen, elixir-format
-msgid "That address already has an active account. Nothing was sent."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:151
-#, elixir-autogen, elixir-format
-msgid "That does not look like an email address."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:100
-#, elixir-autogen, elixir-format
-msgid "That does not look like an email address. Nothing was sent."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:251
-#, elixir-autogen, elixir-format
-msgid "That invitation changed before the withdraw landed. The list is refreshed."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:205
-#, elixir-autogen, elixir-format
-msgid "That invitation changed. The list is refreshed."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:599
-#, elixir-autogen, elixir-format
-msgid "Their accept link stops working. The account remains inert until someone invites them again."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:580
-#, elixir-autogen, elixir-format
-msgid "Withdraw"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:596
-#, elixir-autogen, elixir-format
-msgid "Withdraw the invite for %{email}?"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:342
-#: lib/flux_vale_web/live/admin_live/people.ex:488
-#, elixir-autogen, elixir-format
-msgid "Withdrawn"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:603
-#, elixir-autogen, elixir-format
-msgid "Yes, withdraw this invite"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:384
-#, elixir-autogen, elixir-format
-msgid "Back to the admin console"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:285
-#, elixir-autogen, elixir-format
-msgid "Invite sent. One email is on its way with a one-time accept link. The account stays inert until they accept. If the email does not arrive, use Reinvite to send another."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:346
-#, elixir-autogen, elixir-format
-msgid "No invitation"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:577
-#, elixir-autogen, elixir-format
-msgid "Opening..."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:144
-#, elixir-autogen, elixir-format
-msgid "Reinvite sent. One email is on its way with a fresh one-time accept link. Any earlier link no longer works. If the email does not arrive, send another."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:281
-#, elixir-autogen, elixir-format
-msgid "Reinvite sent. One email is on its way with a fresh one-time accept link. Any earlier link no longer works. The account stays inert until they accept. If the email does not arrive, use Reinvite to send another."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:445
-#, elixir-autogen, elixir-format
-msgid "Search by invitation address"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:430
-#, elixir-autogen, elixir-format
-msgid "Search narrows this list by invitation address. It never reaches past it."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:418
-#: lib/flux_vale_web/live/admin_live/people.ex:565
-#, elixir-autogen, elixir-format
-msgid "Sending..."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:460
-#, elixir-autogen, elixir-format
-msgid "Showing the latest 100 invitations."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:124
-#, elixir-autogen, elixir-format
-msgid "The invite was refused. Sign out and sign back in, then try again."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:170
-#, elixir-autogen, elixir-format
-msgid "The reinvite was refused. Sign out and sign back in, then try again."
 msgstr ""
