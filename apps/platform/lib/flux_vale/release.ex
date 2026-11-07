@@ -290,4 +290,37 @@ defmodule FluxVale.Release do
     Application.ensure_all_started(:ssl)
     Application.ensure_loaded(@app)
   end
+
+  @doc """
+  Invites `address` (#502) and prints the one-time accept link on the
+  operator's terminal — the mail-less bootstrap lever while prod cannot
+  deliver mail and the admin dashboard (#501) has not landed: the invite
+  email would die in the pod, so the terminal is the delivery channel
+  (the owner-signin posture). `bin/invite <address>`.
+  """
+  @spec invite_user(String.t()) :: :ok
+  def invite_user(address) do
+    load_app()
+
+    for repo <- repos() do
+      {:ok, :ok, _started} =
+        Ecto.Migrator.with_repo(repo, fn _repo ->
+          invite_through_the_domain(address)
+        end)
+    end
+
+    :ok
+  end
+
+  defp invite_through_the_domain(address) do
+    case FluxVale.Identity.invite_user(nil, address, &OwnerSignIn.print_accept_url/2,
+           authorize?: false
+         ) do
+      {:ok, _user, _raw} ->
+        :ok
+
+      {:error, reason} ->
+        raise "invite failed for #{address}: #{inspect(reason)}"
+    end
+  end
 end

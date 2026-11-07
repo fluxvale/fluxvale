@@ -22,7 +22,7 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   holds the address — the old-pod shape (`users.email` set, no row,
   review P2-3) gets its mirror row healed and signs in.
 
-  The invitation gate (#502 shape): JIT provisioning is the team
+  The invitation rule (#502): JIT provisioning is the team
   domain's alone — a genuinely new address creates an account only on
   `@fluxvale.com`. Everyone else arrives pre-provisioned: an admin's
   invite creates the User (inert), and the one-time accept link runs
@@ -50,8 +50,7 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
 
   # The team bypass's domain (#478's structural core, kept by #502):
   # the company's own domain creates freely, no invitation and nothing
-  # to manage. Owned here outright — Ops.InvitedEmails dies in a later
-  # PR and every operation owns its constants.
+  # to manage. Owned here outright — every operation owns its constants.
   @team_domain "fluxvale.com"
 
   @doc """
@@ -293,8 +292,7 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   end
 
   # Case-insensitive exact-suffix match — a subdomain or a lookalike
-  # suffix is not the team (the Ops.InvitedEmails shape, lifted here:
-  # that module dies in a later PR).
+  # suffix is not the team.
   defp team_address?(address) do
     downcased =
       address

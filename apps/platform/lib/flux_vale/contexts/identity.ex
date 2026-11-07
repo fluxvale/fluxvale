@@ -13,8 +13,8 @@ defmodule FluxVale.Identity do
   inert account (or re-issues) and delivers a one-time accept link;
   `accept_invitation/1` verifies the address, runs the first-login
   bootstrap, and mints the session; `withdraw_invite/2` retires an
-  unaccepted invite. The #478 invited-email gate on `verify_auth_code/2`
-  narrows to its structural core: the team-domain JIT bypass only.
+  unaccepted invite. Sign-in JIT is the team domain's alone — every
+  other address arrives pre-provisioned or already has an account.
   """
 
   use Ash.Domain,

@@ -289,4 +289,28 @@ defmodule FluxVale.Ops.OwnerSignInTest do
       assert output =~ "Owner sign-in code for #{team}"
     end
   end
+
+  describe "FluxVale.Release.invite_user/1 (#502, bin/invite)" do
+    test "invites through the domain and prints the one-time accept link exactly once" do
+      address = "release-invite-#{System.unique_integer([:positive])}@partner.example"
+
+      output = capture_io(fn -> assert :ok = FluxVale.Release.invite_user(address) end)
+
+      assert output =~ "Accept link for #{address}"
+
+      # the double-wrap bug the hostile review caught on the owner arm:
+      # one URL, not a URL wrapped in a URL
+      assert length(String.split(output, "/invites/accept?token=")) == 2
+    end
+
+    test "an invalid address raises actionable" do
+      address = "not-an-email-#{System.unique_integer([:positive])}"
+
+      message =
+        assert_raise(RuntimeError, fn -> FluxVale.Release.invite_user(address) end).message
+
+      assert message =~ "invite failed for #{address}"
+      assert message =~ ":invalid_address"
+    end
+  end
 end

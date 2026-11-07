@@ -99,13 +99,15 @@ prints it to stdout — never to the pod log. It runs through
 `eval` (no supervision tree, so the AccessRule cache is read
 straight-through); the AccessRule gate itself still applies.
 
-Sign-in itself is invitation-only during early access (#478): the seed
-admin's `@fluxvale.com` address rides the team bypass, so the normal
-bootstrap (sign in as the seed admin, invite addresses from AshAdmin)
-needs nothing extra. An external `OWNER_EMAIL` address on a fresh
-environment is the one case that must be invited first — sign in as the
-seed admin and add it under Ops in AshAdmin (adding is the invite; the
-invitation email goes out).
+Invites are pre-provisioned accounts (#502): `bin/invite <address>`
+creates the account and prints the one-time accept link on the
+operator's terminal (until the prod mailer is configured the email
+cannot leave the box, so the terminal is the delivery channel, the
+owner-signin posture). When the admin dashboard lands (#501) its invite
+button sends the link by mail instead. The link activates the account
+and signs the invitee in. Team-domain addresses (`@fluxvale.com`) need
+no invite. For the environment's owner specifically, `bin/owner-signin`
+also prints the accept link instead of a code.
 
 ### Scheduled monitoring (three layers)
 

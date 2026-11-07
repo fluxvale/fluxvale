@@ -1,0 +1,20 @@
+#!/bin/sh
+# Invites one address and prints the one-time accept link (#502).
+# The mail-less bootstrap lever: until the prod mailer and the admin
+# dashboard land, this is how an external address gets in.
+set -eu
+
+address="${1:?usage: bin/invite <email address>}"
+
+# The address rides into an eval string below; hold it to the email
+# charset so no quoting can break out (UserEmail.valid_address? guards
+# the shape inside anyway).
+case "$address" in
+  *[!A-Za-z0-9._%+-@]*)
+    echo "bin/invite: the address contains characters an email address cannot" >&2
+    exit 2
+    ;;
+esac
+
+cd -P -- "$(dirname "$0")"
+exec ./flux_vale eval "FluxVale.Release.invite_user(\"$address\")"
