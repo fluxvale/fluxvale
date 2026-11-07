@@ -21,15 +21,15 @@
 # no CSP directive is set anywhere in the app (accepted Phoenix default)
 # Config.CSP router.ex:39 - sitemap pipeline serves XML only, no browser
 # document for a CSP to protect
-# Config.CSP router.ex:448 - test_inbox_browser is a config-gated non-prod
+# Config.CSP router.ex:463 - test_inbox_browser is a config-gated non-prod
 # ops surface (404s unless TEST_INBOX_ENABLED)
 # Config.CSRF router.ex:59 - api_auth is token-authed JSON, AuthorizeApiScopes
 # 401s session writes before any handler runs (router comment)
 # Config.CSRF router.ex:84 - mcp is PAT-only de facto, connect/2 401s any
 # session-resolved caller (router comment)
-# Config.CSRF router.ex:436 - test_inbox_api is admin-gated JSON and its
+# Config.CSRF router.ex:451 - test_inbox_api is admin-gated JSON and its
 # scope is GET-only (router.ex:457-458), no state change to forge
-# Config.CSRF router.ex:446 - test_inbox_browser clear-mailbox form carries no
+# Config.CSRF router.ex:461 - test_inbox_browser clear-mailbox form carries no
 # CSRF token by design, admin-gated non-prod (router comment)
 # Config.CSWH endpoint.ex:14 - /live socket origin checks are configured at
 # app level (check_origin in config/runtime.exs), a non-literal list the
@@ -64,15 +64,18 @@
 # interpolation via FluxValeWeb.XML.escape
 # XSS.SendResp sitemap_controller.ex:44 - SitemapXML.build escapes every
 # interpolation via FluxValeWeb.XML.escape
+# Traversal.FileModule markdown.ex:22 - parse_file/1's callers are the
+# blog and docs loaders, both passing priv-tree content paths
+# (operator-authored, code-owned) - no user input reaches it
+# XSS.Raw docs_html/show.html.heex:21 - raw(@page.html) is the docs lane's
+# mdex render through FluxVale.Markdown, the same sanitized grammar the
+# blog's raw(@post.html) entry rides (ADR-0044)
 # XSS.SendResp wake.ex:81 - bodies are static literals passed by the two wake
 # controllers (the shared transport since that refactor)
 Config.CSP: Missing Content-Security-Policy,lib/flux_vale_web/router.ex:14,67F3024
 Config.CSP: Missing Content-Security-Policy,lib/flux_vale_web/router.ex:39,3B7371D
-Config.CSP: Missing Content-Security-Policy,lib/flux_vale_web/router.ex:448,20C5D3D
 Config.CSRF: Missing CSRF Protections,lib/flux_vale_web/router.ex:59,45970C4
 Config.CSRF: Missing CSRF Protections,lib/flux_vale_web/router.ex:84,27C2C83
-Config.CSRF: Missing CSRF Protections,lib/flux_vale_web/router.ex:436,75DBC0E
-Config.CSRF: Missing CSRF Protections,lib/flux_vale_web/router.ex:446,3AA2CB3
 Config.CSWH: Cross-Site Websocket Hijacking,lib/flux_vale_web/endpoint.ex:14,5E9E795
 Config.CSWH: Cross-Site Websocket Hijacking,lib/flux_vale_web/endpoint.ex:42,737217C
 Config.Headers: Missing Secure Browser Headers,lib/flux_vale_web/router.ex:173,58D185C
@@ -92,3 +95,9 @@ XSS.Raw: XSS,lib/flux_vale_web/live/feedback_live/comments_island.ex:158,7CDABB1
 XSS.SendResp: XSS in `send_resp`,lib/flux_vale_web/controllers/feed_controller.ex:20,3BA012B
 XSS.SendResp: XSS in `send_resp`,lib/flux_vale_web/controllers/sitemap_controller.ex:44,5912C23
 XSS.SendResp: XSS in `send_resp`,lib/flux_vale_web/wake.ex:81,2A94C5B
+
+Config.CSP: Missing Content-Security-Policy,lib/flux_vale_web/router.ex:463,6C65AB5
+Config.CSRF: Missing CSRF Protections,lib/flux_vale_web/router.ex:451,6A3D500
+Config.CSRF: Missing CSRF Protections,lib/flux_vale_web/router.ex:461,E22200
+Traversal.FileModule: Directory Traversal in `File.read!`,lib/flux_vale/markdown.ex:22,783095E
+XSS.Raw: XSS,lib/flux_vale_web/controllers/docs_html/show.html.heex:21,649324B
