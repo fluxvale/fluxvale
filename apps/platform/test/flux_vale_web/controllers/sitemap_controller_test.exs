@@ -75,6 +75,8 @@ defmodule FluxValeWeb.SitemapControllerTest do
     assert xml =~ "<loc>https://fluxvale.com/policies/terms</loc>"
     assert xml =~ "<loc>https://fluxvale.com/policies/acceptable-use</loc>"
     assert xml =~ "<loc>https://fluxvale.com/policies/privacy</loc>"
+    # #511: the guide rides the published-page shape beside the policies.
+    assert xml =~ "<loc>https://fluxvale.com/guides/sign-in-with-pocket-id</loc>"
   end
 
   # #396: the published pricing rides the static slice beside the

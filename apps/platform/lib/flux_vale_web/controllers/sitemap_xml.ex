@@ -52,7 +52,11 @@ defmodule FluxValeWeb.SitemapXML do
       Seo.canonical_origin() <> "/policies/acceptable-use",
       # fv332 D5 added privacy after this slice shipped — the SEO lean
       # closes the omission (a published policy like its siblings).
-      Seo.canonical_origin() <> "/policies/privacy"
+      Seo.canonical_origin() <> "/policies/privacy",
+      # #511: the sign-in-with-Pocket ID guide rides the same shape —
+      # a published public page with SEO assigns and footer links, so
+      # the slice carries it like the policies.
+      Seo.canonical_origin() <> "/guides/sign-in-with-pocket-id"
     ]
 
     [
