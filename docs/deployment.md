@@ -99,13 +99,15 @@ prints it to stdout — never to the pod log. It runs through
 `eval` (no supervision tree, so the AccessRule cache is read
 straight-through); the AccessRule gate itself still applies.
 
-Invites are pre-provisioned accounts (#502): an admin runs
-`FluxVale.Identity.invite_user/2` (a dashboard surface follows in
-#501) and the invitee gets a one-time accept link that activates the
-account and signs them in. Team-domain addresses (`@fluxvale.com`)
-need no invite. An invited external `OWNER_EMAIL` address is
-break-glass too: `bin/owner-signin` prints the accept link instead of
-a code.
+Invites are pre-provisioned accounts (#502): `bin/invite <address>`
+creates the account and prints the one-time accept link on the
+operator's terminal (until the prod mailer is configured the email
+cannot leave the box, so the terminal is the delivery channel, the
+owner-signin posture). When the admin dashboard lands (#501) its invite
+button sends the link by mail instead. The link activates the account
+and signs the invitee in. Team-domain addresses (`@fluxvale.com`) need
+no invite. For the environment's owner specifically, `bin/owner-signin`
+also prints the accept link instead of a code.
 
 ### Scheduled monitoring (three layers)
 

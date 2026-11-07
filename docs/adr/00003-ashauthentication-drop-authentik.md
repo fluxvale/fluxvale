@@ -80,8 +80,8 @@ that gate: the admin already knows exactly who is being admitted, so
 the invite creates the User directly (inert until acceptance) and the
 emailed accept link hands the account over. The link carries a one-time
 token, stored only as its SHA-256 hash and consumed on use. This is
-the MembershipInvite URL-credential carve-out from the
-token-never-in-a-URL rule, which still holds for session tokens:
-sessions are minted by the emailed code, never by a persistent URL
-credential. Acceptance runs the first-login bootstrap and mints the
-session through the existing `POST /auth/session`.
+the URL-credential carve-out [ADR-0042](00042-user-created-organizations.md)
+pioneered for membership invites: session tokens never appear in a URL
+(they ride the `POST /auth/session` body), and the one-time invite
+token is the only URL credential. Acceptance runs the first-login
+bootstrap and mints the session through that same POST.

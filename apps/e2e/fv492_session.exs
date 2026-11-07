@@ -1,18 +1,11 @@
 # Dev-only capture session mint for the #492 Pocket ID screenshots.
 # Same posture as the earlier fvNNN session mints (now removed, in git
-# history): the invite gate is armed in this
-# tree, so the capture address rides an invite row first (bootstrap
-# posture: authorize?: false, mirroring seeds), then the sanctioned
+# history): the capture address rides the team-domain JIT (#502: the
+# team bypass is the only self-signup left), then the sanctioned
 # sign-in ops mint the session exactly as a real signup.
 #
 # Run from apps/platform: mix run ../e2e/fv492_session.exs
-alias FluxVale.Ops.InvitedEmail
-
-email = "capture-fv492@fluxvale.test"
-
-InvitedEmail
-|> Ash.Changeset.for_create(:create, %{address: email}, authorize?: false)
-|> Ash.create()
+email = "capture-fv492@fluxvale.com"
 
 code_ref = :fv492_capture_code
 :persistent_term.put(code_ref, nil)

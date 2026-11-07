@@ -185,8 +185,8 @@ defmodule FluxVale.Identity.Operations.InviteUser do
     Base.url_encode64(random, padding: false)
   end
 
-  # Best-effort delivery AFTER the committed write (the DeliverInvitation
-  # posture): every failure shape — an {:error, _} result, a raise, an
+  # Best-effort delivery AFTER the committed write (the retired #478
+  # invitation hook's posture): every failure shape — an {:error, _} result, a raise, an
   # exit, a throw — logs a warning and does NOT fail the invite. The
   # user row is durable; re-invite is the resend lever.
   defp deliver_best_effort(address, raw, deliver) do

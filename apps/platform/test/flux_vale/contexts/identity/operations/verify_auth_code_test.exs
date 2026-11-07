@@ -367,6 +367,22 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCodeTest do
       assert %User{} = user
     end
 
+    test "the team bypass is an exact-suffix match — lookalikes never inherit it" do
+      # the negative space the retired evaluator's tests used to pin
+      # (they died with it); the boundary now lives in team_address?/1
+      # and needs its lookalike arms kept here
+      for lookalike <- [
+            "someone-#{System.unique_integer()}@mail.fluxvale.com",
+            "someone-#{System.unique_integer()}@notfluxvale.com",
+            "someone-#{System.unique_integer()}@fluxvale.com.evil.example"
+          ] do
+        :ok = Identity.request_auth_code(lookalike)
+
+        assert {:error, :invitation_required} =
+                 Identity.verify_auth_code(lookalike, mailbox_code())
+      end
+    end
+
     test "a pending invited user refuses sign-in and the account stays inert" do
       address = "invited-#{System.unique_integer()}@partner.example"
       {invited, _raw} = invite_user!(address)
