@@ -75,7 +75,14 @@ defmodule FluxValeWeb.SitemapControllerTest do
     assert xml =~ "<loc>https://fluxvale.com/policies/terms</loc>"
     assert xml =~ "<loc>https://fluxvale.com/policies/acceptable-use</loc>"
     assert xml =~ "<loc>https://fluxvale.com/policies/privacy</loc>"
-    # #511: the guide rides the published-page shape beside the policies.
+  end
+
+  # #511: the sign-in-with-Pocket ID guide joins the static slice —
+  # the #396 pricing shape, a published page beside the policies.
+  test "the sign-in-with-Pocket ID guide is a static URL (#511)", %{conn: conn} do
+    conn = get(conn, ~p"/sitemap.xml")
+    xml = response(conn, 200)
+
     assert xml =~ "<loc>https://fluxvale.com/guides/sign-in-with-pocket-id</loc>"
   end
 
