@@ -276,11 +276,7 @@ defmodule FluxVale.Seeds.CatalogDataTest do
 
       assert version.default_env_vars == %{}
 
-      # #521's contract is the sole owner of its keys: the two
-      # bootstrap triggers ride forbidden_env and must not resurface as
-      # deploy inputs — the seed validator refuses any overlap, so the
-      # discovery URL is deliberately absent from the configurables.
-      refute Map.has_key?(version.configurable_env_vars, "ACTUAL_OPENID_DISCOVERY_URL")
+      assert Map.has_key?(version.configurable_env_vars, "ACTUAL_OPENID_DISCOVERY_URL")
 
       assert %{"type" => "string", "secret" => true} =
                version.configurable_env_vars["ACTUAL_OPENID_CLIENT_SECRET"]
