@@ -1072,7 +1072,7 @@ defmodule FluxValeWeb.CoreComponents do
   attr(:myself, :any,
     required: true,
     doc:
-      "the owning LiveComponent's @myself; nil renders a static preview and BOTH buttons dispatch to the enclosing LiveView — nil is for previews only, real surfaces pass a LiveComponent target"
+      "the owning LiveComponent's @myself when embedded in one; omitting it (nil) targets the enclosing LiveView — valid for a LiveView-owned panel and for static previews, previews simply never fire events"
   )
 
   def confirm_block(assigns) do
@@ -1084,7 +1084,10 @@ defmodule FluxValeWeb.CoreComponents do
       <p class="text-sm font-semibold text-danger">{@title}</p>
       <p class="text-sm text-ink">{@body}</p>
       <p :if={@note} class="text-xs text-ink-muted">{@note}</p>
-      <div class="flex flex-wrap gap-2">
+      <%!-- The action strip sits on its own separated surface: the
+      destructive control reads as the decisive one against the
+      danger-muted fill, in both themes, within existing tokens. --%>
+      <div class="flex flex-wrap items-center gap-2 rounded-control border border-line bg-panel p-2">
         <.button
           size="sm"
           variant="destructive"
