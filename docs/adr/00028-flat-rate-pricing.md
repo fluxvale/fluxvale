@@ -83,3 +83,34 @@ allocation). The append-only era trail
 (`instance_allocation_snapshots`) records the history; the instance row
 stays the live read path. Settlement and the runway projection are
 unchanged — they price the row's current era exactly as before.
+
+## Amendment 4 — storage prices on its own axis (2026-11-07)
+
+Sizes are compute classes ([#558](https://github.com/fluxvale/fluxvale/issues/558)):
+a `Size` row keeps its name, CPU, memory, and monthly rate — nothing
+else. Storage prices per gigabyte through the same curve's storage
+term (`PriceAllocation.storage_cents/2`, unchanged constants), and an
+app version's `default_storage_gb` is the honest per-app default the
+deploy stepper offers on its own control.
+
+What moved, precisely:
+
+- **Rounding** — compute and storage price and round half-up
+  independently; a whole allocation is their sum. A decomposed quote
+  (compute class + storage choice) can never differ from the
+  whole-allocation call. At the historical reference points the
+  totals reproduce the bundled figures exactly, except pro-shape
+  compute plus 100 GB (1607¢, was 1606¢ round-the-sum).
+- **The version pin** (`ValidateSizeMatchesAllocation`) checks compute
+  only; `default_storage_gb` is free per app. The size-side freeze
+  (`ValidateAllocationFrozen`) freezes compute.
+- **Snapshots and settlement** keep their shape: compute at the
+  version's recommendation snapshots the size row (`size_id`) with the
+  storage axis added at the row's own GB; a compute-off allocation
+  prices by the whole formula as before. Storage never moves an
+  instance off its size — the axis re-prices independently, so the
+  moment storage resize ships, a grown instance's label stays honest
+  (the motivation: the bundled label was structurally wrong).
+
+Rejected: keeping bundled rows and special-casing grown instances —
+the dishonesty was the label itself, not any one instance state.
