@@ -120,11 +120,3 @@ own submit response.
 **Amends**: [ADR-0028](00028-flat-rate-pricing.md)
 Am. 1's "snapshots at create" reading — allocation eras snapshot at
 create AND at every resize, through the same snapshot choice.
-
-## Amendment 1 (2026-11-07)
-
-The UI slice adds `publish(:resize, ["instances", :id])`: an open
-panel in another tab resets when another writer resizes the row (the
-seed-mismatch rule), which no status change would carry — the resize
-still never moves status. Supersedes this ADR's "Wire and policy"
-line that no publish rides the action.

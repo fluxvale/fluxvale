@@ -26,12 +26,10 @@ defmodule FluxVale.Infrastructure do
   alias FluxVale.Infrastructure.Operations.ReadFileAccessCredential
   alias FluxVale.Infrastructure.Operations.RegisterAccessDomain
   alias FluxVale.Infrastructure.Operations.RemoveAccessDomain
-  alias FluxVale.Infrastructure.Operations.ResizePreview
   alias FluxVale.Infrastructure.Operations.RestoreInstanceBackup
   alias FluxVale.Infrastructure.Operations.RestoreServingEdge
   alias FluxVale.Infrastructure.Operations.RunInstanceBackup
   alias FluxVale.Infrastructure.Operations.SetAccessApiToken
-  alias FluxVale.Infrastructure.Operations.StorageExpansion
   alias FluxVale.Infrastructure.Operations.SweepBackups
   alias FluxVale.Infrastructure.Operations.SweepIdleInstances
   alias FluxVale.Infrastructure.Operations.SweepStrandedInstances
@@ -107,14 +105,6 @@ defmodule FluxVale.Infrastructure do
   defdelegate delete_access_gateway(id, opts \\ []),
     to: FluxVale.Infrastructure.AccessGateway,
     as: :delete
-
-  # #493: the resize panel's two reads — the preview (what a resize
-  # WOULD snapshot, the action's own pricing choice) and the storage
-  # -expansion capability (the panel's storage lock; probe errors ride
-  # the same honest lock as a real no).
-  defdelegate resize_preview(instance, allocation), to: ResizePreview, as: :call
-
-  defdelegate storage_expansion_capable?(instance), to: StorageExpansion, as: :capable?
 
   # #203: the anonymous edge's wake and restore — the wake endpoint's
   # entries (the funded gate and the route flip live on the ops).

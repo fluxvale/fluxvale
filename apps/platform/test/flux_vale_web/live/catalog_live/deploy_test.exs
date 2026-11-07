@@ -676,7 +676,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
                "#resource-cpu-cores-ticks [data-value='0.5'][data-active='true']"
              )
 
-      assert render(view) =~ ~s(aria-valuetext="1 core")
+      assert render(view) =~ ~s(aria-valuetext="1 cores")
     end
 
     test "the rungs are the seeded ladder's per-dimension values", %{view: view} do
@@ -871,7 +871,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       render_click(fresh, "pick-size", %{"slug" => trailing.slug})
 
       assert has_element?(fresh, "#resource-cpu-cores[value='2']")
-      assert render(fresh) =~ ~s(aria-valuetext="1 core")
+      assert render(fresh) =~ ~s(aria-valuetext="1 cores")
     end
 
     test "the seeded sizes render as quick picks, the recommendation called out",
