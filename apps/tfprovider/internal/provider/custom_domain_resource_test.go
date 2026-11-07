@@ -591,6 +591,66 @@ func TestCustomDomainUpdateRemovesOn404(t *testing.T) {
 	}
 }
 
+// THE unknown-identity update: when wait_for_verification or the
+// timeouts change, core plans the Computed id UNKNOWN — and reading by
+// the plan's ValueString() would GET /api/v1/access-domains/ (no id),
+// whose 404 removes a LIVE domain. The row's id must come from state.
+func TestCustomDomainUpdateCarriesRowIDFromState(t *testing.T) {
+	ctx := context.Background()
+	r, sch := newSchemadDomain(ctx, t)
+
+	f := newFakeAPI(t)
+	f.domainGets = []scriptedResponse{script(200, domainVerifiedDoc)}
+	r.pd = f.testClient()
+
+	stateData := seededDomain()
+	planData := seededDomain(func(d *customDomainModel) {
+		d.WaitForVerification = types.BoolValue(true)
+		// Core's shape for Computed attributes on this plan.
+		d.ID = types.StringUnknown()
+		d.Kind = types.StringUnknown()
+		d.State = types.StringUnknown()
+		d.OrganizationID = types.StringUnknown()
+	})
+	req := resource.UpdateRequest{
+		Plan:  tfsdk.Plan{Schema: sch, Raw: domainToRaw(ctx, t, sch, &planData)},
+		State: tfsdk.State{Schema: sch, Raw: domainToRaw(ctx, t, sch, &stateData)},
+	}
+	resp := &resource.UpdateResponse{
+		State: tfsdk.State{Schema: sch, Raw: domainToRaw(ctx, t, sch, &stateData)},
+	}
+	r.Update(ctx, req, resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Update: %v", resp.Diagnostics)
+	}
+
+	// The read went to the ROW, not the empty-id path.
+	gets := 0
+	for _, req := range f.all() {
+		if req.method == http.MethodGet && strings.HasSuffix(req.path, "/access-domains/dom-1") {
+			gets++
+			continue
+		}
+		if strings.HasPrefix(req.path, "/api/v1/access-domains") {
+			t.Errorf("GET %s ran — the plan's unknown id leaked into the read path", req.path)
+		}
+	}
+	if gets != 1 {
+		t.Errorf("row GETs = %d, want exactly one by the state's id", gets)
+	}
+
+	if resp.State.Raw.IsNull() {
+		t.Fatal("state after the update = null — a LIVE domain was removed from state")
+	}
+	got := rawToDomain(ctx, t, sch, resp.State.Raw)
+	if got.ID.ValueString() != "dom-1" || got.State.ValueString() != "verified" {
+		t.Errorf("id/state = %s/%s, want the live row tracked and refreshed", got.ID.ValueString(), got.State.ValueString())
+	}
+	if !got.WaitForVerification.ValueBool() {
+		t.Error("wait_for_verification lost from state — the config change must stick")
+	}
+}
+
 // The schema contract: domain is Required + RequiresReplace (a
 // different name is a different row); organization is Optional+
 // Computed + RequiresReplace (the seed pattern, create-only on the
@@ -728,9 +788,10 @@ func TestCustomDomainCreateSeedsUnknownOrganization(t *testing.T) {
 	}
 }
 
-// The domain plan modifier: any config casing canonicalizes in the
-// PLAN (the platform's own trim+downcase), and replacement fires only
-// on a canonical-name change — casing and whitespace never do.
+// The domain plan modifier decides on CANONICAL names but plans only
+// values core accepts: config value on create, prior value on a
+// same-name casing diff, config value + replacement on a canonical
+// change.
 func TestCanonicalDomainModifier(t *testing.T) {
 	run := func(plan, state types.String) *planmodifier.StringResponse {
 		t.Helper()
@@ -740,41 +801,56 @@ func TestCanonicalDomainModifier(t *testing.T) {
 		return resp
 	}
 
-	t.Run("mixed-case over canonical state converges", func(t *testing.T) {
+	t.Run("create-shaped mixed-case config plans the config value", func(t *testing.T) {
+		resp := run(types.StringValue("Apps.Customer.COM"), types.StringNull())
+		if resp.PlanValue.ValueString() != "Apps.Customer.COM" {
+			t.Errorf("planned domain = %q, want the config value untouched (planned==config is core's rule on create)",
+				resp.PlanValue.ValueString())
+		}
+		if resp.RequiresReplace {
+			t.Error("a create cannot replace — the casing decision happens at the wire")
+		}
+	})
+
+	t.Run("mixed-case config over canonical state plans the prior", func(t *testing.T) {
 		resp := run(types.StringValue("Apps.Customer.COM"), types.StringValue("apps.customer.com"))
 		if resp.PlanValue.ValueString() != "apps.customer.com" {
-			t.Errorf("planned domain = %q, want the canonical form", resp.PlanValue.ValueString())
+			t.Errorf("planned domain = %q, want the PRIOR value (planned==prior is the accepted casing rewrite)", resp.PlanValue.ValueString())
 		}
 		if resp.RequiresReplace {
 			t.Error("casing alone must not replace — that is the destroy/re-register loop")
 		}
 	})
 
-	t.Run("surrounding whitespace over canonical state converges", func(t *testing.T) {
-		resp := run(types.StringValue("  apps.customer.com  "), types.StringValue("apps.customer.com"))
-		if resp.PlanValue.ValueString() != "apps.customer.com" || resp.RequiresReplace {
-			t.Errorf("plan/requiresReplace = %q/%v, want canonical and false", resp.PlanValue.ValueString(), resp.RequiresReplace)
-		}
-	})
-
-	t.Run("already canonical stays clean", func(t *testing.T) {
+	t.Run("canonical config over canonical state stays clean", func(t *testing.T) {
 		resp := run(types.StringValue("apps.customer.com"), types.StringValue("apps.customer.com"))
-		if resp.RequiresReplace {
-			t.Error("a matching canonical name must not replace")
+		if resp.PlanValue.ValueString() != "apps.customer.com" || resp.RequiresReplace {
+			t.Errorf("plan/requiresReplace = %q/%v, want unchanged/false", resp.PlanValue.ValueString(), resp.RequiresReplace)
 		}
 	})
 
-	t.Run("a different canonical name replaces", func(t *testing.T) {
-		resp := run(types.StringValue("other.example.com"), types.StringValue("apps.customer.com"))
+	t.Run("a different canonical name keeps the config and replaces", func(t *testing.T) {
+		resp := run(types.StringValue("Other.Example.COM"), types.StringValue("apps.customer.com"))
+		if resp.PlanValue.ValueString() != "Other.Example.COM" {
+			t.Errorf("planned domain = %q, want the config value kept (a rewrite would trip core's plan rule)", resp.PlanValue.ValueString())
+		}
 		if !resp.RequiresReplace {
 			t.Error("a canonical-name change must replace (a different name is a different row)")
+		}
+	})
+
+	t.Run("a non-canonical prior form is canonical-equal", func(t *testing.T) {
+		resp := run(types.StringValue("apps.customer.com"), types.StringValue("Apps.Customer.COM"))
+		if resp.PlanValue.ValueString() != "Apps.Customer.COM" || resp.RequiresReplace {
+			t.Errorf("plan/requiresReplace = %q/%v, want the prior form planned and no replace",
+				resp.PlanValue.ValueString(), resp.RequiresReplace)
 		}
 	})
 
 	t.Run("unknown and null plans are left alone", func(t *testing.T) {
 		resp := run(types.StringUnknown(), types.StringValue("apps.customer.com"))
 		if !resp.PlanValue.IsUnknown() || resp.RequiresReplace {
-			t.Error("unknown plan values cannot be canonicalized yet — no-op")
+			t.Error("unknown plan values cannot be decided on yet — no-op")
 		}
 		resp = run(types.StringNull(), types.StringNull())
 		if !resp.PlanValue.IsNull() || resp.RequiresReplace {
@@ -783,9 +859,10 @@ func TestCanonicalDomainModifier(t *testing.T) {
 	})
 }
 
-// The production flow end to end: the framework hands Create the
-// MODIFIED plan — canonicalized domain in, canonical row out, plan and
-// applied state agree.
+// The production create flow end to end: the plan carries the config's
+// form (core's plan rule), the wire request carries the canonical
+// form, and the applied state carries the configured form — plan and
+// applied state agree, no churn.
 func TestCustomDomainMixedCaseConfigConverges(t *testing.T) {
 	ctx := context.Background()
 	r, sch := newSchemadDomain(ctx, t)
@@ -795,7 +872,8 @@ func TestCustomDomainMixedCaseConfigConverges(t *testing.T) {
 	f.domainGets = []scriptedResponse{script(200, domainPendingDoc)}
 	r.pd = f.testClient()
 
-	// Plan-side: the modifier rewrites the config's casing.
+	// The modifier leaves a create plan's config value alone — the
+	// framework hands Create the config's form.
 	mixed := testDomain(func(d *customDomainModel) { d.Domain = types.StringValue("Apps.Customer.COM") })
 	modReq := planmodifier.StringRequest{
 		Path:       path.Root("domain"),
@@ -817,26 +895,60 @@ func TestCustomDomainMixedCaseConfigConverges(t *testing.T) {
 		t.Fatalf("Create: %v", resp.Diagnostics)
 	}
 
-	// The POST rides the planned (canonical) value; the wire returns
-	// the same canonical name — state equals plan, no churn.
+	// The wire saw the canonical form.
 	if attrs := attrsOf(t, findOne(t, f.all(), http.MethodPost, "/api/v1/access-domains")); attrs["domain"] != "apps.customer.com" {
-		t.Errorf("POST domain = %v, want the canonicalized plan value", attrs["domain"])
+		t.Errorf("POST domain = %v, want the canonical name (the send-time transform)", attrs["domain"])
 	}
+	// The wire returns the canonical row; state keeps the configured
+	// form — equal to the plan, so the apply converges.
 	got := rawToDomain(ctx, t, sch, resp.State.Raw)
-	if got.Domain.ValueString() != "apps.customer.com" {
-		t.Errorf("state domain = %q, want the canonical row (plan and applied state agree)", got.Domain.ValueString())
+	if got.Domain.ValueString() != "Apps.Customer.COM" {
+		t.Errorf("state domain = %q, want the configured form preserved (plan and applied state agree)", got.Domain.ValueString())
 	}
 }
 
-// ModifyPlan normalizes the planned organization to its id: a slug
-// config over an imported id converges (no replacement); a genuinely
-// different organization still replaces; unknown/null and destroy
-// shapes skip the lookup entirely.
+// A refresh over a configured mixed-case form keeps it: the wire's
+// canonical name canonically equals the state's, so mapDomain
+// preserves the user's casing.
+func TestCustomDomainReadPreservesConfiguredForm(t *testing.T) {
+	ctx := context.Background()
+	r, sch := newSchemadDomain(ctx, t)
+
+	f := newFakeAPI(t)
+	f.domainGets = []scriptedResponse{script(200, domainVerifiedDoc)} // canonical on the wire
+	r.pd = f.testClient()
+
+	stateData := testDomain(func(d *customDomainModel) {
+		d.ID = types.StringValue("dom-1")
+		d.Domain = types.StringValue("Apps.Customer.COM")
+	})
+	req := resource.ReadRequest{
+		State: tfsdk.State{Schema: sch, Raw: domainToRaw(ctx, t, sch, &stateData)},
+	}
+	resp := &resource.ReadResponse{
+		State: tfsdk.State{Schema: sch, Raw: domainToRaw(ctx, t, sch, &stateData)},
+	}
+	r.Read(ctx, req, resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Read: %v", resp.Diagnostics)
+	}
+
+	got := rawToDomain(ctx, t, sch, resp.State.Raw)
+	if got.Domain.ValueString() != "Apps.Customer.COM" {
+		t.Errorf("domain = %q, want the configured form preserved (the wire name canonically equals it)", got.Domain.ValueString())
+	}
+}
+
+// ModifyPlan reconciles the planned organization against the stored
+// row: same organization (in any form) plans the PRIOR value; a
+// genuinely different organization keeps the config value and
+// replaces. Create planning (null state) and destroy planning (null
+// plan) are guarded — reading a null prior errors.
 func TestCustomDomainModifyPlanNormalizesOrganization(t *testing.T) {
 	ctx := context.Background()
 	r, sch := newSchemadDomain(ctx, t)
 
-	t.Run("slug config over imported id converges", func(t *testing.T) {
+	t.Run("slug config over imported id plans the prior", func(t *testing.T) {
 		f := newFakeAPI(t)
 		f.orgsDoc = orgsDoc // acme → org-1
 		r.pd = f.testClient()
@@ -855,14 +967,40 @@ func TestCustomDomainModifyPlanNormalizesOrganization(t *testing.T) {
 
 		got := rawToDomain(ctx, t, sch, resp.Plan.Raw)
 		if got.Organization.ValueString() != "org-1" {
-			t.Errorf("planned organization = %q, want the resolved id (slug and id compare equal)", got.Organization.ValueString())
+			t.Errorf("planned organization = %q, want the PRIOR value (planned==prior is the rewrite core accepts)", got.Organization.ValueString())
 		}
 		if len(resp.RequiresReplace) != 0 {
 			t.Errorf("RequiresReplace = %v, want none — the org is the same, only the FORM differed", resp.RequiresReplace)
 		}
 	})
 
-	t.Run("a genuinely different organization replaces", func(t *testing.T) {
+	t.Run("id config over prior-slug state plans the prior too", func(t *testing.T) {
+		f := newFakeAPI(t)
+		f.orgsDoc = orgsDoc
+		r.pd = f.testClient()
+
+		stateData := seededDomain(func(d *customDomainModel) { d.Organization = types.StringValue("acme") })
+		planData := seededDomain(func(d *customDomainModel) { d.Organization = types.StringValue("org-1") })
+		req := resource.ModifyPlanRequest{
+			Plan:  tfsdk.Plan{Schema: sch, Raw: domainToRaw(ctx, t, sch, &planData)},
+			State: tfsdk.State{Schema: sch, Raw: domainToRaw(ctx, t, sch, &stateData)},
+		}
+		resp := &resource.ModifyPlanResponse{Plan: tfsdk.Plan{Schema: sch, Raw: domainToRaw(ctx, t, sch, &planData)}}
+		r.ModifyPlan(ctx, req, resp)
+		if resp.Diagnostics.HasError() {
+			t.Fatalf("ModifyPlan: %v", resp.Diagnostics)
+		}
+
+		got := rawToDomain(ctx, t, sch, resp.Plan.Raw)
+		if got.Organization.ValueString() != "acme" {
+			t.Errorf("planned organization = %q, want the prior slug kept (the forms name the same org)", got.Organization.ValueString())
+		}
+		if len(resp.RequiresReplace) != 0 {
+			t.Errorf("RequiresReplace = %v, want none", resp.RequiresReplace)
+		}
+	})
+
+	t.Run("a genuinely different organization keeps the config and replaces", func(t *testing.T) {
 		f := newFakeAPI(t)
 		f.orgsDoc = orgsDoc
 		r.pd = f.testClient()
@@ -880,11 +1018,58 @@ func TestCustomDomainModifyPlanNormalizesOrganization(t *testing.T) {
 		}
 
 		got := rawToDomain(ctx, t, sch, resp.Plan.Raw)
-		if got.Organization.ValueString() != "org-2" {
-			t.Errorf("planned organization = %q, want the resolved org-2", got.Organization.ValueString())
+		if got.Organization.ValueString() != "b-co" {
+			t.Errorf("planned organization = %q, want the config value kept (a rewrite would trip core's plan rule)", got.Organization.ValueString())
 		}
 		if len(resp.RequiresReplace) != 1 {
 			t.Errorf("RequiresReplace = %v, want exactly the organization path", resp.RequiresReplace)
+		}
+	})
+
+	t.Run("create planning (null state) is a no-op", func(t *testing.T) {
+		// THE null-prior guard: reading a null prior state errors —
+		// this shape must return before any Get.
+		f := newFakeAPI(t)
+		f.orgsDoc = soleOrgDoc()
+		r.pd = f.testClient()
+
+		planData := testDomain(func(d *customDomainModel) { d.Organization = types.StringValue("acme") })
+		req := resource.ModifyPlanRequest{
+			Plan:  tfsdk.Plan{Schema: sch, Raw: domainToRaw(ctx, t, sch, &planData)},
+			State: tfsdk.State{Schema: sch, Raw: tftypes.NewValue(sch.Type().TerraformType(ctx), nil)},
+		}
+		resp := &resource.ModifyPlanResponse{Plan: tfsdk.Plan{Schema: sch, Raw: domainToRaw(ctx, t, sch, &planData)}}
+		r.ModifyPlan(ctx, req, resp)
+		assertNoErrors(t, &resp.Diagnostics)
+		if len(f.all()) != 0 {
+			t.Errorf("requests = %+v — create planning has no prior to reconcile", f.all())
+		}
+		got := rawToDomain(ctx, t, sch, resp.Plan.Raw)
+		if got.Organization.ValueString() != "acme" {
+			t.Errorf("planned organization = %q, want the config value untouched", got.Organization.ValueString())
+		}
+	})
+
+	t.Run("null-prior organization stays unrewritten", func(t *testing.T) {
+		f := newFakeAPI(t)
+		f.orgsDoc = soleOrgDoc()
+		r.pd = f.testClient()
+
+		stateData := seededDomain(func(d *customDomainModel) { d.Organization = types.StringNull() })
+		planData := seededDomain(func(d *customDomainModel) { d.Organization = types.StringValue("acme") })
+		req := resource.ModifyPlanRequest{
+			Plan:  tfsdk.Plan{Schema: sch, Raw: domainToRaw(ctx, t, sch, &planData)},
+			State: tfsdk.State{Schema: sch, Raw: domainToRaw(ctx, t, sch, &stateData)},
+		}
+		resp := &resource.ModifyPlanResponse{Plan: tfsdk.Plan{Schema: sch, Raw: domainToRaw(ctx, t, sch, &planData)}}
+		r.ModifyPlan(ctx, req, resp)
+		assertNoErrors(t, &resp.Diagnostics)
+		if len(f.all()) != 0 {
+			t.Errorf("requests = %+v — nothing to reconcile against", f.all())
+		}
+		got := rawToDomain(ctx, t, sch, resp.Plan.Raw)
+		if got.Organization.ValueString() != "acme" {
+			t.Errorf("planned organization = %q, want the config value untouched", got.Organization.ValueString())
 		}
 	})
 
@@ -926,8 +1111,8 @@ func TestCustomDomainModifyPlanNormalizesOrganization(t *testing.T) {
 }
 
 // The review's required convergence case: import by id, then plan with
-// a SLUG organization — the wire-seeded id and the normalized plan
-// agree, no replacement.
+// a SLUG organization — the resolved forms name the same org, so the
+// plan carries the prior (the wire-seeded id) and nothing replaces.
 func TestCustomDomainImportThenSlugPlanConverges(t *testing.T) {
 	ctx := context.Background()
 	r, sch := newSchemadDomain(ctx, t)

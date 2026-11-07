@@ -72,8 +72,9 @@ func (r *customDomainResource) Schema(ctx context.Context, _ resource.SchemaRequ
 			"domain": schema.StringAttribute{
 				Required: true,
 				MarkdownDescription: "The domain to register — e.g. `apps.example.com`. The platform canonicalizes the name " +
-					"(trimmed, downcased) and stores THAT; the provider applies the same transform to the planned value, " +
-					"so any config casing converges. Names are platform-wide unique across ALL organizations — the " +
+					"(trimmed, downcased) and stores THAT; the provider canonicalizes the wire request the same way and " +
+					"decides replacement on canonical names, so any config casing converges — the plan and state carry " +
+					"the form you wrote. Names are platform-wide unique across ALL organizations — the " +
 					"duplicate 400 surfaces verbatim (the name may belong to another org). Changing the canonical name " +
 					"replaces the resource (a different name is a different row), and destroy really removes it.",
 				PlanModifiers: []planmodifier.String{canonicalDomain{}},
@@ -133,12 +134,16 @@ func (r *customDomainResource) Schema(ctx context.Context, _ resource.SchemaRequ
 	}
 }
 
-// canonicalDomain is the domain attribute's plan modifier: it rewrites
-// the planned value to the platform's canonical form (trimmed,
-// downcased — the register's own documented transform), so plan and
-// applied state always agree, and it owns the replacement decision —
-// only a CANONICAL name change replaces. A mixed-case config over a
-// canonical row converges instead of looping destroy/re-register.
+// canonicalDomain is the domain attribute's plan modifier: it decides
+// replacement on CANONICAL names but never plans a value core would
+// reject — for an attribute the user set, a planned known value must
+// equal the config value or the non-null prior. So: on create (null
+// prior) the plan carries the config value verbatim (the wire request
+// canonicalizes at send; the platform canonicalizes server-side
+// anyway); when the configured form differs from prior only by
+// canonicalization, the plan carries the PRIOR value — planned==prior
+// is the accepted shape, and the same-domain casing diff never
+// replaces; anything else keeps the config value and replaces.
 //
 // It runs in the schema's plan-modification pass (before the
 // resource's ModifyPlan), which is the only layer where a rewrite can
@@ -146,7 +151,7 @@ func (r *customDomainResource) Schema(ctx context.Context, _ resource.SchemaRequ
 type canonicalDomain struct{}
 
 func (canonicalDomain) Description(_ context.Context) string {
-	return "Canonicalizes the planned domain (trim + lowercase) and replaces only on a canonical-name change."
+	return "Decides replacement on canonical names (trim + lowercase) — same-name casing converges, different names replace."
 }
 
 func (m canonicalDomain) MarkdownDescription(ctx context.Context) string {
@@ -154,15 +159,29 @@ func (m canonicalDomain) MarkdownDescription(ctx context.Context) string {
 }
 
 func (canonicalDomain) PlanModifyString(_ context.Context, req planmodifier.StringRequest, resp *planmodifier.StringResponse) {
-	// Unknown or null plan values can't be canonicalized yet — the
-	// apply will tell.
+	// Unknown or null plan values can't be decided on yet — the apply
+	// will tell.
 	if req.PlanValue.IsNull() || req.PlanValue.IsUnknown() {
 		return
 	}
 	canonical := strings.ToLower(strings.TrimSpace(req.PlanValue.ValueString()))
-	resp.PlanValue = types.StringValue(canonical)
-	resp.RequiresReplace = !req.StateValue.IsNull() && !req.StateValue.IsUnknown() &&
-		req.StateValue.ValueString() != canonical
+
+	// Create (null or unknown prior): the plan value IS the config
+	// value — rewriting it would trip core's plan rule.
+	if req.StateValue.IsNull() || req.StateValue.IsUnknown() {
+		return
+	}
+
+	// Same domain, different form: plan the PRIOR value.
+	if strings.ToLower(strings.TrimSpace(req.StateValue.ValueString())) == canonical {
+		resp.PlanValue = req.StateValue
+		return
+	}
+
+	// A genuinely different canonical name: the config value stays (the
+	// plan rule) and the decision carries — a different name is a
+	// different row.
+	resp.RequiresReplace = true
 }
 
 func (r *customDomainResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -211,7 +230,10 @@ func (r *customDomainResource) Create(ctx context.Context, req resource.CreateRe
 	seedDomainOrganization(&data, orgID)
 
 	dom, err := pd.client.CreateAccessDomain(ctx, client.CreateAccessDomainInput{
-		Domain:         data.Domain.ValueString(),
+		// The wire carries the canonical form — the platform
+		// canonicalizes server-side anyway, and the plan keeps the
+		// configured form (core's plan rule), so state must too.
+		Domain:         strings.ToLower(strings.TrimSpace(data.Domain.ValueString())),
 		OrganizationID: orgID,
 	})
 	if err != nil {
@@ -314,21 +336,23 @@ func waitDomainVerified(ctx context.Context, pd *providerData, id string, waitFo
 	}
 }
 
-// ModifyPlan normalizes the planned organization: a set value (id or
-// slug) resolves to the row's id IN THE PLAN, so a slug config
-// converges with an imported id and only a genuinely different
-// organization plans a replacement — the RequiresReplace paths are
-// appended here, because a schema modifier's decision would fire on
-// the raw slug-vs-id diff no rewrite could undo (the schema pass runs
-// before this hook).
+// ModifyPlan reconciles the planned organization against the stored
+// row: a set value (id or slug) resolving to the SAME organization
+// plans the PRIOR value (planned==prior is the rewrite core accepts —
+// this is the import-converges-with-slug-config case), and a genuinely
+// different organization keeps the config value in the plan and
+// appends RequiresReplace here — the create half performs its own
+// resolution.
 //
 // The decision lives in ModifyPlan, not an attribute plan modifier,
 // because the schema — and any modifiers built with it — is constructed
 // once on a throwaway instance and cached: no client there. This hook
 // runs after resource Configure, on the planning instance.
 func (r *customDomainResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
-	// Destroy planning (null plan) has no organization to compare.
-	if req.Plan.Raw.IsNull() {
+	// Create planning (null state) and destroy planning (null plan)
+	// have no prior organization to reconcile — the create's own
+	// resolution seeds and settles those (the gateway's guard shape).
+	if req.Plan.Raw.IsNull() || req.State.Raw.IsNull() {
 		return
 	}
 
@@ -339,35 +363,51 @@ func (r *customDomainResource) ModifyPlan(ctx context.Context, req resource.Modi
 		return
 	}
 
-	// Unknown (the config left it unset — create seeds the resolution)
+	// Unknown (the config left it unset — reads seed the wire's echo)
 	// or already-agreeing values need no lookup.
 	if plan.Organization.IsNull() || plan.Organization.IsUnknown() ||
 		plan.Organization.Equal(state.Organization) {
 		return
 	}
 
+	// Null or unknown prior: nothing to reconcile against — the config
+	// value stays in the plan and the apply's resolution settles it.
+	if state.Organization.IsNull() || state.Organization.IsUnknown() {
+		return
+	}
+
 	if r.pd == nil {
-		// Plan modifiers only run through a configured server; leaving
-		// the plan as-is lets the create's own resolution report the
+		// Plan hooks only run through a configured server; leaving the
+		// plan as-is lets the create's own resolution report the
 		// problem.
 		return
 	}
 
-	orgID := resolveOrgID(ctx, r.pd.client, plan.Organization, r.pd.organization, &resp.Diagnostics)
+	planOrgID := resolveOrgID(ctx, r.pd.client, plan.Organization, r.pd.organization, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	plan.Organization = types.StringValue(orgID)
-	resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
-
-	// A genuinely different organization replaces; the rewritten plan
-	// value keeps the register honest (the resolution the create
-	// reuses).
-	if !state.Organization.IsNull() && !state.Organization.IsUnknown() &&
-		state.Organization.ValueString() != orgID {
-		resp.RequiresReplace = append(resp.RequiresReplace, path.Root("organization"))
+	// The stored form can be the id (import seed) or the config's own
+	// form (create keeps it): resolve it the same way — best-effort, an
+	// unresolvable stored form falls back to the literal comparison —
+	// so only a genuinely different ORGANIZATION decides.
+	stateOrgID := state.Organization.ValueString()
+	var stateDiags diag.Diagnostics
+	if resolved := resolveOrgID(ctx, r.pd.client, state.Organization, types.StringNull(), &stateDiags); !stateDiags.HasError() {
+		stateOrgID = resolved
 	}
+
+	if planOrgID == stateOrgID {
+		// Same organization in another form: plan the PRIOR value.
+		plan.Organization = state.Organization
+		resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
+		return
+	}
+
+	// A genuinely different organization: the config value stays (the
+	// plan rule) and the decision replaces.
+	resp.RequiresReplace = append(resp.RequiresReplace, path.Root("organization"))
 }
 
 func (r *customDomainResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -414,14 +454,19 @@ func readDomain(ctx context.Context, pd *providerData, data *customDomainModel, 
 	return false
 }
 
-// mapDomain writes the wire's fields into the model. The wire's domain
-// is the platform's canonical form (trimmed, downcased) — mapping it
-// is what makes imports converge (and what a non-canonical config
-// keeps diffing against). organization and wait_for_verification have
-// no wire source; the configured values survive Read untouched.
+// mapDomain writes the wire's fields into the model. The domain is
+// form-preserving: a configured value whose canonical form equals the
+// wire's survives verbatim (state carries the user's casing, matching
+// their config — the plan-rule shape); a null or unknown value (first
+// reads, imports) seeds the wire's canonical form; a wire name whose
+// canonical form DIFFERS means the row moved under the state — the
+// wire is the truth.
 func mapDomain(data *customDomainModel, dom client.AccessDomain) {
 	data.ID = types.StringValue(dom.ID)
-	data.Domain = types.StringValue(dom.Domain)
+	if data.Domain.IsNull() || data.Domain.IsUnknown() ||
+		strings.ToLower(strings.TrimSpace(data.Domain.ValueString())) != dom.Domain {
+		data.Domain = types.StringValue(dom.Domain)
+	}
 	data.Kind = types.StringValue(dom.Kind)
 	data.State = types.StringValue(dom.State)
 	data.OrganizationID = types.StringValue(dom.OrganizationID)
@@ -452,8 +497,9 @@ func desiredWait(v types.Bool) bool {
 // changing. A fresh read settles state; 404 removes — gone is gone,
 // never plan-over-ghost.
 func (r *customDomainResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan customDomainModel
+	var plan, state customDomainModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -462,6 +508,13 @@ func (r *customDomainResource) Update(ctx context.Context, req resource.UpdateRe
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	// id is Computed with no config source: when wait_for_verification
+	// or the timeouts change, core plans it UNKNOWN — and reading by
+	// ValueString() would GET /api/v1/access-domains/ (no id), whose
+	// 404 removes a LIVE domain from state. The row's identity lives in
+	// state; carry it before anything reads by it.
+	plan.ID = state.ID
 
 	if readDomain(ctx, pd, &plan, &resp.Diagnostics) {
 		resp.State.RemoveResource(ctx)

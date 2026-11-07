@@ -110,11 +110,12 @@ custom-domain resources, on the scaffold (#482 P3).
     resume surface (no domains panel, no MCP tool). Watch `state`.
   - Names are unique platform-wide, across ALL organizations: the
     duplicate 400 surfaces verbatim (the name may belong to another
-    org). The platform canonicalizes (trim + downcase) and the
-    provider applies the same transform to the planned value — any
-    config casing converges; only a genuinely different canonical name
-    replaces. Hand-edited state carrying a non-canonical name still
-    plans that replacement — the canonical row is the truth.
+    org). The platform canonicalizes (trim + downcase); the provider
+    sends the canonical name on the wire and decides replacement on
+    canonical forms, so any config casing converges — the plan and
+    state keep the form you wrote. Only a genuinely different
+    canonical name replaces (hand-edited state included — the
+    canonical row is the truth).
   - `organization` accepts id or slug; the plan normalizes a set value
     to the resolved id, so a slug config converges with an imported
     id. Only a genuinely different organization replaces.
