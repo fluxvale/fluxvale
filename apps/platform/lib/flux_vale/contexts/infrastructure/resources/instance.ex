@@ -713,6 +713,16 @@ defmodule FluxVale.Infrastructure.Instance do
       filter(expr(organization_id == ^arg(:organization_id)))
     end
 
+    read :list_for_organization_with_app do
+      description(
+        "The org home's instance stream: newest first, each row's app_version->app loaded"
+      )
+
+      argument(:organization_id, :uuid, allow_nil?: false)
+      filter(expr(organization_id == ^arg(:organization_id)))
+      prepare(build(sort: [created_at: :desc], load: [app_version: :app]))
+    end
+
     update :update_status do
       description(
         "System status write — the state machine's single funnel (MaintainAnchors + StatusTransition)."
@@ -1219,6 +1229,7 @@ defmodule FluxVale.Infrastructure.Instance do
     define(:get_by_id, args: [:id])
     define(:list_for_actor)
     define(:list_for_organization, args: [:organization_id])
+    define(:list_for_organization_with_app, args: [:organization_id])
     define(:delete, args: [:id])
     define(:deploy)
     define(:stop)

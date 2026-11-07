@@ -45,12 +45,7 @@ defmodule FluxValeWeb.OrganizationLive.Home do
           # the dashboard.
           {:ok, push_navigate(socket, to: ~p"/")}
         else
-          instances =
-            Instance
-            |> Ash.Query.for_read(:list_for_organization, %{organization_id: org.id}, actor: user)
-            |> Ash.Query.sort(created_at: :desc)
-            |> Ash.Query.load(app_version: :app)
-            |> Ash.read!()
+          instances = Instance.list_for_organization_with_app!(org.id, actor: user)
 
           members = members!(org, user)
 
