@@ -27,7 +27,7 @@ node = "26.8.1"
 
 # Terraform/OpenTofu provider lane (apps/tfprovider) — same pin
 # discipline as the BEAM/Node entries (ADR-0019 Am. 4).
-go = "1.25.14"
+go = "1.26.10"
 
 # Local k3d + Tilt stack (ADR-0020)
 k3d = "5.9.0"
