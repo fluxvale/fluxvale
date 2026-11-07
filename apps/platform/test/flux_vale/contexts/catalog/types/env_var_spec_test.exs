@@ -49,8 +49,9 @@ defmodule FluxVale.Catalog.Types.EnvVarSpecTest do
 
     test "rejects unknown fields — a typo'd label fails loudly" do
       assert {:error, message} = EnvVarSpec.new(%{"labl" => "x", "type" => "string"})
-      assert message =~ "unknown field"
-      assert message =~ "labl"
+
+      assert message ==
+               ~s|unknown field(s) ["labl"]; supported: [:default, :description, :label, :required, :secret, :type]|
     end
 
     test "rejects unknown types" do

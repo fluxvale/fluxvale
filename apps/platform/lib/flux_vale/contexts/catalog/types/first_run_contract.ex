@@ -30,6 +30,7 @@ defmodule FluxVale.Catalog.Types.FirstRunContract do
   use Ash.Type
 
   alias FluxVale.Catalog.Types.EnvVarSpec
+  alias FluxVale.Catalog.Types.KnownFields
 
   defstruct [:pattern, :env, :forbidden_env, :guidance]
 
@@ -101,7 +102,7 @@ defmodule FluxVale.Catalog.Types.FirstRunContract do
 
   def new(input) when is_map(input) do
     with {:ok, input} <- normalize_keys(input),
-         :ok <- reject_unknown_fields(input),
+         :ok <- KnownFields.reject(input, @known_fields),
          {:ok, pattern} <- cast_pattern(input),
          {:ok, env} <- cast_env(input),
          {:ok, forbidden_env} <- cast_forbidden_env(input),
@@ -128,7 +129,7 @@ defmodule FluxVale.Catalog.Types.FirstRunContract do
   end
 
   # String → atom for known field names only; unknown names pass
-  # through as strings so reject_unknown_fields/1 reports them.
+  # through as strings so KnownFields.reject/2 reports them.
   @field_atoms Map.new(@known_fields, &{Atom.to_string(&1), &1})
 
   defp normalize_keys(input) do
@@ -144,17 +145,6 @@ defmodule FluxVale.Catalog.Types.FirstRunContract do
       {key, _value}, _acc ->
         {:halt, {:error, "contract keys must be strings or atoms, got: #{inspect(key)}"}}
     end)
-  end
-
-  defp reject_unknown_fields(input) do
-    unknown = Map.keys(input) -- MapSet.to_list(@known_fields)
-
-    if unknown == [] do
-      :ok
-    else
-      {:error,
-       "unknown field(s) #{inspect(unknown)}; supported: #{inspect(Enum.sort(MapSet.to_list(@known_fields)))}"}
-    end
   end
 
   defp cast_pattern(input) do

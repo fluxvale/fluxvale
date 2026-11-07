@@ -65,8 +65,8 @@ defmodule FluxVale.Catalog.Types.FirstRunContractTest do
                  "guideance" => "x"
                })
 
-      assert message =~ "unknown field"
-      assert message =~ "guideance"
+      assert message ==
+               ~s|unknown field(s) ["guideance"]; supported: [:env, :forbidden_env, :guidance, :pattern]|
     end
 
     test "rejects unknown patterns" do
