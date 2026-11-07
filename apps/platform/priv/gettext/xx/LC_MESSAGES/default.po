@@ -23,7 +23,7 @@ msgstr ""
 "Language: xx\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: lib/flux_vale_web/components/core_components.ex:682
+#: lib/flux_vale_web/components/core_components.ex:718
 #, elixir-autogen, elixir-format
 msgid "Actions"
 msgstr ""
@@ -80,7 +80,7 @@ msgstr ""
 msgid "Apps"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_controller.ex:45
+#: lib/flux_vale_web/controllers/page_controller.ex:46
 #, elixir-autogen, elixir-format
 msgid "Browse a curated catalog of open source apps, deploy one in minutes, and let FluxVale keep it running for you."
 msgstr ""
@@ -154,7 +154,7 @@ msgstr ""
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:57
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:105
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:338
-#: lib/flux_vale_web/live/feedback_live/composer.ex:230
+#: lib/flux_vale_web/live/feedback_live/composer.ex:238
 #, elixir-autogen, elixir-format
 msgid "Sign in"
 msgstr ""
@@ -324,7 +324,7 @@ msgstr ""
 msgid "from %{rate}"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_controller.ex:41
+#: lib/flux_vale_web/controllers/page_controller.ex:42
 #, elixir-autogen, elixir-format
 msgid "FluxVale, managed cloud platform for open source applications"
 msgstr "xx: FluxVale, managed cloud platform for open source applications"
@@ -450,17 +450,17 @@ msgid_plural "%{count} votes"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:165
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:174
 #, elixir-autogen, elixir-format
 msgid "Add a comment"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:361
+#: lib/flux_vale_web/live/feedback_live/composer.ex:369
 #, elixir-autogen, elixir-format
 msgid "Already posted?"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:166
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:175
 #, elixir-autogen, elixir-format
 msgid "Be kind and stay on topic."
 msgstr ""
@@ -470,24 +470,24 @@ msgstr ""
 msgid "Cast vote"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:309
+#: lib/flux_vale_web/live/feedback_live/composer.ex:317
 #: lib/flux_vale_web/live/feedback_live/vote_island.ex:215
 #, elixir-autogen, elixir-format
 msgid "Create an organization"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:255
+#: lib/flux_vale_web/live/feedback_live/composer.ex:263
 #, elixir-autogen, elixir-format
 msgid "Description"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:134
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:140
 #, elixir-autogen, elixir-format
 msgid "No comments yet."
 msgstr ""
 
 #: lib/flux_vale_web/controllers/feedback_html/index.html.heex:26
-#: lib/flux_vale_web/live/feedback_live/composer.ex:216
+#: lib/flux_vale_web/live/feedback_live/composer.ex:224
 #, elixir-autogen, elixir-format
 msgid "Post a request"
 msgstr ""
@@ -497,39 +497,39 @@ msgstr ""
 msgid "Post a request - FluxVale"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:264
+#: lib/flux_vale_web/live/feedback_live/composer.ex:272
 #, elixir-autogen, elixir-format
 msgid "Post as"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:172
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:181
 #, elixir-autogen, elixir-format
 msgid "Post comment"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:338
+#: lib/flux_vale_web/live/feedback_live/composer.ex:346
 #, elixir-autogen, elixir-format
 msgid "Post request"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:195
-#: lib/flux_vale_web/live/feedback_live/composer.ex:321
+#: lib/flux_vale_web/live/feedback_live/composer.ex:203
+#: lib/flux_vale_web/live/feedback_live/composer.ex:329
 #, elixir-autogen, elixir-format
 msgid "Posting needs a paid org."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:303
+#: lib/flux_vale_web/live/feedback_live/composer.ex:311
 #, elixir-autogen, elixir-format
 msgid "Posting needs an org you own."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:171
-#: lib/flux_vale_web/live/feedback_live/composer.ex:336
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:180
+#: lib/flux_vale_web/live/feedback_live/composer.ex:344
 #, elixir-autogen, elixir-format
 msgid "Posting…"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:153
+#: lib/flux_vale_web/live/feedback_live/composer.ex:161
 #, elixir-autogen, elixir-format
 msgid "Request posted."
 msgstr ""
@@ -544,17 +544,17 @@ msgstr ""
 msgid "Saving…"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:247
+#: lib/flux_vale_web/live/feedback_live/composer.ex:255
 #, elixir-autogen, elixir-format
 msgid "Short and specific wins the most votes."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/comments_island.ex:183
+#: lib/flux_vale_web/live/feedback_live/comments_island.ex:192
 #, elixir-autogen, elixir-format
 msgid "Sign in to comment"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:224
+#: lib/flux_vale_web/live/feedback_live/composer.ex:232
 #, elixir-autogen, elixir-format
 msgid "Sign in to post a request."
 msgstr ""
@@ -564,17 +564,17 @@ msgstr ""
 msgid "Sign in to vote"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:218
+#: lib/flux_vale_web/live/feedback_live/composer.ex:226
 #, elixir-autogen, elixir-format
 msgid "Tell us what to build next. Every post is public and tracked by the team."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:246
+#: lib/flux_vale_web/live/feedback_live/composer.ex:254
 #, elixir-autogen, elixir-format
 msgid "Title"
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:428
+#: lib/flux_vale_web/live/feedback_live/composer.ex:436
 #, elixir-autogen, elixir-format
 msgid "Top up %{org} to post"
 msgstr ""
@@ -609,7 +609,7 @@ msgstr ""
 msgid "Voting needs an org you own."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:256
+#: lib/flux_vale_web/live/feedback_live/composer.ex:264
 #, elixir-autogen, elixir-format
 msgid "What should happen, and why it matters."
 msgstr ""
@@ -619,7 +619,7 @@ msgstr ""
 msgid "Your vote didn't go through. Try again."
 msgstr ""
 
-#: lib/flux_vale_web/live/feedback_live/composer.ex:190
+#: lib/flux_vale_web/live/feedback_live/composer.ex:198
 #, elixir-autogen, elixir-format
 msgid "Couldn't post this request. Try again."
 msgstr ""
@@ -687,4 +687,497 @@ msgstr ""
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:41
 #, elixir-autogen, elixir-format
 msgid "You top up your wallet in USD. Apps bill hourly against your wallet balance, and every rate above is a monthly equivalent. There are no subscriptions."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:69
+#, elixir-autogen, elixir-format
+msgid "Access gateways and domains"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:92
+#, elixir-autogen, elixir-format
+msgid "Admin"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:166
+#, elixir-autogen, elixir-format
+msgid "AshAdmin"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:55
+#, elixir-autogen, elixir-format
+msgid "Balances, top-ups, and billing oversight."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:48
+#, elixir-autogen, elixir-format
+msgid "Catalog and pricing surgery"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:135
+#, elixir-autogen, elixir-format
+msgid "Coming in this lane"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:150
+#, elixir-autogen, elixir-format
+msgid "Deep debugging"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:49
+#, elixir-autogen, elixir-format
+msgid "Edit catalog entries and price ladders."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:59
+#, elixir-autogen, elixir-format
+msgid "Feedback moderation"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:168
+#, elixir-autogen, elixir-format
+msgid "Generated views over the shown domains."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:44
+#, elixir-autogen, elixir-format
+msgid "Invitations, accounts, and the people behind them."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:181
+#, elixir-autogen, elixir-format, fuzzy
+msgid "LiveDashboard"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:60
+#, elixir-autogen, elixir-format
+msgid "Moderate the public feedback board."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/catalog.ex:58
+#: lib/flux_vale_web/live/admin_live/home.ex:91
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:164
+#: lib/flux_vale_web/live/admin_live/sizes.ex:69
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:303
+#, elixir-autogen, elixir-format
+msgid "Operator console"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:64
+#, elixir-autogen, elixir-format
+msgid "Orgs and instances"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:43
+#, elixir-autogen, elixir-format
+msgid "People and invites"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:70
+#, elixir-autogen, elixir-format
+msgid "Read-only gateway and domain inspection."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:65
+#, elixir-autogen, elixir-format
+msgid "Read-only sweeps across orgs and instances."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:105
+#, elixir-autogen, elixir-format
+msgid "Surfaces"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:152
+#, elixir-autogen, elixir-format
+msgid "The generated tools. They run as trusted superuser without the resource policies. For emergencies and data surgery."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:94
+#, elixir-autogen, elixir-format
+msgid "The operator console. Surfaces build out across this lane."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:183
+#, elixir-autogen, elixir-format
+msgid "This node's BEAM and database telemetry."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:54
+#, elixir-autogen, elixir-format
+msgid "Wallets and billing"
+msgstr ""
+
+#: lib/flux_vale_web/components/core_components.ex:1104
+#, elixir-autogen, elixir-format
+msgid "Cancel"
+msgstr ""
+
+#: lib/flux_vale_web/components/admin_components.ex:23
+#, elixir-autogen, elixir-format
+msgid "%{cpu} CPU, %{memory} MB, %{storage} GB"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/catalog.ex:108
+#: lib/flux_vale_web/live/admin_live/sizes.ex:107
+#: lib/flux_vale_web/live/admin_live/sizes.ex:111
+#, elixir-autogen, elixir-format
+msgid "/mo"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/sizes.ex:114
+#, elixir-autogen, elixir-format
+msgid "1 version"
+msgid_plural "%{count} versions"
+msgstr[0] ""
+msgstr[1] ""
+
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:237
+#, elixir-autogen, elixir-format
+msgid "1 version points at this size"
+msgid_plural "%{count} versions point at this size"
+msgstr[0] ""
+msgstr[1] ""
+
+#: lib/flux_vale_web/live/admin_live/catalog.ex:97
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:227
+#: lib/flux_vale_web/live/admin_live/sizes.ex:102
+#, elixir-autogen, elixir-format
+msgid "Allocation"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:130
+#, elixir-autogen, elixir-format
+msgid "Allocation saved."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/sizes.ex:82
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:315
+#, elixir-autogen, elixir-format
+msgid "Back to the catalog"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:175
+#, elixir-autogen, elixir-format
+msgid "Back to the size ladder"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:334
+#, elixir-autogen, elixir-format
+msgid "Blueprint and size"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:274
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:300
+#, elixir-autogen, elixir-format
+msgid "CPU cores"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/catalog.ex:59
+#, elixir-autogen, elixir-format
+msgid "Catalog and pricing"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/catalog.ex:120
+#, elixir-autogen, elixir-format
+msgid "Contract"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:143
+#, elixir-autogen, elixir-format
+msgid "Could not save the allocation. Check the errors below."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:108
+#, elixir-autogen, elixir-format
+msgid "Could not save the prices. Check the errors below."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:142
+#, elixir-autogen, elixir-format
+msgid "Could not save the version. Check the errors below."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:394
+#, elixir-autogen, elixir-format
+msgid "Default CPU cores"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:401
+#, elixir-autogen, elixir-format
+msgid "Default memory (MB)"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:408
+#, elixir-autogen, elixir-format
+msgid "Default storage (GB)"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/catalog.ex:132
+#: lib/flux_vale_web/live/admin_live/sizes.ex:122
+#, elixir-autogen, elixir-format
+msgid "Edit"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:166
+#, elixir-autogen, elixir-format
+msgid "Edit size"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:305
+#, elixir-autogen, elixir-format
+msgid "Edit version"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/catalog.ex:61
+#, elixir-autogen, elixir-format
+msgid "Every app and version with its allocation, its price, and its first-run posture. Edits run through the resource actions."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:73
+#, elixir-autogen, elixir-format
+msgid "First open sets the server password"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:72
+#, elixir-autogen, elixir-format
+msgid "First registered user is the admin"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/catalog.ex:117
+#, elixir-autogen, elixir-format
+msgid "First run"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:418
+#, elixir-autogen, elixir-format
+msgid "First-run contract"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:454
+#, elixir-autogen, elixir-format
+msgid "Forbidden env keys, one per line"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:446
+#, elixir-autogen, elixir-format
+msgid "Guaranteed env, one KEY=VALUE per line"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:420
+#, elixir-autogen, elixir-format
+msgid "How the app becomes usable on first open."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:246
+#, elixir-autogen, elixir-format
+msgid "Its blueprint defaults must keep matching this envelope. Re-point those versions to another size, or retire them. Then this allocation can move."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:281
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:308
+#, elixir-autogen, elixir-format
+msgid "Memory (MB)"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:205
+#, elixir-autogen, elixir-format
+msgid "Monthly rate (US cents)"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/catalog.ex:82
+#, elixir-autogen, elixir-format
+msgid "No apps in the catalog yet."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:71
+#, elixir-autogen, elixir-format
+msgid "No contract"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/catalog.ex:113
+#, elixir-autogen, elixir-format
+msgid "No size"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/sizes.ex:91
+#, elixir-autogen, elixir-format
+msgid "No sizes seeded yet."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:255
+#, elixir-autogen, elixir-format
+msgid "No versions point at this size"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/catalog.ex:122
+#, elixir-autogen, elixir-format
+msgid "None"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/home.ex:123
+#, elixir-autogen, elixir-format
+msgid "Open"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:462
+#, elixir-autogen, elixir-format
+msgid "Owner guidance"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:438
+#, elixir-autogen, elixir-format
+msgid "Pattern"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/catalog.ex:102
+#, elixir-autogen, elixir-format
+msgid "Price"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:188
+#, elixir-autogen, elixir-format
+msgid "Prices"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:190
+#, elixir-autogen, elixir-format
+msgid "Prices are business data. Edit them freely."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:98
+#, elixir-autogen, elixir-format
+msgid "Prices saved."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:378
+#, elixir-autogen, elixir-format
+msgid "Re-point ahead"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:355
+#, elixir-autogen, elixir-format
+msgid "Recommended size"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/sizes.ex:105
+#, elixir-autogen, elixir-format
+msgid "Running rate"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:292
+#, elixir-autogen, elixir-format
+msgid "Save allocation"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:216
+#, elixir-autogen, elixir-format
+msgid "Save prices"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:470
+#, elixir-autogen, elixir-format
+msgid "Save version"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/sizes.ex:99
+#, elixir-autogen, elixir-format
+msgid "Size"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/catalog.ex:71
+#: lib/flux_vale_web/live/admin_live/sizes.ex:70
+#, elixir-autogen, elixir-format
+msgid "Size ladder"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/sizes.ex:109
+#, elixir-autogen, elixir-format
+msgid "Stopped rate"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:212
+#, elixir-autogen, elixir-format
+msgid "Stopped rate (US cents)"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:288
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:316
+#, elixir-autogen, elixir-format
+msgid "Storage (GB)"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:53
+#, elixir-autogen, elixir-format
+msgid "That size is not editable here."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:57
+#, elixir-autogen, elixir-format
+msgid "That version is not editable here."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:259
+#, elixir-autogen, elixir-format
+msgid "The allocation is editable now. It freezes once a version points here."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:346
+#, elixir-autogen, elixir-format
+msgid "The blueprint defaults and the size envelope must describe the same allocation. Every save checks them against each other."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:342
+#, elixir-autogen, elixir-format
+msgid "The coherence rule"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:427
+#, elixir-autogen, elixir-format
+msgid "The contract failed the save"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/size_edit.ex:229
+#, elixir-autogen, elixir-format
+msgid "The envelope a version's blueprint must match."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:367
+#, elixir-autogen, elixir-format
+msgid "The size %{slug} provides %{allocation}. The defaults must match it exactly."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/sizes.ex:72
+#, elixir-autogen, elixir-format
+msgid "The sizes and their prices. A size's allocation freezes while versions point at it. Its price never freezes."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:363
+#, elixir-autogen, elixir-format
+msgid "This save will not pass"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:382
+#, elixir-autogen, elixir-format
+msgid "This version will point at %{slug}. Future deploys provision and bill %{slug} at %{rate}."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/catalog.ex:94
+#, elixir-autogen, elixir-format
+msgid "Version"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:131
+#, elixir-autogen, elixir-format
+msgid "Version saved."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/sizes.ex:113
+#, elixir-autogen, elixir-format
+msgid "Versions"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:336
+#, elixir-autogen, elixir-format
+msgid "What provisioning grants and what billing prices, in one place."
 msgstr ""
