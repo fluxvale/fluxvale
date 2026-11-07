@@ -109,9 +109,9 @@ defmodule FluxVale.MixProject do
       # then Picosat on a glibc base, deliberately.
       {:simple_sat, "0.1.4"},
       {:ash_authentication, "4.14.2"},
-      # security floor for the transitive assent tree
+      # security floor: joken's requirement (assent's is optional)
       {:jose, "1.11.13"},
-      # security floor for the transitive assent tree
+      # security floor: opentelemetry_exporter and prom_ex trees (assent's is optional)
       {:ssl_verify_fun, "1.1.9"},
       # Dev/test-only analysis tools (exact pins, same rule)
       {:dialyxir, "1.4.7", only: [:dev, :test], runtime: false},
