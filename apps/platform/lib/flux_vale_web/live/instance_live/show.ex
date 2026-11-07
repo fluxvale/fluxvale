@@ -283,7 +283,8 @@ defmodule FluxValeWeb.InstanceLive.Show do
                 detail. --%>
                 <div class="flex items-baseline justify-between gap-4 py-2.5">
                   <span class="shrink-0 text-ink-subtle">Resources</span>
-                  <span class="min-w-0 text-right text-ink" data-testid="instance-resources">
+                  <%!-- #557: sizes ride the mono voice like versions. --%>
+                  <span class="min-w-0 text-right font-mono text-ink" data-testid="instance-resources">
                     {@instance.cpu_cores} CPU · {@instance.memory_mb} MB · {@instance.storage_gb} GB
                   </span>
                 </div>
@@ -296,7 +297,8 @@ defmodule FluxValeWeb.InstanceLive.Show do
                   surface (#206). --%>
                   <div class="flex items-baseline justify-between gap-4 py-2.5">
                     <span class="shrink-0 text-ink-subtle">Price</span>
-                    <span class="min-w-0 text-right text-ink" data-testid="instance-price">
+                    <%!-- #557: prices ride the mono voice. --%>
+                    <span class="min-w-0 text-right font-mono text-ink" data-testid="instance-price">
                       <%= if @instance.status in [:stopped, :sleeping] do %>
                         {FluxVale.Pricing.format_usd(@rates.stopped)}/mo while {if(
                           @instance.status == :sleeping,
