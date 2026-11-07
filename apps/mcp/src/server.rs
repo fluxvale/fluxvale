@@ -58,21 +58,26 @@ pub(crate) struct InstanceStatusParams {
     pub id: Option<String>,
 }
 
-/// `instances_deploy`'s input — the CLI's deploy flags.
+/// `instances_deploy`'s input — the CLI's deploy flags, with `name`
+/// required: the platform's create refuses a nameless body (the
+/// attribute is allow_nil?-false and nothing derives it — there is no
+/// "the app's name by default" on this wire).
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub(crate) struct DeployParams {
     /// The app's URL slug (from `apps_list`).
     pub app: String,
-    /// A name for the new instance (the app's name by default).
-    pub name: Option<String>,
+    /// A name for the new instance — you name it; the wire requires
+    /// one.
+    pub name: String,
     /// CPU cores as the wire's decimal string, e.g. "0.5".
     pub cpu: Option<String>,
     /// Memory in megabytes.
     pub memory_mb: Option<i64>,
     /// Storage in gigabytes.
     pub storage_gb: Option<i64>,
-    /// An exact app version id; omit to deploy the newest published
-    /// version.
+    /// An exact app version id; omit to deploy the newest version
+    /// (the versions route's own newest-first order — there is no
+    /// published filter).
     pub version: Option<String>,
 }
 
@@ -236,12 +241,12 @@ when the id is not one of your instances.",
 
     #[tool(
         description = "Deploy an app as a new instance: resolves the app by its URL slug \
-(from `apps_list`), picks the newest published version (or the exact \
-version id you pass), creates the instance, and enqueues the deploy. \
-Optional name/cpu/memory_mb/storage_gb override the version's \
-defaults. The org wallet must be funded — a 403 names the top-up path \
-(the `topup` tool returns it). NOT idempotent: every call deploys a \
-new instance.",
+(from `apps_list`), picks the newest version (or the exact version id \
+you pass), creates the instance, and enqueues the deploy. You name \
+the instance (required); cpu/memory_mb/storage_gb optionally override \
+the version's defaults. The org wallet must be funded — a 403 names \
+the top-up path (the `topup` tool returns it). NOT idempotent: every \
+call deploys a new instance.",
         annotations(destructive_hint = false)
     )]
     async fn instances_deploy(
@@ -332,6 +337,16 @@ the panel instead.",
             if !elicit::confirm_capable(&context) {
                 return Ok(text_error(elicit::honest_error("instances_destroy")).into());
             }
+            // The scope check lands BEFORE the question (Elixir
+            // parity: require_scope before ask_confirm) — a read-only
+            // token gets its refusal without a human decision first.
+            // The confirm round doesn't re-check: the seal already
+            // proves this round passed it.
+            if let Err(message) =
+                require_domain_scope(self.api_base_url.clone(), &token, "instances:write").await
+            {
+                return Ok(text_error(message).into());
+            }
             // Resolve first — the not-found posture surfaces BEFORE
             // the question (the Elixir server's own order).
             let instance = match upstream::instances_status(
@@ -356,8 +371,8 @@ the panel instead.",
             return Ok(elicit::input_required(question, sealed).into());
         };
 
-        // The confirm round: the SEALED target runs — a re-sent
-        // confirm cannot steer a different id.
+        // The confirm round: the target that runs is the sealed one —
+        // a re-sent confirm cannot steer a different id.
         match elicit::open(&token, &sealed) {
             Ok(elicit::Pending::DestroyInstance { instance_id }) => {
                 match elicit::confirm_answer(&responses) {
@@ -486,6 +501,14 @@ tool refuses without touching anything — use the panel instead.",
         let Some(sealed) = sealed else {
             if !elicit::confirm_capable(&context) {
                 return Ok(text_error(elicit::honest_error("backups_restore")).into());
+            }
+            // The scope check before the question (Elixir parity:
+            // require_scope before ask_confirm); the confirm round
+            // doesn't re-check.
+            if let Err(message) =
+                require_domain_scope(self.api_base_url.clone(), &token, "backups:write").await
+            {
+                return Ok(text_error(message).into());
             }
             let instance = match upstream::instances_status(
                 self.api_base_url.clone(),
@@ -673,6 +696,31 @@ fn field(row: &Value, name: &str) -> Option<String> {
     row.get(name).and_then(Value::as_str).map(str::to_owned)
 }
 
+/// The destructive pair's first-round scope check: /me's exact scope
+/// list (one read) against the domain's write scope. A read-only
+/// token gets the scope refusal BEFORE the human decision — the
+/// Elixir server's order (require_scope before ask_confirm). The
+/// refusal copy is its line too; anything /me itself fails with
+/// surfaces as-is.
+async fn require_domain_scope(
+    base: Arc<str>,
+    token: &Token,
+    required: &'static str,
+) -> Result<(), String> {
+    let granted = upstream::me_scopes(base, token.clone())
+        .await
+        .map_err(|err| match err {
+            upstream::ScopeError::Auth(message)
+            | upstream::ScopeError::Shape(message)
+            | upstream::ScopeError::Upstream(message) => message,
+        })?;
+    if scopes::grants(&granted, required) {
+        Ok(())
+    } else {
+        Err(format!("this token lacks the {required} scope"))
+    }
+}
+
 /// The protocol-level authentication error: the client must
 /// reconfigure its token. The API's own words ride inside.
 fn auth_error(message: String) -> ErrorData {
@@ -759,6 +807,10 @@ impl ServerHandler for FluxValeMcp {
             .await
             .map_err(|err| match err {
                 upstream::ScopeError::Auth(message) => auth_error(message),
+                // The shape mismatch's own line — not "the API is
+                // unavailable": this /me answered, just not as a PAT
+                // caller's /me does.
+                upstream::ScopeError::Shape(message) => ErrorData::internal_error(message, None),
                 upstream::ScopeError::Upstream(message) => upstream_error(message),
             })?;
         let tools: Vec<Tool> = self
@@ -1173,9 +1225,10 @@ mod tests {
     // (that was the probes' job; the list is exact now).
 
     #[tokio::test]
-    async fn a_me_without_meta_scopes_fails_tools_list_loudly() {
-        // A session-shaped /me answer is an upstream-shape surprise —
-        // never a silent "no tools", never a silent "all tools".
+    async fn a_me_without_meta_scopes_fails_tools_list_with_its_own_line() {
+        // A session-shaped /me answer is a shape mismatch, not an
+        // outage — its own error line, never a silent "no tools",
+        // never a silent "all tools", never "the API is unavailable".
         let session_shaped = json!({
             "data": {"type": "user", "id": "01H", "attributes": {}}
         })
@@ -1184,12 +1237,18 @@ mod tests {
         let (_, body) = tools_list(&app(&server), PAT_FULL).await;
         let (code, message) = rpc_error(&body);
         assert_eq!(code, -32603);
+        let message = message.as_str().unwrap();
         assert!(
-            message
-                .as_str()
-                .unwrap()
-                .contains("the FluxVale API is unavailable"),
+            message.contains("unexpected /me answer: no meta.scopes"),
             "message: {message}"
+        );
+        assert!(
+            message.contains("not a PAT caller, or the platform predates #585"),
+            "message: {message}"
+        );
+        assert!(
+            !message.contains("the FluxVale API is unavailable"),
+            "a shape mismatch is not an outage: {message}"
         );
     }
 
@@ -1544,7 +1603,7 @@ mod tests {
             &app(&server),
             PAT_FULL,
             "instances_deploy",
-            json!({"app": "ghost"}),
+            json!({"app": "ghost", "name": "new"}),
         )
         .await;
         assert_eq!(result(&body)["isError"], true);
@@ -1566,7 +1625,7 @@ mod tests {
             &app(&server),
             PAT_FULL,
             "instances_deploy",
-            json!({"app": "wordpress"}),
+            json!({"app": "wordpress", "name": "new"}),
         )
         .await;
         assert_eq!(result(&body)["isError"], true);
@@ -1812,9 +1871,13 @@ mod tests {
         json!({"confirm": {"action": "accept", "content": {"confirm": answer}}})
     }
 
+    /// The destructive pair's upstream: /me with the full grant (the
+    /// first-round scope check reads it before the resolve), the
+    /// resolve read, and the DELETE.
     fn destroy_upstream() -> CannedApi {
         let deleted = r#"{"id":"i1","name":"web","slug":"web-a1b2","status":"deleting"}"#;
         testapi::serve(&[
+            ("/api/v1/me", 200, me_doc(&ALL_SCOPES)),
             ("GET /api/v1/instances/i1", 200, instance_doc()),
             ("DELETE /api/v1/instances/i1", 200, deleted.to_string()),
         ])
@@ -1824,46 +1887,46 @@ mod tests {
     async fn a_client_without_the_capability_gets_the_honest_error_and_nothing_runs() {
         // The 2025-11-25 handshake-rev shape (no per-request
         // capabilities exist there): the tool refuses, the verb never
-        // runs — never a silent no-op, never a protocol crash.
-        let server = destroy_upstream();
-        let (_, body) = tools_call(
-            &app(&server),
-            PAT_FULL,
-            "instances_destroy",
-            json!({"id": "i1"}),
-        )
-        .await;
-        assert_eq!(result(&body)["isError"], true);
-        let text = result(&body)["content"][0]["text"].as_str().unwrap();
-        assert!(
-            text.contains("cannot confirm destructive actions"),
-            "text: {text}"
-        );
-        assert!(text.contains("instances_destroy"), "text: {text}");
-        assert!(text.contains("panel"), "text: {text}");
-        assert_eq!(server.head_count(), 0, "no upstream call may go out");
+        // runs — never a silent no-op, never a protocol crash. Both
+        // destructive tools, zero upstream calls: the capability
+        // check precedes even the scope read.
+        let restore_args = json!({"instance_id": "i1", "backup_run_id": RUN_ID});
+        for (tool, arguments) in [
+            ("instances_destroy", json!({"id": "i1"})),
+            ("backups_restore", restore_args.clone()),
+        ] {
+            let server = destroy_upstream();
+            let (_, body) = tools_call(&app(&server), PAT_FULL, tool, arguments.clone()).await;
+            assert_eq!(result(&body)["isError"], true, "tool: {tool}");
+            let text = result(&body)["content"][0]["text"].as_str().unwrap();
+            assert!(
+                text.contains("cannot confirm destructive actions"),
+                "tool: {tool}, text: {text}"
+            );
+            assert!(text.contains(tool), "tool: {tool}, text: {text}");
+            assert!(text.contains("panel"), "tool: {tool}, text: {text}");
+            assert_eq!(
+                server.head_count(),
+                0,
+                "tool: {tool} — no upstream call may go out"
+            );
 
-        // Same posture on the 2026-07-28 rev without the capability
-        // declared: the stateless rev carries capabilities per
-        // request, and this client declares none.
-        let server = destroy_upstream();
-        let (_, body) = stateless_tools_call(
-            &app(&server),
-            PAT_FULL,
-            "instances_destroy",
-            json!({"id": "i1"}),
-            false,
-            None,
-        )
-        .await;
-        assert_eq!(result(&body)["isError"], true);
-        assert!(
-            result(&body)["content"][0]["text"]
-                .as_str()
-                .unwrap()
-                .contains("cannot confirm destructive actions")
-        );
-        assert_eq!(server.head_count(), 0);
+            // Same posture on the 2026-07-28 rev without the
+            // capability declared: the stateless rev carries
+            // capabilities per request, and this client declares none.
+            let server = destroy_upstream();
+            let (_, body) =
+                stateless_tools_call(&app(&server), PAT_FULL, tool, arguments, false, None).await;
+            assert_eq!(result(&body)["isError"], true, "tool: {tool}");
+            assert!(
+                result(&body)["content"][0]["text"]
+                    .as_str()
+                    .unwrap()
+                    .contains("cannot confirm destructive actions"),
+                "tool: {tool}"
+            );
+            assert_eq!(server.head_count(), 0, "tool: {tool}");
+        }
     }
 
     #[tokio::test]
@@ -1900,14 +1963,63 @@ mod tests {
             "the sealed state rides: {}",
             result(&body)
         );
-        // Only the resolve went out — the DELETE waits for the yes.
-        assert_eq!(server.head_count(), 1);
+        // Only the scope read and the resolve went out — the DELETE
+        // waits for the yes. Order pinned: the scope check reads /me
+        // BEFORE the resolve (Elixir's require_scope → resolve → ask).
+        assert_eq!(server.head_count(), 2);
+        assert!(
+            server.head(0).to_lowercase().starts_with("get /api/v1/me"),
+            "the scope check reads /me first"
+        );
         assert!(
             server
-                .head(0)
+                .head(1)
                 .to_lowercase()
                 .starts_with("get /api/v1/instances/i1")
         );
+    }
+
+    #[tokio::test]
+    async fn a_read_only_token_gets_the_scope_refusal_before_the_question() {
+        // Elixir parity (require_scope before ask_confirm): the
+        // domain write scope is checked BEFORE the human is asked —
+        // a read-only token never sees a confirm question, and the
+        // instance resolve never even runs (one /me read, then the
+        // refusal). The confirm-round retry path doesn't re-check.
+        let arms = [
+            (
+                "instances_destroy",
+                "instances:read",
+                "instances:write",
+                json!({"id": "i1"}),
+            ),
+            (
+                "backups_restore",
+                "backups:read",
+                "backups:write",
+                json!({"instance_id": "i1", "backup_run_id": RUN_ID}),
+            ),
+        ];
+        for (tool, granted, required, arguments) in arms {
+            let server = testapi::serve(&[
+                ("/api/v1/me", 200, me_doc(&[granted])),
+                ("GET /api/v1/instances/i1", 200, instance_doc()),
+            ]);
+            let (_, body) =
+                stateless_tools_call(&app(&server), PAT_CAPABLE, tool, arguments, true, None).await;
+            assert_eq!(result(&body)["isError"], true, "tool: {tool}");
+            assert_eq!(
+                result(&body)["content"][0]["text"],
+                format!("this token lacks the {required} scope"),
+                "tool: {tool}"
+            );
+            // The /me read alone — no resolve, no question.
+            assert_eq!(server.head_count(), 1, "tool: {tool}");
+            assert!(
+                result(&body)["inputRequests"].is_null(),
+                "tool: {tool} — never a question"
+            );
+        }
     }
 
     #[tokio::test]
@@ -1937,10 +2049,11 @@ mod tests {
         .await;
         assert_eq!(result(&body)["isError"], false);
         assert_eq!(result(&body)["structuredContent"]["status"], "deleting");
-        // The DELETE went out on the confirm round.
+        // The DELETE went out on the confirm round (after the first
+        // round's /me + resolve).
         assert!(
             server
-                .head(1)
+                .head(2)
                 .to_lowercase()
                 .starts_with("delete /api/v1/instances/i1")
         );
@@ -1978,20 +2091,21 @@ mod tests {
             assert_eq!(result(&body)["isError"], false);
             assert_eq!(
                 result(&body)["content"][0]["text"],
-                "cancelled. Nothing was changed."
+                "cancelled. Nothing was changed"
             );
-            // The resolve read alone — the DELETE never went out.
-            assert_eq!(server.head_count(), 1, "answer: {answer}");
+            // The scope read + resolve alone — the DELETE never went
+            // out.
+            assert_eq!(server.head_count(), 2, "answer: {answer}");
         }
     }
 
     #[tokio::test]
     async fn a_resent_confirm_cannot_steer_a_different_instance() {
         // The question named i1; the retry's arguments claim i2. The
-        // SEALED target runs — i1 — because the confirm round never
-        // consults the re-sent arguments.
+        // target that runs is the sealed one — i1.
         let deleted = r#"{"id":"i1","name":"web","slug":"web-a1b2","status":"deleting"}"#;
         let server = testapi::serve(&[
+            ("/api/v1/me", 200, me_doc(&ALL_SCOPES)),
             ("GET /api/v1/instances/i1", 200, instance_doc()),
             ("DELETE /api/v1/instances/i1", 200, deleted.to_string()),
             // i2 exists on the read side only — a DELETE to i2 would
@@ -2022,10 +2136,10 @@ mod tests {
         assert_eq!(result(&body)["structuredContent"]["id"], "i1");
         assert!(
             server
-                .head(1)
+                .head(2)
                 .to_lowercase()
                 .starts_with("delete /api/v1/instances/i1"),
-            "the sealed target runs, not the re-sent id"
+            "the target that runs is the sealed one, not the re-sent id"
         );
     }
 
@@ -2076,7 +2190,10 @@ mod tests {
         assert_eq!(result(&body)["isError"], true);
 
         // A seal from the OTHER destructive tool never opens here.
-        let restore_server = testapi::serve(&[("GET /api/v1/instances/i1", 200, instance_doc())]);
+        let restore_server = testapi::serve(&[
+            ("/api/v1/me", 200, me_doc(&ALL_SCOPES)),
+            ("GET /api/v1/instances/i1", 200, instance_doc()),
+        ]);
         let (_, restore_first) = stateless_tools_call(
             &app(&restore_server),
             PAT_CAPABLE,
@@ -2103,33 +2220,112 @@ mod tests {
                 .unwrap()
                 .contains("another action")
         );
-        // No DELETE went out in any of these arms.
-        assert_eq!(server.head_count(), 1);
+        // No DELETE went out in any of these arms — the first round's
+        // /me + resolve are the only calls.
+        assert_eq!(server.head_count(), 2);
     }
 
     #[tokio::test]
-    async fn a_foreign_instance_404s_before_the_question() {
-        // The not-found posture surfaces BEFORE the confirm round —
-        // no question for an instance that isn't the caller's.
-        let server = testapi::serve(&[(
-            "GET /api/v1/instances/ghost",
-            404,
-            r#"{"errors": []}"#.into(),
-        )]);
-        let (_, body) = stateless_tools_call(
-            &app(&server),
+    async fn restore_refuses_a_tampered_or_destroy_minted_seal() {
+        // The cross-tool DIRECTION the destroy test doesn't pin: a
+        // DESTROY-minted seal presented to backups_restore never
+        // opens — and neither does a tampered one. Zero upstream
+        // calls on these rounds.
+        let restore_server = testapi::serve(&[
+            ("/api/v1/me", 200, me_doc(&ALL_SCOPES)),
+            ("GET /api/v1/instances/i1", 200, instance_doc()),
+        ]);
+        let restore_router = app(&restore_server);
+        let arguments = json!({"instance_id": "i1", "backup_run_id": RUN_ID});
+
+        // A destroy seal, minted for the same token.
+        let (_, destroy_first) = stateless_tools_call(
+            &app(&destroy_upstream()),
             PAT_CAPABLE,
             "instances_destroy",
-            json!({"id": "ghost"}),
+            json!({"id": "i1"}),
             true,
             None,
         )
         .await;
+        let destroy_seal = result(&destroy_first)["requestState"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        // Tampered: integrity fails — the single INVALID_SEAL line.
+        let tampered = format!("{}x", &destroy_seal[..destroy_seal.len() - 1]);
+        let (_, body) = stateless_tools_call(
+            &restore_router,
+            PAT_CAPABLE,
+            "backups_restore",
+            arguments.clone(),
+            true,
+            Some((&confirm_response("yes"), &tampered)),
+        )
+        .await;
         assert_eq!(result(&body)["isError"], true);
-        assert_eq!(
-            result(&body)["content"][0]["text"],
-            "no such instance (or it's not yours)"
+        assert!(
+            result(&body)["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("invalid, expired, or from another token")
         );
+
+        // Untampered but the other tool's: the WRONG_TOOL line.
+        let (_, body) = stateless_tools_call(
+            &restore_router,
+            PAT_CAPABLE,
+            "backups_restore",
+            arguments,
+            true,
+            Some((&confirm_response("yes"), &destroy_seal)),
+        )
+        .await;
+        assert_eq!(result(&body)["isError"], true);
+        assert!(
+            result(&body)["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("another action")
+        );
+        // Neither confirm round reached the wire — the restore never
+        // went out.
+        assert_eq!(restore_server.head_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_foreign_instance_404s_before_the_question_on_both_destructive_tools() {
+        // The not-found posture surfaces BEFORE the confirm round —
+        // no question for an instance that isn't the caller's. The
+        // scope check still reads /me first, so it's in the fixture.
+        let arguments = [
+            ("instances_destroy", json!({"id": "ghost"})),
+            (
+                "backups_restore",
+                json!({"instance_id": "ghost", "backup_run_id": RUN_ID}),
+            ),
+        ];
+        for (tool, arguments) in arguments {
+            let server = testapi::serve(&[
+                ("/api/v1/me", 200, me_doc(&ALL_SCOPES)),
+                (
+                    "GET /api/v1/instances/ghost",
+                    404,
+                    r#"{"errors": []}"#.into(),
+                ),
+            ]);
+            let (_, body) =
+                stateless_tools_call(&app(&server), PAT_CAPABLE, tool, arguments, true, None).await;
+            assert_eq!(result(&body)["isError"], true, "tool: {tool}");
+            assert_eq!(
+                result(&body)["content"][0]["text"],
+                "no such instance (or it's not yours)",
+                "tool: {tool}"
+            );
+            // /me (scope) then the failed resolve — no question.
+            assert_eq!(server.head_count(), 2, "tool: {tool}");
+        }
     }
 
     #[tokio::test]
@@ -2139,7 +2335,10 @@ mod tests {
         // panic or blank.
         let bare = json!({"data": {"type": "instance", "id": "i1",
             "attributes": {"status": "running"}}});
-        let server = testapi::serve(&[("GET /api/v1/instances/i1", 200, bare.to_string())]);
+        let server = testapi::serve(&[
+            ("/api/v1/me", 200, me_doc(&ALL_SCOPES)),
+            ("GET /api/v1/instances/i1", 200, bare.to_string()),
+        ]);
         let (_, body) = stateless_tools_call(
             &app(&server),
             PAT_CAPABLE,
@@ -2185,6 +2384,7 @@ mod tests {
     async fn restore_asks_then_runs_or_cancels_on_the_answer() {
         let restored = r#"{"id":"r10","kind":"restore","status":"running","instance_id":"i1","restored_from":"running"}"#;
         let server = testapi::serve(&[
+            ("/api/v1/me", 200, me_doc(&ALL_SCOPES)),
             ("GET /api/v1/instances/i1", 200, instance_doc()),
             (
                 &format!("POST /api/v1/instances/i1/backup-runs/{RUN_ID}/restore"),
@@ -2215,7 +2415,11 @@ mod tests {
             "message: {message}"
         );
         assert!(message.contains("OVERWRITTEN"), "message: {message}");
-        assert_eq!(server.head_count(), 1, "the restore never went out yet");
+        assert_eq!(
+            server.head_count(),
+            2,
+            "the scope read and the resolve only — the restore never went out yet"
+        );
 
         // Yes: the restore POST rides.
         let sealed = result(&first)["requestState"].as_str().unwrap().to_string();
@@ -2229,7 +2433,7 @@ mod tests {
         )
         .await;
         assert_eq!(result(&body)["structuredContent"]["kind"], "restore");
-        assert!(server.head(1).to_lowercase().starts_with(&format!(
+        assert!(server.head(2).to_lowercase().starts_with(&format!(
             "post /api/v1/instances/i1/backup-runs/{run_id}/restore",
             run_id = RUN_ID.to_lowercase()
         )),);
@@ -2256,8 +2460,12 @@ mod tests {
         .await;
         assert_eq!(
             result(&body)["content"][0]["text"],
-            "cancelled. Nothing was changed."
+            "cancelled. Nothing was changed"
         );
-        assert_eq!(server.head_count(), 3, "two resolves only — no restore");
+        assert_eq!(
+            server.head_count(),
+            5,
+            "two scope+resolve rounds and one restore — the no-arm adds nothing"
+        );
     }
 }

@@ -15,9 +15,11 @@
 //!
 //! The seal is the "handler's own state": HMAC-signed
 //! (sha256-of-the-calling-PAT as the key, so a seal never opens under
-//! another token) and TTL-bounded. On the retry the verb runs the
-//! SEALED target — a re-sent confirm cannot steer a different id,
-//! because the re-sent arguments are not consulted.
+//! another token) and TTL-bounded — not single-use: an identical retry
+//! re-runs the verb. On the retry the target that runs is the sealed
+//! one — a re-sent confirm cannot steer a different id. (Restore's
+//! uuid fence still re-runs on every round — extra defense, never the
+//! target's source.)
 //!
 //! A client that cannot confirm at all (pre-2026-07-28 revs, or no
 //! elicitation capability declared) gets an honest tool error naming
@@ -48,8 +50,9 @@ pub(crate) const CONFIRM_KEY: &str = "confirm";
 /// resurrect a destroy hours later.
 pub(crate) const CONFIRM_TTL: Duration = Duration::from_secs(10 * 60);
 
-/// The non-yes arms' one answer (the Elixir server's copy).
-pub(crate) const CANCELLED: &str = "cancelled. Nothing was changed.";
+/// The non-yes arms' one answer (the Elixir server's copy, punctuation
+/// included — no trailing period).
+pub(crate) const CANCELLED: &str = "cancelled. Nothing was changed";
 
 /// A seal that failed to open — integrity, expiry, another token's
 /// key, or a payload that isn't ours. One line for all of them (the
@@ -276,6 +279,92 @@ mod tests {
         };
         let sealed = seal(&token, &pending).unwrap();
         assert_eq!(open(&token, &sealed).unwrap(), pending);
+        // The literal tag rides the seal body (values are
+        // authenticated, not encrypted — rs1's middle section is
+        // readable): a restore seal says "backups_restore".
+        assert_eq!(seal_body(&sealed)["tool"], json!("backups_restore"));
+    }
+
+    #[test]
+    fn a_minted_seal_carries_the_ttl_and_only_the_target() {
+        // Decode rs1's middle section (base64url, no padding): an
+        // 8-byte big-endian expiry in unix ms, then the JSON payload.
+        // The expiry is now + CONFIRM_TTL, and the payload holds ONLY
+        // the tool tag and the target ids — no token, no scopes (the
+        // key already binds the token; the payload never repeats it).
+        let token = Token::new("fvpat_t");
+        let before = unix_ms();
+        let sealed = seal(
+            &token,
+            &Pending::DestroyInstance {
+                instance_id: "i1".into(),
+            },
+        )
+        .unwrap();
+        let after = unix_ms();
+        let ttl = CONFIRM_TTL.as_millis() as i64;
+        let body = seal_body_bytes(&sealed);
+        let expiry = i64::from_be_bytes(body[..8].try_into().unwrap());
+        assert!(
+            (before + ttl..=after + ttl).contains(&expiry),
+            "expiry {expiry} not within [{}, {}] (now + {ttl} ms)",
+            before + ttl,
+            after + ttl
+        );
+        let payload: serde_json::Value = serde_json::from_slice(&body[8..]).unwrap();
+        assert_eq!(
+            payload,
+            json!({"tool": "instances_destroy", "instance_id": "i1"})
+        );
+    }
+
+    /// The JSON payload of a minted seal — rs1's readable middle.
+    fn seal_body(sealed: &str) -> serde_json::Value {
+        let body = seal_body_bytes(sealed);
+        serde_json::from_slice(&body[8..]).expect("the payload is JSON")
+    }
+
+    /// rs1's middle section decoded (expiry prefix + payload), and the
+    /// whole value's shape pinned: `rs1.<body>.<tag>`.
+    fn seal_body_bytes(sealed: &str) -> Vec<u8> {
+        let mut parts = sealed.split('.');
+        assert_eq!(parts.next(), Some("rs1"), "sealed: {sealed}");
+        let body = b64url_decode(parts.next().expect("the body section"));
+        assert!(parts.next().is_some(), "the tag section rides");
+        assert_eq!(parts.next(), None, "exactly three sections");
+        body
+    }
+
+    /// base64url (no padding) decode — test-only, for reading rmcp's
+    /// sealed bodies back.
+    fn b64url_decode(section: &str) -> Vec<u8> {
+        let mut acc = 0u32;
+        let mut bits = 0u32;
+        let mut out = Vec::new();
+        for byte in section.bytes() {
+            let value = match byte {
+                b'A'..=b'Z' => byte - b'A',
+                b'a'..=b'z' => byte - b'a' + 26,
+                b'0'..=b'9' => byte - b'0' + 52,
+                b'-' => 62,
+                b'_' => 63,
+                other => panic!("not base64url: {other} in {section}"),
+            } as u32;
+            acc = (acc << 6) | value;
+            bits += 6;
+            if bits >= 8 {
+                bits -= 8;
+                out.push((acc >> bits) as u8);
+            }
+        }
+        out
+    }
+
+    fn unix_ms() -> i64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("the clock is past the epoch")
+            .as_millis() as i64
     }
 
     #[test]

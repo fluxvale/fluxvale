@@ -16,6 +16,11 @@ pub(crate) enum ScopeError {
     /// 401/403 from /me — the token is dead or the account refused;
     /// the caller reconfigures its token.
     Auth(String),
+    /// A 200 /me without `meta.scopes` (or with a non-string entry) —
+    /// not a transient outage but a shape mismatch: the caller is not
+    /// a PAT (a session cookie's /me), or the platform predates #585.
+    /// Its own error line, never "the API is unavailable".
+    Shape(String),
     /// Anything else (429, 5xx, transport) — transient or upstream;
     /// surfaced verbatim, no retries.
     Upstream(String),
@@ -157,11 +162,16 @@ pub(crate) async fn me_scopes(base: Arc<str>, token: Token) -> Result<Vec<String
 
 /// The scope list out of a /me body. A PAT caller's answer always
 /// carries `meta.scopes` (the route's own contract); an answer without
-/// one is an upstream-shape surprise, so it fails loud — never a
-/// silent "no tools", never a silent "all tools".
+/// one is a shape mismatch with its OWN error line — never "the API is
+/// unavailable", never a silent "no tools", never a silent "all
+/// tools".
 fn scopes_from_me(me: &Value) -> Result<Vec<String>, ScopeError> {
-    let unexpected =
-        || ScopeError::Upstream("/me did not render the calling token's meta.scopes".to_string());
+    let unexpected = || {
+        ScopeError::Shape(
+            "unexpected /me answer: no meta.scopes — not a PAT caller, or the platform predates #585"
+                .to_string(),
+        )
+    };
     me["meta"]["scopes"]
         .as_array()
         .ok_or_else(unexpected)?
@@ -174,26 +184,30 @@ fn scopes_from_me(me: &Value) -> Result<Vec<String>, ScopeError> {
 // sequences)
 
 /// `instances_deploy`'s arguments as the wire sequence takes them
-/// (the CLI's `DeployFlags`).
+/// (the CLI's `DeployFlags`, with `name` promoted to required — the
+/// create route refuses a nameless body: the attribute is
+/// allow_nil?-false and DeriveFromAppVersion doesn't set it, so the
+/// CLI's optional `--name` is a phantom default, not a wire truth).
 pub(crate) struct DeployWire {
     /// The app's URL slug — resolved to the app row first.
     pub app: String,
-    /// A name for the new instance.
-    pub name: Option<String>,
+    /// A name for the new instance — required (you name it).
+    pub name: String,
     /// CPU cores — the wire's decimal rides as a string ("0.5").
     pub cpu: Option<String>,
     pub memory_mb: Option<i64>,
     pub storage_gb: Option<i64>,
-    /// The exact app version id; `None` takes the newest published.
+    /// The exact app version id; `None` takes the newest (the
+    /// versions route's own newest-first order).
     pub version: Option<String>,
 }
 
 /// The `instances deploy` sequence exactly: resolve the app by slug,
-/// resolve the version (newest published unless one is given), POST
-/// the create, PATCH the deploy. Refusals surface VERBATIM — the
-/// funded-gate 403 says what it says (agents hit the same gate as the
-/// UI, no exceptions); the one local rewrites are the CLI's friendly
-/// 404 for an unknown app and the version-resolution refusals.
+/// resolve the version (newest unless one is given), POST the create,
+/// PATCH the deploy. Refusals surface VERBATIM — the funded-gate 403
+/// says what it says (agents hit the same gate as the UI, no
+/// exceptions); the one local rewrites are the CLI's friendly 404 for
+/// an unknown app and the version-resolution refusals.
 pub(crate) async fn instances_deploy(
     base: Arc<str>,
     token: Token,
@@ -215,10 +229,8 @@ pub(crate) async fn instances_deploy(
         // Only the given flags ride — absent keys take the version's
         // own defaults (catalog defaults apply server-side). env_vars
         // is never here: the create route's wire schema refuses it.
-        let mut attrs = json!({"app_version_id": version_id});
-        if let Some(name) = &flags.name {
-            attrs["name"] = json!(name);
-        }
+        // name always rides: the wire requires it.
+        let mut attrs = json!({"app_version_id": version_id, "name": flags.name});
         if let Some(cpu) = &flags.cpu {
             attrs["cpu_cores"] = json!(cpu);
         }
@@ -249,9 +261,11 @@ pub(crate) async fn instances_deploy(
 
 /// `--version` must be one of the app's own (a foreign id would
 /// deploy a different app's blueprint silently — the server derives
-/// from the version row alone). Without it: the newest published (the
-/// wire's own newest-first order); none published is a refusal. The
-/// CLI's exact copy, choices listed.
+/// from the version row alone). Without it: the newest — the
+/// versions route's own sort (version string, newest first), no
+/// published filter; an empty list is a refusal. The refusal copy is
+/// the CLI's exact line (which says "published" — CLI parity, not the
+/// wire's truth).
 fn resolve_version(
     slug: &str,
     flag: Option<&str>,
@@ -551,8 +565,9 @@ pub(crate) const LEDGER_DEFAULT_LIMIT: u32 = 25;
 /// `wallet_ledger` — the org's wallet first (the ledger route takes a
 /// WALLET id), then the keyset page, newest first. The cursor is the
 /// opaque `next_cursor` of a previous answer, passed through verbatim
-/// (fenced for path-shaping characters — real cursors are
-/// query-safe); `next_cursor` rides the answer while a next page
+/// (fenced as a QUERY value — `&`/`#`/whitespace would reshape the
+/// request; `%` escapes ride untouched, and path-segment rules like
+/// `/` don't apply); `next_cursor` rides the answer while a next page
 /// exists.
 pub(crate) async fn wallet_ledger(
     base: Arc<str>,
@@ -564,7 +579,7 @@ pub(crate) async fn wallet_ledger(
     on_blocking_string(move || {
         safe_segment("organization id", &org)?;
         if let Some(cursor) = &cursor {
-            safe_segment("ledger cursor", cursor)?;
+            safe_query_value("ledger cursor", cursor)?;
         }
         // The limit fence: the wire 500s on page[limit]=0 — checked
         // here so a bad value never rides the wire.
@@ -664,6 +679,22 @@ fn safe_segment(thing: &str, value: &str) -> Result<(), String> {
         || value.contains(['/', '?', '#', '%'])
         || value.contains("..")
         || value.chars().any(char::is_whitespace);
+    if bad {
+        return Err(format!("invalid {thing}: {value}"));
+    }
+    Ok(())
+}
+
+/// One URL QUERY value (the ledger cursor): `&` would inject another
+/// parameter, `#` would cut the fragment, whitespace never rides a
+/// request line — those are refused up front. Everything else passes
+/// VERBATIM: real cursors are base64url, and `%` escapes (a `%2B`
+/// inside one) are already-encoded query bytes the platform decodes —
+/// re-encoding or refusing them would corrupt the keyset position.
+/// Path-segment rules (`/`, `..`) don't apply to a query value.
+fn safe_query_value(thing: &str, value: &str) -> Result<(), String> {
+    let bad =
+        value.is_empty() || value.contains(['&', '#']) || value.chars().any(char::is_whitespace);
     if bad {
         return Err(format!("invalid {thing}: {value}"));
     }
@@ -945,25 +976,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_me_without_meta_scopes_fails_loud_as_an_upstream_shape_error() {
+    async fn a_me_without_meta_scopes_is_the_shape_error_with_its_own_line() {
         // A session-shaped /me answer (no meta) is not a token
-        // caller's answer — never a silent "no tools" (nor "all").
+        // caller's answer — never a silent "no tools" (nor "all"),
+        // and never worded as a transient outage.
         let server = serve(&[("/api/v1/me", 200, &envelope(me_doc()))]);
         let err = me_scopes(base(&server), token()).await.unwrap_err();
-        assert!(matches!(err, ScopeError::Upstream(_)), "got: {err:?}");
+        assert!(matches!(err, ScopeError::Shape(_)), "got: {err:?}");
         assert!(
-            err_message(&err).contains("meta.scopes"),
+            err_message(&err).contains("not a PAT caller, or the platform predates #585"),
             "message: {}",
             err_message(&err)
         );
-        // A non-string scope entry is the same loud surprise.
+        // A non-string scope entry is the same shape surprise.
         let body = envelope(json!({
             "data": me_doc()["data"].clone(),
             "meta": {"scopes": [7]}
         }));
         let server = serve(&[("/api/v1/me", 200, &body)]);
         let err = me_scopes(base(&server), token()).await.unwrap_err();
-        assert!(matches!(err, ScopeError::Upstream(_)));
+        assert!(matches!(err, ScopeError::Shape(_)));
     }
 
     #[tokio::test]
@@ -1012,7 +1044,9 @@ mod tests {
 
     fn err_message(err: &ScopeError) -> String {
         match err {
-            ScopeError::Auth(message) | ScopeError::Upstream(message) => message.clone(),
+            ScopeError::Auth(message)
+            | ScopeError::Shape(message)
+            | ScopeError::Upstream(message) => message.clone(),
         }
     }
 
@@ -1139,7 +1173,7 @@ mod tests {
     fn deploy_wire() -> DeployWire {
         DeployWire {
             app: "forgejo".into(),
-            name: Some("my forgejo".into()),
+            name: "my forgejo".into(),
             cpu: None,
             memory_mb: None,
             storage_gb: None,
@@ -1193,8 +1227,9 @@ mod tests {
             "req3: {}",
             requests[3]
         );
-        // The create body: the NEWEST published version (the wire's own
-        // order), the given name, no env_vars and no unset flags.
+        // The create body: the NEWEST version (the wire's own order),
+        // the name (always — the wire requires it), no env_vars and
+        // no unset resource flags.
         assert!(
             requests[2].contains("\"app_version_id\":\"v2\""),
             "req2: {}",
@@ -1220,7 +1255,6 @@ mod tests {
             cpu: Some("1.5".into()),
             memory_mb: Some(1024),
             storage_gb: Some(5),
-            name: None,
             ..deploy_wire()
         };
         instances_deploy(base_of(&server), token(), flags)
@@ -1230,7 +1264,11 @@ mod tests {
         assert!(create.contains("\"cpu_cores\":\"1.5\""), "create: {create}");
         assert!(create.contains("\"memory_mb\":1024"), "create: {create}");
         assert!(create.contains("\"storage_gb\":5"), "create: {create}");
-        assert!(!create.contains("\"name\""), "create: {create}");
+        // The name rides even alongside resource flags — required.
+        assert!(
+            create.contains("\"name\":\"my forgejo\""),
+            "create: {create}"
+        );
     }
 
     #[tokio::test]
@@ -1455,6 +1493,32 @@ mod tests {
         // Neither enabled flag given: absent from the payload, so a
         // paused row stays paused.
         assert!(!requests[1].contains("enabled"), "req1: {}", requests[1]);
+    }
+
+    #[tokio::test]
+    async fn configure_patch_carries_retention_and_enabled_together() {
+        // The silent-re-enable regression guard: a PATCH that sets
+        // retention must still carry an explicit enabled:false —
+        // absent keys leave the row's value alone, so dropping one
+        // would quietly re-enable a paused row.
+        let server = script(vec![
+            respond_envelope("200 OK", json!({"data": setting_row()})),
+            respond_envelope("200 OK", json!({"data": setting_row()})),
+        ]);
+        backups_configure(
+            base_of(&server),
+            token(),
+            ConfigureBackupWire {
+                retention_keep: Some(5),
+                enabled: Some(false),
+                ..configure_wire()
+            },
+        )
+        .await
+        .unwrap();
+        let patch = &captured_requests(&server)[1];
+        assert!(patch.contains("\"retention_keep\":5"), "patch: {patch}");
+        assert!(patch.contains("\"enabled\":false"), "patch: {patch}");
     }
 
     #[tokio::test]
@@ -1743,8 +1807,9 @@ mod tests {
             requests[1]
         );
 
-        // The cursor rides verbatim once given (and the fence refuses
-        // path-shaping cursors before any wire call).
+        // A cursor with a percent escape rides VERBATIM — the %2B is
+        // already-encoded query bytes (a real base64url cursor may
+        // carry one); the fence refuses only query-reshaping values.
         let server = script(vec![
             respond_envelope("200 OK", json!({"data": wallet_row()})),
             respond_envelope("200 OK", json!({"data": [], "links": {}})),
@@ -1753,7 +1818,7 @@ mod tests {
             base_of(&server),
             token(),
             "01JORG1".into(),
-            Some("Q1VCUw".into()),
+            Some("Y3Vyc29y%2B".into()),
             None,
         )
         .await
@@ -1762,12 +1827,15 @@ mod tests {
         let requests = captured_requests(&server);
         assert!(
             requests[1].starts_with(
-                "get /api/v1/wallets/w1/ledger-entries?page[limit]=25&sort=-id&page[after]=q1vcuw http/1.1"
+                "get /api/v1/wallets/w1/ledger-entries?page[limit]=25&sort=-id&page[after]=y3vyc29y%2b http/1.1"
             ),
             "req1: {}",
             requests[1]
         );
 
+        // The fence: query-reshaping cursors refuse before any wire
+        // call (& injects, # cuts, whitespace never rides a request
+        // line, empty is no cursor at all).
         let dead: Arc<str> = Arc::from("http://127.0.0.1:1");
         assert_eq!(
             wallet_ledger(dead.clone(), token(), "o".into(), None, Some(0))
@@ -1775,12 +1843,14 @@ mod tests {
                 .unwrap_err(),
             "invalid limit 0: must be at least 1"
         );
-        assert_eq!(
-            wallet_ledger(dead, token(), "o".into(), Some("a/b".into()), None)
-                .await
-                .unwrap_err(),
-            "invalid ledger cursor: a/b"
-        );
+        for bad in ["a&limit=100", "a#x", "a b", ""] {
+            assert_eq!(
+                wallet_ledger(dead.clone(), token(), "o".into(), Some(bad.into()), None)
+                    .await
+                    .unwrap_err(),
+                format!("invalid ledger cursor: {bad}")
+            );
+        }
     }
 
     #[test]
@@ -1890,6 +1960,24 @@ mod tests {
         assert!(safe_segment("slug", "ok-slug").is_ok());
         for bad in ["", "a/b", "a?b", "a#b", "a%b", "..", "a b"] {
             assert!(safe_segment("slug", bad).is_err(), "{bad:?} must refuse");
+        }
+    }
+
+    #[test]
+    fn safe_query_value_refuses_only_query_reshaping_values() {
+        // Real cursors (base64url, `%` escapes, even `/`) pass; only
+        // what would reshape the request refuses.
+        for ok in ["Q1VCUw", "Y3Vyc29y%2B", "a/b", "..", "a?b", "a-b_c~.'*()"] {
+            assert!(
+                safe_query_value("ledger cursor", ok).is_ok(),
+                "{ok:?} passes"
+            );
+        }
+        for bad in ["", "a&limit=100", "a#fragment", "a b", "a\tb"] {
+            assert!(
+                safe_query_value("ledger cursor", bad).is_err(),
+                "{bad:?} must refuse"
+            );
         }
     }
 }

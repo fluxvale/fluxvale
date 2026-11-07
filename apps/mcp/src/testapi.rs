@@ -3,8 +3,6 @@
 //! the CLI's tiny-test-server pattern, shared by the upstream unit
 //! tests and the handler end-to-end tests.
 
-#![allow(dead_code)] // per-test fixtures; not every route is served by every test
-
 use std::{
     io::{Read as _, Write as _},
     net::TcpListener,
@@ -111,7 +109,6 @@ fn status_line(status: u16) -> &'static str {
         401 => "401 Unauthorized",
         403 => "403 Forbidden",
         404 => "404 Not Found",
-        422 => "422 Unprocessable Entity",
         429 => "429 Too Many Requests",
         _ => "500 Internal Server Error",
     }

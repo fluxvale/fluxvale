@@ -16,7 +16,7 @@ destructive pair elicitation-gated.
 | `apps_show` | `catalog:read` | One catalog app by its URL slug. |
 | `instances_list` | `instances:read` | Your instances, one entry each. |
 | `instances_status` | `instances:read` | One instance's full detail by id — or, with no id, the verbose list. |
-| `instances_deploy` | `instances:write` | Deploy an app: resolve the slug, pick the newest published version (or an exact one), create the instance, enqueue the deploy. |
+| `instances_deploy` | `instances:write` | Deploy an app: resolve the slug, pick the newest version (or an exact one), create the instance (you name it), enqueue the deploy. |
 | `instances_stop` | `instances:write` | Scale to zero — the pause (storage keeps accruing). |
 | `instances_start` | `instances:write` | Start a stopped/sleeping instance back up. |
 | `instances_destroy` | `instances:write` — **confirm-gated** | Destroy an instance and all its data, after a yes/no confirmation. |
@@ -46,15 +46,18 @@ dumps HTTP heads at trace, the Authorization header included — cap at
 
 ## Destructive tools: elicitation, honestly
 
-`instances_destroy` and `backups_restore` confirm before acting. The
+`instances_destroy` and `backups_restore` confirm before acting, and
+the first round checks the domain write scope before asking — a
+read-only token gets its refusal without a human decision. The
 mechanism is the MCP stateless-protocol elicitation (SEP-2322): the
 first call answers with a yes/no confirm question naming the target;
 the verb only runs when the client's answer is an explicit "yes".
 "No", declining, or cancelling answers `cancelled. Nothing was
-changed.` The confirmed target rides a sealed state blob that is
+changed`. The confirmed target rides a sealed state blob that is
 HMAC-bound to the calling token and expires after ten minutes — a
 re-sent confirmation cannot steer a different id, and a seal from
-another token never opens.
+another token never opens. The seal is TTL-bounded, not single-use —
+an identical retry re-runs the verb.
 
 A client that cannot confirm at all — anything not on the
 2026-07-28 stateless protocol revision with the elicitation
