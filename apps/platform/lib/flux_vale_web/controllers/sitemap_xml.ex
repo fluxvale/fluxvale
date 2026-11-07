@@ -49,7 +49,10 @@ defmodule FluxValeWeb.SitemapXML do
       Seo.canonical_origin() <> "/blog",
       Seo.canonical_origin() <> "/policies/refund",
       Seo.canonical_origin() <> "/policies/terms",
-      Seo.canonical_origin() <> "/policies/acceptable-use"
+      Seo.canonical_origin() <> "/policies/acceptable-use",
+      # fv332 D5 added privacy after this slice shipped — the SEO lean
+      # closes the omission (a published policy like its siblings).
+      Seo.canonical_origin() <> "/policies/privacy"
     ]
 
     [

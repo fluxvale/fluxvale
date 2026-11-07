@@ -67,13 +67,14 @@ defmodule FluxValeWeb.SitemapControllerTest do
     refute xml =~ "/catalog/app-"
   end
 
-  test "the published policy pages are static URLs (#140, #365)", %{conn: conn} do
+  test "the published policy pages are static URLs (#140, #365, fv332 D5)", %{conn: conn} do
     conn = get(conn, ~p"/sitemap.xml")
     xml = response(conn, 200)
 
     assert xml =~ "<loc>https://fluxvale.com/policies/refund</loc>"
     assert xml =~ "<loc>https://fluxvale.com/policies/terms</loc>"
     assert xml =~ "<loc>https://fluxvale.com/policies/acceptable-use</loc>"
+    assert xml =~ "<loc>https://fluxvale.com/policies/privacy</loc>"
   end
 
   # #396: the published pricing rides the static slice beside the

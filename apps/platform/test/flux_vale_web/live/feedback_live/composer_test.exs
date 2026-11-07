@@ -59,6 +59,16 @@ defmodule FluxValeWeb.FeedbackLive.ComposerTest do
     assert html =~ ~s(name="robots" content="noindex, nofollow")
   end
 
+  # The audit's canonical lean: the self-canonical — og:url rides only
+  # on a canonical path — declaring the page's one URL; the noindex
+  # above still wins on indexing.
+  test "carries the self-canonical and og:url", %{conn: conn} do
+    {:ok, _view, html} = mount_composer(conn)
+
+    assert html =~ ~s(rel="canonical" href="https://fluxvale.com/feedback/new")
+    assert html =~ ~s(property="og:url" content="https://fluxvale.com/feedback/new")
+  end
+
   test "anonymous sees the sign-in CTA, never the form", %{conn: conn} do
     {:ok, view, _html} = mount_composer(conn)
 
