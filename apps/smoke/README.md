@@ -5,12 +5,14 @@ envs (docs/deployment.md): liveness, readiness, the auth gate, and a
 PAT-authed read. Read-only everywhere; destructive flows are the
 Playwright suite's job (apps/e2e).
 
-Same collection, two runtimes: the deploy-gated CI job 3 runs it after
-watch-deploy; the scheduled cron (.github/workflows/smoke.yml) runs it
-every 30 min, checks version currency (each env's /health version
-current against main within a grace window — `scripts/version-currency.mjs`),
+One runtime since #556 retired the per-merge deploy-gated run: the
+scheduled cron (.github/workflows/smoke.yml) runs it every 30 min,
+checks version currency (each env's /health version current against
+main within a grace window — `scripts/version-currency.mjs`),
 and remote-writes the smoke heartbeat on full success — series absence
-pages via the fleet repo's dead-man rule.
+pages via the fleet repo's dead-man rule. It is the primary
+regression net for the deployed envs; the per-merge readiness gate
+asserts only that the new version serves (no Bruno).
 
 ## Run
 

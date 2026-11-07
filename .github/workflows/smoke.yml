@@ -1,6 +1,7 @@
-# Scheduled smoke — the correctness layer (ADR-0011 Am. 1, #99):
-# Bruno against both envs every 30 min, the same collection that gates
-# deploys, plus the version-currency check (#242): each env's /health
+# Scheduled smoke — the correctness layer (ADR-0011 Am. 1, #99, the
+# primary regression net since #556 retired the per-merge smoke):
+# Bruno against both envs every 30 min, plus the version-currency
+# check (#242): each env's /health
 # version current within a grace window of the newest platform-carrying
 # sha on main — a deploy that never shipped pages, not just a broken
 # one. On FULL success the run remote-writes
@@ -134,9 +135,10 @@ jobs:
           HEARTBEAT_VALUE: ${{ github.run_number }}
         run: mise x -- node scripts/heartbeat.mjs
 
-      # Failure: no revert PR (no deploy PR to blame — the red path's
-      # revert leg is deploy-gated-only, #99), annotation with the run
-      # link, then fail the run. The page itself rides the dead-man:
+      # Failure: no revert PR ever (#556 retired the auto-revert — the
+      # scheduled smoke has no deploy to blame and no revert machinery
+      # exists anywhere in CI now), annotation with the run link, then
+      # fail the run. The page itself rides the dead-man:
       # no heartbeat written.
       - name: Red path — annotation
         if: ${{ steps.bruno_staging.outcome == 'failure' || steps.bruno_production.outcome == 'failure' || steps.version_currency.outcome == 'failure' }}

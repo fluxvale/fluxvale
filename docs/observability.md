@@ -73,7 +73,7 @@ annotations.
 | Control | **Wake latency** (#232) | `flux_vale_wake_promotion_wait_seconds` p95 < 5s — **the platform's SLO** (wake request → scaled; the only cross-app aggregate) | PromEx wake plugin → Alloy |
 | Data | **Per-app wake time** (#232) | `flux_vale_wake_app_boot_seconds` / `_total_seconds`, per `app` label — reported per-app, never averaged into a promise (boot belongs to the app; Kavita ≈ 6s vs Forgejo ≈ 60s) | same; catalog card derives "~Xs" from the same series |
 | Ops | Backup freshness | age of last successful CNPG backup | existing alert |
-| Ops | Pipeline health | smoke pass rate (deploy-attached + scheduled) | heartbeat metric |
+| Ops | Pipeline health | scheduled smoke pass rate | heartbeat metric |
 
 **Critical user flows** — the SLI catalog is this promise list; the
 smoke + E2E suites are projections of the same table. A new critical
