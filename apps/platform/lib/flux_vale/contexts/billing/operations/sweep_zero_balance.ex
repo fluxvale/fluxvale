@@ -35,6 +35,7 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing.Operations.ComputeRunway
   alias FluxVale.Billing.Wallet
+  alias FluxVale.Billing.WalletLock
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.Instance
@@ -76,7 +77,7 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
         # Lock FIRST, then re-read (the settle discipline): the lock
         # serializes this wallet against posters and top-ups; the re-read
         # sees the winner's committed state.
-        FluxVale.Repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", [wallet.id])
+        WalletLock.acquire(wallet)
 
         with {:ok, fresh} <- Ash.get(Wallet, wallet.id, authorize?: false),
              {:ok, loaded} <- Ash.load(fresh, :balance, authorize?: false),

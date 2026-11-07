@@ -33,6 +33,7 @@ defmodule FluxVale.Billing.Operations.DebitWallet do
   alias FluxVale.Billing.Operations.PostEntry
   alias FluxVale.Billing.Operations.ResolveWallet
   alias FluxVale.Billing.Wallet
+  alias FluxVale.Billing.WalletLock
 
   require Ash.Query
 
@@ -58,7 +59,7 @@ defmodule FluxVale.Billing.Operations.DebitWallet do
         # lock serializes concurrent posters; the re-read guarantees the
         # loser sees the winner's committed remainder instead of a stale
         # capture. Held until this transaction commits.
-        FluxVale.Repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", [wallet.id])
+        WalletLock.acquire(wallet)
 
         case Ash.get(Wallet, wallet.id, authorize?: false) do
           {:ok, fresh} ->
