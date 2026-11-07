@@ -5,10 +5,9 @@ A thin skin over the FluxVale JSON:API (`/api/v1`, PAT auth) —
 Policy, paywall, and scopes enforce server-side; the provider
 re-implements nothing.
 
-**Status**: P4–P5 of #482 — the instance resource, the catalog data
-sources, and the instance family's backups + access-gateway resources,
-on the scaffold (#482 P3). `fluxvale_custom_domain` lands in a
-follow-up slice.
+**Status**: P4–P6 of #482 — the instance resource, the catalog data
+sources, and the instance family's backups + access-gateway +
+custom-domain resources, on the scaffold (#482 P3).
 
 ## Resources and data sources
 
@@ -85,6 +84,39 @@ follow-up slice.
     manage attachments with it null) and `instances` stays null after
     import; a config value that doesn't match what's stored plans a
     replacement, and replacements are rejected at plan time.
+- `fluxvale_custom_domain` — your own domain on the private-access
+  edge (`apps.example.com`). Register lands the row `pending` and
+  mints the wildcard Certificate in the same transaction; verification
+  is issuance — the platform's observer pass (about a 15-minute
+  cadence) promotes `pending → verified` once your DNS delegation
+  answers the DNS-01 challenge, and fails the row past its issuance
+  window (~72h). Default create returns at `pending`; refreshes show
+  the progression via `state`. Set `wait_for_verification = true` to
+  poll instead — bounded by `timeouts.create` (default 45m); a timeout
+  leaves tainted state (the domain keeps verifying server-side, and
+  the next refresh resolves it), and `failed` fails the create fast
+  (it's terminal: remove and re-register).
+  - **`verified` is NOT resolution.** A verified domain does not
+    answer on the tailnet — claiming (split-DNS + serving) is a
+    separate platform capability on a later slice. This resource
+    registers, verifies (DNS-01), and tears down, nothing more.
+  - `resume` is deliberately not exposed: a `suspended` domain is the
+    zero-balance ladder's out-of-band state. The platform's
+    `PATCH /api/v1/access-domains/:id/resume` exists — resume via the
+    panel, and watch `state`.
+  - Names are unique platform-wide, across ALL organizations: the
+    duplicate 400 surfaces verbatim (the name may belong to another
+    org). The platform canonicalizes (trim + downcase) — write the
+    domain lowercase, or every plan shows a replacement.
+  - Destroy is the platform's full teardown behind one synchronous
+    DELETE (hostname pre-check → tailnet unclaim → row destroy →
+    CoreDNS re-render → Certificate safe-delete); a 404 is
+    already-gone. A domain still serving instance hostnames is
+    refused (the platform's 400): remove those first.
+  - Import: `terraform import fluxvale_custom_domain.x <id>`. The read
+    fills the wire mirror — `domain` (the canonical name), `kind`
+    (always `custom`), `state`, `organization_id` — and seeds
+    `organization`, so a config that leaves it unset converges.
 - `fluxvale_apps` — the catalog. `fluxvale_app_versions` — one app's
   versions, by `app` (slug) or `app_id`.
 

@@ -161,6 +161,7 @@ func (p *fluxvaleProvider) Resources(ctx context.Context) []func() resource.Reso
 		NewInstanceResource,
 		NewBackupsResource,
 		NewGatewayResource,
+		NewCustomDomainResource,
 	}
 }
 
