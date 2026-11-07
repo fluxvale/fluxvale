@@ -38,7 +38,8 @@ defmodule FluxValeWeb.AdminLive.Home do
       %{
         testid: "admin-surface-wallets",
         title: gettext("Wallets and billing"),
-        blurb: gettext("Balances, top-ups, and billing oversight.")
+        blurb: gettext("Balances, top-ups, and billing oversight."),
+        href: ~p"/admin/billing"
       },
       %{
         testid: "admin-surface-feedback",

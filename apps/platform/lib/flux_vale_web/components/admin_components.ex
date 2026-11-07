@@ -11,6 +11,40 @@ defmodule FluxValeWeb.AdminComponents do
 
   use FluxValeWeb, :html
 
+  alias FluxVale.Pricing
+
+  @doc """
+  The signed-cents money string the admin billing surfaces print for a
+  BALANCE: "-$3.00" / "$12.34". `Pricing.format_usd/1` formats
+  non-negative magnitudes only; the balance is the live ledger sum and
+  can go negative, so the sign is this display seam's job. One shape,
+  one formatter, so the wallet table and the wallet detail can never
+  disagree about what a balance reads as.
+  """
+  @spec money_text(integer()) :: String.t()
+  def money_text(cents) when cents < 0 do
+    "-" <> Pricing.format_usd(-cents)
+  end
+
+  def money_text(cents) when is_integer(cents) do
+    Pricing.format_usd(cents)
+  end
+
+  @doc """
+  The ledger row's signed amount: "+$12.34" / "-$3.00" — a posting is a
+  delta, and the sign carries the direction the type badge names
+  (BillingComponents' ledger grammar; the admin ledger prints the same
+  dollars the org billing page does).
+  """
+  @spec ledger_amount_text(integer()) :: String.t()
+  def ledger_amount_text(cents) when cents < 0 do
+    "-" <> Pricing.format_usd(-cents)
+  end
+
+  def ledger_amount_text(cents) when is_integer(cents) do
+    "+" <> Pricing.format_usd(cents)
+  end
+
   @doc """
   The allocation a version's blueprint defaults read as: "0.5 CPU ·
   256 MB · 0 GB". The middle-dot shape matches the product's own
