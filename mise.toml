@@ -32,8 +32,8 @@ go = "1.26.10"
 # OpenTofu CLI (the `tofu` binary) — the provider lane's real-tofu
 # smoke gate (ci.yml, in-process framework tests can't catch a real
 # CLI's rejects) and the acceptance lane's driver
-# (tfprovider-acceptance.yml). Core mise plugin, checksummed via
-# mise.lock like everything else.
+# (tfprovider-acceptance.yml). Backend aqua:opentofu/opentofu (GitHub
+# release binaries), checksummed in mise.lock like everything else.
 opentofu = "1.13.9"
 
 # Local k3d + Tilt stack (ADR-0020)

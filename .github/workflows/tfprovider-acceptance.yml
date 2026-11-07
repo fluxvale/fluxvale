@@ -7,19 +7,26 @@
 # plus tf-v* tags (release acceptance). PRs get the real-tofu smoke
 # against a fake API instead (ci.yml's tfprovider lane).
 #
-# SECRETS NEED MINTING (the PA's todo, not a blocker for this
-# workflow's landing):
-#   TF_ACC_PAT — a staging PAT scoped instances:write backups:write
-#     gateways:write + catalog:read, per docs/deployment.md. The
-#     preflight below fails loud smoke-style until it exists, so the
-#     nightly REDS rather than green-skips through proving nothing.
-#   Plus, when their test classes should run (each skips with a notice
-#   until then): the R2 backup coordinates (TF_ACC_BACKUP_* — the org
-#   must have paid ONCE for backups), the tailnet pair
-#   (TF_ACC_TAILNET_DOMAIN/TF_ACC_TAILSCALE_AUTH_KEY — NOTE: the
-#   gateway has no API delete route, so its first acceptance run is a
-#   standing monthly charge; later runs adopt the existing gateway),
-#   and TF_ACC_DOMAIN for the domain class.
+# SECRETS — the PA's todo, tiered (not a blocker for this workflow's
+# landing):
+#
+# Floor: TF_ACC_PAT alone runs the suite, and the catalog + instance
+# classes are the nightly proof. Mint it per docs/deployment.md
+# (scopes instances:write backups:write gateways:write + catalog:read);
+# the preflight below fails loud smoke-style until it exists, so a
+# nightly REDS rather than green-skips through proving nothing.
+#
+# The rest of the story unlocks as the remaining secrets land — until
+# then those classes SKIP with a notice (the floor still runs):
+#   - TF_ACC_BACKUP_* (the R2 coordinates) — the backups composition;
+#     the org must have paid ONCE for backups (the server's paywall).
+#   - TF_ACC_TAILNET_DOMAIN/TF_ACC_TAILSCALE_AUTH_KEY — the gateway.
+#     NOTE: the gateway has no API delete route, so its first
+#     acceptance run is a standing monthly charge; later runs adopt
+#     the existing gateway.
+#   - TF_ACC_DOMAIN — the custom domain class (the test also probes
+#     the provider for the type and skips until #548's resource is
+#     on the branch).
 #
 # The CLI driver: plugin-testing drives a terraform-shaped CLI —
 # TF_ACC_TERRAFORM_PATH points at the mise-pinned tofu and

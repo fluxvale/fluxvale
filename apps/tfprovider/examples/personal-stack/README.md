@@ -19,8 +19,10 @@ plan/apply/destroy against the owner's real organization.
   interpolation — endpoint composed from the account id, bucket from
   `cloudflare_r2_bucket.backups.name`, keys from vars, per-instance
   prefixes. This composition is the point of the example.
-- **The custom domain** (`fluxvale_custom_domain`), registered with
-  `wait_for_verification = true`.
+- **The custom domain** — pending until #548 merges: the resource
+  lives in `custom-domain.tf.example`; restore it to
+  `custom-domain.tf` once the provider registers the type (the file's
+  header says so).
 
 App identity flows through the catalog data sources:
 `fluxvale_apps` guards the slugs exist; `fluxvale_app_versions`
@@ -38,9 +40,10 @@ accounts.
 
 Acceptance is a real `tofu plan` → `tofu apply` → `tofu destroy`
 against the owner's real organization — NOT this repo's CI. CI's gate
-(`examples/smoke/` + a fake API) proves the provider drives tofu; only
-the owner can prove the org accepts this stack. Rehearse against
-staging (`api_url` override), then production. `destroy` is part of the
+(`internal/provider/e2e_test.go`: a real OpenTofu CLI driving the real
+binary against a fake API) proves the provider drives tofu; only the
+owner can prove the org accepts this stack. Rehearse against staging
+(`api_url` override), then production. `destroy` is part of the
 acceptance: everything here tears down, except the access gateway —
 destroying it removes it from state only (the API has no delete route;
 opt out via the panel's Access tab).
@@ -63,5 +66,7 @@ traffic until that lands.
 - `secret_access_key` is write-only (set ⇒ rotated on every save); the
   R2 keys are account-level credentials minted in the Cloudflare
   dashboard — no TF resource manages them.
-- Validation seam: `custom-domain.tf` (resource + output) drops out of
-  a `tofu validate` scratch copy until #548's resource is in main.
+- The custom domain arrives as `custom-domain.tf.example` — the
+  provider doesn't register `fluxvale_custom_domain` until #548
+  merges; restore the file then (its header says so). The `verified
+  is NOT resolution` section below applies once it's live.

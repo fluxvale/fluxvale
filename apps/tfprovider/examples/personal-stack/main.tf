@@ -19,9 +19,10 @@ terraform {
 
 provider "fluxvale" {
   api_url = var.api_url
-  # The PAT rides FLUXVALE_PAT (env) in preference to this attribute —
-  # the var exists only so .tfvars can carry it when a shell env is
-  # inconvenient. Never hardcode.
+  # Precedence, per the provider's Configure: THIS ATTRIBUTE WINS, and
+  # the FLUXVALE_PAT environment variable is the fallback when it's
+  # unset/null — so the preferred shape is leaving it null and
+  # exporting FLUXVALE_PAT (no secrets in files). Never hardcode.
   token = var.fluxvale_pat
   # No "organization" here: the token belongs to the owner's sole
   # organization, so every resource resolves it — naming it is only

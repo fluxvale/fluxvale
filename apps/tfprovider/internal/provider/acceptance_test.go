@@ -12,6 +12,7 @@ import (
 
 	"github.com/fluxvale/fluxvale/apps/tfprovider/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
+	frameworkresource "github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-testing/config"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -117,6 +118,23 @@ func accAppSlug() string {
 		return s
 	}
 	return "forgejo"
+}
+
+// accHasResource asks the real provider Metadata whether a type is
+// registered — the same RPC tofu drives. A test whose resource lands
+// on a later slice skips on its absence instead of failing against a
+// provider that can't serve it (TestAccCustomDomain waits for #548).
+func accHasResource(typeName string) bool {
+	p := New("acc")()
+	req := frameworkresource.MetadataRequest{ProviderTypeName: "fluxvale"}
+	for _, factory := range p.Resources(context.Background()) {
+		resp := &frameworkresource.MetadataResponse{}
+		factory().Metadata(context.Background(), req, resp)
+		if resp.TypeName == typeName {
+			return true
+		}
+	}
+	return false
 }
 
 // accInstancesGone is CheckDestroy for instance-backed tests: every
@@ -391,6 +409,9 @@ resource "fluxvale_access_gateway" "g" {
 func TestAccCustomDomain(t *testing.T) {
 	if os.Getenv("TF_ACC") == "" {
 		t.Skip("TF_ACC not set — the acceptance lane runs nightly/tags/dispatch, never per-PR (wallet cost)")
+	}
+	if !accHasResource("fluxvale_custom_domain") {
+		t.Skip("custom_domain lands with #548 — the provider does not register the type on this branch yet")
 	}
 	accSkip(t, "custom domain", "TF_ACC_DOMAIN")
 

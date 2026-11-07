@@ -21,11 +21,14 @@
 # No ldflags stamping: the version is in the source, so what the
 # binary reports is what the tag's commit built.
 #
-# Archive shape is REGISTRY-SHAPED: `terraform-provider-fluxvale_<v>_<os>_<arch>.zip`,
-# zip on ALL platforms (the registry's packed-layout name), os/arch in
-# GOOS/GOARCH vocabulary — registry.terraform.io/fluxvale/fluxvale
-# expects exactly this when the mirror/registry switch comes
-# (docs/install.md).
+# Archive shape is REGISTRY-SHAPED, two levels of naming (the
+# registry's packed convention): the ZIP is
+# `terraform-provider-fluxvale_<version>_<os>_<arch>.zip` — zip on ALL
+# platforms, os/arch in GOOS/GOARCH vocabulary, no `v`, NO version
+# directory in mirror use — and the binary INSIDE is
+# `terraform-provider-fluxvale_v<version>` (the `v` lives on the
+# binary). That is what filesystem mirrors and the eventual registry
+# expect (docs/install.md).
 #
 # workflow_dispatch is the DRY RUN: build + archive + checksums land as
 # run artifacts and publish never fires — the event gate in publish's
@@ -168,12 +171,13 @@ jobs:
             *) echo "::error::terraform-provider-fluxvale -version ($actual) does not carry the release version ($VERSION)"; exit 1 ;;
           esac
 
-      # Registry-shaped archive: the zip named for the registry's packed
-      # layout, binary at the archive ROOT (registry zips are flat — no
-      # staging directory, unlike the CLI's tarballs). zip on ALL
-      # platforms: the runner's zip on unix, PowerShell's
-      # Compress-Archive on Windows (no zip.exe there; Git Bash's
-      # `zip` is absent too).
+      # Registry-shaped archive, two levels (see the header): the zip
+      # keeps its `_<version>_<os>_<arch>` name, the binary is STAGED
+      # under the registry's inner name — `terraform-provider-fluxvale_v<version>`,
+      # flat at the zip root. The proof ASSERTS the exact entry list,
+      # it doesn't print it. zip on ALL platforms: the runner's zip on
+      # unix, PowerShell's Compress-Archive on Windows (no zip.exe
+      # there; Git Bash's `zip` is absent too).
       - name: Archive the binary (unix)
         if: runner.os != 'Windows'
         shell: bash
@@ -182,8 +186,15 @@ jobs:
           OS_ARCH: ${{ matrix.leg.os_arch }}
         run: |
           archive="terraform-provider-fluxvale_${VERSION}_${OS_ARCH}.zip"
-          zip -q "$archive" "${{ matrix.leg.binary }}"
-          unzip -l "$archive"
+          inner="terraform-provider-fluxvale_v${VERSION}"
+          cp "${{ matrix.leg.binary }}" "$inner"
+          zip -q "$archive" "$inner"
+          entries="$(unzip -Z1 "$archive")"
+          echo "archive entries: $entries"
+          if [ "$entries" != "$inner" ]; then
+            echo "::error::$archive entries = [$entries], want exactly [$inner]"
+            exit 1
+          fi
 
       - name: Archive the binary (windows)
         if: runner.os == 'Windows'
@@ -193,11 +204,17 @@ jobs:
           OS_ARCH: ${{ matrix.leg.os_arch }}
         run: |
           $archive = "terraform-provider-fluxvale_${env:VERSION}_${env:OS_ARCH}.zip"
-          Compress-Archive -Path "${{ matrix.leg.binary }}" -DestinationPath $archive
-          # Flat-entry proof: exactly one root entry, the binary.
+          $inner = "terraform-provider-fluxvale_v${env:VERSION}"
+          Copy-Item "${{ matrix.leg.binary }}" $inner
+          Compress-Archive -Path $inner -DestinationPath $archive
+          # Flat-entry proof: exactly one root entry, the registry-named binary.
           $entries = ([System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $archive))).Entries |
             Select-Object -ExpandProperty FullName
           Write-Host "archive entries: $entries"
+          if ("$entries" -ne $inner) {
+            Write-Error "::error::$archive entries = [$entries], want exactly [$inner]"
+            exit 1
+          }
 
       # Per-leg checksum file (SHA256SUMS.<os>_<arch>); the publish job
       # concatenates the parts and runs `sha256sum -c` over the whole
@@ -279,9 +296,10 @@ jobs:
           done
 
       # Static manual-install primer: the registry isn't live (ADR-0019
-      # Am. 4 — manual-first), so the body points at the filesystem-
-      # mirror recipe in docs/install.md, pinned to this tag so the
-      # linked docs are the ones that shipped.
+      # Am. 4 — manual-first), so the body carries the filesystem-
+      # mirror recipe's PACKED layout (zips directly in the type dir —
+      # no version directory) and points at docs/install.md pinned to
+      # this tag.
       - name: Compose the release notes
         env:
           REF_NAME: ${{ github.ref_name }}
@@ -291,22 +309,23 @@ jobs:
           cat > notes.md <<EOF
           ## Install (manual — the registry switch comes later, [ADR-0019](https://github.com/fluxvale/fluxvale/blob/main/docs/adr/00019-machine-first-api-cli-mcp.md) Am. 4)
 
-          Download the zip for your platform, verify it against \`SHA256SUMS\`, then lay it into a
-          [filesystem mirror](https://opentofu.org/docs/cli/config/provider_installation/):
+          Download the zip for your platform, verify your line of the merged \`SHA256SUMS\`
+          (\`grep <your-zip> SHA256SUMS | sha256sum -c -\`), then lay the zips into a
+          [filesystem mirror](https://opentofu.org/docs/cli/config/files/) — the
+          packed layout, zips directly in the type directory (no version directory):
 
           \`\`\`
           ~/.tfplugins-mirror/
             registry.terraform.io/
               fluxvale/
                 fluxvale/
-                  ${version}/
-                    linux_amd64.zip
-                    darwin_arm64.zip
-                    ...
+                  terraform-provider-fluxvale_${version}_linux_amd64.zip
+                  terraform-provider-fluxvale_${version}_darwin_arm64.zip
+                  ...
           \`\`\`
 
-          The copy-paste recipe — mirror layout, the CLI \`provider_installation\` block,
-          and the dev_overrides loop — lives in
+          The copy-paste recipe — mirror layout, checksum verify, the CLI
+          \`provider_installation\` block, and the dev_overrides loop — lives in
           [apps/tfprovider/docs/install.md](${REPO_URL}/blob/${REF_NAME}/apps/tfprovider/docs/install.md).
           EOF
           cat notes.md

@@ -9,32 +9,43 @@ straight off a freshly built binary via `dev_overrides`.
 
 Grab the zip for your platform from the repo's
 [Releases](https://github.com/fluxvale/fluxvale/releases) (tag `tf-v*`)
-plus `SHA256SUMS`, and verify before use:
+plus `SHA256SUMS` (one merged file covering all four platforms), and
+verify YOUR line of it — a single-platform download can't check the
+whole set:
 
 ```sh
-sha256sum -c SHA256SUMS   # run in the download directory
+grep <your-zip> SHA256SUMS | sha256sum -c -
+# e.g. grep terraform-provider-fluxvale_0.1.0_linux_amd64.zip SHA256SUMS | sha256sum -c -
+#      macOS: … | shasum -a 256 -c -
 ```
 
 ## 2. Lay out the filesystem mirror
 
-The registry's own layout, with the downloaded zips dropped in
-unchanged (the `<os>_<arch>` names are the registry's vocabulary):
+The registry's **packed layout**: the zip sits directly in the type
+directory — NO version directory (the version is in the zip's
+filename), and the os/arch names are the registry's vocabulary:
 
 ```
 ~/.tfplugins-mirror/
   registry.terraform.io/
     fluxvale/
       fluxvale/
-        0.1.0/                       # the release version
-          linux_amd64.zip
-          linux_arm64.zip
-          darwin_arm64.zip
-          windows_amd64.zip
+        terraform-provider-fluxvale_0.1.0_linux_amd64.zip
+        terraform-provider-fluxvale_0.1.0_linux_arm64.zip
+        terraform-provider-fluxvale_0.1.0_darwin_arm64.zip
+        terraform-provider-fluxvale_0.1.0_windows_amd64.zip
 ```
+
+Drop the downloaded zips in unchanged — this tree (and the checksum
+check above) is exercised for real by the smoke gate in CI
+(`internal/provider/e2e_test.go` builds a packed mirror and runs tofu
+init against it).
 
 ## 3. Point the CLI at it
 
-`~/.tofurc` (Terraform: `~/.terraformrc`):
+`~/.tofurc` (Terraform: `~/.terraformrc`) — see
+[the CLI configuration files docs](https://opentofu.org/docs/cli/config/files/)
+for the full shape:
 
 ```hcl
 provider_installation {
@@ -60,12 +71,13 @@ terraform {
 
 provider "fluxvale" {
   # api_url = "https://staging.fluxvale.com"  # staging override
-  # token not set here — FLUXVALE_PAT is preferred (no secrets in code)
+  # token: set here only if you must — the attribute wins over the
+  # FLUXVALE_PAT environment variable, which is the preferred default.
 }
 ```
 
 Upgrade = download the new version's zips into the mirror and bump the
-required version in your config; both versions can sit side by side.
+required version in your config; versions sit side by side.
 
 ## Dev loop (dev_overrides)
 
@@ -84,8 +96,9 @@ provider_installation {
 }
 ```
 
-No `init` required; rebuild + re-run. See the README's dev-loop section
-for the debugger-attached variant (`go run . -debug`).
+No `init` required (OpenTofu warns that init is unnecessary with dev
+overrides); rebuild + re-run. See the README's dev-loop section for
+the debugger-attached variant (`go run . -debug`).
 
 ## The registry, later
 
