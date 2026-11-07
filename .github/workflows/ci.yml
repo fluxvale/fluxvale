@@ -31,6 +31,7 @@ jobs:
       e2e: ${{ steps.filter.outputs.e2e }}
       cli: ${{ steps.filter.outputs.cli }}
       tfprovider: ${{ steps.filter.outputs.tfprovider }}
+      mcp: ${{ steps.filter.outputs.mcp }}
     steps:
       # persist-credentials: false — later steps run no git-authenticated ops
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -89,6 +90,21 @@ jobs:
               # The lane parses its Go version from mise.toml — a bump
               # there must run the lane that consumes it.
               - "mise.toml"
+              - ".github/workflows/ci.yml"
+            mcp:
+              - "apps/mcp/**"
+              # The shared API crate (crates/, its own workspace) — a
+              # crate change must compile-check against the MCP server
+              # here, and run the crate's own gates in the same job.
+              - "crates/**"
+              # The generated types feed the crate from this artifact —
+              # a platform PR that regenerates it must run the MCP lane,
+              # or the drift reds the next mcp PR instead.
+              - "apps/platform/priv/open_api.json"
+              # The coverage flag's shape (paths) lives here — a config
+              # change must re-run the lane so codecov recomputes
+              # against it (#506's generated-lines red).
+              - "codecov.yml"
               - ".github/workflows/ci.yml"
 
   platform:
@@ -425,6 +441,99 @@ jobs:
         with:
           name: fluxvale-${{ matrix.leg.name }}
           path: apps/cli/${{ matrix.leg.binary }}
+
+  # The MCP server lane (slice W2a of #484): the CLI lane's Rust
+  # disciplines — fmt, clippy -D warnings, test, cargo deny — over the
+  # apps/mcp workspace, plus the shared crates/ tree it consumes (the
+  # same pair of trees the CLI compiles against). Coverage rides THIS
+  # job (the #510 shape) with flag `mcp`. No release matrix: the server
+  # ships as a container image in W3, not distributed binaries.
+  mcp-gates:
+    name: MCP gates
+    needs: check-changes
+    if: needs.check-changes.outputs.mcp == 'true'
+    runs-on: ubuntu-24.04
+    # Gates + coverage in one job; generous ceiling for the
+    # instrumented llvm-cov builds on a cold cache.
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: apps/mcp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # rustup reads apps/mcp/rust-toolchain.toml (the exact stable
+      # pin, paired with apps/cli's and crates/') and installs it —
+      # toolchain AND the components the file declares (see the
+      # cli-gates comment for the #415 minimal-profile lesson).
+      - run: rustup toolchain install
+
+      - run: cargo fmt --all -- --check
+
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - run: cargo test --workspace
+
+      # Same cargo-deny cache + pin as cli-gates — both lanes check
+      # their own workspace's deny.toml (kept in sync with apps/cli's).
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-deny
+          key: cargo-deny-0.20.2
+
+      - name: Install cargo-deny
+        run: "[ -x ~/.cargo/bin/cargo-deny ] || cargo install --locked cargo-deny@0.20.2"
+
+      - run: cargo deny check licenses advisories
+
+      # crates/ is its own workspace — the same gate set cli-gates runs
+      # there. A crates/** change fires BOTH lanes (both filters list
+      # crates/**), so the crate is proven green against the MCP
+      # server's resolution too.
+      - run: cargo fmt --all -- --check
+        working-directory: crates
+
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+        working-directory: crates
+
+      - run: cargo test --workspace
+        working-directory: crates
+
+      - run: cargo deny check
+        working-directory: crates
+
+      # Coverage folded into the gates job (#510's shape — one fewer
+      # queued job per lane run; llvm-cov runs after the gates so gate
+      # failures surface fast). llvm-tools-preview is the component
+      # cargo-llvm-cov drives (the minimal default profile omits it).
+      - run: rustup component add llvm-tools-preview
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-llvm-cov
+          key: cargo-llvm-cov-0.9.1
+
+      - name: Install cargo-llvm-cov
+        run: "[ -x ~/.cargo/bin/cargo-llvm-cov ] || cargo install --locked cargo-llvm-cov@0.9.1"
+
+      - run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+
+      # NB: uses: steps run at the workspace root — repo-root path.
+      # fail_ci_if_error: the codecov.io outage watchdog every upload
+      # in this workflow carries.
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5
+        with:
+          flags: mcp
+          files: apps/mcp/lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
+
+      # crates/ coverage rides the `cli` flag (codecov.yml paths) and
+      # already has a producer in cli-gates — a crates/** change fires
+      # both lanes, so no second report here.
 
   # The Terraform/OpenTofu provider lane (ADR-0019 Am. 4): gofmt + vet
   # + test + build, path-gated like every other lane. Go is parsed from
@@ -990,7 +1099,7 @@ jobs:
   # checks run — a green umbrella that proved nothing.
   wait-for-ci:
     name: Wait for CI
-    needs: [check-changes, platform, cli-gates, cli-matrix, tfprovider, docs-lint, skills-lint, linked-issues, e2e, deploy-image, watch-deploy, readiness-gate]
+    needs: [check-changes, platform, cli-gates, cli-matrix, mcp-gates, tfprovider, docs-lint, skills-lint, linked-issues, e2e, deploy-image, watch-deploy, readiness-gate]
 
     if: always()
     runs-on: ubuntu-24.04
