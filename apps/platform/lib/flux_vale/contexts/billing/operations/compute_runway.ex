@@ -48,7 +48,7 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
   def call(%Wallet{} = wallet) do
     now = DateTime.utc_now()
 
-    instances = org_instances(wallet.organization_id)
+    instances = Instance.list_for_organization!(wallet.organization_id, authorize?: false)
     gateways = org_gateways(wallet.organization_id)
 
     with {:ok, balance} <- ReadBalance.call(wallet, authorize?: false),
@@ -63,14 +63,6 @@ defmodule FluxVale.Billing.Operations.ComputeRunway do
          runway_hours: runway
        }}
     end
-  end
-
-  defp org_instances(organization_id) do
-    Instance
-    |> Ash.Query.for_read(:list_for_organization, %{organization_id: organization_id},
-      authorize?: false
-    )
-    |> Ash.read!()
   end
 
   # One gateway per org at most (the unique identity), but read the list

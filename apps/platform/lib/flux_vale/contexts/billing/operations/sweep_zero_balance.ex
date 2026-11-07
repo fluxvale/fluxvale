@@ -184,7 +184,7 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
   defp stop_step(wallet) do
     if wallet.balance <= 0 do
       stopped =
-        for instance <- org_instances(wallet.organization_id),
+        for instance <- Instance.list_for_organization!(wallet.organization_id, authorize?: false),
             {:ok, stopped} <- [Instance.stop(instance, authorize?: false)] do
           stopped.id
         end
@@ -313,7 +313,7 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
     gateways = org_gateways(organization_id)
     Enum.each(gateways, &destroy_gateway/1)
 
-    for instance <- org_instances(organization_id) do
+    for instance <- Instance.list_for_organization!(organization_id, authorize?: false) do
       {:ok, _deleted} = Instance.delete(instance.id, authorize?: false)
       instance.id
     end
@@ -358,14 +358,6 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
     wallet
     |> Ash.Changeset.for_update(:set_ladder_state, markers, authorize?: false)
     |> Ash.update()
-  end
-
-  defp org_instances(organization_id) do
-    Instance
-    |> Ash.Query.for_read(:list_for_organization, %{organization_id: organization_id},
-      authorize?: false
-    )
-    |> Ash.read!()
   end
 
   defp deliver_to_members(organization_id, deliver) do
