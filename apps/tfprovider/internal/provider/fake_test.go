@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -41,6 +42,17 @@ type fakeAPI struct {
 	failPatch       string
 	failPatchStatus int
 
+	// backups + gateway slices
+	backupGets         []scriptedResponse // GET /instances/:id/backup-setting
+	backupPostDoc      string             // POST /instances/:id/backup-setting (201)
+	backupPatchStatus  int                // PATCH /backup-settings/:id
+	backupPatchDoc     string
+	backupDeleteStatus int
+	gatewayGets        []scriptedResponse // GET /organizations/:org/access-gateway
+	gatewayPostStatus  int                // POST /access-gateways
+	gatewayPostDoc     string
+	detachStatus       int
+
 	t *testing.T
 }
 
@@ -56,7 +68,17 @@ type scriptedResponse struct {
 
 func newFakeAPI(t *testing.T) *fakeAPI {
 	t.Helper()
-	f := &fakeAPI{t: t, deleteStatus: http.StatusOK}
+	f := &fakeAPI{
+		t:                  t,
+		deleteStatus:       http.StatusOK,
+		backupDeleteStatus: http.StatusOK,
+		backupPatchStatus:  http.StatusOK,
+		detachStatus:       http.StatusOK,
+		gatewayPostStatus:  http.StatusCreated,
+		gatewayPostDoc:     gatewayCreateDoc,
+		backupPostDoc:      backupRowDoc,
+		backupPatchDoc:     backupRowDoc,
+	}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/api/v1/organizations", func(w http.ResponseWriter, r *http.Request) {
@@ -123,9 +145,80 @@ func newFakeAPI(t *testing.T) *fakeAPI {
 		}
 	})
 
+	// Backups: the routed settings family. The instance-scoped patterns
+	// are more specific than the /instances/ subtree above, so they win.
+	mux.HandleFunc("POST /api/v1/instances/{id}/backup-setting", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.record(r, body)
+		f.json(w, http.StatusCreated, f.backupPostDoc)
+	})
+	mux.HandleFunc("GET /api/v1/instances/{id}/backup-setting", func(w http.ResponseWriter, r *http.Request) {
+		f.record(r, nil)
+		f.scriptedGet(w, r, &f.backupGets)
+	})
+	mux.HandleFunc("/api/v1/backup-settings/", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if r.Body != nil {
+			_ = json.NewDecoder(r.Body).Decode(&body)
+		}
+		f.record(r, body)
+		switch r.Method {
+		case http.MethodPatch:
+			f.json(w, f.backupPatchStatus, f.backupPatchDoc)
+		case http.MethodDelete:
+			f.json(w, f.backupDeleteStatus, `{"meta": {"message": "deleted"}}`)
+		default:
+			f.json(w, http.StatusMethodNotAllowed, `{"errors": [{"title": "Method Not Allowed"}]}`)
+		}
+	})
+
+	// Access gateway: the singleton read + create + pairing verbs.
+	mux.HandleFunc("GET /api/v1/organizations/{org}/access-gateway", func(w http.ResponseWriter, r *http.Request) {
+		f.record(r, nil)
+		f.scriptedGet(w, r, &f.gatewayGets)
+	})
+	mux.HandleFunc("POST /api/v1/access-gateways", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.record(r, body)
+		f.json(w, f.gatewayPostStatus, f.gatewayPostDoc)
+	})
+	// The pairing verbs render flat/generic shapes — the 201 attach body
+	// is the raw route row, the detach body a bare success flag.
+	mux.HandleFunc("POST /api/v1/access-gateways/{id}/attachments", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.record(r, body)
+		instanceID, _ := body["data"].(map[string]any)["instance_id"].(string)
+		f.json(w, http.StatusCreated, fmt.Sprintf(
+			`{"gateway_id": "gw-1", "instance_id": %q, "route_key": "8443"}`, instanceID))
+	})
+	mux.HandleFunc("DELETE /api/v1/access-gateways/{id}/attachments/{iid}", func(w http.ResponseWriter, r *http.Request) {
+		f.record(r, nil)
+		f.json(w, f.detachStatus, `{"success": true}`)
+	})
+
 	f.Server = httptest.NewServer(mux)
 	t.Cleanup(f.Close)
 	return f
+}
+
+// scriptedGet pops the next scripted response for a GET route (the
+// last entry repeats — the poll loop's steady state).
+func (f *fakeAPI) scriptedGet(w http.ResponseWriter, r *http.Request, script *[]scriptedResponse) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(*script) == 0 {
+		f.t.Errorf("GET %s: no scripted response left", r.URL.Path)
+		f.json(w, http.StatusInternalServerError, `{"errors": [{"title": "script ran dry"}]}`)
+		return
+	}
+	resp := (*script)[0]
+	if len(*script) > 1 {
+		*script = (*script)[1:]
+	}
+	f.json(w, resp.status, resp.body)
 }
 
 func (f *fakeAPI) json(w http.ResponseWriter, status int, body string) {
@@ -226,6 +319,32 @@ const (
 		"organization_id": "org-1", "app_version_id": "ver-1"}}}`
 
 	patchResponse = runningDoc
+
+	// The backups row: retention/enabled at the server's defaults, the
+	// write-only secret never present.
+	backupRowDoc = `{"data": {"id": "bs-1", "type": "backup_setting", "attributes": {
+		"instance_id": "inst-1", "endpoint": "https://account.r2.cloudflarestorage.com",
+		"bucket": "fluxvale-kavita", "prefix": "fluxvale/app",
+		"access_key_id": "AKIAIOSFODNN7EXAMPLE", "retention_keep": 7, "enabled": true}}}`
+
+	// The create response OMITS provisioned_at (not in the create
+	// route's field list — only the get route carries it): the fixture
+	// omits it too, so the parser's absence-tolerance is exercised for
+	// real.
+	gatewayCreateDoc = `{"data": {"id": "gw-1", "type": "access_gateway", "attributes": {
+		"organization_id": "org-1", "hostname": "fv-0a1b2c3d", "tailnet_domain": "example.ts.net",
+		"provider": "tailscale", "state": "provisioning", "status_message": null,
+		"monthly_cents": 500}}}`
+
+	gatewayProvisioningDoc = `{"data": {"id": "gw-1", "type": "access_gateway", "attributes": {
+		"organization_id": "org-1", "hostname": "fv-0a1b2c3d", "tailnet_domain": "example.ts.net",
+		"provider": "tailscale", "state": "provisioning", "status_message": null,
+		"monthly_cents": 500, "provisioned_at": null}}}`
+
+	gatewayActiveDoc = `{"data": {"id": "gw-1", "type": "access_gateway", "attributes": {
+		"organization_id": "org-1", "hostname": "fv-0a1b2c3d", "tailnet_domain": "example.ts.net",
+		"provider": "tailscale", "state": "active", "status_message": null,
+		"monthly_cents": 500, "provisioned_at": "2026-11-06T10:00:00Z"}}}`
 )
 
 // statusDoc renders the running fixture with a different status — the
@@ -277,6 +396,59 @@ func envVarInput(t *testing.T, m map[string]string) types.Map {
 	v, diags := types.MapValueFrom(context.Background(), types.StringType, m)
 	if diags.HasError() {
 		t.Fatalf("MapValueFrom: %v", diags)
+	}
+	return v
+}
+
+// testBackups builds a backupsModel with the required fields set;
+// mutators adjust the rest.
+func testBackups(mutators ...func(*backupsModel)) backupsModel {
+	data := backupsModel{
+		InstanceID:      types.StringValue("inst-1"),
+		Endpoint:        types.StringValue("https://account.r2.cloudflarestorage.com"),
+		Bucket:          types.StringValue("fluxvale-kavita"),
+		Prefix:          types.StringNull(),
+		AccessKeyID:     types.StringValue("AKIAIOSFODNN7EXAMPLE"),
+		RetentionKeep:   types.Int64Null(),
+		Enabled:         types.BoolNull(),
+		SecretAccessKey: types.StringNull(),
+		ID:              types.StringNull(),
+	}
+	for _, m := range mutators {
+		m(&data)
+	}
+	return data
+}
+
+// testGateway builds a gatewayModel with the required fields set;
+// mutators adjust the rest.
+func testGateway(mutators ...func(*gatewayModel)) gatewayModel {
+	data := gatewayModel{
+		Organization:   types.StringNull(),
+		TailnetDomain:  types.StringValue("example.ts.net"),
+		AuthKey:        types.StringValue("tskey-test"),
+		Instances:      types.SetNull(types.StringType),
+		ID:             types.StringNull(),
+		OrganizationID: types.StringNull(),
+		Hostname:       types.StringNull(),
+		Provider:       types.StringNull(),
+		State:          types.StringNull(),
+		StatusMessage:  types.StringNull(),
+		MonthlyCents:   types.Int64Null(),
+		ProvisionedAt:  types.StringNull(),
+	}
+	for _, m := range mutators {
+		m(&data)
+	}
+	return data
+}
+
+// setInput wraps plain strings into the schema's instances types.Set.
+func setInput(t *testing.T, ids ...string) types.Set {
+	t.Helper()
+	v, diags := types.SetValueFrom(context.Background(), types.StringType, ids)
+	if diags.HasError() {
+		t.Fatalf("SetValueFrom: %v", diags)
 	}
 	return v
 }

@@ -153,20 +153,33 @@ func TestDeleteWrapperEndToEnd(t *testing.T) {
 	findOne(t, f.all(), http.MethodDelete, "/api/v1/instances/inst-1")
 }
 
-// The provider registers the slice's resource and data sources under
+// The provider registers the slice's resources and data sources under
 // the compatibility contract's type names.
 func TestProviderRegistrations(t *testing.T) {
 	ctx := context.Background()
 	p := New("test")()
 
-	resourceMD := &resource.MetadataResponse{}
-	resources := p.Resources(ctx)
-	if len(resources) != 1 {
-		t.Fatalf("Resources = %d, want 1", len(resources))
+	wantResources := map[string]bool{
+		"fluxvale_instance":         false,
+		"fluxvale_instance_backups": false,
+		"fluxvale_access_gateway":   false,
 	}
-	resources[0]().Metadata(ctx, resource.MetadataRequest{ProviderTypeName: "fluxvale"}, resourceMD)
-	if resourceMD.TypeName != "fluxvale_instance" {
-		t.Errorf("resource TypeName = %q, want fluxvale_instance", resourceMD.TypeName)
+	resources := p.Resources(ctx)
+	if len(resources) != len(wantResources) {
+		t.Fatalf("Resources = %d, want %d", len(resources), len(wantResources))
+	}
+	for _, factory := range resources {
+		md := &resource.MetadataResponse{}
+		factory().Metadata(ctx, resource.MetadataRequest{ProviderTypeName: "fluxvale"}, md)
+		if _, ok := wantResources[md.TypeName]; !ok {
+			t.Errorf("unexpected resource TypeName %q", md.TypeName)
+		}
+		wantResources[md.TypeName] = true
+	}
+	for name, seen := range wantResources {
+		if !seen {
+			t.Errorf("resource %q not registered", name)
+		}
 	}
 
 	wantSources := map[string]bool{"fluxvale_apps": false, "fluxvale_app_versions": false}
