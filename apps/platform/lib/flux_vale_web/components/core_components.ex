@@ -1044,8 +1044,9 @@ defmodule FluxValeWeb.CoreComponents do
 
   Contract: one confirm per panel by design, so the container's shared
   `destructive-confirm` testid is safe — parameterize it if a surface
-  ever embeds two confirms at once. The cancel event rides the caller's
-  "cancel-confirm" handler; the action and cancel testids are per-call.
+  ever embeds two confirms at once. The cancel event defaults to the
+  caller's "cancel-confirm" handler (`cancel_event` overrides); the
+  action and cancel testids are per-call.
 
   ## Examples
 
@@ -1066,7 +1067,13 @@ defmodule FluxValeWeb.CoreComponents do
   attr(:event, :string, required: true)
   attr(:action_testid, :string, required: true)
   attr(:cancel_testid, :string, required: true)
-  attr(:myself, :any, required: true)
+  attr(:cancel_event, :string, default: "cancel-confirm")
+
+  attr(:myself, :any,
+    required: true,
+    doc:
+      "the owning LiveComponent's @myself; nil renders a static preview and BOTH buttons dispatch to the enclosing LiveView — nil is for previews only, real surfaces pass a LiveComponent target"
+  )
 
   def confirm_block(assigns) do
     ~H"""
@@ -1090,11 +1097,11 @@ defmodule FluxValeWeb.CoreComponents do
         <.button
           size="sm"
           variant="ghost"
-          phx-click="cancel-confirm"
+          phx-click={@cancel_event}
           phx-target={@myself}
           data-testid={@cancel_testid}
         >
-          Cancel
+          {gettext("Cancel")}
         </.button>
       </div>
     </div>
