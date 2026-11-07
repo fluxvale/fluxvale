@@ -12,8 +12,10 @@ defmodule FluxValeWeb.AdminShellLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias FluxVale.Billing
   alias FluxVale.Identity.User
   alias FluxVale.TestSupport.ApiPat
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
@@ -22,7 +24,8 @@ defmodule FluxValeWeb.AdminShellLiveTest do
   @live_surfaces [
     {"people", "/admin/people"},
     {"catalog", "/admin/catalog"},
-    {"sizes ladder", "/admin/catalog/sizes"}
+    {"sizes ladder", "/admin/catalog/sizes"},
+    {"wallets", "/admin/billing"}
   ]
 
   setup %{conn: conn} do
@@ -36,9 +39,17 @@ defmodule FluxValeWeb.AdminShellLiveTest do
     built = InstanceFixtures.app_version!()
     version = Ash.load!(built, [:app, :recommended_size])
 
+    # The wallets surface's mount target (the enumeration mounts the
+    # detail route): a fixture org with its wallet. grant_free_org!
+    # returns {org, owner} — the wallet is ensure_wallet's, NOT the
+    # second tuple.
+    {org, _owner} = BillingFixtures.grant_free_org!()
+    {:ok, wallet} = Billing.ensure_wallet(org)
+
     %{
       admin: admin,
       version: version,
+      wallet: wallet,
       conn: SessionHelpers.sign_in(conn, admin)
     }
   end
@@ -109,7 +120,8 @@ defmodule FluxValeWeb.AdminShellLiveTest do
 
     test "every :admin live route renders the shell with the right active mark", %{
       conn: conn,
-      version: version
+      version: version,
+      wallet: wallet
     } do
       # The enumeration, from the router itself: a new :admin live
       # route without a shell expectation fails here. /admin is the
@@ -118,6 +130,9 @@ defmodule FluxValeWeb.AdminShellLiveTest do
       expected = %{
         {FluxValeWeb.AdminLive.People, "/admin/people"} => {"people", "page"},
         {FluxValeWeb.AdminLive.Catalog, "/admin/catalog"} => {"catalog", "page"},
+        {FluxValeWeb.AdminLive.Billing, "/admin/billing"} => {"wallets", "page"},
+        {FluxValeWeb.AdminLive.WalletDetail, "/admin/billing/wallets/:id"} =>
+          {"wallets", "location"},
         {FluxValeWeb.AdminLive.Sizes, "/admin/catalog/sizes"} => {"catalog", "location"},
         {FluxValeWeb.AdminLive.SizeEdit, "/admin/catalog/sizes/:id"} => {"catalog", "location"},
         {FluxValeWeb.AdminLive.VersionEdit, "/admin/catalog/versions/:id"} =>
@@ -134,13 +149,14 @@ defmodule FluxValeWeb.AdminShellLiveTest do
           {mod, r.path}
         end
 
-      assert length(admin_routes) == 5
+      assert length(admin_routes) == 7
 
       for {mod, path} <- admin_routes do
         {key, mark} = Map.fetch!(expected, {mod, path})
 
         concrete_path =
           case path do
+            "/admin/billing/wallets/:id" -> "/admin/billing/wallets/#{wallet.id}"
             "/admin/catalog/sizes/:id" -> "/admin/catalog/sizes/#{version.recommended_size.id}"
             "/admin/catalog/versions/:id" -> "/admin/catalog/versions/#{version.id}"
             literal -> literal
@@ -188,10 +204,15 @@ defmodule FluxValeWeb.AdminShellLiveTest do
     test "badged, linkless, on a live surface", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/admin/people")
 
-      for key <- ["wallets", "feedback", "orgs", "gateways"] do
+      for key <- ["feedback", "orgs", "gateways"] do
         assert has_element?(view, "[data-testid='admin-coming-#{key}']", "Coming")
         refute has_element?(view, "[data-testid='admin-nav-#{key}'][href]")
       end
+
+      # The wallets entry flipped live with the #571 slice: linked, no
+      # Coming badge.
+      assert has_element?(view, "[data-testid='admin-nav-wallets'][href='/admin/billing']")
+      refute has_element?(view, "[data-testid='admin-coming-wallets']")
     end
   end
 

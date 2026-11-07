@@ -275,14 +275,15 @@ for (const mode of ["light", "dark"]) {
   await ctx.close();
 }
 
-// -- The home card in its Open state. --
+// -- The sidebar's live wallets entry (the cards-era home card is
+// retired): the linked entry beside the still-Coming ones. --
 for (const mode of ["light", "dark"]) {
   const { ctx, page } = await newSession();
-  await page.goto(`${BASE}/admin`, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}/admin/people`, { waitUntil: "networkidle" });
   await setTheme(page, mode);
-  await page.waitForSelector("[data-testid='admin-surface-wallets']");
-  await page.screenshot({ path: `${outdir}/admin-home-card-${mode}.png`, fullPage: true });
-  console.log(`home-card-${mode}`);
+  await page.waitForSelector("[data-testid='admin-nav-wallets']");
+  await page.screenshot({ path: `${outdir}/admin-sidebar-flip-${mode}.png`, fullPage: true });
+  console.log(`sidebar-flip-${mode}`);
   await ctx.close();
 }
 

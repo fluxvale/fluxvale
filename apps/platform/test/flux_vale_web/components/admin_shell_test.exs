@@ -43,8 +43,8 @@ defmodule FluxValeWeb.Components.AdminShellTest do
   # Every entry the sidebar carries, in order: the live sections, the
   # coming ones, then deep debugging.
   @entry_keys ~w(people catalog wallets feedback orgs gateways ash dashboard)
-  @live_keys ~w(people catalog ash dashboard)
-  @coming_keys ~w(wallets feedback orgs gateways)
+  @live_keys ~w(people catalog wallets ash dashboard)
+  @coming_keys ~w(feedback orgs gateways)
 
   test "the sections in order, live ones at their paths, coming ones linkless" do
     html = render_component(&AdminShell.sidebar/1, current: "people")
@@ -52,7 +52,7 @@ defmodule FluxValeWeb.Components.AdminShellTest do
     assert entries(html) == [
              {"people", "/admin/people", "page"},
              {"catalog", "/admin/catalog", nil},
-             {"wallets", nil, nil},
+             {"wallets", "/admin/billing", nil},
              {"feedback", nil, nil},
              {"orgs", nil, nil},
              {"gateways", nil, nil},
@@ -109,16 +109,15 @@ defmodule FluxValeWeb.Components.AdminShellTest do
     labels = %{
       people: "People and invites",
       catalog: "Catalog and pricing",
+      wallets: "Wallets and billing",
       ash: "AshAdmin",
       dashboard: "LiveDashboard"
     }
 
     for {key, label} <- labels do
-      label_text =
-        doc
-        |> LazyHTML.query("[data-testid='admin-nav-#{key}']")
-        |> LazyHTML.text()
-        |> String.trim()
+      node = LazyHTML.query(doc, "[data-testid='admin-nav-#{key}']")
+      text = LazyHTML.text(node)
+      label_text = String.trim(text)
 
       assert label_text == label
     end
@@ -157,6 +156,19 @@ defmodule FluxValeWeb.Components.AdminShellTest do
     exact = render_component(&AdminShell.sidebar/1, current: "catalog")
     exact_entries = entries(exact)
     assert Enum.at(exact_entries, 1) == {"catalog", "/admin/catalog", "page"}
+  end
+
+  test "the wallets entry flips live with the section's own contract" do
+    # The wallets detail is a SUB-route of the section: it marks the
+    # entry an ancestor ("location"), never the page.
+    sub = render_component(&AdminShell.sidebar/1, current: "wallets", exact: false)
+    sub_entries = entries(sub)
+    assert Enum.at(sub_entries, 2) == {"wallets", "/admin/billing", "location"}
+
+    exact = render_component(&AdminShell.sidebar/1, current: "wallets")
+    exact_entries = entries(exact)
+
+    assert Enum.at(exact_entries, 2) == {"wallets", "/admin/billing", "page"}
   end
 
   test "an unknown section key raises — the keys are the entries of groups/0" do

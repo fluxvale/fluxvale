@@ -44,6 +44,7 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   alias FluxVale.Checks.ActorIsPlatformAdmin
   alias FluxVale.Identity.User
   alias FluxValeWeb.AdminComponents
+  alias FluxValeWeb.AdminShell
   alias FluxValeWeb.BillingComponents
   alias FluxValeWeb.UserAuth
 
@@ -888,238 +889,254 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
           </div>
         </section>
 
-        <section class="wrap pt-4 pb-8">
-          <div class="rise grid items-start gap-6 lg:grid-cols-2">
-            <%!-- The waiver card: the contract in plain copy, the flip
-            confirmed inline where the toggle lives, the confirm stating
-            the delta. --%>
-            <.card class="space-y-4" data-testid="admin-wallet-waiver-card">
-              <div class="flex items-start justify-between gap-4">
-                <div class="min-w-0">
-                  <h2 class="text-base font-medium text-ink">{gettext("Paywall waiver")}</h2>
-                  <p class="mt-1 text-sm text-ink-muted">
-                    {gettext(
-                      "The waiver satisfies only the has-paid gate. It unlocks private access and backups for this org. It moves no money, posts no ledger row, and waives nothing spendable."
-                    )}
-                  </p>
-                </div>
-                <span class="shrink-0" data-testid="admin-wallet-waiver-state">
-                  <.badge tone={waiver_tone(@wallet.paywall_waived)}>
-                    <.icon :if={@wallet.paywall_waived} name="hero-key" class="size-3.5" />
-                    {waiver_label(@wallet.paywall_waived)}
-                  </.badge>
-                </span>
-              </div>
-              <.button
-                variant="secondary"
-                phx-click="open-waiver"
-                phx-disable-with={gettext("Opening...")}
-                data-testid="admin-wallet-waiver-flip"
-              >
-                {flip_label(@wallet.paywall_waived)}
-              </.button>
+        <section class="wrap pt-4 pb-16">
+          <div class="rise flex flex-col gap-8 md:flex-row md:gap-12">
+            <%!-- The section entry is an ANCESTOR mark (exact: false):
+            this page is the wallets section's sub-route, so the
+            sidebar's wallets entry carries aria-current="location". --%>
+            <AdminShell.sidebar current="wallets" exact={false} />
 
-              <div :if={match?({:waiver, _, _}, @confirm)}>
-                <.confirm_block
-                  title={waiver_title(waiver_target(@confirm), @org.name)}
-                  body={waiver_body(waiver_target(@confirm), waiver_paid(@confirm))}
-                  action={waiver_action(waiver_target(@confirm))}
-                  event="confirm-waiver"
-                  action_testid="admin-wallet-waiver-confirm"
-                  cancel_testid="admin-wallet-waiver-cancel"
-                  myself={nil}
-                />
-              </div>
-            </.card>
+            <div class="min-w-0 flex-1 space-y-8">
+              <div class="grid items-start gap-6 xl:grid-cols-2">
+                <%!-- The waiver card: the contract in plain copy, the flip
+                confirmed inline where the toggle lives, the confirm stating
+                the delta. --%>
+                <.card class="space-y-4" data-testid="admin-wallet-waiver-card">
+                  <div class="flex items-start justify-between gap-4">
+                    <div class="min-w-0">
+                      <h2 class="text-base font-medium text-ink">{gettext("Paywall waiver")}</h2>
+                      <p class="mt-1 text-sm text-ink-muted">
+                        {gettext(
+                          "The waiver satisfies only the has-paid gate. It unlocks private access and backups for this org. It moves no money, posts no ledger row, and waives nothing spendable."
+                        )}
+                      </p>
+                    </div>
+                    <span class="shrink-0" data-testid="admin-wallet-waiver-state">
+                      <.badge tone={waiver_tone(@wallet.paywall_waived)}>
+                        <.icon :if={@wallet.paywall_waived} name="hero-key" class="size-3.5" />
+                        {waiver_label(@wallet.paywall_waived)}
+                      </.badge>
+                    </span>
+                  </div>
+                  <.button
+                    variant="secondary"
+                    phx-click="open-waiver"
+                    phx-disable-with={gettext("Opening...")}
+                    data-testid="admin-wallet-waiver-flip"
+                  >
+                    {flip_label(@wallet.paywall_waived)}
+                  </.button>
 
-            <%!-- The goodwill credit: the keyless post gets a confirm
+                  <div :if={match?({:waiver, _, _}, @confirm)}>
+                    <.confirm_block
+                      title={waiver_title(waiver_target(@confirm), @org.name)}
+                      body={waiver_body(waiver_target(@confirm), waiver_paid(@confirm))}
+                      action={waiver_action(waiver_target(@confirm))}
+                      event="confirm-waiver"
+                      action_testid="admin-wallet-waiver-confirm"
+                      cancel_testid="admin-wallet-waiver-cancel"
+                      myself={nil}
+                    />
+                  </div>
+                </.card>
+
+                <%!-- The goodwill credit: the keyless post gets a confirm
             between the click and the wire, because the post cannot be
             undone. The echo shows the dollars before the confirm does. --%>
-            <.card class="space-y-4" data-testid="admin-wallet-goodwill-card">
-              <div>
-                <h2 class="text-base font-medium text-ink">{gettext("Goodwill credit")}</h2>
-                <p class="mt-1 text-sm text-ink-muted">
-                  <%!-- The cap is literal here: module attributes read as
+                <.card class="space-y-4" data-testid="admin-wallet-goodwill-card">
+                  <div>
+                    <h2 class="text-base font-medium text-ink">{gettext("Goodwill credit")}</h2>
+                    <p class="mt-1 text-sm text-ink-muted">
+                      <%!-- The cap is literal here: module attributes read as
                   assigns inside HEEx. It is @goodwill_max_cents above
                   (enforced in grant-goodwill); move the two together. --%>
-                  {gettext(
-                    "Posts as an adjustment credit, up to $1,000.00. A post cannot be undone, only reversed with a compensating entry."
-                  )}
-                </p>
-              </div>
-              <.form
-                for={@goodwill_form}
-                id="admin-wallet-goodwill-form"
-                phx-submit="grant-goodwill"
-                phx-change="goodwill-echo"
-                class="space-y-4"
-              >
-                <div>
-                  <.input
-                    field={@goodwill_form[:amount_cents]}
-                    type="number"
-                    min="1"
-                    step="1"
-                    label={gettext("Amount (US cents)")}
-                    data-testid="admin-wallet-goodwill-amount"
-                  />
-                  <p
-                    :if={@goodwill_echo}
-                    class="mt-1 text-xs text-ink-muted"
-                    data-testid="admin-wallet-goodwill-echo"
+                      {gettext(
+                        "Posts as an adjustment credit, up to $1,000.00. A post cannot be undone, only reversed with a compensating entry."
+                      )}
+                    </p>
+                  </div>
+                  <.form
+                    for={@goodwill_form}
+                    id="admin-wallet-goodwill-form"
+                    phx-submit="grant-goodwill"
+                    phx-change="goodwill-echo"
+                    class="space-y-4"
                   >
-                    = {@goodwill_echo}
-                  </p>
-                </div>
-                <.button
-                  type="submit"
-                  phx-disable-with={gettext("Reviewing...")}
-                  data-testid="admin-wallet-goodwill-submit"
-                >
-                  {gettext("Post credit")}
-                </.button>
-              </.form>
+                    <div>
+                      <.input
+                        field={@goodwill_form[:amount_cents]}
+                        type="number"
+                        min="1"
+                        step="1"
+                        label={gettext("Amount (US cents)")}
+                        data-testid="admin-wallet-goodwill-amount"
+                      />
+                      <p
+                        :if={@goodwill_echo}
+                        class="mt-1 text-xs text-ink-muted"
+                        data-testid="admin-wallet-goodwill-echo"
+                      >
+                        = {@goodwill_echo}
+                      </p>
+                    </div>
+                    <.button
+                      type="submit"
+                      phx-disable-with={gettext("Reviewing...")}
+                      data-testid="admin-wallet-goodwill-submit"
+                    >
+                      {gettext("Post credit")}
+                    </.button>
+                  </.form>
 
-              <div :if={match?({:goodwill, _}, @confirm)}>
-                <.confirm_block
-                  title={
-                    gettext(
-                      "Post a %{amount} goodwill credit?",
-                      amount: BillingComponents.format_balance(goodwill_cents(@confirm))
-                    )
-                  }
-                  body={goodwill_confirm_copy(goodwill_cents(@confirm))}
-                  action={goodwill_confirm_action(goodwill_cents(@confirm))}
-                  event="confirm-goodwill"
-                  action_testid="admin-wallet-goodwill-confirm"
-                  cancel_testid="admin-wallet-goodwill-cancel"
-                  myself={nil}
-                />
+                  <div :if={match?({:goodwill, _}, @confirm)}>
+                    <.confirm_block
+                      title={
+                        gettext(
+                          "Post a %{amount} goodwill credit?",
+                          amount: BillingComponents.format_balance(goodwill_cents(@confirm))
+                        )
+                      }
+                      body={goodwill_confirm_copy(goodwill_cents(@confirm))}
+                      action={goodwill_confirm_action(goodwill_cents(@confirm))}
+                      event="confirm-goodwill"
+                      action_testid="admin-wallet-goodwill-confirm"
+                      cancel_testid="admin-wallet-goodwill-cancel"
+                      myself={nil}
+                    />
+                  </div>
+                </.card>
               </div>
-            </.card>
-          </div>
-        </section>
 
-        <section class="wrap pt-4 pb-16">
-          <div class="rise space-y-4" data-testid="admin-wallet-ledger-section">
-            <h2 class="text-lg font-semibold tracking-tight text-ink">{gettext("Ledger")}</h2>
+              <div class="space-y-4" data-testid="admin-wallet-ledger-section">
+                <h2 class="text-lg font-semibold tracking-tight text-ink">
+                  {gettext("Ledger")}
+                </h2>
 
-            <.card>
-              <div :if={@ledger_empty?} data-testid="admin-wallet-ledger-empty">
-                <.empty_state title={gettext("No activity yet.")} />
-              </div>
+                <.card>
+                  <div :if={@ledger_empty?} data-testid="admin-wallet-ledger-empty">
+                    <.empty_state title={gettext("No activity yet.")} />
+                  </div>
 
-              <%!-- The scanning grid: date, entry, amount, reference,
+                  <%!-- The scanning grid: date, entry, amount, reference,
               action. One grid template shared by header and rows; the
               amounts sit right on tabular figures so digits line up
-              down the column. --%>
-              <div :if={not @ledger_empty?}>
-                <div class="grid grid-cols-[10rem_minmax(9.5rem,1.4fr)_7rem_minmax(7rem,1fr)_5.5rem] items-center gap-x-3 border-b border-line px-4 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
-                  <div>{gettext("When")}</div>
-                  <div>{gettext("Entry")}</div>
-                  <div class="text-right">{gettext("Amount")}</div>
-                  <div>{gettext("Reference")}</div>
-                  <div class="sr-only">{gettext("Actions")}</div>
-                </div>
+              down the column. Track mins total 35rem (+ gaps and
+              padding, ~38rem): the populated ledger scrolls INTERNALLY
+              below the band beside the sidebar at 1024+ (the people
+              surface's floor-and-scroll idiom), never the page. --%>
+                  <div :if={not @ledger_empty?}>
+                    <div class="overflow-x-auto" data-noscroll>
+                      <div class="min-w-[38rem]">
+                        <div class="grid grid-cols-[minmax(8.5rem,1fr)_minmax(8.5rem,1.2fr)_5.5rem_minmax(5.5rem,0.9fr)_4.5rem] items-center gap-x-1.5 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
+                          <div>{gettext("When")}</div>
+                          <div>{gettext("Entry")}</div>
+                          <div class="text-right">{gettext("Amount")}</div>
+                          <div>{gettext("Reference")}</div>
+                          <div class="sr-only">{gettext("Actions")}</div>
+                        </div>
 
-                <div id="admin-wallet-ledger" phx-update="stream">
-                  <div
-                    :for={{dom_id, entry} <- @streams.entries}
-                    id={dom_id}
-                    data-testid={"admin-wallet-entry-#{entry.id}"}
-                    class="border-t border-line px-4 py-3 first:border-t-0"
-                  >
-                    <div class="grid grid-cols-[10rem_minmax(9.5rem,1.4fr)_7rem_minmax(7rem,1fr)_5.5rem] items-center gap-x-3 transition-colors hover:bg-panel-raised/60">
-                      <span class="whitespace-nowrap text-xs text-ink-muted">
-                        {Calendar.strftime(entry.created_at, "%b %d, %Y %H:%M UTC")}
-                      </span>
-                      <span class="flex flex-wrap items-center gap-1.5">
-                        <.badge
-                          tone={reason_tone(entry.reason)}
-                          class={reason_badge_class(entry.reason)}
-                        >
-                          <.icon name={reason_icon(entry.reason)} class="size-3.5" />
-                          {reason_label(entry.reason)}
-                        </.badge>
-                        <%!-- Reversal provenance stays neutral: danger is
+                        <div id="admin-wallet-ledger" phx-update="stream">
+                          <div
+                            :for={{dom_id, entry} <- @streams.entries}
+                            id={dom_id}
+                            data-testid={"admin-wallet-entry-#{entry.id}"}
+                            class="border-t border-line px-4 py-3 first:border-t-0"
+                          >
+                            <div class="grid grid-cols-[minmax(8.5rem,1fr)_minmax(8.5rem,1.2fr)_5.5rem_minmax(5.5rem,0.9fr)_4.5rem] items-center gap-x-1.5 px-3 py-3 transition-colors hover:bg-panel-raised/60">
+                              <span class="whitespace-nowrap text-xs text-ink-muted">
+                                {Calendar.strftime(entry.created_at, "%b %d, %Y %H:%M UTC")}
+                              </span>
+                              <span class="flex flex-wrap items-center gap-1.5">
+                                <.badge
+                                  tone={reason_tone(entry.reason)}
+                                  class={reason_badge_class(entry.reason)}
+                                >
+                                  <.icon name={reason_icon(entry.reason)} class="size-3.5" />
+                                  {reason_label(entry.reason)}
+                                </.badge>
+                                <%!-- Reversal provenance stays neutral: danger is
                         reserved for the destroy clock and the negative
                         balance. --%>
-                        <.badge :if={entry.reverses_id} tone="neutral">
-                          <.icon name="hero-arrow-uturn-left" class="size-3.5" />
-                          {gettext("Reversal")}
-                        </.badge>
-                        <.badge :if={MapSet.member?(@reversed_ids, entry.id)} tone="neutral">
-                          <.icon name="hero-arrow-uturn-right" class="size-3.5" />
-                          {gettext("Reversed")}
-                        </.badge>
-                      </span>
-                      <span
-                        class={[
-                          "justify-self-end whitespace-nowrap text-sm tabular-nums",
-                          amount_class(entry, @reversed_ids)
-                        ]}
-                        data-testid={"admin-wallet-amount-#{entry.id}"}
-                      >
-                        {BillingComponents.format_amount(entry.amount)}
-                      </span>
-                      <span
-                        class="min-w-0 truncate font-mono text-xs text-ink-muted"
-                        title={reference_text(entry)}
-                        data-testid={"admin-wallet-reference-#{entry.id}"}
-                      >
-                        {reference_text(entry)}
-                      </span>
-                      <span class="justify-self-end">
-                        <.button
-                          :if={reversible?(entry, @reversed_ids)}
-                          size="sm"
-                          variant="secondary"
-                          phx-click="open-reverse"
-                          phx-value-id={entry.id}
-                          phx-disable-with={gettext("Opening...")}
-                          data-testid={"admin-wallet-reverse-#{entry.id}"}
-                        >
-                          {gettext("Reverse")}
-                        </.button>
-                      </span>
-                    </div>
+                                <.badge :if={entry.reverses_id} tone="neutral">
+                                  <.icon name="hero-arrow-uturn-left" class="size-3.5" />
+                                  {gettext("Reversal")}
+                                </.badge>
+                                <.badge :if={MapSet.member?(@reversed_ids, entry.id)} tone="neutral">
+                                  <.icon name="hero-arrow-uturn-right" class="size-3.5" />
+                                  {gettext("Reversed")}
+                                </.badge>
+                              </span>
+                              <span
+                                class={[
+                                  "justify-self-end whitespace-nowrap text-sm tabular-nums",
+                                  amount_class(entry, @reversed_ids)
+                                ]}
+                                data-testid={"admin-wallet-amount-#{entry.id}"}
+                              >
+                                {BillingComponents.format_amount(entry.amount)}
+                              </span>
+                              <span
+                                class="min-w-0 truncate font-mono text-xs text-ink-muted"
+                                title={reference_text(entry)}
+                                data-testid={"admin-wallet-reference-#{entry.id}"}
+                              >
+                                {reference_text(entry)}
+                              </span>
+                              <span class="justify-self-end">
+                                <.button
+                                  :if={reversible?(entry, @reversed_ids)}
+                                  size="sm"
+                                  variant="secondary"
+                                  phx-click="open-reverse"
+                                  phx-value-id={entry.id}
+                                  phx-disable-with={gettext("Opening...")}
+                                  data-testid={"admin-wallet-reverse-#{entry.id}"}
+                                >
+                                  {gettext("Reverse")}
+                                </.button>
+                              </span>
+                            </div>
 
-                    <%!-- The confirm expands directly under the row that
+                            <%!-- The confirm expands directly under the row that
                     opened it; one confirm per page (@confirm is the
                     expansion key), so the shared destructive-confirm
                     testid stays safe. --%>
-                    <div :if={reversing?(entry, @confirm)} class="pt-3">
-                      <.confirm_block
-                        title={reverse_title(entry)}
-                        body={
-                          gettext(
-                            "A compensating debit is posted for the same amount. The original entry stays in the ledger. Net effect on the balance: zero."
-                          )
-                        }
-                        action={gettext("Yes, reverse this entry")}
-                        event="confirm-reverse"
-                        action_testid="admin-wallet-reverse-confirm"
-                        cancel_testid="admin-wallet-reverse-cancel"
-                        myself={nil}
-                      />
+                            <div :if={reversing?(entry, @confirm)} class="pt-3">
+                              <.confirm_block
+                                title={reverse_title(entry)}
+                                body={
+                                  gettext(
+                                    "A compensating debit is posted for the same amount. The original entry stays in the ledger. Net effect on the balance: zero."
+                                  )
+                                }
+                                action={gettext("Yes, reverse this entry")}
+                                event="confirm-reverse"
+                                action_testid="admin-wallet-reverse-confirm"
+                                cancel_testid="admin-wallet-reverse-cancel"
+                                myself={nil}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
 
-              <div class="mt-4">
-                <.button
-                  :if={@page.more?}
-                  id="admin-wallet-load-more"
-                  variant="ghost"
-                  size="sm"
-                  phx-click="load-more"
-                  data-testid="admin-wallet-load-more"
-                >
-                  {gettext("Load more")}
-                </.button>
+                  <div class="mt-4">
+                    <.button
+                      :if={@page.more?}
+                      id="admin-wallet-load-more"
+                      variant="ghost"
+                      size="sm"
+                      phx-click="load-more"
+                      data-testid="admin-wallet-load-more"
+                    >
+                      {gettext("Load more")}
+                    </.button>
+                  </div>
+                </.card>
               </div>
-            </.card>
+            </div>
           </div>
         </section>
       </div>

@@ -26,6 +26,7 @@ defmodule FluxValeWeb.AdminLive.Billing do
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing.Wallet
   alias FluxValeWeb.AdminComponents
+  alias FluxValeWeb.AdminShell
   alias FluxValeWeb.BillingComponents
 
   require Ash.Query
@@ -195,164 +196,170 @@ defmodule FluxValeWeb.AdminLive.Billing do
                   "Every org's wallet. The balance is the ledger, a row with the destroy clock is a countdown, and the waiver moves no money. Open a wallet for its ledger and the writes."
                 )}
               </p>
-              <div class="mt-4">
-                <.link
-                  navigate={~p"/admin"}
-                  data-testid="admin-billing-back-link"
-                  class="text-sm font-medium text-link underline-offset-2 hover:underline"
-                >
-                  {gettext("Back to the admin console")}
-                </.link>
-              </div>
             </div>
           </div>
         </section>
 
-        <section class="wrap pt-8 pb-8">
-          <%!-- The search card rides the same two-column proportion the
-          people surface set. --%>
-          <div class="rise grid items-start gap-6 lg:grid-cols-2">
-            <.card class="space-y-4" data-testid="admin-billing-search-card">
-              <div>
-                <h2 class="text-base font-medium text-ink">{gettext("Find a wallet")}</h2>
-                <p class="mt-1 text-sm text-ink-muted">
-                  {gettext("Search narrows this list by org name or slug. It never reaches past it.")}
+        <%!-- The section sidebar (Am. 4, the #568 idiom) owns
+        cross-section wayfinding — no console-level back link. The
+        search card and the list are one content column beside it. --%>
+        <section class="wrap pt-8 pb-16">
+          <div class="rise flex flex-col gap-8 md:flex-row md:gap-12">
+            <AdminShell.sidebar current="wallets" />
+
+            <div class="min-w-0 flex-1 space-y-6">
+              <.card class="space-y-4" data-testid="admin-billing-search-card">
+                <div>
+                  <h2 class="text-base font-medium text-ink">{gettext("Find a wallet")}</h2>
+                  <p class="mt-1 text-sm text-ink-muted">
+                    {gettext(
+                      "Search narrows this list by org name or slug. It never reaches past it."
+                    )}
+                  </p>
+                </div>
+                <.form
+                  for={@search_form}
+                  id="admin-billing-search"
+                  phx-change="search"
+                  phx-submit="search"
+                >
+                  <.input
+                    field={@search_form[:query]}
+                    type="text"
+                    label={gettext("Org name or slug")}
+                    placeholder={gettext("Search by org name or slug")}
+                    phx-debounce="200"
+                    data-testid="admin-billing-search-input"
+                  />
+                </.form>
+              </.card>
+
+              <div class="space-y-4" data-testid="admin-billing-list">
+                <%!-- The count is the @list_cap above (kept literal here —
+                a module attribute reads as assigns inside HEEx); move the
+                two together. --%>
+                <p
+                  :if={@rows_capped?}
+                  class="text-sm text-ink-muted"
+                  data-testid="admin-billing-capped"
+                >
+                  {gettext("Showing the latest 100 wallets. Negative balances pin to the top.")}
                 </p>
-              </div>
-              <.form
-                for={@search_form}
-                id="admin-billing-search"
-                phx-change="search"
-                phx-submit="search"
-              >
-                <.input
-                  field={@search_form[:query]}
-                  type="text"
-                  label={gettext("Org name or slug")}
-                  placeholder={gettext("Search by org name or slug")}
-                  phx-debounce="200"
-                  data-testid="admin-billing-search-input"
+
+                <.empty_state :if={@rows_empty? and @query == ""} title={gettext("No wallets yet.")}>
+                  {gettext(
+                    "Every org carries exactly one wallet, provisioned on demand. Open one to see its ledger."
+                  )}
+                </.empty_state>
+
+                <.empty_state
+                  :if={@rows_empty? and @query != ""}
+                  title={gettext("No wallet matches that org.")}
                 />
-              </.form>
-            </.card>
-          </div>
-        </section>
 
-        <section class="wrap pt-4 pb-16">
-          <div class="rise space-y-4" data-testid="admin-billing-list">
-            <%!-- The count is the @list_cap above (kept literal here —
-            a module attribute reads as assigns inside HEEx); move the
-            two together. --%>
-            <p :if={@rows_capped?} class="text-sm text-ink-muted" data-testid="admin-billing-capped">
-              {gettext("Showing the latest 100 wallets. Negative balances pin to the top.")}
-            </p>
-
-            <.empty_state :if={@rows_empty? and @query == ""} title={gettext("No wallets yet.")}>
-              {gettext(
-                "Every org carries exactly one wallet, provisioned on demand. Open one to see its ledger."
-              )}
-            </.empty_state>
-
-            <.empty_state
-              :if={@rows_empty? and @query != ""}
-              title={gettext("No wallet matches that org.")}
-            />
-
-            <div
-              :if={not @rows_empty?}
-              class="overflow-x-auto rounded-panel border border-line bg-panel text-ink"
-            >
-              <div class="min-w-[56rem]">
                 <%!-- One grid template shared by the header and every
                 row (kept literal in both spots), so the columns can
-                never drift. --%>
-                <div class="grid grid-cols-[minmax(14rem,2fr)_8rem_9rem_minmax(11rem,1.5fr)_5rem] items-center gap-x-2 border-b border-line px-4 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
+                never drift. Track mins total 31rem (+ gaps and padding,
+                ~34rem): the populated list scrolls INTERNALLY below the
+                band beside the sidebar at 1024+ (the people surface's
+                floor-and-scroll idiom), never the page. --%>
+                <div class="grid grid-cols-[minmax(7.5rem,1.6fr)_5.5rem_6.5rem_minmax(8.5rem,1.2fr)_3rem] items-center gap-x-1.5 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
                   <div>{gettext("Organization")}</div>
                   <div class="text-right">{gettext("Balance")}</div>
-                  <div>{gettext("Paywall waiver")}</div>
+                  <div>{gettext("Waiver")}</div>
                   <div>{gettext("Negative since")}</div>
                   <div class="sr-only">{gettext("Actions")}</div>
                 </div>
 
-                <div id="admin-billing-table" phx-update="stream">
-                  <div
-                    :for={{dom_id, wallet} <- @streams.wallets}
-                    id={dom_id}
-                    class={[
-                      "grid grid-cols-[minmax(14rem,2fr)_8rem_9rem_minmax(11rem,1.5fr)_5rem] items-center gap-x-2 border-b border-line px-4 py-3 transition-colors last:border-0 hover:bg-panel-raised/60",
-                      negative?(wallet) && "bg-danger-muted"
-                    ]}
-                  >
-                    <div class="min-w-0" data-testid={"admin-billing-org-#{wallet.id}"}>
-                      <.link
-                        :if={org_name(@orgs, wallet)}
-                        navigate={~p"/admin/billing/wallets/#{wallet.id}"}
-                        class="block truncate font-medium text-ink hover:text-link"
-                        data-testid={"admin-billing-org-link-#{wallet.id}"}
-                      >
-                        {org_name(@orgs, wallet)}
-                      </.link>
-                      <p class="truncate font-mono text-xs text-ink-muted">
-                        {org_slug(@orgs, wallet)}
-                      </p>
-                    </div>
-                    <div class="text-right">
-                      <span
+                <div class="overflow-x-auto" data-noscroll>
+                  <div class="min-w-[34rem]">
+                    <div id="admin-billing-table" phx-update="stream">
+                      <div
+                        :for={{dom_id, wallet} <- @streams.wallets}
+                        id={dom_id}
                         class={[
-                          "whitespace-nowrap text-sm tabular-nums",
-                          wallet.balance < 0 && "font-semibold text-danger"
+                          "grid grid-cols-[minmax(7.5rem,1.6fr)_5.5rem_6.5rem_minmax(8.5rem,1.2fr)_3rem] items-center gap-x-1.5 border-b border-line px-3 py-3 transition-colors last:border-0 hover:bg-panel-raised/60",
+                          negative?(wallet) && "bg-danger-muted"
                         ]}
-                        data-testid={"admin-billing-balance-#{wallet.id}"}
                       >
-                        {BillingComponents.format_balance(wallet.balance)}
-                      </span>
-                    </div>
-                    <div>
-                      <span data-testid={"admin-billing-waiver-#{wallet.id}"}>
-                        <.badge tone={waiver_tone(wallet.paywall_waived)}>
-                          <.icon
-                            :if={wallet.paywall_waived}
-                            name="hero-key"
-                            class="size-3.5"
-                          />
-                          {waiver_label(wallet.paywall_waived)}
-                        </.badge>
-                      </span>
-                    </div>
-                    <%!-- The destroy clock (#124): the badge carries the
+                        <div class="min-w-0" data-testid={"admin-billing-org-#{wallet.id}"}>
+                          <.link
+                            :if={org_name(@orgs, wallet)}
+                            navigate={~p"/admin/billing/wallets/#{wallet.id}"}
+                            class="block truncate font-medium text-ink hover:text-link"
+                            data-testid={"admin-billing-org-link-#{wallet.id}"}
+                          >
+                            {org_name(@orgs, wallet)}
+                          </.link>
+                          <p class="truncate font-mono text-xs text-ink-muted">
+                            {org_slug(@orgs, wallet)}
+                          </p>
+                        </div>
+                        <div class="text-right">
+                          <span
+                            class={[
+                              "whitespace-nowrap text-sm tabular-nums",
+                              wallet.balance < 0 && "font-semibold text-danger"
+                            ]}
+                            data-testid={"admin-billing-balance-#{wallet.id}"}
+                          >
+                            {BillingComponents.format_balance(wallet.balance)}
+                          </span>
+                        </div>
+                        <div>
+                          <span data-testid={"admin-billing-waiver-#{wallet.id}"}>
+                            <.badge tone={waiver_tone(wallet.paywall_waived)}>
+                              <.icon
+                                :if={wallet.paywall_waived}
+                                name="hero-key"
+                                class="size-3.5"
+                              />
+                              {waiver_label(wallet.paywall_waived)}
+                            </.badge>
+                          </span>
+                        </div>
+                        <%!-- The destroy clock (#124): the badge carries the
                     non-color cue (tone plus clock), the tint above
                     carries the weight, and the dates name the anchor
                     AND the deadline, so the countdown reads as one. --%>
-                    <div>
-                      <span
-                        :if={negative?(wallet)}
-                        class="inline-flex flex-col gap-0.5"
-                        data-testid={"admin-billing-negative-#{wallet.id}"}
-                      >
-                        <.badge tone="danger" class="self-start">
-                          <.icon name="hero-clock" class="size-3.5" />
-                          <span>{gettext("Destroy clock")}</span>
-                        </.badge>
-                        <span
-                          :if={wallet.negative_since}
-                          class="whitespace-nowrap text-xs text-ink-muted"
-                        >
-                          {gettext("since %{start}, deletes %{deadline}",
-                            start: stamp_text(wallet.negative_since),
-                            deadline: AdminComponents.destroy_deadline_text(wallet.negative_since)
-                          )}
-                        </span>
-                      </span>
-                    </div>
-                    <div>
-                      <div class="flex items-center justify-end">
-                        <.link
-                          navigate={~p"/admin/billing/wallets/#{wallet.id}"}
-                          data-testid={"admin-billing-open-#{wallet.id}"}
-                          class="text-sm font-medium text-link underline-offset-2 hover:underline"
-                        >
-                          {gettext("Open")}
-                        </.link>
+                        <div>
+                          <span
+                            :if={negative?(wallet)}
+                            class="inline-flex flex-col gap-0.5"
+                            data-testid={"admin-billing-negative-#{wallet.id}"}
+                          >
+                            <.badge tone="danger" class="self-start">
+                              <.icon name="hero-clock" class="size-3.5" />
+                              <span>{gettext("Destroy clock")}</span>
+                            </.badge>
+                            <span
+                              :if={wallet.negative_since}
+                              class="flex flex-col text-xs text-ink-muted"
+                            >
+                              <span>
+                                {gettext("since %{date}",
+                                  date: stamp_text(wallet.negative_since)
+                                )}
+                              </span>
+                              <span>
+                                {gettext("deletes %{date}",
+                                  date: AdminComponents.destroy_deadline_text(wallet.negative_since)
+                                )}
+                              </span>
+                            </span>
+                          </span>
+                        </div>
+                        <div>
+                          <div class="flex items-center justify-end">
+                            <.link
+                              navigate={~p"/admin/billing/wallets/#{wallet.id}"}
+                              data-testid={"admin-billing-open-#{wallet.id}"}
+                              class="text-sm font-medium text-link underline-offset-2 hover:underline"
+                            >
+                              {gettext("Open")}
+                            </.link>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
