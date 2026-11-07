@@ -17,6 +17,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.Instance
+  alias FluxValeWeb.AllocationSliders
   alias FluxValeWeb.InstanceLive.DavSnippet
   alias FluxValeWeb.InstanceStatus
 
@@ -26,7 +27,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
     case Instance.get_by_id(id, actor: user) do
       {:ok, instance} ->
-        instance = Ash.load!(instance, [app_version: [:app, :recommended_size]], actor: user)
+        instance = Ash.load!(instance, [app_version: [:app]], actor: user)
 
         Phoenix.PubSub.subscribe(FluxVale.PubSub, "instances:#{instance.id}")
 
@@ -45,7 +46,26 @@ defmodule FluxValeWeb.InstanceLive.Show do
             # visitor's OS on mount (detection assists, never traps).
             dav_platform: :linux,
             dav_platform_locked: false,
-            tick_scheduled?: false
+            tick_scheduled?: false,
+            # #493: the Details price row reads the row's own settlement
+            # rates (the #206 gap closure — a custom-allocation row shows
+            # the cents it actually bills); the resize panel rides these
+            # assigns, closed until an entry opens it.
+            rates: rates_for(instance),
+            resize_open: false,
+            resize_step: :choose,
+            resize_resources: %{},
+            resize_off_ladder: false,
+            resize_preview: nil,
+            storage_locked: false,
+            storage_lock_reason: nil,
+            resize_storage_fixed: false,
+            resize_storage_fixed_reason: :capability,
+            resize_storage_omitted: false,
+            open_resize_on_stop: false,
+            resize_seed: nil,
+            resize_no_op: false,
+            resize_form: to_form(%{})
           )
           # #273 §4.2: the exposure card's reachability copy reads the
           # pairing (route), the org's gateway, and the org's slug (the
@@ -116,8 +136,20 @@ defmodule FluxValeWeb.InstanceLive.Show do
                     </span>
                   </p>
                 </div>
-                <div class="flex shrink-0 flex-wrap gap-2 pb-1">
-                  <.action_buttons instance={@instance} />
+                <div class="flex shrink-0 flex-col items-end gap-1 pb-1">
+                  <div class="flex flex-wrap gap-2">
+                    <.action_buttons instance={@instance} panel_open={@resize_open} />
+                  </div>
+                  <%!-- #493: the guided stop→resize start — the button
+                  stops now; the panel opens when the row lands :stopped
+                  (open_resize_on_stop). --%>
+                  <p
+                    :if={@instance.status == :running}
+                    class="text-xs text-ink-subtle"
+                    data-testid="stop-to-resize-note"
+                  >
+                    Your instance stops first; you start it again after resizing.
+                  </p>
                 </div>
               </div>
             </div>
@@ -251,32 +283,28 @@ defmodule FluxValeWeb.InstanceLive.Show do
                 detail. --%>
                 <div class="flex items-baseline justify-between gap-4 py-2.5">
                   <span class="shrink-0 text-ink-subtle">Resources</span>
-                  <span class="min-w-0 text-right text-ink">
+                  <span class="min-w-0 text-right text-ink" data-testid="instance-resources">
                     {@instance.cpu_cores} CPU · {@instance.memory_mb} MB · {@instance.storage_gb} GB
                   </span>
                 </div>
-                <%= if size = @instance.app_version.recommended_size do %>
-                  <%!-- The version's recommended-size rate, not an
-                  accrual statement — settlement owns elapsed-time math
-                  (#121); :stopped swaps in the storage-only fee
-                  (ADR-0028 §2). KNOWN GAP (pre-existing shape, outside
-                  #206's scope; flagged as a follow-up in the closing
-                  PR's body): a custom-allocation instance bills its own
-                  formula snapshot (#186) while this row keeps showing
-                  the recommended size's cents. The label states
-                  monthly-equivalent · billed hourly on every surface
-                  (#206 — no monthly-billing ambiguity). --%>
+                <%= if @rates do %>
+                  <%!-- The row's own settlement figures (#493 — the #206
+                  gap closed): the same resolver the accrual prices
+                  through, so a custom-allocation row shows the cents it
+                  actually bills and an unpriced row hides (never a
+                  guess). Monthly-equivalent · billed hourly on every
+                  surface (#206). --%>
                   <div class="flex items-baseline justify-between gap-4 py-2.5">
                     <span class="shrink-0 text-ink-subtle">Price</span>
                     <span class="min-w-0 text-right text-ink" data-testid="instance-price">
                       <%= if @instance.status in [:stopped, :sleeping] do %>
-                        {FluxVale.Pricing.format_usd(size.stopped_monthly_cents)}/mo while {if(
+                        {FluxVale.Pricing.format_usd(@rates.stopped)}/mo while {if(
                           @instance.status == :sleeping,
                           do: "asleep",
                           else: "stopped"
                         )} · billed hourly
                       <% else %>
-                        {FluxVale.Pricing.format_monthly_rate(size.monthly_cents)}
+                        {FluxVale.Pricing.format_monthly_rate(@rates.running)}
                       <% end %>
                     </span>
                   </div>
@@ -458,6 +486,27 @@ defmodule FluxValeWeb.InstanceLive.Show do
               </.button>
             </.card>
 
+            <%!-- #493: the resize panel — the guided stop→resize→start.
+            It rides the page like always_on_confirm (backups stays the
+            one sanctioned LiveComponent); every figure is a server
+            assign, priced through the domain's preview seam. --%>
+            <.resize_panel
+              :if={@resize_open}
+              instance={@instance}
+              form={@resize_form}
+              rates={@rates}
+              resources={@resize_resources}
+              preview={@resize_preview}
+              step={@resize_step}
+              storage_locked={@storage_locked}
+              storage_lock_reason={@storage_lock_reason}
+              storage_fixed={@resize_storage_fixed}
+              storage_fixed_reason={@resize_storage_fixed_reason}
+              storage_omitted={@resize_storage_omitted}
+              off_ladder={@resize_off_ladder}
+              no_op={@resize_no_op}
+            />
+
             <.callout
               :if={@instance.app_version.first_run}
               tone="info"
@@ -630,6 +679,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
   # Lifecycle controls gated by the state machine's legal transitions —
   # the actions enforce the same, this is presentation.
+  attr(:instance, :any, required: true)
+  attr(:panel_open, :boolean, default: false)
+
   defp action_buttons(assigns) do
     ~H"""
     <.button
@@ -673,6 +725,30 @@ defmodule FluxValeWeb.InstanceLive.Show do
       Stop
     </.button>
 
+    <%!-- #493: the resize entry — stopped opens the panel directly;
+    running must stop first (the guided stop→resize start). No entry
+    from the states that can't reach :stopped cleanly — wake or deploy
+    first, plain and honest. --%>
+    <.button
+      :if={@instance.status == :stopped and not @panel_open}
+      variant="ghost"
+      size="sm"
+      phx-click="open-resize"
+      data-testid="resize-button"
+    >
+      Resize
+    </.button>
+
+    <.button
+      :if={@instance.status == :running}
+      variant="ghost"
+      size="sm"
+      phx-click="stop-to-resize"
+      data-testid="stop-to-resize"
+    >
+      Stop to resize
+    </.button>
+
     <%!-- #203: wake = start from :sleeping — the same action, the
     traffic-reversible verb; the edge wakes it for a visitor too. --%>
     <.button
@@ -705,6 +781,180 @@ defmodule FluxValeWeb.InstanceLive.Show do
     </.button>
     """
   end
+
+  attr(:instance, :any, required: true)
+  attr(:form, :any, required: true)
+  attr(:rates, :map, default: nil)
+  attr(:resources, :map, required: true)
+  attr(:preview, :any, required: true)
+  attr(:step, :atom, required: true)
+  attr(:storage_locked, :boolean, required: true)
+  attr(:storage_lock_reason, :atom, required: true)
+  attr(:storage_fixed, :boolean, required: true)
+  attr(:storage_fixed_reason, :atom, required: true)
+  attr(:storage_omitted, :boolean, required: true)
+  attr(:off_ladder, :boolean, required: true)
+  attr(:no_op, :boolean, required: true)
+
+  # The panel's two steps (#493): :choose seeds the ladders and prices
+  # the candidate live; :confirm states the consequence in the row's
+  # own settlement figures before the submit exists (the backups
+  # panel's two-step shape, in-page — the instance is :stopped here by
+  # construction, both entries stop first).
+  defp resize_panel(assigns) do
+    assigns = assign(assigns, figures: panel_figures(assigns.rates, assigns.preview))
+
+    ~H"""
+    <.card class="card space-y-4" data-testid="resize-panel">
+      <div class="flex items-center justify-between gap-3">
+        <h2 class="text-sm font-semibold text-ink">Resize instance</h2>
+        <.button
+          :if={@step == :choose}
+          size="sm"
+          variant="ghost"
+          type="button"
+          phx-click="resize-cancel"
+          data-testid="resize-cancel"
+        >
+          Cancel
+        </.button>
+      </div>
+
+      <.form
+        for={@form}
+        id="resize-form"
+        phx-change="resize-change"
+        phx-submit="resize-submit"
+        class="space-y-4"
+      >
+        <AllocationSliders.sliders
+          resources={@resources}
+          name="resize"
+          locked={if(@storage_locked and not @storage_fixed, do: ["storage_gb"], else: [])}
+          hidden={if(@storage_fixed, do: ["storage_gb"], else: [])}
+          locked_note={
+            if(@storage_locked and not @storage_fixed,
+              do: storage_lock_note(@storage_lock_reason)
+            )
+          }
+        />
+
+        <%!-- An off-ladder locked row can't be a rung — the nearest
+        rung would read as an imminent shrink — so the slider yields to
+        this line (the payload omits storage; the row keeps its value). --%>
+        <p :if={@storage_fixed} class="text-xs text-ink-subtle" data-testid="resize-storage-fixed">
+          {storage_fixed_line(@storage_fixed_reason, @instance.storage_gb)}
+        </p>
+
+        <p :if={@off_ladder} class="text-xs text-ink-subtle" data-testid="resize-off-ladder-note">
+          Sizes not offered here move to the nearest offered size; storage only grows, so it rounds
+          up.
+        </p>
+
+        <%!-- The price is the resize's own snapshot choice (the domain's
+        preview seam), so the shown figure is the charged figure; no
+        priceable preview → no line (never bill a guess). #206: the
+        running figure states monthly-equivalent · billed hourly like
+        every price surface. A repair path (an unpriced row, a priced
+        candidate) has no From figure — it reads "To" only. --%>
+        <div
+          :if={@figures}
+          class="space-y-0.5 rounded-xl bg-panel-raised px-4 py-3 text-sm"
+          data-testid="resize-price"
+        >
+          <p class="text-ink">
+            {if(@figures.old,
+              do: "From #{@figures.old} to #{@figures.new}",
+              else: "To #{@figures.new}"
+            )} · billed hourly
+          </p>
+          <p class="text-ink-muted">{@figures.stopped} while stopped</p>
+        </div>
+
+        <p
+          :if={is_nil(@figures)}
+          class="text-xs text-ink-subtle"
+          data-testid="resize-price-unavailable"
+        >
+          Couldn't show a price right now — close and reopen the panel.
+        </p>
+
+        <p :if={@step == :choose} class="text-sm text-ink-subtle">
+          The new size applies when you start the instance.
+        </p>
+
+        <%= if @step == :choose do %>
+          <div class="flex justify-end">
+            <.button
+              size="sm"
+              type="button"
+              phx-click="resize-continue"
+              disabled={is_nil(@figures) or @no_op}
+              data-testid="resize-continue"
+            >
+              Continue
+            </.button>
+          </div>
+        <% else %>
+          <div
+            class="space-y-3 rounded-panel border-2 border-line-danger bg-danger-muted px-4 py-3"
+            data-testid="resize-confirm"
+          >
+            <p class="text-sm font-semibold text-danger">Resize instance</p>
+            <p class="text-sm text-ink">
+              {@resources["cpu_cores"]} CPU · {@resources["memory_mb"]} MB · {if(@storage_omitted,
+                do: @instance.storage_gb,
+                else: @resources["storage_gb"]
+              )} GB — {if(@figures.old,
+                do: "from #{@figures.old} to #{@figures.new}",
+                else: "to #{@figures.new}"
+              )} ({@figures.stopped} while stopped)
+            </p>
+            <p class="text-xs text-ink-muted">
+              The instance stays stopped. The new size applies when you start it.
+            </p>
+            <div class="flex flex-wrap gap-2">
+              <.button
+                size="sm"
+                type="submit"
+                phx-disable-with="Resizing…"
+                data-testid="resize-submit"
+              >
+                Confirm resize
+              </.button>
+              <.button
+                size="sm"
+                variant="ghost"
+                type="button"
+                phx-click="resize-cancel"
+                data-testid="resize-cancel"
+              >
+                Cancel
+              </.button>
+            </div>
+          </div>
+        <% end %>
+      </.form>
+    </.card>
+    """
+  end
+
+  # The two lock meanings, mirroring ResizeGuard's split (F11): the
+  # product boundary vs a probe that failed — the slider locks either
+  # way, only the note differs.
+  defp storage_lock_note(:capability), do: "Storage can't be expanded on this cluster yet."
+  defp storage_lock_note(:error), do: "Couldn't check storage expansion — try again."
+
+  # The hidden-slider line for an off-ladder locked row: the row's own
+  # GB, stated as staying put, with the lock's reason.
+  defp storage_fixed_line(:above_top, gb),
+    do: "Storage: #{gb} GB · stays unchanged (beyond the offered sizes)"
+
+  defp storage_fixed_line(:capability, gb),
+    do: "Storage: #{gb} GB · stays unchanged (can't expand on this cluster yet)"
+
+  defp storage_fixed_line(:error, gb),
+    do: "Storage: #{gb} GB · stays unchanged (couldn't check storage expansion — try again)"
 
   @impl Phoenix.LiveView
   def handle_event("deploy", _params, socket) do
@@ -816,6 +1066,92 @@ defmodule FluxValeWeb.InstanceLive.Show do
     end
   end
 
+  # #493: the resize panel. The entry buttons are presentation — the
+  # action's own guards stay the fence for every state question.
+
+  def handle_event("open-resize", _params, socket) do
+    {:noreply, open_resize_panel(socket)}
+  end
+
+  # The guided stop→resize start: the row stops through the existing
+  # stop path with the flag set; the refresh reading :stopped consumes
+  # it and opens the panel (the broadcast that trails the event finds
+  # the flag already consumed).
+  def handle_event("stop-to-resize", _params, socket) do
+    instance = socket.assigns.instance
+
+    case Instance.stop(instance, actor: socket.assigns.current_user) do
+      {:ok, _stopped} ->
+        socket = assign(socket, :open_resize_on_stop, true)
+        {:noreply, refresh(socket, instance.id)}
+
+      {:error, _error} ->
+        {:noreply, put_flash(socket, :error, "That action isn't possible from this state.")}
+    end
+  end
+
+  # Live reprice: every slider move re-prices through the same snapshot
+  # choice the submit charges. Only a map payload is honoured — a
+  # crafted `"resize" => "not_a_map"` is an unmatched shape, same as a
+  # missing payload.
+  def handle_event("resize-change", %{"resize" => params}, socket) when is_map(params) do
+    rungs =
+      Map.merge(socket.assigns.resize_resources, AllocationSliders.resource_strings(params))
+
+    preview = preview_for(socket.assigns.instance, rungs, socket.assigns.resize_storage_omitted)
+
+    # The confirm exists only with its numbers, and only with something
+    # to apply: a change that stops the candidate pricing (a candidate
+    # landing on a sizeless recommendation) or a preview read that
+    # failed drops the panel back to :choose, and so does a candidate
+    # that lands back on the row (the action's own "allocation is
+    # unchanged" refusal, surfaced early).
+    {allocation, no_op} = candidate_state(socket, rungs)
+
+    step =
+      if is_map(preview) and not is_nil(allocation) and not no_op,
+        do: socket.assigns.resize_step,
+        else: :choose
+
+    {:noreply,
+     assign(socket,
+       resize_resources: rungs,
+       resize_preview: preview,
+       resize_step: step,
+       resize_no_op: no_op
+     )}
+  end
+
+  def handle_event("resize-change", _unmatched, socket), do: {:noreply, socket}
+
+  # The disabled Continue is the DOM gate; a crafted click without its
+  # numbers — or with a candidate that changes nothing — stays on
+  # :choose, never a confirm.
+  def handle_event("resize-continue", _params, socket) do
+    if proceedable?(socket) do
+      {:noreply, assign(socket, :resize_step, :confirm)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("resize-cancel", _params, socket) do
+    {:noreply, reset_resize_panel(socket)}
+  end
+
+  # Only an open panel at :confirm with a map payload applies anything
+  # — a crafted or stale submit (from :choose, a closed panel, or a
+  # malformed payload) is a no-op noreply, the unmatched-shape posture.
+  # phx-disable-with holds the double-submit window on the wire; this
+  # closes the rest.
+  def handle_event("resize-submit", params, socket) do
+    if resize_open_at_confirm?(socket) and is_map(params) and is_map(params["resize"]) do
+      resize_submit(socket, params["resize"])
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("delete", _params, socket) do
     instance = socket.assigns.instance
 
@@ -827,6 +1163,89 @@ defmodule FluxValeWeb.InstanceLive.Show do
       # DB-level failures (the action handles every status shape)
       {:error, _error} ->
         {:noreply, put_flash(socket, :error, "Delete failed. Try again.")}
+        # coveralls-ignore-stop
+    end
+  end
+
+  defp resize_submit(socket, params) do
+    rungs =
+      Map.merge(socket.assigns.resize_resources, AllocationSliders.resource_strings(params))
+
+    instance = socket.assigns.instance
+    shown = socket.assigns.resize_preview
+
+    # The submit must land EXACTLY the confirmed candidate: a crafted
+    # payload naming different rungs — even ones that price identically
+    # — is an altered confirm, refused like a moved price. The crafted
+    # rungs are NOT absorbed; :choose keeps the confirmed state.
+    if rungs == socket.assigns.resize_resources do
+      price_guard(socket, rungs, instance, shown)
+    else
+      {:noreply,
+       socket
+       |> put_flash(:error, "The resize changed since you confirmed — review and confirm again.")
+       |> assign(resize_step: :choose)}
+    end
+  end
+
+  defp price_guard(socket, rungs, instance, shown) do
+    case preview_for(instance, rungs, socket.assigns.resize_storage_omitted) do
+      # The #261 accept-time guard's posture: the confirm showed a
+      # price; between that render and the submit an admin repriced the
+      # catalog. Consent must match the charged number — re-price fresh
+      # and refuse ANY difference (a stopped-only reprice changes what
+      # the row earns while it sleeps), back to :choose for a fresh
+      # look.
+      %{running_cents: fresh_running, stopped_cents: fresh_stopped} = fresh
+      when is_map(shown) and
+             (fresh_running != shown.running_cents or fresh_stopped != shown.stopped_cents) ->
+        {:noreply,
+         socket
+         |> put_flash(
+           :error,
+           "The price changed since you confirmed (now #{format_rate(fresh_running)}) — review and confirm again."
+         )
+         |> assign(resize_step: :choose, resize_preview: fresh)}
+
+      # The candidate stopped pricing (or the read failed) since the
+      # confirm — the same refusal, with no new figure to name.
+      fresh when fresh != shown ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "The price couldn't be refreshed — review and confirm again.")
+         |> assign(resize_step: :choose, resize_preview: fresh)}
+
+      _unchanged ->
+        apply_resize(socket, rungs, instance)
+    end
+  end
+
+  defp apply_resize(socket, rungs, instance) do
+    case typed_allocation(rungs, socket.assigns.resize_storage_omitted) do
+      {:ok, allocation} ->
+        case Instance.resize(instance, allocation, actor: socket.assigns.current_user) do
+          {:ok, _resized} ->
+            # The refresh closes the panel and re-reads the row — its
+            # fresh snapshot moves the Details price row. The page's
+            # existing Start button is the flow's end.
+            {:noreply,
+             socket
+             |> put_flash(:info, "Resized. Start your instance to run at the new size.")
+             |> refresh(instance.id)}
+
+          {:error, error} ->
+            # The action's plain refusals ARE the copy (shrinks, no-ops,
+            # capability, stale states) — flash them, stay on the panel.
+            {:noreply, put_flash(socket, :error, resize_refusal(error))}
+        end
+
+      # F1's guards mean the state is fully seeded on every real path
+      # (open seeds all rungs; the merge only ever keeps ladder
+      # strings) — a nil rung here is a crafted future, not a testable
+      # path. It reads as the refusal flash instead of raising.
+      # coveralls-ignore-start
+      {:error, _unseeded} ->
+        {:noreply, put_flash(socket, :error, "Resize isn't possible right now.")}
         # coveralls-ignore-stop
     end
   end
@@ -1154,8 +1573,27 @@ defmodule FluxValeWeb.InstanceLive.Show do
     # here needs a concurrent delete mid-event, which no deterministic
     # test can stage without a backdoor
     case fetch(socket, id) do
-      nil -> socket
-      instance -> maybe_schedule_status_tick(assign_instance(socket, instance))
+      nil ->
+        socket
+
+      instance ->
+        # The refresh closes the panel (the action may have moved the
+        # row out from under it) BEFORE the re-read, so the guided-stop
+        # flag opens it fresh off the new :stopped state — and the
+        # broadcast that trails the event finds the flag consumed and
+        # leaves the panel alone. The flag gets exactly ONE refresh to
+        # act: a :stopped read opens; anything else clears it, so a
+        # LATER unsolicited stop (the plain Stop button, say) can't
+        # spring the panel open out of nowhere.
+        socket =
+          socket
+          |> reset_resize_panel()
+          |> assign(
+            open_resize_on_stop:
+              socket.assigns.open_resize_on_stop and instance.status == :stopped
+          )
+
+        maybe_schedule_status_tick(assign_instance(socket, instance))
     end
 
     # coveralls-ignore-stop
@@ -1174,9 +1612,359 @@ defmodule FluxValeWeb.InstanceLive.Show do
   # Every instance (re)assign re-derives the enable-confirm copy with
   # it (#261): the figures ride the row's own settlement rates, so a
   # broadcast refresh can't leave the confirm stale behind the row.
+  # Broadcasts keep an open panel open (a reconciler heartbeat must not
+  # wipe an edit mid-move); only refresh/2 resets (below).
   defp assign_instance(socket, instance) do
-    assign(socket, instance: instance, always_on_confirm: always_on_confirm(instance))
+    socket =
+      assign(socket,
+        instance: instance,
+        always_on_confirm: always_on_confirm(instance),
+        rates: rates_for(instance)
+      )
+
+    socket
+    |> reset_stale_panel(instance)
+    |> maybe_open_resize_on_stop(instance)
   end
+
+  # A writer moved the row's allocation since this panel seeded —
+  # another tab's resize, say. The panel's premise (the allocation it
+  # read, priced, and confirmed against) is gone, so it resets rather
+  # than letting a stale submit overwrite their write (the optimistic
+  # lock can't catch it: the broadcast already refreshed the row's
+  # version). A heartbeat/status-only change keeps the panel open.
+  defp reset_stale_panel(socket, instance) do
+    if panel_stale?(socket, instance), do: reset_resize_panel(socket), else: socket
+  end
+
+  defp panel_stale?(socket, instance) do
+    case socket.assigns.resize_seed do
+      nil ->
+        false
+
+      seed ->
+        # Compare like for like: the row's allocation through
+        # allocation_of (Decimals) — seed vs raw row fields would
+        # structurally differ (Decimal ≠ integer) on every broadcast.
+        # A status move stales too: the confirm says "the instance
+        # stays stopped" — another tab's START makes that a lie, and
+        # the action would refuse it anyway.
+        current = allocation_of(instance)
+
+        socket.assigns.resize_open and
+          (instance.status != :stopped or
+             not Decimal.eq?(seed.cpu_cores, current.cpu_cores) or
+             seed.memory_mb != current.memory_mb or
+             seed.storage_gb != current.storage_gb)
+    end
+  end
+
+  # The guided stop→resize start (#493): the stop-to-resize click sets
+  # the flag; a refresh reading :stopped consumes it and opens the
+  # panel. Any other landing leaves it set for the next :stopped read.
+  defp maybe_open_resize_on_stop(socket, instance) do
+    if socket.assigns.open_resize_on_stop and instance.status == :stopped do
+      socket
+      |> assign(open_resize_on_stop: false)
+      |> open_resize_panel()
+    else
+      socket
+    end
+  end
+
+  # The Details price row's figures (#493 — the #206 gap closed): the
+  # row's own settlement rates, the same resolver the accrual prices
+  # through — never the recommended size's cents. nil (unpriced drift,
+  # or a rate that couldn't be read) hides the row.
+  defp rates_for(instance) do
+    case FluxVale.Pricing.settlement_rates(instance, DateTime.utc_now()) do
+      {:ok, rates} when not is_nil(rates) -> rates
+      _unpriced_or_error -> nil
+    end
+  end
+
+  # The panel's starting state: seeded rungs from the row's allocation,
+  # the storage lock from the cluster's capability probe (with its
+  # reason), the seed allocation the panel's premise rests on, and the
+  # first preview.
+  defp open_resize_panel(socket) do
+    instance = socket.assigns.instance
+    {storage_locked, storage_lock_reason} = storage_lock(instance)
+
+    # The storage dimension's offerability, decided up front. A locked
+    # slider tells the truth only when the row's storage IS a rung: an
+    # off-ladder row's nearest rung (7 GB → 5) would read as an
+    # imminent shrink. A row ABOVE the top rung (200 GB > 100) is
+    # fixed the same way whatever the lock — the ladder can only name
+    # a shrink, so the dimension is unofferable, not editable. In
+    # every fixed case (and whenever locked) the payload OMITS storage
+    # (the action keeps the row's value) and the preview prices the
+    # row's own GB. Compare numerically: the rungs are strings.
+    storage_rung = AllocationSliders.floor_rung("storage_gb", instance.storage_gb)
+    rung_storage = Decimal.new(storage_rung)
+    row_storage = Decimal.new(instance.storage_gb)
+
+    off_rung = not Decimal.eq?(rung_storage, row_storage)
+    above_top = Decimal.gt?(row_storage, rung_storage)
+    storage_fixed = above_top or (storage_locked and off_rung)
+    storage_omitted = storage_fixed or storage_locked
+
+    fixed_reason = if(above_top, do: :above_top, else: storage_lock_reason)
+
+    {rungs, off_ladder} = seeded_resources(instance, storage_omitted)
+    {:ok, allocation} = typed_allocation(rungs, storage_omitted)
+
+    assign(socket,
+      resize_open: true,
+      resize_step: :choose,
+      resize_resources: rungs,
+      resize_off_ladder: off_ladder,
+      storage_locked: storage_locked,
+      storage_lock_reason: storage_lock_reason,
+      resize_storage_fixed: storage_fixed,
+      resize_storage_fixed_reason: fixed_reason,
+      resize_storage_omitted: storage_omitted,
+      resize_preview: preview_for(instance, rungs, storage_omitted),
+      resize_seed: allocation_of(instance),
+      resize_no_op: no_op?(allocation, instance)
+    )
+  end
+
+  # The panel's reset (refresh/2, Cancel, and a stale-seed broadcast):
+  # the premise moved out from under it — honest staleness, the same
+  # posture as the access card. The guided-stop flag is the one
+  # survivor until its :stopped read consumes it.
+  defp reset_resize_panel(socket) do
+    assign(socket,
+      resize_open: false,
+      resize_step: :choose,
+      resize_resources: %{},
+      resize_off_ladder: false,
+      resize_preview: nil,
+      storage_locked: false,
+      storage_lock_reason: nil,
+      resize_storage_fixed: false,
+      resize_storage_fixed_reason: :capability,
+      resize_storage_omitted: false,
+      resize_seed: nil,
+      resize_no_op: false
+    )
+  end
+
+  # The storage lock (#493): locked unless the probe answers
+  # {:ok, true}. The two lock meanings stay distinct, mirroring
+  # ResizeGuard's split — {:ok, false} is the product boundary
+  # (:capability, "this cluster can't"), a probe error is a retry
+  # (:error, "check failed — try again"). Either way the slider is
+  # locked; only the note differs.
+  defp storage_lock(instance) do
+    case FluxVale.Infrastructure.storage_expansion_capable?(%{cluster_id: instance.cluster_id}) do
+      {:ok, true} -> {false, nil}
+      {:ok, false} -> {true, :capability}
+      {:error, _probe} -> {true, :error}
+    end
+  end
+
+  # The panel's starting rungs. CPU and memory seed at the NEAREST
+  # rung (AllocationSliders' helpers — numeric distance, tie → the
+  # cheaper rung). Storage is the up-only dimension: UNLOCKED it seeds
+  # at the FLOOR — the smallest rung ≥ the row's value, so seeding
+  # never invents a shrink or a silent increase (an explicit move to
+  # that rung is the consent; up-only stays the action's enforcement).
+  # LOCKED or otherwise FIXED the slider is display-only — the payload
+  # omits storage entirely (the action keeps the row's value) — so its
+  # nearest-rung display makes no move and isn't claimed as one in the
+  # note.
+  defp seeded_resources(instance, storage_omitted) do
+    # String-keyed to the dimensions' keys (allocation_of/1's atom-keyed
+    # shape is for the seed-staleness and no-op comparisons).
+    current = %{
+      "cpu_cores" => instance.cpu_cores,
+      "memory_mb" => Decimal.new(instance.memory_mb),
+      "storage_gb" => Decimal.new(instance.storage_gb)
+    }
+
+    rungs =
+      Map.new(AllocationSliders.resource_dimensions(), fn dimension ->
+        {dimension.key, AllocationSliders.nearest_rung(dimension.key, current[dimension.key])}
+      end)
+
+    seeded =
+      if storage_omitted,
+        do: rungs,
+        else:
+          Map.put(
+            rungs,
+            "storage_gb",
+            AllocationSliders.floor_rung("storage_gb", current["storage_gb"])
+          )
+
+    off_ladder = off_ladder?(current, seeded, storage_omitted)
+
+    {seeded, off_ladder}
+  end
+
+  # A dimension "moved" when its applied rung differs from the row's
+  # value — CPU and memory always apply; storage applies only when it
+  # rides the payload (an omitted dimension claims nothing).
+  defp off_ladder?(current, rungs, storage_omitted) do
+    applied = if storage_omitted, do: Map.delete(rungs, "storage_gb"), else: rungs
+
+    Enum.any?(applied, fn {key, rung} ->
+      not Decimal.eq?(Decimal.new(rung), current[key])
+    end)
+  end
+
+  # The row's allocation as Decimals — the seed the panel's staleness
+  # check and the no-op check compare against.
+  defp allocation_of(instance) do
+    %{
+      cpu_cores: instance.cpu_cores,
+      memory_mb: Decimal.new(instance.memory_mb),
+      storage_gb: Decimal.new(instance.storage_gb)
+    }
+  end
+
+  # The typed candidate. Storage LOCKED is OMITTED from the payload
+  # entirely: the action's absent = keep-the-row's-value semantics
+  # preserve 0, 7, 15, 200 GB alike — seeding the payload at a rung
+  # would either guarantee a refusal (7 → 5, a shrink) or silently
+  # raise the bill on a CPU-only resize (0 → 5) that the lock makes
+  # unfixable. The disabled slider is display-only; up-only stays the
+  # action's enforcement.
+  #
+  # Returns {:error, :unseeded} when any rung is missing: F1's guards
+  # seed every rung on the real paths, so the arm only ever answers a
+  # crafted future state — as the refusal flash, never a raise.
+  defp typed_allocation(rungs, storage_locked) do
+    with %{"cpu_cores" => cpu} when is_binary(cpu) <- rungs,
+         %{"memory_mb" => memory} when is_binary(memory) <- rungs,
+         %{"storage_gb" => storage} when is_binary(storage) <- rungs do
+      allocation = %{
+        cpu_cores: Decimal.new(cpu),
+        memory_mb: String.to_integer(memory),
+        storage_gb: String.to_integer(storage)
+      }
+
+      {:ok, if(storage_locked, do: Map.delete(allocation, :storage_gb), else: allocation)}
+    else
+      _missing_or_garbled -> {:error, :unseeded}
+    end
+  end
+
+  # The action's own refusal ("allocation is unchanged"), surfaced
+  # before the consequence step: a candidate equal to the row has
+  # nothing to apply. A locked-storage candidate omits :storage_gb —
+  # the row keeps its value, so storage never counts toward the change.
+  defp no_op?(allocation, instance) do
+    Decimal.eq?(allocation.cpu_cores, instance.cpu_cores) and
+      allocation.memory_mb == instance.memory_mb and
+      Map.get(allocation, :storage_gb, instance.storage_gb) == instance.storage_gb
+  end
+
+  # The candidate as typed state + its no-op flag; {:error, :unseeded}
+  # reads as "nothing to apply, keep the panel quiet".
+  defp candidate_state(socket, rungs) do
+    case typed_allocation(rungs, socket.assigns.resize_storage_omitted) do
+      {:ok, allocation} ->
+        {allocation, no_op?(allocation, socket.assigns.instance)}
+
+      # F1's guards seed every rung on the real paths (open seeds all
+      # three; the change merge only ever keeps ladder strings) — the
+      # arm answers a crafted future state, as a quiet no-op.
+      # coveralls-ignore-start
+      {:error, _unseeded} ->
+        {nil, true}
+        # coveralls-ignore-stop
+    end
+  end
+
+  # The consequence step exists only with figures AND a candidate that
+  # changes something — the action's own refusal, surfaced early.
+  defp proceedable?(socket) do
+    figures = panel_figures(socket.assigns.rates, socket.assigns.resize_preview)
+
+    not is_nil(figures) and not socket.assigns.resize_no_op
+  end
+
+  defp resize_open_at_confirm?(socket) do
+    socket.assigns.resize_open and socket.assigns.resize_step == :confirm
+  end
+
+  # The panel's preview through the domain seam: a map, nil (unpriced),
+  # or :unavailable (the read failed — the line hides, Continue stays
+  # off). The preview prices the EFFECTIVE candidate: with storage
+  # locked the payload omits the dimension and the action keeps the
+  # row's value, so the rungs price with the row's storage substituted
+  # — pricing the displayed rung would promise figures the resize
+  # never charges (worst on 0 GB rows: a stopped fee that can't exist).
+  defp preview_for(instance, rungs, storage_locked) do
+    rungs =
+      if storage_locked,
+        do: Map.put(rungs, "storage_gb", Integer.to_string(instance.storage_gb)),
+        else: rungs
+
+    case typed_allocation(rungs, false) do
+      {:ok, allocation} ->
+        case FluxVale.Infrastructure.resize_preview(instance, allocation) do
+          {:ok, preview} -> preview
+          {:error, _unavailable} -> :unavailable
+        end
+
+      # F1's guards seed every rung on the real paths — the arm answers
+      # a crafted future state, as a hidden line with Continue off.
+      # coveralls-ignore-start
+      {:error, _unseeded} ->
+        :unavailable
+        # coveralls-ignore-stop
+    end
+  end
+
+  # The line's and the confirm's figures in one place. nil hides the
+  # price line (no preview, or nothing priceable at all). An unpriced
+  # ROW with a priced CANDIDATE is the repair path: no From figure
+  # exists, so the line reads "To $Y/mo" and Continue stays on — the
+  # no-op check is against the row, not the rate.
+  defp panel_figures(nil, preview) when is_map(preview) do
+    %{
+      old: nil,
+      new: format_rate(preview.running_cents),
+      stopped: format_rate(preview.stopped_cents)
+    }
+  end
+
+  defp panel_figures(nil, _preview), do: nil
+  defp panel_figures(_rates, nil), do: nil
+  defp panel_figures(_rates, :unavailable), do: nil
+
+  defp panel_figures(rates, preview) do
+    %{
+      old: format_rate(rates.running),
+      new: format_rate(preview.running_cents),
+      stopped: format_rate(preview.stopped_cents)
+    }
+  end
+
+  # The monthly figure: "$X/mo".
+  defp format_rate(cents), do: FluxVale.Pricing.format_usd(cents) <> "/mo"
+
+  # The action's plain refusals are the copy — joined when Ash refuses
+  # with several. The status guard's message leaks the raw state atom
+  # (InstanceStatus's moduledoc forbids raw state copy here) — mapped
+  # to the page's impossible-action copy. The rest (shrink figures,
+  # capability, expansion-check) are already plain.
+  defp resize_refusal(error) do
+    messages = Enum.map(error.errors, &refusal_message/1)
+    Enum.join(messages, " ")
+  end
+
+  defp refusal_message(%{message: "cannot resize instance in " <> _state}) do
+    "That action isn't possible from this state."
+  end
+
+  defp refusal_message(%{message: message}) when is_binary(message), do: message
+
+  defp refusal_message(_no_plain_message), do: "Resize isn't possible right now."
 
   # #261 (ADR-0036 Am. 2): enabling always-on is the charge-raising
   # direction — the confirm states the consequence in the row's own
@@ -1278,11 +2066,10 @@ defmodule FluxValeWeb.InstanceLive.Show do
         "(billed hourly) around the clock. Please confirm again."
 
   # Action results and broadcast records carry no loaded relationships;
-  # the page renders app name + version off the version's app, and the
-  # ADR-0028 price off the version's recommended size.
+  # the page renders app name + version off the version's app (the
+  # Details price row reads the row's own settlement rates — #493 — so
+  # the version's recommended_size is no longer loaded).
   defp reload(instance, socket) do
-    Ash.load!(instance, [app_version: [:app, :recommended_size]],
-      actor: socket.assigns.current_user
-    )
+    Ash.load!(instance, [app_version: [:app]], actor: socket.assigns.current_user)
   end
 end

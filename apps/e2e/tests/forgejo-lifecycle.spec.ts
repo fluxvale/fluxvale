@@ -88,14 +88,13 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   await waitForLiveViewJoin(page);
   await waitForStatus(page, "Running", 12 * 60_000);
 
-  // The instance page shows the version's recommended-size rate
-  // (small, $3.35 at B′) — pre-#206 shape: this custom-allocation
-  // instance actually bills its $3.91 snapshot (#186); repricing that
-  // surface is flagged as a follow-up in the closing PR's body, not
-  // #206's scope. Framing is the same
+  // The instance page shows the row's OWN settlement rate (#493 closed
+  // the #206-era gap): this custom-allocation instance bills its $3.91
+  // formula snapshot (#186), and the Details row now says so — the
+  // same resolver the accrual prices through. Framing is the same
   // monthly-equivalent/billed-hourly as every surface.
   await expect(page.getByTestId("instance-price")).toContainText(
-    "$3.35/mo · billed hourly",
+    "$3.91/mo · billed hourly",
   );
 
   // The instance URL opens through Traefik (self-signed — ignored at
