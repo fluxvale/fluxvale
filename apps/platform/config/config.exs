@@ -31,6 +31,10 @@ config :spark,
   ]
 
 config :ash, known_types: [AshPostgres.Timestamptz, AshPostgres.TimestamptzUsec]
+# Required by ash 3.33.0 (CVE-2026-82752, GHSA-cwjv-574p-59f6): count string
+# length in codepoints, matching the SQL data layer, so max_length bounds
+# stored size (graphemes let combining-mark strings pass unbounded).
+config :ash, default_string_length_count: :codepoints
 
 config :flux_vale,
   ecto_repos: [FluxVale.Repo],

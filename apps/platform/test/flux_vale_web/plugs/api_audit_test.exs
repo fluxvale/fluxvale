@@ -260,6 +260,31 @@ defmodule FluxValeWeb.Plugs.ApiAuditTest do
       assert String.length(row.path) == 2048
       assert row.status_code == 418
     end
+
+    # The cap validates codepoints, so the cut must be codepoint-true
+    # too (the instance_k8s truncate posture): a grapheme slice would
+    # hand the write more than the cap and the row would drop silently
+    # (RecordAuditEvent swallows validation).
+    test "a giant multi-codepoint path is capped in codepoints, and the row survives", %{pat: pat} do
+      # "a" plus combining diaeresis: two codepoints, one grapheme.
+      graphemes = String.duplicate("a\u0308", 3000)
+
+      conn =
+        "GET"
+        |> Plug.Test.conn("/api/v1/" <> graphemes)
+        |> Plug.Conn.assign(:api_pat, pat)
+        |> ApiAudit.call([])
+        |> Plug.Conn.send_resp(418, "")
+
+      assert conn.state == :sent
+
+      assert [%{kind: :mint}, %{kind: :request} = row] = audit_rows(pat.id)
+      # String.length counts graphemes (1028 here: 8 ASCII + 1020
+      # two-codepoint pairs) - the cap and the cut are codepoint-true,
+      # so the assertion counts that unit.
+      assert length(String.codepoints(row.path)) == 2048
+      assert row.status_code == 418
+    end
   end
 
   defp audit_rows(token_id) do

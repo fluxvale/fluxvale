@@ -56,9 +56,10 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
   @spec update_status(Instance.t(), atom(), String.t() | nil, atom() | nil) ::
           {:ok, Instance.t()} | {:error, term()}
   def update_status(instance, status, status_message, failure_reason \\ nil) do
-    # Messages are capped at the resource's 500-char validation — K8s
-    # condition strings routinely exceed it, and an over-long message
-    # would fail the write itself (a worse outcome than a truncated one).
+    # The resource validates status_message at 500 codepoints (ash counts
+    # codepoints since the :codepoints default) and K8s condition strings
+    # routinely exceed it. Truncate in codepoints so the cut counts the
+    # same unit the validation counts and the write never fails.
     params = %{
       status: status,
       status_message: truncate(status_message, 500),
@@ -212,7 +213,10 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
   defp truncate(nil, _limit), do: nil
 
   defp truncate(message, limit) when is_binary(message) do
-    String.slice(message, 0, limit)
+    message
+    |> String.codepoints()
+    |> Enum.take(limit)
+    |> Enum.join()
   end
 
   # --- the workload spec builders (two writers, one source) ----------

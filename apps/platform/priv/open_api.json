@@ -192,15 +192,6 @@
           "not_eq": {
             "type": "string"
           },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "string"
-          },
           "string_ends_with": {
             "type": "string"
           },
@@ -252,17 +243,6 @@
             "type": "string"
           },
           "not_eq": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "format": "uuid",
             "type": "string"
           }
@@ -340,23 +320,6 @@
               "custom"
             ],
             "type": "string"
-          },
-          "range_adjacent": {
-            "enum": [
-              "platform",
-              "custom"
-            ],
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "enum": [
-              "platform",
-              "custom"
-            ],
-            "type": "string"
           }
         },
         "type": "object"
@@ -403,17 +366,6 @@
             "type": "string"
           },
           "not_eq": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "format": "uuid",
             "type": "string"
           }
@@ -510,29 +462,6 @@
             "type": "string"
           },
           "not_eq": {
-            "enum": [
-              "pending",
-              "verified",
-              "suspended",
-              "failed",
-              "needs_attention"
-            ],
-            "type": "string"
-          },
-          "range_adjacent": {
-            "enum": [
-              "pending",
-              "verified",
-              "suspended",
-              "failed",
-              "needs_attention"
-            ],
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "enum": [
               "pending",
               "verified",
@@ -818,15 +747,6 @@
           "not_eq": {
             "type": "string"
           },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "string"
-          },
           "string_ends_with": {
             "type": "string"
           },
@@ -880,17 +800,6 @@
           "not_eq": {
             "format": "uuid",
             "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "format": "uuid",
-            "type": "string"
           }
         },
         "type": "object"
@@ -929,15 +838,6 @@
             "type": "integer"
           },
           "not_eq": {
-            "type": "integer"
-          },
-          "range_adjacent": {
-            "type": "integer"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "integer"
           }
         },
@@ -985,17 +885,6 @@
             "type": "string"
           },
           "not_eq": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "format": "uuid",
             "type": "string"
           }
@@ -1064,21 +953,6 @@
               "tailscale"
             ],
             "type": "string"
-          },
-          "range_adjacent": {
-            "enum": [
-              "tailscale"
-            ],
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "enum": [
-              "tailscale"
-            ],
-            "type": "string"
           }
         },
         "type": "object"
@@ -1100,12 +974,7 @@
           "is_not_distinct_from": {},
           "less_than": {},
           "less_than_or_equal": {},
-          "not_eq": {},
-          "range_adjacent": {},
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {}
+          "not_eq": {}
         },
         "type": "object"
       },
@@ -1207,29 +1076,6 @@
               "destroying"
             ],
             "type": "string"
-          },
-          "range_adjacent": {
-            "enum": [
-              "provisioning",
-              "active",
-              "needs_attention",
-              "suspended",
-              "destroying"
-            ],
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "enum": [
-              "provisioning",
-              "active",
-              "needs_attention",
-              "suspended",
-              "destroying"
-            ],
-            "type": "string"
           }
         },
         "type": "object"
@@ -1277,15 +1123,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -1340,15 +1177,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -1606,17 +1434,6 @@
           "not_eq": {
             "format": "uuid",
             "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "format": "uuid",
-            "type": "string"
           }
         },
         "type": "object"
@@ -1664,15 +1481,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -1729,15 +1537,6 @@
           "not_eq": {
             "type": "string"
           },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "string"
-          },
           "string_ends_with": {
             "type": "string"
           },
@@ -1781,15 +1580,6 @@
             "type": "boolean"
           },
           "not_eq": {
-            "type": "boolean"
-          },
-          "range_adjacent": {
-            "type": "boolean"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "boolean"
           }
         },
@@ -1838,15 +1628,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -1902,17 +1683,6 @@
           "not_eq": {
             "format": "uuid",
             "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "format": "uuid",
-            "type": "string"
           }
         },
         "type": "object"
@@ -1960,15 +1730,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -2025,15 +1786,6 @@
           "not_eq": {
             "type": "string"
           },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "string"
-          },
           "string_ends_with": {
             "type": "string"
           },
@@ -2088,15 +1840,6 @@
           "not_eq": {
             "type": "string"
           },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "string"
-          },
           "string_ends_with": {
             "type": "string"
           },
@@ -2149,15 +1892,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -2491,17 +2225,6 @@
           "not_eq": {
             "format": "uuid",
             "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "format": "uuid",
-            "type": "string"
           }
         },
         "type": "object"
@@ -2523,12 +2246,7 @@
           "is_not_distinct_from": {},
           "less_than": {},
           "less_than_or_equal": {},
-          "not_eq": {},
-          "range_adjacent": {},
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {}
+          "not_eq": {}
         },
         "type": "object"
       },
@@ -2566,15 +2284,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           }
         },
@@ -2615,15 +2324,6 @@
           },
           "not_eq": {
             "type": "object"
-          },
-          "range_adjacent": {
-            "type": "object"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "object"
           }
         },
         "type": "object"
@@ -2662,15 +2362,6 @@
             "type": "integer"
           },
           "not_eq": {
-            "type": "integer"
-          },
-          "range_adjacent": {
-            "type": "integer"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "integer"
           }
         },
@@ -2711,15 +2402,6 @@
           },
           "not_eq": {
             "type": "integer"
-          },
-          "range_adjacent": {
-            "type": "integer"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "integer"
           }
         },
         "type": "object"
@@ -2741,12 +2423,7 @@
           "is_not_distinct_from": {},
           "less_than": {},
           "less_than_or_equal": {},
-          "not_eq": {},
-          "range_adjacent": {},
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {}
+          "not_eq": {}
         },
         "type": "object"
       },
@@ -2793,15 +2470,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -2858,15 +2526,6 @@
           "not_eq": {
             "type": "string"
           },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "string"
-          },
           "string_ends_with": {
             "type": "string"
           },
@@ -2920,17 +2579,6 @@
           "not_eq": {
             "format": "uuid",
             "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "format": "uuid",
-            "type": "string"
           }
         },
         "type": "object"
@@ -2978,15 +2626,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -3043,15 +2682,6 @@
           "not_eq": {
             "type": "string"
           },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "string"
-          },
           "string_ends_with": {
             "type": "string"
           },
@@ -3106,15 +2736,6 @@
           "not_eq": {
             "type": "string"
           },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "string"
-          },
           "string_ends_with": {
             "type": "string"
           },
@@ -3159,15 +2780,6 @@
           },
           "not_eq": {
             "type": "integer"
-          },
-          "range_adjacent": {
-            "type": "integer"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "integer"
           }
         },
         "type": "object"
@@ -3189,12 +2801,7 @@
           "is_not_distinct_from": {},
           "less_than": {},
           "less_than_or_equal": {},
-          "not_eq": {},
-          "range_adjacent": {},
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {}
+          "not_eq": {}
         },
         "type": "object"
       },
@@ -3240,17 +2847,6 @@
             "type": "string"
           },
           "not_eq": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "format": "uuid",
             "type": "string"
           }
@@ -3300,15 +2896,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -3365,15 +2952,6 @@
           "not_eq": {
             "type": "string"
           },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "string"
-          },
           "string_ends_with": {
             "type": "string"
           },
@@ -3426,15 +3004,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -3734,15 +3303,6 @@
           },
           "not_eq": {
             "type": "integer"
-          },
-          "range_adjacent": {
-            "type": "integer"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "integer"
           }
         },
         "type": "object"
@@ -3782,15 +3342,6 @@
           },
           "not_eq": {
             "type": "integer"
-          },
-          "range_adjacent": {
-            "type": "integer"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "integer"
           }
         },
         "type": "object"
@@ -3829,15 +3380,6 @@
             "type": "integer"
           },
           "not_eq": {
-            "type": "integer"
-          },
-          "range_adjacent": {
-            "type": "integer"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "integer"
           }
         },
@@ -3886,15 +3428,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -3950,17 +3483,6 @@
           "not_eq": {
             "format": "date-time",
             "type": "string"
-          },
-          "range_adjacent": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "format": "date-time",
-            "type": "string"
           }
         },
         "type": "object"
@@ -4009,17 +3531,6 @@
           "not_eq": {
             "format": "uuid",
             "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "format": "uuid",
-            "type": "string"
           }
         },
         "type": "object"
@@ -4066,17 +3577,6 @@
             "type": "string"
           },
           "not_eq": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "format": "uuid",
             "type": "string"
           }
@@ -4157,25 +3657,6 @@
             "type": "string"
           },
           "not_eq": {
-            "enum": [
-              "scheduled",
-              "manual",
-              "restore"
-            ],
-            "type": "string"
-          },
-          "range_adjacent": {
-            "enum": [
-              "scheduled",
-              "manual",
-              "restore"
-            ],
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "enum": [
               "scheduled",
               "manual",
@@ -4329,39 +3810,6 @@
               "lost"
             ],
             "type": "string"
-          },
-          "range_adjacent": {
-            "enum": [
-              "pending",
-              "deploying",
-              "starting",
-              "running",
-              "sleeping",
-              "restoring",
-              "stopped",
-              "error",
-              "deleting",
-              "lost"
-            ],
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "enum": [
-              "pending",
-              "deploying",
-              "starting",
-              "running",
-              "sleeping",
-              "restoring",
-              "stopped",
-              "error",
-              "deleting",
-              "lost"
-            ],
-            "type": "string"
           }
         },
         "type": "object"
@@ -4409,15 +3857,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -4471,17 +3910,6 @@
             "type": "string"
           },
           "not_eq": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "range_adjacent": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "format": "date-time",
             "type": "string"
           }
@@ -4570,27 +3998,6 @@
             "type": "string"
           },
           "not_eq": {
-            "enum": [
-              "pending",
-              "running",
-              "succeeded",
-              "failed"
-            ],
-            "type": "string"
-          },
-          "range_adjacent": {
-            "enum": [
-              "pending",
-              "running",
-              "succeeded",
-              "failed"
-            ],
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "enum": [
               "pending",
               "running",
@@ -4951,15 +4358,6 @@
           "not_eq": {
             "type": "string"
           },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "string"
-          },
           "string_ends_with": {
             "type": "string"
           },
@@ -5014,15 +4412,6 @@
           "not_eq": {
             "type": "string"
           },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "string"
-          },
           "string_ends_with": {
             "type": "string"
           },
@@ -5066,15 +4455,6 @@
             "type": "boolean"
           },
           "not_eq": {
-            "type": "boolean"
-          },
-          "range_adjacent": {
-            "type": "boolean"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "boolean"
           }
         },
@@ -5123,15 +4503,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -5187,17 +4558,6 @@
           "not_eq": {
             "format": "uuid",
             "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "format": "uuid",
-            "type": "string"
           }
         },
         "type": "object"
@@ -5244,17 +4604,6 @@
             "type": "string"
           },
           "not_eq": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "format": "uuid",
             "type": "string"
           }
@@ -5306,15 +4655,6 @@
           "not_eq": {
             "type": "string"
           },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "string"
-          },
           "string_ends_with": {
             "type": "string"
           },
@@ -5358,15 +4698,6 @@
             "type": "integer"
           },
           "not_eq": {
-            "type": "integer"
-          },
-          "range_adjacent": {
-            "type": "integer"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "integer"
           }
         },
@@ -5805,15 +5136,6 @@
           },
           "not_eq": {
             "type": "boolean"
-          },
-          "range_adjacent": {
-            "type": "boolean"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "boolean"
           }
         },
         "type": "object"
@@ -5860,17 +5182,6 @@
             "type": "string"
           },
           "not_eq": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "format": "uuid",
             "type": "string"
           }
@@ -5921,17 +5232,6 @@
           "not_eq": {
             "format": "uuid",
             "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "format": "uuid",
-            "type": "string"
           }
         },
         "type": "object"
@@ -5971,15 +5271,6 @@
           },
           "not_eq": {
             "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "string"
           }
         },
         "type": "object"
@@ -6001,12 +5292,7 @@
           "is_not_distinct_from": {},
           "less_than": {},
           "less_than_or_equal": {},
-          "not_eq": {},
-          "range_adjacent": {},
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {}
+          "not_eq": {}
         },
         "type": "object"
       },
@@ -6081,23 +5367,6 @@
               "private"
             ],
             "type": "string"
-          },
-          "range_adjacent": {
-            "enum": [
-              "public",
-              "private"
-            ],
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "enum": [
-              "public",
-              "private"
-            ],
-            "type": "string"
           }
         },
         "type": "object"
@@ -6136,15 +5405,6 @@
             "type": "boolean"
           },
           "not_eq": {
-            "type": "boolean"
-          },
-          "range_adjacent": {
-            "type": "boolean"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "boolean"
           }
         },
@@ -6193,15 +5453,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -6257,17 +5508,6 @@
           "not_eq": {
             "format": "uuid",
             "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "format": "uuid",
-            "type": "string"
           }
         },
         "type": "object"
@@ -6317,15 +5557,6 @@
           "not_eq": {
             "type": "string"
           },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "string"
-          },
           "string_ends_with": {
             "type": "string"
           },
@@ -6369,15 +5600,6 @@
             "type": "integer"
           },
           "not_eq": {
-            "type": "integer"
-          },
-          "range_adjacent": {
-            "type": "integer"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "integer"
           }
         },
@@ -6426,15 +5648,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -6491,15 +5704,6 @@
           "not_eq": {
             "type": "string"
           },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "string"
-          },
           "string_ends_with": {
             "type": "string"
           },
@@ -6553,17 +5757,6 @@
           "not_eq": {
             "format": "uuid",
             "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "format": "uuid",
-            "type": "string"
           }
         },
         "type": "object"
@@ -6602,15 +5795,6 @@
             "type": "integer"
           },
           "not_eq": {
-            "type": "integer"
-          },
-          "range_adjacent": {
-            "type": "integer"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "integer"
           }
         },
@@ -6659,15 +5843,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -6822,39 +5997,6 @@
               "lost"
             ],
             "type": "string"
-          },
-          "range_adjacent": {
-            "enum": [
-              "pending",
-              "deploying",
-              "starting",
-              "running",
-              "sleeping",
-              "restoring",
-              "stopped",
-              "error",
-              "deleting",
-              "lost"
-            ],
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "enum": [
-              "pending",
-              "deploying",
-              "starting",
-              "running",
-              "sleeping",
-              "restoring",
-              "stopped",
-              "error",
-              "deleting",
-              "lost"
-            ],
-            "type": "string"
           }
         },
         "type": "object"
@@ -6893,15 +6035,6 @@
             "type": "integer"
           },
           "not_eq": {
-            "type": "integer"
-          },
-          "range_adjacent": {
-            "type": "integer"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "integer"
           }
         },
@@ -6950,15 +6083,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -7449,15 +6573,6 @@
           },
           "not_eq": {
             "type": "integer"
-          },
-          "range_adjacent": {
-            "type": "integer"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "integer"
           }
         },
         "type": "object"
@@ -7496,15 +6611,6 @@
             "type": "integer"
           },
           "not_eq": {
-            "type": "integer"
-          },
-          "range_adjacent": {
-            "type": "integer"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "integer"
           }
         },
@@ -7553,15 +6659,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -7618,15 +6715,6 @@
           "not_eq": {
             "type": "string"
           },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "string"
-          },
           "string_ends_with": {
             "type": "string"
           },
@@ -7680,17 +6768,6 @@
           "not_eq": {
             "format": "uuid",
             "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "format": "uuid",
-            "type": "string"
           }
         },
         "type": "object"
@@ -7738,15 +6815,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -7856,29 +6924,6 @@
               "adjustment"
             ],
             "type": "string"
-          },
-          "range_adjacent": {
-            "enum": [
-              "welcome",
-              "purchase",
-              "usage",
-              "refund",
-              "adjustment"
-            ],
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "enum": [
-              "welcome",
-              "purchase",
-              "usage",
-              "refund",
-              "adjustment"
-            ],
-            "type": "string"
           }
         },
         "type": "object"
@@ -7917,15 +6962,6 @@
             "type": "boolean"
           },
           "not_eq": {
-            "type": "boolean"
-          },
-          "range_adjacent": {
-            "type": "boolean"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "boolean"
           }
         },
@@ -7973,17 +7009,6 @@
             "type": "string"
           },
           "not_eq": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "format": "uuid",
             "type": "string"
           }
@@ -8035,15 +7060,6 @@
           "not_eq": {
             "type": "string"
           },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "string"
-          },
           "string_ends_with": {
             "type": "string"
           },
@@ -8087,15 +7103,6 @@
             "type": "integer"
           },
           "not_eq": {
-            "type": "integer"
-          },
-          "range_adjacent": {
-            "type": "integer"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "integer"
           }
         },
@@ -8172,23 +7179,6 @@
               "debit"
             ],
             "type": "string"
-          },
-          "range_adjacent": {
-            "enum": [
-              "credit",
-              "debit"
-            ],
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "enum": [
-              "credit",
-              "debit"
-            ],
-            "type": "string"
           }
         },
         "type": "object"
@@ -8235,17 +7225,6 @@
             "type": "string"
           },
           "not_eq": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "format": "uuid",
             "type": "string"
           }
@@ -8416,17 +7395,6 @@
           "not_eq": {
             "format": "uuid",
             "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "format": "uuid",
-            "type": "string"
           }
         },
         "type": "object"
@@ -8474,15 +7442,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -8537,15 +7496,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -8703,15 +7653,6 @@
           "not_eq": {
             "type": "string"
           },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "string"
-          },
           "string_ends_with": {
             "type": "string"
           },
@@ -8763,17 +7704,6 @@
             "type": "string"
           },
           "not_eq": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "format": "uuid",
             "type": "string"
           }
@@ -8851,23 +7781,6 @@
               "admin"
             ],
             "type": "string"
-          },
-          "range_adjacent": {
-            "enum": [
-              "user",
-              "admin"
-            ],
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "enum": [
-              "user",
-              "admin"
-            ],
-            "type": "string"
           }
         },
         "type": "object"
@@ -8915,15 +7828,6 @@
             "type": "string"
           },
           "not_eq": {
-            "type": "string"
-          },
-          "range_adjacent": {
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "string"
           },
           "string_ends_with": {
@@ -9124,15 +8028,6 @@
           },
           "not_eq": {
             "type": "integer"
-          },
-          "range_adjacent": {
-            "type": "integer"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "type": "integer"
           }
         },
         "type": "object"
@@ -9179,17 +8074,6 @@
             "type": "string"
           },
           "not_eq": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "format": "uuid",
             "type": "string"
           }
@@ -9240,17 +8124,6 @@
           "not_eq": {
             "format": "uuid",
             "type": "string"
-          },
-          "range_adjacent": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
-            "format": "uuid",
-            "type": "string"
           }
         },
         "type": "object"
@@ -9289,15 +8162,6 @@
             "type": "boolean"
           },
           "not_eq": {
-            "type": "boolean"
-          },
-          "range_adjacent": {
-            "type": "boolean"
-          },
-          "range_contains": {
-            "type": "string"
-          },
-          "range_overlaps": {
             "type": "boolean"
           }
         },

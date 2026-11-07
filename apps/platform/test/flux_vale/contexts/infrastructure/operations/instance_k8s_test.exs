@@ -4,6 +4,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8sTest do
   use FluxVale.DataCase, async: false
   use Mimic
 
+  alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Operations.InstanceK8s
@@ -93,6 +94,35 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8sTest do
       assert_raise ArgumentError, ~r/:access_gateway/, fn ->
         InstanceK8s.gateway_access_namespace()
       end
+    end
+  end
+
+  describe "update_status/4 truncation" do
+    test "a multi-codepoint-grapheme message past the 500-codepoint cap truncates and still writes" do
+      # The never-fails-the-write invariant (hostile review, fix round):
+      # status_message validates at 500 codepoints, and every grapheme
+      # here is TWO codepoints. 300 graphemes carry 600 codepoints, so a
+      # grapheme-based cut would leave the whole string intact and fail
+      # the write. The codepoint cut lands inside the cap instead.
+      InstanceFixtures.local_cluster!()
+
+      version = InstanceFixtures.app_version!()
+
+      user =
+        User.create!("k8s-truncate-#{System.unique_integer()}@fluxvale.com", %{},
+          authorize?: false
+        )
+
+      instance = InstanceFixtures.instance!(version, user)
+      message = String.duplicate("a" <> "\u0301", 300)
+
+      assert String.length(message) == 300
+      assert length(String.codepoints(message)) == 600
+
+      assert {:ok, updated} = InstanceK8s.update_status(instance, :deploying, message)
+
+      assert length(String.codepoints(updated.status_message)) == 500
+      assert String.length(updated.status_message) == 250
     end
   end
 end

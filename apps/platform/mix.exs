@@ -108,7 +108,10 @@ defmodule FluxVale.MixProject do
       # isn't loaded. Revisit trigger: policy-SAT cost shows up in profiles —
       # then Picosat on a glibc base, deliberately.
       {:simple_sat, "0.1.4"},
-      {:ash_authentication, "4.14.2"},
+      # ash was lock-only transitive; promoted to a direct pin so the
+      # security-bump version is exact (the decimal/yaml_elixir precedent).
+      {:ash, "3.37.3"},
+      {:ash_authentication, "4.15.1"},
       # security floor: joken's requirement (assent's is optional)
       {:jose, "1.11.13"},
       # security floor: opentelemetry_exporter and prom_ex trees (assent's is optional)
@@ -123,7 +126,7 @@ defmodule FluxVale.MixProject do
       {:open_api_spex, "3.22.4"},
       {:ash_json_api, "1.7.1"},
       {:ash_admin, "1.3.1"},
-      {:ash_postgres, "2.13.0"},
+      {:ash_postgres, "2.15.2"},
       {:ash_phoenix, "2.3.25"},
       {:igniter, "0.8.5", only: [:dev, :test]},
       {:phoenix, "1.8.13"},

@@ -37,6 +37,9 @@ defmodule FluxVale.Identity.User do
 
   authentication do
     add_ons do
+      # Dormant: log_out_everywhere fires only on password-strategy
+      # changes and this app is passwordless. Revisit the day a password
+      # strategy lands.
       log_out_everywhere do
         apply_on_password_change?(true)
       end

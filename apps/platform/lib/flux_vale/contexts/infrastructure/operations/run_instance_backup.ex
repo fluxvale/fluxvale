@@ -193,9 +193,10 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackup do
   # The row already exists, so a failed apply must not leave it `:pending`
   # for the stale horizon to find two hours later: the owner gets the
   # failure straight away, and the run slot is free for the retry. The
-  # summary is truncated BEFORE the write (the attribute caps at 500 —
-  # an over-long admission/quota message must fail the run, not the
-  # write), and a failed finalize write is logged, never raised: a
+  # summary is truncated BEFORE the write (the attribute caps at 500
+  # codepoints, truncation counts the same unit, and an over-long
+  # admission/quota message must fail the run, not the write), and a
+  # failed finalize write is logged, never raised: a
   # MatchError here would escape the operation and crash the caller
   # (review finding).
   defp fail_now(run, {:error, error}) do
@@ -227,9 +228,13 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackup do
   end
 
   # The sweep's own truncate stance: a long reason never fails the write
-  # itself.
+  # itself. The cut counts codepoints, the unit error_summary's 500 cap
+  # counts (ash counts codepoints since the :codepoints default).
   defp truncate(text) do
-    String.slice(text, 0, 500)
+    text
+    |> String.codepoints()
+    |> Enum.take(500)
+    |> Enum.join()
   end
 
   # Jobs are immutable, so the previous run's object must go first.
