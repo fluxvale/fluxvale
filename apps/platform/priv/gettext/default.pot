@@ -12,6 +12,7 @@ msgid ""
 msgstr ""
 
 #: lib/flux_vale_web/components/core_components.ex:718
+#: lib/flux_vale_web/live/admin_live/people.ex:490
 #, elixir-autogen, elixir-format
 msgid "Actions"
 msgstr ""
@@ -732,7 +733,7 @@ msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/catalog.ex:47
 #: lib/flux_vale_web/live/admin_live/home.ex:77
-#: lib/flux_vale_web/live/admin_live/people.ex:280
+#: lib/flux_vale_web/live/admin_live/people.ex:372
 #: lib/flux_vale_web/live/admin_live/size_edit.ex:257
 #: lib/flux_vale_web/live/admin_live/sizes.ex:63
 #: lib/flux_vale_web/live/admin_live/version_edit.ex:388
@@ -746,7 +747,7 @@ msgid "Orgs and instances"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/home.ex:28
-#: lib/flux_vale_web/live/admin_live/people.ex:281
+#: lib/flux_vale_web/live/admin_live/people.ex:373
 #, elixir-autogen, elixir-format
 msgid "People and invites"
 msgstr ""
@@ -786,7 +787,7 @@ msgstr ""
 msgid "Wallets and billing"
 msgstr ""
 
-#: lib/flux_vale_web/components/core_components.ex:1104
+#: lib/flux_vale_web/components/core_components.ex:1107
 #, elixir-autogen, elixir-format
 msgid "Cancel"
 msgstr ""
@@ -1217,176 +1218,207 @@ msgstr ""
 msgid "from %{rate} plus storage"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:254
-#: lib/flux_vale_web/live/admin_live/people.ex:389
+#: lib/flux_vale_web/live/admin_live/people.ex:341
+#: lib/flux_vale_web/live/admin_live/people.ex:488
 #, elixir-autogen, elixir-format
 msgid "Accepted"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:313
-#: lib/flux_vale_web/live/admin_live/people.ex:338
-#: lib/flux_vale_web/live/admin_live/people.ex:367
+#: lib/flux_vale_web/live/admin_live/people.ex:414
+#: lib/flux_vale_web/live/admin_live/people.ex:445
+#: lib/flux_vale_web/live/admin_live/people.ex:484
 #, elixir-autogen, elixir-format
 msgid "Email"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:256
+#: lib/flux_vale_web/live/admin_live/people.ex:342
 #, elixir-autogen, elixir-format
 msgid "Expired"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:384
+#: lib/flux_vale_web/live/admin_live/people.ex:487
 #, elixir-autogen, elixir-format
 msgid "Expires"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:324
+#: lib/flux_vale_web/live/admin_live/people.ex:429
 #, elixir-autogen, elixir-format
 msgid "Find an invitation"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:283
+#: lib/flux_vale_web/live/admin_live/people.ex:375
 #, elixir-autogen, elixir-format
 msgid "Invitations and the accounts they made. A support surface, not a user directory. Accounts with no invitation story are not this page's business."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:73
-#, elixir-autogen, elixir-format
-msgid "Invite sent. A one-time accept link is in their inbox. The account stays inert until they accept."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:297
+#: lib/flux_vale_web/live/admin_live/people.ex:398
 #, elixir-autogen, elixir-format
 msgid "Invite someone"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:195
+#: lib/flux_vale_web/live/admin_live/people.ex:240
 #, elixir-autogen, elixir-format
 msgid "Invite withdrawn. Their accept link no longer works. The account stays inert until someone invites them again."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:379
+#: lib/flux_vale_web/live/admin_live/people.ex:486
 #, elixir-autogen, elixir-format
 msgid "Invited"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:351
+#: lib/flux_vale_web/live/admin_live/people.ex:465
 #, elixir-autogen, elixir-format
 msgid "Invites you send, and the accounts they made, show up here. Accounts without an invitation story are not this page's business."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:358
+#: lib/flux_vale_web/live/admin_live/people.ex:472
 #, elixir-autogen, elixir-format
 msgid "No invitation matches that email."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:350
+#: lib/flux_vale_web/live/admin_live/people.ex:464
 #, elixir-autogen, elixir-format
 msgid "No invitations yet."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:299
+#: lib/flux_vale_web/live/admin_live/people.ex:400
 #, elixir-autogen, elixir-format
 msgid "One email goes out with a one-time accept link. The account stays inert until the link is used."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:253
+#: lib/flux_vale_web/live/admin_live/people.ex:340
 #, elixir-autogen, elixir-format
 msgid "Pending"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:409
+#: lib/flux_vale_web/live/admin_live/people.ex:570
 #, elixir-autogen, elixir-format
 msgid "Reinvite"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:128
-#, elixir-autogen, elixir-format
-msgid "Reinvite sent. A fresh one-time accept link went out. Any earlier link no longer works."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:339
-#, elixir-autogen, elixir-format
-msgid "Search by email"
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:326
-#, elixir-autogen, elixir-format
-msgid "Search narrows this list by email. It never reaches past it."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:317
+#: lib/flux_vale_web/live/admin_live/people.ex:422
 #, elixir-autogen, elixir-format
 msgid "Send invite"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:372
+#: lib/flux_vale_web/live/admin_live/people.ex:485
 #, elixir-autogen, elixir-format
 msgid "State"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:142
+#: lib/flux_vale_web/live/admin_live/people.ex:158
 #, elixir-autogen, elixir-format
 msgid "That account is already active. No link was sent."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:94
+#: lib/flux_vale_web/live/admin_live/people.ex:109
 #, elixir-autogen, elixir-format
 msgid "That address already has an active account. Nothing was sent."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:135
+#: lib/flux_vale_web/live/admin_live/people.ex:151
 #, elixir-autogen, elixir-format
 msgid "That does not look like an email address."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:85
+#: lib/flux_vale_web/live/admin_live/people.ex:100
 #, elixir-autogen, elixir-format
 msgid "That does not look like an email address. Nothing was sent."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:208
+#: lib/flux_vale_web/live/admin_live/people.ex:252
 #, elixir-autogen, elixir-format
 msgid "That invitation changed before the withdraw landed. The list is refreshed."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:182
+#: lib/flux_vale_web/live/admin_live/people.ex:206
 #, elixir-autogen, elixir-format
 msgid "That invitation changed. The list is refreshed."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:108
-#, elixir-autogen, elixir-format
-msgid "The invite was refused. Your admin access may have changed."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/people.ex:152
-#, elixir-autogen, elixir-format
-msgid "The reinvite was refused. Your admin access may have changed."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/withdraw_invite_confirm.ex:55
+#: lib/flux_vale_web/live/admin_live/people.ex:600
 #, elixir-autogen, elixir-format
 msgid "Their accept link stops working. The account remains inert until someone invites them again."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:419
+#: lib/flux_vale_web/live/admin_live/people.ex:581
 #, elixir-autogen, elixir-format
 msgid "Withdraw"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/withdraw_invite_confirm.ex:53
+#: lib/flux_vale_web/live/admin_live/people.ex:597
 #, elixir-autogen, elixir-format
 msgid "Withdraw the invite for %{email}?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:255
-#: lib/flux_vale_web/live/admin_live/people.ex:394
+#: lib/flux_vale_web/live/admin_live/people.ex:343
+#: lib/flux_vale_web/live/admin_live/people.ex:489
 #, elixir-autogen, elixir-format
 msgid "Withdrawn"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/withdraw_invite_confirm.ex:59
+#: lib/flux_vale_web/live/admin_live/people.ex:604
 #, elixir-autogen, elixir-format
 msgid "Yes, withdraw this invite"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/people.ex:385
+#, elixir-autogen, elixir-format
+msgid "Back to the admin console"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/people.ex:286
+#, elixir-autogen, elixir-format
+msgid "Invite sent. One email is on its way with a one-time accept link. The account stays inert until they accept. If the email does not arrive, use Reinvite to send another."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/people.ex:347
+#, elixir-autogen, elixir-format
+msgid "No invitation"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/people.ex:578
+#, elixir-autogen, elixir-format
+msgid "Opening..."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/people.ex:144
+#, elixir-autogen, elixir-format
+msgid "Reinvite sent. One email is on its way with a fresh one-time accept link. Any earlier link no longer works. If the email does not arrive, send another."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/people.ex:282
+#, elixir-autogen, elixir-format
+msgid "Reinvite sent. One email is on its way with a fresh one-time accept link. Any earlier link no longer works. The account stays inert until they accept. If the email does not arrive, use Reinvite to send another."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/people.ex:446
+#, elixir-autogen, elixir-format
+msgid "Search by invitation address"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/people.ex:431
+#, elixir-autogen, elixir-format
+msgid "Search narrows this list by invitation address. It never reaches past it."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/people.ex:419
+#: lib/flux_vale_web/live/admin_live/people.ex:566
+#, elixir-autogen, elixir-format
+msgid "Sending..."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/people.ex:461
+#, elixir-autogen, elixir-format
+msgid "Showing the latest 100 invitations."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/people.ex:124
+#, elixir-autogen, elixir-format
+msgid "The invite was refused. Sign out and sign back in, then try again."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/people.ex:170
+#, elixir-autogen, elixir-format
+msgid "The reinvite was refused. Sign out and sign back in, then try again."
 msgstr ""

@@ -118,6 +118,11 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
       refute text_of(view, "[data-testid='admin-people-withdrawn-#{withdrawn.id}']") == ""
       assert text_of(view, "[data-testid='admin-people-accepted-#{withdrawn.id}']") == ""
 
+      # Expiry is only meaningful while the link can still be used:
+      # closed rows leave the cell empty.
+      refute has_element?(view, "[data-testid='admin-people-expires-#{accepted.id}']")
+      refute has_element?(view, "[data-testid='admin-people-expires-#{withdrawn.id}']")
+
       # The address column is the invitation's address.
       assert text_of(view, "[data-testid='admin-people-email-#{pending.id}']") ==
                to_string(pending.email)
@@ -151,9 +156,47 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
 
       {:ok, view, _html} = live(conn, "/admin/people")
 
+      # The expired chip carries its own tone AND a non-color cue (the
+      # clock), so it never shares both tone and shape with another
+      # state in either theme.
       assert has_element?(view, "[data-testid='admin-people-state-#{expired.id}']", "Expired")
+      assert has_element?(view, "[data-testid='admin-people-state-#{expired.id}'] .hero-clock")
+
       assert has_element?(view, "[data-testid='admin-people-reinvite-#{expired.id}']")
       refute has_element?(view, "[data-testid='admin-people-withdraw-#{expired.id}']")
+    end
+
+    test "the list caps at the latest 100 and says so", %{conn: conn} do
+      # Precondition volume through the real action (nil actor +
+      # authorize?: false, the seeds posture; the deliver discards).
+      {:ok, oldest_user, _raw} =
+        Identity.invite_user(
+          nil,
+          unique_address("oldest"),
+          fn _to, _url -> {:ok, :discarded} end,
+          authorize?: false
+        )
+
+      invited =
+        for _n <- 1..100 do
+          {:ok, user, _raw} =
+            Identity.invite_user(
+              nil,
+              unique_address(),
+              fn _to, _url -> {:ok, :discarded} end,
+              authorize?: false
+            )
+
+          user
+        end
+
+      newest = List.last(invited)
+
+      {:ok, view, _html} = live(conn, "/admin/people")
+
+      assert has_element?(view, "[data-testid='admin-people-capped']", "latest 100")
+      assert has_element?(view, "[data-testid='admin-people-email-#{newest.id}']")
+      refute has_element?(view, "[data-testid='admin-people-email-#{oldest_user.id}']")
     end
 
     test "a live account with no invitation story never appears", %{conn: conn, admin: admin} do
@@ -208,6 +251,10 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
       assert has_element?(view, "#flash-info", "Invite sent")
       assert has_element?(view, "#flash-info", "stays inert")
 
+      # The delivery copy never promises the inbox: it names the
+      # resend lever (the operation's deliver is best-effort).
+      assert has_element?(view, "#flash-info", "If the email does not arrive")
+
       [invited] = users_with_email(address)
       assert has_element?(view, "[data-testid='admin-people-state-#{invited.id}']", "Pending")
 
@@ -217,6 +264,27 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
       {:ok, mail} = FluxVale.TestInbox.latest_mail(address)
       assert mail.text_body =~ "/invites/accept?token="
       assert mail.text_body =~ "works once"
+    end
+
+    test "an address with an outstanding invitation re-issues, and the copy names the dead link",
+         %{conn: conn, admin: admin} do
+      {pending, old_raw} = pending_invite!(admin)
+      {:ok, view, _html} = live(conn, "/admin/people")
+
+      view
+      |> element("#admin-people-invite-form")
+      |> render_submit(%{"invite" => %{"email" => to_string(pending.email)}})
+
+      # The form is the one invite verb, so this was a re-issue; the
+      # copy branch says so instead of staying silent about the killed
+      # credential.
+      assert has_element?(view, "#flash-info", "Reinvite sent")
+      assert has_element?(view, "#flash-info", "Any earlier link no longer works")
+
+      new_raw = token_from_mail(to_string(pending.email))
+      refute new_raw == old_raw
+      assert {:error, :unknown_token} = Identity.resolve_invite_link(old_raw)
+      assert {:ok, :pending} = Identity.resolve_invite_link(new_raw)
     end
 
     test "an invalid address is refused before anything is written", %{conn: conn, admin: admin} do
@@ -268,6 +336,10 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
       assert has_element?(view, "#flash-info", "Reinvite sent")
       assert has_element?(view, "#flash-info", "Any earlier link no longer works")
 
+      # Delivery is best-effort, so the copy names the resend lever
+      # instead of promising the inbox.
+      assert has_element?(view, "#flash-info", "If the email does not arrive")
+
       # The row stays invited (a fresh window), and a second mail is in
       # the inbox carrying a DIFFERENT one-time link.
       assert has_element?(view, "[data-testid='admin-people-state-#{pending.id}']", "Pending")
@@ -305,6 +377,8 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
       |> render_click()
 
       # The consequence panel: the link dies, the account stays inert.
+      File.write!("/tmp/opencode/fv501_confirm.html", render(view))
+
       assert has_element?(view, "[data-testid='destructive-confirm']")
       assert has_element?(view, "[data-testid='destructive-confirm']", "stops working")
       assert has_element?(view, "[data-testid='destructive-confirm']", "remains inert")
@@ -419,10 +493,16 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
     test "non-admin actors are Forbidden on every write path", %{admin: admin} do
       non_admin = SessionHelpers.user!()
 
+      # The create arm: an unoccupied address rides the :invite create.
       assert {:error, %Ash.Error.Forbidden{}} =
                Identity.invite_user(non_admin, unique_address())
 
       {pending, _raw} = pending_invite!(admin)
+
+      # The reissue arm: the address resolves its occupant, whose
+      # :reinvite update rides the same non-admin actor.
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Identity.invite_user(non_admin, to_string(pending.email))
 
       assert {:error, %Ash.Error.Forbidden{}} = Identity.withdraw_invite(non_admin, pending)
     end

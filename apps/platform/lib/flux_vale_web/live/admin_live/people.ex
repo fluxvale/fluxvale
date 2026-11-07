@@ -2,8 +2,9 @@ defmodule FluxValeWeb.AdminLive.People do
   @moduledoc """
   The admin people surface (#501): the invitation list and the invite
   form. The list is every account with an invitation story (invite_state
-  anything but :none), newest first, with the stamps support acts on —
-  invited at, expires at, accepted at, withdrawn at.
+  anything but :none), newest first, capped at the latest 100,
+  with the stamps support acts on — invited at, expires at, accepted at,
+  withdrawn at.
 
   Deliberately NOT a user directory (the owner ruling on this lane's
   scope): accounts without an invitation story are not this page's
@@ -22,9 +23,15 @@ defmodule FluxValeWeb.AdminLive.People do
 
   alias FluxVale.Identity
   alias FluxVale.Identity.User
-  alias FluxValeWeb.AdminLive.WithdrawInviteConfirm
 
   require Ash.Query
+
+  # The list cap (the moduledoc names it; move the two together): an
+  # unbounded read is an ilike scan plus an unindexed sort waiting to
+  # grow expensive, and the operator scans for what just happened
+  # anyway. Revisit trigger: pagination and an invited_at index once
+  # invitation volume approaches the cap.
+  @list_cap 100
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
@@ -49,13 +56,21 @@ defmodule FluxValeWeb.AdminLive.People do
 
     {:noreply,
      socket
-     |> assign(query: trimmed, search_form: to_form(%{"query" => trimmed}, as: :search))
+     |> assign(
+       query: trimmed,
+       search_form: to_form(%{"query" => trimmed}, as: :search),
+       # The list moves under a reset, so an open confirm closes with it.
+       withdrawing_id: nil,
+       withdrawing_user: nil
+     )
      |> refresh_rows()}
   end
 
   # The page's primary action: the one invite verb. The operation
   # resolves the occupant — an unoccupied address creates the inert
-  # account, an invited one re-issues, a live account refuses.
+  # account, an invited one re-issues, a live account refuses. The copy
+  # branch names the re-issue: an outstanding invitation means this
+  # submit replaced a credential.
   # coveralls-ignore-start - OTP 28 cover never attributes a count to
   # this clause head; the clause demonstrably runs (the invite-form
   # tests drive it and the body's own lines all carry counts)
@@ -64,16 +79,16 @@ defmodule FluxValeWeb.AdminLive.People do
     address = String.trim(email)
     admin = socket.assigns.current_user
 
+    # The copy branch is captured BEFORE the write: after it, the fresh
+    # invite is itself an outstanding invitation and the question
+    # answers itself.
+    reissue? = outstanding_invitation?(admin, address)
+
     case Identity.invite_user(admin, address) do
       {:ok, _user, _raw} ->
         {:noreply,
          socket
-         |> put_flash(
-           :info,
-           gettext(
-             "Invite sent. A one-time accept link is in their inbox. The account stays inert until they accept."
-           )
-         )
+         |> put_flash(:info, invite_sent_copy(reissue?))
          |> assign(invite_form: to_form(%{"email" => ""}, as: :invite))
          |> refresh_rows()}
 
@@ -95,17 +110,18 @@ defmodule FluxValeWeb.AdminLive.People do
          )
          |> assign(invite_form: to_form(%{"email" => address}, as: :invite))}
 
-      # The socket's actor is fixed at mount and the admin check reads
-      # the struct, so a mid-session demotion lands here — a state the
-      # route gate owns (its 403 arm is pinned at the plug level) and
-      # ExUnit cannot produce under a live socket.
+      # The residual error class, NOT a mid-session demotion: the admin
+      # check reads the mount-resolved struct (AdminGate is per-mount),
+      # so what lands here is the occupant race between the operation's
+      # read and its write, or the DB-down class. Neither is simulatable
+      # under the sandbox.
       # coveralls-ignore-start
       {:error, _refused} ->
         refused =
           put_flash(
             socket,
             :error,
-            gettext("The invite was refused. Your admin access may have changed.")
+            gettext("The invite was refused. Sign out and sign back in, then try again.")
           )
 
         {:noreply, refused}
@@ -126,7 +142,7 @@ defmodule FluxValeWeb.AdminLive.People do
          |> put_flash(
            :info,
            gettext(
-             "Reinvite sent. A fresh one-time accept link went out. Any earlier link no longer works."
+             "Reinvite sent. One email is on its way with a fresh one-time accept link. Any earlier link no longer works. If the email does not arrive, send another."
            )
          )
          |> refresh_rows()}
@@ -142,14 +158,16 @@ defmodule FluxValeWeb.AdminLive.People do
          |> put_flash(:error, gettext("That account is already active. No link was sent."))
          |> refresh_rows()}
 
-      # coveralls-ignore-start - same fixed-actor arm as the invite form
-      # above: the route gate owns it, ExUnit cannot produce it here
+      # coveralls-ignore-start - the residual error class, not a
+      # mid-session demotion (the admin check reads the mount-resolved
+      # struct): the same occupant race or DB-down class as the invite
+      # form above. Not simulatable under the sandbox.
       {:error, _refused} ->
         refused =
           put_flash(
             socket,
             :error,
-            gettext("The reinvite was refused. Your admin access may have changed.")
+            gettext("The reinvite was refused. Sign out and sign back in, then try again.")
           )
 
         {:noreply, refused}
@@ -158,16 +176,22 @@ defmodule FluxValeWeb.AdminLive.People do
     end
   end
 
-  # Reveal the confirm panel for one row — after a fresh read through
-  # the domain, so the reveal itself is a server-side state check and a
-  # raced acceptance (or a crafted frame naming an accepted account)
-  # never opens a confirm the domain would refuse anyway.
+  # Reveal the inline confirm under one row — after a fresh read
+  # through the domain, so the reveal itself is a server-side state
+  # check and a raced acceptance (or a crafted frame naming an accepted
+  # account) never opens a confirm the domain would refuse anyway.
   def handle_event("open-withdraw", %{"id" => id}, socket) do
+    File.write!("/tmp/opencode/probe_open.txt", "entered", [:append])
     admin = socket.assigns.current_user
 
     with {:ok, user} <- Ash.get(User, id, actor: admin, load: [:invite_state]),
          :pending <- user.invite_state do
-      revealed = assign(socket, withdrawing_id: user.id, withdrawing_user: user)
+      # Stream items do not re-render on unrelated assign changes, so
+      # the reveal re-streams the row with the new expansion state.
+      revealed =
+        socket
+        |> assign(withdrawing_id: user.id, withdrawing_user: user)
+        |> stream_insert(:people, user)
 
       {:noreply, revealed}
     else
@@ -184,57 +208,109 @@ defmodule FluxValeWeb.AdminLive.People do
     end
   end
 
-  # -- messages from the confirm component --------------------------------
+  # The destructive click on the inline confirm. Refusals are one
+  # honest line: a raced acceptance (StaleRecord — the row's filter no
+  # longer matches) and the DB-error class read the same from here, and
+  # the refresh makes the row tell the truth either way.
+  @impl Phoenix.LiveView
+  def handle_event("confirm-withdraw", _params, socket) do
+    admin = socket.assigns.current_user
+
+    case Identity.withdraw_invite(admin, socket.assigns.withdrawing_user) do
+      {:ok, _withdrawn} ->
+        {:noreply, withdraw_done(socket, :info)}
+
+      {:error, _changed_or_denied} ->
+        {:noreply, withdraw_done(socket, :error)}
+    end
+  end
 
   @impl Phoenix.LiveView
-  def handle_info({:invite_withdrawn, _user_id}, socket) do
+  def handle_event("cancel-confirm", _params, socket) do
     {:noreply,
      socket
-     |> put_flash(
-       :info,
-       gettext(
-         "Invite withdrawn. Their accept link no longer works. The account stays inert until someone invites them again."
-       )
-     )
      |> assign(withdrawing_id: nil, withdrawing_user: nil)
-     |> refresh_rows()}
+     |> stream_insert(:people, socket.assigns.withdrawing_user)}
   end
 
-  def handle_info({:invite_withdraw_failed, _user_id}, socket) do
-    {:noreply,
-     socket
-     |> put_flash(
-       :error,
-       gettext("That invitation changed before the withdraw landed. The list is refreshed.")
-     )
-     |> assign(withdrawing_id: nil, withdrawing_user: nil)
-     |> refresh_rows()}
+  defp withdraw_done(socket, :info) do
+    socket
+    |> put_flash(
+      :info,
+      gettext(
+        "Invite withdrawn. Their accept link no longer works. The account stays inert until someone invites them again."
+      )
+    )
+    |> assign(withdrawing_id: nil, withdrawing_user: nil)
+    |> refresh_rows()
   end
 
-  def handle_info({:cancel_withdraw}, socket) do
-    {:noreply, assign(socket, withdrawing_id: nil, withdrawing_user: nil)}
+  defp withdraw_done(socket, :error) do
+    socket
+    |> put_flash(
+      :error,
+      gettext("That invitation changed before the withdraw landed. The list is refreshed.")
+    )
+    |> assign(withdrawing_id: nil, withdrawing_user: nil)
+    |> refresh_rows()
   end
 
   # -- reads ----------------------------------------------------------------
 
+  # The copy branch ahead of the write: does this address already carry
+  # an outstanding invitation (pending, withdrawn, expired)? Admins may
+  # read users (the platform-admin policy), and the frozen email mirror
+  # is the same address surface the operation's occupant resolution
+  # resolves through. An accepted account never matches (its acceptance
+  # stamp is set) and refuses at the domain as before.
+  defp outstanding_invitation?(admin, address) do
+    User
+    |> Ash.Query.for_read(:read, %{}, actor: admin)
+    |> Ash.Query.filter(
+      email == ^address and not is_nil(invited_at) and is_nil(invite_accepted_at)
+    )
+    |> Ash.exists?(actor: admin)
+  end
+
+  # Delivery is best-effort after the committed write (the operation
+  # logs and moves on), so the copy never promises the inbox: it names
+  # the resend lever instead. The form is the one invite verb, so a
+  # re-issue rides it silently at the domain; the branch says so. The
+  # branch is decided before the write (see the call site).
+  defp invite_sent_copy(reissue?) do
+    if reissue? do
+      gettext(
+        "Reinvite sent. One email is on its way with a fresh one-time accept link. Any earlier link no longer works. The account stays inert until they accept. If the email does not arrive, use Reinvite to send another."
+      )
+    else
+      gettext(
+        "Invite sent. One email is on its way with a one-time accept link. The account stays inert until they accept. If the email does not arrive, use Reinvite to send another."
+      )
+    end
+  end
+
   # One scope filter, the support ruling drawn in data: an invitation
   # story means invited_at is stamped (invite_state answers :none
-  # exactly when it is nil). Newest first for the operator scanning for
-  # what just happened.
+  # exactly when it is nil). Newest first, capped (see @list_cap).
   defp refresh_rows(socket) do
     admin = socket.assigns.current_user
 
-    users =
+    # One past the cap answers the capped? question without a count.
+    fetched =
       User
       |> Ash.Query.for_read(:read, %{}, actor: admin)
       |> Ash.Query.filter(not is_nil(invited_at))
       |> Ash.Query.sort(invited_at: :desc)
       |> maybe_search(socket.assigns.query)
+      |> Ash.Query.limit(@list_cap + 1)
       |> Ash.Query.load(:invite_state)
       |> Ash.read!()
 
+    capped? = length(fetched) > @list_cap
+    users = Enum.take(fetched, @list_cap)
+
     socket
-    |> assign(rows_empty?: users == [])
+    |> assign(rows_empty?: users == [], rows_capped?: capped?)
     |> stream(:people, users, reset: true)
   end
 
@@ -246,14 +322,30 @@ defmodule FluxValeWeb.AdminLive.People do
 
   # -- display helpers ------------------------------------------------------
 
+  # Four distinct treatments: pending is the live credential (primary,
+  # pulsing dot), accepted is done (success, check), expired timed out
+  # (warning, clock), withdrawn rests (neutral, no cue). The cue is the
+  # non-color half (status_badge's dot grammar) so no two states ever
+  # share both tone and shape in either theme.
   defp state_tone(:pending), do: "primary"
   defp state_tone(:accepted), do: "success"
-  defp state_tone(_withdrawn_or_expired), do: "neutral"
+  defp state_tone(:expired), do: "warning"
+  defp state_tone(_none_or_withdrawn), do: "neutral"
+
+  defp state_cue(:pending), do: {:dot, :pulse}
+  defp state_cue(:accepted), do: {:icon, "hero-check-circle"}
+  defp state_cue(:expired), do: {:icon, "hero-clock"}
+  defp state_cue(_none_or_withdrawn), do: nil
 
   defp state_label(:pending), do: gettext("Pending")
   defp state_label(:accepted), do: gettext("Accepted")
-  defp state_label(:withdrawn), do: gettext("Withdrawn")
   defp state_label(:expired), do: gettext("Expired")
+  defp state_label(:withdrawn), do: gettext("Withdrawn")
+
+  # coveralls-ignore-start - the :none arm is the scope-widening guard:
+  # the list filter keeps :none rows out today, so it cannot run
+  defp state_label(:none), do: gettext("No invitation")
+  # coveralls-ignore-stop
 
   defp reinvite?(state), do: state in [:pending, :withdrawn, :expired]
   defp withdrawable?(state), do: state == :pending
@@ -284,12 +376,21 @@ defmodule FluxValeWeb.AdminLive.People do
                   "Invitations and the accounts they made. A support surface, not a user directory. Accounts with no invitation story are not this page's business."
                 )}
               </p>
+              <div class="mt-4">
+                <.link
+                  navigate={~p"/admin"}
+                  data-testid="admin-people-back-link"
+                  class="text-sm font-medium text-link underline-offset-2 hover:underline"
+                >
+                  {gettext("Back to the admin console")}
+                </.link>
+              </div>
             </div>
           </div>
         </section>
 
         <section class="wrap pt-8 pb-8">
-          <div class="rise grid gap-6 lg:grid-cols-2">
+          <div class="rise grid items-start gap-6 lg:grid-cols-2">
             <%!-- The page's primary action. The consequence is named
             before the click: one email, one-time link, inert account. --%>
             <.card class="space-y-4" data-testid="admin-people-invite-card">
@@ -313,7 +414,11 @@ defmodule FluxValeWeb.AdminLive.People do
                   label={gettext("Email")}
                   data-testid="admin-people-invite-email"
                 />
-                <.button type="submit" data-testid="admin-people-invite-submit">
+                <.button
+                  type="submit"
+                  phx-disable-with={gettext("Sending...")}
+                  data-testid="admin-people-invite-submit"
+                >
                   {gettext("Send invite")}
                 </.button>
               </.form>
@@ -323,7 +428,9 @@ defmodule FluxValeWeb.AdminLive.People do
               <div>
                 <h2 class="text-base font-medium text-ink">{gettext("Find an invitation")}</h2>
                 <p class="mt-1 text-sm text-ink-muted">
-                  {gettext("Search narrows this list by email. It never reaches past it.")}
+                  {gettext(
+                    "Search narrows this list by invitation address. It never reaches past it."
+                  )}
                 </p>
               </div>
               <.form
@@ -336,7 +443,7 @@ defmodule FluxValeWeb.AdminLive.People do
                   field={@search_form[:query]}
                   type="text"
                   label={gettext("Email")}
-                  placeholder={gettext("Search by email")}
+                  placeholder={gettext("Search by invitation address")}
                   phx-debounce="200"
                   data-testid="admin-people-search-input"
                 />
@@ -347,6 +454,13 @@ defmodule FluxValeWeb.AdminLive.People do
 
         <section class="wrap pt-4 pb-16">
           <div class="rise space-y-4" data-testid="admin-people-list">
+            <%!-- The count is the @list_cap above (kept literal here —
+            a module attribute reads as assigns inside HEEx); move the
+            two together. --%>
+            <p :if={@rows_capped?} class="text-sm text-ink-muted" data-testid="admin-people-capped">
+              {gettext("Showing the latest 100 invitations.")}
+            </p>
+
             <.empty_state :if={@rows_empty? and @query == ""} title={gettext("No invitations yet.")}>
               {gettext(
                 "Invites you send, and the accounts they made, show up here. Accounts without an invitation story are not this page's business."
@@ -358,80 +472,146 @@ defmodule FluxValeWeb.AdminLive.People do
               title={gettext("No invitation matches that email.")}
             />
 
-            <.table
+            <div
               :if={not @rows_empty?}
-              id="admin-people-table"
-              rows={@streams.people}
-              row_item={fn {_id, user} -> user end}
+              class="overflow-x-auto rounded-panel border border-line bg-panel text-ink"
             >
-              <:col :let={user} label={gettext("Email")}>
-                <span class="font-medium text-ink" data-testid={"admin-people-email-#{user.id}"}>
-                  {user.email}
-                </span>
-              </:col>
-              <:col :let={user} label={gettext("State")}>
-                <span data-testid={"admin-people-state-#{user.id}"}>
-                  <.badge tone={state_tone(user.invite_state)}>
-                    {state_label(user.invite_state)}
-                  </.badge>
-                </span>
-              </:col>
-              <:col :let={user} label={gettext("Invited")}>
-                <span class="whitespace-nowrap" data-testid={"admin-people-invited-#{user.id}"}>
-                  {stamp_text(user.invited_at)}
-                </span>
-              </:col>
-              <:col :let={user} label={gettext("Expires")}>
-                <span class="whitespace-nowrap" data-testid={"admin-people-expires-#{user.id}"}>
-                  {stamp_text(user.invite_expires_at)}
-                </span>
-              </:col>
-              <:col :let={user} label={gettext("Accepted")}>
-                <span class="whitespace-nowrap" data-testid={"admin-people-accepted-#{user.id}"}>
-                  {stamp_text(user.invite_accepted_at)}
-                </span>
-              </:col>
-              <:col :let={user} label={gettext("Withdrawn")}>
-                <span class="whitespace-nowrap" data-testid={"admin-people-withdrawn-#{user.id}"}>
-                  {stamp_text(user.invite_withdrawn_at)}
-                </span>
-              </:col>
-              <:action :let={user}>
-                <div class="flex gap-4">
-                  <.button
-                    :if={reinvite?(user.invite_state)}
-                    size="sm"
-                    variant="ghost"
-                    phx-click="reinvite"
-                    phx-value-email={user.email}
-                    data-testid={"admin-people-reinvite-#{user.id}"}
-                  >
-                    {gettext("Reinvite")}
-                  </.button>
-                  <.button
-                    :if={withdrawable?(user.invite_state)}
-                    size="sm"
-                    variant="destructive"
-                    phx-click="open-withdraw"
-                    phx-value-id={user.id}
-                    data-testid={"admin-people-withdraw-#{user.id}"}
-                  >
-                    {gettext("Withdraw")}
-                  </.button>
+              <div class="min-w-[53rem]">
+                <%!-- One grid template shared by the header and every
+                row (kept literal in both spots), so the columns can
+                never drift. --%>
+                <div class="grid grid-cols-[minmax(15.5rem,2.2fr)_6.5rem_repeat(4,minmax(5.75rem,1fr))_10rem] items-center gap-x-2 border-b border-line px-4 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
+                  <div>{gettext("Email")}</div>
+                  <div>{gettext("State")}</div>
+                  <div>{gettext("Invited")}</div>
+                  <div>{gettext("Expires")}</div>
+                  <div>{gettext("Accepted")}</div>
+                  <div>{gettext("Withdrawn")}</div>
+                  <div class="sr-only">{gettext("Actions")}</div>
                 </div>
-              </:action>
-            </.table>
 
-            <%!-- One confirm per page, mounted for the one row being
-            withdrawn — the shared destructive-confirm testid stays
-            safe. The reveal rides a fresh domain read (open-withdraw). --%>
-            <.live_component
-              :if={@withdrawing_user}
-              module={WithdrawInviteConfirm}
-              id="withdraw-invite-confirm"
-              user={@withdrawing_user}
-              actor={@current_user}
-            />
+                <div id="admin-people-table" phx-update="stream">
+                  <div
+                    :for={{dom_id, user} <- @streams.people}
+                    id={dom_id}
+                    class="border-b border-line last:border-0"
+                  >
+                    <div class="grid grid-cols-[minmax(15.5rem,2.2fr)_6.5rem_repeat(4,minmax(5.75rem,1fr))_10rem] items-center gap-x-2 px-4 py-3 transition-colors hover:bg-panel-raised/60">
+                      <div class="min-w-0">
+                        <span
+                          class="block truncate whitespace-nowrap font-medium text-ink"
+                          data-testid={"admin-people-email-#{user.id}"}
+                          title={user.email}
+                        >
+                          {user.email}
+                        </span>
+                      </div>
+                      <div>
+                        <span data-testid={"admin-people-state-#{user.id}"}>
+                          <.badge tone={state_tone(user.invite_state)}>
+                            <%= case state_cue(user.invite_state) do %>
+                              <% {:dot, :pulse} -> %>
+                                <span class="size-1.5 rounded-full bg-current motion-safe:animate-pulse" />
+                              <% {:icon, name} -> %>
+                                <.icon name={name} class="size-3.5" />
+                              <% nil -> %>
+                                <%!-- the resting states carry no cue --%>
+                            <% end %>
+                            {state_label(user.invite_state)}
+                          </.badge>
+                        </span>
+                      </div>
+                      <div>
+                        <span
+                          class="whitespace-nowrap text-xs text-ink-muted"
+                          data-testid={"admin-people-invited-#{user.id}"}
+                        >
+                          {stamp_text(user.invited_at)}
+                        </span>
+                      </div>
+                      <%!-- expiry is only meaningful while the link can
+                      still be used; closed rows leave the cell empty --%>
+                      <div>
+                        <span
+                          :if={user.invite_state == :pending}
+                          class="whitespace-nowrap text-xs text-ink-muted"
+                          data-testid={"admin-people-expires-#{user.id}"}
+                        >
+                          {stamp_text(user.invite_expires_at)}
+                        </span>
+                      </div>
+                      <div>
+                        <span
+                          class="whitespace-nowrap text-xs text-ink-muted"
+                          data-testid={"admin-people-accepted-#{user.id}"}
+                        >
+                          {stamp_text(user.invite_accepted_at)}
+                        </span>
+                      </div>
+                      <div>
+                        <span
+                          class="whitespace-nowrap text-xs text-ink-muted"
+                          data-testid={"admin-people-withdrawn-#{user.id}"}
+                        >
+                          {stamp_text(user.invite_withdrawn_at)}
+                        </span>
+                      </div>
+                      <div>
+                        <div class="flex items-center justify-end gap-4">
+                          <button
+                            :if={reinvite?(user.invite_state)}
+                            type="button"
+                            phx-click="reinvite"
+                            phx-value-email={user.email}
+                            phx-disable-with={gettext("Sending...")}
+                            class="text-sm font-medium text-link underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50"
+                            data-testid={"admin-people-reinvite-#{user.id}"}
+                          >
+                            {gettext("Reinvite")}
+                          </button>
+                          <.button
+                            :if={withdrawable?(user.invite_state)}
+                            size="sm"
+                            variant="secondary"
+                            phx-click="open-withdraw"
+                            phx-value-id={user.id}
+                            phx-disable-with={gettext("Opening...")}
+                            data-testid={"admin-people-withdraw-#{user.id}"}
+                          >
+                            {gettext("Withdraw")}
+                          </.button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <%!-- The confirm expands directly under the row that
+                    opened it (the backups page's posture): the action
+                    and its consequence share one visual block. One
+                    confirm per page — @withdrawing_id is the expansion
+                    key, so the shared destructive-confirm testid stays
+                    safe. The reveal rode a fresh domain read
+                    (open-withdraw). --%>
+                    <div :if={@withdrawing_id == user.id} class="px-4 pb-4">
+                      <.confirm_block
+                        title={
+                          gettext("Withdraw the invite for %{email}?", email: @withdrawing_user.email)
+                        }
+                        body={
+                          gettext(
+                            "Their accept link stops working. The account remains inert until someone invites them again."
+                          )
+                        }
+                        action={gettext("Yes, withdraw this invite")}
+                        event="confirm-withdraw"
+                        action_testid="admin-people-withdraw-confirm"
+                        cancel_testid="admin-people-withdraw-cancel"
+                        myself={nil}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
       </div>
