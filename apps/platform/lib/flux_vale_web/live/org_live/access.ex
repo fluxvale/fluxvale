@@ -53,7 +53,6 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Pricing
-  alias FluxValeWeb.AccountSettings
   alias FluxValeWeb.OrgSettings
   alias FluxValeWeb.PersonalOrg
 
@@ -790,6 +789,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
                   <span aria-hidden="true">&larr;</span> Settings
                 </.link>
                 <div class="mt-3 min-w-0">
+                  <p class="eyebrow">Account</p>
                   <h1 class="page-title mt-1.5" data-testid="settings-title">
                     Account settings
                   </h1>
@@ -802,375 +802,362 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         <% end %>
 
         <section class="wrap pt-8 pb-16">
-          <div class="rise flex flex-col gap-8 md:flex-row md:gap-12">
-            <%!-- #551: the account cluster's section sidebar rides the
-            personal head only — the org head keeps the org rail below. --%>
-            <AccountSettings.sidebar
-              :if={@personal?}
-              current="access"
-              personal_org_id={@personal_org_id}
-            />
+          <div class="rise space-y-6">
+            <OrgSettings.settings_tabs :if={!@personal?} current="access" slug={@org.slug} />
 
-            <div class="min-w-0 flex-1 space-y-6">
-              <OrgSettings.settings_tabs :if={!@personal?} current="access" slug={@org.slug} />
+            <div>
+              <h2 class="text-base font-medium text-ink">Access</h2>
+              <p class="mt-1 text-sm text-ink-muted">
+                Reach your private apps from your own Tailscale network.
+              </p>
+            </div>
 
-              <div>
-                <h2 class="text-base font-medium text-ink">Access</h2>
-                <p class="mt-1 text-sm text-ink-muted">
-                  Reach your private apps from your own Tailscale network.
-                </p>
-              </div>
+            <%= if @gateway do %>
+              <.gateway_card
+                gateway={@gateway}
+                form={@form}
+                row_funded?={@row_funded?}
+                row_paid?={@row_paid?}
+                billing_path={@billing_path}
+                repaste_open?={@repaste_open?}
+                remove_armed?={@remove_armed?}
+              />
 
-              <%= if @gateway do %>
-                <.gateway_card
-                  gateway={@gateway}
-                  form={@form}
-                  row_funded?={@row_funded?}
-                  row_paid?={@row_paid?}
-                  billing_path={@billing_path}
-                  repaste_open?={@repaste_open?}
-                  remove_armed?={@remove_armed?}
-                />
-
-                <%!-- §4.1's pairing sections — only while the operation would
+              <%!-- §4.1's pairing sections — only while the operation would
                   accept an attach; every other state gets one honest line
                   instead (the banner explains why). --%>
-                <p
-                  :if={pairing_paused_copy(@gateway)}
-                  class="text-sm text-ink-muted"
-                  data-testid="access-pairing-paused"
-                >
-                  {pairing_paused_copy(@gateway)}
-                </p>
+              <p
+                :if={pairing_paused_copy(@gateway)}
+                class="text-sm text-ink-muted"
+                data-testid="access-pairing-paused"
+              >
+                {pairing_paused_copy(@gateway)}
+              </p>
 
-                <.attached_card
-                  :if={pairing_open?(@gateway)}
-                  gateway={@gateway}
-                  attached={@streams.attached}
-                  attached_empty?={@attached_empty?}
-                />
+              <.attached_card
+                :if={pairing_open?(@gateway)}
+                gateway={@gateway}
+                attached={@streams.attached}
+                attached_empty?={@attached_empty?}
+              />
 
-                <.attach_card
-                  :if={pairing_open?(@gateway)}
-                  attachable={@streams.attachable}
-                  attachable_empty?={@attachable_empty?}
-                  attach_error={@attach_error}
-                />
-              <% else %>
-                <.access_empty_state
-                  personal?={@personal?}
-                  form={@form}
-                  create_funded?={@create_funded?}
-                  create_paid?={@create_paid?}
-                  billing_path={@billing_path}
-                  price_cents={@price_cents}
-                />
-              <% end %>
+              <.attach_card
+                :if={pairing_open?(@gateway)}
+                attachable={@streams.attachable}
+                attachable_empty?={@attachable_empty?}
+                attach_error={@attach_error}
+              />
+            <% else %>
+              <.access_empty_state
+                personal?={@personal?}
+                form={@form}
+                create_funded?={@create_funded?}
+                create_paid?={@create_paid?}
+                billing_path={@billing_path}
+                price_cents={@price_cents}
+              />
+            <% end %>
 
-              <%!-- #362: the device flow's approval surface — the actor's
+            <%!-- #362: the device flow's approval surface — the actor's
                 pending sign-in requests. The rows are unattributed
                 until an approval binds one to the clicking user; the
                 copy carries the human check (compare the code with
                 your terminal). Section id is the verification_uri
                 fragment's target (/settings/access/device lands
                 here). --%>
-              <div class="space-y-3" id="device-sign-ins" data-testid="device-sign-ins">
-                <div>
-                  <h3 class="text-sm font-medium text-ink-muted">Device sign-ins</h3>
-                  <p class="mt-1 text-sm text-ink-muted">
-                    Signing in to the FluxVale CLI? Approve the request whose code matches
-                    your terminal. The CLI token is minted for your account.
-                  </p>
-                </div>
-
-                <div class="mono-panel min-w-0">
-                  <p
-                    :if={@device_sign_ins_empty?}
-                    class="font-sans text-sm text-ink-muted"
-                    data-testid="device-sign-ins-empty"
-                  >
-                    No device sign-ins waiting.
-                  </p>
-
-                  <ul id="device-sign-in-rows" phx-update="stream" class="divide-y divide-line">
-                    <li
-                      :for={{dom_id, code} <- @streams.device_sign_ins}
-                      id={dom_id}
-                      class="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
-                      data-testid="device-sign-in-row"
-                    >
-                      <div class="min-w-0 space-y-1">
-                        <p
-                          class="font-mono text-sm font-medium text-ink"
-                          data-testid="device-user-code"
-                        >
-                          {code.user_code}
-                        </p>
-                        <p class="text-xs text-ink-muted" data-testid="device-meta">
-                          {scope_line(code)}: {device_client_label(code)}, expires in {expires_in_label(
-                            code
-                          )}
-                        </p>
-                      </div>
-                      <div class="flex gap-3">
-                        <.button
-                          type="button"
-                          phx-click="approve-device"
-                          phx-value-id={code.id}
-                          size="sm"
-                          data-testid="device-approve"
-                        >
-                          Approve
-                        </.button>
-                        <.button
-                          type="button"
-                          phx-click="deny-device"
-                          phx-value-id={code.id}
-                          variant="ghost"
-                          size="sm"
-                          data-testid="device-deny"
-                        >
-                          Deny
-                        </.button>
-                      </div>
-                    </li>
-                  </ul>
-                </div>
+            <div class="space-y-3" id="device-sign-ins" data-testid="device-sign-ins">
+              <div>
+                <h3 class="text-sm font-medium text-ink-muted">Device sign-ins</h3>
+                <p class="mt-1 text-sm text-ink-muted">
+                  Signing in to the FluxVale CLI? Approve the request whose code matches
+                  your terminal. The CLI token is minted for your account.
+                </p>
               </div>
 
-              <%!-- #483: the actor's own PATs — the MintPat docstring's
+              <div class="mono-panel min-w-0">
+                <p
+                  :if={@device_sign_ins_empty?}
+                  class="font-sans text-sm text-ink-muted"
+                  data-testid="device-sign-ins-empty"
+                >
+                  No device sign-ins waiting.
+                </p>
+
+                <ul id="device-sign-in-rows" phx-update="stream" class="divide-y divide-line">
+                  <li
+                    :for={{dom_id, code} <- @streams.device_sign_ins}
+                    id={dom_id}
+                    class="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
+                    data-testid="device-sign-in-row"
+                  >
+                    <div class="min-w-0 space-y-1">
+                      <p class="font-mono text-sm font-medium text-ink" data-testid="device-user-code">
+                        {code.user_code}
+                      </p>
+                      <p class="text-xs text-ink-muted" data-testid="device-meta">
+                        {scope_line(code)}: {device_client_label(code)}, expires in {expires_in_label(
+                          code
+                        )}
+                      </p>
+                    </div>
+                    <div class="flex gap-3">
+                      <.button
+                        type="button"
+                        phx-click="approve-device"
+                        phx-value-id={code.id}
+                        size="sm"
+                        data-testid="device-approve"
+                      >
+                        Approve
+                      </.button>
+                      <.button
+                        type="button"
+                        phx-click="deny-device"
+                        phx-value-id={code.id}
+                        variant="ghost"
+                        size="sm"
+                        data-testid="device-deny"
+                      >
+                        Deny
+                      </.button>
+                    </div>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <%!-- #483: the actor's own PATs — the MintPat docstring's
                 anticipated consumer. The raw value renders ONLY in the
                 reveal callout below: minted once, copied or lost, the
                 row keeps the hash. Section id is an anchor target like
                 #device-sign-ins. --%>
-              <div class="space-y-3" id="api-tokens" data-testid="api-tokens">
+            <div class="space-y-3" id="api-tokens" data-testid="api-tokens">
+              <div>
+                <h3 class="text-sm font-medium text-ink-muted">API tokens</h3>
+                <p class="mt-1 text-sm text-ink-muted">
+                  Personal access tokens for the machine API. Automation you run, like CI or
+                  the CLI, calls the API with one. A token keeps working until it expires or
+                  you revoke it.
+                </p>
+              </div>
+
+              <.callout
+                :if={@fresh_token}
+                id="api-token-reveal"
+                tone="warning"
+                data-testid="api-token-reveal"
+              >
+                <p class="font-medium text-ink" data-testid="api-token-reveal-title">
+                  {@fresh_token.name} created. Copy it now.
+                </p>
+                <p>
+                  This is the only time the full token is shown. It can't be retrieved again,
+                  and anyone holding it can call the API as you, within its scopes.
+                </p>
+                <div class="flex flex-wrap items-center gap-2 pt-1">
+                  <code
+                    class="max-w-full overflow-x-auto rounded-control border border-line bg-panel px-2 py-1 font-mono text-xs text-ink"
+                    data-testid="api-token-reveal-value"
+                  >
+                    {@fresh_token.token}
+                  </code>
+                  <.copy_button
+                    id={"copy-api-token-#{@fresh_token.id}"}
+                    value={@fresh_token.token}
+                    label="Copy"
+                    testid="api-token-reveal-copy"
+                  />
+                  <.button
+                    type="button"
+                    phx-click="dismiss-token-reveal"
+                    variant="ghost"
+                    size="sm"
+                    data-testid="api-token-reveal-done"
+                  >
+                    Done
+                  </.button>
+                </div>
+              </.callout>
+
+              <.card id="api-tokens-create-card" class="card space-y-4">
                 <div>
-                  <h3 class="text-sm font-medium text-ink-muted">API tokens</h3>
+                  <h3 class="text-sm font-medium text-ink-muted">Create a token</h3>
                   <p class="mt-1 text-sm text-ink-muted">
-                    Personal access tokens for the machine API. Automation you run, like CI or
-                    the CLI, calls the API with one. A token keeps working until it expires or
-                    you revoke it.
+                    Name it for where you'll use it, then pick its scopes.
                   </p>
                 </div>
 
-                <.callout
-                  :if={@fresh_token}
-                  id="api-token-reveal"
-                  tone="warning"
-                  data-testid="api-token-reveal"
+                <.form
+                  for={@token_form}
+                  id={"api-token-form-#{@token_form_key}"}
+                  phx-submit="create-token"
                 >
-                  <p class="font-medium text-ink" data-testid="api-token-reveal-title">
-                    {@fresh_token.name} created. Copy it now.
-                  </p>
-                  <p>
-                    This is the only time the full token is shown. It can't be retrieved again,
-                    and anyone holding it can call the API as you, within its scopes.
-                  </p>
-                  <div class="flex flex-wrap items-center gap-2 pt-1">
-                    <code
-                      class="max-w-full overflow-x-auto rounded-control border border-line bg-panel px-2 py-1 font-mono text-xs text-ink"
-                      data-testid="api-token-reveal-value"
-                    >
-                      {@fresh_token.token}
-                    </code>
-                    <.copy_button
-                      id={"copy-api-token-#{@fresh_token.id}"}
-                      value={@fresh_token.token}
-                      label="Copy"
-                      testid="api-token-reveal-copy"
+                  <div class="space-y-4">
+                    <.input
+                      field={@token_form[:name]}
+                      type="text"
+                      label="Name"
+                      maxlength={100}
+                      required
+                      placeholder="ci deploys"
+                      data-testid="api-token-name-input"
                     />
-                    <.button
-                      type="button"
-                      phx-click="dismiss-token-reveal"
-                      variant="ghost"
-                      size="sm"
-                      data-testid="api-token-reveal-done"
-                    >
-                      Done
-                    </.button>
-                  </div>
-                </.callout>
 
-                <.card id="api-tokens-create-card" class="card space-y-4">
-                  <div>
-                    <h3 class="text-sm font-medium text-ink-muted">Create a token</h3>
-                    <p class="mt-1 text-sm text-ink-muted">
-                      Name it for where you'll use it, then pick its scopes.
-                    </p>
-                  </div>
+                    <div>
+                      <p class="text-sm font-medium text-ink">Scopes</p>
+                      <ul class="mt-2 space-y-2">
+                        <li :for={scope <- @catalog_scopes} class="flex items-center gap-2.5">
+                          <input
+                            id={"api-token-scope-#{scope}"}
+                            type="checkbox"
+                            name="token[scopes][]"
+                            value={scope}
+                            class="size-4 rounded border-line-strong accent-primary"
+                            data-testid="api-token-scope"
+                          />
+                          <label
+                            for={"api-token-scope-#{scope}"}
+                            class="flex cursor-pointer flex-wrap items-center gap-2 text-sm text-ink"
+                          >
+                            <span class="font-mono text-xs">{scope}</span>
+                            <span class="text-xs text-ink-subtle">{scope_label(scope)}</span>
+                          </label>
+                        </li>
+                      </ul>
+                      <p class="mt-2 text-xs text-ink-subtle">
+                        Write includes read for its domain. Leave all unchecked for a token
+                        that can only identify itself, like the account profile route.
+                      </p>
+                    </div>
 
-                  <.form
-                    for={@token_form}
-                    id={"api-token-form-#{@token_form_key}"}
-                    phx-submit="create-token"
-                  >
-                    <div class="space-y-4">
-                      <.input
-                        field={@token_form[:name]}
-                        type="text"
-                        label="Name"
-                        maxlength={100}
-                        required
-                        placeholder="ci deploys"
-                        data-testid="api-token-name-input"
-                      />
-
-                      <div>
-                        <p class="text-sm font-medium text-ink">Scopes</p>
-                        <ul class="mt-2 space-y-2">
-                          <li :for={scope <- @catalog_scopes} class="flex items-center gap-2.5">
-                            <input
-                              id={"api-token-scope-#{scope}"}
-                              type="checkbox"
-                              name="token[scopes][]"
-                              value={scope}
-                              class="size-4 rounded border-line-strong accent-primary"
-                              data-testid="api-token-scope"
-                            />
-                            <label
-                              for={"api-token-scope-#{scope}"}
-                              class="flex cursor-pointer flex-wrap items-center gap-2 text-sm text-ink"
-                            >
-                              <span class="font-mono text-xs">{scope}</span>
-                              <span class="text-xs text-ink-subtle">{scope_label(scope)}</span>
-                            </label>
-                          </li>
-                        </ul>
-                        <p class="mt-2 text-xs text-ink-subtle">
-                          Write includes read for its domain. Leave all unchecked for a token
-                          that can only identify itself, like the account profile route.
-                        </p>
-                      </div>
-
-                      <div class="flex justify-end">
-                        <%!-- phx-disable-with closes the in-flight double
+                    <div class="flex justify-end">
+                      <%!-- phx-disable-with closes the in-flight double
                           submit: the re-key disarms re-clicks AFTER the
                           patch, the disabled button closes the window
                           DURING the round trip. --%>
-                        <.button
-                          type="submit"
-                          phx-disable-with="Creating token..."
-                          data-testid="api-token-create"
-                        >
-                          Create token
-                        </.button>
-                      </div>
+                      <.button
+                        type="submit"
+                        phx-disable-with="Creating token..."
+                        data-testid="api-token-create"
+                      >
+                        Create token
+                      </.button>
                     </div>
-                  </.form>
-                </.card>
+                  </div>
+                </.form>
+              </.card>
 
-                <%!-- The rows are the token metadata's technical reality in
+              <%!-- The rows are the token metadata's technical reality in
                   the sunken mono register (the attached apps' posture):
                   the friendly lines carry the sans register. --%>
-                <div class="mono-panel min-w-0">
-                  <p
-                    :if={@api_tokens_empty?}
-                    class="font-sans text-sm text-ink-muted"
-                    data-testid="api-tokens-empty"
+              <div class="mono-panel min-w-0">
+                <p
+                  :if={@api_tokens_empty?}
+                  class="font-sans text-sm text-ink-muted"
+                  data-testid="api-tokens-empty"
+                >
+                  No tokens yet. Create one above.
+                </p>
+
+                <ul id="api-token-rows" phx-update="stream" class="divide-y divide-line">
+                  <li
+                    :for={{dom_id, token} <- @streams.api_tokens}
+                    id={dom_id}
+                    class="space-y-1.5 py-3 first:pt-0 last:pb-0"
+                    data-testid="api-token-row"
                   >
-                    No tokens yet. Create one above.
-                  </p>
-
-                  <ul id="api-token-rows" phx-update="stream" class="divide-y divide-line">
-                    <li
-                      :for={{dom_id, token} <- @streams.api_tokens}
-                      id={dom_id}
-                      class="space-y-1.5 py-3 first:pt-0 last:pb-0"
-                      data-testid="api-token-row"
-                    >
-                      <div class="flex flex-wrap items-center justify-between gap-3">
-                        <div class="flex min-w-0 flex-wrap items-center gap-2">
-                          <span
-                            class="font-mono text-sm font-medium text-ink"
-                            data-testid="api-token-name"
-                          >
-                            {token.name}
-                          </span>
-                          <.badge
-                            :if={token_status(token) == :active}
-                            tone="success"
-                            data-testid="api-token-status-active"
-                          >
-                            <span class="sr-only">Status </span>Active
-                          </.badge>
-                          <.badge
-                            :if={token_status(token) == :revoked}
-                            tone="danger"
-                            data-testid="api-token-status-revoked"
-                          >
-                            <span class="sr-only">Status </span>Revoked
-                          </.badge>
-                          <.badge
-                            :if={token_status(token) == :expired}
-                            tone="warning"
-                            data-testid="api-token-status-expired"
-                          >
-                            <span class="sr-only">Status </span>Expired
-                          </.badge>
-                        </div>
-
-                        <.button
-                          :if={token_status(token) == :active and @token_revoke_armed_id != token.id}
-                          type="button"
-                          phx-click="arm-token-revoke"
-                          phx-value-id={token.id}
-                          variant="ghost"
-                          size="sm"
-                          data-testid="api-token-revoke"
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                      <div class="flex min-w-0 flex-wrap items-center gap-2">
+                        <span
+                          class="font-mono text-sm font-medium text-ink"
+                          data-testid="api-token-name"
                         >
-                          Revoke
-                        </.button>
+                          {token.name}
+                        </span>
+                        <.badge
+                          :if={token_status(token) == :active}
+                          tone="success"
+                          data-testid="api-token-status-active"
+                        >
+                          <span class="sr-only">Status </span>Active
+                        </.badge>
+                        <.badge
+                          :if={token_status(token) == :revoked}
+                          tone="danger"
+                          data-testid="api-token-status-revoked"
+                        >
+                          <span class="sr-only">Status </span>Revoked
+                        </.badge>
+                        <.badge
+                          :if={token_status(token) == :expired}
+                          tone="warning"
+                          data-testid="api-token-status-expired"
+                        >
+                          <span class="sr-only">Status </span>Expired
+                        </.badge>
                       </div>
 
-                      <p class="font-sans text-xs text-ink-muted" data-testid="api-token-meta">
-                        <span class="font-mono">{scopes_line(token)}</span>
-                        · Created {Calendar.strftime(token.created_at, "%b %d, %Y")} · {last_used_line(
-                          token
-                        )} · Expires {Calendar.strftime(token.expires_at, "%b %d, %Y")}
-                      </p>
-
-                      <p
-                        :if={device_minted?(token)}
-                        class="font-sans text-xs text-ink-muted"
-                        data-testid="api-token-provenance"
+                      <.button
+                        :if={token_status(token) == :active and @token_revoke_armed_id != token.id}
+                        type="button"
+                        phx-click="arm-token-revoke"
+                        phx-value-id={token.id}
+                        variant="ghost"
+                        size="sm"
+                        data-testid="api-token-revoke"
                       >
-                        Minted by the FluxVale CLI device sign-in.
-                      </p>
+                        Revoke
+                      </.button>
+                    </div>
 
-                      <.callout
-                        :if={@token_revoke_armed_id == token.id and token_status(token) == :active}
-                        id={"api-token-revoke-confirm-#{token.id}"}
-                        tone="danger"
-                        data-testid="api-token-revoke-confirm"
-                      >
-                        <p>
-                          Revoke <span class="font-mono">{token.name}</span>? Anything using it
-                          stops working now.
-                        </p>
-                        <div class="flex gap-3 pt-1">
-                          <.button
-                            type="button"
-                            phx-click="revoke-token"
-                            phx-value-id={token.id}
-                            size="sm"
-                            data-testid="api-token-revoke-confirm-button"
-                          >
-                            Revoke token
-                          </.button>
-                          <.button
-                            type="button"
-                            phx-click="cancel-token-revoke"
-                            variant="ghost"
-                            size="sm"
-                            data-testid="api-token-revoke-cancel"
-                          >
-                            Cancel
-                          </.button>
-                        </div>
-                      </.callout>
-                    </li>
-                  </ul>
-                </div>
+                    <p class="font-sans text-xs text-ink-muted" data-testid="api-token-meta">
+                      <span class="font-mono">{scopes_line(token)}</span>
+                      · Created {Calendar.strftime(token.created_at, "%b %d, %Y")} · {last_used_line(
+                        token
+                      )} · Expires {Calendar.strftime(token.expires_at, "%b %d, %Y")}
+                    </p>
+
+                    <p
+                      :if={device_minted?(token)}
+                      class="font-sans text-xs text-ink-muted"
+                      data-testid="api-token-provenance"
+                    >
+                      Minted by the FluxVale CLI device sign-in.
+                    </p>
+
+                    <.callout
+                      :if={@token_revoke_armed_id == token.id and token_status(token) == :active}
+                      id={"api-token-revoke-confirm-#{token.id}"}
+                      tone="danger"
+                      data-testid="api-token-revoke-confirm"
+                    >
+                      <p>
+                        Revoke <span class="font-mono">{token.name}</span>? Anything using it
+                        stops working now.
+                      </p>
+                      <div class="flex gap-3 pt-1">
+                        <.button
+                          type="button"
+                          phx-click="revoke-token"
+                          phx-value-id={token.id}
+                          size="sm"
+                          data-testid="api-token-revoke-confirm-button"
+                        >
+                          Revoke token
+                        </.button>
+                        <.button
+                          type="button"
+                          phx-click="cancel-token-revoke"
+                          variant="ghost"
+                          size="sm"
+                          data-testid="api-token-revoke-cancel"
+                        >
+                          Cancel
+                        </.button>
+                      </div>
+                    </.callout>
+                  </li>
+                </ul>
               </div>
             </div>
           </div>

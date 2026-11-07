@@ -206,24 +206,18 @@ defmodule FluxValeWeb.PersonalAccountTest do
 
   # -- The settings surface carries the way in --------------------------
 
-  # #551: the sidebar owns the way between sections (the access card
-  # retired) — the nav entry is the link, href pinned.
-  test "/settings links the access panel through the sidebar", %{conn: conn} do
+  test "/settings links the access panel", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/settings")
 
-    assert has_element?(
-             view,
-             "[data-testid='account-settings-nav-access'][href='/settings/access']"
-           )
+    assert has_element?(view, "[data-testid='settings-access-link'][href='/settings/access']")
   end
 
-  # F6: without a personal org both gated entries are dead ends (their
-  # targets read as not-found or flash-and-leave), so the sidebar drops
-  # them — OrgNav's degradation stance mirrored. The member-only shape
-  # is unreachable through actions (nothing makes :member rows yet);
-  # destroying the owner membership is the sanctioned posture
-  # (OrgSwitcherTest's).
-  test "/settings gates the sidebar's org-gated entries for an actor with no personal org", %{
+  # F6: without a personal org the card is a dead end (its target reads
+  # as not-found), so it hides — OrgNav's degradation stance mirrored.
+  # The member-only shape is unreachable through actions (nothing makes
+  # :member rows yet); destroying the owner membership is the sanctioned
+  # posture (OrgSwitcherTest's).
+  test "/settings hides the access card for an actor with no personal org", %{
     conn: conn,
     owner: owner
   } do
@@ -237,10 +231,8 @@ defmodule FluxValeWeb.PersonalAccountTest do
 
     {:ok, view, _html} = live(conn, ~p"/settings")
 
-    assert has_element?(view, "[data-testid='account-settings-nav-profile']")
-    refute has_element?(view, "[data-testid='account-settings-nav-access']")
-    refute has_element?(view, "[data-testid='account-settings-nav-wallet']")
-    refute has_element?(view, "[data-testid='account-settings-section-billing']")
+    refute has_element?(view, "[data-testid='settings-access-link']")
+    refute has_element?(view, "#settings-access-card")
   end
 
   # Mount-time push_navigate surfaces either as a completed redirect off
