@@ -104,6 +104,12 @@ The provider needs a FluxVale personal access token (`fvpat_…`):
 Configure pings `/api/v1/me` (scopeless — any live token works), so a
 dead token fails at plan time with the server's wording.
 
+## Installing
+
+Manual-first (ADR-0019 Am. 4): release zips into a local filesystem
+mirror — the copy-paste recipe lives in
+[docs/install.md](docs/install.md).
+
 ## Dev loop (dev_overrides)
 
 The registry isn't live yet; use [dev_overrides](https://developer.hashicorp.com/terraform/plugin/debug-vendor):
