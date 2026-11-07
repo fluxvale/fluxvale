@@ -1,0 +1,69 @@
+# Gitleaks config for the secret-scan workflow
+# (.github/workflows/secret-scan.yml, issue #528). Default rule set
+# only, loaded via extend. The allowlist is the evidence-built
+# baseline: every entry pins the exact VALUE that may appear and
+# says why it is safe. A key-name match would also hide a REAL
+# secret pasted as that key's value - a pinned value only ever
+# matches itself, in any file (the pathless blind side: these
+# literals are already public in this repo, so nothing worth
+# gating can collide).
+#
+# The value entries carry no paths, on purpose. In dir mode a path
+# match on a global allowlist skips the whole file before any
+# content rule runs (shouldSkipPath in sources/common.go walks the
+# tree and checks paths alone - condition and regexes are never
+# consulted). Scoping these entries to dev.exs or the fixture by
+# path would make those files invisible to the tree scan, the exact
+# hole this rework closes. Value-only entries keep every file
+# scanned and suppress by content alone.
+#
+# Caveat for the one paths entry below: gitleaks matches path
+# regexes unanchored (an effective suffix match thanks to the
+# trailing $) - a future ^ anchor silently breaks it.
+[extend]
+useDefault = true
+
+# This file itself: it pins its literals in the clear. Redundant
+# with the upstream default allowlist today, kept so an upstream
+# default change cannot expose this file. Safe either way: every
+# literal here is already public in this repo (the dev configs and
+# the fixture predate this file). The fragment alternative (regexes
+# built so this file never holds a full literal) was rejected as
+# harder to review and easier to quietly break.
+[[allowlists]]
+description = "this config file (holds only already-public dev literals)"
+paths = ['''\.gitleaks\.toml$''']
+
+# Phoenix-standard dev/test config literals, pinned to the exact
+# four values. A different value under secret_key_base or
+# token_signing_secret - including a real secret - matches nothing
+# here and reds the scan. dev.exs documents the stance in place:
+# prod reads runtime env (config/runtime.exs), these values never
+# leave the machine.
+[[allowlists]]
+description = "dev/test config signing-key literals (prod reads runtime env)"
+regexTarget = "line"
+regexes = [
+  '''K1/kovUzknueiuo3cZ9gsvaN2AqzJecMmvRv942ey1YIFeuozi2DZuVOoo7VXGJd''',
+  '''xCq4tmbd9W\+NYoOdKwh5lE4VaEg3UYa7''',
+  '''fQ9tibmTqr1r2HdqiKrkOofKnY6OQDNK''',
+  '''lFp\+naePZvFguRNIJ3gkEqmbbbm8si/dA5t8la7Ojp733r2Al06iwWrUv\+aRrgA7''',
+]
+
+# Test fixture: the fake restic password (base64 of a change-me
+# placeholder), pinned by value. One regex covers both copies (the
+# Secret map entry and the read-back assertion). A real password in
+# its place matches nothing and reds the scan.
+[[allowlists]]
+description = "backup-credential test fixture placeholder"
+regexTarget = "line"
+regexes = ['''Q2hhbmdlVGhpc1RvQVNlY3JldA''']
+
+# actions/cache cargo cache keys ("key: cargo-deny-0.20.2" and
+# friends), matched value-shaped: cargo tool name plus version, not
+# a bare "key:" heuristic. A future tool bump keeps passing,
+# anything else under key: does not.
+[[allowlists]]
+description = "actions/cache cargo cache-key lines"
+regexTarget = "line"
+regexes = ['''^[[:space:]]*key: cargo-[a-z0-9][a-z0-9.-]*$''']
