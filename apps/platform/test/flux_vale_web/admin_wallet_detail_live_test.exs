@@ -132,6 +132,14 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
       assert has_element?(view, "[data-testid='admin-wallet-destroy-clock']", "The clock started")
       assert has_element?(view, "[data-testid='admin-wallet-destroy-clock']", "Deletion lands")
 
+      # The clearing is the sweep's job, never the top-up's instant:
+      # the copy must not promise immediacy.
+      assert has_element?(
+               view,
+               "[data-testid='admin-wallet-destroy-clock']",
+               "clears at the next automatic check"
+             )
+
       # The deadline is the anchor plus the sweep's 30 days: both dates
       # render, so the countdown reads as one.
       deadline_at = DateTime.add(anchored_at, 30, :day)
@@ -160,6 +168,46 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
                "[data-testid='admin-wallet-destroy-clock']",
                "next automatic check"
              )
+    end
+
+    test "a recovered balance with an unswept anchor is NOT the danger state", %{
+      conn: conn
+    } do
+      # The sweep anchors the clock when the balance first goes
+      # negative and clears it hourly: a topped-up wallet can carry the
+      # anchor for up to an hour. The anchor alone is not a countdown.
+      {org, wallet} = funded_wallet!()
+
+      wallet
+      |> Ash.Changeset.for_update(
+        :set_ladder_state,
+        %{negative_since: DateTime.add(DateTime.utc_now(), -1, :hour)},
+        authorize?: false
+      )
+      |> Ash.update!()
+
+      {:ok, view, _html} = live(conn, "/admin/billing/wallets/#{wallet.id}")
+
+      # No danger card, no Depleted runway: the honest recovered card.
+      refute has_element?(view, "[data-testid='admin-wallet-destroy-clock']")
+      assert has_element?(view, "[data-testid='admin-wallet-recovered']")
+      assert has_element?(view, "[data-testid='admin-wallet-recovered']", "balance recovered")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-wallet-recovered']",
+               "clears at the next automatic check"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-wallet-recovered']",
+               "Nothing is on a countdown"
+             )
+
+      assert text_of(view, "[data-testid='wallet-runway']") =~ "No active burn"
+
+      assert org
     end
 
     test "an unknown wallet redirects back to the table", %{conn: conn} do
@@ -415,6 +463,40 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
       assert length(entries) == 1
     end
 
+    test "amounts over the ceiling are refused before any confirm exists", %{
+      conn: conn,
+      admin: admin,
+      wallet: wallet
+    } do
+      {:ok, view, _html} = live(conn, "/admin/billing/wallets/#{wallet.id}")
+
+      view
+      |> element("#admin-wallet-goodwill-form")
+      |> render_submit(%{"goodwill" => %{"amount_cents" => "100_001"}})
+
+      # Integer.parse stops at the underscore, so this shape is the
+      # generic refusal.
+      assert has_element?(view, "#flash-error", "whole number of US cents")
+
+      view
+      |> element("#admin-wallet-goodwill-form")
+      |> render_submit(%{"goodwill" => %{"amount_cents" => "100001"}})
+
+      assert has_element?(view, "#flash-error", "Goodwill credits cap at $1000.00")
+      assert has_element?(view, "#flash-error", "Nothing was posted")
+      refute has_element?(view, "[data-testid='admin-wallet-goodwill-confirm']")
+
+      entries = ledger_entries!(wallet, admin)
+      assert length(entries) == 1
+
+      # At the ceiling exactly: the confirm opens as usual.
+      view
+      |> element("#admin-wallet-goodwill-form")
+      |> render_submit(%{"goodwill" => %{"amount_cents" => "100000"}})
+
+      assert has_element?(view, "[data-testid='admin-wallet-goodwill-confirm']")
+    end
+
     test "an amount that is not a whole positive number of cents is refused", %{
       conn: conn,
       admin: admin
@@ -550,6 +632,34 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
       refute has_element?(view, "[data-testid='destructive-confirm']")
     end
 
+    test "a crafted id naming ANOTHER wallet's entry refuses at the reveal", %{
+      conn: conn,
+      admin: admin,
+      wallet: wallet
+    } do
+      # Wallet B carries its own funded credit; A's page must never act
+      # outside the wallet it renders. (The admin MAY reverse B's entry
+      # from B's own page; this is scoping, not privilege.)
+      {_org_b, wallet_b} = funded_wallet!()
+      {:ok, foreign} = LedgerEntry.grant_goodwill(wallet_b.id, 999, actor: admin)
+
+      {:ok, view, _html} = live(conn, "/admin/billing/wallets/#{wallet.id}")
+
+      render_click(view, "open-reverse", %{"id" => foreign.id})
+
+      assert has_element?(view, "#flash-error", "belongs to a different wallet")
+      refute has_element?(view, "[data-testid='destructive-confirm']")
+
+      # A's ledger is unmoved, and nothing on B's wallet netted or
+      # changed (B carries its funding grant and the probe credit).
+      assert length(ledger_entries!(wallet, admin)) == 1
+
+      b_entries = ledger_entries!(wallet_b, admin)
+      assert [] = Enum.filter(b_entries, &(&1.reverses_id != nil))
+
+      assert admin
+    end
+
     test "a reveal naming a debit row or an unknown entry refuses and refreshes", %{
       conn: conn,
       admin: admin,
@@ -680,6 +790,51 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
 
       assert text_of(view, "[data-testid='admin-wallet-reference-#{entry.id}']") ==
                "polar:capture-123"
+    end
+
+    test "the reason badges keep their distinct tone and icon pairs", %{
+      conn: conn,
+      admin: admin,
+      wallet: wallet
+    } do
+      # A swap of tone or icon between reasons must fail a test: the
+      # pair is the badge's identity, in both themes.
+      {:ok, purchase} =
+        Billing.grant_credits(wallet, 100, reason: :purchase, idempotency_key: "polar:x")
+
+      {:ok, _usage} = Billing.debit_wallet(wallet, 10 * 10_000)
+      {:ok, _refund} = Billing.reverse_entry(purchase)
+
+      {:ok, view, _html} = live(conn, "/admin/billing/wallets/#{wallet.id}")
+
+      row_html = fn id ->
+        render(element(view, "[data-testid='admin-wallet-entry-#{id}']"))
+      end
+
+      ledger = ledger_entries!(wallet, admin)
+
+      # purchase: success tone, the card icon.
+      purchase_html = row_html.(purchase.id)
+      assert purchase_html =~ "bg-success-muted"
+      assert purchase_html =~ "hero-credit-card"
+
+      # usage: neutral tone, the chip icon.
+      [usage] = Enum.filter(ledger, &(&1.reason == :usage))
+      usage_html = row_html.(usage.id)
+      assert usage_html =~ "bg-panel-raised"
+      assert usage_html =~ "hero-cpu-chip"
+
+      # refund: warning tone, the arrow-path icon.
+      [refund] = Enum.filter(ledger, &(&1.reason == :refund))
+      refund_html = row_html.(refund.id)
+      assert refund_html =~ "bg-warning-muted"
+      assert refund_html =~ "hero-arrow-path"
+
+      # adjustment: dashed border (distinct from usage's solid neutral).
+      [adjustment] = Enum.filter(ledger, &(&1.reason == :adjustment))
+      adjustment_html = row_html.(adjustment.id)
+      assert adjustment_html =~ "border-dashed"
+      assert adjustment_html =~ "hero-adjustments-horizontal"
     end
 
     test "the welcome grant's badge renders in the ledger grammar", %{conn: conn, admin: admin} do

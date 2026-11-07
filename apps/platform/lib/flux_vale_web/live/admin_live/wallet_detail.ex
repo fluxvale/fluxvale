@@ -53,6 +53,13 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   # same sort, one page size for every ledger surface.
   @page_size 25
 
+  # The goodwill ceiling: the friends-beta reality is small gestures,
+  # and the keyless post has no payment rail behind it to dispute — a
+  # fat-fingered zero (or a crafted one) should not mint a life-changing
+  # credit that only a reversal can claw back. $1,000. Revisit trigger:
+  # real payment rails or a per-org goodwill policy.
+  @goodwill_max_cents 100_000
+
   @impl Phoenix.LiveView
   def mount(%{"id" => id}, session, socket) do
     admin = socket.assigns.current_user
@@ -206,15 +213,21 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
     # coveralls-ignore-stop
 
     # The surface refuses politely before the domain ever sees it: a
-    # whole number of US cents, at least 1. The action's own constraint
-    # stays the arbiter.
+    # whole number of US cents, at least 1, at most the ceiling. The
+    # action's own constraint stays the arbiter.
     case parse_cents(raw) do
-      {:ok, cents} ->
+      {:ok, cents} when cents <= @goodwill_max_cents ->
         {:noreply,
          assign(socket,
            confirm: {:goodwill, cents},
            goodwill_form: to_form(%{"amount_cents" => raw}, as: :goodwill)
          )}
+
+      {:ok, _over} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, amount_over_ceiling_copy())
+         |> assign(goodwill_form: to_form(%{"amount_cents" => raw}, as: :goodwill))}
 
       :error ->
         {:noreply,
@@ -251,21 +264,37 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
 
   # The reversal lever's click. The reveal rides a fresh actor-
   # authorized domain read (server-side state check), and the row's own
-  # facts gate the rest: only a credit that is not itself a reversal
-  # opens the confirm — anything else is the row-moved class, answered
-  # with an honest refresh.
+  # facts gate the rest: only a credit of THIS wallet that is not
+  # itself a reversal opens the confirm — anything else is answered
+  # honestly. A crafted id naming another wallet's entry is a scoping
+  # refusal, not a row-moved one: the page never acts outside the
+  # wallet it renders.
   def handle_event("open-reverse", %{"id" => id}, socket) do
     admin = socket.assigns.current_user
 
-    with {:ok, entry} <- Ash.get(LedgerEntry, id, actor: admin),
-         :credit <- entry.type,
-         nil <- entry.reverses_id do
-      {:noreply,
-       socket
-       |> assign(confirm: {:reverse, entry})
-       |> stream_insert(:entries, entry)}
-    else
-      _changed ->
+    case Ash.get(LedgerEntry, id, actor: admin) do
+      {:ok, entry} ->
+        cond do
+          entry.wallet_id != socket.assigns.wallet.id ->
+            {:noreply,
+             socket
+             |> put_flash(:error, gettext("That entry belongs to a different wallet."))
+             |> refresh_ledger()}
+
+          entry.type == :credit and is_nil(entry.reverses_id) ->
+            {:noreply,
+             socket
+             |> assign(confirm: {:reverse, entry})
+             |> stream_insert(:entries, entry)}
+
+          true ->
+            {:noreply,
+             socket
+             |> put_flash(:error, gettext("That entry changed. The ledger is refreshed."))
+             |> refresh_ledger()}
+        end
+
+      _not_found ->
         {:noreply,
          socket
          |> put_flash(:error, gettext("That entry changed. The ledger is refreshed."))
@@ -415,32 +444,53 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   defp attempt_reverse(socket, admin, entry) do
     case Ash.get(LedgerEntry, entry.id, actor: admin) do
       {:ok, fresh} ->
-        case Billing.reverse_entry(fresh) do
-          {:ok, reversal} ->
-            {:noreply, reversed(socket, fresh, reversal)}
-
-          {:error, :already_reversed} ->
-            {:noreply,
-             socket
-             |> put_flash(
-               :error,
-               gettext("That entry is already reversed. The ledger is refreshed.")
-             )
-             |> refresh_ledger()}
-
-          # defensive: the posting only fails on a DB failure (the
-          # double-reversal guard ran; the unique index backstops the
-          # race) — not simulatable under the sandbox
+        if fresh.wallet_id == socket.assigns.wallet.id do
+          do_reverse(socket, fresh)
+        else
+          # Defense at the write too: @confirm is only set by
+          # open-reverse, which already refuses cross-wallet ids, so
+          # this arm is wire-unreachable today — it keeps the page's
+          # one rule true no matter what future paths set the confirm.
           # coveralls-ignore-start
-          {:error, _refused} ->
-            {:noreply, reverse_refused(socket)}
-            # coveralls-ignore-stop
+          {:noreply,
+           socket
+           |> put_flash(
+             :error,
+             gettext("That entry belongs to a different wallet. The ledger is refreshed.")
+           )
+           |> refresh_ledger()}
+
+          # coveralls-ignore-stop
         end
 
       # Ledger rows are never deleted (append-only), so this arm is
       # the DB-down class — not simulatable under the sandbox.
       # coveralls-ignore-start
       {:error, _vanished} ->
+        {:noreply, reverse_refused(socket)}
+        # coveralls-ignore-stop
+    end
+  end
+
+  defp do_reverse(socket, fresh) do
+    case Billing.reverse_entry(fresh) do
+      {:ok, reversal} ->
+        {:noreply, reversed(socket, fresh, reversal)}
+
+      {:error, :already_reversed} ->
+        {:noreply,
+         socket
+         |> put_flash(
+           :error,
+           gettext("That entry is already reversed. The ledger is refreshed.")
+         )
+         |> refresh_ledger()}
+
+      # defensive: the posting only fails on a DB failure (the
+      # double-reversal guard ran; the unique index backstops the
+      # race) — not simulatable under the sandbox
+      # coveralls-ignore-start
+      {:error, _refused} ->
         {:noreply, reverse_refused(socket)}
         # coveralls-ignore-stop
     end
@@ -478,15 +528,24 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   end
 
   # Post-write facts refresh: the balance and the runway projection move
-  # with every posted row. Wallet rows are never deleted, so the plain
-  # match is the DB-down class by construction.
+  # with every posted row. Mirror mount's defensive posture — a read
+  # failure here (the DB-down class) keeps the page alive with the
+  # previous facts rather than crashing AFTER a committed post, which
+  # would eat the success flash and invite a double post.
+  # coveralls-ignore-start - the failure arm is the DB-down class
   defp refresh_facts(socket) do
     admin = socket.assigns.current_user
-    {:ok, wallet} = Ash.get(Wallet, socket.assigns.wallet.id, actor: admin)
-    {:ok, runway} = Billing.compute_runway(wallet)
 
-    assign(socket, wallet: wallet, runway: runway)
+    with {:ok, wallet} <- Ash.get(Wallet, socket.assigns.wallet.id, actor: admin),
+         {:ok, runway} <- Billing.compute_runway(wallet) do
+      assign(socket, wallet: wallet, runway: runway)
+    else
+      _read_failed ->
+        socket
+    end
   end
+
+  # coveralls-ignore-stop
 
   # A changed ledger re-reads page one and resets the stream: the same
   # honest-refresh posture as the people surface.
@@ -544,6 +603,13 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   end
 
   # -- copy -----------------------------------------------------------------
+
+  defp amount_over_ceiling_copy do
+    gettext(
+      "Goodwill credits cap at %{cap}. Nothing was posted.",
+      cap: BillingComponents.format_balance(@goodwill_max_cents)
+    )
+  end
 
   defp amount_invalid_copy(raw) do
     trimmed = String.trim(raw || "")
@@ -654,14 +720,22 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
 
   defp reverse_title(entry) do
     gettext("Reverse the %{amount} credit?",
-      amount: BillingComponents.format_amount(entry.amount)
+      amount: BillingComponents.format_balance(entry.amount)
     )
   end
 
   # -- display helpers ------------------------------------------------------
 
-  defp destroy_clock?(runway, wallet) do
-    runway.balance_cents < 0 or not is_nil(wallet.negative_since)
+  # The DANGER presentation gates on the balance alone: the sweep
+  # clears the anchor hourly, so an armed-but-recovered wallet (balance
+  # back above zero, anchor not yet swept) is not a countdown and must
+  # not read as one.
+  defp destroy_clock?(runway, _wallet) do
+    runway.balance_cents < 0
+  end
+
+  defp recovered_but_armed?(runway, wallet) do
+    runway.balance_cents >= 0 and not is_nil(wallet.negative_since)
   end
 
   # Reached only under the negative_since guard in the template.
@@ -770,8 +844,10 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
         </section>
 
         <%!-- The destroy clock's honest gravity: a negative balance is
-        a countdown to data deletion, and the card names the deadline,
-        not just the start. --%>
+        a countdown to data deletion, and the card names the deadline.
+        The clearing is the sweep's job (hourly), never the top-up's
+        instant — the copy says that. A recovered-but-armed wallet gets
+        its own quiet card, not the danger one. --%>
         <section class="wrap pt-2 pb-8">
           <div
             :if={destroy_clock?(@runway, @wallet)}
@@ -784,15 +860,30 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
             <p class="mt-1 text-sm text-ink">
               <%= if @wallet.negative_since do %>
                 {gettext(
-                  "The org's instances are stopped and its data is on a destroy clock. The clock started %{start}. Deletion lands %{deadline}. A top-up that restores the balance clears the clock.",
+                  "The org's instances are stopped and its data is on a destroy clock. The clock started %{start}. Deletion lands %{deadline}. The clock clears at the next automatic check once the balance is back above zero.",
                   start: stamp_text(@wallet.negative_since),
                   deadline: AdminComponents.destroy_deadline_text(@wallet.negative_since)
                 )}
               <% else %>
                 {gettext(
-                  "The org's instances are stopped. The destroy clock starts at the next automatic check. A top-up that restores the balance clears everything."
+                  "The org's instances are stopped. The destroy clock starts at the next automatic check. A top-up that puts the balance back above zero clears it there."
                 )}
               <% end %>
+            </p>
+          </div>
+
+          <div
+            :if={recovered_but_armed?(@runway, @wallet)}
+            class="rise rounded-panel border border-line bg-panel px-4 py-3"
+            data-testid="admin-wallet-recovered"
+          >
+            <p class="text-sm font-semibold text-ink">
+              {gettext("The balance recovered.")}
+            </p>
+            <p class="mt-1 text-sm text-ink-muted">
+              {gettext(
+                "The destroy clock from the negative episode has not been swept yet. It clears at the next automatic check. Nothing is on a countdown right now."
+              )}
             </p>
           </div>
         </section>
@@ -848,8 +939,11 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
               <div>
                 <h2 class="text-base font-medium text-ink">{gettext("Goodwill credit")}</h2>
                 <p class="mt-1 text-sm text-ink-muted">
+                  <%!-- The cap is literal here: module attributes read as
+                  assigns inside HEEx. It is @goodwill_max_cents above
+                  (enforced in grant-goodwill); move the two together. --%>
                   {gettext(
-                    "Posts as an adjustment credit. A post cannot be undone, only reversed with a compensating entry."
+                    "Posts as an adjustment credit, up to $1,000.00. A post cannot be undone, only reversed with a compensating entry."
                   )}
                 </p>
               </div>

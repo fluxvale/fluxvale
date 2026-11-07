@@ -166,6 +166,24 @@ defmodule FluxValeWeb.AdminBillingLiveTest do
       refute has_element?(view, "[data-testid='admin-billing-negative-#{plain.id}']")
     end
 
+    test "a recovered balance with an unswept anchor shows no countdown", %{conn: conn} do
+      # The sweep clears a recovered wallet's anchor hourly: until then
+      # the row is armed but not a countdown, and must not read as one.
+      {_org, wallet} = funded_wallet!(name: "recovered co")
+
+      wallet
+      |> Ash.Changeset.for_update(
+        :set_ladder_state,
+        %{negative_since: DateTime.add(DateTime.utc_now(), -1, :hour)},
+        authorize?: false
+      )
+      |> Ash.update!()
+
+      {:ok, view, _html} = live(conn, "/admin/billing")
+
+      refute has_element?(view, "[data-testid='admin-billing-negative-#{wallet.id}']")
+    end
+
     test "negative balances pin to the top, then newest provisioned first", %{conn: conn} do
       # The oldest wallet goes negative LAST: under provisioning-time
       # order it would sink under every newer signup — the exact row

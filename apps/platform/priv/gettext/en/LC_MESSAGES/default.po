@@ -12,9 +12,9 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 #: lib/flux_vale_web/components/core_components.ex:718
-#: lib/flux_vale_web/live/admin_live/billing.ex:271
+#: lib/flux_vale_web/live/admin_live/billing.ex:274
 #: lib/flux_vale_web/live/admin_live/people.ex:489
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:928
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1022
 #, elixir-autogen, elixir-format
 msgid "Actions"
 msgstr ""
@@ -728,14 +728,14 @@ msgstr ""
 msgid "Moderate the public feedback board."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/billing.ex:188
+#: lib/flux_vale_web/live/admin_live/billing.ex:191
 #: lib/flux_vale_web/live/admin_live/catalog.ex:47
 #: lib/flux_vale_web/live/admin_live/home.ex:78
 #: lib/flux_vale_web/live/admin_live/people.ex:371
 #: lib/flux_vale_web/live/admin_live/size_edit.ex:256
 #: lib/flux_vale_web/live/admin_live/sizes.ex:63
 #: lib/flux_vale_web/live/admin_live/version_edit.ex:388
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:750
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:824
 #, elixir-autogen, elixir-format
 msgid "Operator console"
 msgstr ""
@@ -781,7 +781,7 @@ msgstr ""
 msgid "This node's BEAM and database telemetry."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/billing.ex:189
+#: lib/flux_vale_web/live/admin_live/billing.ex:192
 #: lib/flux_vale_web/live/admin_live/home.ex:40
 #, elixir-autogen, elixir-format
 msgid "Wallets and billing"
@@ -1014,7 +1014,7 @@ msgstr ""
 msgid "None"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/billing.ex:351
+#: lib/flux_vale_web/live/admin_live/billing.ex:354
 #: lib/flux_vale_web/live/admin_live/home.ex:112
 #, elixir-autogen, elixir-format
 msgid "Open"
@@ -1363,7 +1363,7 @@ msgstr ""
 msgid "Yes, withdraw this invite"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/billing.ex:201
+#: lib/flux_vale_web/live/admin_live/billing.ex:204
 #: lib/flux_vale_web/live/admin_live/people.ex:384
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Back to the admin console"
@@ -1380,8 +1380,8 @@ msgid "No invitation"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/people.ex:577
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:825
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:985
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:916
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1079
 #, elixir-autogen, elixir-format
 msgid "Opening..."
 msgstr ""
@@ -1427,290 +1427,286 @@ msgstr ""
 msgid "The reinvite was refused. Sign out and sign back in, then try again."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1001
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1095
 #, elixir-autogen, elixir-format
 msgid "A compensating debit is posted for the same amount. The original entry stays in the ledger. Net effect on the balance: zero."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:727
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:801
 #, elixir-autogen, elixir-format
 msgid "Adjustment"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:869
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:963
 #, elixir-autogen, elixir-format
 msgid "Amount (US cents)"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:761
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:835
 #, elixir-autogen, elixir-format
 msgid "Back to wallets"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/billing.ex:268
+#: lib/flux_vale_web/live/admin_live/billing.ex:271
 #, elixir-autogen, elixir-format
 msgid "Balance"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/billing.ex:331
+#: lib/flux_vale_web/live/admin_live/billing.ex:334
 #, elixir-autogen, elixir-format
 msgid "Destroy clock"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:565
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:631
 #, elixir-autogen, elixir-format
 msgid "Enter a whole number of US cents, at least 1. Nothing was posted."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/billing.ex:248
+#: lib/flux_vale_web/live/admin_live/billing.ex:251
 #, elixir-autogen, elixir-format
 msgid "Every org carries exactly one wallet, provisioned on demand. Open one to see its ledger."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/billing.ex:191
+#: lib/flux_vale_web/live/admin_live/billing.ex:194
 #, elixir-autogen, elixir-format
 msgid "Every org's wallet. The balance is the ledger, a row with the destroy clock is a countdown, and the waiver moves no money. Open a wallet for its ledger and the writes."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/billing.ex:214
+#: lib/flux_vale_web/live/admin_live/billing.ex:217
 #, elixir-autogen, elixir-format
 msgid "Find a wallet"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:849
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:940
 #, elixir-autogen, elixir-format
 msgid "Goodwill credit"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:911
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1005
 #, elixir-autogen, elixir-format
 msgid "Ledger"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1025
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1119
 #, elixir-autogen, elixir-format
 msgid "Load more"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/billing.ex:270
+#: lib/flux_vale_web/live/admin_live/billing.ex:273
 #, elixir-autogen, elixir-format
 msgid "Negative since"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:915
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1009
 #, elixir-autogen, elixir-format
 msgid "No activity yet."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/billing.ex:255
+#: lib/flux_vale_web/live/admin_live/billing.ex:258
 #, elixir-autogen, elixir-format
 msgid "No wallet matches that org."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/billing.ex:247
+#: lib/flux_vale_web/live/admin_live/billing.ex:250
 #, elixir-autogen, elixir-format, fuzzy
 msgid "No wallets yet."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/billing.ex:167
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:653
+#: lib/flux_vale_web/live/admin_live/billing.ex:170
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:719
 #, elixir-autogen, elixir-format
 msgid "Not waived"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/billing.ex:228
+#: lib/flux_vale_web/live/admin_live/billing.ex:231
 #, elixir-autogen, elixir-format
 msgid "Org name or slug"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/billing.ex:267
+#: lib/flux_vale_web/live/admin_live/billing.ex:270
 #, elixir-autogen, elixir-format
 msgid "Organization"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/billing.ex:269
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:808
+#: lib/flux_vale_web/live/admin_live/billing.ex:272
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:899
 #, elixir-autogen, elixir-format
 msgid "Paywall waiver"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:885
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:979
 #, elixir-autogen, elixir-format
 msgid "Post credit"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:570
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:636
 #, elixir-autogen, elixir-format
 msgid "Posted %{amount} as an adjustment credit. It sits at the top of the ledger. It cannot be un-posted, only reversed."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:511
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:570
 #, elixir-autogen, elixir-format
 msgid "Posted the compensating reversal. The original entry stays in the ledger."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:724
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:798
 #, elixir-autogen, elixir-format
 msgid "Purchase"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:726
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:800
 #, elixir-autogen, elixir-format
 msgid "Refund"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:635
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:701
 #, elixir-autogen, elixir-format
 msgid "Remove the paywall waiver for %{org}?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:646
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:712
 #, elixir-autogen, elixir-format
 msgid "Remove the waiver"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:955
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1049
 #, elixir-autogen, elixir-format
 msgid "Reversal"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:988
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1082
 #, elixir-autogen, elixir-format
 msgid "Reverse"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:656
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:722
 #, elixir-autogen, elixir-format
 msgid "Reverse the %{amount} credit?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:959
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1053
 #, elixir-autogen, elixir-format
 msgid "Reversed"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/billing.ex:229
+#: lib/flux_vale_web/live/admin_live/billing.ex:232
 #, elixir-autogen, elixir-format
 msgid "Search by org name or slug"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/billing.ex:216
+#: lib/flux_vale_web/live/admin_live/billing.ex:219
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Search narrows this list by org name or slug. It never reaches past it."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:271
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:293
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:300
 #, elixir-autogen, elixir-format
 msgid "That entry changed. The ledger is refreshed."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:427
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:485
 #, elixir-autogen, elixir-format
 msgid "That entry is already reversed. The ledger is refreshed."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:101
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:108
 #, elixir-autogen, elixir-format
 msgid "That wallet does not exist."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:782
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:858
 #, elixir-autogen, elixir-format
 msgid "The balance is below zero."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:407
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:436
 #, elixir-autogen, elixir-format
 msgid "The credit was refused. Nothing was posted. Try again."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:607
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:673
 #, elixir-autogen, elixir-format
 msgid "The has-paid gate closes again. Private access and backups lock until the org tops up. No money moves."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:792
-#, elixir-autogen, elixir-format
-msgid "The org's instances are stopped. The destroy clock starts at the next automatic check. A top-up that restores the balance clears everything."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:613
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:679
 #, elixir-autogen, elixir-format
 msgid "The paywall gate is waived for this org. Private access and backups are unlocked. No money moved."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:527
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:586
 #, elixir-autogen, elixir-format
 msgid "The reversal was refused. The ledger is refreshed."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:810
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:901
 #, elixir-autogen, elixir-format
 msgid "The waiver satisfies only the has-paid gate. It unlocks private access and backups for this org. It moves no money, posts no ledger row, and waives nothing spendable."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:373
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:402
 #, elixir-autogen, elixir-format
 msgid "The waiver was refused. Try again."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:753
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:827
 #, elixir-autogen, elixir-format
 msgid "The wallet behind %{org}. Balance, runway, and the ledger."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:90
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:97
 #, elixir-autogen, elixir-format
 msgid "The wallet's numbers did not load. Try again."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:137
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:144
 #, elixir-autogen, elixir-format
 msgid "The wallet's state did not load. Try again."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:725
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:799
 #, elixir-autogen, elixir-format
 msgid "Usage"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:647
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:713
 #, elixir-autogen, elixir-format
 msgid "Waive the gate"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:631
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:697
 #, elixir-autogen, elixir-format
 msgid "Waive the paywall gate for %{org}?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/billing.ex:166
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:652
+#: lib/flux_vale_web/live/admin_live/billing.ex:169
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:718
 #, elixir-autogen, elixir-format
 msgid "Waived"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:723
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:797
 #, elixir-autogen, elixir-format
 msgid "Welcome credit"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:639
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:705
 #, elixir-autogen, elixir-format
 msgid "Yes, remove the waiver"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1005
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1099
 #, elixir-autogen, elixir-format
 msgid "Yes, reverse this entry"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:638
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:704
 #, elixir-autogen, elixir-format
 msgid "Yes, waive the gate"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:926
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1020
 #, elixir-autogen, elixir-format
 msgid "Amount"
 msgstr ""
@@ -1720,72 +1716,62 @@ msgstr ""
 msgid "Balances, waivers, and billing oversight."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:925
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1019
 #, elixir-autogen, elixir-format
 msgid "Entry"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:892
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:986
 #, elixir-autogen, elixir-format
 msgid "Post a %{amount} goodwill credit?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:577
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:643
 #, elixir-autogen, elixir-format
 msgid "Posts %{amount} now as an adjustment credit. It cannot be un-posted, only reversed with a compensating entry."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:851
-#, elixir-autogen, elixir-format
-msgid "Posts as an adjustment credit. A post cannot be undone, only reversed with a compensating entry."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:927
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1021
 #, elixir-autogen, elixir-format
 msgid "Reference"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:882
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:976
 #, elixir-autogen, elixir-format
 msgid "Reviewing..."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/billing.ex:244
+#: lib/flux_vale_web/live/admin_live/billing.ex:247
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Showing the latest 100 wallets. Negative balances pin to the top."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:595
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:661
 #, elixir-autogen, elixir-format, fuzzy
 msgid "The has-paid gate opens for this org: private access and backups unlock. No money moves."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:786
-#, elixir-autogen, elixir-format, fuzzy
-msgid "The org's instances are stopped and its data is on a destroy clock. The clock started %{start}. Deletion lands %{deadline}. A top-up that restores the balance clears the clock."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:601
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:667
 #, elixir-autogen, elixir-format
 msgid "The waiver flag comes off. The org's purchase history still satisfies the has-paid gate, so nothing changes for this org."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:619
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:685
 #, elixir-autogen, elixir-format
 msgid "The waiver flag is removed. The org's purchase history keeps the has-paid gate satisfied, so nothing changed for this org."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:625
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:691
 #, elixir-autogen, elixir-format, fuzzy
 msgid "The waiver is removed. The has-paid gate closes again. Private access and backups lock until the org tops up."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:924
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1018
 #, elixir-autogen, elixir-format
 msgid "When"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:559
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:625
 #, elixir-autogen, elixir-format
 msgid "Whole cents only. Enter %{cents} for %{amount}. Nothing was posted."
 msgstr ""
@@ -1795,17 +1781,57 @@ msgstr ""
 msgid "Working..."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:584
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:650
 #, elixir-autogen, elixir-format
 msgid "Yes, post %{amount}"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:588
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:654
 #, elixir-autogen, elixir-format
 msgid "Your admin access ended. Sign out and sign back in."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/billing.ex:337
+#: lib/flux_vale_web/live/admin_live/billing.ex:340
 #, elixir-autogen, elixir-format
 msgid "since %{start}, deletes %{deadline}"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:608
+#, elixir-autogen, elixir-format
+msgid "Goodwill credits cap at %{cap}. Nothing was posted."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:945
+#, elixir-autogen, elixir-format, fuzzy
+msgid "Posts as an adjustment credit, up to $1,000.00. A post cannot be undone, only reversed with a compensating entry."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:281
+#, elixir-autogen, elixir-format
+msgid "That entry belongs to a different wallet."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:459
+#, elixir-autogen, elixir-format
+msgid "That entry belongs to a different wallet. The ledger is refreshed."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:881
+#, elixir-autogen, elixir-format
+msgid "The balance recovered."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:884
+#, elixir-autogen, elixir-format
+msgid "The destroy clock from the negative episode has not been swept yet. It clears at the next automatic check. Nothing is on a countdown right now."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:862
+#, elixir-autogen, elixir-format, fuzzy
+msgid "The org's instances are stopped and its data is on a destroy clock. The clock started %{start}. Deletion lands %{deadline}. The clock clears at the next automatic check once the balance is back above zero."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:868
+#, elixir-autogen, elixir-format, fuzzy
+msgid "The org's instances are stopped. The destroy clock starts at the next automatic check. A top-up that puts the balance back above zero clears it there."
 msgstr ""

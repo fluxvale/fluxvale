@@ -74,7 +74,7 @@ defmodule FluxValeWeb.AdminLive.Billing do
     fetched =
       Wallet
       |> Ash.Query.for_read(:read, %{}, actor: admin)
-      |> Ash.Query.sort(negative_since: :desc_nils_last, created_at: :desc)
+      |> Ash.Query.sort(negative_since: :desc_nils_last, created_at: :desc, id: :desc)
       |> maybe_search(socket.assigns.query)
       |> Ash.Query.limit(@list_cap + 1)
       |> Ash.Query.load(:balance)
@@ -155,7 +155,10 @@ defmodule FluxValeWeb.AdminLive.Billing do
     end
   end
 
-  defp negative?(wallet), do: wallet.balance < 0 or not is_nil(wallet.negative_since)
+  # The danger presentation gates on the balance alone: the sweep
+  # clears a recovered wallet's anchor hourly, and an armed-but-positive
+  # row must not read as a countdown.
+  defp negative?(wallet), do: wallet.balance < 0
 
   # The waiver badge grammar: waived is the live switch (primary, the
   # key as the non-color cue), off rests neutral with no cue — the same

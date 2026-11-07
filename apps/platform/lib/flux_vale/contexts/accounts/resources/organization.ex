@@ -360,7 +360,15 @@ defmodule FluxVale.Accounts.Organization do
 
       argument(:ids, {:array, :uuid},
         allow_nil?: false,
-        constraints: [min_length: 1]
+        # The wallet page asks for at most a cap-plus-one of ids; 200
+        # refuses absurd asks without hurting any caller. Deliberately
+        # PUBLIC: Ash.ActionInput.for_action only feeds public
+        # arguments, and the in-repo callers ride that code interface.
+        # The wire cannot reach this action (the resource's only
+        # JSON:API route is :list_for_actor), so there is nothing to
+        # lock out today — if a route is ever authored for this
+        # action, re-check this argument's exposure first.
+        constraints: [min_length: 1, max_length: 200]
       )
 
       run(fn input, _context ->
