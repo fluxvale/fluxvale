@@ -15,9 +15,13 @@ defmodule FluxVale.Repo.Migrations.ComputeOnlySizes do
   end
 
   def down do
+    # Best-effort rollback (ADR-0013 Am. 1's pre-launch carve-out): the
+    # up drops the bundled values, so these defaults are placeholders
+    # for existing rows — reverting the PR also reverts the seed YAML,
+    # and the next seed run re-converges the old bundled table.
     alter table(:pricing_sizes) do
-      add :stopped_monthly_cents, :bigint, null: false
-      add :storage_gb, :bigint, null: false
+      add :stopped_monthly_cents, :bigint, null: false, default: 0
+      add :storage_gb, :bigint, null: false, default: 0
     end
   end
 end

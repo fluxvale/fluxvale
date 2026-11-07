@@ -28,10 +28,17 @@ const page = await ctx.newPage();
 
 await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
 const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
-await page.request.post(`${BASE}/auth/session`, {
+const login = await page.request.post(`${BASE}/auth/session`, {
   form: { token: TOKEN },
   headers: { "x-csrf-token": csrf },
 });
+// A bad token would otherwise capture the sign-in page for every shot
+// and still exit 0.
+if (!login.ok()) {
+  console.error(`session login failed: ${login.status()}`);
+  await browser.close();
+  process.exit(1);
+}
 
 const shoot = async (name, fn) => {
   for (const mode of ["light", "dark"]) {
@@ -42,7 +49,14 @@ const shoot = async (name, fn) => {
       document.documentElement.setAttribute("data-theme-source", "user");
     }, mode);
     await page.waitForTimeout(300);
-    await page.screenshot({ path: `${outdir}/${name}-${mode}.png`, fullPage: false });
+    // animations disabled: the theme switch is a color transition and
+    // the sections ride entry animations — freeze them for deterministic
+    // captures.
+    await page.screenshot({
+      path: `${outdir}/${name}-${mode}.png`,
+      fullPage: false,
+      animations: "disabled",
+    });
     console.log(`captured ${name}-${mode}.png`);
   }
 };
