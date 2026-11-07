@@ -492,11 +492,13 @@ defmodule FluxValeWeb.AdminLive.People do
                   :if={not @rows_empty?}
                   class="overflow-x-auto rounded-panel border border-line bg-panel text-ink"
                 >
-                  <div class="min-w-[53rem]">
+                  <div class="min-w-[39rem]">
                     <%!-- One grid template shared by the header and every
                 row (kept literal in both spots), so the columns can
-                never drift. --%>
-                    <div class="grid grid-cols-[minmax(15.5rem,2.2fr)_6.5rem_repeat(4,minmax(5.75rem,1fr))_10rem] items-center gap-x-2 border-b border-line px-4 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
+                never drift. Track mins total 37.5rem, so the populated list
+                fits the band beside the sidebar at 1024+ with no horizontal
+                scroll. --%>
+                    <div class="grid grid-cols-[minmax(7.5rem,1.8fr)_5.5rem_repeat(4,4.25rem)_5.25rem] items-center gap-x-1.5 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
                       <div>{gettext("Email")}</div>
                       <div>{gettext("State")}</div>
                       <div>{gettext("Invited")}</div>
@@ -512,7 +514,7 @@ defmodule FluxValeWeb.AdminLive.People do
                         id={dom_id}
                         class="border-b border-line last:border-0"
                       >
-                        <div class="grid grid-cols-[minmax(15.5rem,2.2fr)_6.5rem_repeat(4,minmax(5.75rem,1fr))_10rem] items-center gap-x-2 px-4 py-3 transition-colors hover:bg-panel-raised/60">
+                        <div class="grid grid-cols-[minmax(7.5rem,1.8fr)_5.5rem_repeat(4,4.25rem)_5.25rem] items-center gap-x-1.5 px-3 py-3 transition-colors hover:bg-panel-raised/60">
                           <div class="min-w-0">
                             <span
                               class="block truncate whitespace-nowrap font-medium text-ink"
@@ -524,7 +526,10 @@ defmodule FluxValeWeb.AdminLive.People do
                           </div>
                           <div>
                             <span data-testid={"admin-people-state-#{user.id}"}>
-                              <.badge tone={state_tone(user.invite_state)}>
+                              <.badge
+                                tone={state_tone(user.invite_state)}
+                                class="px-1.5! text-[11px]!"
+                              >
                                 <%= case state_cue(user.invite_state) do %>
                                   <% {:dot, :pulse} -> %>
                                     <span class="size-1.5 rounded-full bg-current motion-safe:animate-pulse" />
@@ -573,7 +578,7 @@ defmodule FluxValeWeb.AdminLive.People do
                             </span>
                           </div>
                           <div>
-                            <div class="flex items-center justify-end gap-4">
+                            <div class="flex items-center justify-end gap-2">
                               <button
                                 :if={reinvite?(user.invite_state)}
                                 type="button"

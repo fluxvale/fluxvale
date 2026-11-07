@@ -137,12 +137,14 @@ trusted-superuser reality (Am. 1), and Am. 2's always-mounted stance.
 
 Owner ruling: the admin dashboard is organized as **sidebar sections**
 on the account-settings sidebar's idiom (PR #568), and the /admin
-homepage-cards layout is retired. Every /admin surface renders the
-shared section sidebar (`FluxValeWeb.AdminShell`): live workflows at
-their routes, workflows not yet built as honest Coming entries with no
-link (the cards' honesty grammar, kept). `/admin` itself redirects to
-the first live section — no homepage of its own. The remaining
-workflows (billing #571, then feedback, orgs, gateways) land as
-sections in later slices and flip their sidebar entries live when they
-merge. The gate does not move; Am. 3's triple gate stays on every
-surface.
+homepage-cards layout is retired. Every custom /admin surface renders
+the shared section sidebar (`FluxValeWeb.AdminShell`) — the generated
+debug tools (AshAdmin, LiveDashboard) keep their own chrome, so a deep
+link into them is an accepted nav dead-end until browser-back (the
+breadcrumb-back follow-up is filed): live workflows at their routes,
+workflows not yet built as honest Coming entries with no link (the
+cards' honesty grammar, kept). `/admin` itself redirects to the first
+live section — no homepage of its own. The remaining workflows
+(billing #571, then feedback, orgs, gateways) land as sections in
+later slices and flip their sidebar entries live when they do. The
+gate does not move; Am. 3's triple gate stays on every surface.

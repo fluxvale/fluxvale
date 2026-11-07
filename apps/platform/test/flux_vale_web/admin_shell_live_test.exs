@@ -66,7 +66,7 @@ defmodule FluxValeWeb.AdminShellLiveTest do
   end
 
   describe "active state per section and sub-route" do
-    test "the people surface marks the people entry and nothing else", %{conn: conn} do
+    test "the people surface marks the people entry as the page and nothing else", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/admin/people")
 
       current = render(element(view, "[data-testid='admin-nav-people']"))
@@ -76,12 +76,20 @@ defmodule FluxValeWeb.AdminShellLiveTest do
       refute quiet =~ "aria-current", "catalog should stay quiet on the people surface"
     end
 
-    test "the catalog surface and every catalog sub-route mark the catalog entry", %{
+    test "the catalog surface marks the catalog entry as the page", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/catalog")
+
+      current = render(element(view, "[data-testid='admin-nav-catalog']"))
+      assert current =~ ~s(aria-current="page")
+    end
+
+    test "catalog sub-routes mark the catalog entry as an ancestor (location)", %{
       conn: conn,
       version: version
     } do
+      # "page" is reserved for the entry whose href IS the mounted
+      # page. The ladder and the edit forms are section ancestors.
       paths = [
-        "/admin/catalog",
         "/admin/catalog/sizes",
         "/admin/catalog/sizes/#{version.recommended_size.id}",
         "/admin/catalog/versions/#{version.id}"
@@ -91,10 +99,62 @@ defmodule FluxValeWeb.AdminShellLiveTest do
         {:ok, view, _html} = live(conn, path)
 
         current = render(element(view, "[data-testid='admin-nav-catalog']"))
-        assert current =~ ~s(aria-current="page"), "#{path} should mark the catalog entry"
+        assert current =~ ~s(aria-current="location"), "#{path} should mark the section ancestor"
+        refute current =~ "page", "#{path} must not claim the page mark"
 
         quiet = render(element(view, "[data-testid='admin-nav-people']"))
         refute quiet =~ "aria-current", "people should stay quiet on #{path}"
+      end
+    end
+
+    test "every :admin live route renders the shell with the right active mark", %{
+      conn: conn,
+      version: version
+    } do
+      # The enumeration, from the router itself: a new :admin live
+      # route without a shell expectation fails here. /admin is the
+      # redirect head (its bounce is pinned below) and rides the same
+      # module as /admin/people.
+      expected = %{
+        {FluxValeWeb.AdminLive.People, "/admin/people"} => {"people", "page"},
+        {FluxValeWeb.AdminLive.Catalog, "/admin/catalog"} => {"catalog", "page"},
+        {FluxValeWeb.AdminLive.Sizes, "/admin/catalog/sizes"} => {"catalog", "location"},
+        {FluxValeWeb.AdminLive.SizeEdit, "/admin/catalog/sizes/:id"} => {"catalog", "location"},
+        {FluxValeWeb.AdminLive.VersionEdit, "/admin/catalog/versions/:id"} =>
+          {"catalog", "location"}
+      }
+
+      admin_routes =
+        for r <- FluxValeWeb.Router.__routes__(),
+            is_map_key(r, :metadata),
+            is_map_key(r.metadata, :phoenix_live_view),
+            {mod, _action, _info, session} = r.metadata.phoenix_live_view,
+            session[:name] == :admin,
+            r.path != "/admin" do
+          {mod, r.path}
+        end
+
+      assert length(admin_routes) == 5
+
+      for {mod, path} <- admin_routes do
+        {key, mark} = Map.fetch!(expected, {mod, path})
+
+        concrete_path =
+          case path do
+            "/admin/catalog/sizes/:id" -> "/admin/catalog/sizes/#{version.recommended_size.id}"
+            "/admin/catalog/versions/:id" -> "/admin/catalog/versions/#{version.id}"
+            literal -> literal
+          end
+
+        {:ok, view, _html} = live(conn, concrete_path)
+
+        assert view.module == mod, "#{concrete_path} should mount #{inspect(mod)}"
+
+        assert has_element?(view, "[data-testid='admin-sidebar']"),
+               "#{concrete_path} should render the shell"
+
+        entry = render(element(view, "[data-testid='admin-nav-#{key}']"))
+        assert entry =~ ~s(aria-current="#{mark}"), "#{concrete_path} marks #{key} #{mark}"
       end
     end
   end
@@ -167,6 +227,15 @@ defmodule FluxValeWeb.AdminShellLiveTest do
       conn = put_req_header(build_conn(), "authorization", "Bearer " <> pat)
 
       assert {:error, {:redirect, %{to: "/sign-in"}}} = live(conn, "/admin/people")
+    end
+
+    test "the same arm on /admin itself — the redirect head owns that path", %{admin: admin} do
+      # on_mount runs before the mount callback, so the gate's bounce
+      # wins over the :home head's push_navigate to /admin/people.
+      pat = ApiPat.mint!(admin.email, ["instances:read"])
+      conn = put_req_header(build_conn(), "authorization", "Bearer " <> pat)
+
+      assert {:error, {:redirect, %{to: "/sign-in"}}} = live(conn, "/admin")
     end
   end
 end

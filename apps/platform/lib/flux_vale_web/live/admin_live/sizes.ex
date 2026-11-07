@@ -82,11 +82,12 @@ defmodule FluxValeWeb.AdminLive.Sizes do
         </section>
 
         <%!-- The section sidebar (Am. 4, the #568 idiom); the sizes
-        ladder is a catalog sub-route, so it marks the catalog entry.
-        The back link stays — it is intra-section. --%>
+            ladder is a catalog sub-route, so it marks the catalog
+            entry as an ancestor (aria-current="location", not "page").
+            The back link stays — it is intra-section. --%>
         <section class="wrap pt-8 pb-16">
           <div class="rise flex flex-col gap-8 md:flex-row md:gap-12">
-            <AdminShell.sidebar current="catalog" />
+            <AdminShell.sidebar current="catalog" exact={false} />
 
             <div class="min-w-0 flex-1 space-y-6">
               <div class="space-y-4">

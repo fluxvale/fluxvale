@@ -1,13 +1,20 @@
 /* The admin shell's captures (ADR-0027 Am. 4, #501): the section
- * sidebar beside the live surfaces — people (light + dark), catalog
- * (light + dark), the sizes ladder as a sub-page showing the
- * active-state persistence, the sidebar element itself with the
- * Coming entries and the deep debugging group, and the narrow-viewport
- * shape (the sidebar stacks above the content below md — the #568
- * idiom's responsive contract). The shell rides the app chrome, so
- * the light/dark split is the app theme toggle (localStorage
- * phx:theme), not prefers-color-scheme. Stills only — the #568
- * capture set was stills; nothing here moves. Local dev target only.
+ * sidebar beside the live surfaces, POPULATED — the people list rides
+ * its four invitation states, the catalog its real seeded apps. Light
+ * and dark for the two sections, the sizes ladder as the sub-page
+ * showing the active-state persistence (both themes), the sidebar
+ * element itself with the Coming entries and the deep debugging
+ * group, the narrow shape (below md the sidebar stacks above the
+ * content — the #568 idiom's responsive contract), and the 768/900
+ * widths the band beside the nav actually lives at.
+ *
+ * Every shot waits on [data-testid='admin-sidebar'] after its goto:
+ * a 500 or a bounce can never masquerade as evidence (the catalog
+ * 500-lesson from the first review round).
+ *
+ * The shell rides the app chrome, so the light/dark split is the app
+ * theme toggle (localStorage phx:theme), not prefers-color-scheme.
+ * Stills only — nothing here moves. Local dev target only.
  *
  * Usage: FV_TOKEN_ADMIN=<jwt> node admin_shell_screenshot.mjs <outdir>
  * Token: mint with a dev `mix run` one-off —
@@ -29,20 +36,24 @@ if (!TOKEN) {
 mkdirSync(outdir, { recursive: true });
 
 const browser = await chromium.launch();
-const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-const page = await ctx.newPage();
 
-// One signed-in context — the session POST mints the cookie the admin
-// gate reads (the admin_home_screenshot.mjs pattern).
-await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
-const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
-await page.request.post(`${BASE}/auth/session`, {
-  form: { token: TOKEN },
-  headers: { "x-csrf-token": csrf },
-});
+// One session POST mints the cookie the admin gate reads (the
+// screenshot.mjs pattern). One context per width, both themes per
+// context — the theme flips without a reload.
+async function signedIn(width, height) {
+  const ctx = await browser.newContext({ viewport: { width, height } });
+  const page = await ctx.newPage();
+  await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
+  const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
+  await page.request.post(`${BASE}/auth/session`, {
+    form: { token: TOKEN },
+    headers: { "x-csrf-token": csrf },
+  });
+  return { ctx, page };
+}
 
 // The theme flip the toggle does; the root script owns the attrs.
-async function setTheme(mode) {
+async function setTheme(page, mode) {
   await page.evaluate((m) => {
     localStorage.setItem("phx:theme", m);
     document.documentElement.setAttribute("data-theme", m);
@@ -51,53 +62,53 @@ async function setTheme(mode) {
   await page.waitForTimeout(300);
 }
 
-async function fullPage(name, url, mode) {
-  await page.goto(url, { waitUntil: "networkidle" });
-  await setTheme(mode);
-  await page.screenshot({ path: `${outdir}/${name}.png`, fullPage: true });
+// goto + the page-mounted assertion + theme, then the still. The
+// sidebar wait is the anti-500 contract — see the header.
+async function shot(page, name, path, mode, fullPage = true) {
+  await page.goto(`${BASE}${path}`, { waitUntil: "networkidle" });
+  await page.waitForSelector("[data-testid='admin-sidebar']");
+  await setTheme(page, mode);
+  await page.screenshot({ path: `${outdir}/${name}.png`, fullPage });
   console.log(`captured ${name}.png`);
 }
 
-// People in both themes — the shell with the live sections, the Coming
-// entries, and the deep debugging group all in frame.
-await fullPage("admin-people-light", `${BASE}/admin/people`, "light");
-await fullPage("admin-people-dark", `${BASE}/admin/people`, "dark");
+// Desktop: the populated sections in both themes, plus the widths the
+// band beside the nav lives at (768 is the md floor, 900 the mid-band).
+const desktop = await signedIn(1440, 900);
+const page = desktop.page;
 
-// Catalog in both themes; the sizes ladder is the sub-page proof that
-// the catalog entry stays marked off its own route.
-await fullPage("admin-catalog-light", `${BASE}/admin/catalog`, "light");
-await fullPage("admin-catalog-dark", `${BASE}/admin/catalog`, "dark");
-await fullPage("admin-catalog-sizes-light", `${BASE}/admin/catalog/sizes`, "light");
+for (const mode of ["light", "dark"]) {
+  await shot(page, `admin-people-${mode}`, "/admin/people", mode);
+  await shot(page, `admin-catalog-${mode}`, "/admin/catalog", mode);
+  await shot(page, `admin-catalog-sizes-${mode}`, "/admin/catalog/sizes", mode);
+}
 
-// The sidebar element itself, cropped: the Coming entries and the deep
-// debugging group up close.
+// The sidebar element itself, cropped: the Coming entries (inline
+// badges) and the deep debugging group up close.
 await page.goto(`${BASE}/admin/people`, { waitUntil: "networkidle" });
-await setTheme("light");
+await page.waitForSelector("[data-testid='admin-sidebar']");
+await setTheme(page, "light");
 await page.locator("[data-testid='admin-sidebar']").screenshot({
   path: `${outdir}/admin-sidebar-coming-light.png`,
 });
 console.log("captured admin-sidebar-coming-light.png");
+await desktop.ctx.close();
+
+// The band widths: the populated people list beside the nav at the md
+// floor and mid-band (no horizontal scroll expected at either).
+const w768 = await signedIn(768, 900);
+await shot(w768.page, "admin-people-768-light", "/admin/people", "light");
+await w768.ctx.close();
+
+const w900 = await signedIn(900, 900);
+await shot(w900.page, "admin-people-band-900-light", "/admin/people", "light");
+await w900.ctx.close();
 
 // The narrow shape: below md the sidebar stacks above the content
-// (the #568 responsive contract).
-const narrow = await browser.newContext({ viewport: { width: 480, height: 900 } });
-const narrowPage = await narrow.newPage();
-await narrowPage.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
-const narrowCsrf = await narrowPage.locator('meta[name="csrf-token"]').getAttribute("content");
-await narrowPage.request.post(`${BASE}/auth/session`, {
-  form: { token: TOKEN },
-  headers: { "x-csrf-token": narrowCsrf },
-});
-await narrowPage.goto(`${BASE}/admin/people`, { waitUntil: "networkidle" });
-await narrowPage.evaluate((m) => {
-  localStorage.setItem("phx:theme", m);
-  document.documentElement.setAttribute("data-theme", m);
-  document.documentElement.setAttribute("data-theme-source", "user");
-}, "light");
-await narrowPage.waitForTimeout(300);
-await narrowPage.screenshot({ path: `${outdir}/admin-narrow-light.png`, fullPage: true });
-console.log("captured admin-narrow-light.png");
-await narrow.close();
+// (the #568 responsive contract, with the debug copy hidden there).
+const narrow = await signedIn(480, 900);
+await shot(narrow.page, "admin-narrow-light", "/admin/people", "light");
+await narrow.ctx.close();
 
 await browser.close();
 console.log("done:", outdir);
