@@ -6,19 +6,24 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   forms straight onto resources); steps are UI state, not separate
   forms. The version steps carry ADR-0028's live $X.XX/mo estimate.
 
-  The resources step (#180): CPU/memory/storage default to the
-  version's recommended allocation (its defaults, kept equal to
-  `recommended_size` by ValidateSizeMatchesAllocation). Above the
-  recommendation is unrestricted; below shows a heads-up ("it may run
-  slowly or fail") and requires an explicit acknowledgment before
-  Continue proceeds — a wizard-level gate, mirroring the env step's
-  client-controlled order (the platform's own guardrails are the
-  Instance attribute constraints, enforced regardless of acknowledgment).
+  The resources step (#180): CPU/memory default to the version's
+  recommended compute (kept equal to the `recommended_size` compute
+  class by ValidateSizeMatchesAllocation); storage defaults to the
+  version's own `default_storage_gb` — the app's honest per-app
+  default, priced per GB on its own axis since #558 decoupled the
+  two. Above the recommendation is unrestricted; below shows a
+  heads-up ("it may run slowly or fail") and requires an explicit
+  acknowledgment before Continue proceeds — a wizard-level gate,
+  mirroring the env step's client-controlled order (the platform's
+  own guardrails are the Instance attribute constraints, enforced
+  regardless of acknowledgment).
 
   The allocation is **selected, never typed** (#195) and **rungs-only**
   (#221, the owner's call closing #195's control-shape question): the
-  seeded `Size` rows are quick-pick buttons and each dimension's slider
-  steps through that ladder's rungs — index-based
+  seeded `Size` rows are quick-pick buttons (compute classes since
+  #558 — a pick moves CPU/memory and leaves the storage rung the
+  user's) and each dimension's slider steps through that ladder's
+  rungs — index-based
   (`AllocationSliders.resource_dimensions/0`), so one arrow press is
   one rung and the thumb never rests between rungs. No text control
   renders on this step, and every allocation the state can hold is a
@@ -30,12 +35,14 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   unknown preset slug. The form cast on save stays the
   authoritative say.
 
-  Pricing follows the allocation (#186): at the recommendation the
-  estimate is the version's recommended-size price; a custom
-  allocation prices by the anchor formula (ADR-0028's
-  price = f(allocation), docs/pricing-calibration.md) — the same cents
-  the ledger snapshots at create, so the shown price is the charged
-  price by construction.
+  Pricing follows the allocation (#186, storage on its own axis since
+  #558): at the recommended compute the estimate is the compute
+  class's rate plus the per-GB storage rate at the chosen rung (a
+  storage move walks the axis without leaving the size); custom
+  compute prices the whole allocation by the anchor formula
+  (ADR-0028's price = f(allocation), docs/pricing-calibration.md) —
+  the same cents the ledger snapshots at create, so the shown price
+  is the charged price by construction.
 
   Submit = `create` → `deploy` → the instance's status page — matching
   the M3 exit demo. Schema defaults are merged server-side
@@ -114,8 +121,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
       <%!-- App-wide grammar page (S8): `bare` main + .appgram — the page
       owns ALL of main's rhythm. The band carries the wizard's identity;
       the step cards keep their <.card> surface (the grammar's card
-      already). The RESOURCES step's card — the #221 picker's frame — is
-      byte-identical to origin/main (the PR body's picker byte-guard). --%>
+      already). --%>
       <div class="appgram contents">
         <%!-- 1. The sunken band: back link, mono eyebrow (Deploy), the
         app's name on the working-page scale, and the stepper in the
@@ -319,7 +325,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                   class="font-mono text-ink"
                   data-testid="recommended-allocation"
                 >
-                  {@selected.default_cpu_cores} CPU · {@selected.default_memory_mb} MB · {@selected.default_storage_gb} GB
+                  {@selected.default_cpu_cores} CPU · {@selected.default_memory_mb} MB compute and {@selected.default_storage_gb} GB storage
                 </span>
                 for this version. Allocate more, or less at your own risk.
               </p>
@@ -498,29 +504,49 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   end
 
   # The price line is one component so the resources step and the name
-  # step can't disagree. The estimate follows the allocation (#186): at
-  # the recommendation it is the version's size price; a custom
-  # allocation prices by the anchor formula — the same cents the ledger
-  # snapshots at create, so the shown price is the charged price by
-  # construction.
+  # step can't disagree. The estimate follows the allocation (#186,
+  # #558's split axes): at the recommended compute it is the size's
+  # compute rate plus the storage axis at the chosen rung — moving
+  # only storage walks the axis, never the custom-allocation formula;
+  # custom compute prices the whole allocation by the anchor formula —
+  # the same cents the ledger snapshots at create, so the shown price
+  # is the charged price by construction.
   defp price_line(%{selected: selected, resources: resources} = assigns) do
     at_recommendation = recommendation?(selected, resources)
 
     assigns =
       assign(assigns,
-        size: selected.recommended_size,
         at_recommendation: at_recommendation,
+        recommended_cents: recommended_cents(selected, resources, at_recommendation),
         custom_cents: custom_allocation_cents(resources, at_recommendation)
       )
 
     ~H"""
-    <span :if={@size && @at_recommendation} class="font-semibold text-ink">
-      {FluxVale.Pricing.format_monthly_rate(@size.monthly_cents)}
+    <span :if={not is_nil(@recommended_cents)} class="font-semibold text-ink">
+      {FluxVale.Pricing.format_monthly_rate(@recommended_cents)}
     </span>
     <span :if={not @at_recommendation and not is_nil(@custom_cents)} class="font-semibold text-ink">
       {FluxVale.Pricing.format_monthly_rate(@custom_cents)}
     </span>
     """
+  end
+
+  # The at-recommendation rate (#558): the size row prices compute
+  # only, so the storage axis at the user's chosen rung completes it —
+  # the same split the ledger snapshots (PricingSnapshot), so storage
+  # moves the shown price by the axis delta alone. The nil guards
+  # (sizeless version, nil resources) mirror recommendation?/2's
+  # defensive clause — no render reaches them, and nothing shows
+  # rather than a guess.
+  defp recommended_cents(_selected, _resources, false), do: nil
+
+  defp recommended_cents(selected, resources, true) do
+    size = selected.recommended_size
+
+    if size && resources do
+      storage_gb = allocation(resources).storage_gb
+      size.monthly_cents + FluxVale.Pricing.storage_monthly_cents(storage_gb)
+    end
   end
 
   defp custom_allocation_cents(_resources, true), do: nil
@@ -704,12 +730,14 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
     end
   end
 
-  # A quick pick (#195): the seeded size's whole allocation at once —
-  # the same state a slider round trip would reach, priced from the
-  # Size row (its allocation is the recommendation-shaped point on the
-  # curve). The ack starts cold: switching allocation always earns a
-  # fresh look at the heads-up, and a preset that lands at or above the
-  # recommendation never mounts one.
+  # A quick pick (#195, compute-only since #558): the seeded size's
+  # compute at once — the same state the compute sliders would reach —
+  # while the storage rung stays the user's (the pick merges over the
+  # current allocation, or the recommendation when no state exists
+  # yet, so every consumer keeps seeing all three rungs). The ack
+  # starts cold: switching allocation always earns a fresh look at the
+  # heads-up, and a preset that lands at or above the recommendation
+  # never mounts one.
   def handle_event("pick-size", %{"slug" => slug}, socket) do
     if socket.assigns.selected do
       case Enum.find(socket.assigns.pricing_sizes, &(&1.slug == slug)) do
@@ -719,7 +747,9 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
           {:noreply, socket}
 
         size ->
-          socket = assign_resource_state(socket, size_resources(size), false)
+          base = socket.assigns.resources || initial_resources(socket.assigns.selected)
+          resources = Map.merge(base, size_resources(size))
+          socket = assign_resource_state(socket, resources, false)
           {:noreply, socket}
       end
     else
@@ -907,33 +937,41 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
     |> Enum.filter(&representable_size?/1)
   end
 
-  # A quick pick the sliders can state (#221): every dimension value on
-  # its ladder — an admin allocation (#221's arrays are the seeds') a
-  # rung slider can't express would land as a preset its own wizard
-  # refuses or silently clamps: worse than no pick at all, so it stays
-  # off the list.
+  # A quick pick the compute sliders can state (#221, compute-only
+  # since #558): both compute rungs on their ladders — storage never
+  # disqualifies a size (the user's own rung rides a pick). An admin
+  # compute allocation a rung slider can't express would land as a
+  # preset its own wizard refuses or silently clamps: worse than no
+  # pick at all, so it stays off the list.
   defp representable_size?(size) do
     size_values = %{
       "cpu_cores" => decimal_string(size.cpu_cores),
-      "memory_mb" => Integer.to_string(size.memory_mb),
-      "storage_gb" => Integer.to_string(size.storage_gb)
+      "memory_mb" => Integer.to_string(size.memory_mb)
     }
 
     dimensions = AllocationSliders.resource_dimensions()
 
-    Enum.all?(dimensions, fn dimension -> size_values[dimension.key] in dimension.values end)
+    Enum.all?(size_values, fn {key, value} ->
+      dimension = Enum.find(dimensions, &(&1.key == key))
+      value in dimension.values
+    end)
   end
 
+  # A preset's state contribution (#558): compute rungs only — storage
+  # is the user's own axis, so the pick merges over what's already
+  # chosen rather than naming a rung.
   defp size_resources(size) do
     %{
       "cpu_cores" => decimal_string(size.cpu_cores),
-      "memory_mb" => Integer.to_string(size.memory_mb),
-      "storage_gb" => Integer.to_string(size.storage_gb)
+      "memory_mb" => Integer.to_string(size.memory_mb)
     }
   end
 
+  # The sub-line under a preset's slug (#558): its compute shape — the
+  # price beside it is the compute rate, and storage rides the user's
+  # own rung on the axis.
   defp size_allocation(size) do
-    "#{decimal_string(size.cpu_cores)} CPU · #{size.memory_mb} MB · #{size.storage_gb} GB"
+    "#{decimal_string(size.cpu_cores)} CPU · #{size.memory_mb} MB + your storage"
   end
 
   # One row per seeded size, resolved once for the template: the slug,
@@ -958,24 +996,26 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
       version.recommended_size.slug == size.slug
   end
 
-  # A preset reads as pressed only when the allocation IS the size —
-  # same comparison the recommendation check makes, so a repriced or
-  # re-allocated size row degrades to "nothing pressed" instead of
-  # lying. A nil allocation (any render before the resources step
-  # assigns one) is nothing pressed.
+  # A preset reads as pressed only when the compute allocation IS the
+  # size — same comparison the recommendation check makes, so a
+  # repriced or re-allocated size row degrades to "nothing pressed"
+  # instead of lying. Storage never unpresses one (#558): it's the
+  # user's own axis, not the size's. A nil allocation (any render
+  # before the resources step assigns one) is nothing pressed.
   defp preset_active?(nil, _size), do: false
 
   defp preset_active?(resources, size) do
     current = allocation(resources)
 
     Decimal.eq?(current.cpu_cores, size.cpu_cores) and
-      current.memory_mb == size.memory_mb and
-      current.storage_gb == size.storage_gb
+      current.memory_mb == size.memory_mb
   end
 
   # The app's minimum is the version's defaults (the recommendation).
-  # They equal a seeded size's allocation by contract, so they name a
-  # rung; when they don't (an admin size the ladder can't express,
+  # The compute pair equals the recommended size's compute by contract
+  # (ValidateSizeMatchesAllocation), so it names a rung; storage is
+  # the version's own default and may sit between rungs. When a
+  # default doesn't (an admin size the ladder can't express,
   # ADR-0027), the floor still has to be SATISFIABLE: the initial
   # allocation clamps up to the next rung at or above the default, so
   # within the ladder the step never opens under the app's stated
@@ -1083,12 +1123,16 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   # coveralls-ignore-next-line — defensive: both step-3 entries assign resources first
   defp recommendation?(_version, nil), do: true
 
+  # At the recommendation = compute dims on the version's defaults
+  # (#558): storage is the user's own axis and never defects the
+  # compute from its size — the same split PricingSnapshot's
+  # custom_allocation? makes, so the shown price and the charged arm
+  # agree.
   defp recommendation?(version, resources) do
     current = allocation(resources)
 
     Decimal.eq?(current.cpu_cores, version.default_cpu_cores) and
-      current.memory_mb == version.default_memory_mb and
-      current.storage_gb == version.default_storage_gb
+      current.memory_mb == version.default_memory_mb
   end
 
   defp allocation_text(resources) do

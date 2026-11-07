@@ -64,6 +64,9 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
         # #221: the wizard is rungs-only, so the fixture's default
         # allocation must sit on the sliders' ladders to open AT the
         # recommendation — 1024 MB is the memory ladder's second rung.
+        # #558: the fixture's size prices compute only (100¢); the
+        # version's 10 GB storage default prices on the axis (40¢), so
+        # the at-recommendation rate is $1.40/mo throughout this file.
         default_memory_mb: 1024,
         default_storage_gb: 10,
         published_at: DateTime.utc_now()
@@ -248,8 +251,9 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     to_step_3(view)
     to_step_4(view)
 
-    # The name step carries ADR-0028's estimate for the picked version.
-    assert has_element?(view, "[data-testid='price-summary']", "$1.00/mo · billed hourly")
+    # The name step carries ADR-0028's estimate for the picked version:
+    # the size's 100¢ compute rate plus the axis at the 10 GB default.
+    assert has_element?(view, "[data-testid='price-summary']", "$1.40/mo · billed hourly")
 
     # From the name step, back returns to resources, and again to env
     view
@@ -540,7 +544,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     render_click(view, "back-resources", %{})
 
     assert has_element?(view, "#resources-form")
-    assert has_element?(view, "[data-testid='resources-price']", "$1.00/mo · billed hourly")
+    assert has_element?(view, "[data-testid='resources-price']", "$1.40/mo · billed hourly")
   end
 
   test "a channel-level back-resources before a pick stays on the version step", %{
@@ -679,21 +683,22 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       assert render(view) =~ ~s(aria-valuetext="1 core")
     end
 
-    test "the rungs are the seeded ladder's per-dimension values", %{view: view} do
-      # The picker's contract (the comment on resource_dimensions/0):
-      # the arrays ARE the seeds' distinct per-dimension values — the
-      # quick picks and the sliders offer the same allocations, so a
-      # preset is always a reachable thumb position and vice versa. A
-      # seed edit that breaks this hides that size from the quick picks
+    test "the compute rungs are the seeded sizes' distinct values, storage its own axis",
+         %{view: view} do
+      # The compute ladders' contract (the comment on
+      # resource_dimensions/0): the arrays ARE the seeds' distinct
+      # per-dimension compute values — the quick picks and the sliders
+      # offer the same compute shapes, so a preset's compute is always
+      # a reachable thumb position and vice versa. A seed edit that
+      # breaks this hides that size from the quick picks
       # (representable_size?/1); the arrays grow only deliberately.
+      # Storage is its own axis (#558): its ladder is the offered
+      # per-GB range — the same five rungs the axis rate table prices
+      # (24/40/68/135/228¢ B′) — not anything a compute class carries.
       sizes = Ash.read!(Size, authorize?: false)
       assert sizes != []
 
-      for {field, id} <- [
-            {:cpu_cores, "resource-cpu-cores"},
-            {:memory_mb, "resource-memory-mb"},
-            {:storage_gb, "resource-storage-gb"}
-          ] do
+      for {field, id} <- [{:cpu_cores, "resource-cpu-cores"}, {:memory_mb, "resource-memory-mb"}] do
         expected =
           sizes
           |> Enum.map(fn size ->
@@ -715,10 +720,19 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
           |> Enum.map(&Enum.at(&1, 1))
 
         assert rendered == expected
+      end
 
-        for size <- sizes do
-          assert has_element?(view, "[data-testid='preset-#{size.slug}']")
-        end
+      storage_ticks =
+        view
+        |> element("#resource-storage-gb-ticks")
+        |> render()
+        |> then(&Regex.scan(~r/data-value="([^"]+)"/, &1))
+        |> Enum.map(&Enum.at(&1, 1))
+
+      assert storage_ticks == ~w(5 10 20 50 100)
+
+      for size <- sizes do
+        assert has_element?(view, "[data-testid='preset-#{size.slug}']")
       end
     end
 
@@ -812,20 +826,20 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       assert has_element?(view, "#below-recommendation-warning")
     end
 
-    test "an admin allocation the ladders can't express is not offered as a quick pick",
+    test "an admin compute allocation the ladders can't express is not offered as a quick pick",
          %{conn: conn, app: app, version: version} do
       # ADR-0027 lets an admin add any Size the schema accepts; a preset
       # that its own wizard would refuse or silently clamp is worse than
       # none, so representable_size?/1 filters it out of the picks.
+      # #558: only the compute rungs gate the filter — a size carries
+      # nothing else to be off-ladder about.
       off_ladder =
         Size.create!(
           %{
             slug: "off-ladder-#{System.unique_integer([:positive])}",
             cpu_cores: Decimal.new("0.3"),
             memory_mb: 300,
-            storage_gb: 7,
-            monthly_cents: 123,
-            stopped_monthly_cents: 12
+            monthly_cents: 123
           },
           authorize?: false
         )
@@ -855,9 +869,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
             slug: "trailing-#{System.unique_integer([:positive])}",
             cpu_cores: Decimal.new("1.0"),
             memory_mb: 2048,
-            storage_gb: 20,
-            monthly_cents: 621,
-            stopped_monthly_cents: 68
+            monthly_cents: 621
           },
           authorize?: false
         )
@@ -880,6 +892,17 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
         assert has_element?(view, "[data-testid='preset-#{slug}']")
       end
 
+      # #558: the sub-line is the size's compute shape plus a storage
+      # callout — the size prices compute only, and the price beside
+      # it is that compute rate ($3.69 = medium's seeded cents).
+      assert has_element?(
+               view,
+               "[data-testid='preset-medium']",
+               "0.5 CPU · 1024 MB + your storage"
+             )
+
+      assert has_element?(view, "[data-testid='preset-medium']", "$3.69/mo · billed hourly")
+
       # The version's own recommended size is called out (the fixture's
       # fabricated size — loaded here, it rides the fixture unloaded).
       recommended =
@@ -887,56 +910,84 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
       assert has_element?(view, "#preset-#{recommended}", "recommended")
 
-      # The fixture fabricates its size to match the version's defaults,
-      # so the recommendation is also the pressed quick pick — a
-      # meaningful `aria-pressed="true"`, not just the attribute's
-      # presence.
+      # The fixture fabricates its size to match the version's compute
+      # defaults, so the recommendation is also the pressed quick pick —
+      # a meaningful `aria-pressed="true"`, not just the attribute's
+      # presence. Pressed compares compute only (#558): medium shares
+      # the shape, so it reads pressed too — honestly, both land the
+      # same compute.
       assert has_element?(view, "#preset-#{recommended}[aria-pressed='true']")
+      assert has_element?(view, "#preset-medium[aria-pressed='true']")
     end
 
-    test "picking a size sets the whole allocation and reprices from the curve", %{view: view} do
-      # `standard` is 1 CPU / 2048 MB / 20 GB — rung index 2 on all
-      # three ladders — a custom allocation for this fixture's version
-      # (0.5/1024/10).
+    test "a preset pick moves compute and leaves the storage rung alone", %{view: view} do
+      # #558 pin: storage first — rung index 3 (50 GB) — then a quick
+      # pick. The pick moves only the compute sliders; the storage
+      # thumb stays exactly where the user left it.
+      view
+      |> form("#resources-form", resources: %{storage_gb: "3"})
+      |> render_change()
+
+      view
+      |> element("[data-testid='preset-plus']")
+      |> render_click()
+
+      # plus is 2 CPU / 4096 MB — rung index 3 on both compute ladders.
+      assert has_element?(view, "#resource-cpu-cores[value='3']")
+      assert has_element?(view, "#resource-memory-mb[value='3']")
+      assert render(view) =~ ~s(aria-valuetext="2 cores")
+      assert render(view) =~ ~s(aria-valuetext="4096 MB")
+
+      # 50 GB, untouched by the pick.
+      assert has_element?(view, "#resource-storage-gb[value='3']")
+      assert render(view) =~ ~s(aria-valuetext="50 GB")
+    end
+
+    test "picking a size moves compute and reprices from the curve", %{view: view} do
+      # `standard` is 1 CPU / 2048 MB — rung index 2 on both compute
+      # ladders — a custom compute for this fixture's version
+      # (0.5/1024). The storage rung stays at the version's 10 GB
+      # default (index 1, the user hadn't moved it).
       view
       |> element("[data-testid='preset-standard']")
       |> render_click()
 
       assert has_element?(view, "#resource-cpu-cores[value='2']")
       assert has_element?(view, "#resource-memory-mb[value='2']")
-      assert has_element?(view, "#resource-storage-gb[value='2']")
+      assert has_element?(view, "#resource-storage-gb[value='1']")
 
       # The price follows the allocation (#186): the anchor formula at
-      # 1 CPU / 2048 MB / 20 GB — which the seeded table pins at the
-      # standard size's $6.21 (B′) — never this fixture's $1.00 size price.
-      assert has_element?(view, "[data-testid='resources-price']", "$6.21/mo · billed hourly")
-      refute has_element?(view, "[data-testid='resources-price']", "$1.00/mo · billed hourly")
+      # 1 CPU / 2048 MB plus the 10 GB axis rate — compute 553¢ (the
+      # seeded standard rate, B′) + 40¢ = $5.93 — never this fixture's
+      # $1.40 size-anchored rate.
+      assert has_element?(view, "[data-testid='resources-price']", "$5.93/mo · billed hourly")
+      refute has_element?(view, "[data-testid='resources-price']", "$1.40/mo · billed hourly")
 
       assert has_element?(view, "[data-testid='preset-standard'][aria-pressed='true']")
     end
 
-    test "the top rung prices through the curve at the ladder's top", %{view: view} do
-      # `pro` is 4 CPU / 8192 MB / 100 GB — rung index 4, the top of
-      # all three ladders (#399 trimmed the two proposed rungs above
-      # it). Picking it parks every thumb on the top rung and prices at
-      # the seeded pro cents ($16.06, B′) — the curve's own number at
-      # that allocation, pinned by the calibration tests; a
-      # recommendation-priced or fixture-priced display here would mean
-      # the top rung isn't really offered.
+    test "the top compute rung prices through the size rate plus the axis", %{view: view} do
+      # `pro` is 4 CPU / 8192 MB — rung index 4, the top of both
+      # compute ladders (#399 trimmed the two proposed rungs above
+      # it). Picking it parks the compute thumbs on the top rungs —
+      # storage stays at the version's 10 GB default — and prices at
+      # the seeded pro compute rate plus the axis ($13.79 + $0.40 =
+      # $14.19); a recommendation-priced or fixture-priced display
+      # here would mean the top rung isn't really offered.
       view
       |> element("[data-testid='preset-pro']")
       |> render_click()
 
       assert has_element?(view, "#resource-cpu-cores[value='4']")
       assert has_element?(view, "#resource-memory-mb[value='4']")
-      assert has_element?(view, "#resource-storage-gb[value='4']")
+      assert has_element?(view, "#resource-storage-gb[value='1']")
 
       html = render(view)
       assert html =~ ~s(aria-valuetext="4 cores")
       assert html =~ ~s(aria-valuetext="8192 MB")
-      assert html =~ ~s(aria-valuetext="100 GB")
+      assert html =~ ~s(aria-valuetext="10 GB")
 
-      assert has_element?(view, "[data-testid='resources-price']", "$16.06/mo · billed hourly")
+      assert has_element?(view, "[data-testid='resources-price']", "$14.19/mo · billed hourly")
 
       # Above the recommendation: no heads-up, no ack gate.
       refute has_element?(view, "#below-recommendation-warning")
@@ -1024,31 +1075,61 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       assert has_element?(view, "#resource-storage-gb[value='1']")
       assert has_element?(view, "[data-testid='recommended-allocation']")
 
-      # At the recommendation: no warning, no ack, the size price
-      # (the fixture's fabricated size — the seeded size/formula
-      # equivalence is the calibration tests' contract, not this
-      # fixture's).
+      # #558's intro copy: compute and storage named as two axes.
+      assert render(view) =~ "0.5 CPU · 1024 MB compute and 10 GB storage"
+      assert render(view) =~ "for this version. Allocate more, or less at your own risk."
+
+      # At the recommendation: no warning, no ack, and the price is the
+      # recommended size's compute rate plus the storage axis at the
+      # default rung — the fixture's 100¢ size + 40¢ axis = $1.40 (the
+      # seeded size/formula equivalence is the calibration tests'
+      # contract, not this fixture's).
       refute has_element?(view, "#below-recommendation-warning")
-      assert has_element?(view, "[data-testid='resources-price']", "$1.00/mo · billed hourly")
+      assert has_element?(view, "[data-testid='resources-price']", "$1.40/mo · billed hourly")
 
       # The estimate tracks the inputs live (#186's done-when): one
-      # rung up (cpu index 2 = 1 core) reprices, and back at the
-      # recommendation the size price returns.
+      # rung up (cpu index 2 = 1 core) is custom compute, so the
+      # formula takes the whole allocation — 424¢ compute + 40¢ axis
+      # (the axes round independently since #558, one cent under the
+      # old round-the-sum figure) — and back at the recommendation the
+      # size-anchored rate returns.
       view
       |> form("#resources-form", resources: %{cpu_cores: "2"})
       |> render_change()
 
-      assert has_element?(view, "[data-testid='resources-price']", "$4.65/mo · billed hourly")
+      assert has_element?(view, "[data-testid='resources-price']", "$4.64/mo · billed hourly")
 
       view
       |> form("#resources-form", resources: %{cpu_cores: "1"})
       |> render_change()
 
-      assert has_element?(view, "[data-testid='resources-price']", "$1.00/mo · billed hourly")
+      assert has_element?(view, "[data-testid='resources-price']", "$1.40/mo · billed hourly")
 
       to_step_4(view)
 
-      assert has_element?(view, "[data-testid='price-summary']", "$1.00/mo · billed hourly")
+      assert has_element?(view, "[data-testid='price-summary']", "$1.40/mo · billed hourly")
+    end
+
+    test "moving only storage keeps the size-anchored recommended price path", %{view: view} do
+      # #558 pin: compute stays on the recommendation (0.5/1024), so
+      # the price stays on the size arm — the size's compute rate plus
+      # the axis at each rung — never flipping to custom-allocation
+      # formula pricing (which would read $3.93 at 5 GB: the curve's
+      # own compute term, 369¢, is not this version's size rate).
+      view
+      |> form("#resources-form", resources: %{storage_gb: "2"})
+      |> render_change()
+
+      assert has_element?(view, "[data-testid='resources-price']", "$1.68/mo · billed hourly")
+
+      view
+      |> form("#resources-form", resources: %{storage_gb: "0"})
+      |> render_change()
+
+      # 100¢ compute + the 5 GB axis rate (24¢) — the axis delta from
+      # $1.40, exactly.
+      assert has_element?(view, "[data-testid='resources-price']", "$1.24/mo · billed hourly")
+      refute has_element?(view, "[data-testid='resources-price']", "$3.93/mo · billed hourly")
     end
 
     test "an above-recommendation allocation deploys unrestricted at the formula price",
@@ -1101,8 +1182,10 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
          %{user: user, view: view} do
       stub_k8s()
 
-      # Storage one rung under the default (index 0 = 5 GB): below the
-      # recommendation on that dimension.
+      # Storage one rung under the default (index 0 = 5 GB), compute
+      # left at the recommendation: below the version default on
+      # storage alone — #558 pin: the axis decoupled, the
+      # below-recommendation gate did not.
       view
       |> form("#resources-form", resources: %{storage_gb: "0"})
       |> render_change()
@@ -1118,8 +1201,9 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       assert has_element?(view, "#resources-form")
 
       # The estimate follows the below-recommendation allocation too —
-      # the ack flow prices, it doesn't hide.
-      assert has_element?(view, "[data-testid='resources-price']", "$3.93/mo · billed hourly")
+      # the ack flow prices, it doesn't hide. Compute never moved, so
+      # this stays the size arm: 100¢ compute + the 5 GB axis (24¢).
+      assert has_element?(view, "[data-testid='resources-price']", "$1.24/mo · billed hourly")
 
       # The ack rides the form; Continue proceeds and the deploy lands
       # at the chosen (lower) allocation.
@@ -1137,9 +1221,13 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       assert instance.cpu_cores == Decimal.new("0.5")
       assert instance.storage_gb == 5
 
-      # Formula-priced: the below-recommendation snapshot.
-      assert instance.size_id == nil
-      assert instance.grandfathered_monthly_cents == 393
+      # Size-snapshot arm (#558): compute at the recommendation keeps
+      # the recommended size — storage rides the axis, so the cents
+      # are the compute class's 100¢ plus the 5 GB rate, the same
+      # $1.24 the wizard showed (stopped pays the axis alone).
+      assert instance.size_id
+      assert instance.grandfathered_monthly_cents == 124
+      assert instance.grandfathered_stopped_monthly_cents == 24
     end
 
     test "a back-nav round trip keeps the chosen allocation", %{view: view} do
