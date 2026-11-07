@@ -47,6 +47,7 @@ defmodule FluxValeWeb.EdgeWakeController do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxValeWeb.Plugs.EdgeHost
+  alias FluxValeWeb.Wake
 
   @refresh_seconds 2
   # The status page polls slower than the wake page: those states resolve
@@ -59,7 +60,7 @@ defmodule FluxValeWeb.EdgeWakeController do
     header = String.downcase(EdgeRoutes.instance_header())
     marker_headers = get_req_header(conn, header)
     instance_id = List.first(marker_headers)
-    ua = user_agent(conn)
+    ua = Wake.user_agent(conn)
 
     cond do
       # Header first: a probe-shaped request without a marker is just
@@ -106,11 +107,27 @@ defmodule FluxValeWeb.EdgeWakeController do
   end
 
   defp retry_signal(conn) do
-    respond(conn, :service_unavailable, "waking up. Resend the request shortly")
+    Wake.respond(
+      conn,
+      :service_unavailable,
+      "waking up. Resend the request shortly",
+      wake_opts(nil)
+    )
   end
 
   defp unfunded_signal(conn) do
-    respond(conn, :service_unavailable, "asleep. The owner's balance needs a top-up to wake it")
+    Wake.respond(
+      conn,
+      :service_unavailable,
+      "asleep. The owner's balance needs a top-up to wake it",
+      wake_opts(nil)
+    )
+  end
+
+  # The surface's view and the wake-page refresh cadence, for the shared
+  # transport. Status pages pass their own slower refresh.
+  defp wake_opts(refresh_seconds \\ @refresh_seconds) do
+    [view: FluxValeWeb.EdgeWakeHTML, refresh_seconds: refresh_seconds]
   end
 
   # PR #267 review round 2 (P2-2): the private gate, before any status
@@ -124,19 +141,20 @@ defmodule FluxValeWeb.EdgeWakeController do
   defp answer(conn, {:ok, %{status: :sleeping} = instance}) do
     case Infrastructure.wake_instance(instance) do
       {:ok, _waking} ->
-        waking_response(conn, instance)
+        Wake.waking_response(conn, instance, wake_opts())
 
       {:error, :unfunded} ->
-        respond(
+        Wake.respond(
           conn,
           :service_unavailable,
-          "asleep. The owner's balance needs a top-up to wake it"
+          "asleep. The owner's balance needs a top-up to wake it",
+          wake_opts(nil)
         )
     end
   end
 
   defp answer(conn, {:ok, %{status: :starting} = instance}) do
-    waking_response(conn, instance)
+    Wake.waking_response(conn, instance, wake_opts())
   end
 
   defp answer(conn, {:ok, %{status: :running} = instance}) do
@@ -147,12 +165,18 @@ defmodule FluxValeWeb.EdgeWakeController do
     # changes nothing (idempotent SSA, and the next window retries).
     case debounced_restore(instance) do
       :ok ->
-        respond(conn, :found, nil, location: original_url(conn), retry_after: "1")
+        opts = wake_opts() ++ [location: original_url(conn), retry_after: "1"]
+        Wake.respond(conn, :found, nil, opts)
 
       {:error, _error} ->
         # Failed flip: the retry hint, not a redirect onto a route that
         # still points here (the next window retries the apply).
-        respond(conn, :service_unavailable, "almost there. Retrying the switch")
+        Wake.respond(
+          conn,
+          :service_unavailable,
+          "almost there. Retrying the switch",
+          wake_opts(nil)
+        )
     end
   end
 
@@ -161,11 +185,11 @@ defmodule FluxValeWeb.EdgeWakeController do
     # volume is being rewritten, so a wake would put the app back on a
     # half-written volume. The page refreshes so a visitor mid-restore
     # lands on the app when it returns.
-    respond(
+    Wake.respond(
       conn,
       :service_unavailable,
       "This app is having a backup restored. It will be back when that finishes.",
-      refresh_seconds: @status_refresh_seconds
+      wake_opts(@status_refresh_seconds)
     )
   end
 
@@ -173,8 +197,11 @@ defmodule FluxValeWeb.EdgeWakeController do
     # Refresh, not a dead end: the other statuses (:stopped, :error,
     # :deploying) still resolve on their own, and the page's copy claims
     # it keeps checking — an empty refresh would make that a lie.
-    respond(conn, :service_unavailable, "this app isn't serving requests right now",
-      refresh_seconds: @status_refresh_seconds
+    Wake.respond(
+      conn,
+      :service_unavailable,
+      "this app isn't serving requests right now",
+      wake_opts(@status_refresh_seconds)
     )
   end
 
@@ -194,72 +221,6 @@ defmodule FluxValeWeb.EdgeWakeController do
     else
       :ok
     end
-  end
-
-  # Both waking arms: browsers watch the interstitial, machines get
-  # the retryable signal — the wake has triggered either way.
-  defp waking_response(conn, instance) do
-    if html_client?(conn) do
-      wake_page(conn, instance)
-    else
-      respond(conn, :service_unavailable, "waking up. Retry shortly")
-    end
-  end
-
-  # The interstitial: JS-free (meta refresh re-requests this endpoint
-  # until the flip answers a redirect), styled by the platform's own
-  # compiled tokens — this endpoint serves the response, so the
-  # app.css link resolves. put_format: the catch-all route runs no
-  # accepts plug, and render/3 needs the format.
-  defp wake_page(conn, instance) do
-    conn
-    |> put_status(:ok)
-    |> put_root_layout(html: false)
-    |> put_layout(false)
-    |> put_format(:html)
-    |> render(:wake, refresh_seconds: @refresh_seconds, name: instance.name)
-  end
-
-  defp respond(conn, status, body, opts \\ [])
-
-  defp respond(conn, :found = status, body, opts) do
-    conn
-    |> put_resp_header("location", opts[:location])
-    |> maybe_html(status, body, opts)
-  end
-
-  defp respond(conn, status, body, opts) do
-    conn
-    |> put_resp_header("retry-after", opts[:retry_after] || "3")
-    |> maybe_html(status, body, opts)
-  end
-
-  # HTML negotiation: browsers ask for text/html, machines don't —
-  # browsers get the auto-refreshing page, everything else the plain
-  # status line (retry clients honor Retry-After).
-  defp maybe_html(conn, status, body, opts) do
-    if html_client?(conn) do
-      conn
-      |> put_status(status)
-      |> put_root_layout(html: false)
-      |> put_layout(false)
-      |> put_format(:html)
-      |> render(:status, status: status, body: body, refresh_seconds: opts[:refresh_seconds])
-    else
-      send_resp(conn, status, body || "")
-    end
-  end
-
-  defp html_client?(conn) do
-    accept_headers = get_req_header(conn, "accept")
-    accept = List.first(accept_headers)
-
-    is_binary(accept) and String.contains?(accept, "text/html")
-  end
-
-  defp user_agent(conn) do
-    ua_headers = get_req_header(conn, "user-agent")
-    List.first(ua_headers)
   end
 
   defp original_url(conn) do
