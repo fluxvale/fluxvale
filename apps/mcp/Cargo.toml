@@ -25,9 +25,13 @@ rmcp = { version = "3.9.0", features = [
     "server",
     "macros",
     "schemars",
-    "elicitation", # the W2b confirm flows ride it
+    "elicitation",  # the elicitation model types (the confirm question's schema)
+    "request-state", # RequestStateCodec — the MRTR confirm seal (W2b)
     "transport-streamable-http-server",
 ] }
+# The confirm seal's per-token HMAC key: sha256 of the PAT is exactly
+# RequestStateCodec::MIN_KEY_LENGTH bytes. Already in the lock (transitive).
+sha2 = "0.11.1"
 fluxvale-api = { path = "../../crates/fluxvale-api" } # the /api/v1 client: wire + redacted token (repo-root crates/ workspace)
 # The serving stack: rmcp's streamable-http server ships a tower
 # service, and the SDK's own examples (counter_streamhttp,
