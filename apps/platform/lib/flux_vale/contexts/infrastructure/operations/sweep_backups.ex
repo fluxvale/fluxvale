@@ -690,9 +690,15 @@ defmodule FluxVale.Infrastructure.Operations.SweepBackups do
   defp tagged(:succeeded, id), do: {:ok, {:succeeded, id}}
   defp tagged(:failed, id), do: {:ok, {:failed, id}}
 
-  # The row's own 500-char limit is the contract; the sweep truncates so a
+  # error_summary caps at 500 codepoints (ash counts codepoints since
+  # the :codepoints default), so the cut counts the same unit and a
   # long restic line never fails the write itself.
-  defp truncate(summary) when is_binary(summary), do: String.slice(summary, 0, 500)
+  defp truncate(summary) when is_binary(summary) do
+    summary
+    |> String.codepoints()
+    |> Enum.take(500)
+    |> Enum.join()
+  end
 
   # --- RECOVER ---------------------------------------------------------
 

@@ -613,6 +613,34 @@ defmodule FluxVale.Feedback.PostTest do
                    &1.message == "length must be less than or equal to %{max}")
              )
     end
+
+    test "the title cap counts codepoints, so a combining-mark title one grapheme over fails" do
+      # The :codepoints flip (CVE-2026-82752, hostile review fix round):
+      # each "a" + combining-acute pair is one grapheme and TWO codepoints.
+      # 70 pairs sit exactly on the 140 cap (codepoints count inclusively),
+      # and one more pair is 71 graphemes but 142 codepoints. The 71-pair
+      # title passed the old grapheme count and must fail now.
+      at_cap = String.duplicate("a" <> "\u0301", 70)
+      over_cap = String.duplicate("a" <> "\u0301", 71)
+
+      assert {:ok, _post} =
+               Post.create(%{title: at_cap, description: "Exactly at the cap"},
+                 actor: admin(),
+                 authorize?: false
+               )
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               Post.create(%{title: over_cap, description: "One grapheme over the cap"},
+                 actor: admin(),
+                 authorize?: false
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :title and
+                   &1.message == "length must be less than or equal to %{max}")
+             )
+    end
   end
 
   describe "change declarations" do

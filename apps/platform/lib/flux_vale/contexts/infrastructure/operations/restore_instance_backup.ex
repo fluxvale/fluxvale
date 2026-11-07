@@ -605,9 +605,10 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
     )
   end
 
-  # The summary is truncated BEFORE the write (the attribute caps at 500 —
-  # an over-long admission/API message must fail the run, not the write),
-  # and a failed settle is logged, never raised: a MatchError here would
+  # The summary is truncated BEFORE the write (the attribute caps at 500
+  # codepoints, truncation counts the same unit, and an over-long
+  # admission/API message must fail the run, not the write), and a
+  # failed settle is logged, never raised: a MatchError here would
   # escape the operation and crash the caller with the original failure
   # already in hand.
   defp settle_failed(run, summary) do
@@ -696,9 +697,15 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
     |> Ash.update()
   end
 
-  # The row's own 500-char limit is the contract; truncate so a long
-  # admission/API message never fails the write itself.
-  defp truncate(summary) when is_binary(summary), do: String.slice(summary, 0, 500)
+  # error_summary caps at 500 codepoints (ash counts codepoints since
+  # the :codepoints default), so the cut counts the same unit and a
+  # long admission/API message never fails the write itself.
+  defp truncate(summary) when is_binary(summary) do
+    summary
+    |> String.codepoints()
+    |> Enum.take(500)
+    |> Enum.join()
+  end
 
   defp deadline(timeout_ms), do: System.monotonic_time(:millisecond) + timeout_ms
 
