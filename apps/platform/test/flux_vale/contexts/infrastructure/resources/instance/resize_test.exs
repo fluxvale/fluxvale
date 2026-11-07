@@ -307,8 +307,8 @@ defmodule FluxVale.Infrastructure.Instance.ResizeTest do
   end
 
   describe "pricing equivalence (#493 — cents identical to destroy-and-recreate)" do
-    test "resizing back to the version defaults snapshots the size row's CURRENT cents + a fresh clock" do
-      version = InstanceFixtures.app_version!(monthly_cents: 100, stopped_monthly_cents: 10)
+    test "resizing back to the version defaults snapshots the size row's CURRENT compute rate plus the storage axis + a fresh clock" do
+      version = InstanceFixtures.app_version!(monthly_cents: 100, default_storage_gb: 10)
       InstanceFixtures.local_cluster!()
 
       # Custom at create (cpu 1 off the 0.5 recommendation — formula
@@ -336,10 +336,11 @@ defmodule FluxVale.Infrastructure.Instance.ResizeTest do
       after_resize = DateTime.utc_now()
 
       size = Ash.get!(Size, version.recommended_size_id, authorize?: false)
+      storage = Pricing.storage_monthly_cents(resized.storage_gb)
 
       assert resized.size_id == size.id
-      assert resized.grandfathered_monthly_cents == size.monthly_cents
-      assert resized.grandfathered_stopped_monthly_cents == size.stopped_monthly_cents
+      assert resized.grandfathered_monthly_cents == size.monthly_cents + storage
+      assert resized.grandfathered_stopped_monthly_cents == storage
 
       # FRESH clock: a year from THIS resize, not the original create.
       assert DateTime.compare(resized.grandfathered_until, DateTime.shift(before, year: 1)) == :gt
@@ -348,8 +349,8 @@ defmodule FluxVale.Infrastructure.Instance.ResizeTest do
                :lt
     end
 
-    test "a resize off the defaults prices by the formula, no size" do
-      version = InstanceFixtures.app_version!(monthly_cents: 100, stopped_monthly_cents: 10)
+    test "a resize off the compute defaults prices by the formula, no size" do
+      version = InstanceFixtures.app_version!(monthly_cents: 100, default_storage_gb: 10)
       InstanceFixtures.local_cluster!()
 
       created =
@@ -366,7 +367,7 @@ defmodule FluxVale.Infrastructure.Instance.ResizeTest do
         Pricing.price_allocation(%{
           cpu_cores: Decimal.new("0.5"),
           memory_mb: 512,
-          storage_gb: 0
+          storage_gb: resized.storage_gb
         })
 
       assert resized.size_id == nil
@@ -435,7 +436,7 @@ defmodule FluxVale.Infrastructure.Instance.ResizeTest do
 
   describe "audit trail append" do
     test "a resize supersedes the open era and appends the new one — exactly one open row" do
-      version = InstanceFixtures.app_version!(monthly_cents: 100, stopped_monthly_cents: 10)
+      version = InstanceFixtures.app_version!(monthly_cents: 100, default_storage_gb: 10)
       InstanceFixtures.local_cluster!()
 
       created =

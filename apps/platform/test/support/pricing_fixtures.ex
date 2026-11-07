@@ -19,9 +19,7 @@ defmodule FluxVale.TestSupport.PricingFixtures do
       slug: "test-#{n}",
       cpu_cores: Decimal.new("1"),
       memory_mb: 1024,
-      storage_gb: 10,
-      monthly_cents: 500,
-      stopped_monthly_cents: 40
+      monthly_cents: 500
     }
 
     defaults

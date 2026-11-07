@@ -15,16 +15,14 @@ defmodule FluxVale.Seeds.PricingSeedTest do
   alias FluxVale.TestSupport.InstanceFixtures
 
   describe "seed_pricing!/0 (shipped data)" do
-    test "seeds the six sizes cleanly" do
+    test "seeds the six compute classes cleanly (#558)" do
       assert :ok == Seeds.seed_pricing!()
 
       small = Size.get_by_slug!("small", authorize?: false)
 
       assert Decimal.equal?(small.cpu_cores, Decimal.new("0.5"))
       assert small.memory_mb == 512
-      assert small.storage_gb == 10
-      assert small.monthly_cents == 335
-      assert small.stopped_monthly_cents == 40
+      assert small.monthly_cents == 295
     end
 
     test "re-seeding converges drifted prices back to the YAML" do
@@ -35,7 +33,7 @@ defmodule FluxVale.Seeds.PricingSeedTest do
 
       assert :ok == Seeds.seed_pricing!()
 
-      assert Size.get_by_slug!("small", authorize?: false).monthly_cents == 335
+      assert Size.get_by_slug!("small", authorize?: false).monthly_cents == 295
     end
 
     test "re-seeding produces no duplicates" do
@@ -53,15 +51,13 @@ defmodule FluxVale.Seeds.PricingSeedTest do
           slug: "tiny-#{System.unique_integer()}",
           cpu_cores: Decimal.new("0.25"),
           memory_mb: 512,
-          storage_gb: 5,
-          monthly_cents: 283,
-          stopped_monthly_cents: 24
+          monthly_cents: 259
         }
       ]
 
       assert :ok == Seeds.seed_pricing!(entries)
 
-      assert Size.get_by_slug!(hd(entries).slug, authorize?: false).monthly_cents == 283
+      assert Size.get_by_slug!(hd(entries).slug, authorize?: false).monthly_cents == 259
     end
   end
 
@@ -131,8 +127,8 @@ defmodule FluxVale.Seeds.PricingSeedTest do
         )
 
       # Through the action: ValidateSizeMatchesAllocation requires the
-      # version's defaults to equal the recommended size's allocation,
-      # so they mirror the removed row's.
+      # version's compute defaults to equal the recommended size's
+      # compute (#558), so they mirror the removed row's.
       AppVersion.create!(
         %{
           version: "1.0.0",
@@ -140,7 +136,6 @@ defmodule FluxVale.Seeds.PricingSeedTest do
           port: 3000,
           default_cpu_cores: ultra.cpu_cores,
           default_memory_mb: ultra.memory_mb,
-          default_storage_gb: ultra.storage_gb,
           app_id: app.id,
           recommended_size_id: ultra.id
         },
@@ -155,17 +150,16 @@ defmodule FluxVale.Seeds.PricingSeedTest do
     end
   end
 
-  # The #399 trim's removed row, in its exact pre-trim shape — what an
-  # environment seeded before the trim carries. Get-or-create: a
-  # committed row from another lane must not collide the unique slug.
+  # The #399 trim's removed row, in its pre-trim compute shape (the
+  # storage-era fields died with #558) — what an environment seeded
+  # before the trim carries. Get-or-create: a committed row from
+  # another lane must not collide the unique slug.
   defp ultra_row! do
     attrs = %{
       slug: "ultra",
       cpu_cores: Decimal.new("6"),
       memory_mb: 12_288,
-      storage_gb: 200,
-      monthly_cents: 2216,
-      stopped_monthly_cents: 383
+      monthly_cents: 2216
     }
 
     case Size.get_by_slug(attrs.slug, authorize?: false) do

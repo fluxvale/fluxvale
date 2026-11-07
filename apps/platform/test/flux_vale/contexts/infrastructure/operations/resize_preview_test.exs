@@ -16,12 +16,12 @@ defmodule FluxVale.Infrastructure.Operations.ResizePreviewTest do
   alias FluxVale.TestSupport.InstanceFixtures
 
   setup do
-    version = InstanceFixtures.app_version!()
+    version = InstanceFixtures.app_version!(monthly_cents: 100, default_storage_gb: 10)
     InstanceFixtures.local_cluster!()
     {:ok, version: version, user: user()}
   end
 
-  test "at the recommendation: the size row's current cents, both states", %{
+  test "at the recommendation: the size row's compute rate plus the storage axis, both states", %{
     version: version,
     user: user
   } do
@@ -34,8 +34,10 @@ defmodule FluxVale.Infrastructure.Operations.ResizePreviewTest do
                storage_gb: instance.storage_gb
              })
 
-    assert preview.running_cents == 100
-    assert preview.stopped_cents == 10
+    # The compute class (100¢) plus the 10 GB storage axis (40¢) —
+    # stopped pays the axis alone (#558).
+    assert preview.running_cents == 140
+    assert preview.stopped_cents == 40
   end
 
   test "a custom allocation: the formula's cents, not the recommendation", %{

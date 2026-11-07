@@ -1,10 +1,11 @@
 defmodule FluxVale.Infrastructure.Instance.PricingSnapshotTest do
   @moduledoc """
-  The one pricing-snapshot choice (#121/#186), extracted per #493 so
-  the resize prices identically to create: at the recommendation the
-  recommended Size row snapshots, any dimension off prices by the
-  anchor formula, a sizeless recommendation stays unpriced — and the
-  clock is always a fresh now + 1 year, except the unpriced arm's nil.
+  The one pricing-snapshot choice (#121/#186, extracted per #493,
+  storage decoupled per #558): at the recommendation the recommended
+  Size row snapshots with the storage axis added at the row's own GB,
+  compute off prices by the anchor formula, a sizeless recommendation
+  stays unpriced — and the clock is always a fresh now + 1 year,
+  except the unpriced arm's nil.
   """
 
   use FluxVale.DataCase, async: true
@@ -16,8 +17,14 @@ defmodule FluxVale.Infrastructure.Instance.PricingSnapshotTest do
   alias FluxVale.Pricing
   alias FluxVale.TestSupport.InstanceFixtures
 
-  test "at the recommendation: the size row's cents + size_id" do
-    version = InstanceFixtures.app_version!(monthly_cents: 335, stopped_monthly_cents: 40)
+  # The "small" reference (#558): 295¢ of compute class plus the 10 GB
+  # storage axis at 40¢ — 335¢ running, 40¢ stopped, the same totals
+  # the bundled table carried.
+  @compute_cents 295
+  @storage_cents 40
+
+  test "at the recommendation: the size row's rate plus the storage axis, size_id kept" do
+    version = InstanceFixtures.app_version!(monthly_cents: @compute_cents, default_storage_gb: 10)
     size = Ash.load!(version, :recommended_size, authorize?: false).recommended_size
 
     allocation = %{
@@ -29,13 +36,32 @@ defmodule FluxVale.Infrastructure.Instance.PricingSnapshotTest do
     pricing = PricingSnapshot.snapshot(allocation, version, DateTime.utc_now())
 
     assert pricing.size_id == size.id
-    assert pricing.monthly_cents == 335
-    assert pricing.stopped_monthly_cents == 40
+    assert pricing.monthly_cents == @compute_cents + @storage_cents
+    assert pricing.stopped_monthly_cents == @storage_cents
+    assert pricing.grandfathered_until
+  end
+
+  test "storage off the default keeps the size: the axis re-prices alone (#558)" do
+    version = InstanceFixtures.app_version!(monthly_cents: @compute_cents, default_storage_gb: 10)
+    size = Ash.load!(version, :recommended_size, authorize?: false).recommended_size
+
+    allocation = %{
+      cpu_cores: version.default_cpu_cores,
+      memory_mb: version.default_memory_mb,
+      storage_gb: 50
+    }
+
+    pricing = PricingSnapshot.snapshot(allocation, version, DateTime.utc_now())
+    grown_storage = Pricing.storage_monthly_cents(50)
+
+    assert pricing.size_id == size.id
+    assert pricing.monthly_cents == @compute_cents + grown_storage
+    assert pricing.stopped_monthly_cents == grown_storage
     assert pricing.grandfathered_until
   end
 
   test "a custom allocation: formula cents, nil size" do
-    version = InstanceFixtures.app_version!(monthly_cents: 335, stopped_monthly_cents: 40)
+    version = InstanceFixtures.app_version!(monthly_cents: @compute_cents, default_storage_gb: 10)
 
     allocation = %{
       cpu_cores: Decimal.new("1"),

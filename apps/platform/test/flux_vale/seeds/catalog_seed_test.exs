@@ -27,9 +27,9 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
   @fixture Path.join([__DIR__, "../../support/fixtures/catalog_data_with_env_vars.yaml"])
 
   defp seed_fixture! do
-    # The fixture version names `fixture-size` (0.5 / 256 / 1) — the seed
-    # runner resolves the slug against a seeded row. Get-or-create: some
-    # tests re-seed.
+    # The fixture version names `fixture-size` (0.5 CPU / 256 MB — the
+    # compute the pin requires, #558) — the seed runner resolves the
+    # slug against a seeded row. Get-or-create: some tests re-seed.
     case Size.get_by_slug("fixture-size", authorize?: false) do
       {:ok, _size} ->
         :ok
@@ -40,9 +40,7 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
             slug: "fixture-size",
             cpu_cores: Decimal.new("0.5"),
             memory_mb: 256,
-            storage_gb: 1,
-            monthly_cents: 100,
-            stopped_monthly_cents: 10
+            monthly_cents: 100
           },
           authorize?: false
         )
@@ -187,7 +185,7 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert version.default_env_vars == %{}
       assert version.first_run == nil
       # The priced unit: micro (0.25 / 512 / 5, $2.83 at B′) — the
-      # version defaults must equal the size's allocation
+      # version compute defaults must equal the size's compute (#558)
       # (ValidateSizeMatchesAllocation enforces it at write time; this
       # asserts the shipped pairing).
       assert version.recommended_size.slug == "micro"
@@ -246,7 +244,7 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert version.storage_mount_path == "/app/data"
       assert version.instance_url_env == "APP_URL"
       assert version.default_env_vars == %{"TRUST_PROXY" => "true"}
-      # The featherweight allocation, kept equal to `micro` by
+      # The featherweight compute, kept equal to `micro` by
       # ValidateSizeMatchesAllocation (the seed would refuse a drift).
       assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.25"))
       assert version.default_memory_mb == 512
@@ -359,7 +357,7 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       # The image's own VOLUME and working directory — the SQLite DB
       # only survives a pod restart when the PVC lands exactly there.
       assert version.storage_mount_path == "/var/opt/memos"
-      # The featherweight allocation, kept equal to `micro` by
+      # The featherweight compute, kept equal to `micro` by
       # ValidateSizeMatchesAllocation (the seed would refuse a drift).
       assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.25"))
       assert version.default_memory_mb == 512
