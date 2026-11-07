@@ -52,9 +52,35 @@ cat "$audit_out"
 # utils.ex prefixes the plain space before the color codes). The
 # leading space keeps free-text prose (a paren inside a word) from
 # false-positive on the grep.
-if grep -qE ' \((HIGH|CRITICAL)\)' "$audit_out"
+#
+# Known-unfixable advisories, suppressed BY ADVISORY ID with their
+# revisit trigger - a new advisory on the same package still reds.
+# Adding one requires the evidence trail in the sweep notes.
+KNOWN_UNFIXED=(
+  # assent 0.2.13, Sign in with Apple callback override: the app's
+  # only OAuth flow is Google (#332), and assent 0.3.x is capped out
+  # by ash_authentication 4.x (requires < 0.3.0).
+  # Revisit: ash_authentication 5.x GA.
+  "EEF-CVE-2026-117656"
+)
+
+gate_hits="$(grep -E ' \((HIGH|CRITICAL)\)' "$audit_out" || true)"
+for id in "${KNOWN_UNFIXED[@]}"
+do
+  gate_hits="$(printf '%s\n' "$gate_hits" | grep -F -v "$id" || true)"
+done
+
+if [ -n "$(printf '%s' "$gate_hits" | tr -d '[:space:]')" ]
 then
+  printf '%s\n' "$gate_hits"
   fail "mix hex.audit found HIGH or CRITICAL advisories - bump the pinned deps"
+fi
+
+# Say a suppression loudly when it fires - a silent one is a lie.
+if grep -qF "${KNOWN_UNFIXED[0]}" "$audit_out" && grep -qE ' \((HIGH|CRITICAL)\)' "$audit_out" && \
+   ! [ -n "$(grep -E ' \((HIGH|CRITICAL)\)' "$audit_out" | grep -F -v "${KNOWN_UNFIXED[0]}" | tr -d '[:space:]')" ]
+then
+  echo "known-unfixable advisory suppressed (see KNOWN_UNFIXED in this script): ${KNOWN_UNFIXED[0]}"
 fi
 
 # hex.audit exits non-zero below the gate too, but ALSO when the run
