@@ -118,6 +118,16 @@ defmodule FluxVale.Identity do
     to: FluxVale.Identity.Operations.PollDeviceCode,
     as: :call
 
+  # RFC 8628 wire constants: the poll operation owns them, the domain
+  # is the seam the endpoints read them through.
+  defdelegate device_poll_interval_seconds,
+    to: FluxVale.Identity.Operations.PollDeviceCode,
+    as: :poll_interval_seconds
+
+  defdelegate device_grant_type,
+    to: FluxVale.Identity.Operations.PollDeviceCode,
+    as: :grant_type
+
   defdelegate prune_device_codes(opts \\ []),
     to: FluxVale.Identity.Operations.PruneDeviceCodes,
     as: :call

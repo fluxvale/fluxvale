@@ -261,6 +261,7 @@ defmodule FluxValeWeb.Api.DeviceFlowControllerTest do
 
       assert result == 400
       assert body["error"] == "unsupported_grant_type"
+      assert body["error_description"] == "grant_type must be #{@grant}"
     end
   end
 

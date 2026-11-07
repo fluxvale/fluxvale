@@ -22,7 +22,6 @@ defmodule FluxValeWeb.Api.DeviceFlowController do
 
   alias FluxVale.Identity
   alias FluxVale.Identity.DeviceCode
-  alias FluxVale.Identity.Operations.PollDeviceCode
 
   require Logger
 
@@ -59,7 +58,7 @@ defmodule FluxValeWeb.Api.DeviceFlowController do
           user_code: row.user_code,
           verification_uri: verification_uri(conn),
           expires_in: DeviceCode.ttl_seconds(),
-          interval: PollDeviceCode.poll_interval_seconds()
+          interval: Identity.device_poll_interval_seconds()
         })
 
       {:error, {:invalid_client, _client_id}} ->
@@ -85,7 +84,7 @@ defmodule FluxValeWeb.Api.DeviceFlowController do
 
   @doc "RFC 8628 §3.5 — the poll"
   def poll_token(conn, params) do
-    if params["grant_type"] == PollDeviceCode.grant_type() do
+    if params["grant_type"] == Identity.device_grant_type() do
       answer_poll(conn, params)
     else
       # OAuth §5.2 — the poll is a grant request, and this grant_type
@@ -93,7 +92,7 @@ defmodule FluxValeWeb.Api.DeviceFlowController do
       oauth_error(
         conn,
         :unsupported_grant_type,
-        "grant_type must be #{PollDeviceCode.grant_type()}"
+        "grant_type must be #{Identity.device_grant_type()}"
       )
     end
   end
@@ -108,7 +107,11 @@ defmodule FluxValeWeb.Api.DeviceFlowController do
       {:error, :slow_down} ->
         Logger.info("device poll: slow_down")
 
-        oauth_error(conn, :slow_down, "polled sooner than the interval. Back off 5 seconds")
+        oauth_error(
+          conn,
+          :slow_down,
+          "polled sooner than the interval. Back off #{Identity.device_poll_interval_seconds()} seconds"
+        )
 
       {:error, :access_denied} ->
         Logger.info("device poll: access_denied")
