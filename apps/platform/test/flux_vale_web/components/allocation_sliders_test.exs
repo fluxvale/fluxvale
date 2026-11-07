@@ -105,21 +105,14 @@ defmodule FluxValeWeb.AllocationSlidersTest do
     assert LazyHTML.attribute(compute_group, "aria-label") == ["Compute"]
     # The compute group holds CPU and memory only — storage is not a
     # size rung anymore.
-    assert LazyHTML.attribute(
-             LazyHTML.query(compute_group, "[data-testid='resource-cpu']"),
-             "data-testid"
-           ) == ["resource-cpu"]
+    cpu_in_compute = LazyHTML.query(compute_group, "[data-testid='resource-cpu']")
+    assert LazyHTML.attribute(cpu_in_compute, "data-testid") == ["resource-cpu"]
 
-    assert LazyHTML.attribute(
-             LazyHTML.query(compute_group, "[data-testid='resource-memory']"),
-             "data-testid"
-           ) == ["resource-memory"]
+    memory_in_compute = LazyHTML.query(compute_group, "[data-testid='resource-memory']")
+    assert LazyHTML.attribute(memory_in_compute, "data-testid") == ["resource-memory"]
 
-    storage_in_compute =
-      LazyHTML.query(compute_group, "[data-testid='resource-storage']")
-      |> LazyHTML.attribute("data-testid")
-
-    assert storage_in_compute == []
+    storage_in_compute = LazyHTML.query(compute_group, "[data-testid='resource-storage']")
+    assert LazyHTML.attribute(storage_in_compute, "data-testid") == []
   end
 
   test "a hidden storage dimension drops its whole section, compute stays" do

@@ -233,9 +233,7 @@ defmodule FluxValeWeb.AllocationSliders do
   # caller hiding both compute dimensions (nobody does today) would
   # see the group heading go with them.
   defp compute_dimensions(hidden) do
-    resource_dimensions()
-    |> Enum.reject(&(&1.key == "storage_gb"))
-    |> Enum.reject(&(&1.key in hidden))
+    Enum.reject(resource_dimensions(), &(&1.key == "storage_gb" or &1.key in hidden))
   end
 
   defp compute_group?(hidden), do: compute_dimensions(hidden) != []
