@@ -68,7 +68,13 @@ defmodule FluxValeWeb.Plugs.ApiAudit do
     end)
   end
 
+  # Codepoint cut (the instance_k8s truncate posture): the cap below
+  # validates codepoints, so a grapheme slice could hand the write more
+  # than @path_cap and drop the audit row.
   defp path(request_path) do
-    String.slice(request_path, 0, @path_cap)
+    request_path
+    |> String.codepoints()
+    |> Enum.take(@path_cap)
+    |> Enum.join()
   end
 end
