@@ -987,9 +987,10 @@ jobs:
     # e2e job gives 45 min — cold Forgejo pull, minute-granularity
     # reconcile, retries: 1. A timeout would cancel past the red path
     # (outcome "cancelled" ≠ "failure"), so the ceiling must hold the
-    # worst case, not the typical one. #556 doubles that worst case
-    # (a failing long leg now runs twice), hence 60.
-    timeout-minutes: 60
+    # worst case, not the typical one. #556's retry lets a failing
+    # long leg run twice, so 90 holds the doubled worst case where 45
+    # held the single-pass one.
+    timeout-minutes: 90
     permissions:
       # Red path only: open the revert PR, comment, and dispatch CI
       # onto its branch (the dispatch needs actions: write — GITHUB_TOKEN
@@ -1043,7 +1044,7 @@ jobs:
       # service, so "serves the new sha" ≠ "rollout complete". Same
       # check as watch-deploy (unauthenticated /health version, ADR-0007:
       # zero cluster credentials), then a hold for the rollout tail.
-      # Failure here skips the legs: no smoke verdict, no revert, the
+      # Failure here skips the legs: verdict not_run, no revert, the
       # job reds on this step alone.
       - name: Settle - rollout complete on both envs
         id: settle
@@ -1077,7 +1078,7 @@ jobs:
           SMOKE_PAT: ${{ secrets.SMOKE_PAT_STAGING }}
         run: mise x -- npx bru run --env Staging --env-var pat="$SMOKE_PAT"
 
-      - name: Bruno — staging (retry)
+      - name: Bruno - staging (retry)
         id: bruno_staging_2
         if: steps.bruno_staging_1.outcome == 'failure'
         working-directory: apps/smoke
@@ -1094,7 +1095,7 @@ jobs:
           SMOKE_PAT: ${{ secrets.SMOKE_PAT_PRODUCTION }}
         run: mise x -- npx bru run --env Production --env-var pat="$SMOKE_PAT"
 
-      - name: Bruno — production (retry)
+      - name: Bruno - production (retry)
         id: bruno_production_2
         if: steps.bruno_production_1.outcome == 'failure'
         working-directory: apps/smoke
@@ -1119,7 +1120,7 @@ jobs:
           PLAYWRIGHT_HTML_REPORT: staging-report
         run: mise x -- npx playwright test
 
-      - name: Playwright — staging (retry)
+      - name: Playwright - staging (retry)
         id: pw_staging_2
         if: steps.pw_staging_1.outcome == 'failure'
         working-directory: apps/e2e
@@ -1143,7 +1144,7 @@ jobs:
           PLAYWRIGHT_HTML_REPORT: production-report
         run: mise x -- npx playwright test
 
-      - name: Playwright — production (read-only, retry)
+      - name: Playwright - production (read-only, retry)
         id: pw_production_2
         if: steps.pw_production_1.outcome == 'failure'
         working-directory: apps/e2e
