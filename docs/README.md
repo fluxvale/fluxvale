@@ -17,6 +17,7 @@ what's still open. v1: <https://github.com/fluxvale/fluxvale_old>
 | [pricing-recalibration-2026-10.md](pricing-recalibration-2026-10.md) | Recalibration for NetCup renewal costs (#200) — density model + options; **decided B′ ×1.2** (2026-10-22, shipped #206), B′-SG ×1.25 on standby |
 | [design-system.md](design-system.md) | The amber design system (#178): tokens, components, storybook, wave-2 plan |
 | [adr/](adr/) | One decision per file, with rationale and rejected alternatives — index in [adr/README.md](adr/README.md) |
+| [public/](public/) · [blog/](blog/) | The servable content home ([ADR-0044](adr/00044-public-docs-surface.md)): user docs served at `/docs` and the blog's posts, authored here and synced into the app's priv (`mix content.sync`) — the ONLY parts of this tree that reach the public site |
 | [refund-policy.md](refund-policy.md) · [data-deletion.md](data-deletion.md) | Customer-facing policies — refund **published** at `/policies/refund` (#140, [ADR-0029](adr/00029-payments-adapter-selfmor.md); the page is the text of record, this doc the decision record); data-deletion still draft (its retention stance is stated in the privacy page) |
 | [privacy policy](../apps/platform/lib/flux_vale_web/controllers/policy_html/privacy.html.heex) | **Published** at `/policies/privacy` (fv332 D5); the page is the text of record |
 | [open-questions.md](open-questions.md) | Everything deliberately **not** decided yet |

@@ -1,0 +1,33 @@
+<%!-- Docs index (ADR-0044 §5): the editorial map on the public chrome —
+one block per section, the section's pages as linked rows like the
+blog index. Section pages and articles carry the sidebar; this page
+IS the navigation. --%>
+<Layouts.public flash={@flash} current_user={@current_user} return_to={@return_to}>
+  <div class="docs">
+    <header class="docs-head">
+      <p class="eyebrow">FluxVale</p>
+      <h1 class="display-h2">Docs</h1>
+      <p class="intro">
+        {@page_description}
+      </p>
+    </header>
+
+    <section :for={{section, pages} <- @sections} class="docs-section">
+      <h2 class="docs-section-title">
+        <a href={~p"/docs/#{section.key}"}>{section.title}</a>
+      </h2>
+      <p class="docs-section-description">{section.description}</p>
+
+      <div class="divide-y divide-line">
+        <article :for={page <- pages} class="docs-row">
+          <h3 class="row-title">
+            <a href={~p"/docs/#{section.key}/#{page.slug}"} class="row-link">
+              {page.title}
+            </a>
+          </h3>
+          <p class="row-description">{page.description}</p>
+        </article>
+      </div>
+    </section>
+  </div>
+</Layouts.public>

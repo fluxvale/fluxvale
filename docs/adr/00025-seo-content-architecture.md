@@ -64,3 +64,15 @@ loudly on missing fields.
 posts live under the `/blog` subdirectory and the feed rides the same
 prefix (owner direction, Oct 2026). The redirect keeps the ADR's
 original URL — and legacy/guessed feed URLs — resolving forever.
+
+## Amendment 2 — content home (2026-11-07)
+
+§1's storage location moves: posts are authored in `docs/blog/` at
+the repo root and synced into `priv/content/blog` as a gitignored
+generated copy, under the centralized content home of
+[ADR-0044](00044-public-docs-surface.md) (same PR as the `/docs`
+surface). Everything else in §1 holds unchanged — the loader still
+reads priv with the same boot/compile semantics, `mix blog.lint`
+still runs in `mix ci` (now against the source tree), and every URL,
+slug, frontmatter field, feed entry, and draft policy is exactly as
+it was. The move is invisible on the public surface by design.

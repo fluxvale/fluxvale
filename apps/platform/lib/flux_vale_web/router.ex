@@ -284,17 +284,32 @@ defmodule FluxValeWeb.Router do
     get("/feed.xml", FeedController, :legacy)
   end
 
-  # The blog (ADR-00025 §1): markdown posts from priv/content/blog,
-  # SSR-only — crawlers get the full document with zero JS. Draft
-  # policy rides the controller (404 on the canonical host, preview
-  # everywhere else), keeping it next to the noindex plug's predicate.
-  # Lives AFTER the feed scopes above: /blog/feed must match the xml
-  # route before this :slug route could eat it.
+  # The blog (ADR-00025 §1): markdown posts from the synced docs/blog
+  # copy in priv (ADR-0044 §2), SSR-only — crawlers get the full
+  # document with zero JS. Draft policy rides the controller (404 on
+  # the canonical host, preview everywhere else), keeping it next to
+  # the noindex plug's predicate. Lives AFTER the feed scopes above:
+  # /blog/feed must match the xml route before this :slug route could
+  # eat it.
   scope "/", FluxValeWeb do
     pipe_through([:browser, :public_seo])
 
     get("/blog", BlogController, :index)
     get("/blog/:slug", BlogController, :show)
+  end
+
+  # The public docs (ADR-0044 §5): markdown pages synced from
+  # docs/public into priv/content/docs (mix content.sync — the
+  # gitignored copy), SSR-only like the blog above. The sectioned
+  # sidebar ships as plain HTML, zero JS. Section pages and pages 404
+  # as real unknowns (a section with no pages is "not here" by
+  # design).
+  scope "/", FluxValeWeb do
+    pipe_through([:browser, :public_seo])
+
+    get("/docs", DocsController, :index)
+    get("/docs/:section", DocsController, :section)
+    get("/docs/:section/:slug", DocsController, :show)
   end
 
   # #205: the session-aware root. `:public_seo`'s display-only

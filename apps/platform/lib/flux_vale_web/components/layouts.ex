@@ -416,6 +416,17 @@ defmodule FluxValeWeb.Layouts do
                 Guides
               </.link>
             </li>
+            <%!-- ADR-0044: the public docs ride beside the guides —
+            /docs is the product's own documentation surface. --%>
+            <li>
+              <.link
+                navigate={~p"/docs"}
+                class="text-sm text-ink-muted hover:text-ink"
+                data-testid="footer-docs"
+              >
+                Docs
+              </.link>
+            </li>
             <%!-- fv332 D5: privacy rides every chrome'd surface beside
             the other legal pages, and the landing footer mirrors it. --%>
             <li>

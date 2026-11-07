@@ -221,6 +221,7 @@ defmodule FluxVale.MixProject do
         "ash.setup",
         "assets.setup",
         "assets.build",
+        "content.sync",
         "run priv/repo/seeds.exs",
         "run priv/repo/local_seeds.exs"
       ],
@@ -231,13 +232,22 @@ defmodule FluxVale.MixProject do
         "run priv/repo/local_seeds.exs"
       ],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
-      test: ["ash.setup --quiet", "test"],
+      # ADR-0044 §2: the content tests (docs + blog) read the synced
+      # priv copies of docs/public and docs/blog — the alias chains
+      # carry the sync so a fresh checkout's suite never runs against
+      # an empty content tree.
+      "content.sync": ["cmd ../../scripts/sync-content.sh"],
+      test: ["content.sync", "ash.setup --quiet", "test"],
       # Same DB-setup prefix as test: coveralls.json runs the suite but
       # doesn't expand the test alias on its own. --subdir makes report
       # paths repo-root-relative (apps/platform/lib/...) so they match
       # the platform flag in codecov.yml — no reliance on codecov's
       # fuzzy path-fixing, no ambiguity when a second lib/ tree lands.
-      "coveralls.json": ["ash.setup --quiet", "coveralls.json --subdir apps/platform/"],
+      "coveralls.json": [
+        "content.sync",
+        "ash.setup --quiet",
+        "coveralls.json --subdir apps/platform/"
+      ],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": [
         "compile",
@@ -271,7 +281,13 @@ defmodule FluxVale.MixProject do
         # cli/0 pins this alias): `MIX_ENV=test mix gettext.extract`.
         "gettext.extract --check-up-to-date",
         # ADR-00025 §1: invalid post frontmatter fails the build loudly
+        # (the task lints the repo-root docs/blog source tree since
+        # ADR-0044 moved the content home; the loader re-checks the
+        # synced priv copy at boot)
         "blog.lint",
+        # ADR-0044 §4: invalid public docs content fails the build
+        # loudly, same lane (the task lints the repo-root docs/public)
+        "docs.lint",
         "ash.codegen --check",
         "credo --strict",
         "dialyzer",

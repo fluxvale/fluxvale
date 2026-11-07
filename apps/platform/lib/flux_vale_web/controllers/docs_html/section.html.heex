@@ -1,0 +1,28 @@
+<%!-- Section page (ADR-0044 §5): the sidebar beside the section's own
+page rows — the same two-column shape the article page reads in. --%>
+<Layouts.public flash={@flash} current_user={@current_user} return_to={@return_to}>
+  <div class="docs docs-with-nav">
+    <.sidebar sections={@sections} active_section={@section.key} />
+
+    <div class="docs-main">
+      <header class="docs-head">
+        <p class="eyebrow">Docs</p>
+        <h1 class="docs-title">{@section.title}</h1>
+        <p class="intro">
+          {@section.description}
+        </p>
+      </header>
+
+      <div class="divide-y divide-line">
+        <article :for={page <- @pages} class="docs-row">
+          <h2 class="row-title">
+            <a href={~p"/docs/#{@section.key}/#{page.slug}"} class="row-link">
+              {page.title}
+            </a>
+          </h2>
+          <p class="row-description">{page.description}</p>
+        </article>
+      </div>
+    </div>
+  </div>
+</Layouts.public>

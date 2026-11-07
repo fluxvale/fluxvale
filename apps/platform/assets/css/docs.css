@@ -1,0 +1,221 @@
+/* Public docs styles (ADR-0044) — the docs surface on the Grove
+ * tokens. Two scopes under .docs:
+ *  - index/section/article chrome (.docs-head, .docs-section,
+ *    .docs-row, .docs-nav…) — the blog's reading voice (eyebrow with
+ *    the amber dash, measured intro) at docs scale
+ *  - .docs-with-nav: the sectioned sidebar beside the content — a
+ *    sticky rail at lg up, stacked above it on small screens
+ *
+ * The prose body itself is markdown.css's .md-body (one markdown
+ * grammar for the blog and docs lanes); .docs-body below only pins
+ * the article's spacing around it.
+ */
+
+/* ---- Head (index + section pages) ---- */
+
+.docs .docs-head {
+  margin-bottom: clamp(2rem, 4vw, 3.5rem);
+  max-width: 640px;
+}
+
+.docs .eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--link);
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.docs .eyebrow::before {
+  content: "";
+  width: 34px;
+  height: 1px;
+  background: var(--border-primary);
+}
+
+.docs .display-h2 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(34px, 4vw, 44px);
+  letter-spacing: -0.01em;
+  line-height: 1.08;
+  margin-top: 18px;
+}
+
+.docs .intro {
+  margin-top: 12px;
+  color: var(--ink-muted);
+  font-size: 1.0625rem;
+}
+
+/* ---- Index sections + page rows ---- */
+
+.docs-section {
+  margin-block: 2.5rem;
+}
+
+.docs-section:first-of-type {
+  margin-top: 0;
+}
+
+.docs-section-title {
+  font-size: 1.1875rem;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.docs-section-title a {
+  color: var(--ink);
+  transition: color var(--motion-fast) var(--motion-ease-out);
+}
+
+.docs-section-title a:hover {
+  color: var(--link);
+}
+
+.docs-section-description {
+  margin-block: 0.375rem 1rem;
+  color: var(--ink-muted);
+}
+
+/* Rows share the blog index's editorial grammar (the .row-* classes
+ * live in blog.css and are lane-shared by name, not re-declared). */
+.docs-row {
+  padding-block: 1.125rem;
+}
+
+.docs-row:first-child {
+  padding-top: 0;
+}
+
+.docs-row:last-child {
+  padding-bottom: 0;
+}
+
+/* ---- Article ---- */
+
+.docs-article-head {
+  margin-block: 0.5rem 2.5rem;
+  max-width: 66ch;
+}
+
+.docs-crumb {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--ink-subtle);
+}
+
+.docs-crumb a {
+  color: var(--ink-subtle);
+  transition: color var(--motion-fast) var(--motion-ease-out);
+}
+
+.docs-crumb a:hover {
+  color: var(--link);
+}
+
+.docs-title {
+  margin-top: 1rem;
+  font-size: clamp(1.75rem, 3.2vw, 2.25rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  color: var(--ink);
+}
+
+.docs-standfirst {
+  margin-top: 0.875rem;
+  font-size: 1.1875rem;
+  line-height: 1.55;
+  color: var(--ink-muted);
+}
+
+/* The prose measure rides .md-body; this only keeps the article's
+ * breathing room below the header. */
+.docs-body {
+  margin-bottom: 2.5rem;
+}
+
+/* ---- Sidebar rail (section + article pages) ---- */
+
+/* minmax(0, 1fr) on every breakpoint: a grid item's min-width: auto
+ * would let a long unwrapped code line (cli.md's curl one-liners)
+ * force the column past the viewport — 0 lets pre's overflow-x own
+ * the scroll instead of the page. */
+.docs-with-nav {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2.5rem;
+}
+
+.docs-nav {
+  font-size: 0.875rem;
+}
+
+.docs-nav-section + .docs-nav-section {
+  margin-top: 1.5rem;
+}
+
+.docs-nav-heading {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.docs-nav-section-link {
+  color: var(--ink-subtle);
+  transition: color var(--motion-fast) var(--motion-ease-out);
+}
+
+.docs-nav-section-link:hover {
+  color: var(--link);
+}
+
+.docs-nav-list {
+  margin-top: 0.375rem;
+  display: grid;
+  gap: 0.125rem;
+  border-left: 1px solid var(--line);
+}
+
+.docs-nav-link {
+  display: block;
+  padding: 0.25rem 0 0.25rem 0.875rem;
+  color: var(--ink-muted);
+  transition: color var(--motion-fast) var(--motion-ease-out);
+}
+
+.docs-nav-link:hover {
+  color: var(--link);
+}
+
+/* The active mark: amber text plus a border tick on the rail — never
+ * colour alone, matching the nav underline's forced-colors stance. */
+.docs-nav-link-active {
+  color: var(--link);
+  border-left: 2px solid var(--border-primary);
+  margin-left: -1px;
+}
+
+@media (min-width: 1024px) {
+  .docs-with-nav {
+    grid-template-columns: 15rem minmax(0, 1fr);
+    gap: 3.5rem;
+  }
+
+  /* Sticky rail: long articles keep their navigation in view. */
+  .docs-nav {
+    position: sticky;
+    top: 1.5rem;
+    align-self: start;
+    max-height: calc(100dvh - 3rem);
+    overflow-y: auto;
+  }
+}

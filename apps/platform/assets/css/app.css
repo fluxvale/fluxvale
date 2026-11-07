@@ -18,6 +18,8 @@
 @import "./landing.css";
 @import "./app_grammar.css";
 @import "./blog.css";
+@import "./markdown.css";
+@import "./docs.css";
 @import "./feedback.css";
 @source "../css";
 @source "../js";

@@ -1,0 +1,25 @@
+<%!-- Docs article (ADR-0044 §5): the reading surface. Same layout
+decision as the blog post page — the article column centers at a
+measured ~66ch (markdown.css owns the per-element prose caps under
+.md-body) — with the sectioned sidebar riding left at lg up. --%>
+<Layouts.public flash={@flash} current_user={@current_user} return_to={@return_to}>
+  <div class="docs docs-with-nav">
+    <.sidebar sections={@sections} active_section={@page.section} active_slug={@page.slug} />
+
+    <article class="docs-main">
+      <header class="docs-article-head">
+        <p class="docs-crumb">
+          <a href={~p"/docs"}>Docs</a>
+          <span aria-hidden="true">/</span>
+          <a href={~p"/docs/#{@page.section}"}>{@section.title}</a>
+        </p>
+        <h1 class="docs-title text-balance">{@page.title}</h1>
+        <p class="docs-standfirst">{@page.description}</p>
+      </header>
+
+      <div class="docs-body md-body" id={"docs-#{@page.section}-#{@page.slug}"}>
+        {raw(@page.html)}
+      </div>
+    </article>
+  </div>
+</Layouts.public>
