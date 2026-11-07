@@ -90,13 +90,14 @@ defmodule FluxVale.Accounts.Organization do
       authorize_if(FluxVale.Checks.ActorBelowOrgCreateCap)
     end
 
-    # Team features will gate destroy on the :owner role; today every
-    # membership is :owner (provisioning only creates owners), so
-    # member-level authorization is safe. Revisit trigger: the first
-    # :member membership.
-    policy action_type(:destroy) do
-      description("Members destroy their organizations")
-      authorize_if(relates_to_actor_via(:members))
+    # Destroying an organization is the owner's call. Member-level
+    # destroy was safe only while every membership was :owner; invites
+    # write :member rows and set_role can demote, so the owner gate is
+    # the contract. System callers pass authorize?: false and are
+    # unaffected.
+    policy action(:destroy) do
+      description("Owners destroy their organizations")
+      authorize_if(FluxVale.Checks.ActorIsOrganizationOwner)
     end
 
     # The first rename flow (#276): owners set the display name and the

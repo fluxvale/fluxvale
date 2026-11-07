@@ -1,7 +1,8 @@
 defmodule FluxVale.Accounts.OrganizationTest do
   @moduledoc """
   Organization resource contract (#119): member-scoped reads, actor-driven
-  creates, the slug discipline (format, uniqueness).
+  creates, the slug discipline (format, uniqueness), and the owner-only
+  destroy gate.
   """
 
   use FluxVale.DataCase, async: true
@@ -115,6 +116,47 @@ defmodule FluxVale.Accounts.OrganizationTest do
 
       assert {:ok, by_id} = Organization.get_by_id(org.id, authorize?: false)
       assert by_id.id == org.id
+    end
+  end
+
+  describe "destroy policy" do
+    test "an owner can destroy their organization" do
+      owner = AccountsFixtures.user!()
+      org = owned_org!(owner)
+
+      assert :ok = Ash.destroy(org, actor: owner)
+
+      assert {:error, _gone} = Organization.get_by_id(org.id, authorize?: false)
+    end
+
+    test "a :member-role member is forbidden to destroy" do
+      owner = AccountsFixtures.user!()
+      org = owned_org!(owner)
+      member = AccountsFixtures.user!()
+
+      Membership.create!(
+        %{organization_id: org.id, user_id: member.id, role: :member},
+        authorize?: false
+      )
+
+      assert {:error, %Ash.Error.Forbidden{}} = Ash.destroy(org, actor: member)
+      assert {:ok, _still_there} = Organization.get_by_id(org.id, authorize?: false)
+    end
+
+    test "a non-member is forbidden to destroy" do
+      owner = AccountsFixtures.user!()
+      org = owned_org!(owner)
+      stranger = AccountsFixtures.user!()
+
+      assert {:error, %Ash.Error.Forbidden{}} = Ash.destroy(org, actor: stranger)
+      assert {:ok, _still_there} = Organization.get_by_id(org.id, authorize?: false)
+    end
+
+    test "no actor is forbidden to destroy" do
+      owner = AccountsFixtures.user!()
+      org = owned_org!(owner)
+
+      assert {:error, %Ash.Error.Forbidden{}} = Ash.destroy(org)
     end
   end
 
@@ -324,5 +366,14 @@ defmodule FluxVale.Accounts.OrganizationTest do
       assert {:ok, current} = Organization.get_by_slug("moved-first", actor: user)
       assert current.name == org.name
     end
+  end
+
+  defp owned_org!(owner) do
+    Organization
+    |> Ash.Changeset.for_create(:create_with_owner, %{
+      name: "teardown",
+      slug: "teardown-#{System.unique_integer([:positive])}"
+    })
+    |> Ash.create!(actor: owner)
   end
 end
