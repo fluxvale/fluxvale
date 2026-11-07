@@ -556,15 +556,15 @@
             open sets the server password, which family members share
             to sign in.
           published_at: "2026-11-02T01:54:02Z"
-          # #511: the OpenID wiring as deploy-time inputs (the
-          # Vaultwarden SSO reasoning — env is a deploy-time snapshot).
-          # The first successful OpenID sign-in becomes the server
-          # owner and cannot be reassigned from the UI.
+          # #511 + #521: the OpenID wiring rides deploy-time inputs (the
+          # Vaultwarden SSO reasoning — env is a deploy-time snapshot),
+          # MINUS the two bootstrap triggers. The first-run contract is
+          # the sole owner of ACTUAL_OPENID_DISCOVERY_URL and
+          # ACTUAL_OPENID_AUTHORIZATION_ENDPOINT (#521 — the seed
+          # refuses any overlap), so the discovery URL is not a deploy
+          # input and the packaging wires no OpenID claim path. The
+          # remaining knobs are the non-triggering cast-through inputs.
           configurable_env_vars:
-            ACTUAL_OPENID_DISCOVERY_URL:
-              label: OpenID discovery URL
-              description: The Pocket ID instance's public URL. Actual discovers the OpenID endpoints from it.
-              type: string
             ACTUAL_OPENID_CLIENT_ID:
               label: OpenID client ID
               description: The client ID from the Pocket ID OIDC client.
