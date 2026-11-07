@@ -148,6 +148,17 @@ defmodule FluxValeWeb.PageControllerTest do
     assert html =~ ~s(rel="canonical" href="https://fluxvale.com/")
   end
 
+  # The launch SEO audit lean: `/` shipped no canonical — and og:url
+  # emits only alongside one (FluxValeWeb.Seo). Self-canonical to `/`,
+  # so /about's canonical target declares itself the same URL.
+  test "GET / self-canonicalizes with og:url", %{conn: conn} do
+    conn = get(conn, ~p"/")
+    html = html_response(conn, 200)
+
+    assert html =~ ~s(rel="canonical" href="https://fluxvale.com/")
+    assert html =~ ~s(property="og:url" content="https://fluxvale.com/")
+  end
+
   test "GET /about for a signed-in visitor keeps the landing, swaps the chrome", %{conn: conn} do
     {user, session_conn} = SessionHelpers.user_with_session(conn)
 

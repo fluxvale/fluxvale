@@ -18,24 +18,25 @@ defmodule FluxValeWeb.PageController do
   # actor exactly like every authenticated surface.
   def home(conn, _params) do
     case conn.assigns.current_user do
-      nil -> landing(conn, nil)
+      nil -> landing(conn)
       _user -> dashboard(conn)
     end
   end
 
   # The landing's signed-in permalink (#205 scope 5): `/about` always
   # renders the marketing page (user-menu chrome when signed in),
-  # canonical to `/` so it never competes with the real landing —
-  # which itself carries no canonical tag today, unchanged.
-  def about(conn, _params), do: landing(conn, "/")
+  # canonical to `/` — the same self-canonical the landing now carries
+  # (the launch SEO audit lean: `/` shipped none, and og:url emits only
+  # alongside one) — so both surfaces fold into `/` for crawlers.
+  def about(conn, _params), do: landing(conn)
 
   # :page_title carries the brand because the root layout's <title> swaps
   # its default for this assign — "Managed cloud platform…" alone would drop
   # "FluxVale" from the tab title. :page_description is the SEO hook; the
   # root layout will render it as a meta tag with the SEO slice (#164).
-  defp landing(conn, canonical_path) do
+  defp landing(conn) do
     conn
-    |> assign(:canonical_path, canonical_path)
+    |> assign(:canonical_path, "/")
     |> assign(
       :page_title,
       gettext("FluxVale, managed cloud platform for open source applications")

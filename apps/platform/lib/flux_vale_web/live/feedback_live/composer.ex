@@ -55,7 +55,11 @@ defmodule FluxValeWeb.FeedbackLive.Composer do
         # A composer form page has zero index value (the launch SEO
         # audit gap): noindex via the root layout's seo tags — the same
         # assign key the SeoNoindex plug sets on non-canonical hosts.
-        robots_noindex: true
+        robots_noindex: true,
+        # The audit's canonical lean: a self-canonical (og:url emits
+        # only alongside one) declaring the page's one URL; the
+        # noindex above still wins on indexing.
+        canonical_path: "/feedback/new"
       )
 
     {:ok, socket}

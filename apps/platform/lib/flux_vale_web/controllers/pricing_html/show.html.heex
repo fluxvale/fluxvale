@@ -76,4 +76,12 @@
       </div>
     </.card>
   </div>
+
+  <%!-- Structured data for crawlers (the catalog's #164 pattern, the
+  launch SEO audit lean): Product-shaped with the real ladder floor.
+  The controller ships nil on an unseeded table and the script stays
+  off; :html_safe encoding means raw/1 cannot break out of the block. --%>
+  <script :if={@json_ld} type="application/ld+json" id="ld-json-pricing">
+    <%= raw(@json_ld) %>
+  </script>
 </Layouts.public>

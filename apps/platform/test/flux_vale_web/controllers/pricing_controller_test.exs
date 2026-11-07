@@ -6,6 +6,7 @@ defmodule FluxValeWeb.PricingControllerTest do
   alias FluxVale.Accounts
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Pricing
+  alias FluxVale.TestSupport.PricingFixtures
 
   test "GET /pricing renders 200 for an anonymous visitor", %{conn: conn} do
     conn = get(conn, ~p"/pricing")
@@ -169,6 +170,48 @@ defmodule FluxValeWeb.PricingControllerTest do
 
     assert length(String.split(body, ~s(href="/pricing"))) - 1 == 2
     assert body =~ ~r/href="\/pricing"[^>]*>\s*Pricing\s*<\/a>/
+  end
+
+  # The launch SEO audit lean: the Product JSON-LD carries only real
+  # numbers — the ladder floor, the same "from" price the landing band
+  # shows. Parsed as JSON, not substring-plausible.
+  test "GET /pricing carries the Product JSON-LD with the real floor", %{conn: conn} do
+    PricingFixtures.size!(monthly_cents: 401)
+    PricingFixtures.size!(monthly_cents: 177)
+
+    html = html_response(get(conn, ~p"/pricing"), 200)
+
+    # [^>]*, not a pinned open tag: a conditional (:if) script root
+    # carries LiveView's phx-r attribute on render.
+    [block] =
+      Regex.run(
+        ~r{<script[^>]*id="ld-json-pricing">\s*(.*?)\s*</script>}s,
+        html,
+        capture: :all_but_first
+      )
+
+    ld = Jason.decode!(block)
+
+    assert ld["@context"] == "https://schema.org"
+    assert ld["@type"] == "Product"
+    assert ld["url"] == "https://fluxvale.com/pricing"
+    assert ld["brand"] == %{"@type" => "Brand", "name" => "FluxVale"}
+
+    # The seeded floor is 177 cents — the lowPrice is its bare decimal,
+    # not the display "$1.77" and never the higher seeded size.
+    assert ld["offers"] == %{
+             "@type" => "AggregateOffer",
+             "lowPrice" => "1.77",
+             "priceCurrency" => "USD"
+           }
+  end
+
+  # No seeded floor, no honest price claim: the script stays off (the
+  # nil branch of json_ld/0), never a guessed price.
+  test "GET /pricing ships no JSON-LD on an unseeded table", %{conn: conn} do
+    html = html_response(get(conn, ~p"/pricing"), 200)
+
+    refute html =~ "ld-json-pricing"
   end
 
   defp strip_opaque_tokens(html) do
