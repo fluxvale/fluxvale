@@ -94,8 +94,7 @@ leg (instance-deploying specs), a `timers` leg (platform-timer-bound
 specs — scale-to-zero on the bootstrap's compressed cadence), and a
 `pages` leg (the rest), one report artifact per leg. A new spec file
 joins a leg's list in the workflow matrix — it won't run in PR CI
-otherwise. The deploy-gated smoke job runs the suite post-deploy
-unsharded — staging full, production the read-only subset
-([ADR-0024](../../docs/adr/00024-e2e-review-environments.md)); the
+otherwise. The per-merge post-deploy smoke retired with #556 (the
+readiness gate that replaced it runs no behavioral suite); the
 nightly workflow (`.github/workflows/e2e-nightly.yml`) runs the full
 suite at the real 1h + */5 cadence on main, daily.

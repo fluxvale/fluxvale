@@ -22,32 +22,33 @@ probe (health + DB + boot invariants) gates traffic → old pods drain
    ▼
 CI job 2: watch-deploy — poll https://staging.fluxvale.com/health and
 https://fluxvale.com/health until version == sha-<sha> in BOTH environments
-(the prod suite must not run against the old image — Flux can reconcile the
-envs at different times)  (verifies the whole
+(the gate must not assert a stale roll — Flux can
+reconcile the envs at different times)  (verifies the whole
 chain: DNS → Cloudflare → Traefik → pod; zero cluster credentials in CI)
    │
    ▼
-CI job 3: smoke (settles on rollout-complete + hold, retries
-    │  each leg once, #556)
-    ├─ staging: Bruno suite + full Playwright — lifecycle included
-    │  since staging went instance-capable (Cluster row + wildcard
-    │  cert, #116)
-    └─ prod:    Bruno suite + read-only Playwright subset (no side effects)
+CI job 3: readiness gate (#556) — sha-pinned, deterministic:
+    both envs must serve THIS merge's /health version with HTTP 200
+    inside a bounded window. No behavioral suite, no retry, no
+    flake surface.
     │
     ▼
-green / recovered-on-retry → Grafana deploy annotation, done
-red (confirmed: both attempts red)  → alert (email — routing is email-only for now, phone push
+green → done (deploy verified reachable and current)
+red (timeout: the new version never came up)  → alert (email — routing is email-only for now, phone push
         deferred per observability.md; the failing run's URL rides the
-        red check, PR comment, and annotation) + auto-opened revert PR
-        + PR comment + annotation. The revert PR's CI is dispatched
-        onto its branch — PRs opened by CI's own token fire no events.
+        red check) + red main. A human reverts (ADR-0015) — no
+        auto-revert machinery anymore (#556 removed it: nothing
+        behavioral is deployed to blame, and the false-revert class is
+        gone structurally). The scheduled smoke (30-min cadence, does
+        not gate) is the primary regression net for boots-fine-but-
+        misbehaves.
 ```
 
-Merge-to-verified ≈ 15–35 minutes — job 3's staging lifecycle
-dominates (cold Forgejo pulls and a retry push past it). Readiness
-probes self-contain
-boot-broken deploys (new pod never goes ready → old pods keep
-serving); smoke catches boots-fine-but-misbehaves.
+Merge-to-verified ≈ 15–35 minutes — job 2's watch poll dominates
+(Flux bump + rollout). Readiness probes self-contain boot-broken
+deploys (new pod never goes ready → old pods keep serving); the gate
+catches a never-current version; the scheduled smoke catches
+boots-fine-but-misbehaves.
 
 Health routes (issue #4): `GET /health` → `{status, version}`, version
 = build SHA — liveness, deliberately dependency-free (a liveness
@@ -74,9 +75,9 @@ endpoints. So the oracles authenticate differently:
   fetches the code via the **TestInbox helper** (Swoosh-local JSON
   endpoint on staging/local/review envs — admin-gated; Postmark
   Messages API on prod), submits, observes logged-in state. The
-  email-code flow is exercised on every deploy — exactly when it
-  changes. The smoke account needs a throttle exemption/dedicated
-  bucket on the send-code endpoint so post-deploy + scheduled passes
+  email-code flow is exercised on the scheduled cadence — exactly when
+  it changes. The smoke account needs a throttle exemption/dedicated
+  bucket on the send-code endpoint so scheduled passes
   don't trip their own rate limit.
 - **CLI login follows the PAT model** (gh-style): create a PAT in the
   web UI, paste into the CLI — no email-code-over-API endpoints.
@@ -378,23 +379,20 @@ Manifest-caused failures (bad limits, Traefik config): revert the
 
 ## On failure: automate detection and preparation, keep the decision human
 
-On **deploy-gated** smoke failure **confirmed by the retry** (both
-attempts red, #556), automation **alerts** (email,
-deep-linked), **opens the revert PR** (`gh pr revert <n>`) and
-dispatches CI onto its branch (CI-opened PRs fire no events of their
-own), comments on the offending PR, posts a Grafana annotation. A
-human merges (one tap) or writes the proper counter-migration PR. No
-auto-merge. A first-attempt failure that passes the retry is
-flake-class: recovered annotation + run summary row, green run, no
-revert (#556 closed five flake-class auto-reverts in one day). One
-structural limit: CI's own token cannot push commits
-touching `.github/workflows` — a workflow-touching PR reverts by hand;
-the comment says so when it happens. **Scheduled** failures get the
-annotation only — no revert PR (nothing deployed to blame); they page
-via the heartbeat dead-man above.
+Per-merge CI gates a deploy on the **readiness gate** only (#556):
+both envs serving the merge's sha with HTTP 200, bounded window. A
+gate timeout (the new version never came up — an unbootable deploy)
+reds the run and main, pages by email with the run URL, and a human
+reverts (fleet-overlay PR or `gh pr revert`, per the rollback table
+above; ADR-0015). There is **no auto-revert machinery anymore**: #556
+removed the per-merge behavioral smoke (Bruno + Playwright) and the
+revert leg with it, after five flake-class auto-reverts in one day —
+every failed sha green on a later run, deploy-roll races all. The
+structural limit that motivated the revert-branch CI dispatch
+(CI-opened PRs fire no events) went with it.
 
-Upgrade path to auto-revert (only if the smoke suite proves weeks of
-near-zero flakiness AND deploys start happening while AFK): auto-merge
-the prepared revert **only when the diff contains no files under
-`priv/repo/migrations`** — migration-touching failures always
-escalate to a human.
+The **scheduled smoke** (30-min cadence, `smoke.yml`, does not gate)
+is the primary regression net for boots-fine-but-misbehaves: failures
+get the annotation only, and page via the heartbeat dead-man above.
+Version currency catches an env stuck on an old sha within its grace
+window — the complement of the gate's never-current timeout.
