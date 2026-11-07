@@ -24,6 +24,13 @@ defmodule FluxVale.Api.Scopes do
   @read_domains [:instances, :backups, :gateways, :wallet, :catalog]
   @write_domains [:instances, :backups, :gateways]
 
+  # The Ash request-context key carrying the calling PAT's scopes from
+  # the boundary plug to /me's meta render (#484). ONE owner — the plug
+  # writes it, the route reads it; drift here is a compile-time fix, not
+  # a silent wrong answer (a bare atom in two modules degrades quietly
+  # to "no scopes", indistinguishable from a session caller).
+  @pat_scopes_context_key :pat_scopes
+
   @read_scopes Enum.map(@read_domains, &"#{&1}:read")
   @write_scopes Enum.map(@write_domains, &"#{&1}:write")
 
@@ -93,6 +100,13 @@ defmodule FluxVale.Api.Scopes do
   """
   @spec all_scopes() :: [String.t()]
   def all_scopes, do: @all_scopes
+
+  @doc """
+  The Ash request-context key the boundary plug writes the calling
+  PAT's scopes under (#484) — `/me`'s meta render reads the same key.
+  """
+  @spec pat_scopes_context_key() :: atom()
+  def pat_scopes_context_key, do: @pat_scopes_context_key
 
   @doc """
   The route table itself — `{{method, pattern}, scope}` pairs — for

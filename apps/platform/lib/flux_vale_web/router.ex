@@ -59,6 +59,10 @@ defmodule FluxValeWeb.Router do
   pipeline :api_auth do
     plug(:fetch_session)
     plug(FluxValeWeb.Plugs.Authenticate)
+    # #484: bridge the resolved PAT's scopes into the Ash request
+    # context — /me's token introspection reads them there (right
+    # after the boundary resolves the row; no PAT means no entry).
+    plug(FluxValeWeb.Plugs.PutPatScopesInAshContext)
     plug(FluxValeWeb.Plugs.ApiAudit)
     plug(FluxValeWeb.Plugs.ApiRateLimit)
     plug(FluxValeWeb.Plugs.RequireActor)

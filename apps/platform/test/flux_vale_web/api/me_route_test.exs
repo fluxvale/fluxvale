@@ -7,6 +7,8 @@ defmodule FluxValeWeb.Api.MeRouteTest do
   # #360: PATs are opaque fvpat_ values resolved through
   # personal_access_tokens — mint → use → revoke → 401 lives here, plus
   # the JWT-bearer refusal on /api/v1 (ADR-0019 Am. 1).
+  # #484 (W2b): the meta's scope introspection — a PAT caller's exact
+  # minted list, a session caller's absent key.
 
   use FluxValeWeb.ConnCase, async: true
 
@@ -57,6 +59,57 @@ defmodule FluxValeWeb.Api.MeRouteTest do
              }
 
       refute Map.has_key?(data["attributes"], "hashed_password")
+    end
+
+    # #484 (W2b): the wire's scope introspection — MCP tool filtering
+    # needs token knowledge on the wire (read domains are probeable
+    # via the boundary's 403s; write domains are not). The calling
+    # PAT's exact minted list rides top-level meta: a known subset
+    # (not @s1_scopes) proves it's the token's list, the second mint
+    # proves it's the CALLING token's, not the user's.
+    test "meta renders the calling PAT's exact scope list", %{conn: conn, user: user} do
+      subset = ["instances:read", "instances:write"]
+
+      {:ok, %{token: first}} =
+        Identity.mint_pat(nil, %{user_id: user.id, name: "known set", scopes: subset},
+          authorize?: false
+        )
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> first)
+        |> get("/api/v1/me")
+
+      assert %{"meta" => %{"scopes" => scopes}} = json_response(conn, 200)
+      assert scopes == subset
+
+      other = ["catalog:read"]
+
+      {:ok, %{token: second}} =
+        Identity.mint_pat(nil, %{user_id: user.id, name: "other set", scopes: other},
+          authorize?: false
+        )
+
+      second_conn = pat_request(second)
+
+      assert %{"meta" => %{"scopes" => ^other}} = json_response(second_conn, 200)
+    end
+
+    # A zero-scope PAT is a MINTED fact ("no grants"), not the absence
+    # of one — the wire must render the empty list, never omit the key
+    # (the omission belongs to session callers alone).
+    test "a zero-scope PAT renders meta.scopes as an empty list, not an omission", %{
+      user: user
+    } do
+      {:ok, %{token: token}} =
+        Identity.mint_pat(nil, %{user_id: user.id, name: "zero scopes", scopes: []},
+          authorize?: false
+        )
+
+      conn = pat_request(token)
+
+      assert %{"meta" => %{"scopes" => scopes}} = json_response(conn, 200)
+      assert scopes == []
     end
 
     test "renders username null for rollout-window users", %{conn: conn} do
@@ -283,8 +336,49 @@ defmodule FluxValeWeb.Api.MeRouteTest do
         |> Plug.Test.init_test_session(%{"user_token" => token})
         |> get("/api/v1/me")
 
-      assert %{"data" => %{"id" => id}} = json_response(conn, 200)
+      assert %{"data" => %{"id" => id}, "meta" => meta} = json_response(conn, 200)
       assert id == user.id
+
+      # No PAT ⇒ no introspection key (#484): the session shape stays
+      # exactly what it was — empty meta, never a scopes key (no null,
+      # no empty-list meaning).
+      assert meta == %{}
+    end
+
+    # Bearer beats session, and BOTH halves of the answer come from the
+    # bearer: Authenticate resolves the PAT first and short-circuits the
+    # session lookup, so data.id and meta.scopes are one user's answer —
+    # a session cookie can never blend its user with another token's
+    # introspection (#484).
+    test "a bearer over a session answers wholly from the bearer", %{conn: conn, user: user} do
+      bearer_user = User.create!("bearer-wins@fluxvale.com", %{}, authorize?: false)
+      bearer_scopes = ["wallet:read"]
+
+      {:ok, %{token: bearer_pat}} =
+        Identity.mint_pat(
+          nil,
+          %{
+            user_id: bearer_user.id,
+            name: "bearer over session",
+            scopes: bearer_scopes
+          },
+          authorize?: false
+        )
+
+      {:ok, session_token, _claims} = Jwt.token_for_user(user)
+
+      conn =
+        conn
+        |> Plug.Test.init_test_session(%{"user_token" => session_token})
+        |> put_req_header("authorization", "Bearer " <> bearer_pat)
+        |> get("/api/v1/me")
+
+      assert %{"data" => %{"id" => id}, "meta" => %{"scopes" => scopes}} =
+               json_response(conn, 200)
+
+      assert id == bearer_user.id
+      assert id != user.id
+      assert scopes == bearer_scopes
     end
   end
 
