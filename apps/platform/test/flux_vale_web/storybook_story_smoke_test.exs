@@ -15,6 +15,7 @@ defmodule FluxValeWeb.Storybook.StorySmokeTest do
 
   @stories [
     {"backup_run_row", "Backup Run Row"},
+    {"confirm_block", "Confirm Block"},
     {"dav_snippet", "Dav Snippet"},
     {"readonly_field", "Readonly Field"},
     {"org_switcher", "Org Switcher"},

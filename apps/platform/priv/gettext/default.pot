@@ -791,3 +791,8 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgid "Wallets and billing"
 msgstr ""
+
+#: lib/flux_vale_web/components/core_components.ex:1104
+#, elixir-autogen, elixir-format
+msgid "Cancel"
+msgstr ""

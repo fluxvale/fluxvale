@@ -750,51 +750,6 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
     """
   end
 
-  attr(:title, :string, required: true)
-  attr(:body, :string, required: true)
-  attr(:note, :string, default: nil)
-  attr(:action, :string, required: true)
-  attr(:event, :string, required: true)
-  attr(:action_testid, :string, required: true)
-  attr(:cancel_testid, :string, required: true)
-  attr(:myself, :any, required: true)
-
-  # One destructive treatment for every confirm: the danger border and
-  # heading say "consequence", where the status `.callout`s stay muted —
-  # a stop must never read like a notice.
-  defp confirm_block(assigns) do
-    ~H"""
-    <div
-      class="space-y-3 rounded-panel border-2 border-line-danger bg-danger-muted px-4 py-3"
-      data-testid="destructive-confirm"
-    >
-      <p class="text-sm font-semibold text-danger">{@title}</p>
-      <p class="text-sm text-ink">{@body}</p>
-      <p :if={@note} class="text-xs text-ink-muted">{@note}</p>
-      <div class="flex flex-wrap gap-2">
-        <.button
-          size="sm"
-          variant="destructive"
-          phx-click={@event}
-          phx-target={@myself}
-          data-testid={@action_testid}
-        >
-          {@action}
-        </.button>
-        <.button
-          size="sm"
-          variant="ghost"
-          phx-click="cancel-confirm"
-          phx-target={@myself}
-          data-testid={@cancel_testid}
-        >
-          Cancel
-        </.button>
-      </div>
-    </div>
-    """
-  end
-
   defp unavailable_note(assigns) do
     ~H"""
     <.callout tone="warning" data-testid="backups-unavailable">

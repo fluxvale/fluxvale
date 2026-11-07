@@ -1036,6 +1036,79 @@ defmodule FluxValeWeb.CoreComponents do
   end
 
   @doc """
+  Renders a destructive confirm — the two-step, in-panel check before an
+  action with consequences (a restore, stopping backups). One
+  destructive treatment for every confirm: the danger border and heading
+  say "consequence", where the status `.callout`s stay muted — a stop
+  must never read like a notice.
+
+  Contract: one confirm per panel by design, so the container's shared
+  `destructive-confirm` testid is safe — parameterize it if a surface
+  ever embeds two confirms at once. The cancel event defaults to the
+  caller's "cancel-confirm" handler (`cancel_event` overrides); the
+  action and cancel testids are per-call.
+
+  ## Examples
+
+      <.confirm_block
+        title="Restore a backup?"
+        body="This replaces the app's current data. This cannot be undone."
+        action="Yes, restore this backup"
+        event="restore"
+        action_testid="restore-confirm"
+        cancel_testid="restore-cancel"
+        myself={@myself}
+      />
+  """
+  attr(:title, :string, required: true)
+  attr(:body, :string, required: true)
+  attr(:note, :string, default: nil)
+  attr(:action, :string, required: true)
+  attr(:event, :string, required: true)
+  attr(:action_testid, :string, required: true)
+  attr(:cancel_testid, :string, required: true)
+  attr(:cancel_event, :string, default: "cancel-confirm")
+
+  attr(:myself, :any,
+    required: true,
+    doc:
+      "the owning LiveComponent's @myself; nil renders a static preview and BOTH buttons dispatch to the enclosing LiveView — nil is for previews only, real surfaces pass a LiveComponent target"
+  )
+
+  def confirm_block(assigns) do
+    ~H"""
+    <div
+      class="space-y-3 rounded-panel border-2 border-line-danger bg-danger-muted px-4 py-3"
+      data-testid="destructive-confirm"
+    >
+      <p class="text-sm font-semibold text-danger">{@title}</p>
+      <p class="text-sm text-ink">{@body}</p>
+      <p :if={@note} class="text-xs text-ink-muted">{@note}</p>
+      <div class="flex flex-wrap gap-2">
+        <.button
+          size="sm"
+          variant="destructive"
+          phx-click={@event}
+          phx-target={@myself}
+          data-testid={@action_testid}
+        >
+          {@action}
+        </.button>
+        <.button
+          size="sm"
+          variant="ghost"
+          phx-click={@cancel_event}
+          phx-target={@myself}
+          data-testid={@cancel_testid}
+        >
+          {gettext("Cancel")}
+        </.button>
+      </div>
+    </div>
+    """
+  end
+
+  @doc """
   Renders a status badge — one per state-machine state, with a pulsing
   dot on the in-motion ones (deploying/starting/deleting; connecting/
   removing on the gateway). Serves both state machines: the Instance's
