@@ -17,10 +17,8 @@
 # first-run contract must simply be usable out of the box — see ADR-0034
 # for the next app's pattern).
 # recommended_size is REQUIRED on every version — a slug from
-# pricing_data.yaml whose COMPUTE equals the version's cpu/memory
-# defaults (#558: default_storage_gb is the app's own honest storage
-# default, priced per GB); seed_pricing! runs first and the seed
-# runner resolves the id.
+# pricing_data.yaml whose allocation equals the version's resource
+# defaults; seed_pricing! runs first and the seed runner resolves the id.
 - category:
     name: Developer Tools
     slug: developer-tools
@@ -57,9 +55,8 @@
           default_cpu_cores: "0.5"
           default_memory_mb: 512
           default_storage_gb: 10
-          # The compute class (#125, #558): `small` is 0.5 CPU / 512 MB —
-          # exactly this version's compute ($2.95/mo), and 10 GB is the
-          # app's own storage default ($0.40/mo per-GB — B′).
+          # The priced unit (#125): `small` is 0.5 CPU / 512 MB / 10 GB —
+          # exactly this version's allocation ($3.35/mo, $0.40 stopped — B′).
           recommended_size: small
           release_notes: |
             First FluxVale catalog release, tracking upstream v16.0.5.
@@ -172,9 +169,8 @@
           default_cpu_cores: "0.5"
           default_memory_mb: 512
           default_storage_gb: 10
-          # The compute class (#125, #558): `small` is 0.5 CPU / 512 MB —
-          # exactly this version's compute ($2.95/mo), and 10 GB is the
-          # app's own storage default ($0.40/mo per-GB — B′).
+          # The priced unit (#125): `small` is 0.5 CPU / 512 MB / 10 GB —
+          # exactly this version's allocation ($3.35/mo, $0.40 stopped — B′).
           # Kavita runs on as little as 256 MB (upstream guidance), but
           # library scans are image-heavy (NetVIPS cover generation), so
           # the shipped recommendation keeps scan headroom.
@@ -244,10 +240,9 @@
           default_cpu_cores: "0.25"
           default_memory_mb: 512
           default_storage_gb: 5
-          # The compute class (#125, #558): `micro` is 0.25 CPU / 512 MB
-          # — exactly this version's compute ($2.59/mo), and 5 GB is the
-          # app's own storage default ($0.24/mo per-GB — B′). Memos is a
-          # static Go binary over SQLite with
+          # The priced unit (#125): `micro` is 0.25 CPU / 512 MB / 5 GB
+          # — exactly this version's allocation ($2.83/mo, $0.24
+          # stopped — B′). Memos is a static Go binary over SQLite with
           # no external services; upstream's whole pitch is featherweight,
           # so the ladder's floor is honest headroom, not a squeeze.
           recommended_size: micro
@@ -318,10 +313,9 @@
           default_cpu_cores: "0.25"
           default_memory_mb: 512
           default_storage_gb: 5
-          # The compute class (#125, #558): `micro` is 0.25 CPU / 512 MB —
-          # exactly this version's compute ($2.59/mo), and 5 GB is the
-          # app's own storage default ($0.24/mo per-GB — B′). Honest in
-          # both directions (#492): a single Rust binary
+          # The priced unit (#125): `micro` is 0.25 CPU / 512 MB / 5 GB —
+          # exactly this version's allocation ($2.83/mo, $0.24 stopped —
+          # B′). Honest in both directions (#492): a single Rust binary
           # with SQLite, no server-side vault crypto (clients do the
           # end-to-end work), and upstream runs it on far less than this.
           # 512 MB keeps attachment sync comfortable, and logins are
@@ -547,12 +541,11 @@
           default_cpu_cores: "0.5"
           default_memory_mb: 512
           default_storage_gb: 10
-          # The compute class (#125, #558): `small` is 0.5 CPU / 512 MB —
-          # exactly this version's compute ($2.95/mo), and 10 GB is the
-          # app's own storage default ($0.40/mo per-GB — B′). Idle RSS
-          # measured ~110 MB on 26.11.0, so `micro` boots.
-          # The classes differ in CPU only (both are 512 MB): 0.25 CPU
-          # throttles sync and report work on real
+          # The priced unit (#125): `small` is 0.5 CPU / 512 MB / 10 GB —
+          # exactly this version's allocation ($3.35/mo, $0.40 stopped —
+          # B′). Idle RSS measured ~110 MB on 26.11.0, so `micro` boots.
+          # The rungs differ in CPU and storage, not memory (both are
+          # 512 MB): 0.25 CPU throttles sync and report work on real
           # budgets, and attachments grow past 5 GB. The stepper's
           # first impression should not undersell a financial records
           # app; `small` matches the shipped unit.
