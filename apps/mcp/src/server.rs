@@ -72,7 +72,8 @@ impl FluxValeMcp {
         description = "The identity this token carries: user id, email, platform \
 role, username, and the organizations the user belongs to (id, slug and \
 name each). Use it first to see who you are and to learn the ids the \
-other tools take."
+other tools take.",
+        annotations(read_only_hint = true)
     )]
     async fn whoami(
         &self,
@@ -85,7 +86,8 @@ other tools take."
     #[tool(
         description = "The deployable app catalog: one entry per app — id, name, \
 slug, tagline, description, icon/source/docs URLs, file-access flag, \
-category. Slugs from here are what `apps_show` takes."
+category id. Slugs from here are what `apps_show` takes.",
+        annotations(read_only_hint = true)
     )]
     async fn apps_list(
         &self,
@@ -98,7 +100,8 @@ category. Slugs from here are what `apps_show` takes."
     #[tool(
         description = "One catalog app by its URL slug: name, tagline, description, \
 icon/source/docs URLs, file-access flag. Get the slug from `apps_list`. \
-Errors when no app carries the slug."
+Errors when no app carries the slug.",
+        annotations(read_only_hint = true)
     )]
     async fn apps_show(
         &self,
@@ -112,7 +115,8 @@ Errors when no app carries the slug."
     #[tool(
         description = "Your instances: one entry per deployed app — id, name, slug, \
 namespace, lifecycle status, exposure, always-on flag, deployed-at. The \
-ids are what `instances_status` takes."
+ids are what `instances_status` takes.",
+        annotations(read_only_hint = true)
     )]
     async fn instances_list(
         &self,
@@ -127,7 +131,8 @@ ids are what `instances_status` takes."
 allocation (cpu/memory/storage), image, port, healthcheck path, \
 file-access flag, deployed-at. Get the id from `instances_list`. Omit \
 the id to get the verbose list of all your instances instead. Errors \
-when the id is not one of your instances."
+when the id is not one of your instances.",
+        annotations(read_only_hint = true)
     )]
     async fn instances_status(
         &self,
@@ -635,6 +640,111 @@ mod tests {
         );
     }
 
+    // ---- the probes' fail-loud arms: only an explicit 403 hides a
+    // domain; every other probe failure fails the WHOLE tools/list.
+
+    #[tokio::test]
+    async fn an_apps_probe_500_fails_tools_list_loudly() {
+        let server = testapi::serve(&[
+            ("/api/v1/me", 200, me_doc()),
+            ("/api/v1/apps", 500, "<html>boom</html>".to_string()),
+        ]);
+        let (_, body) = tools_list(&app(&server), PAT_FULL).await;
+        let (code, message) = rpc_error(&body);
+        assert_eq!(code, -32603);
+        assert!(
+            message
+                .as_str()
+                .unwrap()
+                .contains("the FluxVale API is unavailable"),
+            "message: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_apps_probe_404_fails_tools_list_loudly() {
+        let server = testapi::serve(&[
+            ("/api/v1/me", 200, me_doc()),
+            ("/api/v1/apps", 404, "{\"errors\": []}".to_string()),
+        ]);
+        let (_, body) = tools_list(&app(&server), PAT_FULL).await;
+        let (code, message) = rpc_error(&body);
+        assert_eq!(code, -32603);
+        assert!(
+            message.as_str().unwrap().contains("not found"),
+            "message: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_instances_probe_500_fails_tools_list_loudly() {
+        let server = testapi::serve(&[
+            ("/api/v1/me", 200, me_doc()),
+            ("/api/v1/apps", 200, apps_doc()),
+            ("/api/v1/instances", 500, "<html>boom</html>".to_string()),
+        ]);
+        let (_, body) = tools_list(&app(&server), PAT_FULL).await;
+        let (code, _) = rpc_error(&body);
+        assert_eq!(code, -32603);
+    }
+
+    #[tokio::test]
+    async fn an_instances_probe_404_fails_tools_list_loudly() {
+        let server = testapi::serve(&[
+            ("/api/v1/me", 200, me_doc()),
+            ("/api/v1/apps", 200, apps_doc()),
+            ("/api/v1/instances", 404, "{\"errors\": []}".to_string()),
+        ]);
+        let (_, body) = tools_list(&app(&server), PAT_FULL).await;
+        let (code, _) = rpc_error(&body);
+        assert_eq!(code, -32603);
+    }
+
+    #[tokio::test]
+    async fn a_transport_failure_on_a_probe_fails_tools_list_loudly() {
+        // The upstream dies after /me: the /apps probe's dial is
+        // refused — transport, not scope, so nothing hides.
+        let server = testapi::serve_n(&[("/api/v1/me", 200, me_doc())], 1);
+        let (_, body) = tools_list(&app(&server), PAT_FULL).await;
+        let (code, message) = rpc_error(&body);
+        assert_eq!(code, -32603);
+        assert!(
+            message.as_str().unwrap().contains("connection failed"),
+            "message: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_instances_probe_transport_failure_fails_tools_list_loudly() {
+        let server = testapi::serve_n(
+            &[
+                ("/api/v1/me", 200, me_doc()),
+                ("/api/v1/apps", 200, apps_doc()),
+            ],
+            2,
+        );
+        let (_, body) = tools_list(&app(&server), PAT_FULL).await;
+        let (code, _) = rpc_error(&body);
+        assert_eq!(code, -32603);
+    }
+
+    #[tokio::test]
+    async fn a_probe_401_is_an_auth_refusal_not_an_availability_error() {
+        // The token died mid-list — the same -32600 path as a dead
+        // /me, never "the API is unavailable".
+        let server = testapi::serve(&[
+            ("/api/v1/me", 200, me_doc()),
+            ("/api/v1/apps", 401, unauthorized_doc()),
+        ]);
+        let (_, body) = tools_list(&app(&server), PAT_FULL).await;
+        let (code, message) = rpc_error(&body);
+        assert_eq!(code, -32600);
+        assert!(
+            message.as_str().unwrap().contains("authentication failed"),
+            "message: {message}"
+        );
+    }
+
     fn unauthorized_doc() -> String {
         json!({"errors": [{"status": "401", "title": "Unauthorized"}]}).to_string()
     }
@@ -803,9 +913,12 @@ mod tests {
         let server = full_scope_upstream();
         let (_, body) = tools_call(&app(&server), PAT_FULL, "apps_list", json!({})).await;
         let structured = &result(&body)["structuredContent"];
-        assert_eq!(structured[0]["slug"], "wordpress");
-        assert_eq!(structured[0]["id"], "1");
-        assert_eq!(structured[1]["slug"], "kavita");
+        // Collections ride a named-key object (the retiring server's
+        // shape — the 2025-11-25 schema types structuredContent as an
+        // object, so a bare array would break typed clients).
+        assert_eq!(structured["apps"][0]["slug"], "wordpress");
+        assert_eq!(structured["apps"][0]["id"], "1");
+        assert_eq!(structured["apps"][1]["slug"], "kavita");
     }
 
     #[tokio::test]
@@ -847,9 +960,9 @@ mod tests {
         let server = full_scope_upstream();
         let (_, body) = tools_call(&app(&server), PAT_FULL, "instances_list", json!({})).await;
         let structured = &result(&body)["structuredContent"];
-        assert_eq!(structured[0]["id"], "i1");
-        assert_eq!(structured[0]["slug"], "web-a1b2");
-        assert_eq!(structured[0]["status"], "running");
+        assert_eq!(structured["instances"][0]["id"], "i1");
+        assert_eq!(structured["instances"][0]["slug"], "web-a1b2");
+        assert_eq!(structured["instances"][0]["status"], "running");
     }
 
     #[tokio::test]
@@ -868,7 +981,7 @@ mod tests {
 
         let (_, body) = tools_call(&app(&server), PAT_FULL, "instances_status", json!({})).await;
         let structured = &result(&body)["structuredContent"];
-        assert_eq!(structured[0]["id"], "i1");
+        assert_eq!(structured["instances"][0]["id"], "i1");
     }
 
     #[tokio::test]

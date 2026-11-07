@@ -32,6 +32,13 @@ impl CannedApi {
 /// Serve canned `(path, status, body)` responses until dropped. A path
 /// with no entry answers 404 `{}` — the "route doesn't exist" shape.
 pub(crate) fn serve(routes: &[(&str, u16, String)]) -> CannedApi {
+    serve_n(routes, usize::MAX)
+}
+
+/// Like [`serve`], but the listener stops accepting after `accepts`
+/// connections — later calls get connection refused, the transport
+/// error shape the probes' fail-loud arms need.
+pub(crate) fn serve_n(routes: &[(&str, u16, String)], accepts: usize) -> CannedApi {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     let heads = Arc::new(Mutex::new(Vec::new()));
@@ -41,7 +48,12 @@ pub(crate) fn serve(routes: &[(&str, u16, String)]) -> CannedApi {
         .map(|(path, status, body)| ((*path).to_string(), *status, body.clone()))
         .collect();
     std::thread::spawn(move || {
-        for stream in listener.incoming() {
+        // `accepts` connections answered; the listener drops when this
+        // closure returns, so further dials are refused.
+        for (served, stream) in listener.incoming().enumerate() {
+            if served >= accepts {
+                break;
+            }
             let Ok(mut stream) = stream else { break };
             let mut head = String::new();
             let mut buf = [0u8; 4096];

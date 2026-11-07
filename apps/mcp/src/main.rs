@@ -114,21 +114,36 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// tracing to stdout; RUST_LOG filters, info default.
+///
+/// `ureq_proto` is capped at info regardless of the global level: at
+/// trace it dumps raw HTTP heads — the Authorization header included —
+/// so a stray `RUST_LOG=trace` would leak the caller's PAT to stdout.
 fn init_tracing() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    // Target-specific directives win over a global trace level.
+    let filter = filter.add_directive("ureq_proto=info".parse().expect("literal directive parses"));
+    tracing_subscriber::fmt().with_env_filter(filter).init();
 }
 
-/// The one production shutdown signal: Ctrl-C. main/init_tracing/
-/// this fn are the deliberate coverage exclusions (the lane's
-/// documented "prod-only" class): the process entry, the global
-/// subscriber install (a second install panics in-process), and the
-/// OS signal arm are unreachable in an in-process test — `serve` and
-/// the router are fully covered below.
+/// The two production shutdown signals: Ctrl-C (SIGINT) and SIGTERM —
+/// the container runtime stops W3's pod with the latter.
+///
+/// main, this fn, and its select arms are the deliberate coverage
+/// exclusions (the lane's documented "prod-only" class): the OS signal
+/// arms are unreachable in an in-process test — `serve` and the router
+/// are fully covered below.
+#[cfg(unix)]
+async fn shutdown_signal() {
+    use tokio::signal::unix::{SignalKind, signal};
+    let mut sigterm = signal(SignalKind::terminate()).expect("install the SIGTERM handler");
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = sigterm.recv() => {}
+    }
+}
+
+#[cfg(not(unix))]
 async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
 }

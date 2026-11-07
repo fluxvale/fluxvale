@@ -60,11 +60,12 @@ pub(crate) async fn whoami(base: Arc<str>, token: Token) -> Result<Value, String
     .await
 }
 
-/// `apps_list` — GET /apps: the catalog, one flat row per app.
+/// `apps_list` — GET /apps: the catalog as `{"apps": […]}`, one flat
+/// row per app (the retiring server's response shape).
 pub(crate) async fn apps_list(base: Arc<str>, token: Token) -> Result<Value, String> {
     on_blocking_string(move || {
         let document = ApiClient::new(&base, token).get("/apps").map_err(message)?;
-        Ok(rows(&document))
+        Ok(json!({ "apps": rows(&document) }))
     })
     .await
 }
@@ -81,13 +82,14 @@ pub(crate) async fn apps_show(base: Arc<str>, token: Token, slug: String) -> Res
     .await
 }
 
-/// `instances_list` — GET /instances: one flat row per instance.
+/// `instances_list` — GET /instances: `{"instances": […]}`, one flat
+/// row per instance (the retiring server's response shape).
 pub(crate) async fn instances_list(base: Arc<str>, token: Token) -> Result<Value, String> {
     on_blocking_string(move || {
         let document = ApiClient::new(&base, token)
             .get("/instances")
             .map_err(message)?;
-        Ok(rows(&document))
+        Ok(json!({ "instances": rows(&document) }))
     })
     .await
 }
@@ -114,11 +116,13 @@ pub(crate) async fn instances_status(
                 .map_err(|err| friendly_404(err, "instance"))?;
             one_resource(document, "instance").map(|resource| with_id(&resource))
         }
+        // The no-id arm is the verbose list, same named-key shape as
+        // `instances_list`.
         None => {
             let document = ApiClient::new(&base, token)
                 .get("/instances")
                 .map_err(message)?;
-            Ok(rows(&document))
+            Ok(json!({ "instances": rows(&document) }))
         }
     })
     .await
@@ -144,7 +148,11 @@ pub(crate) async fn scope_coverage(
         })?;
         let read = |path: &str| match client.get(path) {
             Ok(_) => Ok(true),
+            // 403 = the domain is out of scope — the one answer that
+            // HIDES a tool. 401 = the token died mid-list; that's an
+            // auth failure like a dead /me, never "unavailable".
             Err(ApiError::Forbidden(_)) => Ok(false),
+            Err(err @ ApiError::Unauthorized) => Err(ScopeError::Auth(err.to_string())),
             Err(err) => Err(ScopeError::Upstream(err.to_string())),
         };
         let catalog = read("/apps")?;
@@ -329,9 +337,9 @@ mod tests {
             {"type": "app", "id": "1", "attributes": {"name": "WordPress", "slug": "wordpress"}}
         ]}));
         let server = serve(&[("/api/v1/apps", 200, body)]);
-        let rows = apps_list(base(&server), token()).await.unwrap();
-        assert_eq!(rows[0]["slug"], "wordpress");
-        assert_eq!(rows[0]["id"], "1");
+        let row = apps_list(base(&server), token()).await.unwrap();
+        assert_eq!(row["apps"][0]["slug"], "wordpress");
+        assert_eq!(row["apps"][0]["id"], "1");
     }
 
     #[tokio::test]
@@ -390,9 +398,9 @@ mod tests {
             {"type": "instance", "id": "i1", "attributes": {"name": "web", "status": "running"}}
         ]}));
         let list = serve(&[("/api/v1/instances", 200, list_body)]);
-        let rows = instances_list(base(&list), token()).await.unwrap();
-        assert_eq!(rows[0]["id"], "i1");
-        assert_eq!(rows[0]["status"], "running");
+        let wrapped = instances_list(base(&list), token()).await.unwrap();
+        assert_eq!(wrapped["instances"][0]["id"], "i1");
+        assert_eq!(wrapped["instances"][0]["status"], "running");
 
         let one_body = &envelope(json!({"data": {
             "type": "instance", "id": "i1", "attributes": {"name": "web", "status": "running"}
@@ -415,10 +423,10 @@ mod tests {
         assert_eq!(err, "invalid instance id: a/b");
         // The no-id arm needs no fence — it's a collection read.
         let server = serve(&[("/api/v1/instances", 200, &envelope(json!({"data": []})))]);
-        let rows = instances_status(base(&server), token(), None)
+        let wrapped = instances_status(base(&server), token(), None)
             .await
             .unwrap();
-        assert_eq!(rows, json!([]));
+        assert_eq!(wrapped, json!({"instances": []}));
     }
 
     #[tokio::test]
@@ -465,6 +473,25 @@ mod tests {
         ]);
         let coverage = scope_coverage(base(&server), token()).await;
         assert_eq!(coverage.unwrap(), (true, false));
+    }
+
+    #[tokio::test]
+    async fn a_probe_401_is_an_auth_error_not_unavailable() {
+        // The token dying mid-list is an auth failure — same -32600
+        // path as a dead /me — never "the API is unavailable".
+        let body = envelope(json!({"errors": [
+            {"status": "401", "title": "Unauthorized"}
+        ]}));
+        let server = serve(&[
+            ("/api/v1/me", 200, &envelope(me_doc())),
+            ("/api/v1/apps", 401, &body),
+        ]);
+        let err = scope_coverage(base(&server), token()).await.unwrap_err();
+        assert!(matches!(err, ScopeError::Auth(_)), "got: {err:?}");
+        assert_eq!(
+            err_message(&err),
+            "not signed in or token revoked (fluxvale auth login)"
+        );
     }
 
     #[tokio::test]

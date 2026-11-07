@@ -19,9 +19,15 @@ the first five read tools.
 Tools are scope-filtered: `tools/list` offers only what the token's
 scopes cover (`whoami` for any live token, the apps pair under
 `catalog:read`, the instances pair under `instances:read`; a write
-scope implies its read). The platform's own 403 is the real
-enforcement — a filtered-out tool called directly still refuses, with
-the API's own message.
+scope implies its read). A probe failure fails the whole `tools/list`;
+only an explicit 403 hides a domain. The platform's own 403 is the
+real enforcement — a filtered-out tool called directly still refuses,
+with the API's own message.
+
+Note that trace-level logging is unsafe on this server: a dependency
+dumps HTTP heads at trace, the Authorization header included — cap at
+`debug` (`RUST_LOG=info` is the default, and `ureq_proto` is pinned to
+`info` regardless).
 
 ## Auth: PAT passthrough, nothing stored
 
@@ -90,5 +96,6 @@ slice runs local only.
 
 From `apps/mcp`: `cargo fmt --all -- --check`, `cargo clippy
 --workspace --all-targets -- -D warnings`, `cargo test --workspace`,
-`cargo deny check` — the same set CI runs (`.github/workflows/ci.yml`,
-the `mcp-gates` job), with coverage folded into that job (flag `mcp`).
+`cargo deny check licenses advisories` — the same set CI runs
+(`.github/workflows/ci.yml`, the `mcp-gates` job), with coverage
+folded into that job (flag `mcp`).

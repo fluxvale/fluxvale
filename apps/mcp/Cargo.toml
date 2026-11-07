@@ -17,8 +17,10 @@ name = "fluxvale-mcp"
 path = "src/main.rs"
 
 [dependencies]
-# rmcp 3.9.0 is exact-pinned: the tool macros' generated code shape
-# changes between minors — bumps are deliberate, reviewable diffs.
+# The lockfile pins rmcp 3.9.0: the tool macros' generated code shape
+# changes between minors, so a lockfile bump is a deliberate,
+# reviewable diff. The requirement follows the repo's Rust style
+# (caret, like apps/cli's) — the lockfile is the pin.
 rmcp = { version = "3.9.0", features = [
     "server",
     "macros",
