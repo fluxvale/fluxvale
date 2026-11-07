@@ -8,7 +8,9 @@ defmodule FluxVale.Pricing.Size do
   willingness-to-pay point (ADR-0028; the named source stays out of
   public code per ADR-0018 Am. 1); the calibration against the box COGS
   lives in docs/pricing-calibration.md. Slug is the seed's idempotency
-  key; prices themselves are admin-editable business data (AshAdmin).
+  key; prices themselves are admin-editable business data (the operator
+  console at /admin/catalog; the generated admin at /admin/ash stays as
+  the debug fallback).
   """
 
   use Ash.Resource,
@@ -18,23 +20,26 @@ defmodule FluxVale.Pricing.Size do
     authorizers: [Ash.Policy.Authorizer]
 
   postgres do
-    table "pricing_sizes"
-    repo FluxVale.Repo
+    table("pricing_sizes")
+    repo(FluxVale.Repo)
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
-    migration_defaults id: "nil"
+    migration_defaults(id: "nil")
   end
 
   policies do
     policy action_type(:read) do
       # #164: the public catalog show page prices versions for anonymous
       # visitors (ADR-0028's $X.XX/mo, now on the marketing surface too).
-      description "Public browse — prices show on the public catalog (#164, ADR-00025); writes stay admin-only"
+      description(
+        "Public browse — prices show on the public catalog (#164, ADR-00025); writes stay admin-only"
+      )
+
       authorize_if(always())
     end
 
     policy FluxVale.Checks.ActorIsPlatformAdmin do
-      description "Platform admins manage prices (ADR-0027, ADR-0030)"
+      description("Platform admins manage prices (ADR-0027, ADR-0030)")
       authorize_if(always())
     end
   end
@@ -90,12 +95,12 @@ defmodule FluxVale.Pricing.Size do
     defaults([:read, :destroy])
 
     create :create do
-      primary? true
+      primary?(true)
       accept([:slug, :cpu_cores, :memory_mb, :storage_gb, :monthly_cents, :stopped_monthly_cents])
     end
 
     update :update do
-      primary? true
+      primary?(true)
       # slug is the identity seeds look up by — immutable after create.
       accept([:cpu_cores, :memory_mb, :storage_gb, :monthly_cents, :stopped_monthly_cents])
 
@@ -107,7 +112,7 @@ defmodule FluxVale.Pricing.Size do
     end
 
     read :get_by_slug do
-      description "Get a size by its slug"
+      description("Get a size by its slug")
       get?(true)
       argument(:slug, :string, allow_nil?: false)
       filter(expr(slug == ^arg(:slug)))
@@ -115,7 +120,7 @@ defmodule FluxVale.Pricing.Size do
   end
 
   code_interface do
-    domain FluxVale.Pricing
+    domain(FluxVale.Pricing)
 
     define(:create)
     define(:update)

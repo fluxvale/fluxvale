@@ -501,9 +501,19 @@ defmodule FluxValeWeb.Router do
     live_session :admin,
       on_mount: [
         {FluxValeWeb.Locale, :set_locale},
-        {FluxValeWeb.AdminGate, :ensure_admin}
+        {FluxValeWeb.AdminGate, :ensure_admin},
+        {FluxValeWeb.AdminChrome, :assign_chrome}
       ] do
       live("/", FluxValeWeb.AdminLive.Home)
+
+      # The catalog + pricing surgery surface (#501): the lane's first
+      # write surface. Every write rides the resource actions with the
+      # platform-admin actor and authorize?: true — the domain policies
+      # decide, never the UI.
+      live("/catalog", FluxValeWeb.AdminLive.Catalog)
+      live("/catalog/sizes", FluxValeWeb.AdminLive.Sizes)
+      live("/catalog/sizes/:id", FluxValeWeb.AdminLive.SizeEdit)
+      live("/catalog/versions/:id", FluxValeWeb.AdminLive.VersionEdit)
     end
 
     # LiveDashboard on the debug subpath (Am. 3): this node's BEAM and
