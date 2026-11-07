@@ -2329,6 +2329,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn backups_status_surfaces_a_broken_settings_read_verbatim() {
+        // A non-404 failure on the settings read (an upstream 500)
+        // surfaces the API's own words — never a silent "not
+        // configured" (that answer belongs to 404 alone).
+        let server = testapi::serve(&[
+            ("GET /api/v1/instances/i1", 200, instance_doc()),
+            (
+                "GET /api/v1/instances/i1/backup-setting",
+                500,
+                r#"{"errors": [{"detail": "the settings read exploded"}]}"#.into(),
+            ),
+        ]);
+        let (_, body) = stateless_tools_call(
+            &app(&server),
+            PAT_CAPABLE,
+            "backups_status",
+            json!({"instance_id": "i1"}),
+            true,
+            None,
+        )
+        .await;
+        assert_eq!(result(&body)["isError"], true);
+        let text = result(&body)["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("the settings read exploded"), "text: {text}");
+    }
+
+    #[tokio::test]
     async fn a_row_without_name_fields_falls_back_to_the_id_in_the_question() {
         // The question always names SOMETHING — a row without name or
         // slug (an unexpected shape) names the id twice rather than

@@ -30,7 +30,12 @@ coverage:
         # target auto, same stance as platform
       mcp:
         flags: [mcp]
-        # target auto, same stance as platform
+        # target auto + 1% threshold: lcov counts assert!-message arms
+        # (failure-only formatting) as uncovered patch lines — a Rust
+        # structural artifact that would red every large feature PR
+        # against a ~99% base. The lines stay listed in the report;
+        # the threshold only absorbs the accounting artifact.
+        threshold: 1%
 
 flags:
   platform:
