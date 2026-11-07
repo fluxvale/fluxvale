@@ -9,7 +9,10 @@ defmodule FluxVale.TestSupport.PricingFixtures do
 
   @doc """
   A Size row through the create action. Defaults stand in for a mid
-  ladder rung; pass overrides for the rates/allocation under test.
+  ladder rung; pass overrides for the rate/compute shape under test.
+  #558: a size is compute only — storage prices per GB on its own axis
+  (`Pricing.storage_monthly_cents/1`), so no storage or stopped fields
+  exist to fabricate.
   """
   @spec size!(map()) :: Size.t()
   def size!(attrs \\ %{}) do

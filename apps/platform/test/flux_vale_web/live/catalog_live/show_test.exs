@@ -56,20 +56,34 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
              "$1.00/mo · billed hourly"
            )
 
-    # #398: the stopped rate rides the price badge, and the published
-    # ladder is one hop away. Expectations from the size read.
-    size = Ash.load!(version, :recommended_size, authorize?: false).recommended_size
+    # #558: the badges price through Pricing.version_rates/1 — the
+    # recommended compute class's rate plus the storage axis at the
+    # version's own default GB (stopped is the storage alone). The
+    # pinned figure stays "$1.00" because the fixture's storage default
+    # is 0 GB; the expectation itself comes from the seam, not a literal.
+    loaded = Ash.load!(version, :recommended_size, authorize?: false)
+    rates = Pricing.version_rates(loaded)
+
+    assert rates.monthly_cents == 100
 
     assert has_element?(
              view,
-             "[data-testid='stopped-price-#{version.version}']",
-             "#{Pricing.format_usd(size.stopped_monthly_cents)}/mo while stopped"
+             "[data-testid='price-#{version.version}']",
+             Pricing.format_monthly_rate(rates.monthly_cents)
            )
 
     assert has_element?(
              view,
-             "[data-testid='see-all-sizes-#{version.version}'][href='/pricing#sizes']",
-             "See all sizes"
+             "[data-testid='stopped-price-#{version.version}']",
+             "#{Pricing.format_usd(rates.stopped_monthly_cents)}/mo while stopped"
+           )
+
+    # #558: /pricing carries no sizes table — the link is the plain
+    # page, and the testid keeps its see-all-sizes name (stable hook).
+    assert has_element?(
+             view,
+             "[data-testid='see-all-sizes-#{version.version}'][href='/pricing']",
+             "See pricing"
            )
 
     assert html =~ "First FluxVale catalog release."

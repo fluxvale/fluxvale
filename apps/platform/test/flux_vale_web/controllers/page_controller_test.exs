@@ -256,8 +256,9 @@ defmodule FluxValeWeb.PageControllerTest do
     assert panel =~ ~s(href="/billing")
   end
 
-  # #396: the band points at /pricing and renders the cheapest seeded
-  # size's rate — expectation computed from a Size read, never a literal.
+  # #396 + #558: the band points at /pricing and renders the cheapest
+  # compute class's rate with storage named as its own per-GB charge —
+  # expectation computed from a Size read, never a literal.
   test "GET / pricing band links at /pricing with the computed floor rate (#396)", %{conn: conn} do
     PricingFixtures.size!(monthly_cents: 401)
     PricingFixtures.size!(monthly_cents: 177)
@@ -275,7 +276,8 @@ defmodule FluxValeWeb.PageControllerTest do
 
     assert html =~ "See full pricing"
     assert html =~ ~s(href="/pricing")
-    assert html =~ "Sizes start at #{floor}/mo"
+    assert html =~ "Compute starts at #{floor}/mo plus per-GB storage"
+    assert html =~ "billed hourly while running"
   end
 
   # The empty-table branch: an unseeded DB renders the band without the
@@ -285,7 +287,7 @@ defmodule FluxValeWeb.PageControllerTest do
     html = html_response(conn, 200)
 
     assert html =~ "See full pricing"
-    refute html =~ "Sizes start at"
+    refute html =~ "Compute starts at"
   end
 
   # The band's floor gate is a nil-check, not a truthy one (#398 fix
@@ -295,7 +297,7 @@ defmodule FluxValeWeb.PageControllerTest do
 
     html = html_response(get(conn, ~p"/"), 200)
 
-    assert html =~ "Sizes start at #{Pricing.format_usd(0)}/mo"
+    assert html =~ "Compute starts at #{Pricing.format_usd(0)}/mo plus per-GB storage"
   end
 
   # #396: the landing carries the Pricing link in the header nav, the

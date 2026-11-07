@@ -119,10 +119,11 @@ defmodule FluxValeWeb.CatalogControllerTest do
       refute html =~ "noindex"
     end
 
-    # #398: the cards carry the ladder floor — "from $X/mo · billed
-    # hourly", the same computed number on every card (any app at the
-    # same size costs the same). Expectation from a Size read, never a
-    # literal.
+    # #398 + #558: the cards carry the compute floor — "from $X/mo ·
+    # billed hourly plus storage", the same computed number on every
+    # card (any app at the same compute class costs the same; storage
+    # prices per GB on top, so the copy says so). Expectation from a
+    # Size read, never a literal.
     test "cards carry the computed from-price floor", %{conn: conn} do
       catalog_app!()
       PricingFixtures.size!(monthly_cents: 701)
@@ -138,7 +139,9 @@ defmodule FluxValeWeb.CatalogControllerTest do
       conn = get(conn, ~p"/catalog")
       html = html_response(conn, 200)
 
-      assert html =~ "from #{Pricing.format_monthly_rate(cheapest.monthly_cents)}"
+      assert html =~
+               "from #{Pricing.format_monthly_rate(cheapest.monthly_cents)} plus storage"
+
       assert html =~ ~s(data-testid="from-price")
     end
 
@@ -150,14 +153,14 @@ defmodule FluxValeWeb.CatalogControllerTest do
       PricingFixtures.size!(monthly_cents: 701)
 
       assert html_response(get(conn, ~p"/catalog"), 200) =~
-               "from #{Pricing.format_monthly_rate(233)}"
+               "from #{Pricing.format_monthly_rate(233)} plus storage"
 
       Size.update!(cheapest, %{monthly_cents: 99}, authorize?: false)
 
       html = html_response(get(conn, ~p"/catalog"), 200)
 
-      assert html =~ "from #{Pricing.format_monthly_rate(99)}"
-      refute html =~ "from #{Pricing.format_monthly_rate(233)}"
+      assert html =~ "from #{Pricing.format_monthly_rate(99)} plus storage"
+      refute html =~ "from #{Pricing.format_monthly_rate(233)} plus storage"
     end
 
     # The empty-table branch: an unseeded table renders the cards
@@ -180,7 +183,7 @@ defmodule FluxValeWeb.CatalogControllerTest do
 
       html = html_response(get(conn, ~p"/catalog"), 200)
 
-      assert html =~ "from #{Pricing.format_monthly_rate(0)}"
+      assert html =~ "from #{Pricing.format_monthly_rate(0)} plus storage"
     end
   end
 
@@ -219,14 +222,23 @@ defmodule FluxValeWeb.CatalogControllerTest do
       assert html =~ ~s(data-testid="price-#{version.version}")
       assert html =~ "$1.00/mo · billed hourly"
 
-      # #398: the stopped rate rides the price badge, and the published
-      # ladder is one hop away. Expectation from the size read.
-      size = Ash.load!(version, :recommended_size, authorize?: false).recommended_size
+      # #558: the badges price through Pricing.version_rates/1 — the
+      # recommended compute class's rate plus the storage axis at the
+      # version's own default GB (stopped is the storage alone). The
+      # pinned figure stays "$1.00" because the fixture's storage
+      # default is 0 GB; the expectation comes from the seam.
+      loaded = Ash.load!(version, :recommended_size, authorize?: false)
+      rates = Pricing.version_rates(loaded)
 
-      assert html =~ "#{Pricing.format_usd(size.stopped_monthly_cents)}/mo while stopped"
+      assert rates.monthly_cents == 100
+      assert html =~ Pricing.format_monthly_rate(rates.monthly_cents)
+      assert html =~ "#{Pricing.format_usd(rates.stopped_monthly_cents)}/mo while stopped"
       assert html =~ ~s(data-testid="stopped-price-#{version.version}")
-      assert html =~ ~s(href="/pricing#sizes")
-      assert html =~ "See all sizes"
+
+      # #558: /pricing carries no sizes table — the link is the plain
+      # page, and the testid keeps its see-all-sizes name (stable hook).
+      assert html =~ ~s(href="/pricing")
+      assert html =~ "See pricing"
 
       assert html =~ "Published"
       assert html =~ "First FluxVale catalog release."
@@ -250,7 +262,7 @@ defmodule FluxValeWeb.CatalogControllerTest do
 
       refute html =~ ~s(data-testid="price-0.9.0")
       refute html =~ ~s(data-testid="stopped-price-0.9.0")
-      assert html =~ ~s(href="/pricing#sizes")
+      assert html =~ ~s(href="/pricing")
     end
 
     test "meta: branded title, description, canonical, and the JSON-LD payload", %{conn: conn} do

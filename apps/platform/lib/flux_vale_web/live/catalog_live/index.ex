@@ -24,8 +24,9 @@ defmodule FluxValeWeb.CatalogLive.Index do
     {:ok,
      assign(socket,
        catalog_apps: catalog_apps,
-       # The card from-price (#398): the ladder floor, computed once per
-       # mount — every card carries the same number.
+       # The card from-price (#398, #558): the compute-class floor,
+       # computed once per mount — every card carries the same number,
+       # and the copy adds storage separately (per GB, its own axis).
        from_price_cents: Pricing.from_price_cents(),
        wake_estimates: safe_wake_estimates()
      )}
@@ -139,15 +140,16 @@ defmodule FluxValeWeb.CatalogLive.Index do
                   >
                     {app.tagline}
                   </p>
-                  <%!-- #398: the ladder floor rides every card — the
-                  public index's number, computed once per mount. --%>
+                  <%!-- #398 + #558: the compute floor rides every card
+                  — storage prices per GB on top, so the copy says
+                  "plus storage". --%>
                   <p
                     :if={not is_nil(@from_price_cents)}
                     class="mt-2 text-xs font-medium text-ink"
                     data-testid="from-price"
                   >
                     {gettext(
-                      "from %{rate}",
+                      "from %{rate} plus storage",
                       rate: FluxVale.Pricing.format_monthly_rate(@from_price_cents)
                     )}
                   </p>

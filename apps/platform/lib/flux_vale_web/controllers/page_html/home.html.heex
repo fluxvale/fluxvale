@@ -279,10 +279,11 @@ layout's flex contract while scoping the landing styles. --%>
             <h2 id="pricing-title" class="reveal">
               {gettext("One flat rate, no surprises")}
             </h2>
-            <%!-- #396: the band points at /pricing now — the sub-copy is
-            resource-framed and semicolon-free, and the floor line
-            renders the cheapest seeded size's rate (hidden on an
-            unseeded table; the controller passes nil then). --%>
+            <%!-- #396 + #558: the band points at /pricing now — the
+            sub-copy is resource-framed and semicolon-free. The floor
+            line renders the cheapest compute class's rate with storage
+            named as its own per-GB charge (hidden on an unseeded
+            table; the controller passes nil then). --%>
             <p class="sub reveal">
               {gettext(
                 "Prices follow the resources an app gets, not the app itself. New accounts start with welcome credits. Top up when you're ready."
@@ -292,7 +293,8 @@ layout's flex contract while scoping the landing styles. --%>
               <%!-- pricing.ex's #206 invariant: a price surface never
               shows "$X/mo" without the hourly qualifier — a bare "/mo"
               on the landing would read as monthly billing. --%>
-              {gettext("Sizes start at %{rate}/mo, billed hourly while running",
+              {gettext(
+                "Compute starts at %{rate}/mo plus per-GB storage, billed hourly while running",
                 rate: FluxVale.Pricing.format_usd(@price_floor_cents)
               )}
             </p>
