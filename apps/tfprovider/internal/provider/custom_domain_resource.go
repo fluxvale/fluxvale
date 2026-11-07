@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/fluxvale/fluxvale/apps/tfprovider/internal/client"
@@ -14,11 +15,13 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-var _ resource.ResourceWithImportState = (*customDomainResource)(nil)
+var (
+	_ resource.ResourceWithImportState = (*customDomainResource)(nil)
+	_ resource.ResourceWithModifyPlan  = (*customDomainResource)(nil)
+)
 
 // createWaitDefault bounds the wait_for_verification poll: the
 // platform's observer pass verifies on its ~15-minute cadence, so
@@ -64,34 +67,40 @@ type customDomainModel struct {
 
 func (r *customDomainResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Your own domain registered on the private-access edge. Register lands the row `pending` and mints the wildcard Certificate in the same transaction; verification is issuance — the platform's observer pass (about a 15-minute cadence) promotes pending → verified once your DNS delegation answers the DNS-01 challenge, and fails the row past its issuance window (~72h). VERIFIED IS NOT RESOLUTION: a verified domain does not answer on the tailnet — claiming (split-DNS + serving) is a separate platform capability on a later slice. This resource registers, verifies (DNS-01), and tears down, nothing more.",
+		Description: "Your own domain registered on the private-access edge. Register lands the row `pending` and mints the wildcard Certificate in the same transaction; verification is issuance — the platform's observer pass (about a 15-minute cadence) promotes pending → verified once your DNS delegation answers the DNS-01 challenge, and fails the row past its issuance window (~72h). VERIFIED IS NOT RESOLUTION: a verified domain still answers nothing on the tailnet — the split-DNS claim that points the name into the tailnet has no API surface yet; claiming is a separate platform capability on a later slice. This resource registers, verifies (DNS-01), and tears down, nothing more.",
 		Attributes: map[string]schema.Attribute{
 			"domain": schema.StringAttribute{
 				Required: true,
 				MarkdownDescription: "The domain to register — e.g. `apps.example.com`. The platform canonicalizes the name " +
-					"(trimmed, downcased) and stores THAT: write it lowercase, or every plan shows a replacement. Names are " +
-					"platform-wide unique across ALL organizations — the duplicate 400 surfaces verbatim (the name may " +
-					"belong to another org). Changing it replaces the resource: a different name is a different row, and " +
-					"destroy really removes it.",
-				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
+					"(trimmed, downcased) and stores THAT; the provider applies the same transform to the planned value, " +
+					"so any config casing converges. Names are platform-wide unique across ALL organizations — the " +
+					"duplicate 400 surfaces verbatim (the name may belong to another org). Changing the canonical name " +
+					"replaces the resource (a different name is a different row), and destroy really removes it.",
+				PlanModifiers: []planmodifier.String{canonicalDomain{}},
 			},
 			"organization": schema.StringAttribute{
 				Optional: true,
 				Computed: true,
 				MarkdownDescription: "Organization to register the domain in — its id or slug. Falls back to the provider-level " +
 					"`organization`, then to your sole organization (several memberships without a name is an error). " +
-					"The resolved id is written back when the config leaves this unset, so imports converge. Changing it " +
-					"replaces the resource (the register takes the org only at create).",
-				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
+					"The plan normalizes a set value to the resolved id, so a slug config converges with an imported id " +
+					"(which carries the id); only a genuinely different organization replaces. Changing it replaces the " +
+					"resource (the register takes the org only at create).",
+				// No attribute plan modifier: the replacement decision
+				// needs the orgs LIST, and schema (and its modifiers) are
+				// built once on a throwaway instance — no client there.
+				// ModifyPlan decides instead (it runs post-Configure).
 			},
 			"wait_for_verification": schema.BoolAttribute{
 				Optional: true,
 				MarkdownDescription: "Wait out verification before create finishes. Default false: create returns at `pending` " +
 					"and refreshes show the progression via `state` — the janitor verifies on its ~15-minute cadence after " +
 					"your DNS delegation answers. When true, create polls `state` until `verified` (bounded by the " +
-					"`timeouts.create`, default 45m; a timeout leaves tainted state — the domain keeps verifying " +
-					"server-side, and the next apply/refresh resolves it) or fails fast on `failed` (terminal: remove " +
-					"and re-register). Nothing is PATCHable, so flipping this later only re-reads.",
+					"`timeouts.create`, default 45m) or fails fast on `failed` (terminal: remove and re-register). A " +
+					"timeout leaves the row tainted but tracked — the domain keeps verifying server-side; `tofu untaint` " +
+					"(or `terraform untaint`) keeps the registration (otherwise the next apply destroys and re-registers), " +
+					"and the following refresh shows the promoted state. Nothing is PATCHable, so flipping this later " +
+					"only re-reads.",
 			},
 			"id": schema.StringAttribute{
 				Computed:    true,
@@ -99,13 +108,14 @@ func (r *customDomainResource) Schema(ctx context.Context, _ resource.SchemaRequ
 			},
 			"kind": schema.StringAttribute{
 				Computed:    true,
-				Description: "Always \"custom\" — platform rows are system-minted, never registered.",
+				Description: "\"custom\" for every row this resource registers. An imported id may point at a platform row — the system-minted \"platform\" kind: inspectable, never registrable.",
 			},
 			"state": schema.StringAttribute{
 				Computed: true,
-				MarkdownDescription: "pending → verified ⇄ suspended, plus failed, needs_attention. A `suspended` domain is " +
-					"the zero-balance ladder's out-of-band state — resume via the panel (the API's " +
-					"`PATCH /access-domains/:id/resume` underneath); this resource deliberately does not manage it.",
+				MarkdownDescription: "pending → verified, plus failed, needs_attention, and suspended. A `suspended` domain is " +
+					"legacy state: domains are free, nothing current suspends one — the state and its resume survive for " +
+					"old rows only. The raw `PATCH /api/v1/access-domains/:id/resume` is the only resume surface (no " +
+					"domains panel, no MCP tool); this resource deliberately does not manage it.",
 			},
 			"organization_id": schema.StringAttribute{
 				Computed:    true,
@@ -121,6 +131,38 @@ func (r *customDomainResource) Schema(ctx context.Context, _ resource.SchemaRequ
 			}),
 		},
 	}
+}
+
+// canonicalDomain is the domain attribute's plan modifier: it rewrites
+// the planned value to the platform's canonical form (trimmed,
+// downcased — the register's own documented transform), so plan and
+// applied state always agree, and it owns the replacement decision —
+// only a CANONICAL name change replaces. A mixed-case config over a
+// canonical row converges instead of looping destroy/re-register.
+//
+// It runs in the schema's plan-modification pass (before the
+// resource's ModifyPlan), which is the only layer where a rewrite can
+// precede the RequiresReplace decision.
+type canonicalDomain struct{}
+
+func (canonicalDomain) Description(_ context.Context) string {
+	return "Canonicalizes the planned domain (trim + lowercase) and replaces only on a canonical-name change."
+}
+
+func (m canonicalDomain) MarkdownDescription(ctx context.Context) string {
+	return m.Description(ctx)
+}
+
+func (canonicalDomain) PlanModifyString(_ context.Context, req planmodifier.StringRequest, resp *planmodifier.StringResponse) {
+	// Unknown or null plan values can't be canonicalized yet — the
+	// apply will tell.
+	if req.PlanValue.IsNull() || req.PlanValue.IsUnknown() {
+		return
+	}
+	canonical := strings.ToLower(strings.TrimSpace(req.PlanValue.ValueString()))
+	resp.PlanValue = types.StringValue(canonical)
+	resp.RequiresReplace = !req.StateValue.IsNull() && !req.StateValue.IsUnknown() &&
+		req.StateValue.ValueString() != canonical
 }
 
 func (r *customDomainResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -175,12 +217,21 @@ func (r *customDomainResource) Create(ctx context.Context, req resource.CreateRe
 	if err != nil {
 		// Pre-POST: nothing landed (a failed register rolls the
 		// Certificate mint back with the row) — no state write. The
-		// duplicate 400 surfaces verbatim; no adoption probe — the name
-		// is unique across ALL organizations, so the row behind the
-		// refusal may belong to another org entirely.
+		// platform-wide context rides the DUPLICATE refusal only (400
+		// with the server's "is already registered" wording); a 403
+		// paywall or 5xx tells its own story.
+		msg := err.Error()
+		var apiErr *client.APIError
+		if errors.As(err, &apiErr) && apiErr.Status == http.StatusBadRequest &&
+			strings.Contains(msg, "is already registered") {
+			// No adoption probe — the name is unique across ALL
+			// organizations, so the row behind the refusal may belong
+			// to another org entirely.
+			msg += " — names are unique platform-wide, across all organizations: the registered name may belong to another org."
+		}
 		resp.Diagnostics.AddError(
 			"Unable to register the custom domain",
-			err.Error()+" — names are unique platform-wide, across all organizations: the registered name may belong to another org.",
+			msg,
 		)
 		return
 	}
@@ -263,6 +314,62 @@ func waitDomainVerified(ctx context.Context, pd *providerData, id string, waitFo
 	}
 }
 
+// ModifyPlan normalizes the planned organization: a set value (id or
+// slug) resolves to the row's id IN THE PLAN, so a slug config
+// converges with an imported id and only a genuinely different
+// organization plans a replacement — the RequiresReplace paths are
+// appended here, because a schema modifier's decision would fire on
+// the raw slug-vs-id diff no rewrite could undo (the schema pass runs
+// before this hook).
+//
+// The decision lives in ModifyPlan, not an attribute plan modifier,
+// because the schema — and any modifiers built with it — is constructed
+// once on a throwaway instance and cached: no client there. This hook
+// runs after resource Configure, on the planning instance.
+func (r *customDomainResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	// Destroy planning (null plan) has no organization to compare.
+	if req.Plan.Raw.IsNull() {
+		return
+	}
+
+	var plan, state customDomainModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Unknown (the config left it unset — create seeds the resolution)
+	// or already-agreeing values need no lookup.
+	if plan.Organization.IsNull() || plan.Organization.IsUnknown() ||
+		plan.Organization.Equal(state.Organization) {
+		return
+	}
+
+	if r.pd == nil {
+		// Plan modifiers only run through a configured server; leaving
+		// the plan as-is lets the create's own resolution report the
+		// problem.
+		return
+	}
+
+	orgID := resolveOrgID(ctx, r.pd.client, plan.Organization, r.pd.organization, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	plan.Organization = types.StringValue(orgID)
+	resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
+
+	// A genuinely different organization replaces; the rewritten plan
+	// value keeps the register honest (the resolution the create
+	// reuses).
+	if !state.Organization.IsNull() && !state.Organization.IsUnknown() &&
+		state.Organization.ValueString() != orgID {
+		resp.RequiresReplace = append(resp.RequiresReplace, path.Root("organization"))
+	}
+}
+
 func (r *customDomainResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var data customDomainModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
@@ -285,18 +392,14 @@ func (r *customDomainResource) Read(ctx context.Context, req resource.ReadReques
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-// readDomain resolves the org (seeding it when the config left it
-// null — the import-convergence seed), then reads by id. It maps the
-// wire's fields and returns true when the row is gone (404 — the
-// caller removes it from state). organization and
-// wait_for_verification are config-only — both survive Read untouched.
+// readDomain reads by id FIRST, then seeds organization from the
+// wire's organization_id (null or unknown configs only — a set value
+// is kept verbatim). No orgs LIST: reads go by id, so a multi-org
+// token with no default can import and refresh, and a revoked
+// membership doesn't break the by-id read. Returns true when the row
+// is gone (404 — the caller removes it from state). wait_for_verification
+// is config-only and survives Read untouched.
 func readDomain(ctx context.Context, pd *providerData, data *customDomainModel, diags *diag.Diagnostics) bool {
-	orgID := resolveOrgID(ctx, pd.client, data.Organization, pd.organization, diags)
-	if diags.HasError() {
-		return false
-	}
-	seedDomainOrganization(data, orgID)
-
 	dom, err := pd.client.GetAccessDomain(ctx, data.ID.ValueString())
 	if err != nil {
 		var apiErr *client.APIError
@@ -307,6 +410,7 @@ func readDomain(ctx context.Context, pd *providerData, data *customDomainModel, 
 		return false
 	}
 	mapDomain(data, dom)
+	seedDomainOrganization(data, dom.OrganizationID)
 	return false
 }
 
@@ -323,12 +427,14 @@ func mapDomain(data *customDomainModel, dom client.AccessDomain) {
 	data.OrganizationID = types.StringValue(dom.OrganizationID)
 }
 
-// seedDomainOrganization writes the org the resolution actually used
-// into a null organization — the import-convergence seed. A config-set
-// value (slug or id) is kept verbatim: it already resolved at
-// create/read.
+// seedDomainOrganization writes the org the resolution (or the wire's
+// echo) actually used into a null OR UNKNOWN organization — the
+// import-convergence seed, and the create-plan unknown Terraform marks
+// for unset computed values (an unknown must not ride final state).
+// A config-set value (slug or id) is kept verbatim: ModifyPlan
+// normalizes slug plans to the id instead.
 func seedDomainOrganization(data *customDomainModel, orgID string) {
-	if data.Organization.IsNull() {
+	if data.Organization.IsNull() || data.Organization.IsUnknown() {
 		data.Organization = types.StringValue(orgID)
 	}
 }
@@ -340,10 +446,11 @@ func desiredWait(v types.Bool) bool {
 }
 
 // Update is the re-read-and-set no-op: nothing is PATCHable (the only
-// PATCH verb is resume, deliberately not exposed), and the one thing
-// that can change — domain — RequiresReplace, so an update is only
-// ever wait_for_verification's flag flipping. A fresh read settles
-// state; 404 removes — gone is gone, never plan-over-ghost.
+// PATCH verb is resume, deliberately not exposed), and everything that
+// can change identity — domain, organization — replaces at plan time,
+// so an update is only ever wait_for_verification or the timeouts
+// changing. A fresh read settles state; 404 removes — gone is gone,
+// never plan-over-ghost.
 func (r *customDomainResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var plan customDomainModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)

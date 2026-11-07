@@ -123,6 +123,28 @@ func TestGetAccessDomain404IsTyped(t *testing.T) {
 	}
 }
 
+// A missing or wrong-typed public attribute is shape drift, not a
+// silent zero — the pinned field set is the contract.
+func TestAccessDomainShapeDriftIsAnError(t *testing.T) {
+	missingKind := `{"data": {"id": "dom-1", "type": "access_domain", "attributes": {
+		"domain": "apps.customer.com", "state": "pending", "organization_id": "org-1"}}}`
+	srv := testServer(t, http.StatusOK, missingKind)
+	c := New(srv.URL, "fvpat_test", "test", srv.Client())
+
+	if _, err := c.GetAccessDomain(context.Background(), "dom-1"); err == nil || !strings.Contains(err.Error(), "kind") {
+		t.Fatalf("err = %v, want the kind shape-drift error", err)
+	}
+
+	wrongTypedState := `{"data": {"id": "dom-1", "type": "access_domain", "attributes": {
+		"domain": "apps.customer.com", "kind": "custom", "state": 7, "organization_id": "org-1"}}}`
+	srv2 := testServer(t, http.StatusOK, wrongTypedState)
+	c2 := New(srv2.URL, "fvpat_test", "test", srv2.Client())
+
+	if _, err := c2.GetAccessDomain(context.Background(), "dom-1"); err == nil || !strings.Contains(err.Error(), "state") {
+		t.Fatalf("err = %v, want the state shape-drift error", err)
+	}
+}
+
 // The teardown DELETE: the 200 renders the row flat (the generic
 // action's shape — no JSON:API envelope), which decodes harmlessly.
 func TestDeleteAccessDomainFlatBody(t *testing.T) {
