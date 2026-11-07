@@ -193,7 +193,10 @@ defmodule FluxValeWeb.EdgeWakeControllerTest do
       |> put_req_header(@header, instance.id)
       |> get("/_fluxvale_edge/edge-wake-path")
 
-    assert response(conn, 503) =~ "top-up"
+    body = response(conn, 503)
+    assert body =~ "top-up"
+    # Unfunded does not resolve on its own: no wake-page poll cadence.
+    refute body =~ ~s(content="2")
 
     slept = Instance.get_by_id!(instance.id, authorize?: false)
     assert slept.status == :sleeping
