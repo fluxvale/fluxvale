@@ -133,3 +133,23 @@ the contract carries empty `env` — the same mechanism-agnostic shape
 as Kavita's. Verified against the real image
 (`ghcr.io/actualbudget/actual-server:26.11.0`): the bootstrapped flag
 and password live entirely under `/data` and survive pod recreation.
+
+## Amendment 2: `default_admin_credentials` (#576, 2026-11-08)
+
+Umami's first run fits neither existing atom: its own boot migrations
+(not registration, not a password-set flow) insert a fixed default
+admin — username `admin`, password `umami`, both pinned by upstream's
+README and by the `01_init` migration that ships the bcrypt row. The
+claim is sign in with the shipped credentials, then change the
+password immediately. The new `default_admin_credentials` atom
+documents that shape (added to `FirstRunContract`'s known set per the
+generalized path above). The contract's `forbidden_env` locks the two
+upstream boot flags that would skip the seeding migration and leave a
+fresh install with no admin at all (`SKIP_DB_CHECK` exits check-db
+before migrations run; `SKIP_DB_MIGRATION` skips the migrate step).
+
+This is deliberately NOT the rejected "provision an initial admin via
+env secret" — no credential is generated or injected; the account is
+upstream's own, shipped inside the image. The rejected option's
+revisit trigger ("a second app whose first-run genuinely needs
+generated credentials") remains unmet.

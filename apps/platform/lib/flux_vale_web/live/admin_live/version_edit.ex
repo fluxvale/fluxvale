@@ -88,6 +88,9 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
   defp pattern_label(:first_open_sets_password),
     do: gettext("First open sets the server password")
 
+  defp pattern_label(:default_admin_credentials),
+    do: gettext("Sign in with the shipped default admin, then change the password")
+
   defp build_form(version, admin) do
     version
     |> AshPhoenix.Form.for_update(:update, as: "app_version", actor: admin, authorize?: true)

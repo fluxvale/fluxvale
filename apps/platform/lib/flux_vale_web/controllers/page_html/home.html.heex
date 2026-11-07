@@ -22,6 +22,10 @@ layout's flex contract while scoping the landing styles. --%>
 
 <div class="landing contents">
   <Layouts.flash_group flash={@flash} />
+  <%!-- #576: the landing renders its own chrome (no Layouts.public), so
+  the env-driven analytics tracker rides here too — rendered only when
+  an operator configured both env halves. --%>
+  <FluxValeWeb.SiteAnalytics.site_analytics />
 
   <header class="sticky top-0 z-40 border-b border-line bg-canvas/80 backdrop-blur dark:border-line-strong">
     <div class="wrap flex h-14 items-center justify-between gap-4">

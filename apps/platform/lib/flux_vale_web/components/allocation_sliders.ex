@@ -71,7 +71,12 @@ defmodule FluxValeWeb.AllocationSliders do
         id: "resource-storage-gb",
         label: "Storage",
         testid: "resource-storage",
-        values: ["5", "10", "20", "50", "100"],
+        # 0 is a rung (#576): stateless apps (Umami over an external
+        # database) ship an honest 0 GB default — without it the wizard
+        # floors them to 5 GB and silently bills an unused volume. A
+        # shrink back to 0 stays impossible: the resize guard refuses
+        # storage decreases outright.
+        values: ["0", "5", "10", "20", "50", "100"],
         unit: "GB"
       }
     ]

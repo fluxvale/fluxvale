@@ -73,6 +73,39 @@ case System.get_env("INSTANCES_BASE_DOMAIN") do
   domain -> config :flux_vale, :instances_base_domain, domain
 end
 
+# Site analytics (#576): the public layout's Umami tracker renders only
+# when an operator sets BOTH env halves — the pair resolves through
+# FluxValeWeb.SiteAnalytics.from_env/2 (one answering module; this file
+# stays thin). Unset keeps the config nil (no script anywhere); a
+# half-configured pair warns at boot and still renders nothing, rather
+# than block a deploy on a typo (analytics is not load-bearing). Test
+# is excluded (the MCP_ORIGINS stance): the suite pins the layout's
+# render directly through config.
+require Logger
+
+if config_env() != :test do
+  site_analytics =
+    case FluxValeWeb.SiteAnalytics.from_env(
+           System.get_env("UMAMI_SCRIPT_URL"),
+           System.get_env("UMAMI_WEBSITE_ID")
+         ) do
+      {:ok, config} ->
+        config
+
+      :unset ->
+        nil
+
+      {:error, :half_configured} ->
+        Logger.warning(
+          "UMAMI_SCRIPT_URL and UMAMI_WEBSITE_ID must be set together - rendering no analytics script"
+        )
+
+        nil
+    end
+
+  config :flux_vale, :site_analytics, site_analytics
+end
+
 # ADR-0040 S3's runtime wiring (the INSTANCES_BASE_DOMAIN pattern): the
 # fleet overlays may still set the access edge (the gateway tunnel's
 # target) and the shared resolver IP (the advertised /32 + claim target)

@@ -619,7 +619,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       # drag: it never rests between rungs.
       assert has_element?(view, "#resource-cpu-cores[min='0'][max='4'][step='1']")
       assert has_element?(view, "#resource-memory-mb[min='0'][max='4'][step='1']")
-      assert has_element?(view, "#resource-storage-gb[min='0'][max='4'][step='1']")
+      assert has_element?(view, "#resource-storage-gb[min='0'][max='5'][step='1']")
     end
 
     test "the sliders carry accessible labels and a unit-announcing readout", %{view: view} do
@@ -693,8 +693,10 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       # breaks this hides that size from the quick picks
       # (representable_size?/1); the arrays grow only deliberately.
       # Storage is its own axis (#558): its ladder is the offered
-      # per-GB range — the same five rungs the axis rate table prices
-      # (24/40/68/135/228¢ B′) — not anything a compute class carries.
+      # per-GB range — the same five paid rungs the axis rate table
+      # prices (24/40/68/135/228¢ B′) — plus the 0 rung (#576:
+      # stateless apps ship an honest empty storage axis), not
+      # anything a compute class carries.
       sizes = Ash.read!(Size, authorize?: false)
       assert sizes != []
 
@@ -729,7 +731,10 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
         |> then(&Regex.scan(~r/data-value="([^"]+)"/, &1))
         |> Enum.map(&Enum.at(&1, 1))
 
-      assert storage_ticks == ~w(5 10 20 50 100)
+      # Storage is its own axis (#558): its ladder is the offered
+      # per-GB range plus the 0 rung (#576's stateless-app floor —
+      # an external-database app needs no volume at all).
+      assert storage_ticks == ~w(0 5 10 20 50 100)
 
       for size <- sizes do
         assert has_element?(view, "[data-testid='preset-#{size.slug}']")
@@ -764,10 +769,11 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       |> render_click()
 
       # The readout announces the floored rung, not the admin's raw
-      # default; the thumbs sit on rung indices 0/0/1.
+      # default; the thumbs sit on rung indices 0/0/2 (10 GB — index 2
+      # since the #576 zero rung joined the storage ladder).
       assert has_element?(view, "#resource-cpu-cores[value='0']")
       assert has_element?(view, "#resource-memory-mb[value='0']")
-      assert has_element?(view, "#resource-storage-gb[value='1']")
+      assert has_element?(view, "#resource-storage-gb[value='2']")
 
       html = render(view)
       assert html =~ ~s(aria-valuetext="0.25 cores")
@@ -921,11 +927,12 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     end
 
     test "a preset pick moves compute and leaves the storage rung alone", %{view: view} do
-      # #558 pin: storage first — rung index 3 (50 GB) — then a quick
-      # pick. The pick moves only the compute sliders; the storage
-      # thumb stays exactly where the user left it.
+      # #558 pin: storage first — rung index 4 (50 GB; index 0 is the
+      # #576 zero rung) — then a quick pick. The pick moves only the
+      # compute sliders; the storage thumb stays exactly where the
+      # user left it.
       view
-      |> form("#resources-form", resources: %{storage_gb: "3"})
+      |> form("#resources-form", resources: %{storage_gb: "4"})
       |> render_change()
 
       view
@@ -939,7 +946,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       assert render(view) =~ ~s(aria-valuetext="4096 MB")
 
       # 50 GB, untouched by the pick.
-      assert has_element?(view, "#resource-storage-gb[value='3']")
+      assert has_element?(view, "#resource-storage-gb[value='4']")
       assert render(view) =~ ~s(aria-valuetext="50 GB")
     end
 
@@ -947,14 +954,14 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       # `standard` is 1 CPU / 2048 MB — rung index 2 on both compute
       # ladders — a custom compute for this fixture's version
       # (0.5/1024). The storage rung stays at the version's 10 GB
-      # default (index 1, the user hadn't moved it).
+      # default (index 2, the user hadn't moved it).
       view
       |> element("[data-testid='preset-standard']")
       |> render_click()
 
       assert has_element?(view, "#resource-cpu-cores[value='2']")
       assert has_element?(view, "#resource-memory-mb[value='2']")
-      assert has_element?(view, "#resource-storage-gb[value='1']")
+      assert has_element?(view, "#resource-storage-gb[value='2']")
 
       # The price follows the allocation (#186): the anchor formula at
       # 1 CPU / 2048 MB plus the 10 GB axis rate — compute 553¢ (the
@@ -980,7 +987,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
       assert has_element?(view, "#resource-cpu-cores[value='4']")
       assert has_element?(view, "#resource-memory-mb[value='4']")
-      assert has_element?(view, "#resource-storage-gb[value='1']")
+      assert has_element?(view, "#resource-storage-gb[value='2']")
 
       html = render(view)
       assert html =~ ~s(aria-valuetext="4 cores")
@@ -1024,7 +1031,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
       assert has_element?(view, "#resource-cpu-cores[value='1']")
       assert has_element?(view, "#resource-memory-mb[value='1']")
-      assert has_element?(view, "#resource-storage-gb[value='1']")
+      assert has_element?(view, "#resource-storage-gb[value='2']")
 
       # Non-numeric, and a non-string a crafted event can smuggle
       # where a browser only sends strings — both are equally nameless.
@@ -1072,7 +1079,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       # controls — rung indices 1/1/1 — and label the recommendation.
       assert has_element?(view, "#resource-cpu-cores[value='1']")
       assert has_element?(view, "#resource-memory-mb[value='1']")
-      assert has_element?(view, "#resource-storage-gb[value='1']")
+      assert has_element?(view, "#resource-storage-gb[value='2']")
       assert has_element?(view, "[data-testid='recommended-allocation']")
 
       # #558's intro copy: compute and storage named as two axes.
@@ -1117,13 +1124,13 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       # formula pricing (which would read $3.93 at 5 GB: the curve's
       # own compute term, 369¢, is not this version's size rate).
       view
-      |> form("#resources-form", resources: %{storage_gb: "2"})
+      |> form("#resources-form", resources: %{storage_gb: "3"})
       |> render_change()
 
       assert has_element?(view, "[data-testid='resources-price']", "$1.68/mo · billed hourly")
 
       view
-      |> form("#resources-form", resources: %{storage_gb: "0"})
+      |> form("#resources-form", resources: %{storage_gb: "1"})
       |> render_change()
 
       # 100¢ compute + the 5 GB axis rate (24¢) — the axis delta from
@@ -1137,12 +1144,12 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       stub_k8s()
 
       # Rung picks over the 0.5/1024/10 recommendation: cpu index 2
-      # (1 core) and storage index 2 (20) above it, memory left at its
+      # (1 core) and storage index 3 (20) above it, memory left at its
       # default rung — the warning is any dimension strictly under, and
       # none is.
       view
       |> form("#resources-form",
-        resources: %{cpu_cores: "2", memory_mb: "1", storage_gb: "2"}
+        resources: %{cpu_cores: "2", memory_mb: "1", storage_gb: "3"}
       )
       |> render_change()
 
@@ -1182,12 +1189,12 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
          %{user: user, view: view} do
       stub_k8s()
 
-      # Storage one rung under the default (index 0 = 5 GB), compute
-      # left at the recommendation: below the version default on
-      # storage alone — #558 pin: the axis decoupled, the
-      # below-recommendation gate did not.
+      # Storage one rung under the default (index 1 = 5 GB; index 0 is
+      # the #576 zero rung), compute left at the recommendation: below
+      # the version default on storage alone — #558 pin: the axis
+      # decoupled, the below-recommendation gate did not.
       view
-      |> form("#resources-form", resources: %{storage_gb: "0"})
+      |> form("#resources-form", resources: %{storage_gb: "1"})
       |> render_change()
 
       assert has_element?(view, "#below-recommendation-warning")
@@ -1195,7 +1202,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
       # A channel-level continue without the ack stays put (the disabled
       # button is client-side only).
-      html = render_click(view, "resources-continue", %{"resources" => %{"storage_gb" => "0"}})
+      html = render_click(view, "resources-continue", %{"resources" => %{"storage_gb" => "1"}})
 
       assert html =~ "Acknowledge the below-recommendation warning"
       assert has_element?(view, "#resources-form")
@@ -1207,7 +1214,7 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
 
       # The ack rides the form; Continue proceeds and the deploy lands
       # at the chosen (lower) allocation.
-      to_step_4(view, %{storage_gb: "0", below_ack: "on"})
+      to_step_4(view, %{storage_gb: "1", below_ack: "on"})
 
       view
       |> form("#deploy-form", instance: %{name: "Smaller"})

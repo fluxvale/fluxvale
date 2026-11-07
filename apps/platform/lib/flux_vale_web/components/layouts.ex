@@ -133,6 +133,10 @@ defmodule FluxValeWeb.Layouts do
 
   def public(assigns) do
     ~H"""
+    <%!-- #576: the env-driven analytics tracker rides every public
+    page (rendered only when an operator configured both env halves —
+    see FluxValeWeb.SiteAnalytics). --%>
+    <FluxValeWeb.SiteAnalytics.site_analytics />
     <.chrome
       flash={@flash}
       current_user={@current_user}

@@ -67,10 +67,11 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     {:ok, view, _html} = live_isolated(conn, FluxValeWeb.PricingCalculatorLive)
 
     # The thumbs carry their rung's index: small is 0.5 cores, 512 MB,
-    # 10 GB — indices 1, 0, 1 on the ladders.
+    # 10 GB — indices 1, 0, 2 on the ladders (storage's index 0 is the
+    # #576 zero rung).
     assert has_element?(view, "#resource-cpu-cores[value='1']")
     assert has_element?(view, "#resource-memory-mb[value='0']")
-    assert has_element?(view, "#resource-storage-gb[value='1']")
+    assert has_element?(view, "#resource-storage-gb[value='2']")
   end
 
   # #440: the tiers left the page — no chips, no slugs in the rendered
@@ -113,8 +114,9 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     memory = %{cpu_cores: Decimal.new("2"), memory_mb: 2048, storage_gb: 10}
     assert_total(view, memory)
 
-    # Storage alone: index 0 is the "5" rung.
-    render_change(view, "resources-change", %{"resources" => %{"storage_gb" => "0"}})
+    # Storage alone: index 1 is the "5" rung (index 0 is the #576
+    # zero rung).
+    render_change(view, "resources-change", %{"resources" => %{"storage_gb" => "1"}})
     storage = %{cpu_cores: Decimal.new("2"), memory_mb: 2048, storage_gb: 5}
     assert_total(view, storage)
   end
@@ -182,7 +184,7 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     # The thumbs carry the recommendation's rung indices.
     assert has_element?(view, "#resource-cpu-cores[value='1']")
     assert has_element?(view, "#resource-memory-mb[value='2']")
-    assert has_element?(view, "#resource-storage-gb[value='2']")
+    assert has_element?(view, "#resource-storage-gb[value='3']")
 
     allocation = %{
       cpu_cores: version.recommended_size.cpu_cores,
@@ -223,7 +225,7 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     # Compute holds the size; storage floors 7 GB up to the 10 rung.
     assert has_element?(view, "#resource-cpu-cores[value='1']")
     assert has_element?(view, "#resource-memory-mb[value='2']")
-    assert has_element?(view, "#resource-storage-gb[value='1']")
+    assert has_element?(view, "#resource-storage-gb[value='2']")
 
     assert_total(view, %{cpu_cores: Decimal.new("0.5"), memory_mb: 2048, storage_gb: 10})
 
@@ -255,7 +257,7 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
 
     assert has_element?(view, "#resource-cpu-cores[value='1']")
     assert has_element?(view, "#resource-memory-mb[value='2']")
-    assert has_element?(view, "#resource-storage-gb[value='2']")
+    assert has_element?(view, "#resource-storage-gb[value='3']")
     refute has_element?(view, "#calculator-use-recommended")
 
     allocation = %{
@@ -294,7 +296,7 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
 
     assert has_element?(view, "#resource-cpu-cores[value='1']")
     assert has_element?(view, "#resource-memory-mb[value='2']")
-    assert has_element?(view, "#resource-storage-gb[value='1']")
+    assert has_element?(view, "#resource-storage-gb[value='2']")
     assert_total(view, %{cpu_cores: Decimal.new("0.5"), memory_mb: 2048, storage_gb: 10})
     refute has_element?(view, "[data-testid='calculator-app-recommendation']")
     assert has_element?(view, "#calculator-app-filter[value='']")
@@ -329,7 +331,7 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     # but the choice sticks and unblocks Add.
     assert has_element?(view, "#resource-cpu-cores[value='1']")
     assert has_element?(view, "#resource-memory-mb[value='0']")
-    assert has_element?(view, "#resource-storage-gb[value='1']")
+    assert has_element?(view, "#resource-storage-gb[value='2']")
     assert_total(view, small_allocation())
     refute has_element?(view, "[data-testid='calculator-app-recommendation']")
     assert has_element?(view, "#calculator-app-filter[value='']")
@@ -365,7 +367,7 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
 
     assert has_element?(view, "#resource-cpu-cores[value='2']")
     assert has_element?(view, "#resource-memory-mb[value='2']")
-    assert has_element?(view, "#resource-storage-gb[value='2']")
+    assert has_element?(view, "#resource-storage-gb[value='3']")
 
     allocation = %{cpu_cores: Decimal.new("1"), memory_mb: 2048, storage_gb: 20}
     assert_total(view, allocation)
@@ -579,7 +581,7 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     # recommendation-less pick has no stale state to inherit.
     assert has_element?(view, "#resource-cpu-cores[value='1']")
     assert has_element?(view, "#resource-memory-mb[value='0']")
-    assert has_element?(view, "#resource-storage-gb[value='1']")
+    assert has_element?(view, "#resource-storage-gb[value='2']")
     assert_total(view, small_allocation())
   end
 
@@ -733,7 +735,7 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     assert has_element?(view, "#calculator-add-instances[disabled]")
     assert has_element?(view, "#resource-cpu-cores[value='1']")
     assert has_element?(view, "#resource-memory-mb[value='0']")
-    assert has_element?(view, "#resource-storage-gb[value='1']")
+    assert has_element?(view, "#resource-storage-gb[value='2']")
   end
 
   test "stacking different setups aggregates both figures over the rows", %{conn: conn} do
@@ -785,7 +787,7 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
 
     pick_app(view, app.slug)
     move_memory(view, "2")
-    move_storage(view, "2")
+    move_storage(view, "3")
     add_setup(view)
 
     # After the Add the hero totals the row and no longer follows the
@@ -1014,7 +1016,7 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     assert_total(view, allocation)
     assert has_element?(view, "#resource-cpu-cores[value='0']")
     assert has_element?(view, "#resource-memory-mb[value='0']")
-    assert has_element?(view, "#resource-storage-gb[value='1']")
+    assert has_element?(view, "#resource-storage-gb[value='2']")
   end
 
   # --- Helpers ----------------------------------------------------------------

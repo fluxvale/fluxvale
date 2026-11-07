@@ -8,9 +8,12 @@ defmodule FluxVale.Catalog.Types.FirstRunContract do
       registration open on first boot, the first registrant becomes the
       admin; `first_open_sets_password`: the server ships unclaimed and
       the first open sets the shared server password — no registration,
-      no admin seat, everyone signs in with the one password). Adding a
-      pattern = add the atom here and document it in the ADR; the field
-      generalizes to the next catalog app.
+      no admin seat, everyone signs in with the one password;
+      `default_admin_credentials`: the app's own boot migrations seed a
+      fixed default admin account, so the claim is sign-in with the
+      shipped credentials followed by an immediate password change).
+      Adding a pattern = add the atom here and document it in the ADR;
+      the field generalizes to the next catalog app.
     * `env` — the guaranteed env posture (string → string). Applied by
       `DeriveFromAppVersion` **above** every deploy-time layer; user
       values naming these keys are rejected loudly.
@@ -41,9 +44,16 @@ defmodule FluxVale.Catalog.Types.FirstRunContract do
           guidance: String.t()
         }
 
-  @type pattern :: :first_registered_user_admin | :first_open_sets_password
+  @type pattern ::
+          :first_registered_user_admin
+          | :first_open_sets_password
+          | :default_admin_credentials
 
-  @known_patterns [:first_registered_user_admin, :first_open_sets_password]
+  @known_patterns [
+    :first_registered_user_admin,
+    :first_open_sets_password,
+    :default_admin_credentials
+  ]
   @pattern_atoms Map.new(@known_patterns, &{Atom.to_string(&1), &1})
   @known_fields MapSet.new(~w(pattern env forbidden_env guidance)a)
 
