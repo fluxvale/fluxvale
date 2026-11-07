@@ -153,7 +153,10 @@ defmodule FluxValeWeb.AdminBillingLiveTest do
       assert has_element?(view, badge, "Destroy clock")
       assert has_element?(view, badge <> " .hero-clock")
 
-      anchored_at = DateTime.add(DateTime.utc_now(), -2, :day)
+      # The fixture's stored anchor, not a recomputed utc_now: the two
+      # stamps are seconds apart, and a strftime across a month boundary
+      # would flake the date assertions (CodeRabbit's final-head nit).
+      anchored_at = negative.negative_since
       anchor = Calendar.strftime(anchored_at, "%b %d, %Y")
       deadline_at = DateTime.add(anchored_at, 30, :day)
       deadline = Calendar.strftime(deadline_at, "%b %d, %Y")
