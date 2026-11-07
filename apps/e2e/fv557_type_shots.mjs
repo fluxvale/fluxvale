@@ -11,12 +11,12 @@ import { mkdirSync } from "node:fs";
 const BASE = process.env.FV_BASE ?? "http://127.0.0.1:4000";
 const TOKEN_ADMIN = process.env.FV_TOKEN_ADMIN ?? "";
 const TOKEN_USER = process.env.FV_TOKEN_USER ?? "";
-const INSTANCE_PATH = process.env.INSTANCE_PATH ?? "/instances";
+const INSTANCE_PATH = process.env.INSTANCE_PATH ?? "";
 const outdir = process.argv[2] ?? "/tmp/opencode/fv557-shots";
 mkdirSync(outdir, { recursive: true });
 
-if (!TOKEN_ADMIN || !TOKEN_USER) {
-  console.error("FV_TOKEN_ADMIN and FV_TOKEN_USER required");
+if (!TOKEN_ADMIN || !TOKEN_USER || !INSTANCE_PATH) {
+  console.error("FV_TOKEN_ADMIN, FV_TOKEN_USER and INSTANCE_PATH required");
   process.exit(1);
 }
 

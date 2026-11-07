@@ -1,7 +1,8 @@
 /* FluxVale Storybook bundle (#178).
  *
  * PhoenixStorybook loads THIS file instead of app.css, so it mirrors
- * the app's token directives — ramp, Inter, semantic vars (Grove,
+ * the app's token directives — ramp, Switzer/Instrument Serif/JetBrains
+ * Mono faces, semantic vars (Grove,
  * #277), elevation/radius/motion, dark-mode variant, heroicons plugin
  * — exactly; if the bundles diverge the workshop lies. Deliberately NO
  * daisyUI — the design system is hand-written Tailwind, and the

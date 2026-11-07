@@ -13,10 +13,17 @@ webfont self-hosting for the licensee's own sites and applications.
   commercial use. The FFL explicitly permits self-hosting "for use on
   your own websites and applications, including through standard
   webfont technologies such as CSS @font-face" and calls it
-  "permitted and recommended". Constraints honored here: files are
-  vendored **unmodified** (no subsetting, no recompilation, both
-  prohibited) and are not redistributed as a font library. Third
-  parties get their own copy from Fontshare.
+  "permitted and recommended". Files are vendored **unmodified**
+  (no subsetting, no recompilation, both prohibited).
+- **Known tension**: this repository is public, and the FFL prohibits
+  distributing the font through repositories or publicly accessible
+  servers. A public source repo carrying the binary sits in that gray
+  zone: cloning the repo delivers the file, though the sanctioned
+  channel is a direct Fontshare download per recipient. The FFL's
+  self-hosting grant covers the font's real use here: served to this
+  application's own visitors. Resolution options (ITF written consent
+  for repo hosting, fetching at build time, or an OFL sans) are
+  maintainer calls.
 - License text: <https://www.fontshare.com/licenses/itf-ffl>
 
 ## Instrument Serif - `instrument-serif-latin-400-normal.woff2`
