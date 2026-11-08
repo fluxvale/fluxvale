@@ -202,6 +202,177 @@ defmodule FluxVale.Clients.K8s.Resources.DeploymentTest do
     end
   end
 
+  describe "build_manifest/3 — backing services (#612, ADR-0045)" do
+    # The Docmost-class shape: both engines, storage mounted, the
+    # requests already carved by the deployer's seam (the carve itself
+    # is InstanceK8s' test).
+    defp backing_spec do
+      base_spec()
+      |> Map.put(:storage_mount, "/data")
+      |> Map.put(:pvc_name, "app-data")
+      |> Map.put(:cpu, Decimal.new("0.85"))
+      |> Map.put(:memory, 704)
+      |> Map.put(:backing_services, [
+        %{
+          kind: :postgres,
+          image: "postgres:18.6-alpine3.24",
+          port: 5432,
+          env_from_secret: "backing-services",
+          cpu: Decimal.new("0.10"),
+          memory_mb: 256
+        },
+        %{
+          kind: :redis,
+          image: "redis:8.10.3-alpine3.23",
+          port: 6379,
+          env_from_secret: "backing-services",
+          cpu: Decimal.new("0.05"),
+          memory_mb: 64
+        }
+      ])
+    end
+
+    defp init_containers(manifest),
+      do: get_in(manifest, ["spec", "template", "spec", "initContainers"])
+
+    test "native sidecars land as init containers, in declaration order, before the app" do
+      manifest = Deployment.build_manifest("ns", "app", backing_spec())
+
+      [pg, redis] = init_containers(manifest)
+      assert pg["name"] == "postgres"
+      assert redis["name"] == "redis"
+
+      # Both gate the pod as native sidecars — the app container (the
+      # only regular container here) starts after both pass probes.
+      assert pg["restartPolicy"] == "Always"
+      assert redis["restartPolicy"] == "Always"
+
+      assert [%{"name" => "app"}] =
+               get_in(manifest, ["spec", "template", "spec", "containers"])
+    end
+
+    test "postgres: loopback listener, PGDATA subdir, socket-immune probe, subPath mount" do
+      manifest = Deployment.build_manifest("ns", "app", backing_spec())
+      [pg, _redis] = init_containers(manifest)
+
+      # The listener binds loopback — nothing answers off-pod even
+      # with no policy. Args ride the image's entrypoint (initdb path
+      # intact); no secret in argv.
+      assert pg["args"] == ["postgres", "-c", "listen_addresses=127.0.0.1"]
+
+      assert pg["env"] == [
+               # Below the mount: the official image's lost+found quirk
+               # on volume roots.
+               %{"name" => "PGDATA", "value" => "/var/lib/postgresql/data/pgdata"}
+             ]
+
+      # -h 127.0.0.1 is load-bearing: a bare pg_isready would pass
+      # against the socket-only initdb temp server.
+      assert pg["startupProbe"] == %{
+               "exec" => %{"command" => ["pg_isready", "-h", "127.0.0.1"]},
+               "periodSeconds" => 5,
+               "failureThreshold" => 36
+             }
+
+      assert pg["volumeMounts"] == [
+               %{
+                 "name" => "storage",
+                 "mountPath" => "/var/lib/postgresql/data",
+                 "subPath" => "backing/postgres"
+               }
+             ]
+
+      assert pg["envFrom"] == [%{"secretRef" => %{"name" => "backing-services"}}]
+      assert pg["ports"] == [%{"containerPort" => 5432}]
+      assert pg["image"] == "postgres:18.6-alpine3.24"
+    end
+
+    test "redis: requirepass from env (never argv), loopback bind, auth'd ping probe" do
+      manifest = Deployment.build_manifest("ns", "app", backing_spec())
+      [_pg, redis] = init_containers(manifest)
+
+      # The password expands at runtime from envFrom — the pod spec
+      # carries only the variable's name.
+      assert redis["command"] == [
+               "sh",
+               "-c",
+               ~s|exec redis-server --requirepass "$REDIS_PASSWORD" | <>
+                 "--bind 127.0.0.1 --protected-mode yes"
+             ]
+
+      # redis-cli authenticates via REDISCLI_AUTH from the Secret —
+      # PONG means auth AND liveness.
+      assert redis["startupProbe"] == %{
+               "exec" => %{"command" => ["redis-cli", "ping"]},
+               "periodSeconds" => 5,
+               "failureThreshold" => 12
+             }
+
+      assert redis["volumeMounts"] == [
+               %{"name" => "storage", "mountPath" => "/data", "subPath" => "backing/redis"}
+             ]
+
+      assert redis["envFrom"] == [%{"secretRef" => %{"name" => "backing-services"}}]
+      assert redis["ports"] == [%{"containerPort" => 6379}]
+    end
+
+    test "requests at the registry shares, limits at the house 2x" do
+      manifest = Deployment.build_manifest("ns", "app", backing_spec())
+      [pg, redis] = init_containers(manifest)
+
+      assert pg["resources"] == %{
+               "requests" => %{"cpu" => "0.1", "memory" => "256Mi"},
+               "limits" => %{"cpu" => "0.2", "memory" => "512Mi"}
+             }
+
+      assert redis["resources"] == %{
+               "requests" => %{"cpu" => "0.05", "memory" => "64Mi"},
+               "limits" => %{"cpu" => "0.1", "memory" => "128Mi"}
+             }
+
+      # Requests arithmetic = allocation exactly (D1): the app's
+      # already-carved requests plus both shares rebuild the envelope
+      # the quota sells — 0.85 + 0.10 + 0.05 = 1.0 CPU, 704 + 256 +
+      # 64 = 1024 MB.
+      app = get_in(manifest, ["spec", "template", "spec", "containers", Access.at(0)])
+
+      cpu =
+        [app | init_containers(manifest)]
+        |> Enum.map(&Decimal.new(&1["resources"]["requests"]["cpu"]))
+        |> Enum.reduce(&Decimal.add/2)
+
+      assert Decimal.eq?(cpu, Decimal.new("1"))
+
+      memory =
+        [app | init_containers(manifest)]
+        |> Enum.map(fn container ->
+          container["resources"]["requests"]["memory"]
+          |> String.replace("Mi", "")
+          |> String.to_integer()
+        end)
+        |> Enum.sum()
+
+      assert memory == 1024
+    end
+
+    test "no initContainers section without :backing_services" do
+      manifest = Deployment.build_manifest("ns", "app", base_spec())
+
+      pod_spec = get_in(manifest, ["spec", "template", "spec"])
+      refute Map.has_key?(pod_spec, "initContainers")
+    end
+
+    test "one storage volume however many containers mount it" do
+      manifest = Deployment.build_manifest("ns", "app", backing_spec())
+
+      volumes = get_in(manifest, ["spec", "template", "spec", "volumes"])
+
+      assert volumes == [
+               %{"name" => "storage", "persistentVolumeClaim" => %{"claimName" => "app-data"}}
+             ]
+    end
+  end
+
   describe "ready?/1 — the generation-gated readiness predicate" do
     defp status_map(overrides) do
       Map.merge(

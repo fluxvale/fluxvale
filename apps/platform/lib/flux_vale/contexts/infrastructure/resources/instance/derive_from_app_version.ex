@@ -2,7 +2,8 @@ defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
   @moduledoc """
   Snapshots the AppVersion's deploy blueprint onto the Instance at create:
   `image`, `port`, `healthcheck_path`, `storage_mount_path`,
-  `file_access` (from the App, #190), `cpu_cores`,
+  `file_access` (from the App, #190), the bundled backing services
+  resolved against the platform registry (#612, ADR-0045), `cpu_cores`,
   `memory_mb`, `storage_gb`, the env merge — user values over operator
   `default_env_vars` over `configurable_env_vars` schema defaults, all
   stringified (env vars are strings end to end; ValidateEnvVars
@@ -41,6 +42,7 @@ defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Infrastructure.Instance.PricingSnapshot
   alias FluxVale.Infrastructure.InstanceAllocationSnapshot
+  alias FluxVale.Infrastructure.Types.BackingServiceSnapshot
 
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
@@ -79,6 +81,7 @@ defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
             chosen(changeset, :storage_gb, version.default_storage_gb)
           )
           |> snapshot_price(version)
+          |> snapshot_backing_services(version)
           |> merge_env_defaults(version)
           |> record_create_snapshot()
 
@@ -162,6 +165,80 @@ defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
     end)
   end
 
+  # #612 (ADR-0045, D2): the Instance is the snapshot — each declared
+  # service resolves against the platform registry ONCE, here, and the
+  # row carries the exact image pin plus the per-kind render constants
+  # forever after. A registry bump flows only to NEW instances; a
+  # dropped major fails this create loudly (registry drift since the
+  # catalog write), never a later deploy.
+  defp snapshot_backing_services(changeset, version) do
+    case resolve_backing_services(version.backing_services) do
+      {:ok, snapshots} ->
+        Ash.Changeset.force_change_attribute(changeset, :backing_services, snapshots)
+
+      {:error, message} ->
+        Ash.Changeset.add_error(changeset, field: :backing_services, message: message)
+    end
+  end
+
+  defp resolve_backing_services([]), do: {:ok, []}
+
+  defp resolve_backing_services(services) do
+    registry = Application.get_env(:flux_vale, :backing_services, [])
+
+    resolved =
+      Enum.reduce_while(services, {:ok, []}, fn service, {:ok, acc} ->
+        with {:ok, entry} <- registry_entry(registry, service),
+             {:ok, snapshot} <- backing_snapshot(service, entry) do
+          {:cont, {:ok, [snapshot | acc]}}
+        else
+          {:error, message} -> {:halt, {:error, message}}
+        end
+      end)
+
+    case resolved do
+      {:ok, snapshots} -> {:ok, Enum.reverse(snapshots)}
+      error -> error
+    end
+  end
+
+  defp registry_entry(registry, service) do
+    entries = Keyword.get(registry, service.kind, %{})
+
+    case Map.fetch(entries, service.version) do
+      {:ok, entry} ->
+        {:ok, entry}
+
+      :error ->
+        {:error,
+         "declared #{service.kind} #{service.version} is not in the platform backing-services " <>
+           "registry — it drifted since this version was written; refusing to snapshot an " <>
+           "unpinned image"}
+    end
+  end
+
+  defp backing_snapshot(service, entry) do
+    input = %{
+      kind: service.kind,
+      version: service.version,
+      url_env: service.url_env,
+      image: entry.image,
+      port: entry.port,
+      cpu: entry.cpu,
+      memory_mb: entry.memory_mb
+    }
+
+    case BackingServiceSnapshot.new(input) do
+      {:ok, snapshot} ->
+        {:ok, snapshot}
+
+      {:error, message} ->
+        # The registry entry itself is malformed — config drift, named
+        # plainly so the operator fixes the registry, not the version.
+        {:error, "registry entry for #{service.kind} #{service.version} is invalid: #{message}"}
+    end
+  end
+
   # user values > operator default_env_vars > configurable schema
   # defaults — operator-explicit beats the catalog's form-suggested
   # default when both name a key (both stringified) — and the
@@ -169,33 +246,52 @@ defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
   # a contract key (`env` ∪ `forbidden_env`) is rejected loudly, never
   # silently overridden — a forbidden key set at deploy time is exactly
   # the #181 failure mode, and no admin-provisioning path exists to
-  # undo it.
+  # undo it. A user value naming a backing service's `url_env` is the
+  # same failure mode one layer up (#612, ADR-0045 D6): the platform
+  # provides that key at deploy, so a user value could only be
+  # silently shadowed — rejected loudly at create instead, a tested
+  # behavior, never a log line.
   defp merge_env_defaults(changeset, version) do
     user_env_vars = Ash.Changeset.get_attribute(changeset, :env_vars) || %{}
 
     conflicts = contract_conflicts(user_env_vars, version.first_run)
+    takeovers = backing_conflicts(user_env_vars, version.backing_services)
 
-    if conflicts == [] do
-      operator_defaults = stringified(version.default_env_vars)
-      schema_suggestions = schema_defaults(version.configurable_env_vars)
+    cond do
+      conflicts != [] ->
+        Ash.Changeset.add_error(changeset,
+          field: :env_vars,
+          message:
+            "cannot be set at deploy time, fixed by the app's first-run contract " <>
+              "(#{Enum.join(conflicts, ", ")})"
+        )
 
-      # Contract env merges last: the guarantee outranks every
-      # deploy-time layer. Write-time disjointness
-      # (ValidateFirstRunEnv) keeps the lower layers from naming these
-      # keys; merging last holds the guarantee even for drifted rows.
-      with_operator = Map.merge(schema_suggestions, operator_defaults)
-      with_user = Map.merge(with_operator, user_env_vars)
-      merged = Map.merge(with_user, contract_env(version.first_run))
+      takeovers != [] ->
+        Ash.Changeset.add_error(changeset,
+          field: :env_vars,
+          message:
+            "cannot be set at deploy time, provided by the app's bundled backing service " <>
+              "(#{Enum.join(takeovers, ", ")})"
+        )
 
-      Ash.Changeset.force_change_attribute(changeset, :env_vars, merged)
-    else
-      Ash.Changeset.add_error(changeset,
-        field: :env_vars,
-        message:
-          "cannot be set at deploy time, fixed by the app's first-run contract " <>
-            "(#{Enum.join(conflicts, ", ")})"
-      )
+      true ->
+        merge_env_layers(changeset, version, user_env_vars)
     end
+  end
+
+  defp merge_env_layers(changeset, version, user_env_vars) do
+    operator_defaults = stringified(version.default_env_vars)
+    schema_suggestions = schema_defaults(version.configurable_env_vars)
+
+    # Contract env merges last: the guarantee outranks every
+    # deploy-time layer. Write-time disjointness
+    # (ValidateFirstRunEnv) keeps the lower layers from naming these
+    # keys; merging last holds the guarantee even for drifted rows.
+    with_operator = Map.merge(schema_suggestions, operator_defaults)
+    with_user = Map.merge(with_operator, user_env_vars)
+    merged = Map.merge(with_user, contract_env(version.first_run))
+
+    Ash.Changeset.force_change_attribute(changeset, :env_vars, merged)
   end
 
   defp contract_env(nil), do: %{}
@@ -219,6 +315,23 @@ defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
     user_env_vars
     |> Map.keys()
     |> Enum.filter(fn key -> MapSet.member?(contract_keys, String.downcase(key)) end)
+    |> Enum.sort()
+  end
+
+  # The same fold for platform-owned backing URLs (#612, D6): the
+  # deploy composes the url_env above user env, so a user value naming
+  # one (any case spelling) is a takeover the create refuses.
+  defp backing_conflicts(_user_env_vars, []), do: []
+
+  defp backing_conflicts(user_env_vars, services) do
+    owned_keys =
+      services
+      |> Enum.map(&String.downcase(&1.url_env))
+      |> MapSet.new()
+
+    user_env_vars
+    |> Map.keys()
+    |> Enum.filter(fn key -> MapSet.member?(owned_keys, String.downcase(key)) end)
     |> Enum.sort()
   end
 

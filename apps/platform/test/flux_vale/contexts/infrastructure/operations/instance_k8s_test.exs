@@ -7,6 +7,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8sTest do
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
+  alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
@@ -123,6 +124,133 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8sTest do
 
       assert length(String.codepoints(updated.status_message)) == 500
       assert String.length(updated.status_message) == 250
+    end
+  end
+
+  # #612 (ADR-0045, D1): the DB requests are carved FROM the purchased
+  # allocation — the app container shrinks by the services' shares, the
+  # pod's total requests stay exactly the allocation, and the quota is
+  # untouched by backing services (they are purchased workload, not
+  # platform overhead — the file-access sidecar's counter-posture).
+  describe "deployment_spec/2 + quota_spec/1 — the backing carve" do
+    defp backing_instance!(attrs \\ []) do
+      version_opts =
+        attrs
+        |> Keyword.get(:version_opts, [])
+        |> Map.new()
+
+      instance_attrs =
+        attrs
+        |> Keyword.delete(:version_opts)
+        |> Map.new()
+
+      version = InstanceFixtures.backing_version!(version_opts)
+      InstanceFixtures.local_cluster!()
+
+      base = %{name: "Carved", app_version_id: version.id, env_vars: %{}}
+      params = Map.merge(base, instance_attrs)
+
+      Instance.create!(params, actor: carve_user())
+    end
+
+    defp carve_user do
+      User.create!("carve-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+    end
+
+    test "app requests = allocation − shares; pod total = allocation exactly (Decimal)" do
+      instance = backing_instance!()
+
+      spec = InstanceK8s.deployment_spec(instance, %{})
+
+      # The fixture's honest defaults: 1.0 CPU / 1024 MB; the launch
+      # shares carve PG 0.10/256 + Redis 0.05/64.
+      assert Decimal.eq?(spec.cpu, Decimal.new("0.85"))
+      assert spec.memory == 704
+
+      [pg, redis] = spec.backing_services
+      assert pg.cpu == Decimal.new("0.10") and pg.memory_mb == 256
+      assert redis.cpu == Decimal.new("0.05") and redis.memory_mb == 64
+      assert pg.image == "postgres:18.6-alpine3.24"
+      assert redis.image == "redis:8.10.3-alpine3.23"
+      assert pg.env_from_secret == "backing-services"
+      assert redis.env_from_secret == "backing-services"
+
+      pod_cpu =
+        Enum.reduce([spec.cpu | Enum.map(spec.backing_services, & &1.cpu)], &Decimal.add/2)
+
+      assert Decimal.eq?(pod_cpu, instance.cpu_cores)
+
+      pod_memory =
+        Enum.sum([spec.memory | Enum.map(spec.backing_services, & &1.memory_mb)])
+
+      assert pod_memory == instance.memory_mb
+    end
+
+    test "a postgres-only instance carves only postgres" do
+      instance =
+        backing_instance!(
+          version_opts: [
+            backing_services: [
+              %{"kind" => "postgres", "version" => "18", "url_env" => "DATABASE_URL"}
+            ]
+          ]
+        )
+
+      spec = InstanceK8s.deployment_spec(instance, %{})
+
+      assert Decimal.eq?(spec.cpu, Decimal.new("0.9"))
+      assert spec.memory == 768
+      assert [%{kind: :postgres}] = spec.backing_services
+    end
+
+    test "quota_spec stays the bare allocation — carved, never widened" do
+      instance = backing_instance!()
+
+      assert {:ok, quota} = InstanceK8s.quota_spec(instance)
+      assert Decimal.eq?(quota.cpu, Decimal.new("1"))
+      assert quota.memory == 1024
+      assert quota.storage == 10
+    end
+
+    test "the file-access sidecar stays additive on top of the carve (both postures compose)" do
+      instance =
+        backing_instance!(
+          version_opts: [file_access: true],
+          # The wizard's legal floor for a file-access app is a volume;
+          # the carve arithmetic is the point here.
+          storage_gb: 10
+        )
+
+      spec = InstanceK8s.deployment_spec(instance, %{})
+
+      # App: allocation − DB shares. Sidecar: platform overhead on TOP
+      # (its own posture, unchanged). Quota: allocation + sidecar.
+      assert Decimal.eq?(spec.cpu, Decimal.new("0.85"))
+      assert spec.sidecar.cpu == Decimal.new("0.05")
+
+      assert {:ok, quota} = InstanceK8s.quota_spec(instance)
+      assert Decimal.eq?(quota.cpu, Decimal.new("1.05"))
+
+      pod_cpu =
+        Enum.reduce(
+          [spec.cpu, spec.sidecar.cpu | Enum.map(spec.backing_services, & &1.cpu)],
+          &Decimal.add/2
+        )
+
+      assert Decimal.eq?(pod_cpu, quota.cpu)
+    end
+
+    test "a non-declaring instance keeps the plain spec (no backing key)" do
+      version = InstanceFixtures.app_version!()
+      InstanceFixtures.local_cluster!()
+
+      instance = InstanceFixtures.instance!(version, carve_user())
+
+      spec = InstanceK8s.deployment_spec(instance, %{})
+
+      refute Map.has_key?(spec, :backing_services)
+      assert Decimal.eq?(spec.cpu, version.default_cpu_cores)
+      assert spec.memory == version.default_memory_mb
     end
   end
 end

@@ -13,6 +13,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
   """
 
   alias FluxVale.Clients.K8s
+  alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.PersistentVolumeClaim
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Clients.K8s.Resources.Service
@@ -227,6 +228,11 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
   # `ResizeInstance` at the resize re-apply.
 
   @env_secret "app-env"
+  # The bundled backing-services Secret's name (#612) — one source for
+  # the get-or-create and the envFrom the DB containers render.
+  @backing_secret "backing-services"
+  @backing_postgres_user "fluxvale"
+  @backing_postgres_db "app"
 
   # Sidecar requests (ADR-0035): platform overhead on top of the
   # purchased allocation — the quota widens by exactly this (limits
@@ -335,15 +341,21 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
 
   @doc """
   The app Deployment spec for an instance + the env argument — image,
-  port, resources, probes, the PVC mount when storage is allocated, and
-  `env_from_secret` when `env` is non-empty. What `env` IS differs by
-  caller, deliberately: `DeployInstance` passes the merged env it is
-  about to write (catalog defaults under user values, plus the seeded
-  URL/allowlist entries); `ResizeInstance` passes the LIVE app-env
-  Secret's body as the envFrom witness — non-empty keeps the reference,
-  so a seeded ROOT_URL can never be stripped by a re-apply, and a
-  missing Secret never dangles one. (The Secret itself is the deploy's
-  to create.)
+  port, resources, probes, the PVC mount when storage is allocated,
+  `env_from_secret` when `env` is non-empty, the file-access sidecar
+  when declared, and the bundled backing services as native-sidecar
+  init containers (#612, ADR-0045) — the app's requests SHRINK by the
+  services' shares so the pod's total requests stay exactly the
+  purchased allocation (D1: the DB is purchased workload, carved from
+  the envelope — not overhead added on top like the file-access
+  sidecar). CPU stays Decimal end to end: the carve must not round.
+  What `env` IS differs by caller, deliberately: `DeployInstance`
+  passes the merged env it is about to write (catalog defaults under
+  user values, plus the seeded URL/allowlist entries);
+  `ResizeInstance` passes the LIVE app-env Secret's body as the
+  envFrom witness — non-empty keeps the reference, so a seeded
+  ROOT_URL can never be stripped by a re-apply, and a missing Secret
+  never dangles one. (The Secret itself is the deploy's to create.)
 
   Called by `DeployInstance` (deploy) and `ResizeInstance` (re-apply).
   """
@@ -352,16 +364,62 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
     base = %{
       image: instance.image,
       port: instance.port,
-      cpu: Decimal.to_float(instance.cpu_cores),
-      memory: instance.memory_mb,
+      cpu: app_cpu(instance),
+      memory: app_memory(instance),
       probe_path: instance.healthcheck_path,
       storage_mount: storage_mount_path(instance),
       pvc_name: pvc_name(instance),
       env_from_secret: if(env != %{}, do: @env_secret)
     }
 
-    if file_access?(instance), do: Map.put(base, :sidecar, sidecar_spec(instance)), else: base
+    base
+    |> maybe_put_backing(instance)
+    |> maybe_put_sidecar(instance)
   end
+
+  defp maybe_put_backing(spec, %{backing_services: services}) when services != [],
+    do: Map.put(spec, :backing_services, Enum.map(services, &backing_spec/1))
+
+  defp maybe_put_backing(spec, _instance), do: spec
+
+  defp maybe_put_sidecar(spec, instance) do
+    if file_access?(instance),
+      do: Map.put(spec, :sidecar, sidecar_spec(instance)),
+      else: spec
+  end
+
+  # Render-ready shape for the Deployment builder — everything from the
+  # SNAPSHOT (D2): image and constants frozen at create, so a registry
+  # bump never re-specs a live instance, on deploy or resize.
+  defp backing_spec(service) do
+    %{
+      kind: service.kind,
+      image: service.image,
+      port: service.port,
+      env_from_secret: @backing_secret,
+      cpu: Decimal.new(service.cpu),
+      memory_mb: service.memory_mb
+    }
+  end
+
+  # D1's carve: the app container's requests are the allocation minus
+  # the services' shares (Decimal exact). The S3 floors at version
+  # defaults keep these positive — the defaults INCLUDE the shares.
+  defp app_cpu(%{backing_services: services} = instance) when services != [] do
+    Enum.reduce(services, instance.cpu_cores, fn service, allocation ->
+      Decimal.sub(allocation, Decimal.new(service.cpu))
+    end)
+  end
+
+  defp app_cpu(instance), do: instance.cpu_cores
+
+  defp app_memory(%{backing_services: services} = instance) when services != [] do
+    Enum.reduce(services, instance.memory_mb, fn service, allocation ->
+      allocation - service.memory_mb
+    end)
+  end
+
+  defp app_memory(instance), do: instance.memory_mb
 
   # The rclone serve command (ADR-0035): WebDAV over the shared data
   # volume, under the route's path prefix, auth from the Secret's env.
@@ -482,6 +540,119 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
     entropy = :crypto.strong_rand_bytes(32)
     Base.url_encode64(entropy, padding: false)
   end
+
+  # --- the bundled backing-services world (#612, ADR-0045) -----------
+  #
+  # One Secret per instance namespace, get-or-create with the
+  # file-access discipline and a stronger reason: the Postgres
+  # password hash lives in the PG data dir, so rotating the Secret
+  # without an ALTER ROLE locks the app out — an existing Secret IS
+  # the credential. READ FIRST is load-bearing. Caller:
+  # `DeployInstance`, BEFORE env composition (the URLs it composes
+  # come from here).
+
+  @doc """
+  The backing-services credential Secret — get-or-create, generated
+  ONCE at first deploy: per-kind credentials plus each declared
+  `url_env` composed as a `localhost` URL (the password is URL-safe
+  base64, so it embeds unencoded). Returns `{:ok, data}` — what the
+  deploy composes env from; `{:ok, nil}` when the instance declares
+  no services. An existing Secret is reused verbatim (never rotated)
+  but must carry every key the instance's snapshot declares — a
+  drifted or hand-made Secret fails the deploy loudly rather than
+  shipping a pod whose env is half-wired.
+  """
+  @spec get_or_create_backing_secret(Kubereq.Kubeconfig.t(), String.t(), map()) ::
+          {:ok, map() | nil} | {:error, FluxVale.Clients.K8s.Error.t()}
+  def get_or_create_backing_secret(kubeconfig, namespace, instance) do
+    case backing_services(instance) do
+      [] ->
+        {:ok, nil}
+
+      services ->
+        fetch_backing_secret(kubeconfig, namespace, services)
+    end
+  end
+
+  defp fetch_backing_secret(kubeconfig, namespace, services) do
+    case Secret.get_data(kubeconfig, namespace, @backing_secret) do
+      {:ok, existing} ->
+        validate_backing_data(existing, services)
+
+      {:error, error} ->
+        create_backing_secret(kubeconfig, namespace, services, error)
+    end
+  end
+
+  defp create_backing_secret(kubeconfig, namespace, services, error) do
+    if match?(%{reason: :not_found}, error) do
+      data = Enum.reduce(services, %{}, &put_backing_data/2)
+
+      with {:ok, _secret} <- Secret.create(kubeconfig, namespace, @backing_secret, data) do
+        {:ok, data}
+      end
+    else
+      {:error, error}
+    end
+  end
+
+  # One service per kind (the S1 catalog validator), so per-kind
+  # credentials never collide on a merge.
+  defp put_backing_data(%{kind: :postgres} = service, data) do
+    password = credential_password()
+
+    url =
+      "postgres://#{@backing_postgres_user}:#{password}@localhost:#{service.port}/#{@backing_postgres_db}"
+
+    data
+    |> Map.put("POSTGRES_USER", @backing_postgres_user)
+    |> Map.put("POSTGRES_PASSWORD", password)
+    |> Map.put("POSTGRES_DB", @backing_postgres_db)
+    |> Map.put(service.url_env, url)
+  end
+
+  defp put_backing_data(%{kind: :redis} = service, data) do
+    password = credential_password()
+    # REDISCLI_AUTH doubles the password for the startup probe's
+    # redis-cli — the probe authenticates from env, never argv.
+    url = "redis://:#{password}@localhost:#{service.port}/0"
+
+    data
+    |> Map.put("REDIS_PASSWORD", password)
+    |> Map.put("REDISCLI_AUTH", password)
+    |> Map.put(service.url_env, url)
+  end
+
+  defp validate_backing_data(existing, services) do
+    required =
+      services
+      |> Enum.flat_map(fn service ->
+        backing_credential_keys(service.kind) ++ [service.url_env]
+      end)
+      |> Enum.uniq()
+
+    missing = required -- Map.keys(existing)
+
+    if missing == [] do
+      {:ok, existing}
+    else
+      {:error,
+       Error.validation_error(
+         "the backing-services Secret is missing keys #{inspect(missing)} — it was created " <>
+           "outside the platform or drifted; refusing to deploy with half-wired services"
+       )}
+    end
+  end
+
+  defp backing_credential_keys(:postgres), do: ~w(POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB)
+  defp backing_credential_keys(:redis), do: ~w(REDIS_PASSWORD REDISCLI_AUTH)
+
+  @doc false
+  # The deployer's gate for "does this instance carry services" — the
+  # map-tolerant read (old rows/structs without the field read as none).
+  @spec backing_services(map()) :: [map()]
+  def backing_services(%{backing_services: services}) when services != [], do: services
+  def backing_services(_instance), do: []
 
   @doc """
   The WebDAV Service (ADR-0035) — own Service so the app's Service stays

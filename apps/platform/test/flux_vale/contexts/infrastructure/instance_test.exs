@@ -374,6 +374,173 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       assert instance.env_vars["APP__security__INSTALL_LOCK"] == "true"
     end
 
+    # #612 (ADR-0045, D2): the instance snapshots the declarations
+    # RESOLVED against the platform registry — the exact image pin and
+    # the render constants frozen on the row at create, never re-read
+    # from catalog or registry afterwards.
+    test "snapshots declared backing services as registry-resolved rows" do
+      version = InstanceFixtures.backing_version!()
+      InstanceFixtures.local_cluster!()
+
+      instance =
+        Instance.create!(
+          %{name: "Docmost-class", app_version_id: version.id, env_vars: %{}},
+          actor: user()
+        )
+
+      [pg, redis] = instance.backing_services
+
+      assert pg.kind == :postgres and pg.version == "18"
+      assert pg.image == "postgres:18.6-alpine3.24"
+      assert pg.port == 5432 and pg.cpu == "0.10" and pg.memory_mb == 256
+      assert pg.url_env == "DATABASE_URL"
+
+      assert redis.kind == :redis and redis.version == "8"
+      assert redis.image == "redis:8.10.3-alpine3.23"
+      assert redis.port == 6379 and redis.cpu == "0.05" and redis.memory_mb == 64
+      assert redis.url_env == "REDIS_URL"
+
+      # The row round-trips: what the deployer reads is what was pinned.
+      reloaded = Ash.get!(Instance, instance.id, authorize?: false)
+      assert reloaded.backing_services == instance.backing_services
+    end
+
+    test "a non-declaring version snapshots [] (every existing entry)" do
+      instance = created!()
+      assert instance.backing_services == []
+    end
+
+    test "a declared major missing from the registry fails the create loudly" do
+      # The catalog write rejects registry-unknown majors (S1) — this is
+      # the DRIFT shape: the row was valid when written, the registry
+      # moved (major dropped) since. Seeded, the drifted-version stance.
+      app = Ash.load!(forgejo_version(), :app, authorize?: false).app
+
+      drifted =
+        Ash.Seed.seed!(AppVersion, %{
+          version: "9.9.9",
+          image: "test/image:9.9",
+          port: 3000,
+          default_env_vars: %{},
+          backing_services: [
+            %{"kind" => "postgres", "version" => "15", "url_env" => "DATABASE_URL"}
+          ],
+          app_id: app.id
+        })
+
+      InstanceFixtures.local_cluster!()
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               Instance.create(
+                 %{name: "Drifted registry", app_version_id: drifted.id, env_vars: %{}},
+                 actor: user()
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.message =~ "not in the platform backing-services registry" and
+                   &1.message =~ "postgres 15")
+             )
+    end
+
+    test "a malformed registry entry fails the create loudly — config drift, never a mid-deploy crash" do
+      app = Ash.load!(forgejo_version(), :app, authorize?: false).app
+
+      drifted =
+        Ash.Seed.seed!(AppVersion, %{
+          version: "8.8.8",
+          image: "test/image:8.8",
+          port: 3000,
+          default_env_vars: %{},
+          backing_services: [
+            %{"kind" => "postgres", "version" => "17", "url_env" => "DATABASE_URL"}
+          ],
+          app_id: app.id
+        })
+
+      # The drift shape: a FLOAT cpu in the registry (its own rule is
+      # strings — Decimal.new/1). MERGED, never replaced, so concurrent
+      # tests' majors keep resolving through the window; restored on exit.
+      original = Application.fetch_env!(:flux_vale, :backing_services)
+
+      broken_entry = %{image: "postgres:17", port: 5432, cpu: 0.10, memory_mb: 256}
+      broken = put_in(original[:postgres], Map.put(original[:postgres], "17", broken_entry))
+
+      Application.put_env(:flux_vale, :backing_services, broken)
+      on_exit(fn -> Application.put_env(:flux_vale, :backing_services, original) end)
+
+      InstanceFixtures.local_cluster!()
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               Instance.create(
+                 %{name: "Broken registry", app_version_id: drifted.id, env_vars: %{}},
+                 actor: user()
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.message =~ "registry entry for postgres 17 is invalid" and
+                   &1.message =~ "cpu")
+             )
+    end
+
+    # D6: the takeover guard — a TESTED behavior, never a log line.
+    test "rejects user values naming a backing service's url_env — loudly, case-insensitively" do
+      version = InstanceFixtures.backing_version!()
+      InstanceFixtures.local_cluster!()
+
+      exact =
+        Instance.create(
+          %{
+            name: "Takeover",
+            app_version_id: version.id,
+            env_vars: %{"DATABASE_URL" => "postgres://evil"}
+          },
+          actor: user()
+        )
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} = exact
+
+      assert Enum.any?(
+               errors,
+               &(&1.message =~ "bundled backing service" and &1.message =~ "DATABASE_URL")
+             )
+
+      # Case-variant spelling folds onto the same platform-owned key.
+      case_variant =
+        Instance.create(
+          %{
+            name: "Takeover",
+            app_version_id: version.id,
+            env_vars: %{"database_url" => "postgres://evil"}
+          },
+          actor: user()
+        )
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} = case_variant
+
+      assert Enum.any?(
+               errors,
+               &(&1.message =~ "bundled backing service" and &1.message =~ "database_url")
+             )
+    end
+
+    test "a user value on any OTHER env key still merges under the takeover guard" do
+      version = InstanceFixtures.backing_version!()
+      InstanceFixtures.local_cluster!()
+
+      instance =
+        Instance.create!(
+          %{name: "Fine", app_version_id: version.id, env_vars: %{"APP_TOKEN" => "t"}},
+          actor: user()
+        )
+
+      assert instance.env_vars["APP_TOKEN"] == "t"
+      # The platform-owned keys are deploy-time seeds — never on the row.
+      refute Map.has_key?(instance.env_vars, "DATABASE_URL")
+      refute Map.has_key?(instance.env_vars, "REDIS_URL")
+    end
+
     test "generates a haikunate slug unique per cluster" do
       attrs = build_attrs()
 

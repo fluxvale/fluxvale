@@ -438,6 +438,21 @@ defmodule FluxVale.Infrastructure.Instance do
       public?(true)
     end
 
+    # Bundled backing services (#612, ADR-0045): the version's
+    # declarations resolved against the platform registry at create
+    # (DeriveFromAppVersion) — exact image pin + render constants
+    # frozen on the row, so a registry bump can never re-spec a live
+    # instance (D2). The deployer and the resize render from THIS, not
+    # the version or the registry; [] = none (every existing entry).
+    # System-written only; off the wire (no route lists it, public?
+    # false keeps it off sparse fieldsets).
+    attribute :backing_services,
+              {:array, FluxVale.Infrastructure.Types.BackingServiceSnapshot} do
+      allow_nil?(false)
+      default([])
+      public?(false)
+    end
+
     attribute :status, FluxVale.Infrastructure.Types.InstanceStatus do
       allow_nil?(false)
       default(:pending)

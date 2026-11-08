@@ -134,7 +134,9 @@ defmodule FluxVale.Infrastructure.Operations.ResizeInstanceTest do
     expect(Deployment, :create, fn _kc, ^ns, "app", spec ->
       assert spec.image == "registry.example.com/app:1.0"
       assert spec.port == 3000
-      assert spec.cpu == 2.0
+      # Decimal (#612): the re-apply may carve backing shares out of a
+      # fresh allocation — float would round.
+      assert Decimal.eq?(spec.cpu, Decimal.new("2"))
       assert spec.memory == 1024
       assert spec.replicas == 0
       # No app-env Secret on the cluster — no envFrom reference.
@@ -622,5 +624,67 @@ defmodule FluxVale.Infrastructure.Operations.ResizeInstanceTest do
 
     rows = Ash.read!(InstanceAllocationSnapshot, authorize?: false)
     assert length(rows) == 1
+  end
+
+  # #612 (ADR-0045 §4.7): resize re-applies at the new footprint — the
+  # app request is RECARVED (new allocation − shares) while the DB
+  # requests stay constant, and the backing-services Secret is never
+  # touched (the envFrom witness is app-env, which already carries the
+  # URL — resize keeps it for free).
+  test "a backing-services instance re-carves the app request; DB shares constant, no secret touch" do
+    stub_kubeconfig()
+    stub_env_secret(secret_exists())
+
+    version = InstanceFixtures.backing_version!()
+    InstanceFixtures.local_cluster!()
+
+    created =
+      Instance.create!(
+        %{name: "Backing resize", app_version_id: version.id, env_vars: %{}},
+        actor: user()
+      )
+
+    stopped = InstanceFixtures.walk_to!(created, :stopped)
+    instance = InstanceFixtures.pin!(stopped, namespace: "fluxvale-app-#{created.id}")
+    owner = owner_of(instance)
+
+    expect(ResourceQuota, :create, fn _kc, _ns, "app-quota", spec ->
+      # Quota stays the bare NEW allocation — the shares are inside it.
+      assert Decimal.eq?(spec.cpu, Decimal.new("2"))
+      assert spec.memory == 2048
+      {:ok, %{}}
+    end)
+
+    expect(Deployment, :get, fn _kc, _ns, "app" ->
+      {:ok, %{"spec" => %{"replicas" => 0}}}
+    end)
+
+    expect(Deployment, :create, fn _kc, _ns, "app", spec ->
+      # Recarved at the new allocation: 2.0 − 0.15 = 1.85 CPU,
+      # 2048 − 320 = 1728 MB; the DB specs ride unchanged from the
+      # create-time snapshot.
+      assert Decimal.eq?(spec.cpu, Decimal.new("1.85"))
+      assert spec.memory == 1728
+
+      [pg, redis] = spec.backing_services
+      assert Decimal.eq?(pg.cpu, Decimal.new("0.10")) and pg.memory_mb == 256
+      assert Decimal.eq?(redis.cpu, Decimal.new("0.05")) and redis.memory_mb == 64
+      {:ok, %{}}
+    end)
+
+    stub_live_claim(10)
+
+    # The backing Secret is deploy-owned (get-or-create at first
+    # deploy): a resize neither reads nor writes it.
+    reject(Secret, :get_data, 3)
+
+    assert {:ok, resized} =
+             Instance.resize(
+               instance,
+               %{cpu_cores: Decimal.new("2"), memory_mb: 2048},
+               actor: owner
+             )
+
+    assert Decimal.eq?(resized.cpu_cores, Decimal.new("2"))
   end
 end

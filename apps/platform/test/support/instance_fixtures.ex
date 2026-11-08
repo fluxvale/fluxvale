@@ -97,6 +97,56 @@ defmodule FluxVale.TestSupport.InstanceFixtures do
     )
   end
 
+  # The launch registry's majors (config.exs) — the declaring tests'
+  # default shape, the Docmost class.
+  @backing_launch [
+    %{"kind" => "postgres", "version" => "18", "url_env" => "DATABASE_URL"},
+    %{"kind" => "redis", "version" => "8", "url_env" => "REDIS_URL"}
+  ]
+
+  @doc """
+  Creates an AppVersion declaring bundled backing services (#612) —
+  both kinds by default, overridable via `:backing_services`. Honest
+  defaults (D1/D4): 1 CPU / 1024 MB / 10 GB — the defaults INCLUDE
+  the service shares, so the app carve (allocation − shares) stays
+  positive; callers may override like any `app_version!` attr. Each
+  declared `url_env` lands in `configurable_env_vars` as the S1
+  catalog contract requires (secret, optional) — and where a caller
+  passes a conflicting spec for the same key, the contract's wins (a
+  declaring version must validate).
+  """
+  @spec backing_version!(map()) :: AppVersion.t()
+  def backing_version!(attrs \\ %{}) do
+    attrs = Map.new(attrs)
+
+    services = Map.get(attrs, :backing_services, @backing_launch)
+
+    url_specs =
+      Map.new(services, fn service ->
+        env = service["url_env"]
+        {env, %{label: env, type: :string, required: false, secret: true}}
+      end)
+
+    configurable =
+      attrs
+      |> Map.get(:configurable_env_vars, %{})
+      |> Map.merge(url_specs)
+
+    honest = %{
+      default_cpu_cores: Decimal.new("1"),
+      default_memory_mb: 1024,
+      default_storage_gb: 10
+    }
+
+    base =
+      honest
+      |> Map.merge(Map.drop(attrs, [:backing_services, :configurable_env_vars]))
+      |> Map.put(:backing_services, services)
+      |> Map.put(:configurable_env_vars, configurable)
+
+    app_version!(base)
+  end
+
   @doc """
   Creates an action-built Instance for `user` on `version` (#179's
   status-surface tests) — `pending` on creation, like the real entry.

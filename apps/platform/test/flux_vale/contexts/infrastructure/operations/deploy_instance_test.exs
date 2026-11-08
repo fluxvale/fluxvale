@@ -137,7 +137,9 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
       expect(Deployment, :create, fn _kc, ^ns, "app", spec ->
         assert spec.image == "codeberg.org/forgejo/forgejo:16.0.5"
         assert spec.port == 3000
-        assert spec.cpu == 0.5
+        # Decimal end to end (#612): the app request can be a carve
+        # (allocation − backing shares) — float would round.
+        assert Decimal.eq?(spec.cpu, Decimal.new("0.5"))
         assert spec.memory == 512
         assert spec.probe_path == "/api/healthz"
         assert spec.storage_mount == "/data"
@@ -874,6 +876,244 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
       end)
 
       assert {:ok, _starting} = DeployInstance.call(private)
+    end
+  end
+
+  describe "call/1 — bundled backing services (#612, ADR-0045)" do
+    # The Docmost-class shape: both engines, honest defaults, a user
+    # value for an unrelated key. The backing-services Secret is
+    # get-or-create BEFORE env composition; the URLs land above user
+    # env in app-env.
+    defp backing_deploying!(attrs \\ []) do
+      version_opts =
+        attrs
+        |> Keyword.get(:version_opts, [])
+        |> Map.new()
+
+      version = InstanceFixtures.backing_version!(version_opts)
+      InstanceFixtures.local_cluster!()
+
+      instance =
+        Instance.create!(
+          %{
+            name: "Docmost-class",
+            app_version_id: version.id,
+            env_vars: Keyword.get(attrs, :env, %{"APP_TOKEN" => "tok"})
+          },
+          actor: user()
+        )
+
+      {:ok, deploying} = InstanceK8s.update_status(instance, :deploying, nil)
+
+      InstanceFixtures.pin!(deploying,
+        namespace: "fluxvale-app-#{instance.id}",
+        deployed_at: DateTime.utc_now()
+      )
+    end
+
+    defp stub_operands do
+      stub(Namespace, :create, fn _kc, _ns, _spec -> {:ok, %{}} end)
+      stub(RoleBinding, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(PersistentVolumeClaim, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Deployment, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      # This stub replaces stub_kubeconfig's wake stub (Mimic keeps one
+      # per function) — cover both names.
+      stub(Service, :create, fn _kc, _ns, name, _spec when name in ["app", "wake"] ->
+        {:ok, %{}}
+      end)
+
+      stub(Ingress, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+    end
+
+    test "first deploy mints the backing Secret once and composes both URLs into app-env" do
+      stub_kubeconfig()
+      instance = backing_deploying!()
+      ns = "fluxvale-app-#{instance.id}"
+      stub_operands()
+
+      # Quota stays the bare allocation — the shares are carved from
+      # the envelope, not added on top (D1; the file-access posture's
+      # counter-case).
+      expect(ResourceQuota, :create, fn _kc, ^ns, "app-quota", spec ->
+        assert Decimal.eq?(spec.cpu, Decimal.new("1"))
+        assert spec.memory == 1024
+        {:ok, %{}}
+      end)
+
+      expect(Secret, :get_data, fn _kc, ^ns, "backing-services" ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      expect(Secret, :create, fn _kc, ^ns, "backing-services", data ->
+        assert data["POSTGRES_USER"] == "fluxvale"
+        assert data["POSTGRES_DB"] == "app"
+        assert Regex.match?(~r/^[A-Za-z0-9_-]{43}$/, data["POSTGRES_PASSWORD"])
+
+        # URL-safe password embeds unencoded; the key IS the declared
+        # url_env (the snapshot's, not a platform constant).
+        assert data["DATABASE_URL"] ==
+                 "postgres://fluxvale:#{data["POSTGRES_PASSWORD"]}@localhost:5432/app"
+
+        assert Regex.match?(~r/^[A-Za-z0-9_-]{43}$/, data["REDIS_PASSWORD"])
+        assert data["REDISCLI_AUTH"] == data["REDIS_PASSWORD"]
+        assert data["REDIS_URL"] == "redis://:#{data["REDIS_PASSWORD"]}@localhost:6379/0"
+        {:ok, %{}}
+      end)
+
+      expect(Secret, :create, fn _kc, ^ns, "app-env", data ->
+        # The composed URLs ride the seed layer above user env; the
+        # unrelated user value survives underneath.
+        assert data["DATABASE_URL"] =~ "postgres://fluxvale:"
+        assert data["REDIS_URL"] =~ "redis://:"
+        assert data["APP_TOKEN"] == "tok"
+        {:ok, %{}}
+      end)
+
+      expect(Deployment, :create, fn _kc, ^ns, "app", spec ->
+        # The carve (D1): app = allocation − shares, Decimal exact.
+        assert Decimal.eq?(spec.cpu, Decimal.new("0.85"))
+        assert spec.memory == 704
+        assert [%{kind: :postgres}, %{kind: :redis}] = spec.backing_services
+        {:ok, %{}}
+      end)
+
+      assert {:ok, updated} = DeployInstance.call(instance)
+      assert updated.status == :starting
+    end
+
+    test "a retry reuses the existing Secret verbatim — never rotates, URLs from the row" do
+      stub_kubeconfig()
+      instance = backing_deploying!()
+      ns = "fluxvale-app-#{instance.id}"
+      stub_operands()
+      stub(ResourceQuota, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      existing = %{
+        "POSTGRES_USER" => "fluxvale",
+        "POSTGRES_PASSWORD" => "existing-pg-pass",
+        "POSTGRES_DB" => "app",
+        "DATABASE_URL" => "postgres://fluxvale:existing-pg-pass@localhost:5432/app",
+        "REDIS_PASSWORD" => "existing-redis-pass",
+        "REDISCLI_AUTH" => "existing-redis-pass",
+        "REDIS_URL" => "redis://:existing-redis-pass@localhost:6379/0"
+      }
+
+      expect(Secret, :get_data, fn _kc, ^ns, "backing-services" -> {:ok, existing} end)
+
+      # Any backing-services CREATE fails the expectation fn — a
+      # rotation attempt is a bug, not a reconcile.
+      expect(Secret, :create, fn _kc, ^ns, "app-env", data ->
+        assert data["DATABASE_URL"] == existing["DATABASE_URL"]
+        assert data["REDIS_URL"] == existing["REDIS_URL"]
+        {:ok, %{}}
+      end)
+
+      assert {:ok, updated} = DeployInstance.call(instance)
+      assert updated.status == :starting
+    end
+
+    test "an existing Secret missing a declared key fails the deploy loudly (drift, not half-wired)" do
+      stub_kubeconfig()
+      instance = backing_deploying!()
+      stub_operands()
+      stub(ResourceQuota, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      # Hand-made or drifted: carries the PG half but not REDIS_URL.
+      expect(Secret, :get_data, fn _kc, _ns, "backing-services" ->
+        {:ok,
+         %{
+           "POSTGRES_USER" => "u",
+           "POSTGRES_PASSWORD" => "p",
+           "POSTGRES_DB" => "d",
+           "DATABASE_URL" => "postgres://u:p@localhost:5432/d"
+         }}
+      end)
+
+      assert {:ok, updated} = DeployInstance.call(instance)
+      assert updated.status == :error
+      assert updated.status_message =~ "missing keys"
+      assert updated.status_message =~ "REDIS_URL"
+    end
+
+    test "a transient backing-Secret read failure fails the deploy" do
+      stub_kubeconfig()
+      instance = backing_deploying!()
+      stub_operands()
+      stub(ResourceQuota, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      expect(Secret, :get_data, fn _kc, _ns, "backing-services" ->
+        {:error, K8s.Error.connection_error("api hiccup")}
+      end)
+
+      assert {:ok, updated} = DeployInstance.call(instance)
+      assert updated.status == :error
+      assert updated.status_message =~ "Deploy failed: api hiccup"
+    end
+
+    test "a non-declaring instance never touches the backing-services Secret" do
+      stub_kubeconfig()
+      instance = deploying!()
+      ns = "fluxvale-app-#{instance.id}"
+
+      stub(Namespace, :create, fn _kc, _ns, _spec -> {:ok, %{}} end)
+      stub(RoleBinding, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(ResourceQuota, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(PersistentVolumeClaim, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Deployment, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      stub(Service, :create, fn _kc, _ns, name, _spec when name in ["app", "wake"] ->
+        {:ok, %{}}
+      end)
+
+      stub(Ingress, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Secret, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      reject(Secret, :get_data, 3)
+
+      assert {:ok, updated} = DeployInstance.call(instance)
+      assert updated.status == :starting
+    end
+
+    test "a user value naming a url_env is overridden by the platform's URL (drift belt-and-braces)" do
+      stub_kubeconfig()
+
+      # Create already rejects this shape loudly (D6, instance_test);
+      # a drifted row that carries one anyway composes the platform
+      # value — Map.put above user env, the ROOT_URL stance.
+      instance = backing_deploying!()
+
+      drifted =
+        InstanceFixtures.pin!(instance,
+          env_vars: Map.put(instance.env_vars, "DATABASE_URL", "postgres://stale")
+        )
+
+      ns = "fluxvale-app-#{drifted.id}"
+      stub_operands()
+      stub(ResourceQuota, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      stub(Secret, :get_data, fn _kc, _ns, "backing-services" ->
+        {:ok,
+         %{
+           "POSTGRES_USER" => "fluxvale",
+           "POSTGRES_PASSWORD" => "p",
+           "POSTGRES_DB" => "app",
+           "DATABASE_URL" => "postgres://fluxvale:p@localhost:5432/app",
+           "REDIS_PASSWORD" => "r",
+           "REDISCLI_AUTH" => "r",
+           "REDIS_URL" => "redis://:r@localhost:6379/0"
+         }}
+      end)
+
+      expect(Secret, :create, fn _kc, ^ns, "app-env", data ->
+        assert data["DATABASE_URL"] == "postgres://fluxvale:p@localhost:5432/app"
+        {:ok, %{}}
+      end)
+
+      assert {:ok, updated} = DeployInstance.call(drifted)
+      assert updated.status == :starting
     end
   end
 end
