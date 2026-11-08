@@ -9,7 +9,6 @@ defmodule FluxValeWeb.AdminShellLiveTest do
   # (the surface map, its testids, and its coverage died with it).
 
   use FluxValeWeb.ConnCase, async: false
-
   use Mimic
 
   import Phoenix.LiveViewTest
@@ -34,7 +33,6 @@ defmodule FluxValeWeb.AdminShellLiveTest do
     {"sizes ladder", "/admin/catalog/sizes"},
     {"wallets", "/admin/billing"},
     {"orgs", "/admin/orgs"},
-    {"gateways", "/admin/gateways"},
     {"resources console", "/admin/resources"}
   ]
 
@@ -52,14 +50,14 @@ defmodule FluxValeWeb.AdminShellLiveTest do
     end
   end
 
+  defp concrete_admin_path("/admin/gateways/:id", %{gateway: gateway}),
+    do: "/admin/gateways/#{gateway.id}"
+
   defp concrete_admin_path("/admin/billing/wallets/:id", %{wallet: wallet}),
     do: "/admin/billing/wallets/#{wallet.id}"
 
   defp concrete_admin_path("/admin/orgs/:id", %{org: org}),
     do: "/admin/orgs/#{org.id}"
-
-  defp concrete_admin_path("/admin/gateways/:id", %{gateway: gateway}),
-    do: "/admin/gateways/#{gateway.id}"
 
   defp concrete_admin_path("/admin/catalog/sizes/:id", %{version: version}),
     do: "/admin/catalog/sizes/#{version.recommended_size.id}"
@@ -78,6 +76,16 @@ defmodule FluxValeWeb.AdminShellLiveTest do
   defp concrete_admin_path(literal, _ctx), do: literal
 
   setup %{conn: conn} do
+    # The gateway fixtures' contract (access_fixtures.ex): the
+    # provider's cluster leg is Mimic-stubbed — the shell tests care
+    # about chrome and navigation, not the Tailscale calls.
+    stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+      {:ok, %{credential_secret_ref: "credential-stub"}}
+    end)
+
+    stub(Tailscale, :scale_gateway, fn _gateway, _replicas -> :ok end)
+    stub(Tailscale, :teardown_gateway, fn _gateway -> :ok end)
+
     admin =
       User.create!(
         "admin-shell-admin-#{@n}@fluxvale.com",
@@ -95,6 +103,28 @@ defmodule FluxValeWeb.AdminShellLiveTest do
     {org, _owner} = BillingFixtures.grant_free_org!()
     {:ok, wallet} = Billing.ensure_wallet(org)
 
+    # The gateways surface's mount target (the enumeration mounts the
+    # detail route): a member org — the members-only reads admit the
+    # admin — with its gateway and the provisioned stamp the detail
+    # renders (the observer owns the stamp in production, the funnel
+    # accepts it: the gateway detail test's own pattern).
+    gateway_org_pair = BillingFixtures.grant_free_org!()
+
+    Membership.create!(
+      %{organization_id: elem(gateway_org_pair, 0).id, user_id: admin.id, role: :member},
+      authorize?: false
+    )
+
+    gateway =
+      elem(gateway_org_pair, 0)
+      |> AccessFixtures.gateway!()
+      |> Ash.Changeset.for_update(
+        :update_state,
+        %{provisioned_at: DateTime.utc_now()},
+        authorize?: false
+      )
+      |> Ash.update!()
+
     # The resources console's record path needs one real row (the
     # generic engine's fixture — created through the action, no backdoor).
     flag =
@@ -105,25 +135,6 @@ defmodule FluxValeWeb.AdminShellLiveTest do
         actor: admin
       )
       |> Ash.create!()
-
-    # The gateways surface's mount target: a member org's gateway (the
-    # reads are members-only, so the setup admin needs the membership
-    # row for the detail route to mount at all). The cluster leg is
-    # Mimic-stubbed — the fixture's own contract.
-    stub(Tailscale, :provision_gateway, fn _gateway, _key ->
-      {:ok, %{credential_secret_ref: "credential-stub"}}
-    end)
-
-    stub(Tailscale, :scale_gateway, fn _gateway, _replicas -> :ok end)
-
-    {member_org, _owner} = BillingFixtures.grant_free_org!()
-
-    Membership.create!(
-      %{organization_id: member_org.id, user_id: admin.id, role: :member},
-      authorize?: false
-    )
-
-    gateway = AccessFixtures.gateway!(member_org)
 
     %{
       admin: admin,
@@ -223,13 +234,13 @@ defmodule FluxValeWeb.AdminShellLiveTest do
           {"wallets", "location"},
         {FluxValeWeb.AdminLive.Orgs, "/admin/orgs"} => {"orgs", "page"},
         {FluxValeWeb.AdminLive.OrgDetail, "/admin/orgs/:id"} => {"orgs", "location"},
-        {FluxValeWeb.AdminLive.Gateways, "/admin/gateways"} => {"gateways", "page"},
-        {FluxValeWeb.AdminLive.GatewayDetail, "/admin/gateways/:id"} => {"gateways", "location"},
         {FluxValeWeb.AdminLive.Sizes, "/admin/catalog/sizes"} => {"catalog", "location"},
         {FluxValeWeb.AdminLive.SizeEdit, "/admin/catalog/sizes/:id"} => {"catalog", "location"},
         {FluxValeWeb.AdminLive.VersionEdit, "/admin/catalog/versions/:id"} =>
           {"catalog", "location"},
         {FluxValeWeb.AdminLive.Moderation, "/admin/moderation"} => {"feedback", "page"},
+        {FluxValeWeb.AdminLive.Gateways, "/admin/gateways"} => {"gateways", "page"},
+        {FluxValeWeb.AdminLive.GatewayDetail, "/admin/gateways/:id"} => {"gateways", "location"},
         {FluxValeWeb.AdminLive.Resources, "/admin/resources"} => {"resources", "page"},
         {FluxValeWeb.AdminLive.Resources, "/admin/resources/:domain"} =>
           {"resources", "location"},
@@ -244,7 +255,7 @@ defmodule FluxValeWeb.AdminShellLiveTest do
           {mod, path}
         end
 
-      assert length(admin_routes) == 14
+      assert length(admin_routes) == 16
 
       for {mod, path} <- admin_routes do
         {key, mark} = Map.fetch!(expected, {mod, path})
@@ -337,19 +348,22 @@ defmodule FluxValeWeb.AdminShellLiveTest do
     end
   end
 
-  describe "the coming entries stay dead" do
-    test "badged, linkless, on a live surface", %{conn: conn} do
+  describe "the Coming grammar is retired" do
+    test "every section links, nothing is badged, on a live surface", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/admin/people")
 
-      # The console's completing flip: every v1 section is live, so no
-      # Coming badge renders anywhere (the shell's grammar branch
-      # retired with it). The flipped-live entries all link.
-      refute has_element?(view, "[data-testid^='admin-coming-']")
+      # The completion flip (#608): all six sections live, zero Coming
+      # entries. The console renders a link per entry and fails loudly
+      # on a path-less one rather than promising quietly.
+      for key <- ["wallets", "feedback", "orgs", "gateways"] do
+        refute has_element?(view, "[data-testid='admin-coming-#{key}']")
+      end
 
       assert has_element?(view, "[data-testid='admin-nav-wallets'][href='/admin/billing']")
       assert has_element?(view, "[data-testid='admin-nav-feedback'][href='/admin/moderation']")
       assert has_element?(view, "[data-testid='admin-nav-orgs'][href='/admin/orgs']")
-      assert has_element?(view, "[data-testid='admin-nav-gateways'][href='/admin/gateways']
+      assert has_element?(view, "[data-testid='admin-nav-gateways'][href='/admin/gateways']")
+      refute render(view) =~ "Coming"
     end
   end
 
