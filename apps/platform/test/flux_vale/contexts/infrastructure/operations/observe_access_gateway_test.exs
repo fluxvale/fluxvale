@@ -48,7 +48,7 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGatewayTest do
       assert observed.metering_since
     end
 
-    test "an already-active gateway is left alone — one write, then no-op", %{org: org} do
+    test "an already-active gateway keeps its settlement anchor", %{org: org} do
       gateway = AccessFixtures.gateway!(org)
       assert gateway.state == :active
       anchor = gateway.metering_since
@@ -76,6 +76,119 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGatewayTest do
 
       assert observed.state == :active
       assert observed.needs_attention_since == nil
+    end
+  end
+
+  describe "an unchanged settled :active observation (D7)" do
+    test "re-reads the committed row, writes nothing and broadcasts nothing", %{org: org} do
+      stub(Tailscale, :gateway_status, fn _gateway ->
+        {:ok, %{state: :active, message: "Connected to your tailnet"}}
+      end)
+
+      settled = settled_active_row!(org)
+      settled_updated_at = settled.updated_at
+
+      Phoenix.PubSub.subscribe(FluxVale.PubSub, "access_gateways:#{org.id}")
+
+      assert {:ok, observed} = Infrastructure.observe_access_gateway(settled)
+
+      # No UPDATE means no notification: Ash's PubSub notifier fires on
+      # update, so a quiet observation cannot publish anything.
+      refute_receive %Ash.Notifier.Notification{}, 200
+
+      assert observed.updated_at == settled_updated_at
+      assert observed.state == :active
+      assert observed.status_message == "Connected to your tailnet"
+
+      committed = AccessGateway.get_by_id!(settled.id, authorize?: false)
+      assert committed.updated_at == settled_updated_at
+    end
+
+    test "a row missing one settled field still writes and broadcasts", %{org: org} do
+      stub(Tailscale, :gateway_status, fn _gateway ->
+        {:ok, %{state: :active, message: "Connected to your tailnet"}}
+      end)
+
+      settled = settled_active_row!(org)
+
+      # The settled shape minus one anchor: the quiet arm must not fire.
+      cleared =
+        settled
+        |> Ash.Changeset.for_update(:update_state, %{}, authorize?: false)
+        |> Ash.Changeset.force_change_attribute(:provisioned_at, nil)
+        |> Ash.update!()
+
+      assert is_nil(cleared.provisioned_at)
+
+      Phoenix.PubSub.subscribe(FluxVale.PubSub, "access_gateways:#{org.id}")
+
+      assert {:ok, observed} = Infrastructure.observe_access_gateway(cleared)
+
+      assert_receive %Ash.Notifier.Notification{data: notified, action: %{name: :update_state}}
+      assert notified.id == settled.id
+      assert notified.provisioned_at
+      assert observed.provisioned_at
+      refute observed.updated_at == cleared.updated_at
+    end
+
+    test "a fall-through write does not rewind a settled anchor", %{org: org} do
+      stub(Tailscale, :gateway_status, fn _gateway ->
+        {:ok, %{state: :active, message: "Connected to your tailnet"}}
+      end)
+
+      settled = settled_active_row!(org)
+
+      # A divergent committed row the observer will rewrite.
+      diverged =
+        settled
+        |> Ash.Changeset.for_update(:update_state, %{}, authorize?: false)
+        |> Ash.Changeset.force_change_attribute(:provisioned_at, nil)
+        |> Ash.update!()
+
+      # The settle advance commits without changing state, so the state
+      # filter cannot refuse it — the write must omit the held anchor.
+      later = DateTime.add(diverged.metering_since, 3_600, :second)
+
+      assert {:ok, _advanced} =
+               diverged
+               |> Ash.Changeset.for_update(:settle_anchors, %{metering_since: later},
+                 authorize?: false
+               )
+               |> Ash.update()
+
+      assert AccessGateway.get_by_id!(settled.id, authorize?: false).metering_since == later
+
+      Phoenix.PubSub.subscribe(FluxVale.PubSub, "access_gateways:#{org.id}")
+
+      # The passed struct still holds the pre-advance anchor.
+      assert {:ok, observed} = Infrastructure.observe_access_gateway(diverged)
+
+      assert_receive %Ash.Notifier.Notification{action: %{name: :update_state}}
+      assert observed.state == :active
+
+      # The committed advance survives the fall-through write.
+      committed = AccessGateway.get_by_id!(settled.id, authorize?: false)
+      assert committed.metering_since == later
+    end
+
+    test "the production trigger action is quiet too", %{org: org} do
+      stub(Tailscale, :gateway_status, fn _gateway ->
+        {:ok, %{state: :active, message: "Connected to your tailnet"}}
+      end)
+
+      settled = settled_active_row!(org)
+
+      Phoenix.PubSub.subscribe(FluxVale.PubSub, "access_gateways:#{org.id}")
+
+      # The trigger body, not the operation: Ash skips the data-layer
+      # UPDATE when the changeset has no changes, so the empty
+      # perform_observe action must leave the row untouched. This pins
+      # that no future before_action resurrects the per-minute write.
+      assert {:ok, observed} =
+               AccessGateway.perform_observe(settled, %{}, authorize?: false)
+
+      refute_receive %Ash.Notifier.Notification{}, 200
+      assert observed.updated_at == settled.updated_at
     end
   end
 
@@ -214,6 +327,24 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGatewayTest do
 
       assert AccessGateway.get_by_id!(gateway.id, authorize?: false).state == :active
     end
+  end
+
+  # The settled shape the observer lands: :active, both anchors armed, no
+  # attention clock, the settled copy. Settled through the observer itself
+  # (the only promoter to :active), read back from the committed row.
+  defp settled_active_row!(org) do
+    {:ok, settled} =
+      org
+      |> provisioned_row!()
+      |> Infrastructure.observe_access_gateway()
+
+    assert settled.state == :active
+    assert settled.metering_since
+    assert settled.provisioned_at
+    assert settled.needs_attention_since == nil
+    assert settled.status_message == "Connected to your tailnet"
+
+    settled
   end
 
   # A row that has its cluster objects but has not been observed yet.
