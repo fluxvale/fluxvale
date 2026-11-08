@@ -140,8 +140,9 @@ Evidence: the quota output and an empty access-namespace listing.
    **Settings → Access → Re-paste key** (re-paste is the recovery path; it
    restarts the pod with the persisted node state).
 - **Stuck Provisioning >10 min:** capture the card's message and
-  read-only pod describe/logs, then **Remove access**. Do not patch or
-  restart the Deployment by hand; a fresh paste is the supported repair.
+  read-only pod describe/logs, then remove it from the panel (**Remove**
+  → **Remove private access**). Do not patch or restart the Deployment by
+  hand; a fresh paste is the supported repair.
 - **Attach refused:** check the instance is **Private**, same org, and
   the gateway is Connected, then retry.
 - **Wake does not flip after 90 seconds:** record the timing and the
