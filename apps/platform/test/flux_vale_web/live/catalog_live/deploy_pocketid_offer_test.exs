@@ -512,16 +512,18 @@ defmodule FluxValeWeb.CatalogLive.DeployPocketIdOfferTest do
       newer: newer
     } do
       view
-      |> element("[data-testid='pocketid-picker']")
-      |> render_change(%{pocketid_id: older.id})
+      |> form("#pocketid-picker-form", pocketid_id: older.id)
+      |> render_change()
 
       label = render(element(view, "label[for='pocketid-offer-check']"))
       assert label =~ pocketid_url(older)
       assert has_element?(view, "#pocketid-picker option[value='#{older.id}'][selected]")
 
-      view
-      |> element("[data-testid='pocketid-picker']")
-      |> render_change(%{pocketid_id: Ecto.UUID.generate()})
+      # The crafted id rides the raw channel event: the DOM's form
+      # binding itself refuses a value no option offers (LiveViewTest's
+      # form helper enforces the same), so only a hostile client
+      # reaches this arm — the handler keeps the current pick.
+      render_change(view, "pick-pocketid", %{"pocketid_id" => Ecto.UUID.generate()})
 
       # Unknown to the rendered options: the current pick stays.
       after_crafted = render(element(view, "label[for='pocketid-offer-check']"))

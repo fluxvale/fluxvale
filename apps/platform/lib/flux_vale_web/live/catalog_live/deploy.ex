@@ -131,17 +131,12 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
   @impl Phoenix.LiveView
   def render(assigns) do
-    # The quick-pick rows carry their own pressed/recommended state —
-    # `aria-pressed` is a string attribute (a bare boolean renders as an
-    # empty value and announces nothing), and the allocation parses once
-    # per size instead of twice.
-    # The quick-pick rows and the env form's visible schema resolve
-    # once per render: the picks carry their own pressed/recommended
-    # state (`aria-pressed` is a string attribute — a bare boolean
+    # Resolve once per render: the quick-pick rows (pressed/recommended
+    # state — `aria-pressed` is a string attribute, a bare boolean
     # renders as an empty value and announces nothing), and the env
-    # form renders the recipe's inputs only while the offer is
-    # unticked (or absent): a ticked offer means the platform writes
-    # those values (#597 S3→S4), so the manual inputs vanish and
+    # form's visible schema — the recipe's inputs render only while the
+    # offer is unticked (or absent): a ticked offer means the platform
+    # writes those values (#597 S3→S4), so the manual inputs vanish and
     # everything else stays.
     assigns =
       assign(assigns,
@@ -334,28 +329,35 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                       </label>
 
                       <%!-- Multiple ready Pocket IDs: pick which one
-                      serves the sign-in (the org-picker pattern — a
-                      native select, most recently deployed first, the
-                      default already selected). --%>
+                      serves the sign-in — a native select riding a
+                      form (phx-change is a form binding; the bare
+                      select never fires — the org picker's lesson,
+                      same fix), most recently deployed first, the
+                      default already selected. --%>
                       <div :if={@pocketid_offer.picker?} class="mt-3 flex items-center gap-3 pl-7">
-                        <label for="pocketid-picker" class="text-sm text-ink-muted">
-                          Use
-                        </label>
-                        <select
-                          id="pocketid-picker"
-                          name="pocketid_id"
+                        <form
+                          id="pocketid-picker-form"
                           phx-change="pick-pocketid"
-                          data-testid="pocketid-picker"
-                          class="rounded-lg border border-line bg-panel px-2.5 py-1.5 text-sm text-ink outline-offset-2 outline-focus transition-colors hover:bg-panel-raised focus-visible:outline-2"
+                          class="flex items-center gap-3"
                         >
-                          <option
-                            :for={pocketid <- @pocketid_offer.ready}
-                            value={pocketid.id}
-                            selected={pocketid.id == @pocketid_instance_id}
+                          <label for="pocketid-picker" class="text-sm text-ink-muted">
+                            Use
+                          </label>
+                          <select
+                            id="pocketid-picker"
+                            name="pocketid_id"
+                            data-testid="pocketid-picker"
+                            class="rounded-lg border border-line bg-panel px-2.5 py-1.5 text-sm text-ink outline-offset-2 outline-focus transition-colors hover:bg-panel-raised focus-visible:outline-2"
                           >
-                            {pocketid.name} — {pocketid.url}
-                          </option>
-                        </select>
+                            <option
+                              :for={pocketid <- @pocketid_offer.ready}
+                              value={pocketid.id}
+                              selected={pocketid.id == @pocketid_instance_id}
+                            >
+                              {pocketid.name} — {pocketid.url}
+                            </option>
+                          </select>
+                        </form>
                       </div>
 
                       <%!-- The tick's consequence, named: what hides
