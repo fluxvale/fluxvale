@@ -1036,7 +1036,7 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                   horizontal scroll and no min-width floor. --%>
                   <div class={[
                     "grid-cols-[minmax(0,1fr)_5rem_3rem_4.5rem_5rem_4.25rem]",
-                    AdminComponents.admin_table_header()
+                    AdminComponents.admin_table_header_class()
                   ]}>
                     <div>{gettext("Post")}</div>
                     <div>{gettext("Status")}</div>
@@ -1056,7 +1056,7 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                     >
                       <div class={[
                         "grid-cols-[minmax(0,1fr)_5rem_3rem_4.5rem_5rem_4.25rem]",
-                        AdminComponents.admin_table_row()
+                        AdminComponents.admin_table_row_class()
                       ]}>
                         <div class="min-w-0">
                           <p
@@ -1427,7 +1427,7 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                 <div class="rounded-panel border border-line">
                   <div class={[
                     "grid-cols-[minmax(0,1fr)_4rem_8rem]",
-                    AdminComponents.admin_table_header()
+                    AdminComponents.admin_table_header_class()
                   ]}>
                     <div>{gettext("Tag")}</div>
                     <div>{gettext("Posts")}</div>
@@ -1452,7 +1452,7 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                     >
                       <div class={[
                         "grid-cols-[minmax(0,1fr)_4rem_8rem]",
-                        AdminComponents.admin_table_row()
+                        AdminComponents.admin_table_row_class()
                       ]}>
                         <div class="min-w-0">
                           <p

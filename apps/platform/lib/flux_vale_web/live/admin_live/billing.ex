@@ -269,7 +269,7 @@ defmodule FluxValeWeb.AdminLive.Billing do
                 surface's floor-and-scroll idiom), never the page. --%>
                 <div class={[
                   "grid-cols-[minmax(7.5rem,1.6fr)_5.5rem_6.5rem_minmax(8.5rem,1.2fr)_3rem]",
-                  AdminComponents.admin_table_header()
+                  AdminComponents.admin_table_header_class()
                 ]}>
                   <div>{gettext("Organization")}</div>
                   <div class="text-right">{gettext("Balance")}</div>
@@ -289,7 +289,7 @@ defmodule FluxValeWeb.AdminLive.Billing do
                         id={dom_id}
                         class={[
                           "grid-cols-[minmax(7.5rem,1.6fr)_5.5rem_6.5rem_minmax(8.5rem,1.2fr)_3rem]",
-                          AdminComponents.admin_table_row(),
+                          AdminComponents.admin_table_row_class(),
                           "border-b border-line last:border-0",
                           negative?(wallet) && "bg-danger-muted"
                         ]}

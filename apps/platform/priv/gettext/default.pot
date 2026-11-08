@@ -1332,7 +1332,7 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1482
 #: lib/flux_vale_web/live/admin_live/people.ex:631
 #: lib/flux_vale_web/live/admin_live/wallet_detail.ex:937
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1116
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1118
 #, elixir-autogen, elixir-format
 msgid "Opening..."
 msgstr ""
@@ -1378,7 +1378,7 @@ msgstr ""
 msgid "The reinvite was refused. Sign out and sign back in, then try again."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1132
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1134
 #, elixir-autogen, elixir-format
 msgid "A compensating debit is posted for the same amount. The original entry stays in the ledger. Net effect on the balance: zero."
 msgstr ""
@@ -1438,7 +1438,7 @@ msgstr ""
 msgid "Ledger"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1158
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1160
 #, elixir-autogen, elixir-format
 msgid "Load more"
 msgstr ""
@@ -1519,12 +1519,12 @@ msgstr ""
 msgid "Remove the waiver"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1086
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1088
 #, elixir-autogen, elixir-format
 msgid "Reversal"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1119
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1121
 #, elixir-autogen, elixir-format
 msgid "Reverse"
 msgstr ""
@@ -1534,7 +1534,7 @@ msgstr ""
 msgid "Reverse the %{amount} credit?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1090
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1092
 #, elixir-autogen, elixir-format
 msgid "Reversed"
 msgstr ""
@@ -1646,7 +1646,7 @@ msgstr ""
 msgid "Yes, remove the waiver"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1136
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1138
 #, elixir-autogen, elixir-format
 msgid "Yes, reverse this entry"
 msgstr ""

@@ -524,7 +524,7 @@ defmodule FluxValeWeb.AdminLive.People do
                 page. --%>
                     <div class={[
                       "grid-cols-[minmax(7rem,1.8fr)_5.5rem_repeat(4,minmax(5rem,1fr))_5.25rem]",
-                      AdminComponents.admin_table_header()
+                      AdminComponents.admin_table_header_class()
                     ]}>
                       <div>{gettext("Email")}</div>
                       <div>{gettext("State")}</div>
@@ -545,7 +545,7 @@ defmodule FluxValeWeb.AdminLive.People do
                       >
                         <div class={[
                           "grid-cols-[minmax(7rem,1.8fr)_5.5rem_repeat(4,minmax(5rem,1fr))_5.25rem]",
-                          AdminComponents.admin_table_row()
+                          AdminComponents.admin_table_row_class()
                         ]}>
                           <div class="min-w-0">
                             <span
