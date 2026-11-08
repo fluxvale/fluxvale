@@ -8,6 +8,7 @@ defmodule FluxVale.Identity.Operations.RemoveEmailTest do
   alias FluxVale.Identity
   alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
+  alias FluxVale.TestSupport.AccountsFixtures
 
   require Ash.Query
 
@@ -43,8 +44,9 @@ defmodule FluxVale.Identity.Operations.RemoveEmailTest do
       assert {:error, %Ash.Error.Invalid{}} = Identity.remove_email(user, primary.id)
     end
 
-    test "the demoted signup address is refused — it is frozen into users.email (#285 T3 §5)" do
+    test "the demoted signup address is REMOVABLE — the frozen-mirror guard died with the column (#287)" do
       user = user!()
+      signup = AccountsFixtures.primary_address!(user)
       switched = "switched-#{System.unique_integer()}@fluxvale.test"
 
       {:ok, row} = Identity.add_email(user, switched)
@@ -54,13 +56,13 @@ defmodule FluxVale.Identity.Operations.RemoveEmailTest do
 
       old =
         UserEmail
-        |> Ash.Query.filter(address == ^user.email)
+        |> Ash.Query.filter(address == ^signup)
         |> Ash.read_one!(authorize?: false)
 
-      assert {:error, %Ash.Error.Invalid{errors: [%{message: message}]}} =
-               Identity.remove_email(user, old.id)
-
-      assert message =~ "frozen"
+      # post-#287 the signup row is an ordinary address: demoted and
+      # not the last verified, it goes — the mirror-era permanent
+      # freeze went with the column
+      assert :ok = Identity.remove_email(user, old.id)
     end
 
     test "another user's row id is :not_found" do
@@ -86,9 +88,9 @@ defmodule FluxVale.Identity.Operations.RemoveEmailTest do
 
       {:ok, _promoted} = Identity.set_primary_email(user, row.id)
 
-      # the demoted signup address is frozen into users.email — it stays
-      # (see RemoveGuard); a verified non-primary address removes cleanly
-      assert {:error, %Ash.Error.Invalid{}} = Identity.remove_email(user, old.id)
+      # post-#287 the demoted signup address is ordinary: verified,
+      # non-primary, siblings remaining — it removes cleanly
+      assert :ok = Identity.remove_email(user, old.id)
 
       spare = "cycle-spare-#{System.unique_integer()}@fluxvale.test"
       {:ok, spare_row} = Identity.add_email(user, spare)
@@ -101,8 +103,8 @@ defmodule FluxVale.Identity.Operations.RemoveEmailTest do
         |> Ash.Query.filter(user_id == ^user.id)
         |> Ash.read!(authorize?: false)
 
-      # exactly the frozen mirror and the new primary survive
-      assert length(remaining) == 2
+      # exactly the new primary survives
+      assert length(remaining) == 1
 
       assert new_address in Enum.map(remaining, &to_string(&1.address))
     end

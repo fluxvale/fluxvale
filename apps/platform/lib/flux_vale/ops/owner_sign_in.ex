@@ -155,14 +155,15 @@ defmodule FluxVale.Ops.OwnerSignIn do
     String.ends_with?(downcased, "@" <> @team_domain)
   end
 
-  # Both identity surfaces (the InviteUser posture): a verified
-  # user_emails row resolves its owner, the frozen users.email mirror
-  # resolves an invited-unaccepted account (no verified row yet).
+  # One surface (#287, the InviteUser posture): any user_emails row on
+  # the address resolves its owner — verified owner or invited
+  # reservation (get_by_address; the mirror-era second lookup died
+  # with the column).
   defp resolve_occupant(email) do
-    with {:ok, nil} <- verified_row_owner(email),
-         {:ok, nil} <- frozen_mirror_owner(email) do
-      :none
-    else
+    case row_owner(email) do
+      {:ok, nil} ->
+        :none
+
       {:ok, %User{} = user} ->
         {:ok, user}
 
@@ -174,16 +175,9 @@ defmodule FluxVale.Ops.OwnerSignIn do
     end
   end
 
-  defp verified_row_owner(email) do
+  defp row_owner(email) do
     User
-    |> Ash.Query.for_read(:get_by_email, %{email: email})
-    |> Ash.Query.load(:invite_state)
-    |> Ash.read_one(authorize?: false)
-  end
-
-  defp frozen_mirror_owner(email) do
-    User
-    |> Ash.Query.filter(email == ^email)
+    |> Ash.Query.for_read(:get_by_address, %{email: email})
     |> Ash.Query.load(:invite_state)
     |> Ash.read_one(authorize?: false)
   end
@@ -240,7 +234,7 @@ defmodule FluxVale.Ops.OwnerSignIn do
     case platform_admins() do
       [%{id: id}] ->
         # The account's primary VERIFIED address rides `user_emails`
-        # (#285 T3) — `users.email` is a frozen mirror now.
+        # (#285 T3, #287 — the only address storage).
         case primary_email(id) do
           {:ok, address} ->
             address
@@ -274,8 +268,7 @@ defmodule FluxVale.Ops.OwnerSignIn do
   # it), but the database may have one admin under a different address —
   # name that mismatch loudly so the operator can spot the typo. No abort:
   # the address the operator named wins. The comparison rides the
-  # table-backed primary (#285 T3) — the frozen users.email would warn
-  # wrong after a set_primary. Any other admin count (zero, several)
+  # table-backed primary (#285 T3). Any other admin count (zero, several)
   # carries no single admin to compare against, so it stays silent —
   # `single_admin_email/0` owns those cases.
   defp warn_if_not_admin(email) do

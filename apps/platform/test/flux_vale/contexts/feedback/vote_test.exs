@@ -54,7 +54,9 @@ defmodule FluxVale.Feedback.VoteTest do
   # The launch arm's precondition: a purpose-:feedback email row for the
   # user's primary address (operator-entered at launch, ADR-0026 §3).
   defp allowlist!(user) do
-    AccessRule.create!(%{purpose: :feedback, email: user.email}, authorize?: false)
+    AccessRule.create!(%{purpose: :feedback, email: AccountsFixtures.primary_address!(user)},
+      authorize?: false
+    )
   end
 
   describe "the paying gate on cast (ADR-0026 §2/§3)" do
@@ -274,7 +276,7 @@ defmodule FluxVale.Feedback.VoteTest do
       # seed! exception).
       orgless =
         Ash.Seed.seed!(FluxVale.Identity.User, %{
-          email: "orgless-#{System.unique_integer()}@fluxvale.test"
+          username: username_seed_for("orgless-#{System.unique_integer()}@fluxvale.test")
         })
 
       assert {:error, %Ash.Error.Invalid{errors: errors}} =
@@ -367,5 +369,15 @@ defmodule FluxVale.Feedback.VoteTest do
       assert {:ok, rows} = Ash.read(Vote)
       assert Enum.any?(rows, &(&1.post_id == post.id))
     end
+  end
+
+  # #287: seed! companions need the handle explicitly (NOT NULL); the
+  # local part of the original address is unique per call.
+  defp username_seed_for(address) do
+    [local | _rest] = String.split(address, "@", parts: 2)
+
+    local
+    |> String.replace(~r/[^a-z0-9-]+/, "-")
+    |> String.trim("-")
   end
 end

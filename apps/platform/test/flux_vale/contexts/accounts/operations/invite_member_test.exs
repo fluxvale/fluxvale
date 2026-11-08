@@ -112,14 +112,17 @@ defmodule FluxVale.Accounts.Operations.InviteMemberTest do
       stale =
         Ash.Seed.seed!(MembershipInvite, %{
           organization_id: org.id,
-          email: invitee.email,
+          email: AccountsFixtures.primary_address!(invitee),
           token_hash: stale_hash(),
           expires_at: past
         })
 
-      assert {:ok, fresh} = Accounts.invite_member(owner, org, invitee.email)
+      assert {:ok, fresh} =
+               Accounts.invite_member(owner, org, AccountsFixtures.primary_address!(invitee))
 
-      assert {:ok, mail} = mailbox_invite_mail(to_string(invitee.email))
+      assert {:ok, mail} =
+               mailbox_invite_mail(to_string(AccountsFixtures.primary_address!(invitee)))
+
       raw = token_from_body!(mail)
 
       # The fresh row answers the token; the stale row is retired
@@ -144,7 +147,7 @@ defmodule FluxVale.Accounts.Operations.InviteMemberTest do
       stale =
         Ash.Seed.seed!(MembershipInvite, %{
           organization_id: org.id,
-          email: invitee.email,
+          email: AccountsFixtures.primary_address!(invitee),
           token_hash: stale_hash(),
           expires_at: DateTime.add(DateTime.utc_now(), -1, :minute)
         })
@@ -153,7 +156,7 @@ defmodule FluxVale.Accounts.Operations.InviteMemberTest do
       # supersede arm never runs on Forbidden, so the stale row's
       # revoked_at stays nil (the probe-proof for the P2 ordering).
       assert {:error, %Ash.Error.Forbidden{}} =
-               Accounts.invite_member(member, org, invitee.email)
+               Accounts.invite_member(member, org, AccountsFixtures.primary_address!(invitee))
 
       assert %{revoked_at: nil} = Ash.load!(stale, :revoked_at, authorize?: false)
     end

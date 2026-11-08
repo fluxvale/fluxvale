@@ -15,7 +15,7 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/billing.ex:278
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1046
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1434
-#: lib/flux_vale_web/live/admin_live/people.ex:535
+#: lib/flux_vale_web/live/admin_live/people.ex:540
 #: lib/flux_vale_web/live/admin_live/resources.ex:231
 #: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1051
 #, elixir-autogen, elixir-format
@@ -63,13 +63,13 @@ msgstr ""
 msgid "close"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:234
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:235
 #, elixir-autogen, elixir-format
 msgid "App catalog"
 msgstr ""
 
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:50
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:341
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:342
 #, elixir-autogen, elixir-format
 msgid "Apps"
 msgstr ""
@@ -79,62 +79,62 @@ msgstr ""
 msgid "Browse a curated catalog of open source apps, deploy one in minutes, and let FluxVale keep it running for you."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:102
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:206
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:259
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:103
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:207
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:260
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:69
 #, elixir-autogen, elixir-format
 msgid "Browse apps"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:184
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:185
 #, elixir-autogen, elixir-format
 msgid "Choose from a curated catalog of open source applications, ready to run."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:348
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:349
 #, elixir-autogen, elixir-format
 msgid "Dashboard"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:213
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:214
 #, elixir-autogen, elixir-format
 msgid "Deploy"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:187
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:241
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:188
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:242
 #, elixir-autogen, elixir-format
 msgid "Developer Tools"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:336
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:337
 #, elixir-autogen, elixir-format
 msgid "Footer"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:174
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:175
 #, elixir-autogen, elixir-format
 msgid "How it works"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:195
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:249
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:196
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:250
 #, elixir-autogen, elixir-format
 msgid "Media & Entertainment"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:236
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:237
 #, elixir-autogen, elixir-format
 msgid "One click from browse to a running instance"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:280
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:281
 #, elixir-autogen, elixir-format
 msgid "One flat rate, no surprises"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:182
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:183
 #: lib/flux_vale_web/live/pricing_calculator_live.ex:151
 #, elixir-autogen, elixir-format
 msgid "Pick an app"
@@ -146,87 +146,87 @@ msgid "Primary"
 msgstr ""
 
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:60
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:110
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:345
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:111
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:346
 #: lib/flux_vale_web/live/feedback_live/composer.ex:238
 #, elixir-autogen, elixir-format
 msgid "Sign in"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:303
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:304
 #, elixir-autogen, elixir-format
 msgid "Simple pricing"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:176
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:177
 #, elixir-autogen, elixir-format
 msgid "Three steps to a running app"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:222
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:223
 #, elixir-autogen, elixir-format
 msgid "Updates and monitoring are on us. Your data stays yours."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:220
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:221
 #, elixir-autogen, elixir-format
 msgid "We run it"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:118
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:119
 #, elixir-autogen, elixir-format
 msgid "Your dashboard"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:162
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:163
 #, elixir-autogen, elixir-format
 msgid "wiki · rolling out v1.1"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:334
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:335
 #, elixir-autogen, elixir-format
 msgid "© %{year} FluxVale"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:204
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:205
 #, elixir-autogen, elixir-format
 msgid "…and more in the catalog"
 msgstr ""
 
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:56
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:343
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:344
 #, elixir-autogen, elixir-format
 msgid "Blog"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:200
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:254
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:201
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:255
 #, elixir-autogen, elixir-format
 msgid "Digital library for comics, manga, and ebooks"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:192
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:246
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:193
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:247
 #, elixir-autogen, elixir-format
 msgid "Git forge with issues, pull requests, and Actions CI"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:93
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:94
 #, elixir-autogen, elixir-format
 msgid "Managed cloud platform for open source applications"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:91
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:92
 #, elixir-autogen, elixir-format
 msgid "Managed platform"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:355
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:356
 #, elixir-autogen, elixir-format
 msgid "Acceptable use"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:351
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:352
 #, elixir-autogen, elixir-format
 msgid "Terms"
 msgstr ""
@@ -259,13 +259,13 @@ msgstr ""
 msgid "Other services"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:288
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:289
 #, elixir-autogen, elixir-format
 msgid "Prices follow the resources an app gets, not the app itself. New accounts start with welcome credits. Top up when you're ready."
 msgstr ""
 
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:53
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:342
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:343
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:9
 #, elixir-autogen, elixir-format
 msgid "Pricing"
@@ -276,7 +276,7 @@ msgstr ""
 msgid "Private access gateway"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:305
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:306
 #, elixir-autogen, elixir-format
 msgid "See full pricing"
 msgstr ""
@@ -286,12 +286,12 @@ msgstr ""
 msgid "Start in minutes"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:272
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:273
 #, elixir-autogen, elixir-format
 msgid "Every app runs on FluxVale's own managed Kubernetes fleet, the same infrastructure we run ourselves on."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:366
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:367
 #, elixir-autogen, elixir-format
 msgid "Privacy"
 msgstr ""
@@ -306,12 +306,12 @@ msgstr ""
 msgid "FluxVale, managed cloud platform for open source applications"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:215
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:216
 #, elixir-autogen, elixir-format
 msgid "One guided flow from app to live URL. No YAML, no servers to babysit."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:96
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:97
 #, elixir-autogen, elixir-format
 msgid "Pick an open source app, deploy it in minutes, and FluxVale keeps it running, updates and monitoring included."
 msgstr ""
@@ -668,7 +668,7 @@ msgstr ""
 msgid "You top up your wallet in USD. Apps bill hourly against your wallet balance, and every rate above is a monthly equivalent. There are no subscriptions."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:362
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:363
 #, elixir-autogen, elixir-format
 msgid "Guides"
 msgstr ""
@@ -707,7 +707,7 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/billing.ex:195
 #: lib/flux_vale_web/live/admin_live/catalog.ex:52
 #: lib/flux_vale_web/live/admin_live/moderation.ex:901
-#: lib/flux_vale_web/live/admin_live/people.ex:400
+#: lib/flux_vale_web/live/admin_live/people.ex:405
 #: lib/flux_vale_web/live/admin_live/resources.ex:114
 #: lib/flux_vale_web/live/admin_live/size_edit.ex:262
 #: lib/flux_vale_web/live/admin_live/sizes.ex:67
@@ -723,7 +723,7 @@ msgid "Orgs and instances"
 msgstr ""
 
 #: lib/flux_vale_web/components/admin_shell.ex:124
-#: lib/flux_vale_web/live/admin_live/people.ex:401
+#: lib/flux_vale_web/live/admin_live/people.ex:406
 #, elixir-autogen, elixir-format
 msgid "People and invites"
 msgstr ""
@@ -1116,7 +1116,7 @@ msgid_plural "%{dims} do not match the size. The size %{slug} provides %{compute
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:296
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:297
 #, elixir-autogen, elixir-format
 msgid "Compute starts at %{rate}/mo plus per-GB storage, billed hourly while running"
 msgstr ""
@@ -1173,40 +1173,40 @@ msgstr ""
 msgid "from %{rate} plus storage"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:362
-#: lib/flux_vale_web/live/admin_live/people.ex:533
+#: lib/flux_vale_web/live/admin_live/people.ex:367
+#: lib/flux_vale_web/live/admin_live/people.ex:538
 #, elixir-autogen, elixir-format
 msgid "Accepted"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:443
-#: lib/flux_vale_web/live/admin_live/people.ex:474
-#: lib/flux_vale_web/live/admin_live/people.ex:529
+#: lib/flux_vale_web/live/admin_live/people.ex:448
+#: lib/flux_vale_web/live/admin_live/people.ex:479
+#: lib/flux_vale_web/live/admin_live/people.ex:534
 #, elixir-autogen, elixir-format
 msgid "Email"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:363
+#: lib/flux_vale_web/live/admin_live/people.ex:368
 #, elixir-autogen, elixir-format
 msgid "Expired"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:532
+#: lib/flux_vale_web/live/admin_live/people.ex:537
 #, elixir-autogen, elixir-format
 msgid "Expires"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:458
+#: lib/flux_vale_web/live/admin_live/people.ex:463
 #, elixir-autogen, elixir-format
 msgid "Find an invitation"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:403
+#: lib/flux_vale_web/live/admin_live/people.ex:408
 #, elixir-autogen, elixir-format
 msgid "Invitations and the accounts they made. A support surface, not a user directory. Accounts with no invitation story are not this page's business."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:427
+#: lib/flux_vale_web/live/admin_live/people.ex:432
 #, elixir-autogen, elixir-format
 msgid "Invite someone"
 msgstr ""
@@ -1216,47 +1216,47 @@ msgstr ""
 msgid "Invite withdrawn. Their accept link no longer works. The account stays inert until someone invites them again."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:531
+#: lib/flux_vale_web/live/admin_live/people.ex:536
 #, elixir-autogen, elixir-format
 msgid "Invited"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:499
+#: lib/flux_vale_web/live/admin_live/people.ex:504
 #, elixir-autogen, elixir-format
 msgid "Invites you send, and the accounts they made, show up here. Accounts without an invitation story are not this page's business."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:506
+#: lib/flux_vale_web/live/admin_live/people.ex:511
 #, elixir-autogen, elixir-format
 msgid "No invitation matches that email."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:497
+#: lib/flux_vale_web/live/admin_live/people.ex:502
 #, elixir-autogen, elixir-format
 msgid "No invitations yet."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:429
+#: lib/flux_vale_web/live/admin_live/people.ex:434
 #, elixir-autogen, elixir-format
 msgid "One email goes out with a one-time accept link. The account stays inert until the link is used."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:361
+#: lib/flux_vale_web/live/admin_live/people.ex:366
 #, elixir-autogen, elixir-format
 msgid "Pending"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:623
+#: lib/flux_vale_web/live/admin_live/people.ex:628
 #, elixir-autogen, elixir-format
 msgid "Reinvite"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:451
+#: lib/flux_vale_web/live/admin_live/people.ex:456
 #, elixir-autogen, elixir-format
 msgid "Send invite"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:530
+#: lib/flux_vale_web/live/admin_live/people.ex:535
 #, elixir-autogen, elixir-format
 msgid "State"
 msgstr ""
@@ -1291,38 +1291,38 @@ msgstr ""
 msgid "That invitation changed. The list is refreshed."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:655
+#: lib/flux_vale_web/live/admin_live/people.ex:660
 #, elixir-autogen, elixir-format
 msgid "Their accept link stops working. The account remains inert until someone invites them again."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:634
+#: lib/flux_vale_web/live/admin_live/people.ex:639
 #, elixir-autogen, elixir-format
 msgid "Withdraw"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:650
+#: lib/flux_vale_web/live/admin_live/people.ex:655
 #, elixir-autogen, elixir-format
 msgid "Withdraw the invite for %{email}?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:364
-#: lib/flux_vale_web/live/admin_live/people.ex:534
+#: lib/flux_vale_web/live/admin_live/people.ex:369
+#: lib/flux_vale_web/live/admin_live/people.ex:539
 #, elixir-autogen, elixir-format
 msgid "Withdrawn"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:659
+#: lib/flux_vale_web/live/admin_live/people.ex:664
 #, elixir-autogen, elixir-format
 msgid "Yes, withdraw this invite"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:307
+#: lib/flux_vale_web/live/admin_live/people.ex:309
 #, elixir-autogen, elixir-format
 msgid "Invite sent. One email is on its way with a one-time accept link. The account stays inert until they accept. If the email does not arrive, use Reinvite to send another."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:368
+#: lib/flux_vale_web/live/admin_live/people.ex:373
 #, elixir-autogen, elixir-format
 msgid "No invitation"
 msgstr ""
@@ -1332,7 +1332,7 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1267
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1339
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1482
-#: lib/flux_vale_web/live/admin_live/people.ex:631
+#: lib/flux_vale_web/live/admin_live/people.ex:636
 #: lib/flux_vale_web/live/admin_live/wallet_detail.ex:937
 #: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1118
 #, elixir-autogen, elixir-format
@@ -1344,28 +1344,28 @@ msgstr ""
 msgid "Reinvite sent. One email is on its way with a fresh one-time accept link. Any earlier link no longer works. If the email does not arrive, send another."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:303
+#: lib/flux_vale_web/live/admin_live/people.ex:305
 #, elixir-autogen, elixir-format
 msgid "Reinvite sent. One email is on its way with a fresh one-time accept link. Any earlier link no longer works. The account stays inert until they accept. If the email does not arrive, use Reinvite to send another."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:475
+#: lib/flux_vale_web/live/admin_live/people.ex:480
 #, elixir-autogen, elixir-format
 msgid "Search by invitation address"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:460
+#: lib/flux_vale_web/live/admin_live/people.ex:465
 #, elixir-autogen, elixir-format
 msgid "Search narrows this list by invitation address. It never reaches past it."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:448
-#: lib/flux_vale_web/live/admin_live/people.ex:619
+#: lib/flux_vale_web/live/admin_live/people.ex:453
+#: lib/flux_vale_web/live/admin_live/people.ex:624
 #, elixir-autogen, elixir-format
 msgid "Sending..."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:492
+#: lib/flux_vale_web/live/admin_live/people.ex:497
 #, elixir-autogen, elixir-format
 msgid "Showing the latest 100 invitations."
 msgstr ""

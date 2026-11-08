@@ -3,6 +3,7 @@ defmodule FluxValeWeb.PageControllerTest do
 
   alias FluxVale.Pricing
   alias FluxVale.Pricing.Size
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.PricingFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
@@ -135,7 +136,7 @@ defmodule FluxValeWeb.PageControllerTest do
     assert html =~ ~s(data-testid="dashboard-runway")
     # The landing hero is gone; the signed-in chrome carries the user menu.
     refute html =~ ~r/<h1[^>]*>\s*Managed cloud platform for open source applications/
-    assert html =~ to_string(user.email)
+    assert html =~ to_string(AccountsFixtures.primary_address!(user))
     assert html =~ ~s(data-testid="user-menu")
     assert conn.assigns[:page_title] == "FluxVale Dashboard"
   end
@@ -167,7 +168,7 @@ defmodule FluxValeWeb.PageControllerTest do
 
     assert html =~ ~r/<h1[^>]*>\s*Managed cloud platform for open source applications/
     assert html =~ ~s(data-testid="user-menu")
-    assert html =~ to_string(user.email)
+    assert html =~ to_string(AccountsFixtures.primary_address!(user))
     # The signed-in landing points inward, not at sign-in.
     assert html =~ ~s(Your dashboard)
     refute html =~ ~r/class="[^"]*bg-primary[^"]*"[^>]*>\s*Sign in/

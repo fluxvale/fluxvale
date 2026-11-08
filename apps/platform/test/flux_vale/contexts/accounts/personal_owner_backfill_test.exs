@@ -18,6 +18,7 @@ defmodule FluxVale.Accounts.Organization.PersonalOwnerBackfillTest do
   alias FluxVale.Accounts.Organization
   alias FluxVale.Accounts.Organization.PersonalOwnerBackfill
   alias FluxVale.Identity.User
+  alias FluxVale.TestSupport.AccountsFixtures
 
   require Ash.Query
 
@@ -154,7 +155,11 @@ defmodule FluxVale.Accounts.Organization.PersonalOwnerBackfillTest do
   # the pre-backfill shape needs an org-less user (state actions cannot
   # produce — the documented seed! exception).
   defp orgless_user!(tag) do
-    Ash.Seed.seed!(User, %{email: "#{tag}-#{System.unique_integer([:positive])}@fluxvale.test"})
+    n = System.unique_integer([:positive])
+
+    user = Ash.Seed.seed!(User, %{username: "#{tag}-#{n}"})
+    AccountsFixtures.attach_primary_email!(user, "#{tag}-#{n}@fluxvale.test")
+    user
   end
 
   # The create action leaves the marker null only when the caller omits

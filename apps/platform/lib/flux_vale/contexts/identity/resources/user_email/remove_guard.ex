@@ -1,9 +1,9 @@
 defmodule FluxVale.Identity.UserEmail.RemoveGuard do
   @moduledoc """
-  Guards address removal: the account's signup address cannot go (it is
-  frozen into `users.email` until that column drops — #285 T3 §5), the
-  primary cannot go (switch first), and a user's last verified address
-  cannot go either — every account keeps at least one proven address.
+  Guards address removal: the primary cannot go (switch first), a
+  user's last verified address cannot go either — every account keeps
+  at least one proven address — and an unaccepted invitation's
+  reservation cannot go (no surface may orphan an invite, #287).
   All checks run before_action inside the destroy transaction.
   """
 
@@ -56,25 +56,20 @@ defmodule FluxVale.Identity.UserEmail.RemoveGuard do
   # authorize?: false throughout — invariant checks, same stance as
   # EnforceEmailCap: the action's policy already gated the caller.
   #
-  # The only-verified check runs FIRST: since the create mirror (#285
-  # T3 §5) every account's primary is verified, so a non-primary row can
-  # never be the last verified — the corner where both checks fire is
-  # the primary itself, and "only verified" is the accurate refusal
-  # there.
+  # The invitation guard runs FIRST: an unaccepted invitation's pending
+  # row is the invitation's address record (#287) — occupant resolution,
+  # the admin surface, and re-invite all ride it. Removing it would
+  # orphan the invite (re-invite would mint a second account for the
+  # same address), so every remover is refused, admins included; the
+  # invitation lifecycle is the only lever (accept it, or re-issue).
   defp decide(fresh, changeset) do
     cond do
-      # The frozen mirror (#285 T3 §5): users.email keeps the signup
-      # address for old pods during rolling deploys, and sign-in resolves
-      # through THIS table — a removed row would make the address
-      # unresolvable AND unprovisionable (the users unique-email index
-      # still holds it). Goes away with the contract release that drops
-      # the column.
-      frozen_mirror?(fresh) ->
+      invitation_reservation?(fresh) ->
         Ash.Changeset.add_error(
           changeset,
           field: :address,
           message:
-            "is the account's signup address (frozen into users.email). It must keep a row until that column is dropped"
+            "is an outstanding invitation's address. The invitation owns it until it is accepted or re-issued"
         )
 
       # The invariant is about verified addresses: removing a pending
@@ -99,22 +94,16 @@ defmodule FluxVale.Identity.UserEmail.RemoveGuard do
     end
   end
 
-  # unique_address guarantees the frozen mirror is the only row that can
-  # match (so this never fires on a pending claim).
-  defp frozen_mirror?(row) do
+  # The row is pending AND its owner carries an unaccepted invitation
+  # (any lifecycle state — pending, withdrawn, expired: retirement
+  # keeps the reservation, the frozen-mirror posture). A verified row
+  # can never be a reservation: acceptance flips the row verified and
+  # stamps invite_accepted_at in the same write.
+  defp invitation_reservation?(row) do
     owner = Ash.get!(User, row.user_id, authorize?: false)
 
-    row_address =
-      row.address
-      |> to_string()
-      |> String.downcase()
-
-    owner_address =
-      owner.email
-      |> to_string()
-      |> String.downcase()
-
-    row_address == owner_address
+    is_nil(row.verified_at) and not is_nil(owner.invited_at) and
+      is_nil(owner.invite_accepted_at)
   end
 
   defp lock_user(user_id) do

@@ -7568,19 +7568,12 @@
                 "type": "string"
               },
               "username": {
-                "anyOf": [
-                  {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "Field included by default."
+                "description": "Field included by default.",
+                "type": "string"
               }
             },
             "required": [
+              "username",
               "platform_role"
             ],
             "type": "object"
@@ -15396,19 +15389,12 @@
                               "type": "string"
                             },
                             "username": {
-                              "anyOf": [
-                                {
-                                  "nullable": true,
-                                  "type": "string"
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ],
-                              "description": "Field included by default."
+                              "description": "Field included by default.",
+                              "type": "string"
                             }
                           },
                           "required": [
+                            "username",
                             "platform_role"
                           ],
                           "type": "object"

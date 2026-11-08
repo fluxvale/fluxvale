@@ -15,6 +15,7 @@ defmodule FluxValeWeb.AuthLive.InviteAcceptTest do
   import FluxVale.TestSupport.UserInviteHelpers
 
   alias FluxVale.Identity
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxValeWeb.UserAuth
 
   setup do
@@ -40,7 +41,8 @@ defmodule FluxValeWeb.AuthLive.InviteAcceptTest do
              )
 
       # the state word is the whole answer — the invited address never renders
-      refute render(view) =~ to_string(invited.email)
+      refute render(view) =~
+               to_string(AccountsFixtures.any_address!(invited))
 
       # the session POST waits for the click — not triggered at mount
       assert has_element?(view, "#session-form")

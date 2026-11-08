@@ -15,10 +15,10 @@ defmodule FluxValeWeb.Api.MeRouteTest do
   import FluxVale.TestSupport.AuthCodeHelpers
 
   alias AshAuthentication.Jwt
+  alias AshJsonApi.Resource.Info
   alias FluxVale.Identity
   alias FluxVale.Identity.PersonalAccessToken
   alias FluxVale.Identity.User
-  alias FluxVale.TestSupport.AccountsFixtures
 
   # The full S1 grant set — /me needs none of them, but the helper
   # future-proofs the suites that share its shape (slice 2's routes
@@ -112,29 +112,33 @@ defmodule FluxValeWeb.Api.MeRouteTest do
       assert scopes == []
     end
 
-    test "renders username null for rollout-window users", %{conn: conn} do
-      # Rollout-window state actions cannot produce (derivation always
-      # sets a username) — Ash.seed! per the house rule, plus the row the
-      # T1 backfill gave every pre-existing user (without it the
-      # table-backed identity, #285 T3, cannot see them). Nullable-but-
-      # public ships with this slice, so /me pins the null arm.
-      pre_backfill = Ash.Seed.seed!(User, %{email: "pre-backfill@fluxvale.test"})
-      AccountsFixtures.backfill_email!(pre_backfill)
+    test "the pinned field list serializes nothing private (#287 F1.4)" do
+      # The legacy users.email column is gone; this reflection assert is
+      # the rider's re-check: every field the /me route pins is a PUBLIC
+      # attribute or calculation, so no private plumbing (an aggregate
+      # like primary_address, an invite stamp) can ever leak into the
+      # document — drift here fails loudly, not at the wire.
+      routes = AshJsonApi.Resource.Info.routes(User)
+      route = Enum.find(routes, &(&1.route == "/me"))
 
-      pat = mint_pat!("pre-backfill@fluxvale.test")
+      assert route.default_fields == [:primary_email, :platform_role, :username]
 
-      conn =
-        conn
-        |> put_req_header("authorization", "Bearer " <> pat)
-        |> get("/api/v1/me")
+      Enum.each(route.default_fields, fn field ->
+        attribute = Ash.Resource.Info.attribute(User, field)
+        calculation = Ash.Resource.Info.calculation(User, field)
 
-      assert %{"data" => %{"attributes" => %{"username" => nil}}} = json_response(conn, 200)
+        public? =
+          (attribute && attribute.public?) || (calculation && calculation.public?)
+
+        refute is_nil(public?), "field #{inspect(field)} is neither attribute nor calculation"
+        assert public? == true, "field #{inspect(field)} is private — must never serialize"
+      end)
     end
 
     # The T4 arm: after the REAL email operations promote a verified
     # secondary (AddEmail → the mailed code → VerifyEmail →
-    # SetPrimaryEmail), "email" shows the new primary — the frozen
-    # users.email mirror is write-compat only, never the API's answer.
+    # SetPrimaryEmail), "email" shows the new primary — the live row,
+    # never a stale address.
     test "email is the promoted secondary after SetPrimaryEmail", %{conn: conn} do
       user = User.create!("promotable@fluxvale.com", %{}, authorize?: false)
       secondary = "promoted@fluxvale.test"

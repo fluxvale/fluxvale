@@ -19,8 +19,10 @@ defmodule FluxVale.Accounts.Operations.DeclineInviteTest do
     org = AccountsFixtures.owned_org!(owner)
     invitee = AccountsFixtures.user!()
 
-    assert {:ok, _invite} = Accounts.invite_member(owner, org, invitee.email)
-    raw = invited_token!(invitee.email)
+    assert {:ok, _invite} =
+             Accounts.invite_member(owner, org, AccountsFixtures.primary_address!(invitee))
+
+    raw = invited_token!(AccountsFixtures.primary_address!(invitee))
 
     assert {:ok, declined} = Accounts.decline_invite(raw)
 
@@ -34,8 +36,10 @@ defmodule FluxVale.Accounts.Operations.DeclineInviteTest do
     org = AccountsFixtures.owned_org!(owner)
     invitee = AccountsFixtures.user!()
 
-    assert {:ok, _invite} = Accounts.invite_member(owner, org, invitee.email)
-    raw = invited_token!(invitee.email)
+    assert {:ok, _invite} =
+             Accounts.invite_member(owner, org, AccountsFixtures.primary_address!(invitee))
+
+    raw = invited_token!(AccountsFixtures.primary_address!(invitee))
 
     assert {:ok, _declined} = Accounts.decline_invite(raw)
     assert {:error, :revoked} = Accounts.accept_invite(raw, invitee)
@@ -46,8 +50,10 @@ defmodule FluxVale.Accounts.Operations.DeclineInviteTest do
     org = AccountsFixtures.owned_org!(owner)
     invitee = AccountsFixtures.user!()
 
-    assert {:ok, _invite} = Accounts.invite_member(owner, org, invitee.email)
-    raw = invited_token!(invitee.email)
+    assert {:ok, _invite} =
+             Accounts.invite_member(owner, org, AccountsFixtures.primary_address!(invitee))
+
+    raw = invited_token!(AccountsFixtures.primary_address!(invitee))
 
     assert {:ok, _declined} = Accounts.decline_invite(raw)
     assert {:error, :not_open} = Accounts.decline_invite(raw)
@@ -58,8 +64,10 @@ defmodule FluxVale.Accounts.Operations.DeclineInviteTest do
     org = AccountsFixtures.owned_org!(owner)
     invitee = AccountsFixtures.user!()
 
-    assert {:ok, _invite} = Accounts.invite_member(owner, org, invitee.email)
-    raw = invited_token!(invitee.email)
+    assert {:ok, _invite} =
+             Accounts.invite_member(owner, org, AccountsFixtures.primary_address!(invitee))
+
+    raw = invited_token!(AccountsFixtures.primary_address!(invitee))
 
     assert {:ok, _accepted} = Accounts.accept_invite(raw, invitee)
     assert {:error, :not_open} = Accounts.decline_invite(raw)

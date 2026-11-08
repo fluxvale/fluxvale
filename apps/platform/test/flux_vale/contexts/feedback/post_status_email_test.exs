@@ -39,7 +39,7 @@ defmodule FluxVale.Feedback.PostStatusEmailTest do
 
     assert_receive {:email, %Swoosh.Email{to: [{_, to}], subject: subject, text_body: body}}
 
-    assert to == to_string(author.email)
+    assert to == to_string(AccountsFixtures.primary_address!(author))
     assert subject == "Your FluxVale feedback post is now started"
     assert body =~ moved.title
     assert body =~ "https://fluxvale.com/feedback/#{moved.slug}"
@@ -107,7 +107,8 @@ defmodule FluxVale.Feedback.PostStatusEmailTest do
     # unproducible through actions, the documented seed! exception).
     author =
       Ash.Seed.seed!(User, %{
-        email: "mirrorless-#{System.unique_integer([:positive])}@fluxvale.test"
+        username:
+          username_seed_for("mirrorless-#{System.unique_integer([:positive])}@fluxvale.test")
       })
 
     # The named org rides regardless of the actor, so the create succeeds
@@ -145,5 +146,15 @@ defmodule FluxVale.Feedback.PostStatusEmailTest do
     refute_received {:email, _}
     assert log =~ "author mail failed"
     assert log =~ ":postmark_down"
+  end
+
+  # #287: seed! companions need the handle explicitly (NOT NULL); the
+  # local part of the original address is unique per call.
+  defp username_seed_for(address) do
+    [local | _rest] = String.split(address, "@", parts: 2)
+
+    local
+    |> String.replace(~r/[^a-z0-9-]+/, "-")
+    |> String.trim("-")
   end
 end

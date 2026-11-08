@@ -20,6 +20,7 @@ defmodule FluxVale.Ops.OwnerSignInTest do
   alias FluxVale.Ops.AccessRule
   alias FluxVale.Ops.OwnerSignIn
   alias FluxVale.TestSupport.AccountsFixtures
+  require Ash.Query
 
   setup do
     original = System.get_env("OWNER_EMAIL")
@@ -74,8 +75,8 @@ defmodule FluxVale.Ops.OwnerSignInTest do
       assert_raise RuntimeError, ~r/2 platform admins found/, fn -> OwnerSignIn.owner_email() end
     end
 
-    # #285 T3: the fallback reads the PRIMARY VERIFIED address through
-    # user_emails — users.email is a frozen mirror.
+    # #285 T3, #287: the fallback reads the PRIMARY VERIFIED address
+    # through user_emails (the only address storage).
     test "the single-admin fallback reads the admin's primary verified address" do
       admin = User.get_by_email!(admin!(), authorize?: false)
       switched = "switched-#{System.unique_integer([:positive])}@fluxvale.test"
@@ -91,7 +92,7 @@ defmodule FluxVale.Ops.OwnerSignInTest do
       # A user without user_emails rows is a state actions cannot produce
       # (the create mirror stamps one) — seed! is the sanctioned bypass.
       Ash.Seed.seed!(User, %{
-        email: "drift-admin-#{System.unique_integer([:positive])}@fluxvale.test",
+        username: "drift-admin-#{System.unique_integer([:positive])}",
         platform_role: :admin
       })
 
@@ -104,7 +105,7 @@ defmodule FluxVale.Ops.OwnerSignInTest do
       # The OWNER_EMAIL address rides the team domain, so the userless
       # code path (the JIT create admits it) is what issues.
       Ash.Seed.seed!(User, %{
-        email: "drift-admin-#{System.unique_integer([:positive])}@fluxvale.test",
+        username: "drift-admin-#{System.unique_integer([:positive])}",
         platform_role: :admin
       })
 
@@ -136,7 +137,12 @@ defmodule FluxVale.Ops.OwnerSignInTest do
       # The whole point: the printed code is the one production verifies —
       # a first success also JIT-provisions the account and its org (the
       # team bypass is what admits the create, #502).
-      assert {:ok, %{email: verified}, token} = Identity.verify_auth_code(team, code)
+      assert {:ok, jit, token} = Identity.verify_auth_code(team, code)
+
+      assert [%{address: verified}] =
+               UserEmail
+               |> Ash.Query.filter(user_id == ^jit.id)
+               |> Ash.read!(authorize?: false)
 
       assert to_string(verified) == team
       assert is_binary(token)

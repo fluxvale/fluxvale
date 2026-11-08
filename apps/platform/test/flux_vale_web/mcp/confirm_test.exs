@@ -129,7 +129,7 @@ defmodule FluxValeWeb.Mcp.ConfirmTest do
       conn: conn
     } do
       {user, instance, run, _pat} = restorable!()
-      pat = ApiPat.mint!(user.email, ["backups:read"])
+      pat = ApiPat.mint!(user, ["backups:read"])
 
       conn =
         call_tool(conn, pat, "restore_backup", %{"id" => instance.id, "backup_run_id" => run.id},

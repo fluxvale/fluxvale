@@ -28,8 +28,10 @@ defmodule FluxValeWeb.OrganizationLive.InviteAcceptTest do
     org = AccountsFixtures.owned_org!(owner)
     invitee = AccountsFixtures.user!()
 
-    assert {:ok, _invite} = Accounts.invite_member(owner, org, invitee.email)
-    token = mailbox_token!(invitee.email)
+    assert {:ok, _invite} =
+             Accounts.invite_member(owner, org, AccountsFixtures.primary_address!(invitee))
+
+    token = mailbox_token!(AccountsFixtures.primary_address!(invitee))
 
     {:ok,
      conn: SessionHelpers.sign_in(conn, invitee),
@@ -49,7 +51,13 @@ defmodule FluxValeWeb.OrganizationLive.InviteAcceptTest do
       {:ok, view, _html} = live(conn, ~p"/invitations/accept?token=#{token}")
 
       assert has_element?(view, "[data-testid='invite-org']", org.name)
-      assert has_element?(view, "[data-testid='invite-email']", to_string(invitee.email))
+
+      assert has_element?(
+               view,
+               "[data-testid='invite-email']",
+               to_string(AccountsFixtures.primary_address!(invitee))
+             )
+
       assert has_element?(view, "[data-testid='invite-accept']", "Accept invitation")
       assert has_element?(view, "[data-testid='invite-decline']", "Decline")
     end
@@ -113,7 +121,13 @@ defmodule FluxValeWeb.OrganizationLive.InviteAcceptTest do
       {:ok, view, _html} = live(stranger_conn, ~p"/invitations/accept?token=#{token}")
 
       assert has_element?(view, "[data-testid='invite-mismatch-copy']")
-      assert has_element?(view, "[data-testid='invite-email']", to_string(invitee.email))
+
+      assert has_element?(
+               view,
+               "[data-testid='invite-email']",
+               to_string(AccountsFixtures.primary_address!(invitee))
+             )
+
       assert render(view) =~ "Sign in with that address to accept it."
 
       # No buttons — a mismatched sign-in cannot act on the invite.
@@ -214,7 +228,7 @@ defmodule FluxValeWeb.OrganizationLive.InviteAcceptTest do
 
       Ash.Seed.seed!(MembershipInvite, %{
         organization_id: org.id,
-        email: invitee.email,
+        email: AccountsFixtures.primary_address!(invitee),
         token_hash: MembershipInvite.token_hash(token),
         expires_at: DateTime.add(DateTime.utc_now(), -1, :minute)
       })

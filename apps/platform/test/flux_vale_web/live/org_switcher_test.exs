@@ -185,61 +185,10 @@ defmodule FluxValeWeb.OrgSwitcherTest do
   # The #285 T6 fallback: a NULL-username rollout-window row (old-pod
   # straggler — actions can't produce the state, the documented seed!
   # exception) labels its personal row from the email local part.
-  # Post-T3 (#297), the session gates sever users with no user_emails
-  # row — the reachable straggler on the dashboard is the HEALED one
-  # (their first post-T3 sign-in wrote the verified mirror row), so the
-  # fixture carries it; username stays NULL and users.email remains
-  # the label source, which is what this test pins.
-  test "a NULL-username row labels the personal row from the email local part", %{
-    conn: conn
-  } do
-    int = System.unique_integer([:positive])
-
-    straggler =
-      Ash.Seed.seed!(User, %{email: "straggler-#{int}@fluxvale.test"})
-
-    Ash.Seed.seed!(UserEmail, %{
-      address: "straggler-#{int}@fluxvale.test",
-      user_id: straggler.id,
-      verified_at: DateTime.utc_now(),
-      is_primary: true
-    })
-
-    # Their personal org, marked the way provisioning marks it (#408) —
-    # the label fallback is what's under test, not the marker.
-    org =
-      Organization.create!(
-        %{
-          name: "Straggler Org",
-          slug: "straggler-#{int}",
-          personal_owner_id: straggler.id
-        },
-        authorize?: false
-      )
-
-    Membership.create!(%{organization_id: org.id, user_id: straggler.id}, authorize?: false)
-
-    conn = SessionHelpers.sign_in(conn, straggler)
-
-    html = dashboard_html(conn)
-
-    assert [row] = panel_rows(html)
-    assert row_text(row) == "Personal · straggler-#{int}"
-    assert row_href(row) == "/"
-  end
-
-  # Layouts.public's real consumers — the #164 SEO surfaces render the
-  # session-aware chrome, so a signed-in visitor proves the `apps`
-  # guard, not a standalone landing template that never calls chrome.
-  test "the public chrome carries no switcher, even signed in", %{conn: conn} do
-    conn = get(conn, ~p"/catalog")
-    html = html_response(conn, 200)
-
-    refute html =~ ~s(data-testid="org-switcher")
-    # Sanity: this really is the session-aware public chrome.
-    assert html =~ ~s(data-testid="user-menu")
-  end
-
+  # #287: the NULL-username label arm is gone — username is NOT NULL
+  # from birth (JIT and invite both derive one), so the personal row
+  # always labels from the handle. The mirror-era local-part fallback
+  # died with the column.
   test "the refund policy's public chrome carries no switcher", %{conn: conn} do
     conn = get(conn, ~p"/policies/refund")
     html = html_response(conn, 200)

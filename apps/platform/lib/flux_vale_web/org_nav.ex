@@ -109,24 +109,9 @@ defmodule FluxValeWeb.OrgNav do
     Enum.concat(personal_first, rest_in_creation_order)
   end
 
-  # The personal row's label. Rollout-window rows carry a NULL username
-  # (the column is nullable until F1's contract migration) — degrade to
-  # the address's local part, the PRIMARY one (#285 T4): reading the
-  # frozen `users.email` mirror here showed the demoted signup address
-  # after a SetPrimaryEmail. The nil-primary arm (old-pod straggler)
-  # still lands on the mirror — see User.primary_email. The calc is
-  # loaded by UserAuth.resolve_user/1 before this hook runs (the
-  # sanctioned on_mount order — router-pinned); reading an unloaded
-  # struct would raise, and that is the miswiring's crash to own.
-  defp display_handle(user) do
-    user.username || local_part(user.primary_email || user.email)
-  end
-
-  # Emails are CiStrings at the Ash boundary; downcast before String
-  # owns it (the initial/1 posture in core_components).
-  defp local_part(email) do
-    address = to_string(email)
-    [local_part | _domain] = String.split(address, "@", parts: 2)
-    local_part
-  end
+  # The personal row's label: the username — NOT NULL since #287's
+  # contract migration, so every row carries one and the old
+  # degrade-to-local-part arm (rolling-window NULL usernames, the
+  # frozen-mirror fallback) is gone.
+  defp display_handle(user), do: user.username
 end

@@ -200,12 +200,13 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
   test "a user without an org is turned away", %{conn: conn} do
     # Ash.seed! — the only way to produce an org-less user: the create
     # action's JIT change always provisions one (state actions can't
-    # produce, the documented seed! exception). backfill_email! adds the
-    # row the T1 backfill gave every pre-existing user (#285 T3 resolves
-    # identity through the table).
-    orgless = Ash.Seed.seed!(User, %{email: "orgless-#{System.unique_integer()}@fluxvale.test"})
+    # produce, the documented seed! exception). attach_primary_email!
+    # gives the row the create path would have (#287: the users table
+    # carries no address; #285 T3 resolves identity through the table).
+    n = System.unique_integer()
+    orgless = Ash.Seed.seed!(User, %{username: "orgless-#{n}"})
 
-    AccountsFixtures.backfill_email!(orgless)
+    AccountsFixtures.attach_primary_email!(orgless, "orgless-#{n}@fluxvale.test")
 
     conn = SessionHelpers.sign_in(conn, orgless)
 

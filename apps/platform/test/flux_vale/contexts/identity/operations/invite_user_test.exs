@@ -19,16 +19,77 @@ defmodule FluxVale.Identity.Operations.InviteUserTest do
     AccountsFixtures.platform_admin!()
   end
 
-  defp users_with_email(address) do
-    User
-    |> Ash.Query.filter(email == ^address)
-    |> Ash.read!(authorize?: false)
+  # #287: the occupant lookup — any row on the address resolves its
+  # owner (get_by_address); the users table carries no address.
+  defp occupant_of!(address) do
+    address
+    |> User.get_by_address!(authorize?: false)
+    |> Ash.load!(:invite_state, authorize?: false)
   end
 
   defp emails_of(user_id) do
     UserEmail
     |> Ash.Query.filter(user_id == ^user_id)
     |> Ash.read!(authorize?: false)
+  end
+
+  describe "the reservation's invariants (#287)" do
+    test "the proof-carrying supersede keeps an invited reservation" do
+      # A burned code at the invited address answers :invite_pending —
+      # never a supersede of the reservation (the seam's exclusion and
+      # the action's own filter agree).
+      address = "reserved-#{System.unique_integer()}@partner.example"
+      {invited, _raw} = invite_user!(address)
+
+      UserEmail.supersede_pending_claims(address)
+
+      assert [%{user_id: owner_id, verified_at: nil}] = emails_of(invited.id)
+      assert owner_id == invited.id
+    end
+
+    test "the claim-expiry sweep keeps an invited reservation" do
+      # The window ruling: the reservation lives the INVITATION's life;
+      # the claim TTL never applies — even a backdated row survives.
+      address = "reserved-old-#{System.unique_integer()}@partner.example"
+      {invited, _raw} = invite_user!(address)
+
+      backdate_reservation!(invited)
+      UserEmail.supersede_expired_claims(address)
+
+      assert [%{user_id: owner_id, verified_at: nil}] = emails_of(invited.id)
+      assert owner_id == invited.id
+    end
+
+    test "a platform admin cannot supersede the reservation through the raw action" do
+      # The invariant lives ON the :supersede_pending action, not the
+      # seam helpers: the action is destroy-policy-granted to admins,
+      # and an orphaned invite could never be accepted (re-invite
+      # would fork a second account for the address). The filter
+      # refuses; the row stands.
+      address = "reserved-guard-#{System.unique_integer()}@partner.example"
+      {invited, _raw} = invite_user!(address)
+
+      admin = AccountsFixtures.platform_admin!()
+
+      [reservation | _rest] = emails_of(invited.id)
+
+      assert {:error, _stale_or_refused} =
+               reservation
+               |> Ash.Changeset.for_destroy(:supersede_pending, %{})
+               |> Ash.destroy(actor: admin, authorize?: true)
+
+      assert [%{user_id: owner_id, verified_at: nil}] = emails_of(invited.id)
+      assert owner_id == invited.id
+    end
+  end
+
+  # Backdates the reservation's created_at past the claim TTL — a
+  # state no action produces (no update action touches timestamps; the
+  # documented seed! exception, Ash.Seed.update!/2's shape).
+  defp backdate_reservation!(invited) do
+    [row | _rest] = emails_of(invited.id)
+
+    Ash.Seed.update!(row, %{created_at: DateTime.add(DateTime.utc_now(), -1, :day)})
   end
 
   describe "call/4 — the create arm" do
@@ -52,26 +113,23 @@ defmodule FluxVale.Identity.Operations.InviteUserTest do
       assert user.invite_state == :pending
       refute user.invite_accepted_at
       refute user.invite_withdrawn_at
-      refute user.username
+
+      # #287: the handle exists from birth (NOT NULL — the invite
+      # derives one so the constraint holds while inert)
+      assert is_binary(user.username)
 
       # the row stores the SHA-256 alone — the raw value never lands
       assert user.invite_token_hash == User.token_hash(raw)
       refute user.invite_token_hash == raw
 
-      # inertness: no verified email row, no org (no wallet either —
-      # the wallet rides the org)
-      assert [] = emails_of(user.id)
+      # inertness: the address sits as ONE PENDING reservation row (no
+      # verified row, no org, no wallet — those ride the org)
+      assert [%{verified_at: nil, is_primary: false}] = emails_of(user.id)
 
       assert {:ok, []} =
                FluxVale.Accounts.organizations_for_user(user.id, authorize?: false)
 
-      reloaded =
-        address
-        |> users_with_email()
-        |> List.first()
-        |> Ash.load!(:invite_state, authorize?: false)
-
-      assert reloaded.invite_state == :pending
+      assert occupant_of!(address).invite_state == :pending
     end
 
     test "an unsendable address is refused before anything is written" do
@@ -84,7 +142,7 @@ defmodule FluxVale.Identity.Operations.InviteUserTest do
       assert {:ok, user, _raw} =
                Identity.invite_user(admin_actor(), address, fn _to, _url -> {:error, :boom} end)
 
-      assert [%User{}] = users_with_email(address)
+      assert %User{} = occupant_of!(address)
       assert user.invited_at
     end
 
@@ -92,14 +150,14 @@ defmodule FluxVale.Identity.Operations.InviteUserTest do
       deliver = fn _to, _url -> raise "smtp on fire" end
 
       assert {:ok, _user, _raw} = Identity.invite_user(admin_actor(), address, deliver)
-      assert [%User{}] = users_with_email(address)
+      assert %User{} = occupant_of!(address)
     end
 
     test "a throwing deliver is tolerated", %{address: address} do
       deliver = fn _to, _url -> throw(:adapter_exited) end
 
       assert {:ok, _user, _raw} = Identity.invite_user(admin_actor(), address, deliver)
-      assert [%User{}] = users_with_email(address)
+      assert %User{} = occupant_of!(address)
     end
 
     test "a non-admin actor is default-forbidden", %{address: address} do
@@ -108,7 +166,8 @@ defmodule FluxVale.Identity.Operations.InviteUserTest do
       assert {:error, _forbidden} =
                Identity.invite_user(civilian, address, fn _to, _url -> {:ok, :sent} end)
 
-      assert [] = users_with_email(address)
+      # nothing was written — no occupant holds the address
+      assert {:error, _not_found} = User.get_by_address(address, authorize?: false)
     end
   end
 
@@ -199,15 +258,26 @@ defmodule FluxVale.Identity.Operations.InviteUserTest do
                Identity.invite_user(admin_actor(), address, fn _to, _url -> {:ok, :sent} end)
     end
 
-    test "a frozen-mirror-only occupant (the old-pod shape) is already active", %{
+    test "a pending-claim occupant (any row on the address) is already active", %{
       address: address
     } do
-      # actions cannot produce the shape (the create mirror stamps a
-      # row) — seed! is the sanctioned bypass (the review P2-3 shape)
-      Ash.Seed.seed!(User, %{email: address})
+      # #287: the mirror-era "frozen-mirror-only occupant" shape is
+      # gone (no column). The one-surface rule's equivalent: a stranger
+      # holding a PENDING CLAIM on the address occupies it — the
+      # occupant resolution finds them and the :already_active fork
+      # refuses, never the reservation insert (the claim precedes the
+      # invite).
+      claimant = AccountsFixtures.user!()
+
+      assert {:ok, _claim} =
+               FluxVale.Identity.add_email(claimant, address)
 
       assert {:error, :already_active} =
                Identity.invite_user(admin_actor(), address, fn _to, _url -> {:ok, :sent} end)
+
+      # the claim stands untouched
+      assert {:ok, occupant} = User.get_by_address(address, authorize?: false)
+      assert occupant.id == claimant.id
     end
   end
 end

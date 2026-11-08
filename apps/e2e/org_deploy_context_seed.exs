@@ -21,11 +21,13 @@ require Ash.Query
 # collision-free on their own.
 suffix = Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)
 
-user = User.create!("capture-org-#{suffix}@fluxvale.test", %{}, authorize?: false)
+user = address = "capture-org-#{suffix}@fluxvale.test"
+
+user = User.create!(address, %{}, authorize?: false)
 
 existing =
   UserEmail
-  |> Ash.Query.filter(address == ^user.email)
+  |> Ash.Query.filter(address == ^address)
   |> Ash.read!(authorize?: false)
 
 row =
@@ -34,7 +36,7 @@ row =
       row
 
     [] ->
-      {:ok, added} = UserEmail.add(user.email, %{user: user}, authorize?: false)
+      {:ok, added} = UserEmail.add(address, %{user: user}, authorize?: false)
       added
   end
 

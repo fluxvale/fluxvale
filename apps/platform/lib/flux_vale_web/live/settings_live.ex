@@ -7,7 +7,7 @@ defmodule FluxValeWeb.SettingsLive do
 
   The domain owns every invariant — the email cap, pending-only claims,
   the claim-expiry window, set-primary's verified-only guard, and the
-  remove guards (frozen mirror, primary, last verified). The UI mirrors
+  remove guards (invitation reservation, primary, last verified). The UI mirrors
   those guards only to DISABLE buttons — every action still runs through
   the operations, so a crafted or stale event meets the domain's own
   refusal, rendered as copy.
@@ -35,7 +35,7 @@ defmodule FluxValeWeb.SettingsLive do
        add_form: to_form(%{"address" => ""}),
        verify_form: to_form(%{"code" => ""})
      )
-     |> assign(emails: present(mine(user), user))}
+     |> assign(emails: present(mine(user)))}
   end
 
   # -- Username rename (the #279 confirm-step pattern) -------------------
@@ -90,7 +90,7 @@ defmodule FluxValeWeb.SettingsLive do
              # Personal row — the menu and the switcher must move together
              |> assign(current_user: user, username: updated.username, pending_username: nil)
              |> assign(username_form: build_username_form(user))
-             |> assign(emails: present(mine(user), user))
+             |> assign(emails: present(mine(user)))
              |> put_flash(:info, "Username updated.")}
 
           {:error, form} ->
@@ -116,7 +116,7 @@ defmodule FluxValeWeb.SettingsLive do
       {:ok, _pending_row} ->
         {:noreply,
          socket
-         |> assign(add_form: to_form(%{"address" => ""}), emails: present(mine(user), user))
+         |> assign(add_form: to_form(%{"address" => ""}), emails: present(mine(user)))
          |> put_flash(
            :info,
            "We sent a sign-in code to #{address}. Enter it below to verify."
@@ -163,7 +163,7 @@ defmodule FluxValeWeb.SettingsLive do
       {:ok, _verified} ->
         {:noreply,
          socket
-         |> assign(emails: present(mine(user), user))
+         |> assign(emails: present(mine(user)))
          |> put_flash(:info, "Address verified.")}
 
       {:error, :not_pending} ->
@@ -199,7 +199,7 @@ defmodule FluxValeWeb.SettingsLive do
       {:ok, _promoted} ->
         {:noreply,
          socket
-         |> assign(emails: present(mine(user), user))
+         |> assign(emails: present(mine(user)))
          |> put_flash(:info, "Primary address updated.")}
 
       {:error, :not_found} ->
@@ -217,7 +217,7 @@ defmodule FluxValeWeb.SettingsLive do
       :ok ->
         {:noreply,
          socket
-         |> assign(emails: present(mine(user), user))
+         |> assign(emails: present(mine(user)))
          |> put_flash(:info, "Address removed.")}
 
       {:error, :not_found} ->
@@ -278,12 +278,13 @@ defmodule FluxValeWeb.SettingsLive do
 
   # The RemoveGuard invariants, mirrored for the disabled states — the
   # domain still enforces every one of them (the button is UX, not the
-  # guard): never the frozen mirror, never the primary, never the last
-  # verified. A pending row is always removable — the abandon affordance
-  # (a claim can never be primary, the frozen mirror, or verified).
-  defp remove_allowed?(row, user, verified_count) do
+  # guard): never the primary, never the last verified, never an
+  # outstanding invitation's reservation (#287 — this surface cannot
+  # reach one: an invited account never signs in; the guard still
+  # holds for admin removers). A pending row is always removable — the
+  # abandon affordance (a claim can never be primary or verified).
+  defp remove_allowed?(row, verified_count) do
     cond do
-      to_string(row.address) == to_string(user.email) -> false
       row.is_primary -> false
       not is_nil(row.verified_at) and verified_count == 1 -> false
       true -> true
@@ -300,18 +301,24 @@ defmodule FluxValeWeb.SettingsLive do
     end)
   end
 
+  # coveralls-ignore-start - defensive fallbacks: every refusal the
+  # three operations return is %Ash.Error.Invalid{} with binary field
+  # messages (asserted across the suites); these arms exist so an
+  # unexpected shape degrades to copy, never a crash
   defp cap_hit?(_other), do: false
 
   defp message_of(%{message: message}) when is_binary(message), do: message
   defp message_of(_other), do: ""
 
-  defp present(rows, user) do
+  # coveralls-ignore-stop
+
+  defp present(rows) do
     verified_count = Enum.count(rows, &(not is_nil(&1.verified_at)))
 
     Enum.map(rows, fn row ->
       %{
         row: row,
-        removable?: remove_allowed?(row, user, verified_count),
+        removable?: remove_allowed?(row, verified_count),
         promotable?: not is_nil(row.verified_at) and not row.is_primary
       }
     end)
@@ -517,8 +524,8 @@ defmodule FluxValeWeb.SettingsLive do
                       >
                         Set primary
                       </.button>
-                      <%!-- Disabled mirrors RemoveGuard (frozen mirror / primary /
-                    last verified); the domain still enforces them — a crafted
+                      <%!-- Disabled mirrors RemoveGuard (primary / last
+                    verified); the domain still enforces them — a crafted
                     click meets the refusal, not the UI's word for it. --%>
                       <.button
                         type="button"

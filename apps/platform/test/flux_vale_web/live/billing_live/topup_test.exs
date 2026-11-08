@@ -58,13 +58,13 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
 
     # #285 T4 teeth: after the REAL operations promote a verified
     # secondary, the prefill shows the new primary — the frozen mirror
-    # (users.email) must not leak into the buyer evidence. Reverting
-    # topup.ex to `user.email` fails this test.
+    # must not leak into the buyer evidence. Reverting
+    # topup.ex to `AccountsFixtures.primary_address!(user)` fails this test.
     test "the prefill is the promoted primary, not the frozen mirror", %{
       conn: conn,
       user: user
     } do
-      mirror = to_string(user.email)
+      mirror = to_string(AccountsFixtures.primary_address!(user))
       promoted = "topup-promoted-#{System.unique_integer([:positive])}@fluxvale.test"
 
       assert {:ok, row} = FluxVale.Identity.add_email(user, promoted)
@@ -1617,15 +1617,15 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
 
   test "an orgless user is redirected to the apps surface", %{conn: conn} do
     # Ash.seed! — the only way to produce an org-less user (the create
-    # action's JIT change always provisions one). backfill_email! adds
-    # the row the T1 backfill gave every pre-existing user (#285 T3
-    # resolves identity through the table).
-    orgless =
-      Ash.Seed.seed!(FluxVale.Identity.User, %{
-        email: "orgless-#{System.unique_integer()}@fluxvale.test"
-      })
+    # action's JIT change always provisions one). attach_primary_email!
+    # gives the row the create path would have (#287: the users table
+    # carries no address; #285 T3 resolves identity through the table).
+    n = System.unique_integer()
 
-    AccountsFixtures.backfill_email!(orgless)
+    orgless =
+      Ash.Seed.seed!(FluxVale.Identity.User, %{username: "orgless-#{n}"})
+
+    AccountsFixtures.attach_primary_email!(orgless, "orgless-#{n}@fluxvale.test")
 
     conn = SessionHelpers.sign_in(conn, orgless)
 

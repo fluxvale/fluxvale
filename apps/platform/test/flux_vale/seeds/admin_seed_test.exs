@@ -24,6 +24,7 @@ defmodule FluxVale.Seeds.AdminSeedTest do
   alias FluxVale.Catalog.Category
   alias FluxVale.Feedback.Post
   alias FluxVale.Feedback.Tag
+  alias FluxVale.Identity
   alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Repo
@@ -44,7 +45,7 @@ defmodule FluxVale.Seeds.AdminSeedTest do
       :ok = Seeds.seed_admin!()
       :ok = Seeds.seed_admin!()
 
-      assert [%User{}] = users_matching_email()
+      assert {:ok, %User{}} = User.get_by_address("admin@fluxvale.com", authorize?: false)
     end
 
     test "raises on an existing non-admin occupant of the seed email" do
@@ -55,7 +56,8 @@ defmodule FluxVale.Seeds.AdminSeedTest do
       end
 
       # The squatter is untouched — promotion is an operator decision
-      assert [%{platform_role: :user}] = users_matching_email()
+      assert {:ok, %{platform_role: :user}} =
+               User.get_by_address("admin@fluxvale.com", authorize?: false)
     end
 
     # #285 review P2-2: a pending claim on the seed address used to
@@ -159,73 +161,53 @@ defmodule FluxVale.Seeds.AdminSeedTest do
 
     defp retry_deadlock(_attempts_left, fun), do: fun.()
 
-    test "heals a pre-T3 admin (users.email set, no user_emails row) — no second account" do
-      # The old-pod shape (review P2-3): a state actions cannot produce
-      # (the create mirror stamps a row) — seed! is the sanctioned bypass
-      Ash.Seed.seed!(User, %{email: "admin@fluxvale.com", platform_role: :admin})
+    test "an outstanding invitation on the seed address fails loudly — no second account" do
+      # #287: the mirror-era heal arms died with the column. The one
+      # sequential collision shape left is an INVITED reservation on the
+      # seed address — bootstrap names it and refuses to fork a second
+      # account; the operator retires or re-points the invitation.
+      assert {:ok, invited, _raw} =
+               Identity.invite_user(
+                 nil,
+                 "admin@fluxvale.com",
+                 fn _address, _url ->
+                   {:ok, :suppressed}
+                 end,
+                 authorize?: false
+               )
 
-      :ok = Seeds.seed_admin!()
-
-      admin = User.get_by_email!("admin@fluxvale.com", authorize?: false)
-
-      # the heal wrote the mirror row the create path would have
-      assert [%{user_id: owner_id, verified_at: verified, is_primary: true}] =
-               seed_address_rows()
-
-      assert owner_id == admin.id
-      refute is_nil(verified)
-
-      # healed, not duplicated
-      assert [%User{}] = users_matching_email()
-    end
-
-    test "heals a pre-T3 admin that promoted a second primary — :ok, the mirror row attaches non-primary" do
-      # Round-2 P1 arm F: the heal used to force is_primary and collide
-      # the at-most-one-primary index — RAISE on every deploy
-      # (ADR-0033's init container boots NotReady). The heal must take
-      # primary only when the account has none.
-      admin = Ash.Seed.seed!(User, %{email: "admin@fluxvale.com", platform_role: :admin})
-      second = "admin-second-#{System.unique_integer()}@fluxvale.com"
-
-      assert {:ok, row} = UserEmail.add(second, %{user: admin}, authorize?: false)
-      assert {:ok, _verified} = UserEmail.mark_verified(row, authorize?: false)
-      assert {:ok, _promoted} = UserEmail.set_primary(row, actor: admin, authorize?: true)
-
-      assert :ok = Seeds.seed_admin!()
-
-      # healed, not duplicated
-      healed = User.get_by_email!("admin@fluxvale.com", authorize?: false)
-      assert healed.id == admin.id
-      assert [%User{}] = users_matching_email()
-
-      # consistent rows: the signup address gained a verified NON-primary
-      # row; the promoted second address keeps primary
-      assert [%{user_id: owner_id, verified_at: verified, is_primary: false}] =
-               seed_address_rows()
-
-      assert owner_id == admin.id
-      refute is_nil(verified)
-
-      assert [%{user_id: second_owner_id, is_primary: true}] = rows_for(second)
-      assert second_owner_id == admin.id
-    end
-
-    test "an old-pod NON-admin occupant of the seed address still raises — rows untouched" do
-      Ash.Seed.seed!(User, %{email: "admin@fluxvale.com", platform_role: :user})
-
-      assert_raise RuntimeError, ~r/non-admin role/, fn ->
+      assert_raise RuntimeError, ~r/outstanding invitation/, fn ->
         Seeds.seed_admin!()
       end
 
-      # the squatter is untouched — no mirror row was written for them
-      assert [] = seed_address_rows()
-      assert [%{platform_role: :user}] = users_matching_email()
+      # nothing was invented: the reservation still belongs to the invite
+      assert {:ok, occupant} = User.get_by_address("admin@fluxvale.com", authorize?: false)
+      assert occupant.id == invited.id
+      assert [%{user_id: owner_id, verified_at: nil}] = seed_address_rows()
+      assert owner_id == invited.id
     end
 
-    defp users_matching_email do
-      User
-      |> Ash.Query.filter(email == ^"admin@fluxvale.com")
-      |> Ash.read!(authorize?: false)
+    test "a withdrawn invitation on the seed address still raises — the reservation keeps the address" do
+      # Retirement does not free the address (#287's window ruling: the
+      # reservation lives from invite to acceptance) — withdrawal keeps
+      # it, so the seed still collides and still names the occupant.
+      assert {:ok, invited, _raw} =
+               Identity.invite_user(
+                 nil,
+                 "admin@fluxvale.com",
+                 fn _address, _url ->
+                   {:ok, :suppressed}
+                 end,
+                 authorize?: false
+               )
+
+      invited
+      |> Ash.Changeset.for_update(:withdraw_invite, %{})
+      |> Ash.update!(authorize?: false)
+
+      assert_raise RuntimeError, ~r/outstanding invitation/, fn ->
+        Seeds.seed_admin!()
+      end
     end
 
     defp seed_address_rows, do: rows_for("admin@fluxvale.com")
@@ -240,18 +222,17 @@ defmodule FluxVale.Seeds.AdminSeedTest do
   describe "seed_admin_org!/0" do
     # Ash.Seed.seed! — pre-#119 admins have no org and the User create
     # action now always provisions one (state actions can't produce, the
-    # documented seed! exception). backfill_email! adds the row the T1
-    # backfill gave every pre-existing user — without it the
-    # table-backed identity (#285 T3) cannot see the admin.
+    # documented seed! exception). attach_primary_email! adds the row
+    # the create path would have — without it the table-backed identity
+    # (#285 T3) cannot see the admin.
     defp seed_pre119_admin! do
       admin =
         Ash.Seed.seed!(User, %{
-          email: "admin@fluxvale.com",
           platform_role: :admin,
           username: "admin-2"
         })
 
-      AccountsFixtures.backfill_email!(admin)
+      AccountsFixtures.attach_primary_email!(admin, "admin@fluxvale.com")
       admin
     end
 
@@ -301,29 +282,6 @@ defmodule FluxVale.Seeds.AdminSeedTest do
 
       {:ok, wallet} = Billing.ensure_wallet(org_before)
       assert length(welcome_entries(wallet)) == 1
-    end
-
-    test "a NULL-username, org-less admin row raises :username_missing through the heal" do
-      # seed! is the sanctioned bypass: :create derives a username and
-      # provisions an org, so neither NULL-handle nor org-less is
-      # action-producible. Not a deploy shape (see seed_admin_org!'s
-      # comment) — drifted or hand-seeded data. seed_admin!/0's heal
-      # writes the mirror row and passes the admin gate; the org heal
-      # then refuses {:error, :username_missing} instead of inventing a
-      # handle. Remedy: the rpc block in docs/deployment.md; #287's
-      # sweep retires the straggler shapes.
-      Ash.Seed.seed!(User, %{email: "admin@fluxvale.com", platform_role: :admin})
-
-      :ok = Seeds.seed_admin!()
-
-      assert_raise RuntimeError, ~r/username_missing/, fn ->
-        Seeds.seed_admin_org!()
-      end
-
-      # nothing was invented: no org, and the straggler keeps NULL
-      admin = User.get_by_email!("admin@fluxvale.com", authorize?: false)
-      assert is_nil(admin.username)
-      assert org_count(admin.id) == 0
     end
 
     test "the welcome grant is 300 cents with reason :welcome" do

@@ -16,7 +16,8 @@ defmodule FluxVale.Accounts.Operations.RevokeInviteTest do
     org = AccountsFixtures.owned_org!(owner)
     invitee = AccountsFixtures.user!()
 
-    assert {:ok, invite} = Accounts.invite_member(owner, org, invitee.email)
+    assert {:ok, invite} =
+             Accounts.invite_member(owner, org, AccountsFixtures.primary_address!(invitee))
 
     assert {:ok, revoked} = Accounts.revoke_invite(owner, invite)
 
@@ -29,7 +30,8 @@ defmodule FluxVale.Accounts.Operations.RevokeInviteTest do
     org = AccountsFixtures.owned_org!(owner)
     invitee = AccountsFixtures.user!()
 
-    assert {:ok, invite} = Accounts.invite_member(owner, org, invitee.email)
+    assert {:ok, invite} =
+             Accounts.invite_member(owner, org, AccountsFixtures.primary_address!(invitee))
 
     # A backdated revoked_at is a state no action can produce (the
     # change always stamps now) — seed! territory, the documented
@@ -40,7 +42,7 @@ defmodule FluxVale.Accounts.Operations.RevokeInviteTest do
     seeded =
       Ash.Seed.seed!(FluxVale.Accounts.MembershipInvite, %{
         organization_id: org.id,
-        email: invitee.email,
+        email: AccountsFixtures.primary_address!(invitee),
         token_hash: String.duplicate("b", 64),
         revoked_at: seeded_stamp,
         expires_at: invite.expires_at
@@ -65,7 +67,7 @@ defmodule FluxVale.Accounts.Operations.RevokeInviteTest do
     row =
       Ash.Seed.seed!(FluxVale.Accounts.MembershipInvite, %{
         organization_id: org.id,
-        email: invitee.email,
+        email: AccountsFixtures.primary_address!(invitee),
         token_hash: String.duplicate("e", 64),
         revoked_at: seeded_stamp,
         expires_at: DateTime.add(DateTime.utc_now(), 1, :hour)
@@ -88,7 +90,8 @@ defmodule FluxVale.Accounts.Operations.RevokeInviteTest do
       authorize?: false
     )
 
-    assert {:ok, invite} = Accounts.invite_member(owner, org, invitee.email)
+    assert {:ok, invite} =
+             Accounts.invite_member(owner, org, AccountsFixtures.primary_address!(invitee))
 
     assert {:error, %Ash.Error.Forbidden{}} = Accounts.revoke_invite(member, invite)
   end

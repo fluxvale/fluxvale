@@ -196,19 +196,6 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrgTest do
     end
   end
 
-  describe "operator heal of a legacy row (docs/deployment.md rpc)" do
-    test "a NULL-username straggler fails with a clear arm, not a Required dump" do
-      # Ash.Seed.seed! — the only writer that can produce a NULL-username
-      # row (old-pod rolling-window straggler, the rpc's whole audience);
-      # the create action derives one (state actions can't produce, the
-      # documented seed! exception).
-      straggler = Ash.Seed.seed!(User, %{email: "straggler@fluxvale.test"})
-
-      assert {:error, :username_missing} = Accounts.provision_personal_org(straggler)
-      assert org_count(straggler) == 0
-    end
-  end
-
   defp welcome_entries(wallet) do
     LedgerEntry
     |> Ash.Query.for_read(:read, %{})

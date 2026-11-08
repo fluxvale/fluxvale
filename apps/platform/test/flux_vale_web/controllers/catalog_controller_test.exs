@@ -7,6 +7,7 @@ defmodule FluxValeWeb.CatalogControllerTest do
   alias FluxVale.Catalog.Category
   alias FluxVale.Pricing
   alias FluxVale.Pricing.Size
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.PricingFixtures
   alias FluxVale.TestSupport.SessionHelpers
@@ -77,7 +78,7 @@ defmodule FluxValeWeb.CatalogControllerTest do
       # Same page plus the display-only chrome: email + sign-out.
       html = html_response(result, 200)
       assert html =~ app.name
-      assert html =~ to_string(user.email)
+      assert html =~ to_string(AccountsFixtures.primary_address!(user))
     end
 
     test "a non-canonical host renders the noindex meta + header", %{conn: conn} do

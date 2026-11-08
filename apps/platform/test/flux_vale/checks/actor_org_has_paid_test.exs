@@ -108,7 +108,7 @@ defmodule FluxVale.Checks.ActorOrgHasPaidTest do
       # Ash.Seed.seed! — the only way to produce an org-less user: the
       # create action's JIT change always provisions one (the documented
       # seed! exception).
-      orgless = Ash.Seed.seed!(User, %{email: "orgless-#{System.unique_integer()}@fluxvale.test"})
+      orgless = Ash.Seed.seed!(User, %{username: "orgless-#{System.unique_integer()}"})
 
       create_subject = Ash.Changeset.for_create(AccessGateway, :create, %{}, authorize?: false)
 

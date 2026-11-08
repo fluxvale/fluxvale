@@ -9,6 +9,7 @@ defmodule FluxValeWeb.Plugs.AuthenticateTest do
   alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Ops.AccessRule
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxValeWeb.Plugs.Authenticate
 
   setup do
@@ -187,8 +188,8 @@ defmodule FluxValeWeb.Plugs.AuthenticateTest do
     end
 
     # #285 review P3-1: pins the user-level gate at the token-presentation
-    # edge (ensure_allowed_user, NOT ensure_allowed(user.email) — the
-    # frozen users.email would admit users the table-backed identity severs).
+    # edge (ensure_allowed_user, NOT ensure_allowed(AccountsFixtures.primary_address!(user)) — the
+    # a column-era address store would admit users the table severs).
     test "a user whose only allowed address was removed is severed", %{
       conn: conn
     } do
@@ -221,11 +222,12 @@ defmodule FluxValeWeb.Plugs.AuthenticateTest do
     } do
       # A state actions cannot produce (the create mirror stamps a row) —
       # seed! is the sanctioned bypass. Nothing proven, nothing granted:
-      # the allowlisted users.email alone must not admit them.
-      old_pod =
-        Ash.Seed.seed!(User, %{email: "gate-oldpod-#{System.unique_integer()}@fluxvale.com"})
+      # an account with NO address rows must not be admitted (#287 —
+      # the mirror-era allowlisted-column shape died with the column).
+      rowless =
+        Ash.Seed.seed!(User, %{username: "gate-rowless-#{System.unique_integer()}"})
 
-      {:ok, token, _claims} = Jwt.token_for_user(old_pod)
+      {:ok, token, _claims} = Jwt.token_for_user(rowless)
 
       conn =
         conn

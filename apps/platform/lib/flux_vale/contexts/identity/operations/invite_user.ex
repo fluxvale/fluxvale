@@ -5,13 +5,12 @@ defmodule FluxVale.Identity.Operations.InviteUser do
   accept link. Inviting IS a User row plus one email — no separate
   invitation resource.
 
-  Occupant resolution reads BOTH identity surfaces (the VerifyAuthCode
-  posture): a verified `user_emails` row resolves its owner, and the
-  frozen `users.email` mirror resolves an invited user — an unaccepted
-  invite has no verified row, so only the frozen read sees them. An
-  active account (:none, or :accepted) refuses with :already_active; an
-  invited account (pending, withdrawn, expired) re-issues; an
-  unoccupied address creates.
+  Occupant resolution reads ONE surface (#287): any `user_emails` row
+  on the address resolves its owner — verified owner or invited
+  reservation alike (`get_by_address`; the mirror-era second lookup
+  died with the column). An active account (:none, or :accepted)
+  refuses with :already_active; an invited account (pending,
+  withdrawn, expired) re-issues; an unoccupied address creates.
 
   The raw token (32 url-safe bytes) exists exactly once, in the
   `{:ok, user, raw}` return — the row carries its SHA-256 hash alone
@@ -24,7 +23,6 @@ defmodule FluxVale.Identity.Operations.InviteUser do
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Mailer
 
-  require Ash.Query
   require Logger
 
   @doc """
@@ -61,7 +59,7 @@ defmodule FluxVale.Identity.Operations.InviteUser do
 
   # The :already_active fork (:none and :accepted are both live
   # accounts — :accepted reaches here when the admin re-invites someone
-  # who already accepted: their verified mirror row resolves them).
+  # who already accepted: their verified row resolves them).
   defp occupant_write(occupant, address, deliver, actor, opts) do
     if occupant.invite_state in [:none, :accepted] do
       {:error, :already_active}
@@ -70,17 +68,17 @@ defmodule FluxVale.Identity.Operations.InviteUser do
     end
   end
 
-  # Occupant resolution — BOTH identity surfaces (the VerifyAuthCode
-  # posture): the table-backed verified row first, then the frozen
-  # mirror an invited (unaccepted) account resolves through. System
-  # seam: authorize?: false — the actor question is the admin write's,
-  # not this lookup's. invite_state loads with the query, so the fork
-  # above never needs a second fetch.
+  # Occupant resolution (#287) — ONE surface: any row on the address
+  # resolves its owner (verified or reserved; unique_address keeps one
+  # row per address, so one owner). System seam: authorize?: false —
+  # the actor question is the admin write's, not this lookup's.
+  # invite_state loads with the query, so the fork above never needs a
+  # second fetch.
   defp resolve_occupant(address) do
-    with {:ok, nil} <- verified_row_owner(address),
-         {:ok, nil} <- frozen_mirror_owner(address) do
-      :none
-    else
+    case row_owner(address) do
+      {:ok, nil} ->
+        :none
+
       {:ok, %User{} = user} ->
         {:ok, user}
 
@@ -92,19 +90,9 @@ defmodule FluxVale.Identity.Operations.InviteUser do
     end
   end
 
-  defp verified_row_owner(address) do
+  defp row_owner(address) do
     User
-    |> Ash.Query.for_read(:get_by_email, %{email: address})
-    |> Ash.Query.load(:invite_state)
-    |> Ash.read_one(authorize?: false)
-  end
-
-  # users.email is the frozen mirror the invited (unaccepted) account
-  # resolves through — it has no verified row yet, so only this read
-  # sees it (the VerifyAuthCode frozen_email_owner posture).
-  defp frozen_mirror_owner(address) do
-    User
-    |> Ash.Query.filter(email == ^address)
+    |> Ash.Query.for_read(:get_by_address, %{email: address})
     |> Ash.Query.load(:invite_state)
     |> Ash.read_one(authorize?: false)
   end
@@ -127,7 +115,8 @@ defmodule FluxVale.Identity.Operations.InviteUser do
 
       # coveralls-ignore-start - race-only: the occupant read above is
       # the sequential arbiter, so a create failure needs a commit in
-      # the residual window (the unique_email race) — true concurrency,
+      # the residual window (the unique_address race — the reservation
+      # row rides the create) — true concurrency,
       # not sequential
       {:error, error} ->
         {:error, error}

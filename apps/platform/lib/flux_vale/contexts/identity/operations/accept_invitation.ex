@@ -2,10 +2,10 @@ defmodule FluxVale.Identity.Operations.AcceptInvitation do
   @moduledoc """
   Consumes the one-time accept link (#502): the token resolves the
   pre-provisioned account, the :accept_invite write stamps acceptance
-  and runs the first-login bootstrap (username, personal org, the
-  verified mirror row — acceptance is the inbox proof), then the
-  AccessRule gate and the session mint follow — the invitee is logged
-  in straight away.
+  and runs the first-login bootstrap (the personal org; the
+  reservation row flips verified+primary — acceptance is the inbox
+  proof), then the AccessRule gate and the session mint follow — the
+  invitee is logged in straight away.
 
   The token IS the credential: the lookup and the consume write run
   system-side (`authorize?: false`, the MembershipInvite :accept
@@ -13,7 +13,6 @@ defmodule FluxVale.Identity.Operations.AcceptInvitation do
   """
 
   alias FluxVale.Identity.User
-  alias FluxVale.Identity.UserEmail
   alias FluxVale.Ops.AccessRules
 
   @doc """
@@ -77,32 +76,23 @@ defmodule FluxVale.Identity.Operations.AcceptInvitation do
   # StaleRecord. authorize?: false — the token is the credential; no
   # actor exists yet.
   defp consume(user) do
-    # A PENDING claim by another account on the invited address would
-    # collide the mirror insert on user_emails.unique_address (global,
-    # pending included) and roll the acceptance back — a retryable state
-    # masquerading as a refusal. Acceptance is the inbox proof (the link
-    # IS the credential), so it supersedes proof-less pending claims
-    # exactly as the JIT arm's burned code does (the VerifyAuthCode
-    # sanctioned seam). A claim a concurrent VerifyEmail flips verified
-    # first survives the pending-only filter — that arm is the honest
-    # conflict below, not this sweep.
-    address = to_string(user.email)
-    UserEmail.supersede_pending_claims(address)
-
+    # The reservation owns the address (#287): the invited account's
+    # own PENDING row is what acceptance flips verified+primary
+    # (AcceptInvitedEmailRow), located — never re-derived — inside the
+    # action. A PENDING claim by ANOTHER account on the same address
+    # cannot exist (unique_address is global and the reservation has
+    # held the address since :invite — the mirror-era steal-then-wedge
+    # conflict is structurally gone), so the proof-less sweep that
+    # once preceded the write retires with it.
     changeset = Ash.Changeset.for_update(user, :accept_invite, %{}, authorize?: false)
 
     case Ash.update(changeset) do
       {:ok, accepted} ->
         {:ok, accepted}
 
-      # Two sequential shapes land here besides the true races: (1) the
+      # Sequential shapes landing here besides the true races: the
       # window closed between the read above and this write (accepted
-      # elsewhere, withdrawn, expired), and (2) a VERIFIED row for the
-      # invited address already belongs to another account — someone
-      # proved that inbox from a different account after the invite was
-      # minted. Both answer :unavailable; (2) is a genuine ownership
-      # conflict the admin must resolve (re-point the invite), the copy
-      # stays one honest sentence.
+      # elsewhere, withdrawn, expired) — all one honest sentence.
       {:error, _raced_or_refused} ->
         {:error, :unavailable}
     end

@@ -43,7 +43,7 @@ defmodule FluxValeWeb.Api.MembershipRouteTest do
     instance: instance,
     wallet: wallet
   } do
-    pat = ApiPat.mint!(outsider.email, ["instances:read", "wallet:read", "backups:write"])
+    pat = ApiPat.mint!(outsider, ["instances:read", "wallet:read", "backups:write"])
 
     instance_read =
       conn
@@ -81,7 +81,7 @@ defmodule FluxValeWeb.Api.MembershipRouteTest do
     outsider: outsider,
     instance: instance
   } do
-    pat = ApiPat.mint!(outsider.email, ["instances:read", "wallet:read", "backups:write"])
+    pat = ApiPat.mint!(outsider, ["instances:read", "wallet:read", "backups:write"])
 
     run =
       conn

@@ -7,13 +7,23 @@ defmodule FluxVale.Identity.User do
   bypass). `platform_role` is the global staff axis; see
   `FluxVale.Identity.Types.PlatformRole` for why org roles never land here.
 
-  Invited accounts (#502) are pre-provisioned through :invite and INERT
-  until acceptance: no username, no org, no verified email row — the
-  invite stamps (`invited_at`, `invite_accepted_at`, `invite_withdrawn_at`,
+  Addresses live ONLY in `user_emails` (#285 T3, #287): the signup
+  address is an `:email` argument on `:create`/`:invite` (public by
+  necessity — see the action comments), never a column — the legacy
+  `users.email` mirror is dropped, and with it every heal path that
+  read it (the pre-launch wipe doctrine absorbed its stragglers;
+  ADR-0013 Am. 1).
+
+  Invited accounts (#502, re-homed #287) are pre-provisioned through
+  :invite and INERT until acceptance: no org, and their address sits as
+  a PENDING `user_emails` row — the invitation's reservation (see
+  InvitedEmailRow for the window semantics). The invite stamps
+  (`invited_at`, `invite_accepted_at`, `invite_withdrawn_at`,
   `invite_expires_at`) describe the outstanding invitation, and the raw
   accept token exists only in the emailed link (the row stores its
   SHA-256 hash alone, `invite_token_hash`). Acceptance (:accept_invite)
-  runs the same bootstrap a first sign-in runs and stamps
+  runs the same bootstrap a first sign-in runs — minus username
+  derivation, which the invite already did — and stamps
   `invite_accepted_at`. Every normal account carries nil in all five
   columns and answers :none from `invite_state`.
   """
@@ -26,9 +36,11 @@ defmodule FluxVale.Identity.User do
     extensions: [AshAuthentication, AshJsonApi.Resource]
 
   alias FluxVale.Api.Scopes
+  alias FluxVale.Identity.User.AcceptInvitedEmailRow
   alias FluxVale.Identity.User.DeriveUsername
-  alias FluxVale.Identity.User.MirrorSignupEmail
+  alias FluxVale.Identity.User.InvitedEmailRow
   alias FluxVale.Identity.User.ProvisionPersonalOrg
+  alias FluxVale.Identity.User.SignupEmailRow
   alias FluxVale.Identity.User.ValidUsername
 
   # The invitation window (#502) — the mail copy reads invite_ttl_days/0
@@ -107,12 +119,13 @@ defmodule FluxVale.Identity.User do
   json_api do
     type("user")
 
-    # The contract's "email" key (#285 T4) serializes the `primary_email`
-    # calculation — same key, live value. The frozen-mirror attribute is
-    # private, so the key set of the /me document is unchanged. The app
-    # runs with show_public_calculations_when_loaded?: false, so the
-    # route pins its own field list — that list is also what the query
-    # loads (ash_json_api loads route default_fields before reading).
+    # The contract's "email" key (#285 T4, #287) serializes the
+    # `primary_email` calculation — same key, live value from
+    # user_emails (the legacy column is gone; nothing private remains
+    # to keep out of the document). The app runs with
+    # show_public_calculations_when_loaded?: false, so the route pins
+    # its own field list — that list is also what the query loads
+    # (ash_json_api loads route default_fields before reading).
     field_names(primary_email: :email)
 
     routes do
@@ -174,25 +187,21 @@ defmodule FluxVale.Identity.User do
     # public? from day one — the API surface is deliberate design, not an
     # afterthought of the LiveView UI (ADR-0019 §1; /api/me arrives in #24)
     #
-    # FROZEN mirror (#285 T3): identity resolution reads `user_emails`
-    # now; this column stays written on create only so old pods keep
-    # resolving new users during rolling deploys. `set_primary` does NOT
-    # rewrite it — the follow-up contract release drops the column.
-    # Private since #285 T4: it is a write-compat column, not account
-    # truth — /api/v1/me's "email" key serializes the `primary_email`
-    # calculation instead (field_names below keeps the JSON key).
-    attribute :email, :ci_string do
-      allow_nil?(false)
-      public?(false)
-    end
-
-    # GitHub-style handle (#285 T2): derived from the email at signup
-    # (DeriveUsername — the only writer in this slice). Nullable until a
-    # later contract migration flips NOT NULL: existing rows and the
-    # rolling-deploy window need the slack. Its own namespace among
-    # users — organization slugs are never consulted.
+    # #287: the legacy `email` COLUMN is gone — the signup address is a
+    # private `:email` ARGUMENT on :create/:invite (see actions), and
+    # `user_emails` is the only address storage. The JIT create's
+    # duplicate-signup arbitration rides `user_emails.unique_address`
+    # (the verified-primary row SignupEmailRow writes in the same
+    # transaction).
+    #
+    # GitHub-style handle (#285 T2): derived from the signup address by
+    # DeriveUsername — the only writer past :set_username. NOT NULL since
+    # #287's contract migration: every account carries a handle from
+    # birth, invited accounts included (the invite derives one so the
+    # constraint holds while the account is inert). Its own namespace
+    # among users — organization slugs are never consulted.
     attribute :username, :string do
-      allow_nil?(true)
+      allow_nil?(false)
       public?(true)
     end
 
@@ -257,12 +266,20 @@ defmodule FluxVale.Identity.User do
       # seed too (which runs authorize?: false — there is no actor to
       # authorize before the first admin exists).
       primary?(true)
-      accept([:email, :platform_role])
+      accept([:platform_role])
 
-      # Username derivation (#285 T2) — the only writer (no input
-      # surface, no format validation until the rename UI), always
-      # producing a 2–39 [a-z0-9-] value; residual failure arms (probe
-      # read failure, lost race) fail loudly, like provisioning's.
+      # The signup address (#287): an argument, not a column —
+      # user_emails is the only address storage. PUBLIC by necessity:
+      # private arguments cannot ride for_create params nor the code
+      # interface (the :invite token_hash lesson) — every caller passes
+      # the address by name and keeps its shape. No serialization
+      # surface: arguments never render (field lists carry attributes
+      # and calculations only), and User exposes no create route.
+      argument(:email, :ci_string, allow_nil?: false)
+
+      # Username derivation (#285 T2, #287): reads the :email argument;
+      # always producing a 2–39 [a-z0-9-] value; residual failure arms
+      # (probe read failure, lost race) fail loudly, like provisioning's.
       # Listed BEFORE ProvisionPersonalOrg: provisioning must see the
       # username — it names the org after it (#285 T7).
       change(DeriveUsername)
@@ -272,10 +289,10 @@ defmodule FluxVale.Identity.User do
       # change module.
       change(ProvisionPersonalOrg)
 
-      # The mirror row (#285 T3 §5) — same transaction: the account is
-      # born with its verified primary user_emails row, the same end
-      # state the T1 backfill gave every pre-existing user.
-      change(MirrorSignupEmail)
+      # The signup row (#285 T3 §5, #287): same transaction — the
+      # account is born with its verified primary user_emails row,
+      # written from the :email argument.
+      change(SignupEmailRow)
     end
 
     # /api/v1/me (#24): the actor-template filter is the whole trick — the
@@ -335,6 +352,20 @@ defmodule FluxVale.Identity.User do
       filter(expr(exists(emails, address == ^arg(:email) and not is_nil(verified_at))))
     end
 
+    # The occupant resolution (#287): the account holding ANY row on the
+    # address — verified owner or invited reservation alike. One lookup
+    # where the frozen-mirror era needed two (verified row, then
+    # users.email). Same policy posture as get_by_email: the interaction
+    # bypass, platform admins, and system paths running authorize?:
+    # false — no public listing surface. unique_address keeps the get?
+    # contract (one row per address ⇒ one owner).
+    read :get_by_address do
+      description("Get the user occupying an email address (verified or reserved)")
+      argument(:email, :ci_string, allow_nil?: false)
+      get?(true)
+      filter(expr(exists(emails, address == ^arg(:email))))
+    end
+
     # Same policy posture as get_by_email (#285 T2): only the
     # AshAuthentication interaction bypass and platform admins get past
     # the policies — no public listing surface. DeriveUsername's probe
@@ -346,21 +377,29 @@ defmodule FluxVale.Identity.User do
       filter(expr(username == ^arg(:username)))
     end
 
-    # The admin invite (#502): creates the pre-provisioned, inert
-    # account. Deliberately NOT primary — the JIT signup :create above
-    # stays the registration path — and none of its bootstrap changes
-    # run here: no DeriveUsername, no ProvisionPersonalOrg, no
-    # MirrorSignupEmail. Acceptance (:accept_invite) provisions those;
-    # until then the account has no org, no wallet, no verified email
-    # row. The token hash rides the private argument (the
-    # MembershipInvite :create posture) — no caller surface can mint an
-    # arbitrary credential shape; invited_at and the expiry window stamp
-    # here explicitly (no attribute default — see the attribute comment).
+    # The admin invite (#502, re-homed #287): creates the pre-provisioned,
+    # inert account. Deliberately NOT primary — the JIT signup :create
+    # above stays the registration path — and none of its bootstrap
+    # changes run here: no ProvisionPersonalOrg. The address arrives as
+    # the private :email argument and lands as the invitation's PENDING
+    # row (InvitedEmailRow — the reservation; withdrawal and expiry keep
+    # it, acceptance flips it). DeriveUsername DOES run here: NOT NULL
+    # (#287) means the invited account carries its handle from birth —
+    # "inert" keeps no-org, loses no-username. The token hash rides the
+    # private argument (the MembershipInvite :create posture) — no
+    # caller surface can mint an arbitrary credential shape; invited_at
+    # and the expiry window stamp here explicitly (no attribute
+    # default — see the attribute comment).
     create :invite do
-      accept([:email])
+      # PUBLIC (the :create :email note): the admin surface and the
+      # operation pass the address by name.
+      argument(:email, :ci_string, allow_nil?: false)
 
       argument(:token_hash, :string, allow_nil?: false, sensitive?: true, public?: false)
       change(set_attribute(:invite_token_hash, arg(:token_hash)))
+
+      change(DeriveUsername)
+      change(InvitedEmailRow)
 
       change(set_attribute(:invited_at, &DateTime.utc_now/0))
       change(set_attribute(:invite_expires_at, &__MODULE__.invite_expires_at/0))
@@ -416,15 +455,16 @@ defmodule FluxVale.Identity.User do
       require_atomic?(false)
     end
 
-    # Accept (#502): the one-time consume + the full first-login
-    # bootstrap, one write. The filter in (1) rides the UPDATE's WHERE
-    # and IS the one-time arbiter — a second use, or a race against
-    # withdrawal or expiry, matches zero rows and refuses with
-    # StaleRecord instead of double-bootstrapping. Then the SAME changes
-    # the JIT create runs, in the same order: username first
-    # (provisioning names the org after it), then the org, then the
-    # mirror row — acceptance is the inbox proof, so the mirror row lands
-    # VERIFIED here (the JIT path's burned code is the proof there).
+    # Accept (#502, re-homed #287): the one-time consume + the full
+    # first-login bootstrap, one write. The filter in (1) rides the
+    # UPDATE's WHERE and IS the one-time arbiter — a second use, or a
+    # race against withdrawal or expiry, matches zero rows and refuses
+    # with StaleRecord instead of double-bootstrapping. Then the org
+    # provision — and the row flip: the invitation's pending row goes
+    # VERIFIED and PRIMARY here (acceptance is the inbox proof — the
+    # one-time link IS the credential; AcceptInvitedEmailRow), the same
+    # end state the JIT path's SignupEmailRow writes at birth. No
+    # DeriveUsername here: the invite already derived the handle.
     update :accept_invite do
       description("Consume the one-time invite — verify, activate, bootstrap in one write")
       accept([])
@@ -440,9 +480,8 @@ defmodule FluxVale.Identity.User do
 
       change(set_attribute(:invite_accepted_at, &DateTime.utc_now/0))
 
-      change(DeriveUsername)
+      change(AcceptInvitedEmailRow)
       change(ProvisionPersonalOrg)
-      change(MirrorSignupEmail)
 
       require_atomic?(false)
     end
@@ -467,6 +506,7 @@ defmodule FluxVale.Identity.User do
 
     define(:create, args: [:email])
     define(:get_by_email, args: [:email])
+    define(:get_by_address, args: [:email])
     define(:get_by_username, args: [:username])
     define(:withdraw_invite)
 
@@ -478,7 +518,9 @@ defmodule FluxVale.Identity.User do
   end
 
   identities do
-    identity(:unique_email, [:email])
+    # #287: `unique_email` died with the column — duplicate-signup
+    # arbitration rides `user_emails.unique_address` (the signup row
+    # rides the create transaction).
 
     # Usernames are unique among users (#285 T2) — a separate namespace
     # from organization slugs, deliberately.
@@ -501,37 +543,62 @@ defmodule FluxVale.Identity.User do
     #
     # authorize?(false) — REQUIRED on the real load paths: without it
     # the surfaces' authorized calc load trips UserEmail's admin-only
-    # :read and silently degrades the display to the frozen mirror —
-    # proven three times: the implementer's original roster probe, the
-    # architect's full-suite run with the flag removed (7 surface tests
-    # red across the app chrome, public chrome, roster, topup, and /me;
-    # green restored with the flag), and the hostile review's
-    # fresh-beam reproduction. CAUTION when probing this: a STALE
-    # compiled beam makes the flagless build look clean — force the
-    # recompile (mix compile --force) before believing any probe here.
-    # The exposure claim stands: one address per user, no more than the
-    # pre-T4 `user.email` join revealed, gated by the loading surface's
+    # :read and silently degrades the display to nil — proven three
+    # times across the #285 T4 arc (the implementer's roster probe, the
+    # architect's full-suite run with the flag removed, and the hostile
+    # review's fresh-beam reproduction). CAUTION when probing this: a
+    # STALE compiled beam makes the flagless build look clean — force
+    # the recompile (mix compile --force) before believing any probe
+    # here. The exposure claim stands: one address per user, no more
+    # than a per-user join revealed, gated by the loading surface's
     # read policies.
     first :primary_address, :emails, :address do
       filter(expr(is_primary and not is_nil(verified_at)))
       authorize?(false)
     end
+
+    # The invitation's reservation address (#287): the pending,
+    # non-primary row an unaccepted invitation holds. Every live
+    # account answers primary_address instead — this aggregate only
+    # matters for invited accounts, which own exactly one row. Private
+    # plumbing for contact_email below; same authorize?(false) stance
+    # and exposure claim as primary_address.
+    first :invited_address, :emails, :address do
+      filter(expr(is_nil(verified_at) and not is_primary))
+      authorize?(false)
+    end
   end
 
   calculations do
-    # The display email (#285 T4): the verified primary address; HONEST
-    # nil when the account has none (an old-pod user mid-window has no
-    # row). The nil rendering is a per-surface decision — showing nothing
-    # is wrong, so surfaces fall back to the frozen `email` mirror (the
-    # straggler's only address); each surface carries that fallback with
-    # a pointer here. Loaded with the user at resolution
-    # (UserAuth.resolve_user/1) — one query per surface, never an N+1.
-    # Public so /api/v1/me can serialize it; field_names below renders it
-    # under the contract's "email" key. F1 (#287) drops the mirror and
-    # this fallback dance with it.
+    # The display email (#285 T4, #287): the verified primary address.
+    # HONEST nil when the account has none — post-#287 that is data
+    # drift only (every action-created account is born with its
+    # verified-primary row; the wipe doctrine absorbed the mirror-era
+    # stragglers), so no surface carries a fallback anymore. Loaded
+    # with the user at resolution (UserAuth.resolve_user/1) — one query
+    # per surface, never an N+1. Public so /api/v1/me can serialize it;
+    # field_names renders it under the contract's "email" key.
     calculate :primary_email, :string, expr(primary_address) do
       public?(true)
     end
+
+    # The admin People column (#287): what the surface shows — the
+    # PRIMARY address for live accounts, the invitation's reservation
+    # for unaccepted ones. Post-#287 the users table carries no
+    # address; both arms read user_emails (the aggregates above).
+    # Private: one surface's display value, not an API contract.
+    #
+    # The `if` is Ash.Query.Function.If inside the expr DSL — not
+    # Elixir's macro; the parenthesised call is the DSL's required
+    # shape, so the readability check is disabled for these lines (the
+    # MembershipInvite :state posture).
+    #
+    # credo:disable-for-lines:4 Credo.Check.Readability.ParenthesesInCondition
+    calculate(
+      :contact_email,
+      :string,
+      expr(if(is_nil(primary_address), invited_address, primary_address))
+    )
 
     # The invite lifecycle axis (#502) — one definition so the
     # operations and any future admin surface cannot drift (order

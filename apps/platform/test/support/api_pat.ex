@@ -23,23 +23,35 @@ defmodule FluxVale.TestSupport.ApiPat do
                |> List.flatten()
                |> Kernel.++(Enum.map([:wallet, :catalog], &"#{&1}:read"))
 
-  @spec mint!(String.t(), [String.t()]) :: String.t()
-  def mint!(email, scopes) do
-    user = User.get_by_email!(email, authorize?: false)
-
+  @spec mint!(FluxVale.Identity.User.t() | String.t(), [String.t()]) :: String.t()
+  # #287: takes the user directly (the suites' shape) or an address
+  # (the lookup resolves it through user_emails — the users table
+  # carries no address).
+  def mint!(%FluxVale.Identity.User{} = user, scopes) do
     {:ok, %{token: raw}} =
       Identity.mint_pat(user, %{user_id: user.id, name: "route-test", scopes: scopes})
 
     raw
   end
 
+  def mint!(email, scopes) do
+    user = User.get_by_email!(email, authorize?: false)
+    mint!(user, scopes)
+  end
+
   @doc """
   `{user, pat}` for a fresh JIT-provisioned member — welcome-funded,
-  never paid. `scopes` defaults to the full S1 catalog.
+  never paid. `scopes` defaults to the full S1 catalog. #287: mints
+  straight from the user record — the address lookup mint!/1 does is
+  for callers that only know an address.
   """
   @spec member!([String.t()]) :: {FluxVale.Identity.User.t(), String.t()}
   def member!(scopes \\ @full_scopes) do
     user = FluxVale.TestSupport.AccountsFixtures.user!()
-    {user, mint!(user.email, scopes)}
+
+    {:ok, %{token: raw}} =
+      Identity.mint_pat(user, %{user_id: user.id, name: "route-test", scopes: scopes})
+
+    {user, raw}
   end
 end

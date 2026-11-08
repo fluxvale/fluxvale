@@ -21,10 +21,13 @@ defmodule FluxVale.Identity.Operations.AcceptInvitationTest do
     %{address: "accept-#{System.unique_integer()}@partner.example"}
   end
 
+  # #287: any row on the address resolves its owner (the users table
+  # carries no address).
   defp users_with_email(address) do
-    User
-    |> Ash.Query.filter(email == ^address)
-    |> Ash.read!(authorize?: false)
+    case User.get_by_address(address, authorize?: false) do
+      {:ok, user} -> [user]
+      {:error, _not_found} -> []
+    end
   end
 
   defp rows_for(address) do
@@ -118,7 +121,10 @@ defmodule FluxVale.Identity.Operations.AcceptInvitationTest do
       # structurally unreachable through actions (the hash is only ever
       # written alongside invited_at) — seed! is the sanctioned bypass
       # for the hand-built shape
-      Ash.Seed.seed!(User, %{email: address, invite_token_hash: User.token_hash("orphan")})
+      Ash.Seed.seed!(User, %{
+        username: "orphan-#{System.unique_integer([:positive])}",
+        invite_token_hash: User.token_hash("orphan")
+      })
 
       assert {:error, :unknown_token} = Identity.accept_invitation("orphan")
     end
@@ -140,48 +146,50 @@ defmodule FluxVale.Identity.Operations.AcceptInvitationTest do
     end
   end
 
-  describe "call/1 — address conflicts on the mirror insert" do
-    test "a pending third-party claim does not wedge acceptance", %{address: address} do
-      # a claim confers no proof (the AddEmail posture), but
-      # unique_address is global — before the supersede this collision
-      # rolled the acceptance back with the terminal refusal copy
-      claimant =
-        User.create!("claimant-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+  describe "call/1 — the reserved address (#287)" do
+    test "a rowless invited account refuses :unavailable — the flip is the arbiter" do
+      # Drift-only shape (unproducible through actions: :invite writes
+      # the reservation and :supersede_pending refuses to remove it):
+      # an invited account whose row vanished cannot accept — the flip
+      # answers :invitation_row_missing, consume maps it to the
+      # :unavailable sentence, and nothing is consumed.
+      address = "rowless-#{System.unique_integer()}@partner.example"
 
-      {:ok, _claim} = Identity.add_email(claimant, address)
-      _claim_code = mailbox_code()
+      invited =
+        Ash.Seed.seed!(User, %{
+          username: "rowless-#{System.unique_integer([:positive])}",
+          invited_at: DateTime.utc_now(),
+          invite_expires_at: DateTime.add(DateTime.utc_now(), 7, :day),
+          invite_token_hash: User.token_hash("rowless-raw")
+        })
 
-      {invited, raw} = invite_user!(address)
+      refute invited.id == nil
 
-      assert {:ok, accepted, _jwt} = Identity.accept_invitation(raw)
-      assert accepted.invite_accepted_at
+      assert {:error, :unavailable} = Identity.accept_invitation("rowless-raw")
 
-      # the proof-less claim is gone; the address's one row is the
-      # mirror row acceptance wrote for the invited account
-      assert [%{user_id: owner_id}] = rows_for(address)
-      assert owner_id == invited.id
+      unconsumed =
+        Ash.load!(invited, :invite_state, authorize?: false)
+
+      assert unconsumed.invite_state == :pending
     end
 
-    test "a verified conflicting row refuses honestly — the state stands unconsumed", %{
-      address: address
-    } do
-      # someone proved this inbox from a DIFFERENT account after the
-      # invite was minted: a genuine ownership conflict the admin must
-      # resolve, not a wedge — nothing is consumed, the refusal is one
-      # sentence
-      {invited, raw} = invite_user!(address)
+    test "a stranger cannot claim the invited address — the reservation wins", %{address: address} do
+      # #287's first-verified-wins ruling: the invitation RESERVES its
+      # address from :invite (a pending row; unique_address is global
+      # and pending-inclusive). The mirror-era steal — a stranger
+      # claims, verifies, and wedges acceptance into :unavailable — is
+      # structurally gone: the claim is refused at :add, honestly, at
+      # claim time instead of wedging after a verified steal.
+      {invited, _raw} = invite_user!(address)
 
-      holder =
-        User.create!("holder-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+      stranger =
+        User.create!("stranger-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
 
-      {:ok, claim} = Identity.add_email(holder, address)
-      {:ok, _verified} = Identity.verify_email(holder, claim.id, mailbox_code())
+      assert {:error, %Ash.Error.Invalid{}} = Identity.add_email(stranger, address)
 
-      assert {:error, :unavailable} = Identity.accept_invitation(raw)
-
-      unconsumed = reloaded(invited.id)
-      assert unconsumed.invite_state == :pending
-      refute unconsumed.invite_accepted_at
+      # the reservation stands, untouched by the refused claim
+      assert [%{user_id: owner_id, verified_at: nil}] = rows_for(address)
+      assert owner_id == invited.id
     end
   end
 end

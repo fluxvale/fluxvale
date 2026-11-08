@@ -94,7 +94,7 @@ defmodule FluxVale.Feedback.PostTest do
       # produce, the documented seed! exception).
       orgless =
         Ash.Seed.seed!(FluxVale.Identity.User, %{
-          email: "orgless-#{System.unique_integer()}@fluxvale.test"
+          username: username_seed_for("orgless-#{System.unique_integer()}@fluxvale.test")
         })
 
       assert {:error, %Ash.Error.Invalid{errors: errors}} =
@@ -187,7 +187,10 @@ defmodule FluxVale.Feedback.PostTest do
 
     test "an allowlisted unpaid owner creates — the launch arm opens the gate" do
       user = AccountsFixtures.user!()
-      AccessRule.create!(%{purpose: :feedback, email: user.email}, authorize?: false)
+
+      AccessRule.create!(%{purpose: :feedback, email: AccountsFixtures.primary_address!(user)},
+        authorize?: false
+      )
 
       assert {:ok, post} =
                Post.create(%{title: "Invited cohort request", description: "At launch."},
@@ -653,5 +656,15 @@ defmodule FluxVale.Feedback.PostTest do
       refute SetCastDefaults.atomic?()
       refute BumpPostVoteCount.atomic?()
     end
+  end
+
+  # #287: seed! companions need the handle explicitly (NOT NULL); the
+  # local part of the original address is unique per call.
+  defp username_seed_for(address) do
+    [local | _rest] = String.split(address, "@", parts: 2)
+
+    local
+    |> String.replace(~r/[^a-z0-9-]+/, "-")
+    |> String.trim("-")
   end
 end

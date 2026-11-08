@@ -135,11 +135,10 @@ defmodule FluxValeWeb.BillingLive.Topup do
         details: %{
           name: "",
           # #285 T4: the buyer email prefills from the account's
-          # PRIMARY address — `users.email` is the frozen mirror and
-          # goes stale at SetPrimaryEmail. Nil primary (old-pod
-          # straggler) falls back to the mirror — see
-          # User.primary_email.
-          email: to_string(user.primary_email || user.email),
+          # PRIMARY address — live from user_emails (post-#287 there is
+          # no mirror and no fallback; a nil primary is data drift and
+          # prefills empty).
+          email: to_string(user.primary_email || ""),
           country: "",
           state: "",
           customer_type: :consumer,

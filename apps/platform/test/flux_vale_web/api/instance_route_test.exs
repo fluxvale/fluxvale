@@ -63,7 +63,7 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
   describe "GET /api/v1/instances" do
     test "lists the member's instances with the pinned public field set", %{conn: conn} do
       {user, instance} = member_with_instance()
-      pat = ApiPat.mint!(user.email, ["instances:write"])
+      pat = ApiPat.mint!(user, ["instances:write"])
 
       conn =
         conn
@@ -99,7 +99,7 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
   describe "GET /api/v1/instances/:id" do
     test "returns the record's public surface", %{conn: conn} do
       {user, instance} = member_with_instance()
-      pat = ApiPat.mint!(user.email, ["instances:write"])
+      pat = ApiPat.mint!(user, ["instances:write"])
 
       conn =
         conn
@@ -119,7 +119,7 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
 
     test "a sparse fieldset cannot summon the hidden fields", %{conn: conn} do
       {user, instance} = member_with_instance()
-      pat = ApiPat.mint!(user.email, ["instances:write"])
+      pat = ApiPat.mint!(user, ["instances:write"])
 
       conn =
         conn
@@ -148,7 +148,7 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
       {user, _pat} = ApiPat.member!()
       version = InstanceFixtures.app_version!()
       InstanceFixtures.local_cluster!()
-      pat = ApiPat.mint!(user.email, ["instances:write"])
+      pat = ApiPat.mint!(user, ["instances:write"])
 
       conn =
         conn
@@ -204,7 +204,7 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
       {:ok, org} = Accounts.personal_org_for_user(user.id, authorize?: false)
       version = InstanceFixtures.app_version!()
       InstanceFixtures.local_cluster!()
-      pat = ApiPat.mint!(user.email, ["instances:write"])
+      pat = ApiPat.mint!(user, ["instances:write"])
 
       conn =
         conn
@@ -237,7 +237,7 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
       {foreign, _foreign_owner} = BillingFixtures.grant_free_org!()
       version = InstanceFixtures.app_version!()
       InstanceFixtures.local_cluster!()
-      pat = ApiPat.mint!(user.email, ["instances:write"])
+      pat = ApiPat.mint!(user, ["instances:write"])
 
       conn =
         conn
@@ -269,7 +269,7 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
       {user, _pat} = ApiPat.member!()
       version = InstanceFixtures.app_version!()
       InstanceFixtures.local_cluster!()
-      pat = ApiPat.mint!(user.email, ["instances:write"])
+      pat = ApiPat.mint!(user, ["instances:write"])
 
       conn =
         conn
@@ -301,7 +301,7 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
       {user, _pat} = ApiPat.member!()
       version = InstanceFixtures.app_version!()
       InstanceFixtures.local_cluster!()
-      pat = ApiPat.mint!(user.email, ["instances:write"])
+      pat = ApiPat.mint!(user, ["instances:write"])
 
       conn =
         conn
@@ -325,7 +325,7 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
       {user, _pat} = ApiPat.member!(["instances:read"])
       version = InstanceFixtures.app_version!()
       InstanceFixtures.local_cluster!()
-      pat = ApiPat.mint!(user.email, ["instances:read"])
+      pat = ApiPat.mint!(user, ["instances:read"])
 
       conn =
         conn
@@ -347,7 +347,7 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
     test "a bad app_version_id errors cleanly on the field", %{conn: conn} do
       {user, _pat} = ApiPat.member!()
       InstanceFixtures.local_cluster!()
-      pat = ApiPat.mint!(user.email, ["instances:write"])
+      pat = ApiPat.mint!(user, ["instances:write"])
 
       conn =
         conn
@@ -377,7 +377,7 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
     test "enqueues the deploy — the inline trigger lands :starting (K8s stubbed)", %{conn: conn} do
       stub_k8s()
       {user, instance} = member_with_instance()
-      pat = ApiPat.mint!(user.email, ["instances:write"])
+      pat = ApiPat.mint!(user, ["instances:write"])
 
       deploying =
         conn
@@ -409,7 +409,7 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
     test "stop scales to zero, start scales back (K8s stubbed)", %{conn: conn} do
       stub_k8s()
       {user, instance} = member_with_instance()
-      pat = ApiPat.mint!(user.email, ["instances:write"])
+      pat = ApiPat.mint!(user, ["instances:write"])
 
       namespaced = InstanceFixtures.pin!(instance, namespace: "fluxvale-app-#{instance.id}")
       InstanceFixtures.walk_to!(namespaced, :running)
@@ -443,7 +443,7 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
   describe "PATCH /api/v1/instances/:id/always-on" do
     test "flips the always-on opt-out", %{conn: conn} do
       {user, instance} = member_with_instance()
-      pat = ApiPat.mint!(user.email, ["instances:write"])
+      pat = ApiPat.mint!(user, ["instances:write"])
 
       conn =
         conn
@@ -464,7 +464,7 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
   describe "PATCH /api/v1/instances/:id/exposure" do
     test "toggles exposure — attribute-only on a never-deployed row", %{conn: conn} do
       {user, instance} = member_with_instance()
-      pat = ApiPat.mint!(user.email, ["instances:write"])
+      pat = ApiPat.mint!(user, ["instances:write"])
 
       conn =
         conn
@@ -486,7 +486,7 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
     test "flips the allocation on a stopped member's row", %{conn: conn} do
       {user, created} = member_with_instance()
       instance = InstanceFixtures.walk_to!(created, :stopped)
-      pat = ApiPat.mint!(user.email, ["instances:write"])
+      pat = ApiPat.mint!(user, ["instances:write"])
 
       conn =
         conn
@@ -505,7 +505,7 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
 
     test "a non-stopped row is refused with the guard's message", %{conn: conn} do
       {user, instance} = member_with_instance()
-      pat = ApiPat.mint!(user.email, ["instances:write"])
+      pat = ApiPat.mint!(user, ["instances:write"])
 
       conn =
         conn
@@ -529,7 +529,7 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
   describe "DELETE /api/v1/instances/:id" do
     test "hard-deletes a never-deployed row (the UI's generic :delete)", %{conn: conn} do
       {user, instance} = member_with_instance()
-      pat = ApiPat.mint!(user.email, ["instances:write"])
+      pat = ApiPat.mint!(user, ["instances:write"])
 
       conn =
         conn

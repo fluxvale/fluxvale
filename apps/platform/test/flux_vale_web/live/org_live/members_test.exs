@@ -45,9 +45,9 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     other_membership = seed_member!(other_org, other_member)
 
     # Ash.CiString — text filters and splits want plain binaries.
-    owner_email = to_string(owner.email)
-    member_a_email = to_string(member_a.email)
-    member_b_email = to_string(member_b.email)
+    owner_email = to_string(AccountsFixtures.primary_address!(owner))
+    member_a_email = to_string(AccountsFixtures.primary_address!(member_a))
+    member_b_email = to_string(AccountsFixtures.primary_address!(member_b))
 
     {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
 
@@ -71,7 +71,7 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     # The other org's member is not on this roster — no row, and the email
     # appears nowhere on the page.
     refute has_element?(view, "#member-row-#{other_membership.id}")
-    refute render(view) =~ to_string(other_member.email)
+    refute render(view) =~ to_string(AccountsFixtures.primary_address!(other_member))
 
     # Row order is the sort: owners first, then joined-asc — the exact
     # rendered sequence.
@@ -105,9 +105,9 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     # joined-asc. Jan 31 must precede Feb 1 — raw DateTime term comparison
     # sorts day-of-month first and puts February on top.
     assert_row_order(view, [
-      to_string(owner.email),
-      to_string(jan.email),
-      to_string(feb.email)
+      to_string(AccountsFixtures.primary_address!(owner)),
+      to_string(AccountsFixtures.primary_address!(jan)),
+      to_string(AccountsFixtures.primary_address!(feb))
     ])
 
     # The Joined cell reads created_at — on a backdated row that is two
@@ -145,16 +145,16 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
 
     assert_row_order(view, [
-      to_string(owner.email),
-      to_string(second_created.email),
-      to_string(first_created.email)
+      to_string(AccountsFixtures.primary_address!(owner)),
+      to_string(AccountsFixtures.primary_address!(second_created)),
+      to_string(AccountsFixtures.primary_address!(first_created))
     ])
   end
 
   # #285 T4 teeth: the roster column shows the member's PRIMARY address —
   # after the REAL operations promote a verified secondary, the demoted
   # signup address must vanish from the member's row. Reverting the
-  # user_email calculation to `user.email` fails this test.
+  # user_email calculation to `AccountsFixtures.primary_address!(user)` fails this test.
   test "a member's row shows their promoted primary, not the frozen mirror", %{
     conn: conn,
     org: org
@@ -162,7 +162,7 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     member = AccountsFixtures.user!()
     membership = seed_member!(org, member)
 
-    mirror = to_string(member.email)
+    mirror = to_string(AccountsFixtures.primary_address!(member))
     promoted = "roster-promoted-#{System.unique_integer([:positive])}@fluxvale.test"
 
     assert {:ok, row} = Identity.add_email(member, promoted)
@@ -177,21 +177,25 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     refute render(view) =~ mirror
   end
 
-  # The nil-primary arm (old-pod straggler with no user_emails row):
-  # showing nothing is wrong — the frozen mirror is the honest fallback
-  # (see User.primary_email). Seeded shape: no session rides the row.
-  test "a member with no verified primary row shows the mirror address", %{
+  # The nil-primary arm (#287: the fallback died with the column —
+  # post-drop a nil primary is data drift, rendered as nothing; there
+  # is no mirror to fall back to). Seeded shape: no session rides the
+  # row.
+  test "a member with no verified primary row renders no address", %{
     conn: conn,
     org: org
   } do
     int = System.unique_integer([:positive])
 
-    straggler = Ash.Seed.seed!(FluxVale.Identity.User, %{email: "straggler-#{int}@fluxvale.test"})
+    straggler =
+      Ash.Seed.seed!(FluxVale.Identity.User, %{username: "straggler-#{int}"})
+
     membership = seed_member!(org, straggler)
 
     {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
 
-    assert has_element?(view, "#member-row-#{membership.id}", "straggler-#{int}@fluxvale.test")
+    row = render(element(view, "#member-row-#{membership.id}"))
+    refute row =~ "@"
   end
 
   test "the tab nav renders General (linking back) and Members (active)", %{conn: conn, org: org} do
@@ -251,7 +255,12 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     {:ok, view, _html} = live(member_conn, ~p"/organizations/#{org.slug}/settings/members")
 
     # The roster renders for members (the read policy's own grant).
-    assert has_element?(view, "#member-row-#{membership.id}", to_string(member.email))
+    assert has_element?(
+             view,
+             "#member-row-#{membership.id}",
+             to_string(AccountsFixtures.primary_address!(member))
+           )
+
     assert has_element?(view, "#member-row-#{owner_membership.id}", "Owner")
 
     # Their OWN row carries Leave; no role control, no Remove anywhere.
@@ -299,7 +308,9 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     org: org
   } do
     invitee = AccountsFixtures.user!()
-    {:ok, _invite} = Accounts.invite_member(owner, org, invitee.email)
+
+    {:ok, _invite} =
+      Accounts.invite_member(owner, org, AccountsFixtures.primary_address!(invitee))
 
     {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
 
@@ -308,7 +319,12 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     assert has_element?(view, "[data-testid='invite-submit']", "Send invite")
 
     # The pending row: the invited address, the invited date, revoke.
-    assert has_element?(view, "[data-testid='pending-invite-row']", to_string(invitee.email))
+    assert has_element?(
+             view,
+             "[data-testid='pending-invite-row']",
+             to_string(AccountsFixtures.primary_address!(invitee))
+           )
+
     assert has_element?(view, "[data-testid='pending-invite-row'] .sr-only", "Invited")
     assert has_element?(view, "[data-testid='pending-invite-row']", "Revoke")
 
@@ -459,7 +475,8 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
   test "an expired invite is not in the pending queue", %{conn: conn, owner: owner, org: org} do
     invitee = AccountsFixtures.user!()
 
-    assert {:ok, _live_invite} = Accounts.invite_member(owner, org, invitee.email)
+    assert {:ok, _live_invite} =
+             Accounts.invite_member(owner, org, AccountsFixtures.primary_address!(invitee))
 
     # Expiry is a state no action can produce — Ash.Seed (the
     # documented exception). The stale row must not render as pending:
@@ -476,7 +493,12 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
 
     refute has_element?(view, "[data-testid='pending-invite-row']", "expired-queue@fluxvale.test")
-    assert has_element?(view, "[data-testid='pending-invite-row']", to_string(invitee.email))
+
+    assert has_element?(
+             view,
+             "[data-testid='pending-invite-row']",
+             to_string(AccountsFixtures.primary_address!(invitee))
+           )
   end
 
   test "revoking an invite accepted elsewhere answers 'no longer pending'", %{
@@ -485,8 +507,8 @@ defmodule FluxValeWeb.OrganizationLive.MembersTest do
     org: org
   } do
     invitee = AccountsFixtures.user!()
-    {:ok, invite} = Accounts.invite_member(owner, org, invitee.email)
-    raw = mailbox_token!(to_string(invitee.email))
+    {:ok, invite} = Accounts.invite_member(owner, org, AccountsFixtures.primary_address!(invitee))
+    raw = mailbox_token!(to_string(AccountsFixtures.primary_address!(invitee)))
 
     {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/members")
 

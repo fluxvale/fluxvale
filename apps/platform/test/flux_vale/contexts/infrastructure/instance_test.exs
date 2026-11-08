@@ -589,9 +589,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       # action's JIT change always provisions one (state actions can't
       # produce, the documented seed! exception).
       orgless =
-        Ash.Seed.seed!(User, %{
-          email: "orgless-#{System.unique_integer()}@fluxvale.test"
-        })
+        Ash.Seed.seed!(User, %{username: "orgless-#{System.unique_integer()}"})
 
       assert {:error, %Ash.Error.Invalid{errors: errors}} =
                Instance.create(build_attrs(), actor: orgless)

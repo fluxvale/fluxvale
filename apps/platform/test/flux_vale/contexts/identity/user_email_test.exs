@@ -3,9 +3,12 @@ defmodule FluxVale.Identity.UserEmailTest do
 
   use FluxVale.DataCase, async: true
 
+  import FluxVale.TestSupport.UserInviteHelpers
+
   alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Repo
+  alias FluxVale.TestSupport.AccountsFixtures
 
   require Ash.Query
 
@@ -388,38 +391,59 @@ defmodule FluxVale.Identity.UserEmailTest do
       assert message =~ "primary"
     end
 
-    test "refuses removing the create mirror — it is frozen into users.email (#285 T3 §5)" do
-      # The mirror is the account's only verified address before any
-      # switch; the frozen clause is its accurate refusal (the
-      # only-verified branch fires on drifted data — see the
-      # guard-concurrency test).
+    test "refuses removing the only verified row — last-verified is the refusal (#287)" do
+      # The signup row is the account's only verified address before
+      # any switch; the frozen-mirror clause died with the column, and
+      # the only-verified branch is its accurate refusal.
       user = create_user("sole@emails.fluxvale.test")
       primary = mirror_row(user)
 
       assert {:error, %Ash.Error.Invalid{errors: [%{message: message}]}} =
                UserEmail.remove(primary, actor: user, authorize?: true)
 
-      assert message =~ "frozen"
+      assert message =~ "only verified"
       assert count_verified(user) == 1
     end
 
-    test "refuses the signup address — frozen into users.email even after a switch (#285 T3)" do
-      # Sign-in resolves through this table; if the frozen mirror's row
-      # went away, the address would be unresolvable AND unprovisionable
-      # (the users unique-email index still holds it).
+    test "refuses an unaccepted invitation's reservation — no surface may orphan an invite (#287)" do
+      # The invitation owns its address row until acceptance; RemoveGuard
+      # refuses every remover, admins included (an orphaned invite can
+      # never be accepted, and re-invite would fork a second account
+      # for the address).
+      address = "guarded-#{System.unique_integer()}@partner.example"
+      {invited, _raw} = invite_user!(address)
+      admin = AccountsFixtures.platform_admin!()
+
+      [reservation | _rest] =
+        UserEmail
+        |> Ash.Query.filter(user_id == ^invited.id)
+        |> Ash.read!(authorize?: false)
+
+      assert {:error, %Ash.Error.Invalid{errors: [%{message: message}]}} =
+               UserEmail.remove(reservation, actor: admin, authorize?: true)
+
+      assert message =~ "outstanding invitation"
+
+      # the reservation stands, still pending
+      fresh = Ash.get!(UserEmail, reservation.id, authorize?: false)
+      assert is_nil(fresh.verified_at)
+    end
+
+    test "removes the demoted signup address — ordinary address rules post-#287" do
+      # The frozen-mirror freeze died with the column: after a switch
+      # the signup row is an ordinary verified, non-primary address
+      # with siblings — it goes.
       user = create_user("frozen@emails.fluxvale.test")
       second = verified_email(user, "switched@emails.fluxvale.test")
       {:ok, _promoted} = UserEmail.set_primary(second, actor: user, authorize?: true)
 
       old =
         UserEmail
-        |> Ash.Query.filter(address == ^user.email)
+        |> Ash.Query.filter(address == ^"frozen@emails.fluxvale.test")
         |> Ash.read_one!(authorize?: false)
 
-      assert {:error, %Ash.Error.Invalid{errors: [%{message: message}]}} =
-               UserEmail.remove(old, actor: user, authorize?: true)
-
-      assert message =~ "frozen"
+      assert :ok = UserEmail.remove(old, actor: user, authorize?: true)
+      assert count_verified(user) == 1
     end
 
     test "allows removing a pending row while a verified one remains" do

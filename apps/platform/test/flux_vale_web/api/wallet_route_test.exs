@@ -8,6 +8,7 @@ defmodule FluxValeWeb.Api.WalletRouteTest do
   use FluxValeWeb.ConnCase, async: true
 
   alias FluxVale.Billing
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.ApiPat
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -27,7 +28,7 @@ defmodule FluxValeWeb.Api.WalletRouteTest do
       {:ok, wallet} = Billing.ensure_wallet(org)
       {:ok, _grant} = Billing.grant_credits(wallet, 1_500, reason: :purchase)
 
-      pat = ApiPat.mint!(user.email, ["wallet:read"])
+      pat = ApiPat.mint!(user, ["wallet:read"])
 
       conn =
         conn
@@ -52,7 +53,7 @@ defmodule FluxValeWeb.Api.WalletRouteTest do
   describe "GET /api/v1/organizations/:organization_id/wallet/runway" do
     test "projects the runway — the operation's own three-key shape", %{conn: conn} do
       {user, org} = member_org!()
-      pat = ApiPat.mint!(user.email, ["wallet:read"])
+      pat = ApiPat.mint!(user, ["wallet:read"])
 
       conn =
         conn
@@ -77,7 +78,7 @@ defmodule FluxValeWeb.Api.WalletRouteTest do
       instance = InstanceFixtures.instance!(version, user)
       InstanceFixtures.walk_to!(instance, :running)
 
-      pat = ApiPat.mint!(user.email, ["wallet:read"])
+      pat = ApiPat.mint!(user, ["wallet:read"])
 
       conn =
         conn
@@ -98,7 +99,7 @@ defmodule FluxValeWeb.Api.WalletRouteTest do
       {:ok, _welcome} = Billing.grant_credits(wallet, 300, reason: :welcome)
       {:ok, _topup} = Billing.credit_wallet(wallet, 100)
 
-      pat = ApiPat.mint!(user.email, ["wallet:read"])
+      pat = ApiPat.mint!(user, ["wallet:read"])
 
       page_one =
         conn
@@ -133,7 +134,8 @@ defmodule FluxValeWeb.Api.WalletRouteTest do
       # rows; a grant-free org's fresh wallet is the empty shape.
       {org, owner} = BillingFixtures.grant_free_org!()
       {:ok, wallet} = Billing.ensure_wallet(org)
-      pat = ApiPat.mint!(owner.email, ["wallet:read"])
+      address = AccountsFixtures.primary_address!(owner)
+      pat = ApiPat.mint!(address, ["wallet:read"])
 
       conn =
         conn

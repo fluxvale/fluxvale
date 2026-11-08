@@ -94,9 +94,10 @@ defmodule FluxVale.Identity.UserEmail.GuardConcurrencyTest do
     committed?(fn ->
       unique = System.unique_integer([:positive])
 
-      # see the moduledoc: a drifted owner with no mirror row — a state
-      # actions cannot produce (the create mirror stamps one)
-      owner = Ash.Seed.seed!(User, %{email: "guard-cc-owner-#{unique}@fluxvale.test"})
+      # see the moduledoc: a drifted owner with no primary row — a
+      # state actions cannot produce (the create writes one); seed!
+      # needs the handle explicitly now (#287: NOT NULL, no column)
+      owner = Ash.Seed.seed!(User, %{username: "guard-cc-owner-#{unique}"})
 
       decoy_a = User.create!("guard-cc-decoy-a-#{unique}@fluxvale.test", %{}, authorize?: false)
       decoy_b = User.create!("guard-cc-decoy-b-#{unique}@fluxvale.test", %{}, authorize?: false)

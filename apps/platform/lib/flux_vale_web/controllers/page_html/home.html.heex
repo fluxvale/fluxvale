@@ -61,12 +61,13 @@ layout's flex contract while scoping the landing styles. --%>
             </.button>
           </li>
           <li :if={@current_user}>
-            <%!-- #285 T4: handle + PRIMARY address, mirror fallback (see
-            User.primary_email) — same contract as the app chrome's menu.
+            <%!-- #285 T4: handle + PRIMARY address — same contract as
+            the app chrome's menu (post-#287 no mirror fallback
+            remains; a nil primary is data drift).
             #551: the Admin row rides the same feed the chrome uses. --%>
             <.user_menu
               username={@current_user.username}
-              email={@current_user.primary_email || @current_user.email}
+              email={@current_user.primary_email}
               platform_admin={ActorIsPlatformAdmin.platform_admin?(@current_user)}
             />
           </li>

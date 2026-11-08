@@ -481,7 +481,7 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
     } do
       # The PAT satisfies the route pipeline, but the socket carries no
       # session — the on_mount re-check is the arm that answers.
-      pat = ApiPat.mint!(admin.email, ["instances:read"])
+      pat = ApiPat.mint!(admin, ["instances:read"])
       conn = put_req_header(build_conn(), "authorization", "Bearer " <> pat)
 
       assert {:error, {:redirect, %{to: "/sign-in"}}} =

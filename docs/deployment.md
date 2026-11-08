@@ -239,19 +239,11 @@ other operator-entered rows): heal it through the release rpc —
 Idempotent — a second call adds nothing, and the welcome grant rides
 the org create exactly once.
 
-Two lookups answer before any refusal: an address with no verified
-`user_emails` row (a #285 rolling-window straggler that never signed in
-again) says "record not found" — the account must sign in once first,
-or wait for #287's sweep; an account that already owns its org heals
-nothing (`{:ok, org, false}`). The refusal with a shape: a resolvable
-account with a NULL username and no org (drifted data — the org is
-named after the handle), so provisioning answers
-`{:error, :username_missing}` instead of a changeset dump. Set the
-handle first, then re-run the heal:
-
-```sh
-/app/bin/flux_vale eval 'user = FluxVale.Identity.User.get_by_email!("user@example.com", authorize?: false); user = Ash.update!(user, %{username: "chosen-handle"}, action: :set_username, authorize?: false); FluxVale.Accounts.provision_personal_org(user)'
-```
+Note: #287 retired the straggler shapes this section once described —
+usernames are NOT NULL from birth (JIT signups and invites both derive
+one), addresses live only in `user_emails`, and the
+`:username_missing` refusal is no longer producible. An org-less
+account here means pre-#119 data the wipe doctrine absorbed.
 
 ## Feature flags
 

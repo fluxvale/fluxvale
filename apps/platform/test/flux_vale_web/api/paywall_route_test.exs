@@ -29,7 +29,7 @@ defmodule FluxValeWeb.Api.PaywallRouteTest do
       # ApiPat.member!'s org is JIT-provisioned: 300¢ welcome credit,
       # zero purchases — funded, never paid.
       {user, _pat} = ApiPat.member!()
-      pat = ApiPat.mint!(user.email, ["instances:write", "backups:write", "gateways:write"])
+      pat = ApiPat.mint!(user, ["instances:write", "backups:write", "gateways:write"])
       instance = instance_for!(user)
 
       list =
@@ -81,7 +81,7 @@ defmodule FluxValeWeb.Api.PaywallRouteTest do
       instance = instance_for!(user)
       :ok = BillingFixtures.drain_wallet!(org)
 
-      pat = ApiPat.mint!(user.email, ["instances:write", "backups:write", "gateways:write"])
+      pat = ApiPat.mint!(user, ["instances:write", "backups:write", "gateways:write"])
 
       conn =
         conn
@@ -104,7 +104,7 @@ defmodule FluxValeWeb.Api.PaywallRouteTest do
       version = InstanceFixtures.app_version!()
       InstanceFixtures.local_cluster!()
 
-      pat = ApiPat.mint!(user.email, ["instances:write", "backups:write", "gateways:write"])
+      pat = ApiPat.mint!(user, ["instances:write", "backups:write", "gateways:write"])
 
       conn =
         conn

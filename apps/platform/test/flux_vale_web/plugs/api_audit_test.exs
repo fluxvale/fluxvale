@@ -18,6 +18,7 @@ defmodule FluxValeWeb.Plugs.ApiAuditTest do
   alias FluxVale.Identity.User
   alias FluxVale.Ops.AccessRule
   alias FluxVale.Repo
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.ApiPat
 
   setup do
@@ -100,7 +101,8 @@ defmodule FluxValeWeb.Plugs.ApiAuditTest do
       # paid — the gateway mint's paid-once gate refuses (the paywall
       # suite's own posture proof, just asserted on the audit row).
       {user, _full_scoped_pat} = ApiPat.member!()
-      raw = ApiPat.mint!(user.email, ["gateways:write"])
+      address = AccountsFixtures.primary_address!(user)
+      raw = ApiPat.mint!(address, ["gateways:write"])
 
       hash = PersonalAccessToken.token_hash(raw)
       {:ok, pat} = PersonalAccessToken.get_by_token_hash(hash, authorize?: false)

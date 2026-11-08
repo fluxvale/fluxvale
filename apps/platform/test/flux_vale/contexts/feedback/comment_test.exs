@@ -101,9 +101,7 @@ defmodule FluxVale.Feedback.CommentTest do
       post = post!()
 
       orgless =
-        Ash.Seed.seed!(FluxVale.Identity.User, %{
-          email: "orgless-#{System.unique_integer()}@fluxvale.test"
-        })
+        Ash.Seed.seed!(FluxVale.Identity.User, %{username: "orgless-#{System.unique_integer()}"})
 
       assert {:ok, comment} =
                Comment.create(%{post_id: post.id, body: "No org, still here"}, actor: orgless)

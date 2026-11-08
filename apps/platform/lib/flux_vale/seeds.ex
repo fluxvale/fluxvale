@@ -25,7 +25,6 @@ defmodule FluxVale.Seeds do
   alias FluxVale.Feedback.Tag
   alias FluxVale.Feedback.Vote
   alias FluxVale.Identity.User
-  alias FluxVale.Identity.User.MirrorSignupEmail
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Infrastructure.Cluster
   alias FluxVale.Infrastructure.Instance
@@ -78,10 +77,11 @@ defmodule FluxVale.Seeds do
 
   Deploy-resilient (#285 review P2-2): a PENDING claim on the seed
   address is superseded atomically before the create (operator-trusted —
-  the seed address is the environment's own), and a pre-T3 admin whose
-  address lives only in `users.email` (no `user_emails` row) is healed
-  through the collision arm instead of failing every deploy (ADR-0033's
-  init container boots NotReady).
+  the seed address is the environment's own). A collision the supersede
+  cannot explain — an outstanding INVITATION holding the seed address,
+  or a concurrent commit inside the window — fails loudly with the
+  occupant named; the operator decides. The mirror-era heal arm died
+  with the column (#287: the wipe doctrine absorbed its stragglers).
 
   authorize?: false — bootstrap: there is no actor to authorize before
   the first admin exists (same posture as the User#create policy
@@ -109,11 +109,12 @@ defmodule FluxVale.Seeds do
           {:ok, _admin} ->
             :ok
 
-          # users.email already holds the seed address with no row the
-          # table-backed identity can see (a pre-T3 pod created it).
-          # Heal, then the same role gate as the verified-row arm.
+          # The address is taken by something the verified-row read
+          # cannot see — an outstanding invitation, or a concurrent
+          # commit inside the window. Name the occupant; the operator
+          # decides.
           {:error, collision} ->
-            heal_seed_admin!(collision)
+            collide_seed_admin!(collision)
         end
     end
   end
@@ -124,46 +125,32 @@ defmodule FluxVale.Seeds do
     |> Ash.create(authorize?: false)
   end
 
-  # The collision arm: the address belongs to a user get_by_email
-  # cannot see — the old-pod shape (users.email set, no user_emails
-  # row). Heal their mirror row exactly as the create path would
-  # (primary only when the account has none — a promoted second address
-  # stays primary; forcing it would collide the partial index and wedge
-  # every deploy, review round 2 P1), then apply the squatter gate: an
-  # admin passes; a non-admin occupant is the operator-decides raise,
-  # unchanged in spirit.
-  defp heal_seed_admin!(collision) do
-    case frozen_email_owner(@admin_email) do
-      {:ok, %{platform_role: :admin} = admin} ->
-        case MirrorSignupEmail.write_mirror_row(admin) do
-          {:ok, _row} ->
-            :ok
+  # The collision arm (#287): the create lost unique_address, so the
+  # address is occupied. An INVITED reservation is the one sequential
+  # occupant (everything else was superseded or resolved above) — the
+  # operator must retire or re-point that invitation; bootstrap fails
+  # loudly instead of forking a second account for the seed address.
+  # A no-occupant read after a collision is the concurrent-commit
+  # window — re-run converges.
+  defp collide_seed_admin!(collision) do
+    occupant =
+      User
+      |> Ash.Query.for_read(:get_by_address, %{email: @admin_email})
+      |> Ash.Query.load(:invite_state)
+      |> Ash.read_one(authorize?: false)
 
-          # Race-only: the create just collided, so the address's row
-          # state changed moments ago — a claim re-added mid-window, say.
-          # coveralls-ignore-start - bootstrap fails loudly instead
-          {:error, reason} ->
-            raise "seed admin: mirror-row heal failed for #{@admin_email} — #{inspect(reason)}"
-            # coveralls-ignore-stop
-        end
+    case occupant do
+      {:ok, %User{invite_state: state} = invited}
+      when state in [:pending, :withdrawn, :expired] ->
+        raise "seed admin: #{@admin_email} carries an outstanding invitation (#{inspect(state)}) on account #{invited.id} — withdraw or accept it, then re-run"
 
-      {:ok, %{} = _squatter} ->
-        raise "seed admin: #{@admin_email} exists with a non-admin role — promote or remove that user manually, then re-run"
+      # coveralls-ignore-start - race-only: needs a commit in the
+      # residual window after the supersede — a re-run converges
+      _occupied_by_a_race ->
+        raise "seed admin: #{@admin_email} could not be created (#{Exception.message(collision)}) — re-run"
 
-      # No owner at all ({:ok, nil}) or the owner read failed: the create
-      # collided with a rolled-back or aborted writer, or the failure
-      # was not an address collision. Bootstrap fails loudly; re-run.
-      # coveralls-ignore-start - bootstrap fails loudly instead
-      _owner_gone ->
-        raise "seed admin: #{@admin_email} could not be created (#{Exception.message(collision)}) and no user holds it — re-run"
         # coveralls-ignore-stop
     end
-  end
-
-  defp frozen_email_owner(email) do
-    User
-    |> Ash.Query.filter(email == ^email)
-    |> Ash.read_one(authorize?: false)
   end
 
   @doc """
@@ -182,18 +169,15 @@ defmodule FluxVale.Seeds do
       {:ok, _org, _created?} ->
         :ok
 
-      # Reachable (covered in AdminSeedTest): an admin row with a NULL
-      # username AND no personal org — drifted or hand-seeded data, not
-      # a deploy shape (org provisioning predates usernames and the
-      # #290 backfill filled every then-existing handle; #285-window
-      # old pods provisioned orgs). seed_admin!/0's heal writes the
-      # mirror row and carries such a row past its gate; the org heal
-      # then names the org after the handle and answers
-      # {:error, :username_missing} — loudly, with the remedy in
-      # docs/deployment.md's rpc block. A lost slug race or a DB
-      # failure lands here too; same loud posture.
+      # A lost slug race or a DB failure — the username_missing arm
+      # died with the NOT NULL contract (#287: a NULL-handle row can no
+      # longer exist, so only true-concurrency and DB-down classes land
+      # here, neither sequentially simulatable under the sandbox).
+      # coveralls-ignore-start
       {:error, reason} ->
         raise "seed admin org: provisioning failed — #{inspect(reason)}"
+
+        # coveralls-ignore-stop
     end
   end
 
@@ -735,7 +719,7 @@ defmodule FluxVale.Seeds do
             # The mint failed for a reason the slug row cannot answer
             # (a rolled-back winner, a DB failure, or a validation
             # failure a fixture entry can produce) — fail loudly naming
-            # the failure (the heal_seed_admin! _owner_gone posture).
+            # the failure (the collide_seed_admin! occupied-by-a-race posture).
             raise "seed feedback: post #{inspect(entry.slug)} mint failed and no row holds the slug — #{Exception.message(collision)} — re-run"
 
           post ->
@@ -750,9 +734,14 @@ defmodule FluxVale.Seeds do
     # The authored slug is the get-or-create key: a future entry whose
     # title no longer derives to it would mint an unfindable duplicate
     # on every re-run. Fail the seed loudly instead.
+    # coveralls-ignore-start - authoring guard: the shipped YAML derives
+    # cleanly; a mismatch is a content-edit error the operator fixes in
+    # the file, not a runtime state a test can produce
     if created.slug != entry.slug do
       raise "seed feedback: #{inspect(entry.title)} derived slug #{inspect(created.slug)}, expected #{inspect(entry.slug)} — fix the entry's title to derive it"
     end
+
+    # coveralls-ignore-stop
 
     moved =
       if entry.status == :open do

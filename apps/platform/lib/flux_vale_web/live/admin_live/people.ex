@@ -205,7 +205,7 @@ defmodule FluxValeWeb.AdminLive.People do
   def handle_event("open-withdraw", %{"id" => id}, socket) do
     admin = socket.assigns.current_user
 
-    with {:ok, user} <- Ash.get(User, id, actor: admin, load: [:invite_state]),
+    with {:ok, user} <- Ash.get(User, id, actor: admin, load: [:invite_state, :contact_email]),
          :pending <- user.invite_state do
       revealed =
         socket
@@ -280,15 +280,17 @@ defmodule FluxValeWeb.AdminLive.People do
 
   # The copy branch ahead of the write: does this address already carry
   # an outstanding invitation (pending, withdrawn, expired)? Admins may
-  # read users (the platform-admin policy), and the frozen email mirror
-  # is the same address surface the operation's occupant resolution
-  # resolves through. An accepted account never matches (its acceptance
-  # stamp is set) and refuses at the domain as before.
+  # read users (the platform-admin policy), and any user_emails row on
+  # the address is the same surface the operation's occupant resolution
+  # resolves through (#287 — the users table carries no address). An
+  # accepted account never matches (its acceptance stamp is set) and
+  # refuses at the domain as before.
   defp outstanding_invitation?(admin, address) do
     User
     |> Ash.Query.for_read(:read, %{}, actor: admin)
     |> Ash.Query.filter(
-      email == ^address and not is_nil(invited_at) and is_nil(invite_accepted_at)
+      exists(emails, address == ^address) and not is_nil(invited_at) and
+        is_nil(invite_accepted_at)
     )
     |> Ash.exists?(actor: admin)
   end
@@ -325,6 +327,7 @@ defmodule FluxValeWeb.AdminLive.People do
       |> maybe_search(socket.assigns.query)
       |> Ash.Query.limit(@list_cap + 1)
       |> Ash.Query.load(:invite_state)
+      |> Ash.Query.load(:contact_email)
       |> Ash.read!()
 
     capped? = length(fetched) > @list_cap
@@ -337,8 +340,10 @@ defmodule FluxValeWeb.AdminLive.People do
 
   defp maybe_search(query, ""), do: query
 
+  # Search rides the address table (#287): exists() over the emails
+  # join — no row multiplication for multi-row users, ci via citext.
   defp maybe_search(query, term) do
-    Ash.Query.filter(query, ilike(email, ^"%#{term}%"))
+    Ash.Query.filter(query, exists(emails, ilike(address, ^"%#{term}%")))
   end
 
   # -- display helpers ------------------------------------------------------
@@ -551,9 +556,9 @@ defmodule FluxValeWeb.AdminLive.People do
                             <span
                               class="block truncate whitespace-nowrap font-medium text-ink"
                               data-testid={"admin-people-email-#{user.id}"}
-                              title={user.email}
+                              title={user.contact_email}
                             >
-                              {user.email}
+                              {user.contact_email}
                             </span>
                           </div>
                           <div>
@@ -615,7 +620,7 @@ defmodule FluxValeWeb.AdminLive.People do
                                 :if={reinvite?(user.invite_state)}
                                 type="button"
                                 phx-click="reinvite"
-                                phx-value-email={user.email}
+                                phx-value-email={user.contact_email}
                                 phx-disable-with={gettext("Sending...")}
                                 class="text-sm font-medium text-link underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50"
                                 data-testid={"admin-people-reinvite-#{user.id}"}
@@ -648,7 +653,7 @@ defmodule FluxValeWeb.AdminLive.People do
                           <.confirm_block
                             title={
                               gettext("Withdraw the invite for %{email}?",
-                                email: @withdrawing_user.email
+                                email: @withdrawing_user.contact_email
                               )
                             }
                             body={

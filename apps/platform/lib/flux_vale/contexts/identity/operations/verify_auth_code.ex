@@ -12,39 +12,32 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   ≤10-min code-TTL window is exactly the severing case Am. 1 cares about.
   Denied addresses burn nothing.
 
-  Resolution is table-backed (#285 T3): a VERIFIED `user_emails` row
-  signs in to its user — any verified address, primary or not; a
+  Resolution is table-backed (#285 T3, #287): a VERIFIED `user_emails`
+  row signs in to its user — any verified address, primary or not; a
   PENDING claim carries no proof and is superseded by the burned code
   (deleted atomically — pending-only at delete time — then a fresh JIT
-  account); no row JITs as before. A claim the concurrent VerifyEmail
-  flips verified first is a PROVEN address: its owner signs in, no
-  second account. A create collision resolves the account that already
-  holds the address — the old-pod shape (`users.email` set, no row,
-  review P2-3) gets its mirror row healed and signs in.
+  account). An INVITED reservation is not a claim and never supersedes:
+  the occupant lookup (`get_by_address`) finds the invited account and
+  the invite state decides (#502) — pending answers :invite_pending (the
+  link is the credential), retired invitations (:withdrawn, :expired)
+  answer :invitation_required like any uninvited address.
 
-  The invitation rule (#502): JIT provisioning is the team
-  domain's alone — a genuinely new address creates an account only on
+  The invitation rule (#502): JIT provisioning is the team domain's
+  alone — a genuinely new address creates an account only on
   `@fluxvale.com`. Everyone else arrives pre-provisioned: an admin's
-  invite creates the User (inert), and the one-time accept link runs
-  the bootstrap (`FluxVale.Identity.accept_invitation/1`). An
-  invited-unaccepted account is never signed into and never healed —
-  its frozen-mirror row is exactly what acceptance must write — so the
-  frozen-owner fork refuses :pending with :invite_pending, and
-  retired invitations (:withdrawn, :expired) answer :invitation_required
-  like any uninvited address. The refusal atom is `:invitation_required`
-  — the honest copy is the LiveView's concern; the operation's contract
-  is the atom and the no-account guarantee.
+  invite creates the User (inert, its address already reserved as a
+  pending row), and the one-time accept link runs the bootstrap
+  (`FluxVale.Identity.accept_invitation/1`). The refusal atom is
+  `:invitation_required` — the honest copy is the LiveView's concern;
+  the operation's contract is the atom and the no-account guarantee.
   """
 
   alias FluxVale.Identity.AuthCode
   alias FluxVale.Identity.User
-  alias FluxVale.Identity.User.MirrorSignupEmail
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Ops.AccessRules
 
   # Ash.Query.filter is a macro
-  require Ash.Query
-
   # The framework's own door for auth flows — see RequestAuthCode's note
   @interaction %{private: %{ash_authentication?: true}}
 
@@ -60,7 +53,11 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   team domain nor already invited (pre-provisioned) is refused at
   provisioning with `{:error, :invitation_required}` and no account is
   created (#502); an invited-unaccepted account refuses with
-  `{:error, :invite_pending}`.
+  `{:error, :invite_pending}`. `{:error, :address_unresolved}` is the
+  residual-window atom (a claim committed between the supersede and the
+  occupant lookup — race-only, retryable: the retry supersedes and
+  wins; the sign-in UI renders it as the plain bad-code copy, the
+  honest answer for a window the user cannot act on).
   """
   @spec call(String.t() | Ash.CiString.t(), String.t()) ::
           {:ok, map(), String.t()} | {:error, atom()}
@@ -175,10 +172,12 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   # A PENDING claim (someone started adding this address to another
   # account) carries no proof — the burned code IS the inbox proof, and
   # it supersedes the claim. The supersede is atomic and pending-only at
-  # delete time (UserEmail.supersede_pending_claims/1), so a claim the
-  # concurrent VerifyEmail flips verified first SURVIVES: deleted BEFORE
-  # the JIT create so the unique_address identity cannot collide with
-  # the mirror row the create writes (#285 T3 §2/§5) — and when it
+  # delete time (UserEmail.supersede_pending_claims/1), and invited
+  # reservations are exempt (#287): the invited account keeps its row
+  # and is found by the occupant lookup below, not forked around. A
+  # claim the concurrent VerifyEmail flips verified first SURVIVES:
+  # deleted BEFORE the JIT create so the unique_address identity cannot
+  # collide with the signup row the create writes — and when it
   # survives, the re-lookup resolves to its owner instead of forking a
   # second account.
   defp supersede_and_resolve(email) do
@@ -233,15 +232,16 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
 
   # JIT provisioning (ADR-0003): a valid code proves inbox ownership.
   # The gate sits in front of the create (#502 shape) — EXCEPT for an
-  # address the frozen mirror already owns: that is an account, and the
-  # invite state decides what it may do (invited_owner/2 below). For a
+  # address another account already occupies: the occupant lookup sees
+  # every row (verified owner or invited reservation), and the invite
+  # state decides what may happen (invited_owner/2 below). For a
   # genuinely new address the burned login code proved the inbox and
   # admission rides the structural team bypass. The refusal happens
   # before any write.
   defp provision_user(email) do
-    case frozen_email_owner(email) do
+    case occupant(email) do
       {:ok, %User{} = owner} ->
-        invited_owner(email, owner)
+        invited_owner(owner)
 
       {:ok, nil} ->
         gated_create(email)
@@ -254,19 +254,18 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
     end
   end
 
-  # A frozen-mirror owner exists that no verified row resolves. The
-  # invite state decides (#502): a PENDING invite is an inert
-  # pre-provisioned account — never signed into, never healed (the
-  # mirror row is what acceptance must write); :withdrawn and :expired
-  # are retired invitations, so the JIT gate's refusal is the honest
-  # answer; :none is the old-pod shape and heals as before. :accepted
-  # rides the same clause but is structurally unreachable HERE: an
-  # accepted account always resolves through lookup_user — acceptance
-  # writes the verified mirror row, and RemoveGuard's frozen-mirror
-  # guard keeps it (the signup address cannot lose its row while
-  # users.email exists, #285 T3). Revisit when #287 F1 drops the
-  # mirror column.
-  defp invited_owner(email, %User{} = owner) do
+  # The occupant's invite state decides (#502): a PENDING invite is an
+  # inert pre-provisioned account — never signed into (the link is the
+  # credential, :invite_pending); :withdrawn and :expired are retired
+  # invitations, so the JIT gate's refusal is the honest answer.
+  # :none and :accepted are structurally unreachable HERE: verified
+  # owners were caught by lookup_user, and their pending claims were
+  # superseded above — the only rows that survive to this lookup are
+  # invited reservations. The race residual (a claim committed after
+  # the supersede, inside this window) rides the same arm as every
+  # other unresolved-window case: :address_unresolved, retryable — a
+  # retry supersedes and wins.
+  defp invited_owner(%User{} = owner) do
     case owner.invite_state do
       :pending ->
         {:error, :invite_pending}
@@ -274,8 +273,13 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
       state when state in [:withdrawn, :expired] ->
         {:error, :invitation_required}
 
+      # coveralls-ignore-start - race-only: needs a claim to commit
+      # between the supersede and the occupant lookup — true
+      # concurrency, not sequential (see the @doc for the atom)
       state when state in [:none, :accepted] ->
-        resolve_collided(email)
+        {:error, :address_unresolved}
+
+        # coveralls-ignore-stop
     end
   end
 
@@ -316,28 +320,26 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
         {:ok, user}
 
       # The address already belongs to an account our lookups missed:
-      # a verified row that committed in the residual window between
-      # the re-lookup above and this create (review P2-1). The burned
-      # code is still the inbox proof — resolve THAT account; no
-      # second account, no lost verified stamp. Only the two
-      # uniqueness identities mean that, though: any other create
-      # failure routes into the heal and gets reinterpreted as one
-      # (review round 2, P3 — that match is what turned the P1
-      # primary-index failure into a silent wrong-arm write).
+      # a row that committed in the residual window between the
+      # occupant lookup above and this create (review P2-1) — the
+      # signup row rides the create, so user_emails.unique_address is
+      # the collision identity. The burned code is still the inbox
+      # proof; only a uniqueness violation means "address already
+      # owned" (resolve_collision/2); anything else (a validation, a
+      # cap trigger, a DB failure) is not that signal.
       {:error, collision} ->
-        # coveralls-ignore-start - race-only since the frozen-mirror
-        # pre-check (#478): the pre-check intercepts the old-pod shape
-        # BEFORE the create, so a sequential create can no longer
-        # collide — only a concurrent commit inside the residual window
-        # (review P2-1) reaches the collision machinery. The pre-check
-        # is the gate's existing-accounts carve-out and stays.
+        # coveralls-ignore-start - race-only: the occupant pre-check is
+        # the sequential arbiter, so a create failure needs a commit in
+        # the residual window (review P2-1) — true concurrency, not
+        # sequential. The pre-check is the gate's existing-accounts
+        # carve-out and stays.
         resolve_collision(collision, email)
         # coveralls-ignore-stop
     end
   end
 
-  # coveralls-ignore-start - race-only with the frozen-mirror pre-check
-  # (#478): reached only from the concurrent-commit window above. The
+  # coveralls-ignore-start - race-only with the occupant pre-check:
+  # reached only from the concurrent-commit window above. The
   # unique/non-unique split matters for the race arms' shapes; the
   # non-uniqueness fall-through is the same not-simulatable class as
   # the other DB-down arms.
@@ -351,17 +353,17 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
 
   # coveralls-ignore-stop
 
-  # A collision is a uniqueness violation on the address identities —
-  # users.unique_email or user_emails.unique_address (the mirror write
-  # riding the create). AshPostgres reports the violated constraint in
-  # the error's private_vars; anything else (a validation, a cap
-  # trigger, a DB failure) is not an "address already owned" signal.
+  # A collision is a uniqueness violation on the address identity —
+  # user_emails.unique_address, the signup row riding the create (#287:
+  # users.unique_email died with the column). AshPostgres reports the
+  # violated constraint in the error's private_vars; anything else (a
+  # validation, a cap trigger, a DB failure) is not an "address already
+  # owned" signal.
   #
   # coveralls-ignore-start - the whole matcher cluster is race-only
-  # since the frozen-mirror pre-check (#478): the old-pod shape never
-  # reaches the create any more, so these run only inside the
-  # concurrent-commit window. Previously the pre-T3 heal tests drove
-  # them sequentially; that state is gone, not dead.
+  # with the occupant pre-check: no sequential writer reaches the
+  # create past it, so these run only inside the concurrent-commit
+  # window.
   defp unique_collision?(%Ash.Error.Invalid{} = error) do
     Enum.any?(error.errors, &unique_constraint_error?/1)
   end
@@ -379,15 +381,14 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   # multi-error commit
   defp unique_constraint_error?(_error), do: false
 
-  defp unique_attribute?(%{field: field}) when field in [:email, :address], do: true
+  defp unique_attribute?(%{field: :address}), do: true
 
-  # the other reachable attribute arms are gone or intercepted
-  # earlier: the old-pod users.unique_email collision is intercepted
-  # by the frozen-mirror pre-check (#478), and a username/org-slug
-  # probe race (DeriveUsername, ProvisionPersonalOrg — same-local-part
-  # signups) CAN deliver its field here under true concurrency: the
-  # fall-through runs and routes it to :provisioning_failed, atom-
-  # shaped — a retry probes the next suffix.
+  # the other reachable attribute arms are intercepted earlier by the
+  # occupant pre-check; a username/org-slug probe race (DeriveUsername,
+  # ProvisionPersonalOrg — same-local-part signups) CAN deliver its
+  # field here under true concurrency: the fall-through runs and routes
+  # it to :provisioning_failed, atom-shaped — a retry probes the next
+  # suffix.
   defp unique_attribute?(_error), do: false
 
   defp unique_constraint?(error) do
@@ -403,74 +404,52 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
     |> Ash.create()
   end
 
+  # coveralls-ignore-start - race-only cluster since #287: the
+  # occupant pre-check is the sequential arbiter, so every arm in here
+  # needs a commit inside the concurrent window (the flip between the
+  # re-lookup and the create) or a DB read failure mid-verify (the
+  # health db_up? class — not simulatable under the sandbox)
   defp resolve_collided(email) do
     case lookup_user(email) do
       # The concurrent VerifyEmail's row landed inside the window —
       # that account is the proven owner.
-      # coveralls-ignore-start - race arm: needs the flip to commit
-      # between the re-lookup and the create — true concurrency
       {:ok, user} ->
         {:ok, user}
 
-      # coveralls-ignore-stop
-
       {:error, :not_found} ->
-        heal_old_pod_user(email)
+        collide_with_occupant(email)
 
-      # coveralls-ignore-start - DB read failure mid-verify: same class
-      # as health's db_up? — not simulatable under the sandbox
       {:error, _read_failed} = error ->
         error
-        # coveralls-ignore-stop
     end
   end
 
-  # The old-pod shape: a pre-T3 pod created the user with `users.email`
-  # but no `user_emails` row, so the table-backed lookups miss and the
-  # create collides on users.unique_email. The burned code is still the
-  # inbox proof: fetch THAT user (authorize?: false, system seam) and
-  # write the mirror row exactly as the create path would — riding the
-  # same :add changeset so the cap and validation hold, primary only
-  # when the account has none yet (a healed account may own one already;
-  # forcing it would collide the partial index — review round 2, P1).
-  # One-time re-login posture stands (ADR-0023 Am. 1); the F1 sweep
-  # closes the residue.
-  defp heal_old_pod_user(email) do
-    case frozen_email_owner(email) do
-      {:ok, %User{} = user} ->
-        case MirrorSignupEmail.write_mirror_row(user) do
-          {:ok, _mirror_row} ->
-            {:ok, user}
+  # coveralls-ignore-stop
 
-          # The heal's write was refused (the cap, a DB failure — the
-          # uniqueness arms are routed away from here by
-          # unique_collision?/1). The bare-with used to leak the
-          # %Ash.Error.Invalid{} class out of call/2, breaking its
-          # {:error, atom()} contract — same public shape as the
-          # owner-gone arm below.
-          {:error, _refused} ->
-            {:error, :address_unresolved}
-        end
+  # The create collided, so a row existed moments ago: an invited
+  # reservation (its account decides the refusal — the invitation wins,
+  # it existed first) or a claim that already vanished mid-window.
+  # Race-only either way — a clean, retryable refusal.
+  # coveralls-ignore-start
+  defp collide_with_occupant(email) do
+    case occupant(email) do
+      {:ok, %User{} = owner} ->
+        invited_owner(owner)
 
-      # The create just collided on this address, so an owner existed
-      # moments ago: it vanished mid-window, or the collision was a
-      # claim re-added inside the window (unique_address) with no
-      # old-pod owner. Race-only either way — a clean failure; the
-      # retry supersedes and wins.
-      # coveralls-ignore-start
       _owner_gone ->
         {:error, :address_unresolved}
-        # coveralls-ignore-stop
     end
   end
 
-  # users.email is the frozen mirror the old pods resolve through —
-  # reading it directly is the only way to find an account the
-  # table-backed identity cannot see yet. invite_state loads with the
-  # query: the frozen-owner fork (invited_owner/2) decides on it.
-  defp frozen_email_owner(email) do
+  # coveralls-ignore-stop
+
+  # The occupant lookup (#287): one read where the mirror era needed
+  # two — any row on the address resolves its owner, verified or
+  # reserved. invite_state loads with the query: invited_owner/2
+  # decides on it.
+  defp occupant(email) do
     User
-    |> Ash.Query.filter(email == ^email)
+    |> Ash.Query.for_read(:get_by_address, %{email: email})
     |> Ash.Query.load(:invite_state)
     |> Ash.read_one(authorize?: false)
   end

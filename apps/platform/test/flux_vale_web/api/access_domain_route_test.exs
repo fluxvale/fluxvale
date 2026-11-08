@@ -59,7 +59,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
   describe "POST /api/v1/access-domains" do
     test "registers a pending :custom row and mints the Certificate", %{conn: conn} do
       {user, org} = paid_member!()
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
       config = Application.fetch_env!(:flux_vale, :access_domains)
 
       # The mint is panel-parity: the wildcard Certificate lands with
@@ -114,7 +114,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
 
     test "the domain lands canonical (trimmed + downcased), Certificate and all", %{conn: conn} do
       {user, _org} = paid_member!()
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       # The mint fires for the canonicalized name's wildcard.
       expect(Kubereq, :apply, fn _req, manifest, _fm ->
@@ -139,7 +139,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
 
     test "a failed Certificate apply is a 5xx and NO row persists", %{conn: conn} do
       {user, _org} = paid_member!()
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       expect(Kubereq, :apply, fn _req, _manifest, _fm ->
         {:ok, %{status: 500, body: %{"message" => "apiserver down"}}}
@@ -171,7 +171,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
       # The named org is the org in play: ITS wallet carries the
       # entitlement (the ops suite's stance), so mark it paid.
       {user, _org} = paid_member!()
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       {:ok, team} =
         Accounts.create_organization(user, %{
@@ -204,7 +204,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
     test "a duplicate register is refused by name — no second mint", %{conn: conn} do
       {user, org} = paid_member!()
       custom_domain!(user, org, @domain_name)
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       # EnsureRegistrable refuses in before_action — before any cluster
       # call, so no Certificate mint fires for the refused attempt.
@@ -232,7 +232,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
       {user, _org} = paid_member!()
       {foreign, _foreign_owner} = BillingFixtures.grant_free_org!()
       BillingFixtures.mark_paid!(foreign)
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       conn =
         conn
@@ -255,7 +255,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
       # ADR-0040 Amendment 2: a paid-once, funded account. The JIT
       # member is welcome-funded and never paid.
       {user, _pat} = ApiPat.member!()
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       conn =
         conn
@@ -277,7 +277,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
       {user, org} = paid_member!()
       first = custom_domain!(user, org, "first.example.com")
       second = custom_domain!(user, org, "second.example.com")
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       conn =
         conn
@@ -314,7 +314,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
       # the route test only needs the membership fence to bite.
       {other_org, other_owner} = BillingFixtures.grant_free_org!()
       custom_domain!(other_owner, other_org, "theirs.example.com")
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       conn =
         conn
@@ -337,7 +337,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
     test "returns the record's public surface", %{conn: conn} do
       {user, org} = paid_member!()
       domain = custom_domain!(user, org, @domain_name)
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       conn =
         conn
@@ -356,7 +356,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
     test "the platform row is inspectable — kind platform", %{conn: conn} do
       {user, org} = paid_member!()
       domain = platform_domain!(org)
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       conn =
         conn
@@ -371,7 +371,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
       {member, org} = paid_member!()
       domain = custom_domain!(member, org, @domain_name)
       {outsider, _outsider_org} = paid_member!()
-      pat = ApiPat.mint!(outsider.email, ["gateways:write"])
+      pat = ApiPat.mint!(outsider, ["gateways:write"])
 
       conn =
         conn
@@ -386,7 +386,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
     test "resumes a suspended domain — the row back to :verified", %{conn: conn} do
       {user, org} = paid_member!()
       domain = suspended_domain!(user, org)
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       conn =
         conn
@@ -408,7 +408,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
       # nothing, so it must also re-render nothing — the render is a
       # full cluster-wide gather + ConfigMap write.
       {:ok, verified} = AccessDomain.mark_verified(pending, authorize?: false)
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       reject(RenderAccessDNS, :call, 0)
       reject(RenderAccessDNS, :call, 1)
@@ -428,7 +428,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
       {user, org} = paid_member!()
       domain = suspended_domain!(user, org)
       BillingFixtures.drain_wallet!(org)
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       conn =
         conn
@@ -445,7 +445,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
       {member, org} = paid_member!()
       domain = suspended_domain!(member, org)
       {outsider, _outsider_org} = paid_member!()
-      pat = ApiPat.mint!(outsider.email, ["gateways:write"])
+      pat = ApiPat.mint!(outsider, ["gateways:write"])
 
       conn =
         conn
@@ -465,7 +465,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
     } do
       {user, org} = paid_member!()
       domain = custom_domain!(user, org, @domain_name)
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       # The claims' owner — the unclaim limb's subject (the ops suite's
       # stance: the gateway fixture's provision leg rides the stubs).
@@ -520,7 +520,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
       {user, org} = paid_member!()
       domain = custom_domain!(user, org, @domain_name)
       hostname_instance!(user, domain)
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       # P1-2's step (1): the pre-check precedes the tailnet — a refused
       # remove never disturbs the owner's tailnet.
@@ -542,7 +542,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
     test "the platform row is refused — it is load-bearing", %{conn: conn} do
       {user, org} = paid_member!()
       domain = platform_domain!(org)
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       conn =
         conn
@@ -558,7 +558,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
     test "an unclaim failure passes through — the honest 5xx, the row stands", %{conn: conn} do
       {user, org} = paid_member!()
       domain = custom_domain!(user, org, @domain_name)
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       stub(Tailscale, :provision_gateway, fn _gateway, _key ->
         {:ok, %{credential_secret_ref: "credential-stub"}}
@@ -590,7 +590,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
       {member, org} = paid_member!()
       domain = custom_domain!(member, org, @domain_name)
       {outsider, _outsider_org} = paid_member!()
-      pat = ApiPat.mint!(outsider.email, ["gateways:write"])
+      pat = ApiPat.mint!(outsider, ["gateways:write"])
 
       # The authorized re-read is the ownership fence: a non-member's
       # row never reaches the operation's limbs.
