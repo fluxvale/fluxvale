@@ -553,6 +553,12 @@ defmodule FluxValeWeb.Router do
       # flagged gap: no actor-facing reversal action exists).
       live("/billing", FluxValeWeb.AdminLive.Billing)
       live("/billing/wallets/:id", FluxValeWeb.AdminLive.WalletDetail)
+
+      # The feedback moderation surface (#501): the board's posts with
+      # their comments, votes, and tags. Every read and write rides the
+      # feedback domain with the platform-admin actor and authorize?:
+      # true — the domain policies decide, never the UI.
+      live("/moderation", FluxValeWeb.AdminLive.Moderation)
     end
 
     # LiveDashboard on the debug subpath (Am. 3): this node's BEAM and

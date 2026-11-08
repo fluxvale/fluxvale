@@ -366,6 +366,38 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
       assert {:error, :already_active} = Identity.invite_user(admin, accepted.email)
     end
 
+    test "opening a second withdraw reveal collapses the first panel", %{
+      conn: conn,
+      admin: admin
+    } do
+      {first, _raw} = pending_invite!(admin, unique_address("first"))
+      {second, _raw} = pending_invite!(admin, unique_address("second"))
+      {:ok, view, _html} = live(conn, "/admin/people")
+
+      view
+      |> element("[data-testid='admin-people-withdraw-#{first.id}']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='destructive-confirm']")
+      assert has_element?(view, "[data-testid='destructive-confirm']", to_string(first.email))
+
+      # The second reveal: the reset collapses the first panel, so the
+      # destructive button can only ever act on the panel the operator
+      # is looking at.
+      view
+      |> element("[data-testid='admin-people-withdraw-#{second.id}']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='destructive-confirm']", to_string(second.email))
+      refute has_element?(view, "[data-testid='destructive-confirm']", to_string(first.email))
+
+      view
+      |> element("[data-testid='admin-people-withdraw-cancel']")
+      |> render_click()
+
+      refute has_element?(view, "[data-testid='destructive-confirm']")
+    end
+
     test "withdraw confirms, then the person's link stops working", %{conn: conn, admin: admin} do
       {pending, raw} = pending_invite!(admin)
       {:ok, view, _html} = live(conn, "/admin/people")

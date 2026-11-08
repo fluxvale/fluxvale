@@ -13,7 +13,9 @@ msgstr ""
 
 #: lib/flux_vale_web/components/core_components.ex:718
 #: lib/flux_vale_web/live/admin_live/billing.ex:271
-#: lib/flux_vale_web/live/admin_live/people.ex:508
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1039
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1419
+#: lib/flux_vale_web/live/admin_live/people.ex:514
 #: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1035
 #, elixir-autogen, elixir-format
 msgid "Actions"
@@ -455,6 +457,7 @@ msgstr ""
 msgid "Description"
 msgstr ""
 
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1307
 #: lib/flux_vale_web/live/feedback_live/comments_island.ex:140
 #, elixir-autogen, elixir-format
 msgid "No comments yet."
@@ -638,6 +641,7 @@ msgstr ""
 msgid "Pick an app, set its resources, then add instances to the estimate."
 msgstr ""
 
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1284
 #: lib/flux_vale_web/live/pricing_calculator_live.ex:408
 #, elixir-autogen, elixir-format
 msgid "Remove"
@@ -668,7 +672,7 @@ msgstr ""
 msgid "Guides"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:132
+#: lib/flux_vale_web/components/admin_shell.ex:135
 #, elixir-autogen, elixir-format
 msgid "Access gateways and domains"
 msgstr ""
@@ -678,29 +682,31 @@ msgstr ""
 msgid "Admin"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:148
+#: lib/flux_vale_web/components/admin_shell.ex:151
 #, elixir-autogen, elixir-format
 msgid "AshAdmin"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:137
+#: lib/flux_vale_web/components/admin_shell.ex:140
 #, elixir-autogen, elixir-format
 msgid "Deep debugging"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:130
+#: lib/flux_vale_web/components/admin_shell.ex:133
+#: lib/flux_vale_web/live/admin_live/moderation.ex:898
 #, elixir-autogen, elixir-format
 msgid "Feedback moderation"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:149
+#: lib/flux_vale_web/components/admin_shell.ex:152
 #, elixir-autogen, elixir-format
 msgid "LiveDashboard"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/billing.ex:192
 #: lib/flux_vale_web/live/admin_live/catalog.ex:48
-#: lib/flux_vale_web/live/admin_live/people.ex:386
+#: lib/flux_vale_web/live/admin_live/moderation.ex:897
+#: lib/flux_vale_web/live/admin_live/people.ex:392
 #: lib/flux_vale_web/live/admin_live/size_edit.ex:257
 #: lib/flux_vale_web/live/admin_live/sizes.ex:64
 #: lib/flux_vale_web/live/admin_live/version_edit.ex:389
@@ -709,18 +715,18 @@ msgstr ""
 msgid "Operator console"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:131
+#: lib/flux_vale_web/components/admin_shell.ex:134
 #, elixir-autogen, elixir-format
 msgid "Orgs and instances"
 msgstr ""
 
 #: lib/flux_vale_web/components/admin_shell.ex:124
-#: lib/flux_vale_web/live/admin_live/people.ex:387
+#: lib/flux_vale_web/live/admin_live/people.ex:393
 #, elixir-autogen, elixir-format
 msgid "People and invites"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:144
+#: lib/flux_vale_web/components/admin_shell.ex:147
 #, elixir-autogen, elixir-format
 msgid "The generated tools. They run as trusted superuser without the resource policies. For emergencies and data surgery."
 msgstr ""
@@ -732,6 +738,8 @@ msgid "Wallets and billing"
 msgstr ""
 
 #: lib/flux_vale_web/components/core_components.ex:1108
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1292
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1513
 #, elixir-autogen, elixir-format
 msgid "Cancel"
 msgstr ""
@@ -1163,90 +1171,90 @@ msgstr ""
 msgid "from %{rate} plus storage"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:355
-#: lib/flux_vale_web/live/admin_live/people.ex:506
+#: lib/flux_vale_web/live/admin_live/people.ex:361
+#: lib/flux_vale_web/live/admin_live/people.ex:512
 #, elixir-autogen, elixir-format
 msgid "Accepted"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:425
-#: lib/flux_vale_web/live/admin_live/people.ex:456
-#: lib/flux_vale_web/live/admin_live/people.ex:502
+#: lib/flux_vale_web/live/admin_live/people.ex:431
+#: lib/flux_vale_web/live/admin_live/people.ex:462
+#: lib/flux_vale_web/live/admin_live/people.ex:508
 #, elixir-autogen, elixir-format
 msgid "Email"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:356
+#: lib/flux_vale_web/live/admin_live/people.ex:362
 #, elixir-autogen, elixir-format
 msgid "Expired"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:505
+#: lib/flux_vale_web/live/admin_live/people.ex:511
 #, elixir-autogen, elixir-format
 msgid "Expires"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:440
+#: lib/flux_vale_web/live/admin_live/people.ex:446
 #, elixir-autogen, elixir-format
 msgid "Find an invitation"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:389
+#: lib/flux_vale_web/live/admin_live/people.ex:395
 #, elixir-autogen, elixir-format
 msgid "Invitations and the accounts they made. A support surface, not a user directory. Accounts with no invitation story are not this page's business."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:409
+#: lib/flux_vale_web/live/admin_live/people.ex:415
 #, elixir-autogen, elixir-format
 msgid "Invite someone"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:254
+#: lib/flux_vale_web/live/admin_live/people.ex:260
 #, elixir-autogen, elixir-format
 msgid "Invite withdrawn. Their accept link no longer works. The account stays inert until someone invites them again."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:504
+#: lib/flux_vale_web/live/admin_live/people.ex:510
 #, elixir-autogen, elixir-format
 msgid "Invited"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:481
+#: lib/flux_vale_web/live/admin_live/people.ex:487
 #, elixir-autogen, elixir-format
 msgid "Invites you send, and the accounts they made, show up here. Accounts without an invitation story are not this page's business."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:488
+#: lib/flux_vale_web/live/admin_live/people.ex:494
 #, elixir-autogen, elixir-format
 msgid "No invitation matches that email."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:479
+#: lib/flux_vale_web/live/admin_live/people.ex:485
 #, elixir-autogen, elixir-format
 msgid "No invitations yet."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:411
+#: lib/flux_vale_web/live/admin_live/people.ex:417
 #, elixir-autogen, elixir-format
 msgid "One email goes out with a one-time accept link. The account stays inert until the link is used."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:354
+#: lib/flux_vale_web/live/admin_live/people.ex:360
 #, elixir-autogen, elixir-format
 msgid "Pending"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:591
+#: lib/flux_vale_web/live/admin_live/people.ex:597
 #, elixir-autogen, elixir-format
 msgid "Reinvite"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:433
+#: lib/flux_vale_web/live/admin_live/people.ex:439
 #, elixir-autogen, elixir-format
 msgid "Send invite"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:503
+#: lib/flux_vale_web/live/admin_live/people.ex:509
 #, elixir-autogen, elixir-format
 msgid "State"
 msgstr ""
@@ -1271,53 +1279,58 @@ msgstr ""
 msgid "That does not look like an email address. Nothing was sent."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:266
+#: lib/flux_vale_web/live/admin_live/people.ex:272
 #, elixir-autogen, elixir-format
 msgid "That invitation changed before the withdraw landed. The list is refreshed."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:220
+#: lib/flux_vale_web/live/admin_live/people.ex:224
 #, elixir-autogen, elixir-format
 msgid "That invitation changed. The list is refreshed."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:623
+#: lib/flux_vale_web/live/admin_live/people.ex:629
 #, elixir-autogen, elixir-format
 msgid "Their accept link stops working. The account remains inert until someone invites them again."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:602
+#: lib/flux_vale_web/live/admin_live/people.ex:608
 #, elixir-autogen, elixir-format
 msgid "Withdraw"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:618
+#: lib/flux_vale_web/live/admin_live/people.ex:624
 #, elixir-autogen, elixir-format
 msgid "Withdraw the invite for %{email}?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:357
-#: lib/flux_vale_web/live/admin_live/people.ex:507
+#: lib/flux_vale_web/live/admin_live/people.ex:363
+#: lib/flux_vale_web/live/admin_live/people.ex:513
 #, elixir-autogen, elixir-format
 msgid "Withdrawn"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:627
+#: lib/flux_vale_web/live/admin_live/people.ex:633
 #, elixir-autogen, elixir-format
 msgid "Yes, withdraw this invite"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:300
+#: lib/flux_vale_web/live/admin_live/people.ex:306
 #, elixir-autogen, elixir-format
 msgid "Invite sent. One email is on its way with a one-time accept link. The account stays inert until they accept. If the email does not arrive, use Reinvite to send another."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:361
+#: lib/flux_vale_web/live/admin_live/people.ex:367
 #, elixir-autogen, elixir-format
 msgid "No invitation"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:599
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1107
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1203
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1255
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1327
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1462
+#: lib/flux_vale_web/live/admin_live/people.ex:605
 #: lib/flux_vale_web/live/admin_live/wallet_detail.ex:924
 #: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1092
 #, elixir-autogen, elixir-format
@@ -1329,28 +1342,28 @@ msgstr ""
 msgid "Reinvite sent. One email is on its way with a fresh one-time accept link. Any earlier link no longer works. If the email does not arrive, send another."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:296
+#: lib/flux_vale_web/live/admin_live/people.ex:302
 #, elixir-autogen, elixir-format
 msgid "Reinvite sent. One email is on its way with a fresh one-time accept link. Any earlier link no longer works. The account stays inert until they accept. If the email does not arrive, use Reinvite to send another."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:457
+#: lib/flux_vale_web/live/admin_live/people.ex:463
 #, elixir-autogen, elixir-format
 msgid "Search by invitation address"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:442
+#: lib/flux_vale_web/live/admin_live/people.ex:448
 #, elixir-autogen, elixir-format
 msgid "Search narrows this list by invitation address. It never reaches past it."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:430
-#: lib/flux_vale_web/live/admin_live/people.ex:587
+#: lib/flux_vale_web/live/admin_live/people.ex:436
+#: lib/flux_vale_web/live/admin_live/people.ex:593
 #, elixir-autogen, elixir-format
 msgid "Sending..."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/people.ex:474
+#: lib/flux_vale_web/live/admin_live/people.ex:480
 #, elixir-autogen, elixir-format
 msgid "Showing the latest 100 invitations."
 msgstr ""
@@ -1786,4 +1799,330 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/billing.ex:340
 #, elixir-autogen, elixir-format
 msgid "since %{date}"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1181
+#, elixir-autogen, elixir-format
+msgid "1 duplicate points at this post"
+msgid_plural "%{count} duplicates point at this post"
+msgstr[0] ""
+msgstr[1] ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:973
+#, elixir-autogen, elixir-format
+msgid "All"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1111
+#, elixir-autogen, elixir-format
+msgid "Close"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:529
+#, elixir-autogen, elixir-format
+msgid "Comment removed. The post's comment count dropped by one."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1037
+#, elixir-autogen, elixir-format
+msgid "Comments"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1411
+#, elixir-autogen, elixir-format
+msgid "Create tag"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1408
+#, elixir-autogen, elixir-format
+msgid "Creating..."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1330
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1476
+#, elixir-autogen, elixir-format
+msgid "Delete"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1206
+#, elixir-autogen, elixir-format
+msgid "Delete post"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1524
+#, elixir-autogen, elixir-format
+msgid "Delete the tag %{name}?"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1349
+#, elixir-autogen, elixir-format
+msgid "Delete this comment?"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1212
+#, elixir-autogen, elixir-format
+msgid "Delete this post?"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1472
+#, elixir-autogen, elixir-format
+msgid "Deleting..."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1113
+#, elixir-autogen, elixir-format
+msgid "Expand"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:958
+#, elixir-autogen, elixir-format
+msgid "Filter by status"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:933
+#, elixir-autogen, elixir-format
+msgid "Find posts"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1394
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1495
+#, elixir-autogen, elixir-format
+msgid "Name"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1395
+#, elixir-autogen, elixir-format
+msgid "New tag name"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1022
+#, elixir-autogen, elixir-format
+msgid "No post matches that search or filter."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1014
+#, elixir-autogen, elixir-format
+msgid "No posts on the board yet."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1427
+#, elixir-autogen, elixir-format
+msgid "No tags yet. Create the first one above."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1236
+#, elixir-autogen, elixir-format
+msgid "No votes yet."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:910
+#, elixir-autogen, elixir-format
+msgid "Open the public board"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1402
+#, elixir-autogen, elixir-format
+msgid "Optional, derived from the name"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1034
+#, elixir-autogen, elixir-format
+msgid "Post"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:479
+#, elixir-autogen, elixir-format
+msgid "Post deleted. Its votes and comments were removed with it."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1038
+#, elixir-autogen, elixir-format
+msgid "Posted"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1418
+#, elixir-autogen, elixir-format
+msgid "Posts"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1017
+#, elixir-autogen, elixir-format
+msgid "Posts land here as the community files them."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1275
+#, elixir-autogen, elixir-format
+msgid "Remove this vote? The post's vote count drops by one."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1466
+#, elixir-autogen, elixir-format
+msgid "Rename"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1258
+#, elixir-autogen, elixir-format
+msgid "Retract"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1504
+#, elixir-autogen, elixir-format
+msgid "Save"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1501
+#, elixir-autogen, elixir-format
+msgid "Saving..."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:947
+#, elixir-autogen, elixir-format
+msgid "Search"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:948
+#, elixir-autogen, elixir-format
+msgid "Search by title or author"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:935
+#, elixir-autogen, elixir-format
+msgid "Search by title or author. It never reaches past this list."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1002
+#, elixir-autogen, elixir-format
+msgid "Showing the latest 100 posts."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1401
+#, elixir-autogen, elixir-format
+msgid "Slug"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1035
+#, elixir-autogen, elixir-format
+msgid "Status"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1417
+#, elixir-autogen, elixir-format
+msgid "Tag"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:281
+#, elixir-autogen, elixir-format
+msgid "Tag created."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:640
+#, elixir-autogen, elixir-format
+msgid "Tag deleted."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:346
+#, elixir-autogen, elixir-format
+msgid "Tag renamed."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1375
+#, elixir-autogen, elixir-format
+msgid "Tag vocabulary"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1145
+#, elixir-autogen, elixir-format
+msgid "Tags"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:632
+#, elixir-autogen, elixir-format
+msgid "That change was refused. The item moved before the click. The list is refreshed."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:646
+#, elixir-autogen, elixir-format
+msgid "That item is gone from the board. The list is refreshed."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:650
+#, elixir-autogen, elixir-format
+msgid "That panel is no longer open. The list is refreshed."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1377
+#, elixir-autogen, elixir-format
+msgid "The board's curated topic tags. Deleting a tag takes it off every post that carries it."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:900
+#, elixir-autogen, elixir-format
+msgid "The board's posts with their votes, comments, and tags. Every delete names what it takes with it before anything happens."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1351
+#, elixir-autogen, elixir-format
+msgid "The comment is removed from the post. The post's comment count drops by one. This cannot be undone."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:589
+#, elixir-autogen, elixir-format
+msgid "The delete was refused. A duplicate now points at this post. The list is refreshed."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:593
+#, elixir-autogen, elixir-format
+msgid "The delete was refused. The post moved before the click. The list is refreshed."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1214
+#, elixir-autogen, elixir-format
+msgid "The post leaves the board. Its votes and comments are removed with it. This cannot be undone."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1526
+#, elixir-autogen, elixir-format
+msgid "The tag comes off every post that carries it. 1 post carries it today. This cannot be undone."
+msgid_plural "The tag comes off every post that carries it. %{count} posts carry it today. This cannot be undone."
+msgstr[0] ""
+msgstr[1] ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1190
+#, elixir-autogen, elixir-format
+msgid "This original refuses deletion while a duplicate points at it. Delete the duplicate first, then delete this one."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:854
+#, elixir-autogen, elixir-format
+msgid "Unknown caster"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:501
+#, elixir-autogen, elixir-format
+msgid "Vote removed. The post's vote count dropped by one."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1036
+#, elixir-autogen, elixir-format
+msgid "Votes"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1355
+#, elixir-autogen, elixir-format
+msgid "Yes, delete this comment"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1218
+#, elixir-autogen, elixir-format
+msgid "Yes, delete this post"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1532
+#, elixir-autogen, elixir-format
+msgid "Yes, delete this tag"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/moderation.ex:863
+#, elixir-autogen, elixir-format
+msgid "posted %{ago}"
 msgstr ""

@@ -136,7 +136,8 @@ defmodule FluxValeWeb.AdminShellLiveTest do
         {FluxValeWeb.AdminLive.Sizes, "/admin/catalog/sizes"} => {"catalog", "location"},
         {FluxValeWeb.AdminLive.SizeEdit, "/admin/catalog/sizes/:id"} => {"catalog", "location"},
         {FluxValeWeb.AdminLive.VersionEdit, "/admin/catalog/versions/:id"} =>
-          {"catalog", "location"}
+          {"catalog", "location"},
+        {FluxValeWeb.AdminLive.Moderation, "/admin/moderation"} => {"feedback", "page"}
       }
 
       admin_routes =
@@ -149,7 +150,7 @@ defmodule FluxValeWeb.AdminShellLiveTest do
           {mod, r.path}
         end
 
-      assert length(admin_routes) == 7
+      assert length(admin_routes) == 8
 
       for {mod, path} <- admin_routes do
         {key, mark} = Map.fetch!(expected, {mod, path})
@@ -204,7 +205,9 @@ defmodule FluxValeWeb.AdminShellLiveTest do
     test "badged, linkless, on a live surface", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/admin/people")
 
-      for key <- ["feedback", "orgs", "gateways"] do
+      # Wallets (#571) and feedback moderation (#501) are live; orgs
+      # and gateways stay honest placeholders.
+      for key <- ["orgs", "gateways"] do
         assert has_element?(view, "[data-testid='admin-coming-#{key}']", "Coming")
         refute has_element?(view, "[data-testid='admin-nav-#{key}'][href]")
       end
