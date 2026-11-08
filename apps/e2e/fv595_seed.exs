@@ -35,6 +35,14 @@ flags = [
     key: "org_invites",
     enabled: true,
     description: "Invitation-based org growth"
+  },
+  # The destroy motion's sacrificial row (slice 2's GIF): the capture
+  # deletes it on camera, and this seed's idempotence mints a fresh one
+  # for the next run — the showcase rows above are never the casualty.
+  %{
+    key: "write_path_demo",
+    enabled: false,
+    description: "A row that exists to be deleted on camera"
   }
 ]
 
