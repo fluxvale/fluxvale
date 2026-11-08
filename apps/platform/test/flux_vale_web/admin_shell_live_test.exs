@@ -14,6 +14,7 @@ defmodule FluxValeWeb.AdminShellLiveTest do
 
   alias FluxVale.Billing
   alias FluxVale.Identity.User
+  alias FluxVale.Ops.FeatureFlag
   alias FluxVale.TestSupport.ApiPat
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -25,7 +26,8 @@ defmodule FluxValeWeb.AdminShellLiveTest do
     {"people", "/admin/people"},
     {"catalog", "/admin/catalog"},
     {"sizes ladder", "/admin/catalog/sizes"},
-    {"wallets", "/admin/billing"}
+    {"wallets", "/admin/billing"},
+    {"resources console", "/admin/resources"}
   ]
 
   # The console-lane flush test's route source (#593): the router's
@@ -51,6 +53,14 @@ defmodule FluxValeWeb.AdminShellLiveTest do
   defp concrete_admin_path("/admin/catalog/versions/:id", %{version: version}),
     do: "/admin/catalog/versions/#{version.id}"
 
+  defp concrete_admin_path("/admin/resources/:domain", _ctx), do: "/admin/resources/ops"
+
+  defp concrete_admin_path("/admin/resources/:domain/:resource", _ctx),
+    do: "/admin/resources/ops/feature_flag"
+
+  defp concrete_admin_path("/admin/resources/:domain/:resource/:id", %{flag: flag}),
+    do: "/admin/resources/ops/feature_flag/#{flag.id}"
+
   defp concrete_admin_path(literal, _ctx), do: literal
 
   setup %{conn: conn} do
@@ -71,10 +81,22 @@ defmodule FluxValeWeb.AdminShellLiveTest do
     {org, _owner} = BillingFixtures.grant_free_org!()
     {:ok, wallet} = Billing.ensure_wallet(org)
 
+    # The resources console's record path needs one real row (the
+    # generic engine's fixture — created through the action, no backdoor).
+    flag =
+      FeatureFlag
+      |> Ash.Changeset.for_create(
+        :create,
+        %{key: "admin_shell_flag_#{@n}"},
+        actor: admin
+      )
+      |> Ash.create!()
+
     %{
       admin: admin,
       version: version,
       wallet: wallet,
+      flag: flag,
       conn: SessionHelpers.sign_in(conn, admin)
     }
   end
@@ -146,12 +168,16 @@ defmodule FluxValeWeb.AdminShellLiveTest do
     test "every :admin live route renders the shell with the right active mark", %{
       conn: conn,
       version: version,
-      wallet: wallet
+      wallet: wallet,
+      flag: flag
     } do
       # The enumeration, from the router itself: a new :admin live
       # route without a shell expectation fails here. /admin is the
       # redirect head (its bounce is pinned below) and rides the same
-      # module as /admin/people.
+      # module as /admin/people. The resources console's domain,
+      # index, and record pages are sub-routes of its one entry —
+      # they mark the entry as an ancestor (location), the landing
+      # marks it as the page.
       expected = %{
         {FluxValeWeb.AdminLive.People, "/admin/people"} => {"people", "page"},
         {FluxValeWeb.AdminLive.Catalog, "/admin/catalog"} => {"catalog", "page"},
@@ -162,7 +188,14 @@ defmodule FluxValeWeb.AdminShellLiveTest do
         {FluxValeWeb.AdminLive.SizeEdit, "/admin/catalog/sizes/:id"} => {"catalog", "location"},
         {FluxValeWeb.AdminLive.VersionEdit, "/admin/catalog/versions/:id"} =>
           {"catalog", "location"},
-        {FluxValeWeb.AdminLive.Moderation, "/admin/moderation"} => {"feedback", "page"}
+        {FluxValeWeb.AdminLive.Moderation, "/admin/moderation"} => {"feedback", "page"},
+        {FluxValeWeb.AdminLive.Resources, "/admin/resources"} => {"resources", "page"},
+        {FluxValeWeb.AdminLive.Resources, "/admin/resources/:domain"} =>
+          {"resources", "location"},
+        {FluxValeWeb.AdminLive.Resources, "/admin/resources/:domain/:resource"} =>
+          {"resources", "location"},
+        {FluxValeWeb.AdminLive.Resources, "/admin/resources/:domain/:resource/:id"} =>
+          {"resources", "location"}
       }
 
       admin_routes =
@@ -170,12 +203,12 @@ defmodule FluxValeWeb.AdminShellLiveTest do
           {mod, path}
         end
 
-      assert length(admin_routes) == 8
+      assert length(admin_routes) == 12
 
       for {mod, path} <- admin_routes do
         {key, mark} = Map.fetch!(expected, {mod, path})
 
-        concrete_path = concrete_admin_path(path, %{version: version, wallet: wallet})
+        concrete_path = concrete_admin_path(path, %{version: version, wallet: wallet, flag: flag})
 
         {:ok, view, _html} = live(conn, concrete_path)
 

@@ -1,0 +1,355 @@
+defmodule FluxValeWeb.AdminResource do
+  @moduledoc """
+  The generic resource console's type-driven render pieces (#595, the
+  plan at docs/plans/595-resource-console.md): one value renderer per
+  attribute shape (the plan's rendering table) plus the count-aware
+  offset pagination controls. The LiveView engine
+  (`FluxValeWeb.AdminLive.Resources`) introspects the resource and
+  hands each attribute's shape and value here — nothing in this module
+  reads a resource, so the registry stays the only surface that knows
+  modules.
+
+  Shapes land slice by slice as their resources do (slice 1: Ops).
+  Anything unrecognized renders through the fallback — the value's
+  `inspect/1` in mono — so an introspected attribute is never a crash,
+  just an honest look at the raw value.
+
+  Copy line: authored literals ride gettext; strings derived from
+  schema identifiers (column labels, enum values) render as derived —
+  no locale story exists for schema names and static extraction can't
+  see them. UUIDs and timestamps set the precedent: values are values.
+  """
+
+  use FluxValeWeb, :html
+
+  # -- shape mapping -----------------------------------------------------
+
+  @doc """
+  An Ash attribute's render shape: the type module (expanded — `:ci_string`
+  arrives as `Ash.Type.CiString`) plus the constraints decide. Unknown
+  types answer `:unknown` and ride the fallback renderer.
+  """
+  @spec shape(map()) :: :uuid | :string | :integer | :boolean | :datetime | :enum | :unknown
+  def shape(%{type: Ash.Type.UUIDv7}), do: :uuid
+  def shape(%{type: Ash.Type.UUID}), do: :uuid
+  def shape(%{type: Ash.Type.String}), do: :string
+  # ci_string renders as plain text, its original case — no case games.
+  def shape(%{type: Ash.Type.CiString}), do: :string
+  def shape(%{type: Ash.Type.Integer}), do: :integer
+  def shape(%{type: Ash.Type.Boolean}), do: :boolean
+  # Ash spells them UtcDatetime/UtcDatetimeUsec (any precision → one shape).
+  def shape(%{type: Ash.Type.UtcDatetime}), do: :datetime
+  def shape(%{type: Ash.Type.UtcDatetimeUsec}), do: :datetime
+
+  def shape(%{type: Ash.Type.Atom, constraints: constraints}) do
+    if Keyword.has_key?(constraints, :one_of), do: :enum, else: :unknown
+  end
+
+  def shape(_unrecognized), do: :unknown
+
+  # -- value rendering ---------------------------------------------------
+
+  @doc """
+  One typed value. `variant` picks the table-cell treatment (compact,
+  truncated, `title` carrying the full value) or the show-page
+  treatment (the full value, copyable where copying is the point).
+  `nil` renders as an honest Not set in either variant.
+  """
+
+  attr(:shape, :atom,
+    required: true,
+    values: [:uuid, :string, :integer, :boolean, :datetime, :enum, :unknown]
+  )
+
+  attr(:value, :any, required: true)
+  attr(:variant, :atom, default: :index, values: [:index, :show])
+
+  attr(:id, :string,
+    default: nil,
+    doc: "unique DOM id for the show variant's copy affordance (defaults to a static one)"
+  )
+
+  @spec value(map()) :: Phoenix.LiveView.Rendered.t()
+  def value(%{value: nil} = assigns), do: empty(assigns)
+
+  def value(%{shape: :uuid, variant: :index} = assigns) do
+    ~H"""
+    <span class="block truncate font-mono text-xs text-ink-muted" title={@value}>
+      {short_uuid(@value)}
+    </span>
+    """
+  end
+
+  def value(%{shape: :uuid, variant: :show} = assigns) do
+    ~H"""
+    <span class="flex flex-wrap items-center gap-2">
+      <span class="font-mono text-sm break-all text-ink" data-testid="admin-resource-uuid">
+        {@value}
+      </span>
+      <.copy_button id={@id || "admin-resource-copy"} value={@value} />
+    </span>
+    """
+  end
+
+  def value(%{shape: :string} = assigns) do
+    assigns = assign(assigns, text: to_string(assigns.value))
+
+    ~H"""
+    <%= if @variant == :index do %>
+      <span class="block max-w-48 truncate text-sm text-ink" title={@text}>{@text}</span>
+    <% else %>
+      <span class="text-sm break-words text-ink">{@text}</span>
+    <% end %>
+    """
+  end
+
+  def value(%{shape: :integer, variant: :index} = assigns) do
+    ~H"""
+    <span class="flex justify-end font-mono text-sm text-ink" title={@value}>{@value}</span>
+    """
+  end
+
+  def value(%{shape: :integer, variant: :show} = assigns) do
+    ~H"""
+    <span class="font-mono text-sm text-ink">{@value}</span>
+    """
+  end
+
+  def value(%{shape: :boolean} = assigns) do
+    assigns = assign(assigns, label: if(assigns.value, do: gettext("Yes"), else: gettext("No")))
+
+    ~H"""
+    <span class="text-sm text-ink">{@label}</span>
+    """
+  end
+
+  def value(%{shape: :datetime, variant: :index} = assigns) do
+    ~H"""
+    <span
+      class="whitespace-nowrap text-xs text-ink-muted"
+      title={DateTime.to_string(@value)}
+      data-testid="admin-resource-datetime"
+    >
+      {Calendar.strftime(@value, "%b %d, %Y")}
+    </span>
+    """
+  end
+
+  def value(%{shape: :datetime, variant: :show} = assigns) do
+    ~H"""
+    <span
+      class="whitespace-nowrap text-sm text-ink"
+      title={DateTime.to_string(@value)}
+      data-testid="admin-resource-datetime"
+    >
+      {Calendar.strftime(@value, "%b %d, %Y %H:%M UTC")}
+    </span>
+    """
+  end
+
+  def value(%{shape: :enum} = assigns) do
+    ~H"""
+    <span data-testid="admin-resource-enum">
+      <.badge class="px-1.5! text-[11px]!">{humanize(@value)}</.badge>
+    </span>
+    """
+  end
+
+  # The fallback every later shape leans on until its clause lands:
+  # the raw value, inspected, mono — honest rather than pretty.
+  def value(%{variant: :index} = assigns) do
+    assigns = assign(assigns, text: inspect(assigns.value))
+
+    ~H"""
+    <span class="block max-w-48 truncate font-mono text-xs text-ink-muted" title={@text}>
+      {@text}
+    </span>
+    """
+  end
+
+  def value(assigns) do
+    assigns = assign(assigns, text: inspect(assigns.value))
+
+    ~H"""
+    <pre
+      class="overflow-x-auto font-mono text-xs whitespace-pre-wrap text-ink"
+      data-testid="admin-resource-unknown"
+    >{@text}</pre>
+    """
+  end
+
+  defp empty(assigns) do
+    ~H"""
+    <span class="text-sm text-ink-subtle" data-testid="admin-resource-empty-value">
+      {gettext("Not set")}
+    </span>
+    """
+  end
+
+  # -- pagination --------------------------------------------------------
+
+  @doc """
+  Pages in a count-aware run: 1..total, never below one (an empty
+  table is page one, not page zero).
+  """
+  @spec total_pages(integer(), pos_integer()) :: pos_integer()
+  def total_pages(count, limit), do: max(ceil(count / limit), 1)
+
+  @doc """
+  The page-number window: current always visible with a page each
+  side, first and last always visible, `:gap` marking an elided run.
+  At beta scale every page fits — the window only starts eliding past
+  seven pages. The window stays three wide at the edges (a current at
+  the very end shows total-2..total), and pages adjacent to an
+  endpoint join it without a gap.
+  """
+  @spec page_window(pos_integer(), pos_integer()) :: [pos_integer() | :gap]
+  def page_window(_current, total) when total <= 7, do: Enum.to_list(1..total)
+
+  def page_window(current, total) do
+    # Three wide, clamped: at either end the window pads toward the
+    # inside instead of shrinking.
+    first =
+      if current + 1 >= total, do: max(total - 2, 1), else: max(current - 1, 1)
+
+    last =
+      if current - 1 <= 1, do: min(3, total), else: min(current + 1, total)
+
+    window = Enum.to_list(first..last)
+
+    head =
+      case first do
+        1 -> []
+        2 -> [1]
+        _interior -> [1, :gap]
+      end
+
+    tail =
+      cond do
+        last == total -> []
+        last == total - 1 -> [total]
+        true -> [:gap, total]
+      end
+
+    head ++ window ++ tail
+  end
+
+  @doc """
+  Prev/next plus the page-number window, as links to `path?page=N`.
+  Renders nothing at one page — a lone number is not a control.
+  """
+
+  attr(:current, :integer, required: true)
+  attr(:total, :integer, required: true)
+  attr(:path, :string, required: true, doc: "the index path without its query string")
+
+  @spec pagination(map()) :: Phoenix.LiveView.Rendered.t()
+  def pagination(assigns) do
+    ~H"""
+    <nav
+      :if={@total > 1}
+      class="flex flex-wrap items-center gap-1.5"
+      aria-label={gettext("Pagination")}
+      data-testid="admin-resource-pagination"
+    >
+      <.page_link
+        path={@path}
+        number={@current - 1}
+        disabled={@current == 1}
+        label={gettext("Previous")}
+        testid="admin-resource-prev"
+      />
+      <%= for entry <- page_window(@current, @total) do %>
+        <%= if entry == :gap do %>
+          <span class="px-1 text-sm text-ink-subtle" aria-hidden="true">…</span>
+        <% else %>
+          <.link
+            navigate={"#{@path}?page=#{entry}"}
+            aria-current={entry == @current && "page"}
+            class={[
+              "rounded-control px-2 py-1 text-sm transition-colors",
+              entry == @current && "font-medium text-ink",
+              entry != @current && "text-ink-muted hover:bg-panel-raised hover:text-ink"
+            ]}
+            data-testid={"admin-resource-page-#{entry}"}
+          >
+            {entry}
+          </.link>
+        <% end %>
+      <% end %>
+      <.page_link
+        path={@path}
+        number={@current + 1}
+        disabled={@current == @total}
+        label={gettext("Next")}
+        testid="admin-resource-next"
+      />
+    </nav>
+    """
+  end
+
+  attr(:path, :string, required: true)
+  attr(:number, :integer, required: true)
+  attr(:disabled, :boolean, required: true)
+  attr(:label, :string, required: true)
+  attr(:testid, :string, required: true)
+
+  defp page_link(%{disabled: true} = assigns) do
+    ~H"""
+    <span class="rounded-control px-2 py-1 text-sm text-ink-subtle" aria-disabled="true">
+      {@label}
+    </span>
+    """
+  end
+
+  defp page_link(assigns) do
+    ~H"""
+    <.link
+      navigate={"#{@path}?page=#{@number}"}
+      class="rounded-control px-2 py-1 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+      data-testid={@testid}
+    >
+      {@label}
+    </.link>
+    """
+  end
+
+  # -- labels ------------------------------------------------------------
+
+  @doc """
+  Column and field labels from attribute names: snake_case to
+  capitalized words, with `ID` kept as the initialism operators read.
+  Derived, not authored copy — see the moduledoc's copy line.
+  """
+  @spec label(atom() | String.t()) :: String.t()
+  def label(:id), do: "ID"
+
+  def label(name) when is_atom(name) do
+    text = Atom.to_string(name)
+    label(text)
+  end
+
+  def label(name) when is_binary(name) do
+    spaced = String.replace(name, "_", " ")
+    String.capitalize(spaced)
+  end
+
+  # Enum values render humanized in a neutral badge (the plan's
+  # rendering table) — derived like the column labels above.
+  defp humanize(value) when is_atom(value) do
+    text = Atom.to_string(value)
+    humanize(text)
+  end
+
+  defp humanize(value) when is_binary(value) do
+    spaced = String.replace(value, "_", " ")
+    String.capitalize(spaced)
+  end
+
+  @doc """
+  The first eight characters of a uuid — the console's short-id idiom
+  (index cells, label fallbacks).
+  """
+  @spec short_uuid(String.t()) :: String.t()
+  def short_uuid(value), do: String.slice(value, 0, 8)
+end

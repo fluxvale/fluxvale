@@ -559,6 +559,17 @@ defmodule FluxValeWeb.Router do
       # feedback domain with the platform-admin actor and authorize?:
       # true — the domain policies decide, never the UI.
       live("/moderation", FluxValeWeb.AdminLive.Moderation)
+
+      # The generic resource console (#595, slice 1: reads only, proven
+      # on Ops). Segments resolve against the exposure registry
+      # (FluxValeWeb.AdminConsole — the security boundary); unknown
+      # segments bounce with an honest flash. The write mounts
+      # (:new/:edit) arrive in slice 2 — "new" goes BEFORE this :show
+      # clause when it does (the /organizations/new idiom).
+      live("/resources", FluxValeWeb.AdminLive.Resources, :domains)
+      live("/resources/:domain", FluxValeWeb.AdminLive.Resources, :domain)
+      live("/resources/:domain/:resource", FluxValeWeb.AdminLive.Resources, :index)
+      live("/resources/:domain/:resource/:id", FluxValeWeb.AdminLive.Resources, :show)
     end
 
     # LiveDashboard on the debug subpath (Am. 3): this node's BEAM and
