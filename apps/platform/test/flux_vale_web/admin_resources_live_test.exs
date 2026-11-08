@@ -133,6 +133,11 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
                live(conn, "/admin/resources/ops/nope")
     end
 
+    test "the show route's own unknown-segment arm bounces too — id and all", %{conn: conn} do
+      assert {:error, {:live_redirect, %{to: "/admin/resources"}}} =
+               live(conn, "/admin/resources/ops/nope/ffffffff-ffff-7fff-8fff-ffffffffffff")
+    end
+
     test "the flash lands and the landing still renders", %{conn: conn} do
       assert {:error, {:live_redirect, %{to: "/admin/resources"}}} =
                live(conn, "/admin/resources/nope")
@@ -327,11 +332,11 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
       refute MapSet.member?(rendered, "updated_at")
     end
 
-    test "values render typed: full uuid copyable, booleans and strings in full", %{
+    test "values render typed: full uuid copyable, integers and strings in full", %{
       conn: conn,
       admin: admin
     } do
-      flag = flag!(admin, %{enabled: true, description: "show me"})
+      flag = flag!(admin, %{enabled: true, rollout_percentage: 40, description: "show me"})
 
       {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/#{flag.id}")
 
@@ -352,6 +357,30 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
       {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/#{flag.id}")
 
       assert has_element?(view, "[data-testid='admin-resources-title']", flag.key)
+    end
+
+    test "a nil label attribute falls back to the short id — a domain-only rule has no email", %{
+      conn: conn,
+      admin: admin
+    } do
+      # :feedback, not :auth: an :auth row gates session/token
+      # presentation too (ADR-0023), and writing one would bounce this
+      # test's own admin session at the gate — the resource working as
+      # designed, just not what this test is about.
+      rule =
+        AccessRule
+        |> Ash.Changeset.for_create(:create, %{domain: "example.org", purpose: :feedback},
+          actor: admin
+        )
+        |> Ash.create!()
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/access_rule/#{rule.id}")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resources-title']",
+               FluxValeWeb.AdminResource.short_uuid(rule.id)
+             )
     end
 
     test "an unknown record id flashes and bounces to the index (the size-edit posture)", %{

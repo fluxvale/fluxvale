@@ -35,6 +35,7 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
     test "uuid types are uuid" do
       id = attr(FeatureFlag, :id)
       assert AdminResource.shape(id) == :uuid
+      assert AdminResource.shape(%{type: Ash.Type.UUID}) == :uuid
     end
 
     test "string and ci_string are string — ci renders as plain text" do
@@ -54,6 +55,12 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
 
       enabled = attr(FeatureFlag, :enabled)
       assert AdminResource.shape(enabled) == :boolean
+    end
+
+    test "any utc datetime precision is datetime" do
+      created = attr(FeatureFlag, :created_at)
+      assert AdminResource.shape(created) == :datetime
+      assert AdminResource.shape(%{type: Ash.Type.UtcDatetime}) == :datetime
     end
 
     test "an atom with a one_of constraint is an enum" do
@@ -113,6 +120,14 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
       assert html =~ "font-mono"
     end
 
+    test "an integer show cell is mono in full" do
+      html = render_component(&AdminResource.value/1, shape: :integer, value: 42, variant: :show)
+
+      assert text_of(html, "span") == "42"
+      assert html =~ "font-mono"
+      refute html =~ "justify-end"
+    end
+
     test "booleans read Yes or No" do
       yes = render_component(&AdminResource.value/1, shape: :boolean, value: true)
       no = render_component(&AdminResource.value/1, shape: :boolean, value: false)
@@ -165,6 +180,17 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
 
       assert text_of(html, "[data-testid='admin-resource-unknown']") == "%{surprise: :map}"
       assert html =~ "font-mono"
+
+      cell =
+        render_component(&AdminResource.value/1,
+          shape: :unknown,
+          value: {:tuple, 1},
+          variant: :index
+        )
+
+      assert text_of(cell, "span") == "{:tuple, 1}"
+      assert cell =~ "truncate"
+      assert cell =~ ~s(title="{:tuple, 1}")
     end
   end
 

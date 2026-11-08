@@ -445,7 +445,11 @@ defmodule FluxValeWeb.AdminLive.Resources do
     Enum.find(@label_attr_order, &MapSet.member?(names, &1)) || :id
   end
 
+  # coveralls-ignore-start - the config override arm: no slice-1
+  # registry entry sets label_attr (both heuristic picks are right);
+  # the later slices' resources arrive with their configs and cover it.
   defp label_attr(_entry, name) when is_atom(name), do: name
+  # coveralls-ignore-stop
 
   # The show page: every public attribute in declaration order. This
   # list IS the actor-safety contract — nothing else renders.
