@@ -77,6 +77,16 @@ defmodule FluxVale.Catalog.CategoryTest do
                  authorize?: false
                )
     end
+
+    # D10: audience is curated copy — em dashes and semicolons reject.
+    test "rejects an audience line with an em dash or semicolon" do
+      for line <- ["Teams — plain sentences only.", "Teams; no semicolons either."] do
+        assert {:error, %Ash.Error.Invalid{}} =
+                 Category.create(%{name: "Copy", slug: "copy-audience", audience: line},
+                   authorize?: false
+                 )
+      end
+    end
   end
 
   describe "get_by_slug/1" do

@@ -169,6 +169,35 @@ defmodule FluxVale.Catalog.AppTest do
       assert app.community_url == nil
     end
 
+    # Nullable on purpose (schema-optional on the OpenAPI wire): an
+    # explicit null is the absent state too, not an error.
+    test "explicit nils are the absent state, not errors" do
+      app =
+        App.create!(
+          %{
+            name: "Nulled",
+            slug: "nulled",
+            category_id: category().id,
+            caveats: nil,
+            alternatives: nil,
+            in_action_intro: nil,
+            screenshots: nil,
+            features: nil,
+            faq: nil,
+            community_url: nil
+          },
+          authorize?: false
+        )
+
+      assert app.caveats == nil
+      assert app.alternatives == nil
+      assert app.in_action_intro == nil
+      assert app.screenshots == []
+      assert app.features == []
+      assert app.faq == []
+      assert app.community_url == nil
+    end
+
     test "update accepts the fields and converges them" do
       category = category()
       attrs = marketing_attrs(category)
@@ -232,6 +261,36 @@ defmodule FluxVale.Catalog.AppTest do
 
         assert {:error, %Ash.Error.Invalid{}} = App.create(attrs, authorize?: false)
       end
+
+      # Ash :string casts trim (trim?: true default), so a trailing
+      # newline never reaches the regex — it stores as the trimmed
+      # token. The \A/\z anchor makes the constraint standalone-correct
+      # the day trim? flips off, rather than leaning on the trimmer.
+      attrs = Map.put(base, :community_url, "https://forum.example.com\n")
+
+      assert {:ok, app} = App.create(attrs, authorize?: false)
+      assert app.community_url == "https://forum.example.com"
+    end
+
+    test "copy rules reject em dashes and semicolons in the plain curated fields" do
+      base = %{name: "Copy", slug: "copy-app", category_id: category().id}
+
+      for attrs <- [
+            # caveat items are prose
+            Map.put(base, :caveats, ["An honest limit — with an em dash."]),
+            Map.put(base, :caveats, ["An honest limit; with a semicolon."]),
+            # alternatives are names, still copy
+            Map.put(base, :alternatives, ["BigHost; OtherHost"]),
+            Map.put(base, :in_action_intro, "A line — not really plain.")
+          ] do
+        assert {:error, %Ash.Error.Invalid{}} = App.create(attrs, authorize?: false)
+      end
+    end
+
+    test "a write that changes no curated field passes the copy rules" do
+      base = %{name: "Clean", slug: "clean-app", category_id: category().id}
+
+      assert {:ok, %App{}} = App.create(base, authorize?: false)
     end
 
     test "malformed typed lists fail the resource write, naming the field" do

@@ -1197,11 +1197,19 @@
             "description": "An attributes object for a app",
             "properties": {
               "alternatives": {
-                "description": "Field included by default.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "nullable": true,
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
               },
               "category_id": {
                 "description": "Field included by default.",
@@ -1209,11 +1217,19 @@
                 "type": "string"
               },
               "caveats": {
-                "description": "Field included by default.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "nullable": true,
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
               },
               "community_url": {
                 "anyOf": [
@@ -1252,9 +1268,21 @@
                 "description": "Field included by default."
               },
               "faq": {
+                "anyOf": [
+                  {},
+                  {
+                    "type": "null"
+                  }
+                ],
                 "description": "Field included by default."
               },
               "features": {
+                "anyOf": [
+                  {},
+                  {
+                    "type": "null"
+                  }
+                ],
                 "description": "Field included by default."
               },
               "file_access": {
@@ -1290,6 +1318,12 @@
                 "type": "string"
               },
               "screenshots": {
+                "anyOf": [
+                  {},
+                  {
+                    "type": "null"
+                  }
+                ],
                 "description": "Field included by default."
               },
               "slug": {
@@ -1325,11 +1359,6 @@
               "name",
               "slug",
               "file_access",
-              "caveats",
-              "alternatives",
-              "screenshots",
-              "features",
-              "faq",
               "category_id"
             ],
             "type": "object"
@@ -10179,20 +10208,36 @@
                             "description": "An attributes object for a app",
                             "properties": {
                               "alternatives": {
-                                "items": {
-                                  "type": "string"
-                                },
-                                "type": "array"
+                                "anyOf": [
+                                  {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "nullable": true,
+                                    "type": "array"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               },
                               "category_id": {
                                 "format": "uuid",
                                 "type": "string"
                               },
                               "caveats": {
-                                "items": {
-                                  "type": "string"
-                                },
-                                "type": "array"
+                                "anyOf": [
+                                  {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "nullable": true,
+                                    "type": "array"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               },
                               "community_url": {
                                 "anyOf": [
@@ -10229,8 +10274,22 @@
                                 ],
                                 "description": "Field included by default."
                               },
-                              "faq": {},
-                              "features": {},
+                              "faq": {
+                                "anyOf": [
+                                  {},
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "features": {
+                                "anyOf": [
+                                  {},
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "file_access": {
                                 "description": "Field included by default.",
                                 "type": "boolean"
@@ -10262,7 +10321,14 @@
                                 "description": "Field included by default.",
                                 "type": "string"
                               },
-                              "screenshots": {},
+                              "screenshots": {
+                                "anyOf": [
+                                  {},
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "slug": {
                                 "description": "Field included by default.",
                                 "type": "string"
@@ -10296,11 +10362,6 @@
                               "name",
                               "slug",
                               "file_access",
-                              "caveats",
-                              "alternatives",
-                              "screenshots",
-                              "features",
-                              "faq",
                               "category_id"
                             ],
                             "type": "object"
@@ -10789,20 +10850,36 @@
                           "description": "An attributes object for a app",
                           "properties": {
                             "alternatives": {
-                              "items": {
-                                "type": "string"
-                              },
-                              "type": "array"
+                              "anyOf": [
+                                {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "nullable": true,
+                                  "type": "array"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             },
                             "category_id": {
                               "format": "uuid",
                               "type": "string"
                             },
                             "caveats": {
-                              "items": {
-                                "type": "string"
-                              },
-                              "type": "array"
+                              "anyOf": [
+                                {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "nullable": true,
+                                  "type": "array"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             },
                             "community_url": {
                               "anyOf": [
@@ -10839,8 +10916,22 @@
                               ],
                               "description": "Field included by default."
                             },
-                            "faq": {},
-                            "features": {},
+                            "faq": {
+                              "anyOf": [
+                                {},
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "features": {
+                              "anyOf": [
+                                {},
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
                             "file_access": {
                               "description": "Field included by default.",
                               "type": "boolean"
@@ -10872,7 +10963,14 @@
                               "description": "Field included by default.",
                               "type": "string"
                             },
-                            "screenshots": {},
+                            "screenshots": {
+                              "anyOf": [
+                                {},
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
                             "slug": {
                               "description": "Field included by default.",
                               "type": "string"
@@ -10906,11 +11004,6 @@
                             "name",
                             "slug",
                             "file_access",
-                            "caveats",
-                            "alternatives",
-                            "screenshots",
-                            "features",
-                            "faq",
                             "category_id"
                           ],
                           "type": "object"

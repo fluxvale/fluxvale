@@ -19,9 +19,10 @@ defmodule FluxVale.Seeds.CatalogScreenshotsTest do
     # times, and each S7 capture makes it assert one more file.
     for src <- srcs do
       # src is app-absolute; expand relative to the static root (the
-      # blog lint's og_image stance), and keep the containment check a
-      # `..`-segment src can never slip past (the type's shape regex
-      # alone admits them — hostile review #326's hygiene class).
+      # blog lint's og_image stance). The type rejects `..` segments
+      # outright now (hostile review #326's hygiene class), so this
+      # containment check is belt to that braces — kept because the
+      # file-existence assertion needs the expanded path anyway.
       relative = String.trim_leading(src, "/")
       expanded = Path.expand(relative, static_root)
 

@@ -27,7 +27,10 @@ defmodule FluxVale.Catalog.Types.ScreenshotList do
 
   @known_fields MapSet.new(~w(src alt caption)a)
   @field_atoms Map.new(@known_fields, &{Atom.to_string(&1), &1})
-  @src_format ~r{^/images/catalog/.+\.(png|webp)$}
+  # \A/\z (not ^/$, which admit a trailing newline) and \S+ (no
+  # whitespace anywhere); `..` segments are rejected separately below
+  # — one regex for both reads worse than two plain checks.
+  @src_format ~r{\A/images/catalog/\S+\.(png|webp)\z}
   @min_items 1
   @max_items 4
 
@@ -132,7 +135,7 @@ defmodule FluxVale.Catalog.Types.ScreenshotList do
   defp cast_src(item) do
     case Map.fetch(item, :src) do
       {:ok, src} when is_binary(src) ->
-        if src =~ @src_format,
+        if src =~ @src_format and not dotdot?(src),
           do: {:ok, src},
           else:
             {:error,
@@ -144,6 +147,14 @@ defmodule FluxVale.Catalog.Types.ScreenshotList do
       :error ->
         {:error, "src is required"}
     end
+  end
+
+  # The type is the one enforcement point (seeds, admin, API alike), so
+  # parent-directory segments are rejected here, not only in the seed
+  # containment test.
+  defp dotdot?(src) do
+    segments = Path.split(src)
+    Enum.any?(segments, &(&1 == ".."))
   end
 
   defp cast_alt(item) do

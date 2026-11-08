@@ -2999,11 +2999,13 @@ pub struct App {
 #[serde(deny_unknown_fields)]
 pub struct AppAttributes {
     ///Field included by default.
-    pub alternatives: ::std::vec::Vec<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub alternatives: ::std::option::Option<::std::vec::Vec<::std::string::String>>,
     ///Field included by default.
     pub category_id: ::std::string::String,
     ///Field included by default.
-    pub caveats: ::std::vec::Vec<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub caveats: ::std::option::Option<::std::vec::Vec<::std::string::String>>,
     ///Field included by default.
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub community_url: ::std::option::Option<::std::string::String>,
@@ -3014,9 +3016,11 @@ pub struct AppAttributes {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub docs_url: ::std::option::Option<::std::string::String>,
     ///Field included by default.
-    pub faq: ::serde_json::Value,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub faq: ::std::option::Option<::serde_json::Value>,
     ///Field included by default.
-    pub features: ::serde_json::Value,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub features: ::std::option::Option<::serde_json::Value>,
     ///Field included by default.
     pub file_access: bool,
     ///Field included by default.
@@ -3028,7 +3032,8 @@ pub struct AppAttributes {
     ///Field included by default.
     pub name: ::std::string::String,
     ///Field included by default.
-    pub screenshots: ::serde_json::Value,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub screenshots: ::std::option::Option<::serde_json::Value>,
     ///Field included by default.
     pub slug: ::std::string::String,
     ///Field included by default.

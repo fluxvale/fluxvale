@@ -9,33 +9,37 @@ defmodule FluxVale.Repo.Migrations.CatalogMarketingMetadata do
 
   def up do
     alter table(:apps) do
-      add :caveats, {:array, :text}, null: false, default: []
-      add :alternatives, {:array, :text}, null: false, default: []
-      add :in_action_intro, :text
-      add :screenshots, {:array, :map}, null: false, default: []
-      add :features, {:array, :map}, null: false, default: []
-      add :faq, {:array, :map}, null: false, default: []
-      add :community_url, :text
+      # Nullable (not just []-defaulted): the OpenAPI artifact marks
+      # non-nullable attributes schema-required, and these stay off the
+      # JSON:API default_fields lists in v1 (#611 plan §3) —
+      # required-but-absent would lie to generated clients.
+      add(:caveats, {:array, :text}, default: [])
+      add(:alternatives, {:array, :text}, default: [])
+      add(:in_action_intro, :text)
+      add(:screenshots, {:array, :map}, default: [])
+      add(:features, {:array, :map}, default: [])
+      add(:faq, {:array, :map}, default: [])
+      add(:community_url, :text)
     end
 
     alter table(:categories) do
-      add :audience, :text
+      add(:audience, :text)
     end
   end
 
   def down do
     alter table(:categories) do
-      remove :audience
+      remove(:audience)
     end
 
     alter table(:apps) do
-      remove :community_url
-      remove :faq
-      remove :features
-      remove :screenshots
-      remove :in_action_intro
-      remove :alternatives
-      remove :caveats
+      remove(:community_url)
+      remove(:faq)
+      remove(:features)
+      remove(:screenshots)
+      remove(:in_action_intro)
+      remove(:alternatives)
+      remove(:caveats)
     end
   end
 end

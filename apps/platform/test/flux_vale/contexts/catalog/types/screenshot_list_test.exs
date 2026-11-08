@@ -95,6 +95,21 @@ defmodule FluxVale.Catalog.Types.ScreenshotListTest do
       end
     end
 
+    test "rejects parent-directory segments, whitespace, and a trailing newline in src" do
+      for bad <- [
+            # \S+ plus the segment check: no traversal, no embedded space
+            "/images/catalog/../escape.png",
+            "/images/catalog/app/../../escape.png",
+            "/images/catalog/app/one two.png",
+            # \z, not $: a trailing newline is not a path character
+            "/images/catalog/app/one.png\n"
+          ] do
+        assert {:error, message} = ScreenshotList.new([%{@first | "src" => bad}])
+        assert message =~ "src must be an app-absolute path"
+        assert message =~ inspect(bad)
+      end
+    end
+
     test "requires src, and rejects non-string src" do
       assert {:error, message} = ScreenshotList.new([Map.delete(@first, "src")])
       assert message == "src is required"

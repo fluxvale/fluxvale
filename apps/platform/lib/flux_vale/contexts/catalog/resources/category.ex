@@ -81,12 +81,21 @@ defmodule FluxVale.Catalog.Category do
     create :create do
       primary?(true)
       accept([:name, :slug, :description, :icon, :audience])
+
+      # D10 at the plain-field seam (the typed lists enforce their own).
+      validate({FluxVale.Catalog.ValidateCopyRules, fields: [:audience]})
     end
 
     update :update do
       primary?(true)
+      # Copy rules scan the changed string in Elixir — no atomic
+      # expression (same stance as AppVersion's env validations).
+      require_atomic?(false)
       # slug is the identity seeds look up by — immutable after create.
       accept([:name, :description, :icon, :audience])
+
+      # D10 at the plain-field seam (the typed lists enforce their own).
+      validate({FluxVale.Catalog.ValidateCopyRules, fields: [:audience]})
     end
 
     read :get_by_slug do
