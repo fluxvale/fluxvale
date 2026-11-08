@@ -1,13 +1,18 @@
 defmodule FluxValeWeb.AdminConsoleTest do
   @moduledoc false
 
-  # The exposure registry's parity discipline (#595, the plan's
-  # enforced-intake rule): the registry walks the configured ash_domains
-  # and every domain and resource must be accounted for — live,
-  # pending a slice, or excluded BY NAME with a reason. A new resource
-  # or domain fails here until the registry decides, so nothing ever
-  # surfaces (or hides) by accident. Plus the registry's own API
-  # contract: segment resolution and the policy probe.
+  # The exposure registry's parity discipline (#595): the configured
+  # ash_domains partition into live, pending, and excluded-by-name.
+  # What is ENFORCED, exactly: every configured domain is accounted
+  # for (one of the three sets, no orphans), the six-domain target
+  # matches the plan's appendix A, and every LIVE domain's resource
+  # set equals the domain's real resources in both directions.
+  # Pending domains force nothing per-resource until their slice
+  # flips them live — and the per-resource exclusion mechanism
+  # (Billing/Topup) lands with slice 3, at which point the
+  # live-domain arm becomes include-or-exclude-by-name. Plus the
+  # registry's own API contract: segment resolution and the policy
+  # probe.
   #
   # The parity arms need no DB — they walk compiled modules. visible?
   # needs actors, so it rides the same ConnCase sandbox.

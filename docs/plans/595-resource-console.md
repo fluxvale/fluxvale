@@ -38,7 +38,7 @@ AshAdmin itself. Three properties, in priority order:
 - **D1 — CONFIRMED: the exposure set.** The console covers the same
   six domains AshAdmin shows today (ADR-0027 §3 opt-in): Ops, Catalog,
   Infrastructure, Pricing, Billing (wallet + ledger only), Feedback —
-  22 resources. Identity, Accounts, and Api stay out. The issue's
+  23 resources (Ops 2, Catalog 3, Infrastructure 9, Pricing 2, Billing 2, Feedback 5). Identity, Accounts, and Api stay out. The issue's
   "ALL resources" reads as "every resource of the exposed domains".
   Widening (Api's audit events, say) is a later one-line registry
   change plus a sanity pass.
@@ -84,7 +84,10 @@ visible?(actor, resource_module, action_name)
   `label` (display name), `note` (honest copy shown on the resource's
   index — the FLAG mechanism, e.g. "Writes are system-only"),
   `columns` (index columns; `:auto` = label-ish attr plus the next
-  public attrs, capped, with `created_at` pinned), `label_attr`
+  public attrs, capped, with `created_at` pinned — the pinned stamp
+  and any configured column resolve ONLY against public attributes
+  and the DECLARED framework timestamps, never a find over all
+  attributes), `label_attr`
   (row-label heuristic override; auto order: `name`, `title`, `email`,
   `key`, `slug`, else short id), `create_actions`/`update_actions`/
   `destroy_actions` (exclusion lists for machinery actions — Intent,
@@ -177,7 +180,10 @@ Record show: definition list of ALL public attributes in declaration
 order, actions bar (per-action buttons per visibility), destructive
 actions behind `confirm_block` (the shared `destructive-confirm`
 testid). Empty states via `.empty_state`. A note banner renders
-`config.note` when set.
+`config.note` when set. Registry-authored note and label strings are
+config, not template literals — static gettext extraction cannot see
+them, so if the console ever localizes they need a RUNTIME gettext
+path (lookup at render), not extraction.
 
 Column selection UI is OUT of scope (the issue's "where cheap" — the
 curated `columns` config plus the show page covers it). Search is OUT
@@ -311,7 +317,11 @@ enum badges (EntryReason, EntryType), `utc_datetime_usec`
   `visible?` proves it: the probe shows admin=false; assert it).
   LedgerEntry: read + `:grant_goodwill` only (same proof for
   `:create`). Billing config excludes Topup with the documented
-  reason. The registry `note` copy explains each constraint.
+  reason, via the registry's excluded-resources mechanism this slice
+  introduces (per-domain, by name, each with its reason); the parity
+  test then enforces it — a live domain's resources must each be
+  included or excluded, never undecided. The registry `note` copy
+  explains each constraint.
 - These tables duplicate nothing the curated #571 surface owns —
   this is the raw generic parity surface; the curated surface stays
   the daily tool. Note this in the resource `note` copy.
@@ -444,13 +454,18 @@ debug group still links LiveDashboard.
 
 ## Parity criteria (slice 7's checklist)
 
-For EVERY resource AshAdmin shows today (the 22 in appendix A):
+For EVERY resource AshAdmin shows today (the 23 in appendix A):
 
 1. Reachable at a stable URL, grouped by its domain.
-2. Readable: every public attribute renders human-readable; non-public
-   attributes never render (a deliberate IMPROVEMENT over AshAdmin,
-   which ignores `public?` — Am. 1; the parity bar is operator USAGE,
-   and operators read values, not visibility flags).
+2. Readable: every public attribute renders human-readable; the ONLY
+   non-public values ever rendered are the framework timestamps
+   (created_at/updated_at), sourced exclusively from the resource's
+   create_timestamp/update_timestamp declarations — audit metadata,
+   never business attributes. AshAdmin ignores `public?` entirely and
+   renders non-public columns as table data, including credential
+   references (ADR-0027 Am. 1); this surface does not (the parity bar
+   is operator USAGE, and operators read values, not visibility
+   flags).
 3. Every action a platform admin can run through AshAdmin today
    (the can?-true set in the sanity tables) is runnable here, with
    policy enforcement ON (the deliberate difference, recorded).
@@ -522,7 +537,7 @@ Configured domains: 9. AshAdmin-exposed (`admin show? true`): 6.
 | FluxVale.Accounts | no | — (excluded: Organization, Membership, MembershipInvite) |
 | FluxVale.Api | no | — (excluded: AuditEvent, RequestWindow) |
 
-Total in-registry: 22 resources across 6 domains.
+Total in-registry: 23 resources across 6 domains (2+3+9+2+2+5).
 
 Per-resource action surfaces (creates / updates / destroys, from the
 transcript; registry intent curation derives from these):
@@ -572,8 +587,8 @@ transcript; registry intent curation derives from these):
 - Feedback PostTag: `:create` / — / `:destroy` (note points at
   Post `:set_tags` as the curated path).
 
-Attribute type census over the 22 (renderer coverage map): UUIDv7
-22/22 (pks), UUID (FKs, most), String, CiString, Integer, Decimal,
+Attribute type census over the 23 (renderer coverage map): UUIDv7
+23/23 (pks), UUID (FKs, most), String, CiString, Integer, Decimal,
 Boolean, Atom-with-one_of, custom enums (EntryReason, EntryType,
 CustomerType, TopupStatus, InstanceStatus, InstanceExposure,
 BackupRunKind, BackupRunStatus, AccessGatewayProvider,

@@ -19,10 +19,13 @@ defmodule FluxValeWeb.AdminLive.Resources do
   posture). An unknown record id is data, not a route — it flashes and
   bounces to the index the same way.
 
-  Rendering is actor-safe by construction: the index shows curated
-  columns and the show page lists exactly the PUBLIC attributes in
-  declaration order — the parity bar's deliberate improvement over
-  AshAdmin, which ignores `public?`.
+  Rendering is actor-safe by construction: the show page lists
+  exactly the PUBLIC attributes in declaration order, and the index
+  renders curated columns drawn only from public attributes plus the
+  resource's DECLARED framework timestamps (created_at, pinned for
+  row-age scanning) — audit metadata, never business attributes, the
+  deliberate contrast with AshAdmin's render-everything posture
+  (ADR-0027 Am. 1).
   """
 
   use FluxValeWeb, :live_view
@@ -156,7 +159,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
                   </div>
                   <p class="text-sm text-ink-subtle" data-testid="admin-resources-pending">
                     {gettext(
-                      "More domains land here as their console slices ship. The registry decides what exists."
+                      "Not every domain is on this console yet. The ones here are fully supported."
                     )}
                   </p>
                 <% :domain -> %>
@@ -193,7 +196,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
                     <div :if={@rows_empty?} data-testid="admin-resource-empty">
                       <.empty_state title={gettext("No rows yet.")}>
-                        {gettext("This table is empty. Rows made through the platform appear here.")}
+                        {gettext("This table is empty. Rows appear here as they are created.")}
                       </.empty_state>
                     </div>
 
@@ -203,10 +206,18 @@ defmodule FluxValeWeb.AdminLive.Resources do
                     >
                       <%!-- The console's table grammar (the .table
                       component's exact chrome, hand-rolled because the
-                      generic engine needs per-shape cell control). No
-                      shared grid template is possible across resources
-                      — column count varies — so wide cells truncate. --%>
-                      <table class="w-full text-sm" data-testid="admin-resource-table">
+                      generic engine needs per-shape cell control). The
+                      floor is measured like the people surface's: the
+                      widest registry row (the flags table — key 10rem,
+                      enabled 5rem, rollout 6rem, description 13rem,
+                      created 7rem, view 4rem ≈ 45rem tracks + padding)
+                      needs 46rem before columns start crowding; below
+                      it the table rides its own overflow-x-auto, never
+                      the page. --%>
+                      <table
+                        class="w-full min-w-[46rem] text-sm"
+                        data-testid="admin-resource-table"
+                      >
                         <thead>
                           <tr class="border-b border-line text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
                             <th
@@ -363,14 +374,13 @@ defmodule FluxValeWeb.AdminLive.Resources do
     Info.primary_action(module, :read).name
   end
 
-  # Newest first where the resource carries created_at (the plan's
-  # default sort). The guard keeps the engine total for a future
-  # resource without one.
+  # Newest first where the resource declares a created_at timestamp.
+  # The guard keeps the engine total for a future resource without one.
   defp sort_newest_first(query, module) do
-    if has_attribute?(module, :created_at) do
+    if declared_timestamp(module, :created_at) do
       Ash.Query.sort(query, created_at: :desc)
     else
-      # coveralls-ignore-start - every registry resource carries
+      # coveralls-ignore-start - every registry resource declares
       # created_at (the intake sanity passes verify it); no reachable
       # resource exercises this arm.
       query
@@ -380,17 +390,66 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   # -- introspection ---------------------------------------------------------
 
-  defp has_attribute?(module, name) do
+  # The ONLY non-public values this surface ever renders: the framework
+  # timestamps, sourced exclusively from the resource's
+  # create_timestamp/update_timestamp declarations (the plan's amended
+  # parity criterion 2) — audit metadata, never business attributes.
+  # Ash 3.37 has no Info.timestamps/1, so the source is Ash's own
+  # discriminator for exactly those declarations (the same predicate
+  # that wires Ecto autogenerate).
+  defp declared_timestamps(module) do
     attrs = Info.attributes(module)
-    Enum.any?(attrs, &(&1.name == name))
+    Enum.filter(attrs, &Ash.Schema.timestamp_attribute?/1)
   end
 
-  # Index columns: the label-ish attribute first, then the next public
-  # attrs up to the cap, created_at pinned last. The pinned stamp is
-  # engine metadata the plan's columns contract pins deliberately —
-  # row-age scanning on every table — while the show page stays the
-  # public-attributes contract (a timestamp is metadata, not exposure).
-  defp columns(entry) do
+  defp declared_timestamp(module, name) do
+    declared = declared_timestamps(module)
+    Enum.find(declared, &(&1.name == name))
+  end
+
+  # Everything a column may be built from: public attributes plus the
+  # declared timestamps. Configured column names resolve against this
+  # set and nothing else — an unknown name is skipped, never guessed.
+  defp column_sources(module) do
+    public = Info.public_attributes(module)
+    stamps = declared_timestamps(module)
+    public_pairs = Enum.map(public, &{&1.name, &1})
+    timestamp_pairs = Enum.map(stamps, &{&1.name, &1})
+    Map.new(public_pairs ++ timestamp_pairs)
+  end
+
+  # Index columns: the registry's curated list when set, else the auto
+  # shape — the label-ish attribute first, then the next public attrs
+  # up to the cap, created_at (the DECLARED timestamp) pinned last.
+  # The pinned stamp is engine metadata the plan's columns contract
+  # pins deliberately — row-age scanning on every table — while the
+  # show page stays the public-attributes contract.
+  @doc """
+  The index's columns for a registry entry. Public seam: the intake
+  tests drive configured-column resolution through it without a live
+  registry entry carrying config.
+  """
+  @spec columns(map()) :: [map()]
+  def columns(entry) do
+    case entry.config[:columns] do
+      nil -> auto_columns(entry)
+      names -> configured_columns(entry, names)
+    end
+  end
+
+  @doc """
+  The names of the resource's declared framework timestamps — the only
+  non-public values this surface ever renders (the plan's amended
+  parity criterion 2). Public seam: the actor-safety tests assert the
+  index's column ceiling against the same source the engine reads.
+  """
+  @spec declared_timestamp_names(module()) :: [String.t()]
+  def declared_timestamp_names(module) do
+    declared = declared_timestamps(module)
+    Enum.map(declared, &Atom.to_string(&1.name))
+  end
+
+  defp auto_columns(entry) do
     attrs = Info.public_attributes(entry.module)
     label_name = label_attr(entry)
 
@@ -407,6 +466,23 @@ defmodule FluxValeWeb.AdminLive.Resources do
     [label] ++ rest ++ pinned
   end
 
+  # The curated list honors names only — slices 4-5 trim wide resources
+  # this way. An inert name (a renamed attribute, a typo) falls back by
+  # being skipped: the row renders without it, never crashes, never
+  # renders a non-public attribute it cannot resolve.
+  defp configured_columns(entry, names) do
+    sources = column_sources(entry.module)
+    resolver = fn name -> resolve_column(sources, name) end
+    Enum.flat_map(names, resolver)
+  end
+
+  defp resolve_column(sources, name) do
+    case Map.fetch(sources, name) do
+      {:ok, attr} -> [column(attr)]
+      :error -> []
+    end
+  end
+
   defp column(attr) do
     %{
       name: attr.name,
@@ -416,11 +492,13 @@ defmodule FluxValeWeb.AdminLive.Resources do
   end
 
   defp created_at_column(entry) do
-    if has_attribute?(entry.module, :created_at) do
-      [column(find_attribute(entry.module, :created_at))]
+    stamp = declared_timestamp(entry.module, :created_at)
+
+    if stamp do
+      [column(stamp)]
     else
       # coveralls-ignore-start - same arm as sort_newest_first: no
-      # reachable registry resource lacks created_at.
+      # reachable registry resource lacks a created_at declaration.
       []
       # coveralls-ignore-stop
     end
@@ -445,11 +523,18 @@ defmodule FluxValeWeb.AdminLive.Resources do
     Enum.find(@label_attr_order, &MapSet.member?(names, &1)) || :id
   end
 
-  # coveralls-ignore-start - the config override arm: no slice-1
-  # registry entry sets label_attr (both heuristic picks are right);
-  # the later slices' resources arrive with their configs and cover it.
-  defp label_attr(_entry, name) when is_atom(name), do: name
-  # coveralls-ignore-stop
+  # The override honors public attributes only — a label is a value the
+  # operator reads, so a non-public (or stale) name falls back to the
+  # heuristic instead of exposing anything.
+  defp label_attr(entry, name) when is_atom(name) do
+    public = Info.public_attributes(entry.module)
+
+    if Enum.any?(public, &(&1.name == name)) do
+      name
+    else
+      label_attr(entry, nil)
+    end
+  end
 
   # The show page: every public attribute in declaration order. This
   # list IS the actor-safety contract — nothing else renders.
@@ -489,12 +574,16 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   defp index_path(entry), do: ~p"/admin/resources/#{entry.domain.key}/#{entry.key}"
 
-  # ?page=N — anything but a positive integer reads as page one.
+  # ?page=N — anything but a positive integer reads as page one, and a
+  # parsed integer is capped before the offset math: a crafted 19-digit
+  # page must not reach arithmetic as a bignum.
+  @page_bound 10_000
+
   defp parse_page(nil), do: 1
 
   defp parse_page(raw) when is_binary(raw) do
     case Integer.parse(raw) do
-      {number, ""} when number >= 1 -> number
+      {number, ""} when number >= 1 -> min(number, @page_bound)
       _not_a_positive_integer -> 1
     end
   end

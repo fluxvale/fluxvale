@@ -39,8 +39,13 @@ flags = [
 ]
 
 rules = [
-  %{email: "Terence@FluxVale.com", purpose: :auth},
-  %{domain: "fluxvale.com", purpose: :auth},
+  # :feedback, never :auth: an :auth allowlist row gates sign-in and
+  # token presentation (ADR-0023), and one would strand a local admin
+  # whose address is not on the list — the same lesson the tests
+  # learned. These rows are capture filler for the feedback board's
+  # write gate.
+  %{email: "Terence@FluxVale.com", purpose: :feedback},
+  %{domain: "fluxvale.com", purpose: :feedback},
   %{email: "friend@example.org", purpose: :feedback}
 ]
 

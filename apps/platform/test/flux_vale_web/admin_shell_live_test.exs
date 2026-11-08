@@ -234,11 +234,12 @@ defmodule FluxValeWeb.AdminShellLiveTest do
     test "every admin surface renders the console root and the unbounded chrome", %{
       conn: conn,
       version: version,
-      wallet: wallet
+      wallet: wallet,
+      flag: flag
     } do
       for {path, {_mod, _action, _info, _session}} <- admin_live_route_info() do
         {:ok, view, _html} =
-          live(conn, concrete_admin_path(path, %{version: version, wallet: wallet}))
+          live(conn, concrete_admin_path(path, %{version: version, wallet: wallet, flag: flag}))
 
         assert has_element?(view, ".appgram.console"),
                "#{path} should opt into the console measure"

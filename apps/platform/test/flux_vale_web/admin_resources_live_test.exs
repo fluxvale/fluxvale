@@ -17,6 +17,8 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
   alias FluxVale.Ops.FeatureFlag
   alias FluxVale.TestSupport.ApiPat
   alias FluxVale.TestSupport.SessionHelpers
+  alias FluxValeWeb.AdminLive.Resources
+
   @n :erlang.unique_integer([:positive])
 
   setup %{conn: conn} do
@@ -123,14 +125,18 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
   end
 
   describe "route resolution honesty" do
-    test "an unknown domain segment bounces to the landing with an honest flash", %{conn: conn} do
-      assert {:error, {:live_redirect, %{to: "/admin/resources"}}} =
+    test "an unknown domain segment bounces to the landing with the honest flash", %{conn: conn} do
+      assert {:error, {:live_redirect, %{to: "/admin/resources", flash: flash}}} =
                live(conn, "/admin/resources/nope")
+
+      assert flash["error"] == "That page does not exist here."
     end
 
     test "an unknown resource segment bounces the same way", %{conn: conn} do
-      assert {:error, {:live_redirect, %{to: "/admin/resources"}}} =
+      assert {:error, {:live_redirect, %{to: "/admin/resources", flash: flash}}} =
                live(conn, "/admin/resources/ops/nope")
+
+      assert flash["error"] == "That page does not exist here."
     end
 
     test "the show route's own unknown-segment arm bounces too — id and all", %{conn: conn} do
@@ -197,6 +203,51 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       assert text_of(view, "[data-testid='admin-resource-cell-rollout_percentage-#{flag.id}']") ==
                "Not set"
+    end
+
+    test "every rendered column is a public attribute or a declared timestamp — nothing else", %{
+      conn: conn,
+      admin: admin
+    } do
+      flag!(admin)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag")
+
+      html = render(view)
+      document = LazyHTML.from_fragment(html)
+
+      matches = LazyHTML.query(document, "[data-testid^='admin-resource-col-']")
+
+      rendered =
+        for match <- Enum.to_list(matches) do
+          [testid] = LazyHTML.attribute(match, "data-testid")
+          String.replace_prefix(testid, "admin-resource-col-", "")
+        end
+        |> MapSet.new()
+
+      # The actor-safety ceiling for the index (the plan's amended
+      # parity criterion 2): curated columns, but every one of them
+      # resolves to a public attribute or a DECLARED framework
+      # timestamp. updated_at is declared and never rendered (only
+      # created_at is pinned), so the assertion is the subset ceiling
+      # plus the pinned stamp's presence — a subset the show page's
+      # exact-equality test complements, not duplicates.
+      public =
+        FeatureFlag
+        |> Info.public_attributes()
+        |> Enum.map(&Atom.to_string(&1.name))
+        |> MapSet.new()
+
+      declared =
+        FeatureFlag
+        |> Resources.declared_timestamp_names()
+        |> MapSet.new()
+
+      allowed = MapSet.union(public, declared)
+
+      assert MapSet.subset?(rendered, allowed)
+      assert MapSet.member?(rendered, "created_at")
+      assert MapSet.member?(rendered, "key")
     end
 
     test "rows run newest first", %{conn: conn, admin: admin} do
@@ -283,6 +334,13 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
     test "a page past the end bounces to the real last page", %{conn: conn} do
       assert {:error, {:live_redirect, %{to: "/admin/resources/ops/feature_flag?page=2"}}} =
                live(conn, "/admin/resources/ops/feature_flag?page=99")
+    end
+
+    test "a crafted 19-digit page never reaches the offset math as a bignum", %{conn: conn} do
+      # The parse caps at the page bound, so the huge page reads as the
+      # bound — past the end, bounced to the real last page, no crash.
+      assert {:error, {:live_redirect, %{to: "/admin/resources/ops/feature_flag?page=2"}}} =
+               live(conn, "/admin/resources/ops/feature_flag?page=9999999999999999999")
     end
 
     test "garbage page params read as page one", %{conn: conn} do
@@ -428,6 +486,53 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       assert {:error, {:redirect, %{to: "/sign-in"}}} =
                live(conn, "/admin/resources/ops/feature_flag")
+    end
+  end
+
+  describe "configured columns and label overrides (the registry's curated lists)" do
+    # Slices 4-5 trim wide resources through these keys; the resolution
+    # rules are the trap the hostile review flagged — honored NOW, with
+    # tests, so a later config typo degrades to a missing column
+    # instead of a crash or a non-public reveal.
+    defp entry(config) do
+      %{
+        domain: %{key: :ops, label: "Ops", module: FluxVale.Ops},
+        key: :feature_flag,
+        module: FeatureFlag,
+        config: config
+      }
+    end
+
+    test "a curated list resolves each name to a public attribute or declared timestamp, in order" do
+      curated = entry(%{columns: [:key, :created_at]})
+      columns = Resources.columns(curated)
+
+      assert Enum.map(columns, & &1.name) == [:key, :created_at]
+    end
+
+    test "an inert name is skipped — never a crash, never a non-public attribute" do
+      curated = entry(%{columns: [:key, :renamed_attr]})
+      columns = Resources.columns(curated)
+
+      assert Enum.map(columns, & &1.name) == [:key]
+    end
+
+    test "a label override honors public attributes only — a stale name falls back" do
+      honored_entry = entry(%{label_attr: :description})
+      honored = Resources.columns(honored_entry)
+
+      stale_entry = entry(%{label_attr: :updated_at})
+      stale = Resources.columns(stale_entry)
+
+      unknown_entry = entry(%{label_attr: :nope})
+      unknown = Resources.columns(unknown_entry)
+
+      # description is public and honored; updated_at (declared
+      # timestamp, not public) and :nope both fall back to the
+      # heuristic's pick.
+      assert hd(honored).name == :description
+      assert hd(stale).name == :key
+      assert hd(unknown).name == :key
     end
   end
 end
