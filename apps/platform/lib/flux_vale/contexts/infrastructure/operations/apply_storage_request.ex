@@ -19,14 +19,23 @@ defmodule FluxVale.Infrastructure.Operations.ApplyStorageRequest do
   is never rolled back. A missing or mid-teardown instance records the
   failure the same way; the member is never left waiting on an approval
   the box cannot honor.
+
+  The wallet gate is re-checked HERE, not only at approval (§9 step 1):
+  an org that drained between the decision and the apply (or between a
+  failed apply and its retry) is refused before any cluster I/O, with
+  the honest balance error — the operator tops it up and retries, or
+  rejects with feedback.
   """
 
+  alias FluxVale.Checks.ActorOrgWalletFunded
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.StorageRequest
 
   # The apply_error column is internal; this bound keeps a pathological
   # error term from becoming a multi-megabyte row.
   @error_cap 1_000
+
+  @unfunded_message "the organization's wallet isn't funded — top it up, then retry"
 
   @doc """
   Applies `request` (approved) and marks the outcome. Returns
@@ -36,6 +45,14 @@ defmodule FluxVale.Infrastructure.Operations.ApplyStorageRequest do
   """
   @spec call(StorageRequest.t()) :: {:ok, StorageRequest.t()} | {:error, term()}
   def call(%StorageRequest{} = request) do
+    if ActorOrgWalletFunded.org_funded?(request.organization_id) do
+      apply_to_instance(request)
+    else
+      fail(request, @unfunded_message)
+    end
+  end
+
+  defp apply_to_instance(request) do
     case Instance.get_by_id(request.instance_id, authorize?: false) do
       {:ok, instance} ->
         converge(instance, request)
@@ -73,6 +90,9 @@ defmodule FluxVale.Infrastructure.Operations.ApplyStorageRequest do
       authorize?: false
     )
   end
+
+  # A guard's own plain message (the wallet refusal) stores verbatim.
+  defp failure_message(message) when is_binary(message), do: truncate(message)
 
   # The first useful sentence of an Ash error, not its multi-line
   # inspect — the operator's queue row reads it.

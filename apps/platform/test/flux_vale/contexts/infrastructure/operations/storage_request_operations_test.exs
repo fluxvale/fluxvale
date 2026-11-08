@@ -18,6 +18,7 @@ defmodule FluxVale.Infrastructure.Operations.StorageRequestOperationsTest do
   setup :verify_on_exit!
 
   alias Ash.Error.Changes.InvalidAttribute
+  alias FluxVale.Accounts.Organization
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Deployment
@@ -29,6 +30,7 @@ defmodule FluxVale.Infrastructure.Operations.StorageRequestOperationsTest do
   alias FluxVale.Infrastructure.Operations.ApplyStorageRequest
   alias FluxVale.Infrastructure.StorageRequest
   alias FluxVale.TestSupport.AccountsFixtures
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.StorageRequestFixtures
 
@@ -214,6 +216,35 @@ defmodule FluxVale.Infrastructure.Operations.StorageRequestOperationsTest do
 
     assert failed.status == :approved
     assert failed.apply_error =~ "cannot grow storage for an instance in deleting state"
+  end
+
+  test "a wallet drained after approval refuses the retry honestly" do
+    admin = admin!()
+    user = user!()
+    instance = running_deployed!(user)
+    request = StorageRequestFixtures.request!(instance, user, %{requested_gb: 150})
+    allow_expansion!()
+
+    {:ok, approved} = StorageRequest.approve(request, %{}, actor: admin)
+
+    # The org drained between decision and apply: the retry must not
+    # attach capacity for it, and the durable decision stays.
+    org = Ash.get!(Organization, instance.organization_id, authorize?: false)
+    BillingFixtures.drain_wallet!(org)
+
+    # No cluster I/O: the wallet gate refuses before the growth.
+    reject(PersistentVolumeClaim, :upsert, 4)
+    reject(ResourceQuota, :create, 4)
+
+    assert {:ok, failed} = Infrastructure.retry_storage_request(admin, approved.id)
+
+    assert failed.status == :approved
+    assert failed.apply_error =~ "the organization's wallet isn't funded"
+    assert failed.decided_by_user_id == admin.id
+    assert failed.decided_at
+
+    unchanged = Ash.get!(Instance, instance.id, authorize?: false)
+    assert unchanged.storage_gb == 10
   end
 
   test "an apply for a vanished instance records the honest failure" do

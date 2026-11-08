@@ -100,6 +100,15 @@ defmodule FluxValeWeb.AdminMountTest do
     end
   end
 
+  describe "the generic resource surface" do
+    test "the raw storage-request table stays out (the operator queue is its surface)" do
+      resources = AshAdmin.Domain.show_resources(FluxVale.Infrastructure)
+
+      assert FluxVale.Infrastructure.Cluster in resources
+      refute FluxVale.Infrastructure.StorageRequest in resources
+    end
+  end
+
   describe "one real action path" do
     test "the Infrastructure/Cluster table reads rows through the resource's action", %{
       conn: conn,

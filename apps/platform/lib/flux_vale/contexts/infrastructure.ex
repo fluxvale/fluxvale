@@ -48,6 +48,27 @@ defmodule FluxVale.Infrastructure do
 
   admin do
     show?(true)
+
+    # #250 (ADR-0046 D5): the raw storage-request table stays out of the
+    # generic AshAdmin surface — its state machine only advances through
+    # the apply (an AshAdmin retry would run `:retry_apply` without the
+    # volume patch and strand the row approved). The operator queue at
+    # /admin/storage-requests is its surface (S5). AshAdmin 1.x hides
+    # resources at the domain level (`show_resources`); there is no
+    # per-resource `show?`.
+    show_resources([
+      FluxVale.Infrastructure.Cluster,
+      FluxVale.Infrastructure.Instance,
+      FluxVale.Infrastructure.InstanceAllocationSnapshot,
+      FluxVale.Infrastructure.BackupSetting,
+      FluxVale.Infrastructure.BackupRun,
+      FluxVale.Infrastructure.AccessGateway,
+      FluxVale.Infrastructure.AccessRoute,
+      FluxVale.Infrastructure.AccessDomain,
+      FluxVale.Infrastructure.InstanceHostname,
+      FluxVale.Infrastructure.PocketIdCustody,
+      FluxVale.Infrastructure.PocketIdCustodyEvent
+    ])
   end
 
   resources do
