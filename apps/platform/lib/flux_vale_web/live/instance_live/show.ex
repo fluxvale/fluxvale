@@ -20,6 +20,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
   alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.PocketIdCustody
+  alias FluxVale.Infrastructure.StorageRequest
   alias FluxVale.Ops.FeatureFlags
   alias FluxValeWeb.AllocationSliders
   alias FluxValeWeb.InstanceLive.DavSnippet
@@ -34,6 +35,14 @@ defmodule FluxValeWeb.InstanceLive.Show do
         instance = Ash.load!(instance, [app_version: [:app]], actor: user)
 
         Phoenix.PubSub.subscribe(FluxVale.PubSub, "instances:#{instance.id}")
+
+        # #250: the instance page's request topic — decision/apply
+        # writes land the status card live (the DB re-read is the
+        # ordering the page trusts, never notification.data).
+        Phoenix.PubSub.subscribe(
+          FluxVale.PubSub,
+          "instances:#{instance.id}:storage-requests"
+        )
 
         # #179: technical detail (raw status_message, namespace, image)
         # renders only for platform admins — one predicate, shared with
@@ -79,6 +88,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
           # assign_access).
           |> assign_access(instance, user)
           |> assign_pocketid_custody(instance, user)
+          |> assign_storage_request(instance, user)
 
         {:ok, maybe_schedule_status_tick(socket)}
 
@@ -591,6 +601,23 @@ defmodule FluxValeWeb.InstanceLive.Show do
               </.form>
             </.card>
 
+            <%!-- #250: the storage row beside the resize panel — the
+            self-service boundary, the request form, and the live
+            decision card. The resize panel's above-top copy stays its
+            neighbour, not a replacement. --%>
+            <.storage_card
+              instance={@instance}
+              requests={@storage_requests}
+              rates={@rates}
+              threshold_gb={@storage_threshold_gb}
+              max_gb={@storage_max_gb}
+              form_open={@storage_request_open?}
+              form={@storage_request_form}
+              preview_cents={@storage_request_preview}
+              error_lines={@storage_request_error}
+              within_boundary={@storage_request_within?}
+            />
+
             <%!-- #493: the resize panel — the guided stop→resize→start.
             It rides the page like always_on_confirm (backups stays the
             one sanctioned LiveComponent); every figure is a server
@@ -887,6 +914,305 @@ defmodule FluxValeWeb.InstanceLive.Show do
     """
   end
 
+  # ------------------------------------------------------------------
+  # #250: the storage row — boundary, request form, decision card
+  # ------------------------------------------------------------------
+
+  attr(:instance, :any, required: true)
+  attr(:requests, :list, required: true)
+  attr(:rates, :any, required: true)
+  attr(:threshold_gb, :integer, required: true)
+  attr(:max_gb, :integer, required: true)
+  attr(:form_open, :boolean, required: true)
+  attr(:form, :any, required: true)
+  attr(:preview_cents, :any, required: true)
+  attr(:error_lines, :list, required: true)
+  attr(:within_boundary, :boolean, required: true)
+
+  # One open request replaces the form (the S2 index's promise); a
+  # decision or apply replaces it with the status card. With nothing
+  # open, the newest request still speaks (a rejection's feedback, an
+  # apply's date and rate) and the request affordance stays available.
+  defp storage_card(assigns) do
+    open_request = Enum.find(assigns.requests, &open_request?/1)
+    latest = List.first(assigns.requests)
+
+    assigns =
+      assign(assigns,
+        open_request: open_request,
+        latest: latest,
+        min_target: max(assigns.instance.storage_gb + 1, assigns.threshold_gb + 1),
+        available?: assigns.instance.status in [:running, :stopped, :sleeping],
+        at_max?: assigns.instance.storage_gb >= assigns.max_gb
+      )
+
+    ~H"""
+    <.card class="card space-y-4" data-testid="storage-card">
+      <h2 class="text-sm font-semibold text-ink">Storage</h2>
+
+      <p :if={not @form_open} class="text-sm text-ink" data-testid="storage-allocation">
+        {@instance.storage_gb} GB · self-service up to {@threshold_gb} GB
+      </p>
+
+      <%= cond do %>
+        <% @form_open -> %>
+          <.storage_request_form
+            instance={@instance}
+            form={@form}
+            threshold_gb={@threshold_gb}
+            max_gb={@max_gb}
+            min_target={@min_target}
+            preview_cents={@preview_cents}
+            error_lines={@error_lines}
+            within_boundary={@within_boundary}
+          />
+        <% @open_request -> %>
+          <.storage_request_status request={@open_request} />
+        <% @latest && @latest.status == :rejected -> %>
+          <.storage_request_rejection request={@latest} />
+          <.storage_request_more
+            available?={@available?}
+            at_max?={@at_max?}
+          />
+        <% @latest && @latest.status == :applied -> %>
+          <.storage_request_applied request={@latest} rates={@rates} />
+          <.storage_request_more
+            available?={@available?}
+            at_max?={@at_max?}
+          />
+        <% true -> %>
+          <.storage_request_more
+            available?={@available?}
+            at_max?={@at_max?}
+          />
+      <% end %>
+    </.card>
+    """
+  end
+
+  attr(:available?, :boolean, required: true)
+  attr(:at_max?, :boolean, required: true)
+
+  # Running/stopped/sleeping can ask; the states mid-move (and
+  # deleting/lost) cannot. At the attachable ceiling there is nothing
+  # the queue could promise, so the row says so instead of a dead form.
+  defp storage_request_more(assigns) do
+    ~H"""
+    <.button
+      :if={@available? and not @at_max?}
+      size="sm"
+      phx-click="storage-request-open"
+      data-testid="storage-request-open"
+    >
+      Request more
+    </.button>
+    <p :if={@available? and @at_max?} class="text-sm text-ink-subtle" data-testid="storage-at-max">
+      Storage is at the largest size we can attach.
+    </p>
+    """
+  end
+
+  attr(:instance, :any, required: true)
+  attr(:form, :any, required: true)
+  attr(:threshold_gb, :integer, required: true)
+  attr(:max_gb, :integer, required: true)
+  attr(:min_target, :integer, required: true)
+  attr(:preview_cents, :any, required: true)
+  attr(:error_lines, :list, required: true)
+  attr(:within_boundary, :boolean, required: true)
+
+  # The projected figure is `ResizePreview`'s running cents at the
+  # target allocation — the same snapshot choice the apply charges.
+  # nil (unpriced or an unreadable catalog) never guesses a number.
+  defp storage_request_form(assigns) do
+    ~H"""
+    <.form
+      for={@form}
+      id="storage-request-form"
+      phx-change="storage-request-change"
+      phx-submit="storage-request-submit"
+      class="space-y-3"
+    >
+      <p class="text-sm text-ink" data-testid="storage-request-context">
+        Currently {@instance.storage_gb} GB · self-service up to {@threshold_gb} GB
+      </p>
+
+      <.input
+        field={@form[:requested_gb]}
+        type="number"
+        label="New total size (GB)"
+        min={@min_target}
+        max={@max_gb}
+        step="1"
+        required
+      />
+
+      <.input
+        field={@form[:reason]}
+        type="textarea"
+        label="Why do you need more?"
+        maxlength="280"
+        placeholder="A sentence helps us order the right capacity."
+        required
+      />
+
+      <div class="space-y-1 rounded-xl bg-panel-raised px-4 py-3" data-testid="storage-request-price">
+        <p class="text-sm text-ink">
+          <%= if @preview_cents do %>
+            Projected {FluxVale.Pricing.format_monthly_rate(@preview_cents)}
+          <% else %>
+            <span data-testid="storage-request-price-unpriced">Price confirmed at approval</span>
+          <% end %>
+        </p>
+        <p class="text-xs text-ink-muted">
+          We order capacity for this. You'll see the decision here; the rate is confirmed when it's approved.
+        </p>
+      </div>
+
+      <p
+        :if={@within_boundary}
+        class="rounded-panel border border-line-warning bg-warning-muted px-4 py-2 text-sm text-warning"
+        data-testid="storage-request-within"
+      >
+        That's within self-service — use Resize.
+      </p>
+
+      <div
+        :if={@error_lines != []}
+        role="alert"
+        class="rounded-panel border border-line-danger bg-danger-muted px-4 py-2 text-sm text-danger-deep"
+        data-testid="storage-request-error"
+      >
+        <p :for={line <- @error_lines}>{line}</p>
+      </div>
+
+      <div class="flex flex-wrap justify-end gap-2">
+        <.button
+          size="sm"
+          variant="ghost"
+          type="button"
+          phx-click="storage-request-cancel"
+          data-testid="storage-request-cancel"
+        >
+          Cancel
+        </.button>
+        <.button
+          size="sm"
+          type="submit"
+          phx-disable-with="Sending…"
+          data-testid="storage-request-submit"
+        >
+          Send request
+        </.button>
+      </div>
+    </.form>
+    """
+  end
+
+  attr(:request, :any, required: true)
+
+  # requested / approved: the member's wait, with the advisory quote
+  # (D7 — approval re-prices at the rates in force then).
+  defp storage_request_status(assigns) do
+    ~H"""
+    <div class="space-y-2 rounded-xl bg-panel-raised px-4 py-3" data-testid="storage-request-status">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <p class="text-sm font-medium text-ink" data-testid="storage-request-target">
+          {@request.requested_gb} GB total
+          <span class="text-ink-subtle">(from {@request.current_storage_gb} GB)</span>
+        </p>
+        <.badge tone={status_tone(@request.status)} data-testid="storage-request-status-badge">
+          {status_copy(@request.status)}
+        </.badge>
+      </div>
+
+      <p class="text-sm text-ink" data-testid="storage-request-quote">
+        {quote_copy(@request.quoted_monthly_cents)}
+      </p>
+
+      <p class="text-xs text-ink-subtle" data-testid="storage-request-submitted">
+        Requested {Calendar.strftime(@request.created_at, "%b %d, %Y %H:%M UTC")}
+      </p>
+
+      <p :if={@request.status == :approved} class="text-xs text-ink-subtle">
+        Approved — we're adding the space. A restart may be needed to see it.
+      </p>
+    </div>
+    """
+  end
+
+  attr(:request, :any, required: true)
+
+  # Rejected is terminal; the operator's feedback is the member's copy,
+  # verbatim — never summarised, never softened.
+  defp storage_request_rejection(assigns) do
+    ~H"""
+    <div
+      class="space-y-2 rounded-xl border border-line-danger bg-danger-muted px-4 py-3"
+      data-testid="storage-request-rejected"
+    >
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <p class="text-sm font-medium text-ink">
+          Request for {@request.requested_gb} GB wasn't approved
+        </p>
+        <.badge tone="danger" data-testid="storage-request-status-badge">Not approved</.badge>
+      </div>
+
+      <p class="text-sm text-ink" data-testid="storage-request-feedback">
+        {@request.rejection_reason}
+      </p>
+
+      <p class="text-xs text-ink-subtle" data-testid="storage-request-submitted">
+        Requested {Calendar.strftime(@request.created_at, "%b %d, %Y %H:%M UTC")}
+      </p>
+    </div>
+    """
+  end
+
+  attr(:request, :any, required: true)
+  attr(:rates, :any, required: true)
+
+  # Applied: the date and the rate the row now bills. An unpriced row
+  # shows no made-up figure (the quote is advisory, D7).
+  defp storage_request_applied(assigns) do
+    ~H"""
+    <div class="space-y-2 rounded-xl bg-panel-raised px-4 py-3" data-testid="storage-request-applied">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <p class="text-sm font-medium text-ink">{@request.requested_gb} GB applied</p>
+        <.badge tone="success" data-testid="storage-request-status-badge">Applied</.badge>
+      </div>
+
+      <p class="text-sm text-ink" data-testid="storage-request-applied-rate">
+        <%= if @rates do %>
+          Your new rate is {FluxVale.Pricing.format_monthly_rate(@rates.running)}
+        <% else %>
+          Price confirmed at approval
+        <% end %>
+      </p>
+
+      <p class="text-xs text-ink-subtle" data-testid="storage-request-applied-at">
+        Applied {Calendar.strftime(@request.applied_at, "%b %d, %Y %H:%M UTC")}
+      </p>
+
+      <p class="text-xs text-ink-subtle">A restart may be needed to see the new space.</p>
+    </div>
+    """
+  end
+
+  defp open_request?(%StorageRequest{status: status}), do: status in [:requested, :approved]
+
+  defp any_open_request?(requests), do: Enum.any?(requests, &open_request?/1)
+
+  defp status_copy(:requested), do: "Awaiting review"
+  defp status_copy(:approved), do: "Approved"
+  defp status_tone(:requested), do: "warning"
+  defp status_tone(:approved), do: "success"
+
+  defp quote_copy(nil), do: "Price confirmed at approval"
+
+  defp quote_copy(cents),
+    do: "Projected #{FluxVale.Pricing.format_monthly_rate(cents)} — confirmed when it's approved."
+
   attr(:instance, :any, required: true)
   attr(:form, :any, required: true)
   attr(:rates, :map, default: nil)
@@ -1081,6 +1407,219 @@ defmodule FluxValeWeb.InstanceLive.Show do
   defp storage_fixed_line(:error, gb),
     do: "Storage: #{gb} GB · stays unchanged (couldn't check storage expansion — try again)"
 
+  # ------------------------------------------------------------------
+  # #250: the storage request row's state
+  # ------------------------------------------------------------------
+
+  # The boundary is configuration (ADR-0046 D1), read once per mount —
+  # the same source the create validates against.
+  defp assign_storage_request(socket, instance, user) do
+    config = storage_config()
+
+    assign(socket,
+      storage_threshold_gb: config.threshold_gb,
+      storage_max_gb: config.max_gb,
+      storage_requests: list_requests(instance.id, user),
+      storage_request_open?: false,
+      storage_request_form: request_form(request_params(min_target(instance))),
+      storage_request_preview: nil,
+      storage_request_error: [],
+      storage_request_within?: false
+    )
+  end
+
+  defp storage_config, do: Application.fetch_env!(:flux_vale, :storage_beyond_threshold)
+
+  # A target total must beat the current allocation AND the boundary;
+  # the form's min is the create's own lower fence (the server remains
+  # the authority).
+  defp min_target(%{storage_gb: current}) do
+    max(current + 1, storage_config().threshold_gb + 1)
+  end
+
+  defp list_requests(instance_id, user) do
+    case StorageRequest.for_instance(instance_id, actor: user) do
+      {:ok, requests} ->
+        requests
+
+      # coveralls-ignore-start - race window: the instance was admitted
+      # at mount; a teardown between mount and this re-read is the only
+      # miss (the :destroy broadcast owns the page's exit)
+      {:error, _error} ->
+        []
+        # coveralls-ignore-stop
+    end
+  end
+
+  defp request_form(params), do: to_form(params, as: :storage_request)
+
+  defp request_params(target), do: %{"requested_gb" => target, "reason" => ""}
+
+  defp close_storage_request(socket) do
+    assign(socket,
+      storage_request_open?: false,
+      storage_request_preview: nil,
+      storage_request_error: [],
+      storage_request_within?: false
+    )
+  end
+
+  # The projected monthly figure at the target, through the same
+  # snapshot choice the apply charges. Unpriced and unreadable catalogs
+  # both answer nil — the form then promises no number.
+  defp preview_target(_instance, nil), do: nil
+
+  defp preview_target(instance, target) do
+    allocation = %{
+      cpu_cores: instance.cpu_cores,
+      memory_mb: instance.memory_mb,
+      storage_gb: target
+    }
+
+    case Infrastructure.resize_preview(instance, allocation) do
+      {:ok, %{running_cents: cents}} -> cents
+      _unpriced_or_error -> nil
+    end
+  end
+
+  defp parse_target(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    case Integer.parse(trimmed) do
+      {target, ""} -> target
+      _invalid -> nil
+    end
+  end
+
+  defp parse_target(_value), do: nil
+
+  defp submit_storage_request(socket, params) do
+    instance = socket.assigns.instance
+
+    case StorageRequest.request(
+           %{
+             instance_id: instance.id,
+             requested_gb: params["requested_gb"],
+             reason: params["reason"]
+           },
+           actor: socket.assigns.current_user
+         ) do
+      {:ok, _request} ->
+        {:noreply,
+         socket
+         |> close_storage_request()
+         |> assign(storage_requests: list_requests(instance.id, socket.assigns.current_user))
+         |> put_flash(:info, "Request sent. We'll confirm the rate when it's approved.")}
+
+      {:error, error} ->
+        {:noreply, storage_request_failed(socket, error, parse_target(params["requested_gb"]))}
+    end
+  end
+
+  # The action's verdict decides the copy. A target inside the boundary
+  # routes to the resize panel instead of reading as a dead end; a
+  # refusal the row can explain (an open request exists, the target is
+  # above the ceiling) shows the action's own words.
+  defp storage_request_failed(socket, error, target) do
+    instance = socket.assigns.instance
+    requests = list_requests(instance.id, socket.assigns.current_user)
+
+    cond do
+      within_boundary?(target) ->
+        assign(socket,
+          storage_requests: requests,
+          storage_request_error: [],
+          storage_request_within?: true
+        )
+
+      any_open_request?(requests) ->
+        # coveralls-ignore-start - race window: a second submit lost the
+        # partial unique index after the advisory read passed; no
+        # deterministic test can stage the interleaving, and the S2
+        # message is the honest answer
+        socket
+        |> assign(
+          storage_requests: requests,
+          storage_request_open?: false,
+          storage_request_error: [],
+          storage_request_within?: false
+        )
+        |> put_flash(:error, "This instance already has an open storage request.")
+
+      # coveralls-ignore-stop
+
+      true ->
+        assign(socket, storage_requests: requests, storage_request_error: error_lines(error))
+    end
+  end
+
+  defp within_boundary?(nil), do: false
+  defp within_boundary?(target), do: target <= storage_config().threshold_gb
+
+  # The S2 validation messages, in plain words: a field label where the
+  # error names one, the resource's own sentence otherwise.
+  defp error_lines(%Ash.Error.Invalid{errors: errors}) do
+    errors
+    |> Enum.map(&error_line/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  # coveralls-ignore-start - defensive: the create's failures are all
+  # Ash.Error.Invalid (policy denials read as Forbidden and can only
+  # reach a non-member, which mount already refused)
+  defp error_lines(_error), do: ["Something went wrong. Try again."]
+  # coveralls-ignore-stop
+
+  defp error_line(%Ash.Error.Changes.Required{field: field}) do
+    "#{field_label(field)} is required."
+  end
+
+  defp error_line(%{message: message} = error) when is_binary(message) do
+    message = interpolate(message, Map.get(error, :vars) || [])
+    label = field_label(Map.get(error, :field))
+    if label, do: "#{label} #{message}", else: message
+  end
+
+  # coveralls-ignore-next-line - defensive: every error carries a message
+  defp error_line(_other), do: nil
+
+  defp field_label(:requested_gb), do: "Target size"
+  defp field_label(:reason), do: "Reason"
+  # coveralls-ignore-next-line - defensive: the create accepts these two fields only
+  defp field_label(_other), do: nil
+
+  # `e.message` is the resource's template; the bindings ride `vars`
+  # (the backups panel's plain-words stance, no template in the copy).
+  defp interpolate(message, vars) do
+    Enum.reduce(vars, message, fn
+      {name, value}, acc when is_binary(value) or is_number(value) or is_atom(value) ->
+        String.replace(acc, "%{#{name}}", to_string(value))
+
+      # coveralls-ignore-start - defensive: these messages bind scalars only
+      {_name, _other}, acc ->
+        acc
+        # coveralls-ignore-stop
+    end)
+  end
+
+  defp refresh_storage_requests(socket) do
+    requests = list_requests(socket.assigns.instance.id, socket.assigns.current_user)
+    socket = assign(socket, :storage_requests, requests)
+
+    # One open request per instance: a live submit elsewhere replaces an
+    # open form with the status card rather than leaving a form that
+    # could only be refused.
+    if any_open_request?(requests) do
+      assign(socket,
+        storage_request_open?: false,
+        storage_request_error: [],
+        storage_request_within?: false
+      )
+    else
+      socket
+    end
+  end
+
   @impl Phoenix.LiveView
   def handle_event("deploy", _params, socket) do
     # Non-bang + case: an in-flight second click (or any stale-view
@@ -1226,6 +1765,55 @@ defmodule FluxValeWeb.InstanceLive.Show do
       end
     end
   end
+
+  # ------------------------------------------------------------------
+  # #250: the storage request row's events
+  # ------------------------------------------------------------------
+
+  def handle_event("storage-request-open", _params, socket) do
+    instance = socket.assigns.instance
+
+    {:noreply,
+     assign(socket,
+       storage_request_open?: true,
+       storage_request_form: request_form(request_params(min_target(instance))),
+       storage_request_preview: preview_target(instance, min_target(instance)),
+       storage_request_error: [],
+       storage_request_within?: false
+     )}
+  end
+
+  def handle_event("storage-request-change", %{"storage_request" => params}, socket)
+      when is_map(params) do
+    {:noreply,
+     assign(socket,
+       storage_request_form: request_form(params),
+       storage_request_preview:
+         preview_target(socket.assigns.instance, parse_target(params["requested_gb"])),
+       storage_request_error: [],
+       storage_request_within?: false
+     )}
+  end
+
+  def handle_event("storage-request-change", _unmatched, socket), do: {:noreply, socket}
+
+  def handle_event("storage-request-cancel", _params, socket) do
+    {:noreply, close_storage_request(socket)}
+  end
+
+  # Only an open form submits — a crafted or stale event (a closed form,
+  # a missing payload) is the unmatched-shape no-op, the resize panel's
+  # posture. The action itself is the fence for every state question.
+  def handle_event("storage-request-submit", %{"storage_request" => params}, socket)
+      when is_map(params) do
+    if socket.assigns.storage_request_open? do
+      submit_storage_request(socket, params)
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("storage-request-submit", _unmatched, socket), do: {:noreply, socket}
 
   # #493: the resize panel. The entry buttons are presentation — the
   # action's own guards stay the fence for every state question.
@@ -1490,6 +2078,13 @@ defmodule FluxValeWeb.InstanceLive.Show do
   # fetch/2.
   def handle_info(%Ash.Notifier.Notification{resource: BackupRun}, socket) do
     {:noreply, refresh_backups_panel(socket)}
+  end
+
+  # #250: a request write lands the status card live. Re-read the list —
+  # never notification.data (the DB is the ordering that cannot lie) —
+  # and close an open form the new open request has made moot.
+  def handle_info(%Ash.Notifier.Notification{resource: StorageRequest}, socket) do
+    {:noreply, refresh_storage_requests(socket)}
   end
 
   # Re-read on every broadcast instead of trusting notification.data:
