@@ -37,6 +37,30 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
   carries no probes — pod readiness is the app container's contract
   (the reconciler's semantics stay unchanged).
 
+  `backing_services` (#612, ADR-0045) adds native-sidecar init
+  containers — the instance's bundled Postgres/Redis, rendered in list
+  order before every regular container:
+
+      %{
+        kind: :postgres,                 # Required: :postgres | :redis (shape source)
+        image: "postgres:18.6-alpine3.24", # Required: the instance's pinned ref
+        port: 5432,                      # Required: container/probe port
+        env_from_secret: "backing-services", # Required: credentials + URLs
+        cpu: 0.10,                       # Required: requests (limits = 2x)
+        memory_mb: 256                   # Required: requests in MB
+      }
+
+  Kind owns the container shape: postgres gets
+  `listen_addresses=127.0.0.1` args + PGDATA below its mount; redis
+  gets a requirepass-from-env command. Both bind loopback only, probe
+  readiness with the engine's own client (`pg_isready -h 127.0.0.1` —
+  the `-h` is load-bearing: a bare probe would pass against the
+  socket-only initdb server; `redis-cli ping` via `REDISCLI_AUTH`),
+  mount `backing/<kind>` subPaths of the shared `storage` volume, and
+  carry `restartPolicy: Always` — native-sidecar semantics gate the
+  next init container (and thus the app container) on probe success.
+  No secret lands in the pod spec: credentials ride envFrom.
+
   Resource limits are 2x the requests — burst headroom, predictable cost.
   Probes (`probe_path`) come from `AppVersion.healthcheck_path` (#73).
   """
@@ -49,7 +73,9 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
   @type spec :: %{
           required(:image) => String.t(),
           required(:port) => integer(),
-          optional(:cpu) => float(),
+          # Decimal accepted (#612): the app's requests are carved from
+          # the allocation — float would round (the sidecar's stance).
+          optional(:cpu) => float() | Decimal.t(),
           optional(:memory) => integer(),
           optional(:env) => map(),
           optional(:replicas) => integer(),
@@ -57,7 +83,8 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
           optional(:pvc_name) => String.t(),
           optional(:probe_path) => String.t(),
           optional(:env_from_secret) => String.t(),
-          optional(:sidecar) => sidecar_spec()
+          optional(:sidecar) => sidecar_spec(),
+          optional(:backing_services) => [backing_service_spec()]
         }
 
   @typedoc "One platform-owned extra container in the pod (#190)"
@@ -71,6 +98,21 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
           # allocations — float would round (see ResourceQuota's spec).
           required(:cpu) => float() | Decimal.t(),
           required(:memory) => integer()
+        }
+
+  @typedoc """
+  One bundled backing service as a native-sidecar init container
+  (#612, ADR-0045). Rendered in list order; `kind` owns the container
+  shape. Decimal cpu for the same exactness reason as the sidecar —
+  the requests are carved from the purchased allocation.
+  """
+  @type backing_service_spec :: %{
+          required(:kind) => :postgres | :redis,
+          required(:image) => String.t(),
+          required(:port) => integer(),
+          required(:env_from_secret) => String.t(),
+          required(:cpu) => float() | Decimal.t(),
+          required(:memory_mb) => integer()
         }
 
   @default_cpu 0.5
@@ -383,10 +425,18 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
         sidecar -> [app_container | [build_sidecar_container(sidecar)]]
       end
 
+    # Native sidecars (#612, D8): rendered in the spec's list order —
+    # each gates the next init container on its startup probe, and the
+    # app container starts only after all of them.
+    init_containers =
+      spec
+      |> Map.get(:backing_services, [])
+      |> Enum.map(&build_backing_init_container/1)
+
     pod_spec =
-      if volumes == [],
-        do: %{"containers" => containers},
-        else: %{"containers" => containers, "volumes" => volumes}
+      %{"containers" => containers}
+      |> maybe_put_section("volumes", volumes)
+      |> maybe_put_section("initContainers", init_containers)
 
     %{
       "apiVersion" => "apps/v1",
@@ -414,6 +464,11 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
       }
     }
   end
+
+  defp maybe_put_section(pod_spec, _section, []), do: pod_spec
+
+  defp maybe_put_section(pod_spec, section, entries),
+    do: Map.put(pod_spec, section, entries)
 
   # The app container: image/port/resources from the spec, probes from
   # the healthcheck path, env from spec.env, user env via envFrom
@@ -491,6 +546,95 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
         "limits" => %{"cpu" => cpu_limit, "memory" => "#{sidecar.memory * 2}Mi"}
       },
       "volumeMounts" => [%{"name" => "storage", "mountPath" => sidecar.storage_mount}]
+    }
+  end
+
+  # --- bundled backing services (#612, ADR-0045) ----------------------
+
+  # One native-sidecar init container per declared service. Kind owns
+  # the shape (listener binding, probe command, mount point); the spec
+  # owns the pin. restartPolicy Always + a passing startup probe is
+  # what orders the pod: the next init container (and the app) waits
+  # on THIS container accepting connections.
+  @spec build_backing_init_container(backing_service_spec()) :: map()
+  defp build_backing_init_container(service) do
+    cpu = decimal_cpu(service.cpu)
+    {cpu_request, cpu_limit} = cpu_strings(cpu)
+
+    container = %{
+      "name" => Atom.to_string(service.kind),
+      "image" => service.image,
+      "ports" => [%{"containerPort" => service.port}],
+      "envFrom" => [%{"secretRef" => %{"name" => service.env_from_secret}}],
+      "resources" => %{
+        "requests" => %{"cpu" => cpu_request, "memory" => "#{service.memory_mb}Mi"},
+        "limits" => %{"cpu" => cpu_limit, "memory" => "#{service.memory_mb * 2}Mi"}
+      },
+      "restartPolicy" => "Always",
+      "startupProbe" => backing_startup_probe(service.kind)
+    }
+
+    Map.merge(container, backing_kind_fields(service.kind))
+  end
+
+  # Loopback listeners (§4.3): the URL is `localhost` by design, so
+  # "nothing is exposed outside the pod" holds at the LISTENER, not
+  # just the network layer. Postgres: args after the image entrypoint
+  # (docker-entrypoint.sh stays; the initdb temp server is socket-only
+  # and unaffected). Redis: the official image has no env-based
+  # requirepass, and a bare arg would put the password in the pod
+  # spec — the shell expands $REDIS_PASSWORD at runtime instead.
+  defp backing_kind_fields(:postgres) do
+    %{
+      "args" => ["postgres", "-c", "listen_addresses=127.0.0.1"],
+      "env" => [
+        # The image's lost+found quirk on volume roots: PGDATA below
+        # the subPath mount, in its own subdir (§4.6).
+        %{"name" => "PGDATA", "value" => "/var/lib/postgresql/data/pgdata"}
+      ],
+      "volumeMounts" => [
+        %{
+          "name" => "storage",
+          "mountPath" => "/var/lib/postgresql/data",
+          "subPath" => "backing/postgres"
+        }
+      ]
+    }
+  end
+
+  defp backing_kind_fields(:redis) do
+    %{
+      "command" => [
+        "sh",
+        "-c",
+        ~s|exec redis-server --requirepass "$REDIS_PASSWORD" | <>
+          "--bind 127.0.0.1 --protected-mode yes"
+      ],
+      "volumeMounts" => [
+        %{"name" => "storage", "mountPath" => "/data", "subPath" => "backing/redis"}
+      ]
+    }
+  end
+
+  # `pg_isready -h 127.0.0.1` (never a bare call): on first boot the
+  # postgres image runs a socket-only temp server, and a socket probe
+  # would pass before TCP 5432 listens — the app would race the real
+  # DB. `redis-cli ping` authenticates through REDISCLI_AUTH (envFrom
+  # above), so PONG means auth AND liveness. Thresholds: PG gets 3
+  # minutes (initdb on a cold volume), Redis 1.
+  defp backing_startup_probe(:postgres) do
+    %{
+      "exec" => %{"command" => ["pg_isready", "-h", "127.0.0.1"]},
+      "periodSeconds" => 5,
+      "failureThreshold" => 36
+    }
+  end
+
+  defp backing_startup_probe(:redis) do
+    %{
+      "exec" => %{"command" => ["redis-cli", "ping"]},
+      "periodSeconds" => 5,
+      "failureThreshold" => 12
     }
   end
 

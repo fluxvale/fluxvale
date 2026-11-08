@@ -8,7 +8,9 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   routes (`EdgeRoutes.apply_serving/2` — the IngressRoutes plus #203's
   activity-beacon Middleware; file-access instances add the
   `file-access` Secret and a `dav` Service whose route rides the same
-  call — #190, ADR-0035); then flips the Instance to `:starting` (K8s
+  call — #190, ADR-0035; instances with bundled backing services add
+  a `backing-services` Secret before their URLs join the env — #612,
+  ADR-0045); then flips the Instance to `:starting` (K8s
   accepted, awaiting readiness — the reconciler owns `:running`) or
   `:error` with a status_message on failure.
 
@@ -20,11 +22,16 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
     and it is also *young* when the first operand applies: the
     authorizer ingests bindings asynchronously, a race tolerated in
     `apply_resources` (not by ordering, #238)
+  - the **`backing-services` Secret precedes env composition** (#612):
+    the URLs composed into the app's env are READ from it, so it must
+    exist first — get-or-create, never rotated (the PG password hash
+    lives in the data dir; an existing Secret IS the credential)
   - the **Secret precedes the Deployment**: the container references it
     via `envFrom.secretRef`, and a missing Secret at scheduling time is a
     transient `CreateContainerConfigError` the reconciler could misread
-    as a `ReplicaFailure` — true for the app-env Secret and the
-    file-access credential alike (#190)
+    as a `ReplicaFailure` — true for the app-env Secret, the
+    file-access credential, and the backing-services credential alike
+    (#190, #612)
   - the ResourceQuota lands before the Deployment so the quota is
     enforceable from the first pod, not retrofitted
   """
@@ -159,8 +166,6 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   end
 
   defp apply_operands(kubeconfig, namespace, instance) do
-    env = deploy_env(instance)
-
     # #196: the env label scopes namespace ownership — the orphan sweep
     # only deletes namespaces carrying its own platform_env, so two
     # platform envs sharing one physical cluster (ADR-0010 same-box)
@@ -185,6 +190,11 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
              InstanceK8s.network_policy_spec(instance)
            ),
          {:ok, _pvc} <- InstanceK8s.maybe_create_pvc(kubeconfig, namespace, instance),
+         # #612: get-or-create BEFORE env composition — the backing
+         # URLs the env composes are read from this Secret.
+         {:ok, backing_data} <-
+           InstanceK8s.get_or_create_backing_secret(kubeconfig, namespace, instance),
+         env = deploy_env(instance, backing_data),
          {:ok, _secret} <- maybe_create_secret(kubeconfig, namespace, env),
          {:ok, _file_secret} <-
            InstanceK8s.maybe_create_file_secret(kubeconfig, namespace, instance),
@@ -213,7 +223,12 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
 
   # The merged env (catalog defaults under user values) plus the
   # instance's URL when the AppVersion asks for it (`instance_url_env` —
-  # Forgejo's ROOT_URL; the URL isn't catalog data).
+  # Forgejo's ROOT_URL; the URL isn't catalog data), plus each bundled
+  # backing service's URL (#612, ADR-0045) from the get-or-create'd
+  # backing Secret — the same deploy-time seed layer's stance: Map.put
+  # ABOVE user env, the takeover precedence (create already rejects a
+  # user value naming a url_env loudly; this holds even for drifted
+  # rows).
   #
   # **ADR-0038 §4's omission rule, with its designed exception**
   # (ADR-0040 §7): a private row gets NO URL env — a dead ROOT_URL mints
@@ -225,7 +240,7 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   # problem — only the default hostname is modeled here. The env lands
   # on the first deploy that finds the conditions true (toggling later
   # doesn't rewrite a running app's env Secret — the next deploy does).
-  defp deploy_env(instance) do
+  defp deploy_env(instance, backing_data) do
     loaded = Ash.load(instance, :app_version, authorize?: false)
 
     case loaded do
@@ -242,7 +257,9 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
               Map.put(instance.env_vars, env_name, url)
           end
 
-        maybe_allowlist_entry(env, instance, app_version)
+        env
+        |> put_backing_urls(instance, backing_data)
+        |> maybe_allowlist_entry(instance, app_version)
 
       # coveralls-ignore-start - defensive: a load failure is the DB
       # outage class ExUnit cannot stage (DBConnection reconnects by
@@ -253,6 +270,19 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
         instance.env_vars
         # coveralls-ignore-stop
     end
+  end
+
+  # The backing URLs (#612): nil data = the instance declares nothing.
+  # fetch! is safe — get_or_create_backing_secret validated every
+  # declared url_env key exists in the SAME apply, one step earlier.
+  defp put_backing_urls(env, _instance, nil), do: env
+
+  defp put_backing_urls(env, instance, data) do
+    services = instance.backing_services
+
+    Enum.reduce(services, env, fn service, acc ->
+      Map.put(acc, service.url_env, Map.fetch!(data, service.url_env))
+    end)
   end
 
   # Public rows: the URL as before. Private rows: only the claimed-
