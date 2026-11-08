@@ -29,13 +29,16 @@ defmodule FluxVale.Infrastructure do
   alias FluxVale.Infrastructure.Operations.ResizePreview
   alias FluxVale.Infrastructure.Operations.RestoreInstanceBackup
   alias FluxVale.Infrastructure.Operations.RestoreServingEdge
+  alias FluxVale.Infrastructure.Operations.RevokePocketIdKey
   alias FluxVale.Infrastructure.Operations.RunInstanceBackup
   alias FluxVale.Infrastructure.Operations.SetAccessApiToken
+  alias FluxVale.Infrastructure.Operations.SetPocketIdKey
   alias FluxVale.Infrastructure.Operations.StorageExpansion
   alias FluxVale.Infrastructure.Operations.SweepBackups
   alias FluxVale.Infrastructure.Operations.SweepIdleInstances
   alias FluxVale.Infrastructure.Operations.SweepStrandedInstances
   alias FluxVale.Infrastructure.Operations.UnclaimAccessDomain
+  alias FluxVale.Infrastructure.Operations.UsePocketIdKey
   alias FluxVale.Infrastructure.Operations.VerifyAccessDomains
   alias FluxVale.Infrastructure.Operations.WakeInstance
 
@@ -53,6 +56,8 @@ defmodule FluxVale.Infrastructure do
     resource(FluxVale.Infrastructure.AccessRoute)
     resource(FluxVale.Infrastructure.AccessDomain)
     resource(FluxVale.Infrastructure.InstanceHostname)
+    resource(FluxVale.Infrastructure.PocketIdCustody)
+    resource(FluxVale.Infrastructure.PocketIdCustodyEvent)
   end
 
   defdelegate sweep_stranded_instances(), to: SweepStrandedInstances, as: :call
@@ -100,6 +105,23 @@ defmodule FluxVale.Infrastructure do
 
   defdelegate unclaim_access_domain(gateway, domain, opts \\ []),
     to: UnclaimAccessDomain,
+    as: :call
+
+  # #597 S2 (§4.3): the PocketID admin-key custody trio — store
+  # (live-verified paste, Secret first then row), the audited key-use
+  # seam S4/S5 consume, and revoke. All three carry the caller's
+  # actor/authorize? (ownership enforced inside, the
+  # set_access_api_token stance).
+  defdelegate set_pocket_id_key(instance, api_key, opts \\ []),
+    to: SetPocketIdKey,
+    as: :call
+
+  defdelegate use_pocket_id_key(custody, purpose, opts \\ []),
+    to: UsePocketIdKey,
+    as: :call
+
+  defdelegate revoke_pocket_id_key(instance, opts \\ []),
+    to: RevokePocketIdKey,
     as: :call
 
   # Opt-out (#268): the async teardown entry. The action flips

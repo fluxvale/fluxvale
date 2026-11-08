@@ -48,10 +48,16 @@ defmodule FluxVale.Ops.FeatureFlags do
   # string keys convert to atoms ONLY through this list, never through
   # String.to_atom/1 on DB input (the v1 catalog-seeds lesson).
   #
-  # Mechanism-first (#25): the list ships EMPTY — fail-closed makes that
-  # correct, and no M2 code branches on a flag yet. The first entry arrives
-  # with the first real gated feature (M3+), same PR as its code branch.
-  @known_flags []
+  # Mechanism-first (#25): the list shipped EMPTY until the first real
+  # gated feature arrived.
+  #
+  # - `:pocketid_sso_wiring` (#597): the whole PocketID SSO surface —
+  #   fail-closed (no row seeded): the custody card and (later slices)
+  #   the wizard offer stay invisible until the flag is turned on.
+  #   The instant-shutdown lever for upstream PocketID API drift
+  #   (#597 §9); delete row + branch together once the flow is
+  #   permanent.
+  @known_flags [:pocketid_sso_wiring]
 
   @doc """
   Is `key` enabled, anonymous evaluation? Same as `enabled?(key, for: nil)`.
@@ -69,8 +75,6 @@ defmodule FluxVale.Ops.FeatureFlags do
   def enabled?(key, for: actor) when is_atom(key) do
     declared!(key)
 
-    # coveralls-ignore-start - unreachable past the raise until @known_flags
-    # ships its first entry (#25, mechanism-first); remove with that flag
     # authorize?: false — machine read of global config, same posture as
     # the seeds bootstrap. Flags aren't actor-scoped data; the read is not
     # an authorization question (mutations stay admin-gated, see the
@@ -79,8 +83,6 @@ defmodule FluxVale.Ops.FeatureFlags do
     |> Atom.to_string()
     |> FeatureFlag.by_key!(authorize?: false, not_found_error?: false)
     |> decide(key, actor)
-
-    # coveralls-ignore-stop
   end
 
   @doc """
@@ -100,8 +102,6 @@ defmodule FluxVale.Ops.FeatureFlags do
   def enable(key, opts) when is_atom(key) and is_list(opts) do
     declared!(key)
 
-    # coveralls-ignore-start - unreachable past the raise until @known_flags
-    # ships its first entry (#25, mechanism-first); remove with that flag
     actor = Keyword.fetch!(opts, :actor)
     # Explicit nil check, not ||: `0` is truthy so `||` handled it, but a
     # falsy bogus value (`percentage: false`) rode into "not given" and
@@ -124,7 +124,6 @@ defmodule FluxVale.Ops.FeatureFlags do
       end
 
     verdict(outcome)
-    # coveralls-ignore-stop
   end
 
   @doc """
@@ -139,8 +138,6 @@ defmodule FluxVale.Ops.FeatureFlags do
   def disable(key, opts) when is_atom(key) and is_list(opts) do
     declared!(key)
 
-    # coveralls-ignore-start - unreachable past the raise until @known_flags
-    # ships its first entry (#25, mechanism-first); remove with that flag
     # Data flow: key → string → row (nil or not) → switch off → verdict.
     # opts (not a fetched actor) flows into switch_off/2 so the actor is
     # only required when a row actually exists — same laziness as before.
@@ -149,8 +146,6 @@ defmodule FluxVale.Ops.FeatureFlags do
     |> row()
     |> switch_off(opts)
     |> verdict()
-
-    # coveralls-ignore-stop
   end
 
   @doc """
@@ -184,8 +179,9 @@ defmodule FluxVale.Ops.FeatureFlags do
   # fail closed, same posture as the nil actor above.
   def decide(%FeatureFlag{enabled: true, rollout_percentage: _pct}, _key, _id_less), do: false
 
-  # Enum.member? over `in`: the empty list must not trip the compiler's
-  # "always false" warning — mechanism-first means @known_flags is [] for now.
+  # Enum.member? over `in`: the empty-list arm retired with the first
+  # real flag (#597 S2), but the member? shape stays — it reads as
+  # catalog membership, which is exactly the question.
   defp declared!(key) do
     if not Enum.member?(@known_flags, key) do
       raise ArgumentError,
@@ -194,8 +190,6 @@ defmodule FluxVale.Ops.FeatureFlags do
     end
   end
 
-  # coveralls-ignore-start - row/switch_off/verdict serve only the
-  # declare-gated verbs above; covered with the first real flag (#25)
   defp row(key_str) do
     FeatureFlag.by_key!(key_str, authorize?: false, not_found_error?: false)
   end
@@ -209,5 +203,4 @@ defmodule FluxVale.Ops.FeatureFlags do
   # {:ok, _} | {:error, reason} → the verbs' :ok | {:error, reason} contract
   defp verdict({:ok, _flag}), do: :ok
   defp verdict({:error, reason}), do: {:error, reason}
-  # coveralls-ignore-stop
 end

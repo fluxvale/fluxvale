@@ -12,11 +12,15 @@ defmodule FluxValeWeb.InstanceLive.Show do
   use FluxValeWeb, :live_view
 
   alias FluxVale.Accounts.Organization
+  alias FluxVale.Checks.ActorIsOrganizationOwner
   alias FluxVale.Checks.ActorIsPlatformAdmin
+  alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.PocketIdCustody
+  alias FluxVale.Ops.FeatureFlags
   alias FluxValeWeb.AllocationSliders
   alias FluxValeWeb.InstanceLive.DavSnippet
   alias FluxValeWeb.InstanceStatus
@@ -74,6 +78,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
           # does not self-heal live (no route notifier; see
           # assign_access).
           |> assign_access(instance, user)
+          |> assign_pocketid_custody(instance, user)
 
         {:ok, maybe_schedule_status_tick(socket)}
 
@@ -486,6 +491,104 @@ defmodule FluxValeWeb.InstanceLive.Show do
               >
                 {if(@instance.exposure == :private, do: "Make public", else: "Make private")}
               </.button>
+            </.card>
+
+            <%!-- #597 §4.3 (S2): the PocketID admin-key custody card —
+            PocketID instances only, owner-only, fail-closed behind the
+            pocketid_sso_wiring flag. The key goes IN and never comes
+            back out: no reveal, no echo, the card states only what the
+            row records (verified at, expiry best-effort). --%>
+            <.card
+              :if={@pocketid_custody_card?}
+              class="card space-y-3"
+              data-testid="pocketid-custody-card"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <h2 class="text-sm font-semibold text-ink">Sign-in with Pocket ID</h2>
+                <span
+                  :if={@pocketid_custody}
+                  class="inline-flex items-center gap-1.5 rounded-full border border-line-success bg-success-muted px-2.5 py-0.5 text-xs font-medium text-success"
+                  data-testid="pocketid-custody-state"
+                >
+                  Verified
+                </span>
+              </div>
+
+              <%= if @pocketid_custody do %>
+                <%!-- The honest state, from the row alone: when the key
+                was last verified live, and its expiry when Pocket ID
+                told us unambiguously (nil = managed there, link out). --%>
+                <p class="text-sm text-ink-subtle" data-testid="pocketid-custody-copy">
+                  FluxVale holds an admin key for this Pocket ID, verified {Calendar.strftime(
+                    @pocketid_custody.verified_at,
+                    "%b %d, %Y %H:%M UTC"
+                  )}.
+                  <%= if @pocketid_custody.expires_at do %>
+                    The key expires {Calendar.strftime(@pocketid_custody.expires_at, "%b %d, %Y")} — Pocket ID emails
+                    before it lapses.
+                  <% else %>
+                    <%!-- Ambiguous correlation (or Pocket ID didn't say):
+                    hand the owner to Pocket ID's own key management. --%>
+                    The key's expiry is managed in <.link
+                      href={pocketid_url(@instance)}
+                      class="underline underline-offset-2 hover:text-ink"
+                    >
+                      Pocket ID
+                    </.link>.
+                  <% end %>
+                </p>
+
+                <div class="flex flex-wrap gap-2">
+                  <.button
+                    size="sm"
+                    variant="ghost"
+                    phx-click="toggle-replace-pocketid-key"
+                    data-testid="pocketid-replace-toggle"
+                  >
+                    {if(@pocketid_replace_open?, do: "Cancel replacing key", else: "Replace key")}
+                  </.button>
+                  <.button
+                    size="sm"
+                    variant="ghost"
+                    phx-click="revoke-pocketid-key"
+                    data-confirm="Stop FluxVale managing sign-in clients for this Pocket ID? Apps already wired keep working; new wiring stops until you paste a key again."
+                    data-testid="pocketid-revoke"
+                  >
+                    Revoke
+                  </.button>
+                </div>
+              <% else %>
+                <p class="text-sm text-ink-subtle" data-testid="pocketid-custody-copy">
+                  One-time setup: let FluxVale create sign-in clients in this
+                  Pocket ID for your other apps. Paste an admin API key — in your
+                  Pocket ID, open <span class="font-medium">Settings → API keys</span> and create one.
+                </p>
+              <% end %>
+
+              <%!-- The intake form: fresh (no custody) or revealed by
+              Replace. Password-typed, never echoed; a paste is verified
+              live before anything is stored. --%>
+              <.form
+                :if={is_nil(@pocketid_custody) or @pocketid_replace_open?}
+                for={@pocketid_key_form}
+                id="pocketid-key-form"
+                phx-submit="save-pocketid-key"
+              >
+                <div class="flex items-end gap-2">
+                  <div class="min-w-0 flex-1">
+                    <.input
+                      field={@pocketid_key_form[:api_key]}
+                      type="password"
+                      label="Admin API key"
+                      placeholder="Paste the key from Pocket ID"
+                      autocomplete="off"
+                    />
+                  </div>
+                  <.button size="sm" phx-disable-with="Verifying…" data-testid="pocketid-key-submit">
+                    Save key
+                  </.button>
+                </div>
+              </.form>
             </.card>
 
             <%!-- #493: the resize panel — the guided stop→resize→start.
@@ -1042,6 +1145,42 @@ defmodule FluxValeWeb.InstanceLive.Show do
     end
   end
 
+  # #597 §4.3 (S2): the custody card's three verbs. The paste is
+  # verified live inside the op (3s budget) — the flash answers with
+  # the op's verdict, never the key. The card's gate (flag + app +
+  # owner) is the HANDLER's fence too, not just the render's: a
+  # crafted or stale client firing these events with the flag off (or
+  # on a non-PocketID instance) must not reach the ops — that is what
+  # makes :pocketid_sso_wiring an instant shutdown lever for the
+  # whole write path (CodeRabbit, #607). The op still re-fences the
+  # owner gate regardless.
+  def handle_event("save-pocketid-key", %{"pocketid_key" => %{"api_key" => api_key}}, socket)
+      when is_binary(api_key) and api_key != "" do
+    if socket.assigns.pocketid_custody_card? do
+      save_pocketid_key(api_key, socket)
+    else
+      {:noreply, put_flash(socket, :error, pocketid_card_unavailable())}
+    end
+  end
+
+  # An empty paste (or a non-string) is nothing to verify — say so
+  # without calling anyone.
+  def handle_event("save-pocketid-key", _blank, socket) do
+    {:noreply, put_flash(socket, :error, "Paste an admin API key first.")}
+  end
+
+  def handle_event("toggle-replace-pocketid-key", _params, socket) do
+    {:noreply, assign(socket, pocketid_replace_open?: not socket.assigns.pocketid_replace_open?)}
+  end
+
+  def handle_event("revoke-pocketid-key", _params, socket) do
+    if socket.assigns.pocketid_custody_card? do
+      revoke_pocketid_key(socket)
+    else
+      {:noreply, put_flash(socket, :error, pocketid_card_unavailable())}
+    end
+  end
+
   # #253 (ADR-0035 Am. 3): platform-tab switching. The active platform
   # is server state, and the click locks it — the OS-detected default
   # can then never override a choice (detection assists, never traps).
@@ -1410,6 +1549,126 @@ defmodule FluxValeWeb.InstanceLive.Show do
       {:error, _not_found} -> nil
     end
   end
+
+  # ------------------------------------------------------------------
+  # PocketID custody card (#597 §4.3, S2)
+  # ------------------------------------------------------------------
+
+  # Mount-time reads, the assign_access posture: custody moves via
+  # this card's own events (reloaded on each), the flag via admin
+  # action, the app via the catalog — navigation remounts, honest
+  # staleness otherwise. The card is PocketID + owner + flag: members
+  # see nothing (the crown is the owner's to paste — the op re-fences
+  # regardless), non-PocketIDs see nothing, and fail-closed means no
+  # flag row renders nothing anywhere. The flag evaluates FOR THE
+  # USER: a partial rollout buckets real actors (anonymous evaluation
+  # fails closed on percentages by design), so the lever works as
+  # full-off, full-on, or a gradual rollout (CodeRabbit, #607).
+  defp assign_pocketid_custody(socket, instance, user) do
+    card? =
+      FeatureFlags.enabled?(:pocketid_sso_wiring, for: user) and
+        instance.app_version.app.slug == "pocket-id" and
+        ActorIsOrganizationOwner.owner?(user, %Organization{id: instance.organization_id})
+
+    custody =
+      with true <- card?,
+           {:ok, row} <- PocketIdCustody.get_by_instance(instance.id, actor: user) do
+        row
+      else
+        _none_or_not_shown -> nil
+      end
+
+    assign(socket,
+      pocketid_custody_card?: card?,
+      pocketid_custody: custody,
+      pocketid_replace_open?: false,
+      pocketid_key_form: fresh_key_form()
+    )
+  end
+
+  defp reload_pocketid_custody(socket) do
+    user = socket.assigns.current_user
+
+    custody =
+      case PocketIdCustody.get_by_instance(socket.assigns.instance.id, actor: user) do
+        {:ok, row} -> row
+        {:error, _revoked_or_none} -> nil
+      end
+
+    assign(socket, :pocketid_custody, custody)
+  end
+
+  defp fresh_key_form, do: to_form(%{"api_key" => ""}, as: :pocketid_key)
+
+  # The guarded verbs' bodies (the guards above fence the write path
+  # on the card gate; the op still re-fences ownership).
+  defp save_pocketid_key(api_key, socket) do
+    user = socket.assigns.current_user
+
+    case Infrastructure.set_pocket_id_key(socket.assigns.instance, api_key, actor: user) do
+      {:ok, _custody} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Admin key verified and stored.")
+         |> reload_pocketid_custody()
+         |> assign(pocketid_replace_open?: false, pocketid_key_form: fresh_key_form())}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, pocketid_key_error(reason))}
+    end
+  end
+
+  defp revoke_pocketid_key(socket) do
+    user = socket.assigns.current_user
+
+    case Infrastructure.revoke_pocket_id_key(socket.assigns.instance, actor: user) do
+      :ok ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Key custody revoked.")
+         |> reload_pocketid_custody()
+         |> assign(pocketid_replace_open?: false)}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, pocketid_key_error(reason))}
+    end
+  end
+
+  # Honest and lever-shaped: the surface is off — nothing about the
+  # why leaks platform internals.
+  defp pocketid_card_unavailable, do: "Sign-in management isn't available right now."
+
+  # The expiry line is a nicety (the store op's correlation): show the
+  # date when Pocket ID answered unambiguously, else hand the owner to
+  # Pocket ID's own key management. The link target is the instance's
+  # public URL — where the key lives.
+  defp pocketid_url(%{slug: slug}) do
+    "https://#{slug}.#{Application.fetch_env!(:flux_vale, :instances_base_domain)}"
+  end
+
+  # The op's verdicts, keyed to honest copy (the Tailscale
+  # token_drift_message rule: one mapper, so the card and the op can
+  # never disagree about what a rejection means).
+  defp pocketid_key_error(:unauthorized),
+    do: "Your Pocket ID admin API key was rejected. Paste a fresh admin key."
+
+  defp pocketid_key_error(:forbidden),
+    do: "That key doesn't have admin permission. Paste an admin user's key."
+
+  defp pocketid_key_error(:unreachable),
+    do: "Couldn't reach your Pocket ID to verify the key. Try again once it's running."
+
+  defp pocketid_key_error(:not_public),
+    do: "Make this Pocket ID public first — a private one can't serve sign-in."
+
+  defp pocketid_key_error(:not_org_owner),
+    do: "Only the organization owner can manage this key."
+
+  defp pocketid_key_error(:no_custody),
+    do: "Nothing to revoke — no key is stored."
+
+  defp pocketid_key_error(_cluster_or_db_failure),
+    do: "Something went wrong. Try again shortly."
 
   defp instance_org(organization_id, user) do
     case Organization.get_by_id(organization_id, actor: user) do
