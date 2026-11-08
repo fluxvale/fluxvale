@@ -32,7 +32,11 @@ defmodule FluxVale.Seeds.CatalogData do
   contract is optional per app, #181), `oidc_wiring` nil (no automatic
   SSO wiring — the recipe is opt-in per version, #597),
   `backing_services` `[]` (no bundled services — the declaration is
-  opt-in per version, #612).
+  opt-in per version, #612). The #611
+  marketing fields pass through raw the same way: absent lists
+  (`caveats`, `alternatives`, `screenshots`, `features`, `faq`) load as
+  `[]`, absent strings (`in_action_intro`, `community_url`, and
+  `Category.audience`) as nil.
 
   `recommended_size` (the priced unit, #125) is **required** in the YAML —
   a version without one cannot be priced (ADR-0028). The loader only
@@ -91,8 +95,17 @@ defmodule FluxVale.Seeds.CatalogData do
 
   # coveralls-ignore-stop
 
-  defp normalize_category(%{"name" => name, "slug" => slug, "description" => description}) do
-    %{name: name, slug: slug, description: description}
+  defp normalize_category(
+         %{"name" => name, "slug" => slug, "description" => description} = category
+       ) do
+    %{
+      name: name,
+      slug: slug,
+      description: description,
+      # #611 (D5): the "who is this for" line, raw pass-through — the
+      # attribute's length constraint owns validation at write time.
+      audience: Map.get(category, "audience")
+    }
   end
 
   defp normalize_app(app) do
@@ -107,6 +120,18 @@ defmodule FluxVale.Seeds.CatalogData do
           source_url: app["source_url"],
           docs_url: app["docs_url"],
           file_access: Map.get(app, "file_access", false),
+          # Marketing metadata (#611 plan §4.4, S1): raw pass-through
+          # for the seven app fields — the types and the attribute
+          # constraints validate at write time, one enforcement point
+          # (the first_run/oidc_wiring stance). Defaults mirror the
+          # resource: absent lists are [], absent strings nil.
+          caveats: Map.get(app, "caveats", []),
+          alternatives: Map.get(app, "alternatives", []),
+          in_action_intro: Map.get(app, "in_action_intro"),
+          screenshots: Map.get(app, "screenshots", []),
+          features: Map.get(app, "features", []),
+          faq: Map.get(app, "faq", []),
+          community_url: Map.get(app, "community_url"),
           versions: Enum.map(versions, &normalize_version/1)
         }
 

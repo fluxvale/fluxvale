@@ -127,6 +127,67 @@ defmodule FluxVale.Catalog.App do
       default(false)
       public?(true)
     end
+
+    # Marketing metadata (#611 plan §4.1, S1): curated app truth the
+    # page cannot derive, authored in the seed YAML. All optional —
+    # omission is a designed state (plan §5), and every field stays
+    # off the JSON:API default_fields lists in v1 (plan §3), so
+    # nothing leaks onto the wire by accident. Nullable (not just
+    # []-defaulted) because the OpenAPI artifact marks non-nullable
+    # attributes schema-required, and required-but-absent would lie to
+    # generated clients about the default responses.
+    #
+    # Honest limits, rendered in the hero's "Worth knowing" block.
+    # 1-6 items when present, each 20-280 chars.
+    attribute :caveats, {:array, :string} do
+      default([])
+      public?(true)
+      constraints(max_length: 6, items: [min_length: 20, max_length: 280])
+    end
+
+    # The "an alternative to X and Y" positioning line, plus the FAQ's
+    # "what does it replace" answer. Names only, max 5, 1-60 chars
+    # each.
+    attribute :alternatives, {:array, :string} do
+      default([])
+      public?(true)
+      constraints(max_length: 5, items: [min_length: 1, max_length: 60])
+    end
+
+    # One line under the "in action" screenshots heading.
+    attribute :in_action_intro, :string do
+      public?(true)
+      constraints(max_length: 160)
+    end
+
+    # The "in action" proof section (Types.ScreenshotList owns the
+    # shape: 1-4 items, src/alt/caption, one enforcement point).
+    attribute :screenshots, FluxVale.Catalog.Types.ScreenshotList do
+      default([])
+      public?(true)
+    end
+
+    # The 2x2 "what you can do" grid (Types.FeatureList owns the
+    # shape, including the icon allowlist the renderer reuses).
+    attribute :features, FluxVale.Catalog.Types.FeatureList do
+      default([])
+      public?(true)
+    end
+
+    # App-specific FAQ objections the generated FAQ cannot answer
+    # (Types.FaqList owns the shape).
+    attribute :faq, FluxVale.Catalog.Types.FaqList do
+      default([])
+      public?(true)
+    end
+
+    # Community link-row entry. https only — the public page must not
+    # link plain http (\A/\z-anchored: one URL token, no trailing
+    # junk, no trailing newline, which $ alone would admit).
+    attribute :community_url, :string do
+      public?(true)
+      constraints(match: ~r/\Ahttps:\/\/\S+\z/)
+    end
   end
 
   relationships do
@@ -155,12 +216,27 @@ defmodule FluxVale.Catalog.App do
         :source_url,
         :docs_url,
         :file_access,
+        :caveats,
+        :alternatives,
+        :in_action_intro,
+        :screenshots,
+        :features,
+        :faq,
+        :community_url,
         :category_id
       ])
+
+      # D10 at the plain-field seam (the typed lists enforce their own).
+      validate(
+        {FluxVale.Catalog.ValidateCopyRules, fields: [:caveats, :alternatives, :in_action_intro]}
+      )
     end
 
     update :update do
       primary?(true)
+      # Copy rules scan changed strings in Elixir — no atomic
+      # expression (same stance as AppVersion's env validations).
+      require_atomic?(false)
       # slug is the identity seeds look up by — immutable after create.
       accept([
         :name,
@@ -170,8 +246,20 @@ defmodule FluxVale.Catalog.App do
         :source_url,
         :docs_url,
         :file_access,
+        :caveats,
+        :alternatives,
+        :in_action_intro,
+        :screenshots,
+        :features,
+        :faq,
+        :community_url,
         :category_id
       ])
+
+      # D10 at the plain-field seam (the typed lists enforce their own).
+      validate(
+        {FluxVale.Catalog.ValidateCopyRules, fields: [:caveats, :alternatives, :in_action_intro]}
+      )
     end
 
     read :get_by_slug do

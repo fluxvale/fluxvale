@@ -19,7 +19,9 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert entry.category == %{
                name: "Developer Tools",
                slug: "developer-tools",
-               description: "Source control and developer productivity apps."
+               description: "Source control and developer productivity apps.",
+               audience:
+                 "A fit for teams that want their own source control and CI without running the servers."
              }
 
       assert [%{slug: "forgejo"} = app] = entry.apps
@@ -67,7 +69,9 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert entry.category == %{
                name: "Media & Entertainment",
                slug: "media",
-               description: "Media and reading servers for your own library."
+               description: "Media and reading servers for your own library.",
+               audience:
+                 "A fit for personal libraries and households that want their own media server."
              }
 
       assert [%{slug: "kavita"} = app] = entry.apps
@@ -126,7 +130,8 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert entry.category == %{
                name: "Security",
                slug: "security",
-               description: "Password managers and other servers that hold secrets you control."
+               description: "Password managers and other servers that hold secrets you control.",
+               audience: "A fit for anyone who would rather hold their own passwords and keys."
              }
 
       assert [%{slug: "vaultwarden"} = app] = entry.apps
@@ -192,7 +197,8 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert entry.category == %{
                name: "Identity",
                slug: "identity",
-               description: "Sign-in and identity apps that secure access to your other apps."
+               description: "Sign-in and identity apps that secure access to your other apps.",
+               audience: "A fit for households and teams that want one sign-in they control."
              }
 
       assert [%{slug: "pocket-id"} = app] = entry.apps
@@ -257,7 +263,8 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert entry.category == %{
                name: "Finance",
                slug: "finance",
-               description: "Budgeting and money apps for the household."
+               description: "Budgeting and money apps for the household.",
+               audience: "A fit for households that want their budget data under their own roof."
              }
 
       assert [%{slug: "actualbudget"} = app] = entry.apps
@@ -318,7 +325,8 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert entry.category == %{
                name: "Productivity",
                slug: "productivity",
-               description: "Notes and personal knowledge apps."
+               description: "Notes and personal knowledge apps.",
+               audience: "A fit for people who want their notes in one place, on their own terms."
              }
 
       assert [%{slug: "memos"} = app] = entry.apps
@@ -364,10 +372,140 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert CatalogData.entries(empty) == []
     end
 
+    # #611 S1 retro-fill: the six shipped apps carry caveats and
+    # alternatives promoted from facts already in the file, and every
+    # category carries its audience line (plan §7.3, verbatim).
+    test "shipped entries carry the marketing retro-fill (#611)" do
+      entries = CatalogData.entries()
+
+      audiences = Map.new(entries, &{&1.category.slug, &1.category.audience})
+
+      assert audiences == %{
+               "developer-tools" =>
+                 "A fit for teams that want their own source control and CI without running the servers.",
+               "media" =>
+                 "A fit for personal libraries and households that want their own media server.",
+               "productivity" =>
+                 "A fit for people who want their notes in one place, on their own terms.",
+               "security" =>
+                 "A fit for anyone who would rather hold their own passwords and keys.",
+               "identity" => "A fit for households and teams that want one sign-in they control.",
+               "finance" =>
+                 "A fit for households that want their budget data under their own roof."
+             }
+
+      for entry <- entries, app <- entry.apps do
+        assert app.caveats != [], "#{app.slug} ships no caveats"
+        assert app.alternatives != [], "#{app.slug} ships no alternatives"
+
+        # Plan §7's copy rules hold on the curated prose: no em dashes,
+        # no semicolons.
+        for caveat <- app.caveats do
+          refute String.contains?(caveat, ["\u2014", ";"]), "#{app.slug} caveat: #{caveat}"
+        end
+      end
+
+      # Alternatives are names only (the plan's positioning pairs).
+      assert app_by_slug!(entries, "forgejo").alternatives == ["GitHub", "GitLab"]
+      assert app_by_slug!(entries, "kavita").alternatives == ["Komga", "Calibre-Web"]
+      assert app_by_slug!(entries, "memos").alternatives == ["Google Keep", "Joplin"]
+      assert app_by_slug!(entries, "vaultwarden").alternatives == ["Bitwarden", "1Password"]
+      assert app_by_slug!(entries, "pocket-id").alternatives == ["Keycloak", "Auth0"]
+      assert app_by_slug!(entries, "actualbudget").alternatives == ["YNAB", "Firefly III"]
+
+      # S7 content, not S1: the typed lists stay absent on the shipped
+      # entries ([]), the intros and community links nil.
+      for entry <- entries, app <- entry.apps do
+        assert app.screenshots == []
+        assert app.features == []
+        assert app.faq == []
+        assert app.in_action_intro == nil
+        assert app.community_url == nil
+      end
+    end
+
+    test "first_run guidance carries no em dashes or semicolons anymore (D10)" do
+      entries = CatalogData.entries()
+
+      for entry <- entries,
+          app <- entry.apps,
+          guidance = get_in(app.versions, [Access.at(0), Access.key!(:first_run), "guidance"]),
+          guidance != nil do
+        refute String.contains?(guidance, "\u2014"), "#{app.slug} guidance still has an em dash"
+        refute String.contains?(guidance, ";"), "#{app.slug} guidance still has a semicolon"
+      end
+
+      # The rewritten Forgejo/Kavita guidance keeps its meaning.
+      forgejo = app_by_slug!(entries, "forgejo")
+      forgejo_guidance = first_guidance(forgejo)
+      assert forgejo_guidance =~ "first account becomes the admin"
+
+      kavita = app_by_slug!(entries, "kavita")
+      kavita_guidance = first_guidance(kavita)
+      assert kavita_guidance =~ "file access over WebDAV provides"
+    end
+
+    test "the fixture's marketing fields pass through raw (string keys, #611)" do
+      [entry] = CatalogData.entries(@fixture)
+
+      assert entry.category.audience ==
+               "A fit for fixture apps that prove the loader passes audience through."
+
+      app = hd(entry.apps)
+
+      assert app.caveats == [
+               "Fixture caveat one, long enough for the twenty char floor.",
+               "Fixture caveat two, also past the twenty char floor."
+             ]
+
+      assert app.alternatives == ["FixtureAlt", "OtherAlt"]
+      assert app.in_action_intro == "A fixture intro line under the heading."
+      assert app.community_url == "https://community.example.com"
+
+      # Structured lists pass through with string keys — the types own
+      # validation at write time (the first_run stance).
+      assert app.screenshots == [
+               %{
+                 "src" => "/images/catalog/testapp/one.webp",
+                 "alt" => "The fixture app's main screen",
+                 "caption" => "The dashboard on first open"
+               },
+               %{
+                 "src" => "/images/catalog/testapp/two.png",
+                 "alt" => "The fixture app's settings screen"
+               }
+             ]
+
+      assert app.features == [
+               %{
+                 "icon" => "hero-archive-box",
+                 "title" => "Repositories",
+                 "body" => "Host your own fixture repositories with full control."
+               },
+               %{
+                 "icon" => "hero-bolt",
+                 "title" => "Fast by default",
+                 "body" => "The fixture app starts in well under a second every time."
+               }
+             ]
+
+      assert app.faq == [
+               %{
+                 "question" => "Does the fixture app support SSH?",
+                 "answer" => "No. The fixture app speaks HTTPS only, on every instance."
+               }
+             ]
+    end
+
     test "normalizes a full entry to atom-keyed maps" do
       [entry] = CatalogData.entries(@fixture)
 
-      assert entry.category == %{name: "Test", slug: "test", description: "Test category"}
+      assert entry.category == %{
+               name: "Test",
+               slug: "test",
+               description: "Test category",
+               audience: "A fit for fixture apps that prove the loader passes audience through."
+             }
 
       assert [%{slug: "testapp"} = app] = entry.apps
       assert hd(app.versions).image == "test/image:1.0"
@@ -423,6 +561,18 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       # #190: the toggle is optional and defaults off
       entry = hd(CatalogData.entries(path))
       assert hd(entry.apps).file_access == false
+
+      # #611: the marketing fields default to their absent states —
+      # lists [], strings nil, audience nil.
+      app = hd(entry.apps)
+      assert app.caveats == []
+      assert app.alternatives == []
+      assert app.in_action_intro == nil
+      assert app.screenshots == []
+      assert app.features == []
+      assert app.faq == []
+      assert app.community_url == nil
+      assert entry.category.audience == nil
     end
 
     test "no shipped entry declares backing services — every version normalizes to [] (#612)" do
@@ -568,6 +718,23 @@ defmodule FluxVale.Seeds.CatalogDataTest do
     default_catalog_path()
     |> CatalogData.entries()
     |> Enum.find(fn entry -> entry.category.slug == slug end)
+  end
+
+  defp app_by_slug!(entries, slug) do
+    apps = Enum.flat_map(entries, & &1.apps)
+
+    case Enum.find(apps, &(&1.slug == slug)) do
+      nil -> raise "no seeded app named #{slug}"
+      app -> app
+    end
+  end
+
+  # The first version's guidance (nil when the app ships no contract).
+  defp first_guidance(app) do
+    case hd(app.versions).first_run do
+      nil -> nil
+      contract -> contract["guidance"]
+    end
   end
 
   defp vaultwarden_version do

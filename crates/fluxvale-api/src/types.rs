@@ -2999,7 +2999,16 @@ pub struct App {
 #[serde(deny_unknown_fields)]
 pub struct AppAttributes {
     ///Field included by default.
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub alternatives: ::std::option::Option<::std::vec::Vec<::std::string::String>>,
+    ///Field included by default.
     pub category_id: ::std::string::String,
+    ///Field included by default.
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub caveats: ::std::option::Option<::std::vec::Vec<::std::string::String>>,
+    ///Field included by default.
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub community_url: ::std::option::Option<::std::string::String>,
     ///Field included by default.
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub description: ::std::option::Option<::std::string::String>,
@@ -3007,12 +3016,24 @@ pub struct AppAttributes {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub docs_url: ::std::option::Option<::std::string::String>,
     ///Field included by default.
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub faq: ::std::option::Option<::serde_json::Value>,
+    ///Field included by default.
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub features: ::std::option::Option<::serde_json::Value>,
+    ///Field included by default.
     pub file_access: bool,
     ///Field included by default.
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub icon_url: ::std::option::Option<::std::string::String>,
     ///Field included by default.
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub in_action_intro: ::std::option::Option<::std::string::String>,
+    ///Field included by default.
     pub name: ::std::string::String,
+    ///Field included by default.
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub screenshots: ::std::option::Option<::serde_json::Value>,
     ///Field included by default.
     pub slug: ::std::string::String,
     ///Field included by default.
@@ -3033,9 +3054,15 @@ pub struct AppFilter {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub category_id: ::std::option::Option<AppFilterCategoryId>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub community_url: ::std::option::Option<AppFilterCommunityUrl>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub description: ::std::option::Option<AppFilterDescription>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub docs_url: ::std::option::Option<AppFilterDocsUrl>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub faq: ::std::option::Option<AppFilterFaq>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub features: ::std::option::Option<AppFilterFeatures>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub file_access: ::std::option::Option<AppFilterFileAccess>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -3043,11 +3070,15 @@ pub struct AppFilter {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub id: ::std::option::Option<AppFilterId>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub in_action_intro: ::std::option::Option<AppFilterInActionIntro>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub name: ::std::option::Option<AppFilterName>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub not: ::std::option::Option<::std::boxed::Box<AppFilter>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub or: ::std::option::Option<::std::vec::Vec<AppFilter>>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub screenshots: ::std::option::Option<AppFilterScreenshots>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub slug: ::std::option::Option<AppFilterSlug>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -3083,6 +3114,45 @@ pub struct AppFilterCategoryId {
     pub less_than_or_equal: ::std::option::Option<::std::string::String>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub not_eq: ::std::option::Option<::std::string::String>,
+}
+///`AppFilterCommunityUrl`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct AppFilterCommunityUrl {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub contains: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub ilike: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub like: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub string_ends_with: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub string_starts_with: ::std::option::Option<::std::string::String>,
 }
 ///`AppFilterDescription`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
@@ -3161,6 +3231,64 @@ pub struct AppFilterDocsUrl {
     pub string_ends_with: ::std::option::Option<::std::string::String>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub string_starts_with: ::std::option::Option<::std::string::String>,
+}
+///`AppFilterFaq`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct AppFilterFaq {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::serde_json::Value>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::serde_json::Value>,
+}
+///`AppFilterFeatures`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct AppFilterFeatures {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::serde_json::Value>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::serde_json::Value>,
 }
 ///`AppFilterFileAccess`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
@@ -3259,6 +3387,45 @@ pub struct AppFilterId {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub not_eq: ::std::option::Option<::std::string::String>,
 }
+///`AppFilterInActionIntro`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct AppFilterInActionIntro {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub contains: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub ilike: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub like: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub string_ends_with: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub string_starts_with: ::std::option::Option<::std::string::String>,
+}
 ///`AppFilterName`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
 #[serde(deny_unknown_fields)]
@@ -3297,6 +3464,35 @@ pub struct AppFilterName {
     pub string_ends_with: ::std::option::Option<::std::string::String>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub string_starts_with: ::std::option::Option<::std::string::String>,
+}
+///`AppFilterScreenshots`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct AppFilterScreenshots {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::serde_json::Value>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::serde_json::Value>,
 }
 ///`AppFilterSlug`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]

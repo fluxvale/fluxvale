@@ -26,6 +26,11 @@
     slug: developer-tools
     description: >-
       Source control and developer productivity apps.
+    # #611 (D5, plan §7.3): the audience line every app page in the
+    # category renders as its hero's "who it suits" paragraph.
+    audience: >-
+      A fit for teams that want their own source control and CI without
+      running the servers.
   apps:
     - name: Forgejo
       slug: forgejo
@@ -37,6 +42,16 @@
       icon_url: https://codeberg.org/forgejo/forgejo/raw/branch/forgejo/assets/logo.svg
       source_url: https://codeberg.org/forgejo/forgejo
       docs_url: https://forgejo.org/docs/latest/
+      # #611 S1 retro-fill (plan §8.2): facts promoted from the
+      # description, release notes, and the packaging decisions —
+      # nothing invented. Alternatives are names only.
+      caveats:
+        - Git works over HTTPS only. SSH pushes and pulls are disabled on every instance.
+        - Email sending is off until you enable it with SMTP settings at deploy.
+        - Storage runs on SQLite on the instance volume. There is no external database option.
+      alternatives:
+        - GitHub
+        - GitLab
       versions:
         - version: "16.0.5"          # upstream stable, 2026-09-17
           image: codeberg.org/forgejo/forgejo:16.0.5
@@ -89,8 +104,9 @@
               FORGEJO__security__INSTALL_LOCK: "true"
             forbidden_env:
               - FORGEJO__service__DISABLE_REGISTRATION
+            # #611 D10: plain sentences, no em dashes or semicolons.
             guidance: >-
-              Open the instance URL and register — the first account
+              Open the instance URL and register. The first account
               becomes the admin. Once you are in, close public sign-up
               in Forgejo's site administration settings.
           # Deploy-time user settings — rendered by the #74 deploy form.
@@ -128,6 +144,9 @@
     slug: media
     description: >-
       Media and reading servers for your own library.
+    audience: >-
+      A fit for personal libraries and households that want their own
+      media server.
   apps:
     - name: Kavita
       slug: kavita
@@ -141,6 +160,16 @@
       icon_url: https://raw.githubusercontent.com/Kareadita/Kavita/develop/Logo/kavita.svg
       source_url: https://github.com/Kareadita/Kavita
       docs_url: https://wiki.kavitareader.com
+      # #611 S1 retro-fill (plan §8.2): the file-ingest and scan facts
+      # from the entry's own packaging notes, plus the first-open claim
+      # posture the contract below carries.
+      caveats:
+        - Library files move in over WebDAV file access. There is no in-app upload path.
+        - First library scans generate covers with image processing, so a big library takes time.
+        - The first account registered becomes the admin. Claim the instance right after deploying.
+      alternatives:
+        - Komga
+        - Calibre-Web
       # File access (#190, ADR-0035): Kavita is the flagship file-access
       # app — the whole point is loading your own library. The sidecar
       # serves the volume at the app's declared mount path, so libraries
@@ -195,18 +224,23 @@
             pattern: first_registered_user_admin
             env: {}
             forbidden_env: []
+            # #611 D10: plain sentences, no em dashes or semicolons. The
+            # file-access clause states what ships (#190), not the
+            # "upcoming" wording this replaces.
             guidance: >-
-              Open the instance URL and register — the first account
+              Open the instance URL and register. The first account
               becomes the admin. Kavita is then yours to configure in
-              its own admin settings; a library scan needs files on the
-              server first, which the upcoming file-access feature will
-              provide.
+              its own admin settings. A library scan needs files on the
+              server first, which file access over WebDAV provides.
 
 - category:
     name: Productivity
     slug: productivity
     description: >-
       Notes and personal knowledge apps.
+    audience: >-
+      A fit for people who want their notes in one place, on their own
+      terms.
   apps:
     - name: Memos
       slug: memos
@@ -220,6 +254,14 @@
       icon_url: https://raw.githubusercontent.com/usememos/memos/main/web/public/logo.svg
       source_url: https://github.com/usememos/memos
       docs_url: https://usememos.com/docs
+      # #611 S1 retro-fill (plan §8.2): the storage and first-open facts
+      # from the description and the first-run contract below.
+      caveats:
+        - Everything is stored in a single SQLite database on the instance volume.
+        - The first account created becomes the host admin. Claim it before sharing the URL.
+      alternatives:
+        - Google Keep
+        - Joplin
       versions:
         - version: "26.11.0"          # upstream stable, 2026-11-01
           # The canonical image: built and pushed by Memos' own release
@@ -279,6 +321,9 @@
     slug: security
     description: >-
       Password managers and other servers that hold secrets you control.
+    audience: >-
+      A fit for anyone who would rather hold their own passwords and
+      keys.
   apps:
     - name: Vaultwarden
       slug: vaultwarden
@@ -297,6 +342,16 @@
       icon_url: https://raw.githubusercontent.com/dani-garcia/vaultwarden/1.37.5/resources/vaultwarden-icon.svg
       source_url: https://github.com/dani-garcia/vaultwarden
       docs_url: https://github.com/dani-garcia/vaultwarden/wiki
+      # #611 S1 retro-fill (plan §8.2): the packaging facts — admin
+      # panel off, sign-ups open, SSO wired at deploy time only (env is
+      # a deploy-time snapshot, per the SSO_* notes below).
+      caveats:
+        - The admin panel is disabled in this packaging. There is no admin token to turn on.
+        - Sign-ups stay open on the instance URL. Create your account soon after deploying.
+        - Pocket ID sign-in is wired at deploy time only. A running instance needs a redeploy to add it.
+      alternatives:
+        - Bitwarden
+        - 1Password
       versions:
         - version: "1.37.5"          # upstream stable, 2026-11-01
           # The canonical upstream image: Docker Hub is the release
@@ -407,6 +462,8 @@
     slug: identity
     description: >-
       Sign-in and identity apps that secure access to your other apps.
+    audience: >-
+      A fit for households and teams that want one sign-in they control.
   apps:
     - name: Pocket ID
       slug: pocket-id
@@ -427,6 +484,15 @@
       icon_url: https://raw.githubusercontent.com/pocket-id/pocket-id/main/frontend/static/img/static-logo.svg
       source_url: https://github.com/pocket-id/pocket-id
       docs_url: https://pocket-id.org/docs/introduction
+      # #611 S1 retro-fill (plan §8.2): the availability, custody, and
+      # load-bearing facts the description itself carries.
+      caveats:
+        - This app wants the always-on flag. A sleeping Pocket ID fails your apps' sign-ins while it wakes.
+        - Save the encryption key you set at deploy. Restoring a backup of this instance needs it.
+        - Other apps use it for sign-in, so it is load-bearing. Treat restarts accordingly.
+      alternatives:
+        - Keycloak
+        - Auth0
       versions:
         - version: "2.19.2"          # upstream stable, 2026-11-02
           # The canonical image, built and pushed by Pocket ID's own
@@ -514,6 +580,9 @@
     slug: finance
     description: >-
       Budgeting and money apps for the household.
+    audience: >-
+      A fit for households that want their budget data under their own
+      roof.
   apps:
     - name: ActualBudget
       slug: actualbudget
@@ -532,6 +601,15 @@
       icon_url: https://raw.githubusercontent.com/actualbudget/actual/v26.11.0/packages/desktop-client/public/apple-touch-icon.png
       source_url: https://github.com/actualbudget/actual
       docs_url: https://actualbudget.org/docs/
+      # #611 S1 retro-fill (plan §8.2): the shared-password and bank
+      # sync facts from the description, the release notes, and the
+      # first-run contract below.
+      caveats:
+        - Everyone signs in with one shared server password. Set it on first open.
+        - Bank sync needs a SimpleFIN token you provide in the app's own settings.
+      alternatives:
+        - YNAB
+        - Firefly III
       versions:
         - version: "26.11.0"          # upstream stable, 2026-11-02
           # The canonical image: ghcr and Docker Hub publish the same

@@ -111,4 +111,228 @@ defmodule FluxVale.Catalog.AppTest do
                Ash.update(app, %{tagline: "no"}, actor: regular, authorize?: true)
     end
   end
+
+  # #611 S1: the curated marketing fields — one enforcement point in
+  # the types and the attribute constraints, driven here through the
+  # resource's own actions.
+  describe "marketing metadata (#611)" do
+    test "create accepts every field and reads the typed values back" do
+      category = category()
+      attrs = marketing_attrs(category)
+      app = App.create!(attrs, authorize?: false)
+
+      assert app.caveats == [
+               "One honest limit, plainly stated.",
+               "Another honest limit, also plain."
+             ]
+
+      assert app.alternatives == ["BigHost", "OtherHost"]
+      assert app.in_action_intro == "A short line under the heading."
+      assert app.community_url == "https://forum.example.com"
+
+      assert app.screenshots == [
+               %{
+                 src: "/images/catalog/marketapp/one.webp",
+                 alt: "The main dashboard",
+                 caption: nil
+               }
+             ]
+
+      assert app.features == [
+               %{
+                 icon: "hero-archive-box",
+                 title: "Repositories",
+                 body: "Your own repositories, your rules."
+               }
+             ]
+
+      assert app.faq == [%{question: "Does it work?", answer: "Yes, it works out of the box."}]
+
+      # The stored row re-reads through cast_stored — the jsonb
+      # round-trip holds through the resource, not just the type.
+      reloaded = App.get_by_slug!("marketapp", authorize?: false)
+      assert reloaded.screenshots == app.screenshots
+      assert reloaded.features == app.features
+      assert reloaded.faq == app.faq
+    end
+
+    test "every field defaults to its absent state when omitted" do
+      app =
+        App.create!(%{name: "Bare", slug: "bare", category_id: category().id}, authorize?: false)
+
+      assert app.caveats == []
+      assert app.alternatives == []
+      assert app.in_action_intro == nil
+      assert app.screenshots == []
+      assert app.features == []
+      assert app.faq == []
+      assert app.community_url == nil
+    end
+
+    # Nullable on purpose (schema-optional on the OpenAPI wire): an
+    # explicit null is the absent state too, not an error.
+    test "explicit nils are the absent state, not errors" do
+      app =
+        App.create!(
+          %{
+            name: "Nulled",
+            slug: "nulled",
+            category_id: category().id,
+            caveats: nil,
+            alternatives: nil,
+            in_action_intro: nil,
+            screenshots: nil,
+            features: nil,
+            faq: nil,
+            community_url: nil
+          },
+          authorize?: false
+        )
+
+      assert app.caveats == nil
+      assert app.alternatives == nil
+      assert app.in_action_intro == nil
+      assert app.screenshots == []
+      assert app.features == []
+      assert app.faq == []
+      assert app.community_url == nil
+    end
+
+    test "update accepts the fields and converges them" do
+      category = category()
+      attrs = marketing_attrs(category)
+      app = App.create!(attrs, authorize?: false)
+
+      updated =
+        App.update!(app, %{caveats: ["A different honest limit, stated."]}, authorize?: false)
+
+      assert updated.caveats == ["A different honest limit, stated."]
+    end
+
+    test "bounds caveats: max six items, each 20-280 chars" do
+      base = %{name: "Cav", slug: "caveats-app", category_id: category().id}
+
+      seven = for n <- 1..7, do: "Caveat number #{n}, long enough to pass."
+      seven_attrs = Map.put(base, :caveats, seven)
+
+      assert {:error, %Ash.Error.Invalid{}} = App.create(seven_attrs, authorize?: false)
+
+      too_short_attrs = Map.put(base, :caveats, ["under twenty"])
+
+      assert {:error, %Ash.Error.Invalid{}} = App.create(too_short_attrs, authorize?: false)
+
+      too_long = String.duplicate("c", 281)
+      too_long_attrs = Map.put(base, :caveats, [too_long])
+
+      assert {:error, %Ash.Error.Invalid{}} = App.create(too_long_attrs, authorize?: false)
+    end
+
+    test "bounds alternatives: max five items, each 1-60 chars" do
+      base = %{name: "Alt", slug: "alts-app", category_id: category().id}
+
+      six = for n <- 1..6, do: "Alt#{n}"
+      six_attrs = Map.put(base, :alternatives, six)
+
+      assert {:error, %Ash.Error.Invalid{}} = App.create(six_attrs, authorize?: false)
+
+      too_long = String.duplicate("a", 61)
+      too_long_attrs = Map.put(base, :alternatives, [too_long])
+
+      assert {:error, %Ash.Error.Invalid{}} = App.create(too_long_attrs, authorize?: false)
+    end
+
+    test "bounds in_action_intro to 160 chars" do
+      base = %{name: "Intro", slug: "intro-app", category_id: category().id}
+      attrs = Map.put(base, :in_action_intro, String.duplicate("i", 161))
+
+      assert {:error, %Ash.Error.Invalid{}} = App.create(attrs, authorize?: false)
+    end
+
+    test "community_url must be one https URL token" do
+      base = %{name: "Comm", slug: "comm-app", category_id: category().id}
+
+      for url <- [
+            "http://forum.example.com",
+            "ftp://forum.example.com",
+            # Anchored: no trailing junk after the token.
+            "https://forum.example.com trailing words here"
+          ] do
+        attrs = Map.put(base, :community_url, url)
+
+        assert {:error, %Ash.Error.Invalid{}} = App.create(attrs, authorize?: false)
+      end
+
+      # Ash :string casts trim (trim?: true default), so a trailing
+      # newline never reaches the regex — it stores as the trimmed
+      # token. The \A/\z anchor makes the constraint standalone-correct
+      # the day trim? flips off, rather than leaning on the trimmer.
+      attrs = Map.put(base, :community_url, "https://forum.example.com\n")
+
+      assert {:ok, app} = App.create(attrs, authorize?: false)
+      assert app.community_url == "https://forum.example.com"
+    end
+
+    test "copy rules reject em dashes and semicolons in the plain curated fields" do
+      base = %{name: "Copy", slug: "copy-app", category_id: category().id}
+
+      for attrs <- [
+            # caveat items are prose
+            Map.put(base, :caveats, ["An honest limit — with an em dash."]),
+            Map.put(base, :caveats, ["An honest limit; with a semicolon."]),
+            # alternatives are names, still copy
+            Map.put(base, :alternatives, ["BigHost; OtherHost"]),
+            Map.put(base, :in_action_intro, "A line — not really plain.")
+          ] do
+        assert {:error, %Ash.Error.Invalid{}} = App.create(attrs, authorize?: false)
+      end
+    end
+
+    test "a write that changes no curated field passes the copy rules" do
+      base = %{name: "Clean", slug: "clean-app", category_id: category().id}
+
+      assert {:ok, %App{}} = App.create(base, authorize?: false)
+    end
+
+    test "malformed typed lists fail the resource write, naming the field" do
+      base = %{name: "Shot", slug: "shot-app", category_id: category().id}
+
+      bad_screenshots = Map.put(base, :screenshots, [%{"src" => "/not/catalog/x.png"}])
+
+      assert {:error, %Ash.Error.Invalid{}} = App.create(bad_screenshots, authorize?: false)
+
+      bad_features =
+        Map.put(base, :features, [%{"icon" => "hero-nope", "title" => "T", "body" => "b"}])
+
+      assert {:error, %Ash.Error.Invalid{}} = App.create(bad_features, authorize?: false)
+
+      bad_faq = Map.put(base, :faq, [%{"question" => "no mark", "answer" => "an answer here"}])
+
+      assert {:error, %Ash.Error.Invalid{}} = App.create(bad_faq, authorize?: false)
+    end
+  end
+
+  # The full #611 field set, valid on every axis — the happy-path
+  # fixture the marketing-metadata describe builds from.
+  defp marketing_attrs(category) do
+    %{
+      name: "MarketApp",
+      slug: "marketapp",
+      category_id: category.id,
+      caveats: ["One honest limit, plainly stated.", "Another honest limit, also plain."],
+      alternatives: ["BigHost", "OtherHost"],
+      in_action_intro: "A short line under the heading.",
+      screenshots: [
+        %{"src" => "/images/catalog/marketapp/one.webp", "alt" => "The main dashboard"}
+      ],
+      features: [
+        %{
+          "icon" => "hero-archive-box",
+          "title" => "Repositories",
+          "body" => "Your own repositories, your rules."
+        }
+      ],
+      faq: [%{"question" => "Does it work?", "answer" => "Yes, it works out of the box."}],
+      community_url: "https://forum.example.com"
+    }
+  end
 end
