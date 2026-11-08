@@ -184,10 +184,10 @@ defmodule FluxVale.Catalog.App do
     end
 
     # Community link-row entry. https only — the public page must not
-    # link plain http.
+    # link plain http (anchored: one URL token, no trailing junk).
     attribute :community_url, :string do
       public?(true)
-      constraints(match: ~r/^https:\/\/\S+/)
+      constraints(match: ~r/^https:\/\/\S+$/)
     end
   end
 

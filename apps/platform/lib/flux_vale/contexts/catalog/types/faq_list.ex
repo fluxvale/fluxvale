@@ -11,7 +11,8 @@ defmodule FluxVale.Catalog.Types.FaqList do
   1-4 items; `[]` is the designed absent state (plan §5). Like
   `FirstRunContract`: casting and validation live here so seeds,
   AshAdmin, and the API enforce one contract. In memory a list of
-  atom-keyed maps; in storage (a jsonb array) string-keyed maps —
+  atom-keyed maps; in storage a Postgres array of jsonb (`jsonb[]`,
+  `storage_type {:array, :map}`) holding string-keyed maps —
   `cast_stored/1` re-casts on every read. Both fields reject em dashes
   and semicolons (D10, `CopyRules`).
   """
@@ -127,8 +128,7 @@ defmodule FluxVale.Catalog.Types.FaqList do
     case Map.fetch(item, :question) do
       {:ok, question} when is_binary(question) ->
         with {:ok, question} <- CopyRules.bounded(:question, question, 8, 120),
-             :ok <- check_question_mark(question),
-             :ok <- CopyRules.check(:question, question) do
+             :ok <- check_question_mark(question) do
           {:ok, question}
         end
 

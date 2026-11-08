@@ -219,10 +219,15 @@ defmodule FluxVale.Catalog.AppTest do
       assert {:error, %Ash.Error.Invalid{}} = App.create(attrs, authorize?: false)
     end
 
-    test "community_url must be https" do
+    test "community_url must be one https URL token" do
       base = %{name: "Comm", slug: "comm-app", category_id: category().id}
 
-      for url <- ["http://forum.example.com", "ftp://forum.example.com"] do
+      for url <- [
+            "http://forum.example.com",
+            "ftp://forum.example.com",
+            # Anchored: no trailing junk after the token.
+            "https://forum.example.com trailing words here"
+          ] do
         attrs = Map.put(base, :community_url, url)
 
         assert {:error, %Ash.Error.Invalid{}} = App.create(attrs, authorize?: false)

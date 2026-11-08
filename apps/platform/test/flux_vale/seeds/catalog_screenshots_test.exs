@@ -19,11 +19,16 @@ defmodule FluxVale.Seeds.CatalogScreenshotsTest do
     # times, and each S7 capture makes it assert one more file.
     for src <- srcs do
       # src is app-absolute; expand relative to the static root (the
-      # blog lint's og_image stance).
+      # blog lint's og_image stance), and keep the containment check a
+      # `..`-segment src can never slip past (the type's shape regex
+      # alone admits them — hostile review #326's hygiene class).
       relative = String.trim_leading(src, "/")
       expanded = Path.expand(relative, static_root)
 
-      assert File.exists!(expanded), "#{src} does not resolve to a shipped static file"
+      assert String.starts_with?(expanded, Path.expand(static_root)),
+             "#{src} must resolve inside the static root"
+
+      assert File.exists?(expanded), "#{src} does not resolve to a shipped static file"
     end
   end
 

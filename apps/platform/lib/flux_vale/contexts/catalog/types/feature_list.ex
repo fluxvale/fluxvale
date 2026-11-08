@@ -13,9 +13,10 @@ defmodule FluxVale.Catalog.Types.FeatureList do
   1-4 items (the grid's 2x2 shape caps it); `[]` is the designed
   absent state (plan §5). Like `FirstRunContract`: casting and
   validation live here so seeds, AshAdmin, and the API enforce one
-  contract. In memory a list of atom-keyed maps; in storage (a jsonb
-  array) string-keyed maps — `cast_stored/1` re-casts on every read.
-  Prose fields reject em dashes and semicolons (D10, `CopyRules`).
+  contract. In memory a list of atom-keyed maps; in storage a Postgres
+  array of jsonb (`jsonb[]`, `storage_type {:array, :map}`) holding
+  string-keyed maps — `cast_stored/1` re-casts on every read. Prose
+  fields reject em dashes and semicolons (D10, `CopyRules`).
   """
 
   use Ash.Type
