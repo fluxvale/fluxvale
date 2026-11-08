@@ -359,9 +359,10 @@ in the deployer (the app's own mount stays at the volume root):
     escape hatch for apps that outgrow the bundled model.
   - *Resources as platform overhead on top* (the file-access stance) —
     rejected for honesty: the DB is purchased workload, not plumbing.
-- **Posture statements**: backups stay user-owned (BYO S3);
-  crash-consistency of live PVC copies; destroy = data gone; in-place
-  DB major upgrades deferred with a trigger.
+- **Posture statements**: backups stay user-owned (BYO S3); a live
+  file-level copy is not a guaranteed-restorable DB image (stopped
+  backup or pg_dump are the honest tools); destroy = data gone;
+  in-place DB major upgrades deferred with a trigger.
 
 ## 7. Slices
 
@@ -387,10 +388,11 @@ ADR once approved.
   probe gating, subPath volume mounts, PGDATA), resource carving,
   resize/stop/start interactions.
   *Done when:* manifest tests pin the pod shape (init order, probes,
-  subPaths, requests arithmetic = allocation exactly); mocked deploy
-  tests pin Secret get-or-create + env composition; a local k3d
-  fixture deploy boots app-after-DB and survives a pod delete with
-  data intact.
+  subPaths, requests arithmetic = allocation exactly, loopback
+  listener bindings); mocked deploy tests pin Secret get-or-create +
+  env composition; a local k3d fixture deploy boots app-after-DB and
+  survives a pod delete with data intact, and a pod-IP network check
+  confirms the DB listeners are unreachable off-loopback.
 - **S3 Honest sizing + wizard** — create-time floors (memory/storage
   at version defaults), the wizard's hidden inputs (platform-owned
   `url_env`s), hidden 0-GB rung for DB entries, floored sliders, the
