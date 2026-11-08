@@ -1,0 +1,18 @@
+# The only root-context build is the MCP image: apps/mcp/Cargo.toml
+# path-depends on ../../crates/fluxvale-api, so its context must span
+# both trees, and Docker can't COPY above a context. Every other image
+# (apps/platform) builds from its own subdirectory context, which
+# ignores this file entirely.
+#
+# Deny-by-default — only what apps/mcp/Dockerfile COPYs rides the
+# context (the #15 lesson: an unscoped root context ships everything,
+# node_modules included). Local build artifacts stay out (**/target).
+*
+!apps
+!crates
+apps/*
+crates/*
+!apps/mcp
+!crates/fluxvale-api
+!crates/Cargo.toml
+**/target

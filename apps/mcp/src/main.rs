@@ -2,7 +2,8 @@
 //! over the shared `/api/v1` client, PAT passthrough, the read
 //! tools) plus W2b's write surface: deploy through destroy, the
 //! destructive pair elicitation-gated, and the /me `meta.scopes`
-//! filter. Deployment is W3.
+//! filter. The container image + k3d exposure are W3a; the
+//! fleet-repo deploy is W3b.
 //!
 //! Auth holds nothing: the client sends its PAT per request
 //! (`Authorization: Bearer fvpat_…`, how remote MCP clients are
@@ -25,12 +26,20 @@ use rmcp::transport::streamable_http_server::{
 use serde_json::json;
 use std::sync::Arc;
 
-/// Env-only config (the W2a brief): MCP_PORT + FLUXVALE_API_BASE_URL.
-/// No other knobs — deployment config is W3's.
+/// Env-only config: MCP_PORT, FLUXVALE_API_BASE_URL, and MCP_ALLOWED_HOSTS
+/// (added in W3a — the deployment knob W2a's "no other knobs" deferred to
+/// W3: rmcp's DNS-rebinding guard serves only loopback Host headers by
+/// default, so a container behind a real hostname — k3d's
+/// mcp.fluxvale.lvh.me, W3b's public hosts — names what it serves).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Config {
     pub port: u16,
     pub api_base_url: String,
+    /// Empty = rmcp's default loopback allowlist (unset/blank env). The
+    /// guard is never disabled: `with_allowed_hosts` is simply not called,
+    /// because an empty allowlist means allow-ALL inside rmcp — the
+    /// opposite of what an empty env value intends.
+    pub allowed_hosts: Vec<String>,
 }
 
 impl Config {
@@ -54,8 +63,31 @@ impl Config {
         if api_base_url.is_empty() {
             bail!("FLUXVALE_API_BASE_URL is empty — set it to the platform origin");
         }
-        Ok(Config { port, api_base_url })
+        let allowed_hosts = match std::env::var("MCP_ALLOWED_HOSTS") {
+            Ok(raw) => parse_allowed_hosts(&raw),
+            Err(_) => Vec::new(),
+        };
+        Ok(Config {
+            port,
+            api_base_url,
+            allowed_hosts,
+        })
     }
+}
+
+/// Comma-separated host list → trimmed, empty entries dropped, order
+/// preserved, duplicates collapsed. A value with no surviving entries
+/// (unset-equivalent: `" , ,"`) yields an empty Vec — the loopback
+/// default, never allow-all.
+fn parse_allowed_hosts(raw: &str) -> Vec<String> {
+    let mut hosts: Vec<String> = Vec::new();
+    for host in raw.split(',') {
+        let host = host.trim();
+        if !host.is_empty() && !hosts.iter().any(|seen| seen == host) {
+            hosts.push(host.to_string());
+        }
+    }
+    hosts
 }
 
 /// The MCP path — the same one the retiring platform-mounted Elixir
@@ -64,7 +96,13 @@ pub(crate) const MCP_PATH: &str = "/mcp";
 
 /// The served app: `/health` (no auth, for probes) + the MCP protocol
 /// service behind the bearer-extraction middleware.
-pub(crate) fn build_router(api_base_url: &str) -> Router {
+///
+/// `allowed_hosts` feeds rmcp's DNS-rebinding guard (see [`Config`]):
+/// non-empty replaces the loopback default exactly; empty keeps it.
+/// `/health` rides the outer axum router, deliberately OUTSIDE the
+/// guard — probes must not depend on it (a k8s probe sends no Host a
+/// deployment could pre-authorize).
+pub(crate) fn build_router(api_base_url: &str, allowed_hosts: &[String]) -> Router {
     let base: Arc<str> = Arc::from(api_base_url);
 
     // Stateless + JSON responses: every POST is independent, the
@@ -72,15 +110,24 @@ pub(crate) fn build_router(api_base_url: &str) -> Router {
     // (the retiring server's posture: "stateless protocol only").
     // NeverSessionManager is rmcp's documented pairing for disabled
     // legacy sessions.
+    let http_config = StreamableHttpServerConfig::default()
+        .with_legacy_session_mode(false)
+        .with_json_response(true);
+    // Only call the builder with a real list: with_allowed_hosts(empty)
+    // clears the allowlist, and rmcp reads an empty allowlist as
+    // allow-ALL — disable_allowed_hosts by another spelling.
+    let http_config = if allowed_hosts.is_empty() {
+        http_config
+    } else {
+        http_config.with_allowed_hosts(allowed_hosts.iter().cloned())
+    };
     let mcp = StreamableHttpService::new(
         {
             let base = base.clone();
             move || Ok(server::FluxValeMcp::new(base.clone()))
         },
         Arc::new(NeverSessionManager::default()),
-        StreamableHttpServerConfig::default()
-            .with_legacy_session_mode(false)
-            .with_json_response(true),
+        http_config,
     );
 
     let mcp_router = Router::new()
@@ -157,7 +204,7 @@ async fn serve(
     config: Config,
     shutdown: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> anyhow::Result<()> {
-    let app = build_router(&config.api_base_url);
+    let app = build_router(&config.api_base_url, &config.allowed_hosts);
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", config.port))
         .await
         .with_context(|| format!("bind 0.0.0.0:{}", config.port))?;
@@ -233,6 +280,145 @@ mod tests {
         assert!(err.to_string().contains("empty"), "err: {err}");
     }
 
+    // ---- MCP_ALLOWED_HOSTS (the W3a deployment knob) --------------------
+
+    #[test]
+    fn unset_allowed_hosts_keeps_the_loopback_default() {
+        let _guard = test_env_lock().lock().unwrap();
+        unsafe { std::env::set_var("FLUXVALE_API_BASE_URL", "https://fluxvale.com") };
+        unsafe { std::env::remove_var("MCP_PORT") };
+        unsafe { std::env::remove_var("MCP_ALLOWED_HOSTS") };
+        let config = Config::from_env().unwrap();
+        // Empty Vec = rmcp's default loopback allowlist, never allow-all.
+        assert!(config.allowed_hosts.is_empty());
+    }
+
+    #[test]
+    fn allowed_hosts_trim_and_dedupe() {
+        let _guard = test_env_lock().lock().unwrap();
+        unsafe { std::env::set_var("FLUXVALE_API_BASE_URL", "https://fluxvale.com") };
+        unsafe { std::env::remove_var("MCP_PORT") };
+        // Set AND clear: a later test in this module reads the unset
+        // arms — leaking the var would flip its meaning.
+        unsafe {
+            std::env::set_var(
+                "MCP_ALLOWED_HOSTS",
+                " mcp.fluxvale.lvh.me , mcp.fluxvale.lvh.me, localhost ",
+            )
+        };
+        let config = Config::from_env().unwrap();
+        assert_eq!(
+            config.allowed_hosts,
+            ["mcp.fluxvale.lvh.me".to_string(), "localhost".to_string()]
+        );
+        unsafe { std::env::remove_var("MCP_ALLOWED_HOSTS") };
+    }
+
+    #[test]
+    fn all_blank_allowed_hosts_entries_read_as_unset() {
+        let _guard = test_env_lock().lock().unwrap();
+        unsafe { std::env::set_var("FLUXVALE_API_BASE_URL", "https://fluxvale.com") };
+        unsafe { std::env::remove_var("MCP_PORT") };
+        unsafe { std::env::set_var("MCP_ALLOWED_HOSTS", " , , ") };
+        let config = Config::from_env().unwrap();
+        assert!(config.allowed_hosts.is_empty());
+    }
+
+    /// The plumbing proof: the env knob must reach the SERVED guard, not
+    /// just the Config struct — a missed builder call would leave the
+    /// loopback default and 403 the configured host (exactly the gap the
+    /// W3a STOP found). One initialize POST (never touches the upstream),
+    /// two Host headers: the configured host serves, anything else draws
+    /// rmcp's DNS-rebinding 403.
+    #[tokio::test]
+    async fn allowed_hosts_reach_the_served_guard() {
+        use axum::body::Body;
+        use axum::http::{Method, StatusCode};
+        use tower::ServiceExt;
+
+        let app = build_router("http://127.0.0.1:1", &["mcp.fluxvale.lvh.me".to_string()]);
+
+        let initialize_post = |host: &'static str| {
+            axum::http::Request::builder()
+                .method(Method::POST)
+                .uri("/mcp")
+                .header("host", host)
+                .header("content-type", "application/json")
+                .header("accept", "application/json, text/event-stream")
+                .header("mcp-method", "initialize")
+                .header("authorization", "Bearer fvpat_router_test")
+                .body(Body::from(
+                    json!({
+                        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2025-11-25",
+                            "capabilities": {},
+                            "clientInfo": {"name": "w3a-router-test", "version": "0.0.0"}
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap()
+        };
+
+        let allowed = app
+            .clone()
+            .oneshot(initialize_post("mcp.fluxvale.lvh.me"))
+            .await
+            .unwrap();
+        assert_eq!(allowed.status(), StatusCode::OK);
+
+        let refused = app
+            .clone()
+            .oneshot(initialize_post("not-the-configured.host"))
+            .await
+            .unwrap();
+        assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+    }
+
+    /// The "never allow-all" property, pinned: rmcp treats an EMPTY
+    /// list as allow-everything (tower.rs's is_empty early-return), so
+    /// `build_router`'s empty→default branch is the only thing keeping
+    /// the secure default. Deleting that branch must red THIS test —
+    /// a foreign Host must 403 even when the caller passed `&[]`.
+    #[tokio::test]
+    async fn an_empty_allowed_hosts_list_stays_loopback_not_allow_all() {
+        use axum::body::Body;
+        use axum::http::{Method, StatusCode};
+        use tower::ServiceExt;
+
+        let app = build_router("http://127.0.0.1:1", &[]);
+
+        let post = |host: &'static str| {
+            axum::http::Request::builder()
+                .method(Method::POST)
+                .uri("/mcp")
+                .header("host", host)
+                .header("content-type", "application/json")
+                .header("accept", "application/json, text/event-stream")
+                .header("mcp-method", "initialize")
+                .header("authorization", "Bearer fvpat_router_test")
+                .body(Body::from(
+                    json!({
+                        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2025-11-25",
+                            "capabilities": {},
+                            "clientInfo": {"name": "w3a-router-test", "version": "0.0.0"}
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap()
+        };
+
+        let local = app.clone().oneshot(post("localhost:4600")).await.unwrap();
+        assert_eq!(local.status(), StatusCode::OK);
+
+        let foreign = app.clone().oneshot(post("evil.example")).await.unwrap();
+        assert_eq!(foreign.status(), StatusCode::FORBIDDEN);
+    }
+
     #[tokio::test]
     async fn serve_binds_serves_and_shuts_down() {
         // Port 0: an ephemeral listener. The shutdown future fires
@@ -241,6 +427,7 @@ mod tests {
         let config = Config {
             port: 0,
             api_base_url: "http://127.0.0.1:1".to_string(),
+            allowed_hosts: Vec::new(),
         };
         let result = serve(config, async {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -258,7 +445,7 @@ mod tests {
 
     #[test]
     fn health_reports_status_and_version_without_auth() {
-        let app = build_router("http://127.0.0.1:1");
+        let app = build_router("http://127.0.0.1:1", &[]);
         let response = tokio::runtime::Runtime::new().unwrap().block_on(async {
             let response = tower::ServiceExt::oneshot(
                 app,

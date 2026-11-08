@@ -1,0 +1,78 @@
+# The MCP server in the local cluster (W3a of #484).
+#
+# Stateless by design (PAT passthrough, no session state): no init
+# containers, no secrets, no volumes — the deployment provides the
+# platform origin, the port, and the hostname the DNS-rebinding guard
+# admits. The image is substituted by Tilt's docker_build
+# (fluxvale/mcp-dev), the same wiring 10-platform.yaml uses.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fluxvale-mcp
+  namespace: fluxvale-dev
+  labels:
+    app: fluxvale-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fluxvale-mcp
+  template:
+    metadata:
+      labels:
+        app: fluxvale-mcp
+    spec:
+      containers:
+        - name: mcp
+          image: fluxvale/mcp-dev
+          ports:
+            - containerPort: 4600
+          env:
+            # In-cluster Service DNS, the same shape 10-platform.yaml's
+            # DB_HOST uses to reach CNPG.
+            - name: FLUXVALE_API_BASE_URL
+              value: http://fluxvale-platform.fluxvale-dev.svc.cluster.local:4000
+            # Explicit (the binary's own default, restated so the
+            # deployment reads whole).
+            - name: MCP_PORT
+              value: "4600"
+            # rmcp's DNS-rebinding guard: exactly this Host may reach
+            # /mcp through Traefik. /health rides outside the guard —
+            # probes below never depend on it.
+            - name: MCP_ALLOWED_HOSTS
+              # localhost alongside the ingress host: kubectl
+              # port-forward (and in-cluster callers) arrive with a
+              # loopback Host and must not draw the 403.
+              value: mcp.fluxvale.lvh.me,localhost
+          # /health is dependency-free (no upstream call at boot or at
+          # probe): the server starts serving it immediately, and an
+          # unreachable platform must not restart the pod — tool calls
+          # surface that per-request.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4600
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4600
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fluxvale-mcp
+  namespace: fluxvale-dev
+spec:
+  selector:
+    app: fluxvale-mcp
+  ports:
+    - port: 4600
+      targetPort: 4600

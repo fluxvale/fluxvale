@@ -866,7 +866,7 @@ mod tests {
     // ---- drivers: a JSON-RPC POST through the real router
 
     fn app(server: &CannedApi) -> Router {
-        crate::build_router(&server.base_url)
+        crate::build_router(&server.base_url, &[])
     }
 
     async fn mcp(app: &Router, body: Value, bearer: Option<&str>) -> (StatusCode, Value) {
@@ -1206,7 +1206,7 @@ mod tests {
     async fn initialize_against_a_dead_platform_is_a_verbatim_protocol_error() {
         // Not auth — the platform is unreachable. The gate says so,
         // with the transport line inside.
-        let app = crate::build_router("http://127.0.0.1:1");
+        let app = crate::build_router("http://127.0.0.1:1", &[]);
         let (_, body) = initialize(&app, PAT_FULL).await;
         let (code, message) = rpc_error(&body);
         assert_eq!(code, -32603);
