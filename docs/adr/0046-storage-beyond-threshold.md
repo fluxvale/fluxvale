@@ -89,7 +89,7 @@ wait for the customer to stop the instance.
 - **Operator email in v1.** Production cannot deliver mail yet; revisit
   when the production mailer lands (the recorded trigger).
 
-## Amendment relationship
+## Relationship to prior ADRs
 
 - **Amends [ADR-0043](00043-instance-resize.md)'s storage arm.** The
   up-only ruling and the live capability probe stand. The stopped-first
