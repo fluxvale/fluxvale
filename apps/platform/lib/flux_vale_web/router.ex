@@ -445,6 +445,7 @@ defmodule FluxValeWeb.Router do
       # query params into mount params, and an unnamed head would let a
       # crafted query string mount the org frame on this route.
       live("/settings/access", OrganizationLive.Access, :personal)
+      live("/settings/access", OrganizationLive.Access, :personal)
       # #635: the developer settings page — the Device sign-ins (#362)
       # and API tokens (#483) sections moved here from /settings/access
       # (the gateway panel keeps its namesake page). Actor-scoped like
@@ -452,6 +453,11 @@ defmodule FluxValeWeb.Router do
       # contract and no named action — the device flow's
       # /settings/access/device landing redirects here at its anchor.
       live("/settings/developer", DeveloperSettingsLive)
+      # #484 W5: the agent quickstart — the remote MCP server's recipe
+      # (server URL, per-client configs, scopes, the destructive gate),
+      # one click from the developer page's tokens section and from
+      # the sidebar. Static content: no org, no reads.
+      live("/settings/agents", SettingsLive.Agents)
     end
   end
 
