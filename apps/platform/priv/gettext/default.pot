@@ -22,38 +22,38 @@ msgstr ""
 msgid "Actions"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:495
-#: lib/flux_vale_web/components/layouts.ex:510
+#: lib/flux_vale_web/components/layouts.ex:499
+#: lib/flux_vale_web/components/layouts.ex:514
 #, elixir-autogen, elixir-format
 msgid "Attempting to reconnect"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:566
+#: lib/flux_vale_web/components/layouts.ex:570
 #, elixir-autogen, elixir-format
 msgid "Dark theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:539
+#: lib/flux_vale_web/components/layouts.ex:543
 #, elixir-autogen, elixir-format
 msgid "Follow system theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:554
+#: lib/flux_vale_web/components/layouts.ex:558
 #, elixir-autogen, elixir-format
 msgid "Light theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:502
+#: lib/flux_vale_web/components/layouts.ex:506
 #, elixir-autogen, elixir-format
 msgid "Something went wrong!"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:527
+#: lib/flux_vale_web/components/layouts.ex:531
 #, elixir-autogen, elixir-format
 msgid "Theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:487
+#: lib/flux_vale_web/components/layouts.ex:491
 #, elixir-autogen, elixir-format
 msgid "We can't find the internet"
 msgstr ""
@@ -63,13 +63,13 @@ msgstr ""
 msgid "close"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:235
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:239
 #, elixir-autogen, elixir-format
 msgid "App catalog"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:50
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:342
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:54
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:346
 #, elixir-autogen, elixir-format
 msgid "Apps"
 msgstr ""
@@ -79,154 +79,154 @@ msgstr ""
 msgid "Browse a curated catalog of open source apps, deploy one in minutes, and let FluxVale keep it running for you."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:103
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:207
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:260
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:107
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:211
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:264
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:69
 #, elixir-autogen, elixir-format
 msgid "Browse apps"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:185
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:189
 #, elixir-autogen, elixir-format
 msgid "Choose from a curated catalog of open source applications, ready to run."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:349
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:353
 #, elixir-autogen, elixir-format
 msgid "Dashboard"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:214
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:218
 #, elixir-autogen, elixir-format
 msgid "Deploy"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:188
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:242
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:192
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:246
 #, elixir-autogen, elixir-format
 msgid "Developer Tools"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:337
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:341
 #, elixir-autogen, elixir-format
 msgid "Footer"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:175
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:179
 #, elixir-autogen, elixir-format
 msgid "How it works"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:196
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:250
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:200
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:254
 #, elixir-autogen, elixir-format
 msgid "Media & Entertainment"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:237
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:241
 #, elixir-autogen, elixir-format
 msgid "One click from browse to a running instance"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:281
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:285
 #, elixir-autogen, elixir-format
 msgid "One flat rate, no surprises"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:183
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:187
 #: lib/flux_vale_web/live/pricing_calculator_live.ex:151
 #, elixir-autogen, elixir-format
 msgid "Pick an app"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:47
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:51
 #, elixir-autogen, elixir-format
 msgid "Primary"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:60
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:111
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:346
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:64
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:115
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:350
 #: lib/flux_vale_web/live/feedback_live/composer.ex:238
 #, elixir-autogen, elixir-format
 msgid "Sign in"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:304
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:308
 #, elixir-autogen, elixir-format
 msgid "Simple pricing"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:177
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:181
 #, elixir-autogen, elixir-format
 msgid "Three steps to a running app"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:223
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:227
 #, elixir-autogen, elixir-format
 msgid "Updates and monitoring are on us. Your data stays yours."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:221
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:225
 #, elixir-autogen, elixir-format
 msgid "We run it"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:119
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:123
 #, elixir-autogen, elixir-format
 msgid "Your dashboard"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:163
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:167
 #, elixir-autogen, elixir-format
 msgid "wiki · rolling out v1.1"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:335
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:339
 #, elixir-autogen, elixir-format
 msgid "© %{year} FluxVale"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:205
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:209
 #, elixir-autogen, elixir-format
 msgid "…and more in the catalog"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:56
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:344
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:60
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:348
 #, elixir-autogen, elixir-format
 msgid "Blog"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:201
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:255
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:205
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:259
 #, elixir-autogen, elixir-format
 msgid "Digital library for comics, manga, and ebooks"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:193
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:247
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:197
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:251
 #, elixir-autogen, elixir-format
 msgid "Git forge with issues, pull requests, and Actions CI"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:94
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:98
 #, elixir-autogen, elixir-format
 msgid "Managed cloud platform for open source applications"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:92
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:96
 #, elixir-autogen, elixir-format
 msgid "Managed platform"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:356
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:360
 #, elixir-autogen, elixir-format
 msgid "Acceptable use"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:352
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:356
 #, elixir-autogen, elixir-format
 msgid "Terms"
 msgstr ""
@@ -259,13 +259,13 @@ msgstr ""
 msgid "Other services"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:289
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:293
 #, elixir-autogen, elixir-format
 msgid "Prices follow the resources an app gets, not the app itself. New accounts start with welcome credits. Top up when you're ready."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:53
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:343
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:57
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:347
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:9
 #, elixir-autogen, elixir-format
 msgid "Pricing"
@@ -276,7 +276,7 @@ msgstr ""
 msgid "Private access gateway"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:306
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:310
 #, elixir-autogen, elixir-format
 msgid "See full pricing"
 msgstr ""
@@ -286,12 +286,12 @@ msgstr ""
 msgid "Start in minutes"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:273
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:277
 #, elixir-autogen, elixir-format
 msgid "Every app runs on FluxVale's own managed Kubernetes fleet, the same infrastructure we run ourselves on."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:367
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:371
 #, elixir-autogen, elixir-format
 msgid "Privacy"
 msgstr ""
@@ -306,12 +306,12 @@ msgstr ""
 msgid "FluxVale, managed cloud platform for open source applications"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:216
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:220
 #, elixir-autogen, elixir-format
 msgid "One guided flow from app to live URL. No YAML, no servers to babysit."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:97
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:101
 #, elixir-autogen, elixir-format
 msgid "Pick an open source app, deploy it in minutes, and FluxVale keeps it running, updates and monitoring included."
 msgstr ""
@@ -668,7 +668,7 @@ msgstr ""
 msgid "You top up your wallet in USD. Apps bill hourly against your wallet balance, and every rate above is a monthly equivalent. There are no subscriptions."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:363
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:367
 #, elixir-autogen, elixir-format
 msgid "Guides"
 msgstr ""
@@ -711,7 +711,7 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/resources.ex:114
 #: lib/flux_vale_web/live/admin_live/size_edit.ex:262
 #: lib/flux_vale_web/live/admin_live/sizes.ex:67
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:395
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:398
 #: lib/flux_vale_web/live/admin_live/wallet_detail.ex:838
 #, elixir-autogen, elixir-format
 msgid "Operator console"
@@ -771,7 +771,7 @@ msgid_plural "%{count} versions point at this size"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:534
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:537
 #, elixir-autogen, elixir-format
 msgid "A collision is with the blueprint env fields: default_env_vars, configurable_env_vars, or the instance URL env. Those fields are edited in the debug admin at /admin/ash."
 msgstr ""
@@ -799,7 +799,7 @@ msgid "App"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/sizes.ex:80
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:407
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:410
 #, elixir-autogen, elixir-format
 msgid "Back to the catalog"
 msgstr ""
@@ -809,14 +809,14 @@ msgstr ""
 msgid "Back to the size ladder"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:435
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:438
 #, elixir-autogen, elixir-format
 msgid "Blueprint and size"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/size_edit.ex:409
 #: lib/flux_vale_web/live/admin_live/size_edit.ex:432
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:301
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:304
 #, elixir-autogen, elixir-format
 msgid "CPU cores"
 msgstr ""
@@ -842,22 +842,22 @@ msgstr ""
 msgid "Could not save the prices. Check the errors below."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:157
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:160
 #, elixir-autogen, elixir-format
 msgid "Could not save the version. Check the errors below."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:493
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:496
 #, elixir-autogen, elixir-format
 msgid "Default CPU cores"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:500
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:503
 #, elixir-autogen, elixir-format
 msgid "Default memory (MB)"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:507
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:510
 #, elixir-autogen, elixir-format
 msgid "Default storage (GB)"
 msgstr ""
@@ -873,7 +873,7 @@ msgstr ""
 msgid "Edit size"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:397
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:400
 #, elixir-autogen, elixir-format
 msgid "Edit version"
 msgstr ""
@@ -898,27 +898,27 @@ msgstr ""
 msgid "First run"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:518
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:521
 #, elixir-autogen, elixir-format
 msgid "First-run contract"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:559
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:562
 #, elixir-autogen, elixir-format
 msgid "Forbidden env keys, one per line"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:551
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:554
 #, elixir-autogen, elixir-format
 msgid "Guaranteed env, one KEY=VALUE per line"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:520
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:523
 #, elixir-autogen, elixir-format
 msgid "How the app becomes usable on first open."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:578
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:581
 #, elixir-autogen, elixir-format
 msgid "Instance URL env"
 msgstr ""
@@ -974,12 +974,12 @@ msgstr ""
 msgid "Open"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:567
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:570
 #, elixir-autogen, elixir-format
 msgid "Owner guidance"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:543
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:546
 #, elixir-autogen, elixir-format
 msgid "Pattern"
 msgstr ""
@@ -999,12 +999,12 @@ msgstr ""
 msgid "Prices saved."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:477
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:480
 #, elixir-autogen, elixir-format
 msgid "Re-point ahead"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:452
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:455
 #, elixir-autogen, elixir-format
 msgid "Recommended size"
 msgstr ""
@@ -1024,7 +1024,7 @@ msgstr ""
 msgid "Save prices"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:587
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:590
 #, elixir-autogen, elixir-format
 msgid "Save version"
 msgstr ""
@@ -1050,7 +1050,7 @@ msgstr ""
 msgid "That version is not editable here."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:527
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:530
 #, elixir-autogen, elixir-format
 msgid "The contract failed the save"
 msgstr ""
@@ -1060,7 +1060,7 @@ msgstr ""
 msgid "This price reaches running instances"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:481
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:484
 #, elixir-autogen, elixir-format
 msgid "This version will point at %{slug}. Future deploys provision and bill %{slug} at %{rate}."
 msgstr ""
@@ -1070,7 +1070,7 @@ msgstr ""
 msgid "Version"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:146
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:149
 #, elixir-autogen, elixir-format
 msgid "Version saved."
 msgstr ""
@@ -1094,12 +1094,12 @@ msgid_plural "Visible to your account: %{count} running instances already settle
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:437
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:440
 #, elixir-autogen, elixir-format
 msgid "What provisioning grants and what billing prices, in one place."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:302
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:305
 #, elixir-autogen, elixir-format
 msgid "memory"
 msgstr ""
@@ -1109,14 +1109,14 @@ msgstr ""
 msgid "%{cpu} CPU · %{memory} MB"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:463
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:466
 #, elixir-autogen, elixir-format
 msgid "%{dims} does not match the size. The size %{slug} provides %{compute}."
 msgid_plural "%{dims} do not match the size. The size %{slug} provides %{compute}."
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:297
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:301
 #, elixir-autogen, elixir-format
 msgid "Compute starts at %{rate}/mo plus per-GB storage, billed hourly while running"
 msgstr ""
@@ -1126,7 +1126,7 @@ msgstr ""
 msgid "Its compute defaults must keep matching this size. Re-point those versions to another size, or retire them in the debug admin. Then this compute can move."
 msgstr ""
 
-#: lib/flux_vale_web/components/allocation_sliders.ex:231
+#: lib/flux_vale_web/components/allocation_sliders.ex:236
 #, elixir-autogen, elixir-format
 msgid "Priced per GB of storage, including while the instance is stopped."
 msgstr ""
@@ -1147,7 +1147,7 @@ msgstr ""
 msgid "The action rejected the move. This compute is frozen while versions point at it."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/version_edit.ex:443
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:446
 #, elixir-autogen, elixir-format
 msgid "The blueprint's compute defaults and the size must match. Every save checks them against each other."
 msgstr ""
@@ -2243,4 +2243,9 @@ msgstr ""
 #: lib/flux_vale_web/components/admin_resource.ex:119
 #, elixir-autogen, elixir-format
 msgid "Yes"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/version_edit.ex:92
+#, elixir-autogen, elixir-format
+msgid "Sign in with the shipped default admin, then change the password"
 msgstr ""

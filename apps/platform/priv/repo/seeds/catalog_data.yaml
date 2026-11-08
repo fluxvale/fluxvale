@@ -720,3 +720,137 @@
               signs in with. Share it only with people you trust with
               your budget. Change the password from Actual's user menu
               to cut off access later.
+
+- category:
+    name: Analytics
+    slug: analytics
+    description: >-
+      Web analytics and visitor insight apps for the sites you run.
+  apps:
+    - name: Umami
+      slug: umami
+      tagline: Cookieless web analytics you host yourself
+      description: |
+        Web analytics you host yourself. See pageviews, visitors, and
+        events for each site, with funnels, journeys, retention,
+        revenue, session replay, and heatmaps built in. Tracking sets
+        no cookies and stores nothing on your visitors' devices. Umami
+        is MIT licensed. All data lives in a PostgreSQL database you
+        connect at deploy time, and that database stays yours to run
+        and back up. Sign in soon after deploying, because a fresh
+        install answers to a default admin account.
+      # The repo's apple-touch-icon is the self-contained mark (the
+      # ActualBudget lesson): a black glyph on a solid white field, so
+      # it reads on the icon tile in both themes. The repo's other
+      # assets (favicon PNGs, safari-pinned-tab.svg) are black-on-
+      # transparent and vanish on the dark tile.
+      icon_url: https://raw.githubusercontent.com/umami-software/umami/v3.4.1/public/apple-touch-icon.png
+      source_url: https://github.com/umami-software/umami
+      docs_url: https://umami.is/docs
+      versions:
+        - version: "3.4.1"          # upstream stable, 2026-10-23
+          # The canonical image (upstream's own release pipeline pushes
+          # GHCR), pinned by exact tag. Unlike Pocket ID, Umami's image
+          # tags carry NO v prefix — v3.4.1 does not exist in the
+          # registry (verified against the GHCR v2 API; 3.4.1 resolves
+          # to the multi-arch index, digest sha256:f2c645cc…).
+          image: ghcr.io/umami-software/umami:3.4.1
+          port: 3000
+          # The image's own HEALTHCHECK probes the same path
+          # (docker-compose v3.4.1): an unauthenticated 200 {"ok":true}.
+          healthcheck_path: /api/heartbeat
+          # Stateless by design: Umami keeps every row (websites,
+          # events, sessions, accounts) in the PostgreSQL database named
+          # by DATABASE_URL, and the container writes nothing it needs
+          # back. default_storage_gb 0 means the deployer never mounts a
+          # PVC (#558's honest per-app storage default — the storage
+          # axis is simply empty for this app), so the loader's
+          # storage_mount_path default never applies.
+          default_storage_gb: 0
+          # The compute class (#125, #558): `micro` is 0.25 CPU /
+          # 512 MB — exactly this version's compute ($2.59/mo) plus
+          # $0/GB of storage. A single Node process (Next standalone
+          # server) that idles around 200 MB (#576's stated figure);
+          # the boot-time prisma migration runs in the same budget as a
+          # separate process (start-docker.sh execs the server only
+          # after check-db exits), so the floor holds.
+          default_cpu_cores: "0.25"
+          default_memory_mb: 512
+          recommended_size: micro
+          release_notes: |
+            First FluxVale catalog release, tracking upstream v3.4.1.
+            One stateless Node server, all data in the PostgreSQL
+            database connected at deploy time. The first open signs in
+            with the default admin account and changes its password.
+          published_at: "2026-11-08T01:20:00Z"
+          # DATABASE_URL is the app's whole storage story, and the
+          # platform provisions no per-app databases (OQ #14: where
+          # customer DBs would live is deliberately unsettled — ADR-0009
+          # names only first-party tenants). So the connection string
+          # ships as the owner's one required input, the Pocket ID
+          # ENCRYPTION_KEY precedent (the platform mints no per-instance
+          # secrets or services). Egress from instance namespaces is
+          # open, so the database may live anywhere the instance can
+          # reach. A future DB-provisioning layer would own this key
+          # exactly the way the deployer owns instance_url_env.
+          #
+          # APP_SECRET (still the v3 name — checked at tag v3.4.1, not
+          # renamed) salts the app's signed tokens; upstream falls back
+          # to hashing DATABASE_URL when unset, which is why an explicit
+          # value ships as a required input instead.
+          #
+          # TWO_FACTOR_ENCRYPTION_KEY is optional: enabling two-factor
+          # sign-in inside the app 503s without it (the 2FA setup route
+          # refuses while "secrets cannot be stored without an
+          # encryption key"), and env is a deploy-time snapshot, so an
+          # owner who wants 2FA must set it here.
+          configurable_env_vars:
+            DATABASE_URL:
+              label: PostgreSQL connection string
+              description: >-
+                Umami keeps everything in PostgreSQL. Paste a connection
+                string this instance can reach over the network, like
+                postgresql://user:password@host:5432/dbname. The
+                database is yours to run, back up, and restore.
+              type: string
+              required: true
+              secret: true
+            APP_SECRET:
+              label: App secret
+              description: >-
+                A random string that secures the tokens Umami issues at
+                sign-in. Generate one with openssl rand -base64 32 and
+                keep the same value on every restart.
+              type: string
+              required: true
+              secret: true
+            TWO_FACTOR_ENCRYPTION_KEY:
+              label: Two-factor encryption key
+              description: >-
+                Only needed if you plan to turn on two-factor sign-in.
+                Generate one with openssl rand -hex 32. Umami cannot
+                store two-factor secrets without it.
+              type: string
+              secret: true
+          # First-run contract (ADR-0034 Am. 2): upstream's own first
+          # migration inserts the default admin (username admin,
+          # password umami — the README pins both), so the claim is
+          # sign-in-then-change-password. `env` is empty (nothing to
+          # pin). `forbidden_env` locks the two boot flags whose
+          # presence would skip that migration and leave a fresh
+          # install with no admin at all: SKIP_DB_CHECK exits
+          # check-db.js before migrations run, SKIP_DB_MIGRATION skips
+          # the migrate step itself (both read in the image's
+          # start-docker.sh path; the free-form user-env path #482 can
+          # carry either).
+          first_run:
+            pattern: default_admin_credentials
+            env: {}
+            forbidden_env:
+              - SKIP_DB_CHECK
+              - SKIP_DB_MIGRATION
+            guidance: >-
+              Open the instance URL and sign in with username admin and
+              password umami. Change that password right away, because
+              every Umami install starts with the same one. Then add
+              your first website in Umami to get its tracking snippet.

@@ -132,11 +132,13 @@ defmodule FluxValeWeb.PolicyControllerTest do
 
   describe "GET /policies/privacy" do
     # fv332 D5: the privacy text of record. The load-bearing wording is
-    # asserted verbatim: the entity, the never-collect claims (verified
-    # against the code — no analytics exists, card data never touches
-    # the platform), the BYO-backup posture, the financial-records
-    # retention stance (docs/data-deletion.md), and the PH-law framing
-    # consistent with the terms.
+    # asserted verbatim: the entity, the measurement claim (verified
+    # against the code — analytics is the self-hosted, cookieless
+    # Umami tag of FluxValeWeb.SiteAnalytics, public pages only), the
+    # never-collect claims (card data never touches the platform), the
+    # BYO-backup posture, the financial-records retention stance
+    # (docs/data-deletion.md), and the PH-law framing consistent with
+    # the terms.
     test "states the privacy stance for anonymous visitors", %{conn: conn} do
       conn = get(conn, ~p"/policies/privacy")
       html = html_response(conn, 200)
@@ -149,10 +151,12 @@ defmodule FluxValeWeb.PolicyControllerTest do
       assert html =~ "Last updated:"
       assert flat =~ "FLUXVALE INFORMATION SOLUTIONS OPC"
 
-      # The never-collect claims, stated as facts about the platform.
+      # The measurement claim and the never-collect claims, stated as
+      # facts about the platform (#576: SiteAnalytics carries the tag).
       assert flat =~ "never see your card details"
-      assert flat =~ "no analytics and no advertising trackers"
-      assert flat =~ "The site sets no tracking cookies"
+      assert flat =~ "cookieless analytics service we run ourselves"
+      assert flat =~ "stores nothing on your device"
+      assert flat =~ "No advertising trackers ride our pages"
       assert flat =~ "do not read, scan, or mine"
 
       # App data: isolated per instance, backups go to storage the

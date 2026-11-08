@@ -37,10 +37,11 @@ defmodule FluxValeWeb.AllocationSlidersTest do
   test "a locked dimension renders its input disabled at its rung, with the note" do
     doc = render_sliders(["storage_gb"], "Storage can't be expanded on this cluster yet.")
 
-    # The input addresses the ladder by index: "10" is its 2nd rung.
+    # The input addresses the ladder by index: "10" is its 3rd rung
+    # since the #576 zero rung joined the ladder at index 0.
     storage = LazyHTML.query(doc, "[data-testid='resource-storage']")
     assert LazyHTML.attribute(storage, "disabled") != []
-    assert LazyHTML.attribute(storage, "value") == ["1"]
+    assert LazyHTML.attribute(storage, "value") == ["2"]
 
     refute disabled?(doc, "resource-cpu")
     refute disabled?(doc, "resource-memory")
@@ -186,8 +187,14 @@ defmodule FluxValeWeb.AllocationSlidersTest do
   describe "floor_rung/2" do
     test "the smallest rung at or above the value wins" do
       assert AllocationSliders.floor_rung("storage_gb", Decimal.new(7)) == "10"
-      assert AllocationSliders.floor_rung("storage_gb", Decimal.new(0)) == "5"
+      assert AllocationSliders.floor_rung("storage_gb", Decimal.new(2)) == "5"
       assert AllocationSliders.floor_rung("cpu_cores", Decimal.new("0.2")) == "0.25"
+    end
+
+    test "the #576 zero rung floors 0 GB at itself" do
+      # A stateless app ships 0 GB storage — an on-ladder value now, so
+      # the wizard never silently bills it a 5 GB volume.
+      assert AllocationSliders.floor_rung("storage_gb", Decimal.new(0)) == "0"
     end
 
     test "a value past the top rung floors to the top rung" do

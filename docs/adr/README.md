@@ -33,7 +33,7 @@ already ruled out.
 | [ADR-0022](00022-talos-linux.md) | Talos Linux: the OS *is* the cluster; Ansible exits; Omni deferred | Accepted (amended — see Amendment 1) |
 | [ADR-0023](00023-day-one-gates.md) | Day-one gates: AccessRule (staging/beta invites) + FeatureFlag design | Accepted (amended — see Amendments 1–6) |
 | [ADR-0024](00024-e2e-review-environments.md) | E2E + review environments: per-PR Playwright, fleet-repo-provisioned | Accepted (amended — see Amendments 1–2) |
-| [ADR-0025](00025-seo-content-architecture.md) | SEO: in-app blog at /blog, catalog as programmatic SEO, noindex non-prod | Accepted (amended — Am. 1–2) |
+| [ADR-0025](00025-seo-content-architecture.md) | SEO: in-app blog at /blog, catalog as programmatic SEO, noindex non-prod | Accepted (amended — Am. 1–3) |
 | [ADR-0026](00026-feedback-board.md) | Feedback board: in-app, public read, paying-customers-write | Accepted (amended — see Amendment 1) |
 | [ADR-0027](00027-admin-surface-ashadmin.md) | Admin surface: AshAdmin (generated CRUD through Ash actions) | Accepted (amended — see Amendment 1) |
 | [ADR-0028](00028-flat-rate-pricing.md) | Pricing: allocation-based flat monthly rates, not measured usage | Accepted (amended — see Amendments 1–3) |
@@ -42,7 +42,7 @@ already ruled out.
 | [ADR-0031](0031-build-order.md) | Build order: the milestone ladder (M1 skeleton → M7 launch-prep) | Accepted (amended — see Amendment 1) |
 | [ADR-0032](00032-uuid-v7-ids.md) | IDs: UUIDv7 for uuid primary keys (app-side generation; ordering approximate, never a contract) | Accepted |
 | [ADR-0033](00033-auto-seed-on-deploy.md) | Bring-up data seeds on deploy; missing invariants fail loudly | Accepted |
-| [ADR-0034](00034-first-run-contract.md) | First-run contract: catalog-declared first-open posture (guaranteed env + locked-out keys + guidance) | Accepted (amended — see Amendment 1) |
+| [ADR-0034](00034-first-run-contract.md) | First-run contract: catalog-declared first-open posture (guaranteed env + locked-out keys + guidance) | Accepted (amended — see Amendments 1, 2) |
 | [ADR-0035](00035-per-instance-file-access.md) | Per-instance file access: rclone WebDAV sidecar + per-instance generated credential (presigned R2 phase 2) | Accepted (amended — Am. 1–3) |
 | [ADR-0036](00036-scale-to-zero-wake-on-use.md) | Scale-to-zero with wake-on-use: idle instances sleep after 1h, wake on the next request; always-on bills the 24/7 running rate | Accepted (amended — see Amendments 1–2) |
 | [ADR-0037](00037-instance-backups-s3.md) | Instance backups: restic to BYO S3-compatible storage (R2 first); crash-consistent PVC snapshots; Oban sweep + k8s Jobs; namespace-Secret credentials; same-instance restore | Accepted (amended — see Amendment 1) |

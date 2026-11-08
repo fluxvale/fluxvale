@@ -315,6 +315,13 @@ config :flux_vale, :mcp_origins, [canonical_origin]
 # device endpoints validate against it (FirstPartyClient).
 config :flux_vale, :device_flow_client_id, "fluxvale-cli"
 
+# Site analytics (#576): the public layout's Umami wiring. nil until
+# runtime.exs sees BOTH UMAMI_SCRIPT_URL and UMAMI_WEBSITE_ID — nil
+# renders no script at all, so every env stays silent until an operator
+# deliberately configures it. Read at render time
+# (FluxValeWeb.SiteAnalytics), never at compile time.
+config :flux_vale, :site_analytics, nil
+
 # Configure the endpoint
 config :flux_vale, FluxValeWeb.Endpoint,
   url: [host: "localhost"],

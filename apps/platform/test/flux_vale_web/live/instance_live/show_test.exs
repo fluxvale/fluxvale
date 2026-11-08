@@ -1937,10 +1937,12 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       user: user,
       version: version
     } do
-      # The fixture defaults (0.5 CPU · 256 MB · 0 GB) sit off the memory
-      # and storage ladders.
+      # The fixture defaults (0.5 CPU · 256 MB) sit off the memory
+      # ladder, and 3 GB storage sits off the storage ladder — 0 GB is
+      # itself a rung since #576, so the round-up needs an off-ladder
+      # nonzero figure to exercise.
       stub_storage_probe(true)
-      stopped = stopped_instance!(version, user)
+      stopped = stopped_instance!(version, user, %{storage_gb: 3})
       {:ok, view, _html} = live(conn, ~p"/instances/#{stopped.id}")
 
       open_resize_panel(view)
@@ -2085,10 +2087,19 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       # promised $0.24 for a 5 GB PVC the action would never create.
       assert has_element?(view, "[data-testid='resize-price']", "$0.00/mo while stopped")
 
+      # #576 made 0 GB a rung, so the locked slider can tell the truth
+      # directly (the hidden fixed line was for when 0 sat off-ladder
+      # and its nearest rung would have read as a shrink): disabled at
+      # the row's own 0 GB, with the lock's reason.
+      assert render(element(view, "[data-testid='resource-storage']")) =~ ~s(disabled="")
+
+      assert render(element(view, "[data-testid='resource-storage']")) =~
+               ~s(aria-valuetext="0 GB")
+
       assert has_element?(
                view,
-               "[data-testid='resize-storage-fixed']",
-               "Storage: 0 GB · stays unchanged (can't expand on this cluster yet)"
+               "[data-testid='slider-locked-note']",
+               "Storage can't be expanded on this cluster yet."
              )
     end
 
@@ -2105,6 +2116,12 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
       refute render(element(view, "[data-testid='resource-storage']")) =~ ~s(disabled="")
       refute has_element?(view, "[data-testid='slider-locked-note']")
+
+      # The 0 GB row seeds the thumb at the 0 rung (#576), unlocked
+      # and expandable upward — no hidden fixed line, no floored 5 GB
+      # (the row's own value IS the bottom rung now).
+      assert render(element(view, "[data-testid='resource-storage']")) =~
+               ~s(aria-valuetext="0 GB")
     end
 
     test "a probe that fails locks storage with the try-again note (not the boundary copy)", %{
@@ -2205,7 +2222,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
           app_id: app.id
         })
 
-      stopped = stopped_instance!(unsized, user)
+      stopped = stopped_instance!(unsized, user, %{storage_gb: 3})
       {:ok, view, _html} = live(conn, ~p"/instances/#{stopped.id}")
 
       open_resize_panel(view)
@@ -2236,7 +2253,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       view
       |> element("#resize-form")
       |> render_submit(%{
-        "resize" => %{"cpu_cores" => "1", "memory_mb" => "0", "storage_gb" => "0"}
+        "resize" => %{"cpu_cores" => "1", "memory_mb" => "0", "storage_gb" => "1"}
       })
 
       assert render(view) =~ "Resized. Start your instance to run at the new size."
@@ -2449,8 +2466,9 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       Mimic.copy(Pricing)
       stub(Pricing, :price_allocation, fn _allocation -> raise "pricing read failed" end)
 
-      # The fixture's defaults seed off-ladder (256 MB → 512, 0 GB → 5):
-      # a custom candidate, so the preview's formula arm is the raiser.
+      # The fixture's memory default seeds off-ladder (256 MB → 512):
+      # a custom candidate, so the preview's formula arm is the raiser
+      # (0 GB storage is on-ladder since #576 and needs no round-up).
       stopped = stopped_instance!(version, user)
       {:ok, view, _html} = live(conn, ~p"/instances/#{stopped.id}")
 
@@ -2471,7 +2489,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       version: version
     } do
       stub_storage_probe(true)
-      stopped = stopped_instance!(version, user)
+      stopped = stopped_instance!(version, user, %{storage_gb: 3})
       {:ok, view, _html} = live(conn, ~p"/instances/#{stopped.id}")
 
       open_resize_panel(view)
@@ -2485,10 +2503,16 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       rates =
         Pricing.price_allocation(%{cpu_cores: Decimal.new("0.5"), memory_mb: 512, storage_gb: 5})
 
+      # The From figure is the ROW's settlement: the recommended size's
+      # own rate plus the 3 GB axis (the off-ladder storage the row
+      # carries into the panel).
+      size = Ash.load!(version, :recommended_size, authorize?: false).recommended_size
+      from_cents = size.monthly_cents + Pricing.storage_monthly_cents(3)
+
       assert confirm =~ "Resize instance"
 
       assert confirm =~
-               "0.5 CPU · 512 MB · 5 GB — from $1.00/mo to #{Pricing.format_usd(rates.monthly_cents)}/mo"
+               "0.5 CPU · 512 MB · 5 GB — from #{Pricing.format_usd(from_cents)}/mo to #{Pricing.format_usd(rates.monthly_cents)}/mo"
 
       assert confirm =~ "(#{Pricing.format_usd(rates.stopped_monthly_cents)}/mo while stopped)"
       assert confirm =~ "The instance stays stopped. The new size applies when you start it."
@@ -2886,7 +2910,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       # Rows carry no namespace here — the cluster re-apply is
       # attribute-only (no cluster stubs beyond the capability probe).
       stub_storage_probe(true)
-      stopped = stopped_instance!(version, user)
+      stopped = stopped_instance!(version, user, %{storage_gb: 3})
       {:ok, view, _html} = live(conn, ~p"/instances/#{stopped.id}")
 
       open_resize_panel(view)
@@ -2903,13 +2927,14 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       view
       |> element("#resize-form")
       |> render_submit(%{
-        "resize" => %{"cpu_cores" => "1", "memory_mb" => "1", "storage_gb" => "0"}
+        "resize" => %{"cpu_cores" => "1", "memory_mb" => "1", "storage_gb" => "1"}
       })
 
       assert render(view) =~ "Resized. Start your instance to run at the new size."
       refute has_element?(view, "[data-testid='resize-panel']")
 
-      # memory rung idx 1 is 1024 MB; storage rides its seeded rung.
+      # memory rung idx 1 is 1024 MB; storage rides its seeded 5 GB rung
+      # (index 1 — 0 is the #576 zero rung).
       assert has_element?(view, "[data-testid='instance-resources']", "0.5 CPU · 1024 MB · 5 GB")
     end
 
@@ -2926,7 +2951,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
       view
       |> element("#resize-form")
-      |> render_change(%{"resize" => %{"storage_gb" => "0"}})
+      |> render_change(%{"resize" => %{"storage_gb" => "1"}})
 
       view
       |> element("[data-testid='resize-continue']")
@@ -2934,7 +2959,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
       view
       |> element("#resize-form")
-      |> render_submit(%{"resize" => %{"storage_gb" => "0"}})
+      |> render_submit(%{"resize" => %{"storage_gb" => "1"}})
 
       assert render(view) =~ "storage can never shrink (from 10 GB to 5 GB)"
       assert has_element?(view, "[data-testid='resize-panel']")

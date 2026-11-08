@@ -12,7 +12,11 @@ defmodule FluxVale.Seeds.CatalogData do
   ActualBudget (#492) joined it: the first-open-sets-password pattern
   (ADR-0034 Am. 1) landed with it, plus the forbidden-env lock that
   keeps user-injected env from triggering an OIDC self-claim ahead of
-  the owner's first open.
+  the owner's first open. Umami (#576) joined it: the first
+  database-backed catalog app — the platform provisions no per-app
+  databases (OQ #14 unsettled), so the PostgreSQL connection string
+  rides deploy-time required inputs, and its default-admin first run
+  added the `default_admin_credentials` pattern (ADR-0034 Am. 2).
 
   Adding a catalog app is purely additive: append a YAML entry. The seed
   runner (`FluxVale.Seeds.seed_catalog!/0`) looks each record up by its

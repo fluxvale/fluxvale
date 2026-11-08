@@ -32,6 +32,11 @@ the decision.
    seeded (#492, v26.11.0), first-open-sets-password
    ([ADR-0034](adr/00034-first-run-contract.md) Am. 1), recommends
    `small`. Pocket ID — seeded (#492, v2.19.2), setup-page-first-admin.
+   Umami — seeded (#576, v3.4.1), the first database-backed entry: the
+   platform provisions no per-app databases (OQ #14 owns that
+   question), so the PostgreSQL connection string is the owner's
+   required deploy-time input; default-admin first run
+   ([ADR-0034](adr/00034-first-run-contract.md) Am. 2), zero storage.
    Remaining dogfood apps TBD (v1 queued: SilverBullet, +1). Still
    open: per-app *command* overrides in the deployer (v1 #360) — mount
    path is now catalog data, command is not.

@@ -393,6 +393,69 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert contract.guidance =~ "first account becomes the host"
     end
 
+    test "seeds the shipped Umami entry and its first-run contract (#576)" do
+      assert :ok == Seeds.seed_pricing!()
+      assert :ok == Seeds.seed_catalog!()
+
+      category = Category.get_by_slug!("analytics", authorize?: false)
+      assert category.name == "Analytics"
+
+      app = App.get_by_slug!("umami", authorize?: false)
+      assert app.category_id == category.id
+      assert app.source_url == "https://github.com/umami-software/umami"
+      # The state is the owner's PostgreSQL — no file-access sidecar.
+      assert app.file_access == false
+
+      version =
+        "umami"
+        |> App.get_by_slug!(authorize?: false)
+        |> Ash.load!([app_versions: :recommended_size], authorize?: false)
+        |> Map.fetch!(:app_versions)
+        |> hd()
+
+      assert version.version == "3.4.1"
+      assert version.image == "ghcr.io/umami-software/umami:3.4.1"
+      assert version.port == 3000
+      # The image's own healthcheck path (unauthenticated 200 ok).
+      assert version.healthcheck_path == "/api/heartbeat"
+      # Stateless over an external database: zero storage, so the
+      # deployer never mounts a PVC and the mount-path default is moot.
+      assert version.default_storage_gb == 0
+      # The compute class kept equal to `micro` by
+      # ValidateSizeMatchesAllocation (the seed would refuse a drift).
+      assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.25"))
+      assert version.default_memory_mb == 512
+      assert version.recommended_size.slug == "micro"
+
+      # Nothing ships at boot; the owner supplies the database and the
+      # secret at deploy time (required inputs, Pocket ID's shape).
+      assert version.default_env_vars == %{}
+
+      database_url = version.configurable_env_vars["DATABASE_URL"]
+      assert %EnvVarSpec{} = database_url
+      assert database_url.required == true
+      assert database_url.secret == true
+
+      app_secret = version.configurable_env_vars["APP_SECRET"]
+      assert %EnvVarSpec{} = app_secret
+      assert app_secret.required == true
+      assert app_secret.secret == true
+
+      two_factor = version.configurable_env_vars["TWO_FACTOR_ENCRYPTION_KEY"]
+      assert %EnvVarSpec{} = two_factor
+      assert two_factor.required == false
+      assert two_factor.secret == true
+
+      contract = version.first_run
+      assert %FirstRunContract{} = contract
+      assert contract.pattern == :default_admin_credentials
+      # Nothing to pin; the locks keep user env from skipping the boot
+      # migration that seeds the default admin (ADR-0034 Am. 2).
+      assert contract.env == %{}
+      assert contract.forbidden_env == ["SKIP_DB_CHECK", "SKIP_DB_MIGRATION"]
+      assert contract.guidance =~ "username admin and password umami"
+    end
+
     test "seeds the OIDC callback paths for the five consumers (#511)" do
       assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()

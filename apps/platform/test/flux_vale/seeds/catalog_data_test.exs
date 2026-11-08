@@ -364,6 +364,72 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert version.first_run["guidance"] =~ "first account becomes the host"
     end
 
+    test "shipped catalog_data.yaml normalizes the Umami entry (#576)" do
+      entry = entry_by_slug("analytics")
+
+      assert entry.category == %{
+               name: "Analytics",
+               slug: "analytics",
+               description: "Web analytics and visitor insight apps for the sites you run."
+             }
+
+      assert [%{slug: "umami"} = app] = entry.apps
+      assert app.name == "Umami"
+      assert app.source_url == "https://github.com/umami-software/umami"
+      # Analytics state is the owner's PostgreSQL, not files — the
+      # toggle ships off.
+      assert app.file_access == false
+
+      version = hd(app.versions)
+      assert version.version == "3.4.1"
+      # The canonical upstream image; the tag carries no v prefix
+      # (unlike Pocket ID — verified against the GHCR v2 API).
+      assert version.image == "ghcr.io/umami-software/umami:3.4.1"
+      assert version.port == 3000
+      # The image's own HEALTHCHECK probes the same path.
+      assert version.healthcheck_path == "/api/heartbeat"
+      # Stateless: every row lives in the owner's PostgreSQL, so the
+      # honest storage default is none at all (#558) — no PVC mounts.
+      assert version.default_storage_gb == 0
+      assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.25"))
+      assert version.default_memory_mb == 512
+      assert version.recommended_size == "micro"
+      assert version.published_at == ~U[2026-11-08 01:20:00Z]
+
+      # No URL env and no OIDC consumer surface: Umami derives neither
+      # from catalog data.
+      assert version.instance_url_env == nil
+      assert version.oidc_callback_path == nil
+
+      # Nothing ships at boot — DATABASE_URL and APP_SECRET are the
+      # owner's required inputs (the platform provisions no per-app
+      # databases, OQ #14), and the optional 2FA key rides along.
+      assert version.default_env_vars == %{}
+
+      assert %{"required" => true, "secret" => true, "type" => "string"} =
+               version.configurable_env_vars["DATABASE_URL"]
+
+      assert %{"required" => true, "secret" => true, "type" => "string"} =
+               version.configurable_env_vars["APP_SECRET"]
+
+      two_factor = version.configurable_env_vars["TWO_FACTOR_ENCRYPTION_KEY"]
+      assert %{"secret" => true, "type" => "string"} = two_factor
+      # Optional: no `required` key rides the raw YAML (EnvVarSpec
+      # defaults it to false at write time).
+      refute Map.has_key?(two_factor, "required")
+
+      # ADR-0034 Am. 2: upstream's migrations ship the fixed default
+      # admin; the forbidden locks keep user env from skipping the
+      # seeding migration.
+      assert version.first_run["pattern"] == "default_admin_credentials"
+      assert version.first_run["env"] == %{}
+      assert version.first_run["forbidden_env"] == ["SKIP_DB_CHECK", "SKIP_DB_MIGRATION"]
+
+      guidance = version.first_run["guidance"]
+      assert guidance =~ "username admin and password umami"
+      assert guidance =~ "Change that password right away"
+    end
+
     test "comments-only and empty files parse to []" do
       comments_only = tmp_path("# comments only\n")
       assert CatalogData.entries(comments_only) == []
