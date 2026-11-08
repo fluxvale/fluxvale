@@ -182,13 +182,18 @@ defmodule FluxVale.Seeds do
       {:ok, _org, _created?} ->
         :ok
 
-      # defensive: provisioning failure is a lost JIT-signup slug race or
-      # a DB failure — not sequentially reachable; the seed fails loudly
-      # coveralls-ignore-start
+      # Reachable (covered in AdminSeedTest): an admin row with a NULL
+      # username AND no personal org — drifted or hand-seeded data, not
+      # a deploy shape (org provisioning predates usernames and the
+      # #290 backfill filled every then-existing handle; #285-window
+      # old pods provisioned orgs). seed_admin!/0's heal writes the
+      # mirror row and carries such a row past its gate; the org heal
+      # then names the org after the handle and answers
+      # {:error, :username_missing} — loudly, with the remedy in
+      # docs/deployment.md's rpc block. A lost slug race or a DB
+      # failure lands here too; same loud posture.
       {:error, reason} ->
         raise "seed admin org: provisioning failed — #{inspect(reason)}"
-
-        # coveralls-ignore-stop
     end
   end
 

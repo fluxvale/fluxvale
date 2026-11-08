@@ -303,6 +303,29 @@ defmodule FluxVale.Seeds.AdminSeedTest do
       assert length(welcome_entries(wallet)) == 1
     end
 
+    test "a NULL-username, org-less admin row raises :username_missing through the heal" do
+      # seed! is the sanctioned bypass: :create derives a username and
+      # provisions an org, so neither NULL-handle nor org-less is
+      # action-producible. Not a deploy shape (see seed_admin_org!'s
+      # comment) — drifted or hand-seeded data. seed_admin!/0's heal
+      # writes the mirror row and passes the admin gate; the org heal
+      # then refuses {:error, :username_missing} instead of inventing a
+      # handle. Remedy: the rpc block in docs/deployment.md; #287's
+      # sweep retires the straggler shapes.
+      Ash.Seed.seed!(User, %{email: "admin@fluxvale.com", platform_role: :admin})
+
+      :ok = Seeds.seed_admin!()
+
+      assert_raise RuntimeError, ~r/username_missing/, fn ->
+        Seeds.seed_admin_org!()
+      end
+
+      # nothing was invented: no org, and the straggler keeps NULL
+      admin = User.get_by_email!("admin@fluxvale.com", authorize?: false)
+      assert is_nil(admin.username)
+      assert org_count(admin.id) == 0
+    end
+
     test "the welcome grant is 300 cents with reason :welcome" do
       seed_pre119_admin!()
 
