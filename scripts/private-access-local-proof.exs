@@ -142,8 +142,11 @@ defmodule PrivateAccessLocalProof do
 
     refute_existing_gateway!(org, state_path)
     gateway = create_gateway!(org)
-    gateway = activate_gateway!(gateway)
+    # State before activate: a crash between create and activate must still
+    # leave the run's own gateway id on disk, so the next run can tear it
+    # down instead of refusing an "unreferenced" row.
     write_state(state_path, Map.merge(state, gateway_state(gateway)))
+    gateway = activate_gateway!(gateway)
 
     version = catalog_version!()
     kubeconfig = kubeconfig!(kubeconfig_path)

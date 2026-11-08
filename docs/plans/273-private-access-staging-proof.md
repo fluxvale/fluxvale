@@ -12,7 +12,8 @@ and [Amendment 2](../adr/00039-private-access-layer-tailscale.md) are the
 decision text.
 
 Pass criteria: both criteria below have their evidence, the gateway is
-removed, and the access namespace's used deployments are back to 0.
+removed, and the access namespace is back to its **1/17** baseline — the
+1 is the `access-dns` resolver, which is not this proof's object.
 
 ## Preconditions (before the clock starts)
 
@@ -26,7 +27,7 @@ serves.
 2. **MagicDNS on.** Admin console → **DNS** → **MagicDNS** enabled.
 3. **HTTPS on.** Admin console → **DNS** → **HTTPS Certificates**
    enabled. Without a cert domain, `containerboot` silently declines to
-   apply the serve config ([ADR-0039 §3](../adr/00039-private-access-layer-tailscale.md)).
+   apply the serve config ([ADR-0039 References and §8](../adr/00039-private-access-layer-tailscale.md)).
 4. **Staging key in BWS.** The key is the Bitwarden Secrets Manager entry
    named `tailscale-authkey-staging`. Open it in the BWS UI and copy it;
    never print it. It must be tagged `tag:fluxvale` and non-ephemeral. If
@@ -47,7 +48,10 @@ kubectl -n fluxvale-access get resourcequota access-quota \
   -o jsonpath='{.status.used.count/deployments\.apps}/{.status.hard.count/deployments\.apps}{"\n"}'
 ```
 
-Expected baseline: no gateway Deployment/Secret/PVC; quota numerator 0.
+Expected baseline: `deployment.apps/access-dns` is present, no
+`gateway-*` / `serve-config-*` / `credential-*` / `state-*` objects, and
+the quota reads **1/17**. The issue's `0/16` text predates infra#136;
+staging counts the resolver's slot.
 
 ## Criterion 1 — sign in, paste the key, reach the app from the tailnet
 
@@ -59,7 +63,7 @@ Expected baseline: no gateway Deployment/Secret/PVC; quota numerator 0.
 4. Paste the BWS key into **Auth key** (the field is masked and write-only;
    it is never read back), enter your MagicDNS suffix as **Tailnet
    domain** (`your-tailnet.ts.net`), and submit **Enable private access**.
-5. Expected progression: **Provisioning**, then **Connected** (`:active`).
+5. Expected progression: **Connecting** (row state `:provisioning`), then **Connected** (`:active`).
    The row is `:active` only after the observer sees the gateway pod
    ready, so this is the real join signal.
    - Record the time when Connected appears: `date -u +%H:%M:%SZ`.
@@ -71,19 +75,21 @@ Expected baseline: no gateway Deployment/Secret/PVC; quota numerator 0.
    instance, open an instance page → **Availability** → set exposure to
    **Private** first (it must have no public route). Back on **Settings →
    Access**, choose that instance and **Attach**.
-   - Expected: a route row with the address
-     `fv-xxxxxxxx.<tailnet>.ts.net:8443` (the panel renders hostname +
-     tailnet domain + port).
+   - Expected: a route row with the address the panel renders from
+     hostname + tailnet domain + port (`fv-xxxxxxxx.<tailnet>.ts.net:<port>`;
+     the first attach is usually `:8443`).
    - **Pass:** the address appears and the instance shows **Private**.
+   - Record the full address (host and port) — the later commands use it.
 7. From a device that is signed in to the same tailnet:
 
    ```sh
    tailscale status | grep -i 'fv-'      # the gateway node is listed
-   curl -sS -o /dev/null -w '%{http_code}\n' 'https://fv-xxxxxxxx.<tailnet>.ts.net:8443/'
+   curl -sS -o /dev/null -w '%{http_code}\n' 'https://<address-from-step-6>/'
    ```
 
    Expected: `200`, and the app's own page in a browser. **Pass:** the
-   app serves at the full `.ts.net:8443` URL from the tailnet device.
+   app serves at the full `.ts.net` address (the port recorded in step 6)
+   from the tailnet device.
 
 Evidence: screenshot the Connected card (key field masked — it cannot
 echo, and do not capture the clipboard), and one screenshot of the app at
@@ -97,7 +103,8 @@ the tailnet URL with the URL bar visible. Record the minutes-to-active.
    (`idle_sleep_after_seconds: 3600`); staging may override it with
    `IDLE_SLEEP_AFTER_SECONDS`. Check the panel's instance/Access status
    until it reads **Sleeping**; record the timestamp.
-3. Revisit the **same** `.ts.net:8443` URL from the tailnet device.
+3. Revisit the **same** address recorded in step 6 (the port the route
+   row shows, not a fixed 8443) from the tailnet device.
    - Expected first response: the waking interstitial — title
      **Waking up…**, body **Waking <app name> up…**, with a 2-second
      self-refresh.
@@ -125,32 +132,36 @@ Evidence: two screenshots (waking page, app), timestamps, seconds-to-app.
      -o jsonpath='{.status.used.count/deployments\.apps}/{.status.hard.count/deployments\.apps}{"\n"}'
    ```
 
-   **Pass:** no `gateway-*` / `serve-config-*` / `credential-*` /
-   `state-*` objects remain, and the quota numerator is **0** — the
-   `0/16` gate. Local/fleet copies render `0/17` when the resolver slot is
-   counted; the load-bearing number is the 0.
+   **Pass:** the namespace is back to its **1/17** baseline — the 1 is
+   `access-dns` — and no `gateway-*` / `serve-config-*` / `credential-*` /
+   `state-*` objects remain. The load-bearing claim is *back to baseline*,
+   not zero used.
 3. If the instance existed only for this proof, stop or delete it from
    its page so it stops billing.
 
-Evidence: the quota output and an empty access-namespace listing.
+Evidence: the `1/17` quota output and an access-namespace listing showing
+only `access-dns`.
 
 ## Rollback
 
 - **Key rejected / NeedsLogin:** paste a fresh tagged key from BWS via
-   **Settings → Access → Re-paste key** (re-paste is the recovery path; it
-   restarts the pod with the persisted node state).
-- **Stuck Provisioning >10 min:** capture the card's message and
+   **Settings → Access → Reconnect** (the `:needs_attention` toggle label;
+   `Re-paste key` is the active/provisioning label). Re-paste is the
+   recovery path; it restarts the pod with the persisted node state.
+- **Stuck Connecting >10 min (row state `:provisioning`):** capture the card's message and
   read-only pod describe/logs, then remove it from the panel (**Remove**
   → **Remove private access**). Do not patch or restart the Deployment by
   hand; a fresh paste is the supported repair.
 - **Attach refused:** check the instance is **Private**, same org, and
   the gateway is Connected, then retry.
-- **Wake does not flip after 90 seconds:** record the timing and the
-  serve-config Secret's target
-  (`kubectl -n fluxvale-access get secret serve-config-<short> -o
-  jsonpath='{.data.serve\.json}' | base64 -d`), then re-paste or
-  detach/attach once to force regeneration. If it still fails, remove the
-  gateway and report; do not hand-edit the Secret.
+- **Wake does not flip after 90 seconds:** record the timing, find the
+  gateway's serve Secret (`kubectl -n fluxvale-access get secret | grep
+  serve-config`; use its NAME column — the hostname is unrelated to the
+  Secret suffix), and read its target (`kubectl -n fluxvale-access get
+  secret <name-from-the-NAME-column> -o jsonpath='{.data.serve\.json}' |
+  base64 -d`), then re-paste or detach/attach once to force regeneration.
+  If it still fails, remove the gateway and report; do not hand-edit the
+  Secret.
 - **Removal fails or parks in `:destroying`:** retry the remove (or the
   **Retry removal** button when it appears); the retry is idempotent.
   Capture read-only evidence; never force-delete the namespace or the row.
@@ -178,7 +189,8 @@ issue, the PR, chat, or a terminal transcript.
   panel and its teardown own every write. The `kubectl` commands above
   are read-only except the panel's own removal.
 - Do not use port 443/80 or a public hostname for the private URL; the
-  proof is `:8443` on the `.ts.net` name.
+  proof is the per-app port on the `.ts.net` name (the first attach is
+  usually `8443`).
 - Do not attach a public instance, an instance from another org, or an
   always-on instance for criterion 2.
 - Do not disable HTTPS/MagicDNS to "make it work"; that is the documented

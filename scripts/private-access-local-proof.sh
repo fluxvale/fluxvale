@@ -14,8 +14,11 @@
 # certificate, or a request from a tailnet device. That is the staging
 # runbook (docs/plans/273-private-access-staging-proof.md).
 #
-# Prereq in a fresh worktree: cd apps/platform && mix content.sync (the
-# app boot loads priv/content; the proof's `mix run` needs it too).
+# Prereqs: on a fresh cluster apply the S2 local access fleet once
+#   kubectl apply -f deploy/local/k8s/02-access-fleet.yaml
+# (the file merged on main in #273's S2, #627). In a fresh worktree run
+# `cd apps/platform && mix content.sync` — the app boot loads priv/content
+# and the proof's `mix run` needs it too.
 #
 # Usage: scripts/private-access-local-proof.sh
 # Env:   FV273_PROOF_SHOTS   screenshot output dir (default: docs/screenshots/fv273-local-proof)
@@ -169,13 +172,13 @@ preflight() {
   if kc -n fluxvale-access get role fluxvale-platform-access >/dev/null 2>&1; then
     pass "Role fluxvale-platform-access exists in fluxvale-access"
   else
-    fail "Role fluxvale-platform-access missing — apply deploy/local/k8s/02-access-fleet.yaml"
+    fail "Role fluxvale-platform-access missing — apply deploy/local/k8s/02-access-fleet.yaml from main (S2) once on this cluster"
   fi
 
   if kc -n fluxvale-access get resourcequota access-quota >/dev/null 2>&1; then
     pass "ResourceQuota access-quota exists in fluxvale-access"
   else
-    fail "ResourceQuota access-quota missing — apply deploy/local/k8s/02-access-fleet.yaml"
+    fail "ResourceQuota access-quota missing — apply deploy/local/k8s/02-access-fleet.yaml from main (S2) once on this cluster"
   fi
 
   local resource verb
